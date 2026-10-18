@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Package the Samsung TV web app as a signed .wgt using the Tizen CLI.
 # Requires Tizen Studio "Web CLI" on PATH and a security profile in the developer environment.
+# Produces dist/Silo.wgt (name from app/config.xml <name>Silo</name>).
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_DIR="${ROOT_DIR}/app"
 OUT_DIR="${ROOT_DIR}/dist"
+EXPECTED_BASENAME="Silo.wgt"
 PROFILE="${TIZEN_SECURITY_PROFILE:-}"
 
 if ! command -v tizen >/dev/null 2>&1; then
@@ -26,7 +28,7 @@ fi
 mkdir -p "${OUT_DIR}"
 
 # Tizen CLI 6.1: package source directly; avoid `tizen build-web` (known crash).
-echo "Packaging web app from ${APP_DIR} with profile '${PROFILE}'..."
+echo "Packaging web app from ${APP_DIR} with profile '${PROFILE}' (expected: ${EXPECTED_BASENAME})..."
 tizen package -t wgt -s "${PROFILE}" -- "${APP_DIR}"
 
 shopt -s nullglob
@@ -37,6 +39,11 @@ if [[ ${#wgt_files[@]} -eq 0 ]]; then
 fi
 
 for wgt in "${wgt_files[@]}"; do
-    mv -f "${wgt}" "${OUT_DIR}/"
-    echo "WGT written: ${OUT_DIR}/$(basename "${wgt}")"
+    dest="${OUT_DIR}/$(basename "${wgt}")"
+    mv -f "${wgt}" "${dest}"
+    echo "WGT written: ${dest}"
 done
+
+if [[ ! -f "${OUT_DIR}/${EXPECTED_BASENAME}" ]]; then
+    echo "warning: expected ${OUT_DIR}/${EXPECTED_BASENAME} but got: $(ls -1 "${OUT_DIR}"/*.wgt 2>/dev/null || echo none)" >&2
+fi

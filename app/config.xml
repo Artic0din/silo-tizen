@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="https://github.com/Artic0din/silo-tizen" version="0.0.1" viewmodes="maximized">
-    <tizen:application id="SlTv000001.MediaShelf" package="SlTv000001" required_version="3.0"/>
+<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="org.siloserver.silo" version="0.0.1" viewmodes="maximized">
+    <tizen:application id="Sil0Tv0001.Silo" package="Sil0Tv0001" required_version="3.0"/>
     <icon src="icon.png"/>
     <content src="index.html"/>
-    <name>Media Shelf</name>
+    <name>Silo</name>
     <access origin="*" subdomains="true"/>
     <tizen:allow-navigation>*</tizen:allow-navigation>
     <feature name="http://tizen.org/feature/screen.size.normal.1080.1920"/>

@@ -1,0 +1,26 @@
+# Signing and secrets
+*.p12
+*.pwd
+profiles.xml
+profiles/
+.env
+.env.*
+
+# Tizen build outputs
+*.wgt
+dist/
+.buildResult/
+tizen-studio-data/
+author-signature.xml
+signature1.xml
+.manifest.tmp
+
+# Local SDK installs
+tizen-studio/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

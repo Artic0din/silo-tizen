@@ -1,0 +1,87 @@
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    background: #12121a;
+    color: #f2f2f7;
+    font-family: "Samsung Sharp Sans", "Segoe UI", sans-serif;
+}
+
+#avplayer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1920px;
+    height: 1080px;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.screen {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 1080px;
+    padding: 120px 160px;
+    max-width: 1400px;
+}
+
+.eyebrow {
+    margin: 0 0 24px;
+    font-size: 36px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #9aa0b8;
+}
+
+.title {
+    margin: 0 0 32px;
+    font-size: 96px;
+    font-weight: 700;
+    line-height: 1.05;
+}
+
+.subtitle,
+.status {
+    margin: 0 0 28px;
+    font-size: 42px;
+    line-height: 1.35;
+    color: #c8cad8;
+    max-width: 1200px;
+}
+
+.status {
+    color: #8fd4ff;
+}
+
+.focus-anchor {
+    margin-top: 48px;
+    align-self: flex-start;
+    min-width: 280px;
+    padding: 28px 56px;
+    border: 4px solid #4a4f6a;
+    border-radius: 12px;
+    background: #1e2030;
+    color: #f2f2f7;
+    font-size: 40px;
+    font-weight: 600;
+    cursor: pointer;
+    outline: none;
+}
+
+.focus-anchor:focus,
+.focus-anchor.focused {
+    border-color: #5eb8ff;
+    background: #243048;
+    box-shadow: 0 0 0 6px rgba(94, 184, 255, 0.35);
+}

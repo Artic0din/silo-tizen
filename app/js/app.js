@@ -4,21 +4,305 @@
     var KEY_BACK = 10009;
     var KEY_EXIT = 10182;
     var KEY_ENTER = 13;
+    var KEY_UP = 38;
+    var KEY_DOWN = 40;
     var KEY_LEFT = 37;
     var KEY_RIGHT = 39;
 
-    var statusEl = document.getElementById("status");
-    var focusAnchor = document.getElementById("focus-anchor");
+    var backend = window.SiloBackend;
+    var screenEl = document.getElementById("screen");
 
     var exitDialog = null;
     var exitDialogYes = null;
     var exitDialogNo = null;
     var exitDialogOpen = false;
 
-    function setStatus(message) {
-        if (statusEl) {
-            statusEl.textContent = message;
+    var state = {
+        view: "loading",
+        serverUrl: "",
+        serverName: "",
+        error: "",
+        focusIds: [],
+        focusIndex: 0,
+        pendingServerUrl: ""
+    };
+
+    function clearScreen() {
+        while (screenEl.firstChild) {
+            screenEl.removeChild(screenEl.firstChild);
         }
+    }
+
+    function el(tag, className, text) {
+        var node = document.createElement(tag);
+        if (className) {
+            node.className = className;
+        }
+        if (text !== undefined && text !== null) {
+            node.textContent = text;
+        }
+        return node;
+    }
+
+    function makeInput(id, labelText, inputType, value, placeholder) {
+        var wrap = document.createElement("div");
+        wrap.className = "field-wrap";
+        var label = el("label", "field-label", labelText);
+        label.setAttribute("for", id);
+        var input = el("input", "field-input");
+        input.id = id;
+        input.type = inputType || "text";
+        input.autocomplete = "off";
+        input.spellcheck = false;
+        if (value) {
+            input.value = value;
+        }
+        if (placeholder) {
+            input.placeholder = placeholder;
+        }
+        wrap.appendChild(label);
+        wrap.appendChild(input);
+        return { wrap: wrap, input: input };
+    }
+
+    function makeButton(id, label) {
+        var button = el("button", "tv-button", label);
+        button.type = "button";
+        button.id = id;
+        return button;
+    }
+
+    function bindFocusable(element) {
+        element.addEventListener("focus", function () {
+            element.classList.add("focused");
+        });
+        element.addEventListener("blur", function () {
+            element.classList.remove("focused");
+        });
+    }
+
+    function collectFocusables() {
+        var nodes = screenEl.querySelectorAll(".field-input, .tv-button");
+        state.focusIds = [];
+        var list = [];
+        nodes.forEach(function (node) {
+            if (node.id) {
+                state.focusIds.push(node.id);
+            }
+            list.push(node);
+        });
+        return list;
+    }
+
+    function focusByIndex(index) {
+        var focusables = collectFocusables();
+        if (focusables.length === 0) {
+            return;
+        }
+        if (index < 0) {
+            index = 0;
+        }
+        if (index >= focusables.length) {
+            index = focusables.length - 1;
+        }
+        state.focusIndex = index;
+        focusables[index].focus();
+    }
+
+    function ensureScreenFocus() {
+        if (exitDialogOpen) {
+            return;
+        }
+        var focusables = collectFocusables();
+        if (focusables.length === 0) {
+            return;
+        }
+        var active = document.activeElement;
+        var inScreen = false;
+        focusables.forEach(function (node) {
+            if (node === active) {
+                inScreen = true;
+            }
+        });
+        if (!inScreen) {
+            focusByIndex(state.focusIndex);
+        }
+    }
+
+    function setError(message) {
+        state.error = message || "";
+        var errEl = document.getElementById("screen-error");
+        if (errEl) {
+            errEl.textContent = state.error;
+            errEl.hidden = !state.error;
+        }
+    }
+
+    function renderServerScreen() {
+        state.view = "server";
+        clearScreen();
+        screenEl.appendChild(el("p", "eyebrow", "Connect"));
+        screenEl.appendChild(el("h1", "title", "Silo server"));
+        screenEl.appendChild(el("p", "hint", "Example: http://192.168.x.x:8096 (port 8096 is used if omitted)"));
+
+        var err = el("p", "error");
+        err.id = "screen-error";
+        err.hidden = !state.error;
+        err.textContent = state.error;
+        screenEl.appendChild(err);
+
+        var stack = el("div", "form-stack");
+        var urlField = makeInput("server-url", "Server URL", "text", state.serverUrl || state.pendingServerUrl, "192.168.0.10");
+        stack.appendChild(urlField.wrap);
+        var connectBtn = makeButton("server-connect", "Connect");
+        stack.appendChild(connectBtn);
+        screenEl.appendChild(stack);
+
+        bindFocusable(urlField.input);
+        bindFocusable(connectBtn);
+
+        connectBtn.addEventListener("click", onConnectClick);
+        urlField.input.addEventListener("keydown", function (event) {
+            if (event.keyCode === KEY_ENTER) {
+                event.preventDefault();
+                onConnectClick();
+            }
+        });
+
+        focusByIndex(0);
+    }
+
+    function renderSignInScreen() {
+        state.view = "signin";
+        clearScreen();
+        screenEl.appendChild(el("p", "eyebrow", "Sign in"));
+        screenEl.appendChild(el("h1", "title", state.serverName || "Silo"));
+        screenEl.appendChild(el("p", "subtitle", "Enter your account for this server."));
+
+        var err = el("p", "error");
+        err.id = "screen-error";
+        err.hidden = !state.error;
+        err.textContent = state.error;
+        screenEl.appendChild(err);
+
+        var stack = el("div", "form-stack");
+        var userField = makeInput("signin-username", "Username", "text", "", "");
+        var passField = makeInput("signin-password", "Password", "password", "", "");
+        var signInBtn = makeButton("signin-submit", "Sign in");
+        stack.appendChild(userField.wrap);
+        stack.appendChild(passField.wrap);
+        stack.appendChild(signInBtn);
+        screenEl.appendChild(stack);
+
+        [userField.input, passField.input, signInBtn].forEach(bindFocusable);
+        signInBtn.addEventListener("click", onSignInClick);
+        passField.input.addEventListener("keydown", function (event) {
+            if (event.keyCode === KEY_ENTER) {
+                event.preventDefault();
+                onSignInClick();
+            }
+        });
+
+        focusByIndex(0);
+    }
+
+    function renderSignedInScreen(session) {
+        state.view = "signedin";
+        clearScreen();
+        screenEl.appendChild(el("p", "eyebrow", "Signed in"));
+        screenEl.appendChild(el("h1", "title", "Silo"));
+
+        var line = el(
+            "p",
+            "signed-in-line",
+            "Signed in as " + session.userName + " on " + session.serverName
+        );
+        screenEl.appendChild(line);
+
+        var signOutBtn = makeButton("signedin-signout", "Sign out");
+        screenEl.appendChild(signOutBtn);
+        bindFocusable(signOutBtn);
+        signOutBtn.addEventListener("click", onSignOutClick);
+
+        focusByIndex(0);
+    }
+
+    function onConnectClick() {
+        var input = document.getElementById("server-url");
+        if (!input) {
+            return;
+        }
+        setError("");
+        var url = input.value;
+        state.pendingServerUrl = url;
+        var connectBtn = document.getElementById("server-connect");
+        if (connectBtn) {
+            connectBtn.disabled = true;
+        }
+
+        backend.serverInfo(url).then(function (result) {
+            if (connectBtn) {
+                connectBtn.disabled = false;
+            }
+            if (!result.ok) {
+                setError(result.error.message);
+                ensureScreenFocus();
+                return;
+            }
+            state.serverUrl = result.serverUrl;
+            state.serverName = result.serverName;
+            state.error = "";
+            renderSignInScreen();
+        });
+    }
+
+    function onSignInClick() {
+        var userInput = document.getElementById("signin-username");
+        var passInput = document.getElementById("signin-password");
+        if (!userInput || !passInput) {
+            return;
+        }
+        setError("");
+        var submit = document.getElementById("signin-submit");
+        if (submit) {
+            submit.disabled = true;
+        }
+
+        backend.signIn(state.serverUrl, userInput.value, passInput.value).then(function (result) {
+            if (submit) {
+                submit.disabled = false;
+            }
+            if (!result.ok) {
+                setError(result.error.message);
+                ensureScreenFocus();
+                return;
+            }
+            state.error = "";
+            renderSignedInScreen(result.session);
+        });
+    }
+
+    function onSignOutClick() {
+        backend.signOut();
+        state.serverUrl = "";
+        state.serverName = "";
+        state.pendingServerUrl = "";
+        state.error = "";
+        renderServerScreen();
+    }
+
+    function goBackOneScreen() {
+        if (state.view === "signin") {
+            state.error = "";
+            renderServerScreen();
+            return true;
+        }
+        if (state.view === "signedin") {
+            state.error = "";
+            renderSignInScreen();
+            return true;
+        }
+        return false;
     }
 
     function exitApp() {
@@ -26,52 +310,26 @@
             var app = tizen.application.getCurrentApplication();
             app.exit();
         } catch (err) {
-            setStatus("Exit requested (browser preview).");
+            /* Browser preview */
         }
     }
 
     function registerRemoteKeys() {
         if (!window.tizen || !tizen.tvinputdevice) {
-            setStatus("Pre-MVP scaffold — TV APIs unavailable in this preview.");
             return;
         }
-
         var keys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter"];
-
         keys.forEach(function (keyName) {
             try {
                 tizen.tvinputdevice.registerKey(keyName);
             } catch (registerErr) {
-                /* Some keys are optional on older firmware. */
+                /* Optional on older firmware */
             }
         });
-
-        setStatus("Pre-MVP scaffold — remote keys registered.");
     }
 
     function styleFocusableButton(button) {
-        button.style.minWidth = "240px";
-        button.style.padding = "28px 48px";
-        button.style.border = "4px solid #4a4f6a";
-        button.style.borderRadius = "12px";
-        button.style.background = "#1e2030";
-        button.style.color = "#f2f2f7";
-        button.style.fontSize = "40px";
-        button.style.fontWeight = "600";
-        button.style.cursor = "pointer";
-        button.style.outline = "none";
-    }
-
-    function applyFocusedButtonStyle(button, focused) {
-        if (focused) {
-            button.style.borderColor = "#5eb8ff";
-            button.style.background = "#243048";
-            button.style.boxShadow = "0 0 0 6px rgba(94, 184, 255, 0.35)";
-        } else {
-            button.style.borderColor = "#4a4f6a";
-            button.style.background = "#1e2030";
-            button.style.boxShadow = "none";
-        }
+        button.className = "tv-button";
     }
 
     function createExitDialog() {
@@ -117,37 +375,14 @@
         actions.style.gap = "32px";
         actions.style.justifyContent = "center";
 
-        var yesButton = document.createElement("button");
-        yesButton.type = "button";
-        yesButton.id = "exit-dialog-yes";
-        yesButton.textContent = "Yes";
+        var yesButton = makeButton("exit-dialog-yes", "Yes");
+        var noButton = makeButton("exit-dialog-no", "No");
         styleFocusableButton(yesButton);
-
-        var noButton = document.createElement("button");
-        noButton.type = "button";
-        noButton.id = "exit-dialog-no";
-        noButton.textContent = "No";
         styleFocusableButton(noButton);
 
-        yesButton.addEventListener("focus", function () {
-            applyFocusedButtonStyle(yesButton, true);
-        });
-        yesButton.addEventListener("blur", function () {
-            applyFocusedButtonStyle(yesButton, false);
-        });
-        noButton.addEventListener("focus", function () {
-            applyFocusedButtonStyle(noButton, true);
-        });
-        noButton.addEventListener("blur", function () {
-            applyFocusedButtonStyle(noButton, false);
-        });
-
-        yesButton.addEventListener("click", function () {
-            exitApp();
-        });
-        noButton.addEventListener("click", function () {
-            closeExitDialog();
-        });
+        yesButton.addEventListener("click", exitApp);
+        noButton.addEventListener("click", closeExitDialog);
+        [yesButton, noButton].forEach(bindFocusable);
 
         actions.appendChild(yesButton);
         actions.appendChild(noButton);
@@ -169,7 +404,6 @@
         exitDialogOpen = true;
         exitDialog.hidden = false;
         exitDialogNo.focus();
-        applyFocusedButtonStyle(exitDialogNo, true);
     }
 
     function closeExitDialog() {
@@ -178,18 +412,7 @@
         }
         exitDialogOpen = false;
         exitDialog.hidden = true;
-        applyFocusedButtonStyle(exitDialogYes, false);
-        applyFocusedButtonStyle(exitDialogNo, false);
-        if (focusAnchor) {
-            focusAnchor.focus();
-            focusAnchor.classList.add("focused");
-        }
-    }
-
-    function focusDialogButton(button) {
-        if (button) {
-            button.focus();
-        }
+        ensureScreenFocus();
     }
 
     function handleExitDialogKeyDown(code) {
@@ -197,16 +420,14 @@
             closeExitDialog();
             return true;
         }
-
         if (code === KEY_LEFT || code === KEY_RIGHT) {
             if (document.activeElement === exitDialogYes) {
-                focusDialogButton(exitDialogNo);
+                exitDialogNo.focus();
             } else {
-                focusDialogButton(exitDialogYes);
+                exitDialogYes.focus();
             }
             return true;
         }
-
         if (code === KEY_ENTER) {
             if (document.activeElement === exitDialogYes) {
                 exitApp();
@@ -215,22 +436,32 @@
             }
             return true;
         }
-
         return false;
     }
 
-    function ensureFocus() {
-        if (exitDialogOpen || !focusAnchor) {
-            return;
-        }
-        if (document.activeElement !== focusAnchor) {
-            focusAnchor.focus();
-            focusAnchor.classList.add("focused");
+    function openKeyboardIfInput() {
+        var active = document.activeElement;
+        if (active && active.classList && active.classList.contains("field-input")) {
+            active.click();
         }
     }
 
+    function keyCodeFromEvent(event) {
+        if (event.keyCode) {
+            return event.keyCode;
+        }
+        var map = {
+            ArrowUp: KEY_UP,
+            ArrowDown: KEY_DOWN,
+            ArrowLeft: KEY_LEFT,
+            ArrowRight: KEY_RIGHT,
+            Enter: KEY_ENTER
+        };
+        return map[event.key] || 0;
+    }
+
     function onKeyDown(event) {
-        var code = event.keyCode;
+        var code = keyCodeFromEvent(event);
 
         if (exitDialogOpen) {
             if (handleExitDialogKeyDown(code)) {
@@ -247,52 +478,70 @@
 
         if (code === KEY_BACK) {
             event.preventDefault();
-            openExitDialog();
+            if (!goBackOneScreen()) {
+                openExitDialog();
+            }
             return;
         }
 
-        if (code === KEY_ENTER && document.activeElement === focusAnchor) {
-            setStatus("OK pressed — sign-in and playback arrive in a later release.");
+        if (code === KEY_UP || code === KEY_DOWN) {
+            var focusables = collectFocusables();
+            if (focusables.length > 1) {
+                event.preventDefault();
+                var delta = code === KEY_UP ? -1 : 1;
+                focusByIndex(state.focusIndex + delta);
+            }
+            return;
         }
 
-        ensureFocus();
+        if (code === KEY_ENTER) {
+            var active = document.activeElement;
+            if (active && active.classList.contains("field-input")) {
+                event.preventDefault();
+                openKeyboardIfInput();
+                return;
+            }
+            if (active && active.classList.contains("tv-button")) {
+                event.preventDefault();
+                active.click();
+                return;
+            }
+        }
+
+        ensureScreenFocus();
     }
 
-    function init() {
+    function bootstrap() {
         registerRemoteKeys();
-
-        if (focusAnchor) {
-            focusAnchor.addEventListener("focus", function () {
-                focusAnchor.classList.add("focused");
-            });
-            focusAnchor.addEventListener("blur", function () {
-                focusAnchor.classList.remove("focused");
-                if (!exitDialogOpen) {
-                    focusAnchor.focus();
-                    focusAnchor.classList.add("focused");
-                }
-            });
-            focusAnchor.addEventListener("click", function () {
-                setStatus("OK pressed — sign-in and playback arrive in a later release.");
-            });
-        }
-
         document.addEventListener("keydown", onKeyDown, false);
-        document.addEventListener("visibilitychange", function () {
-            if (document.hidden) {
-                setStatus("App hidden — playback suspend hooks will run here later.");
-            } else {
-                setStatus("App visible — playback restore hooks will run here later.");
+        document.addEventListener("focusin", function () {
+            if (!exitDialogOpen) {
+                var focusables = collectFocusables();
+                focusables.forEach(function (node, idx) {
+                    if (node === document.activeElement) {
+                        state.focusIndex = idx;
+                    }
+                });
             }
         });
 
-        window.addEventListener("load", ensureFocus);
-        ensureFocus();
+        backend.validateSession().then(function (result) {
+            if (result.ok && result.session) {
+                renderSignedInScreen(result.session);
+            } else {
+                var existing = backend.currentSession();
+                if (existing) {
+                    state.serverUrl = existing.serverUrl;
+                    state.serverName = existing.serverName;
+                }
+                renderServerScreen();
+            }
+        });
     }
 
     if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", init);
+        document.addEventListener("DOMContentLoaded", bootstrap);
     } else {
-        init();
+        bootstrap();
     }
 })();

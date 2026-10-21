@@ -2,17 +2,17 @@
 
 /**
  * Headless Chromium walkthrough of sign-in screens against the mock Jellyfin server.
- * Run: node test/run-ui-screenshots.js
- * Screenshots written to /opt/cursor/artifacts/screenshots/
+ * Run: npm ci && npx playwright install chromium && node test/run-ui-screenshots.js
  */
 
 var fs = require("fs");
+var os = require("os");
 var path = require("path");
 var http = require("http");
 var { chromium } = require("playwright");
 var { createMockJellyfinServer } = require("./mock-jellyfin-server");
 
-var ARTIFACT_DIR = "/opt/cursor/artifacts/screenshots";
+var ARTIFACT_DIR = process.env.SCREENSHOT_DIR || path.join(os.tmpdir(), "silo-screenshots");
 var APP_ROOT = path.join(__dirname, "..", "app");
 
 function startStaticServer() {
@@ -73,6 +73,22 @@ function pressKey(page, key) {
     return page.keyboard.press(key);
 }
 
+function seedSession(page, serverUrl) {
+    return page.evaluate(function (url) {
+        var session = {
+            serverUrl: url,
+            userId: "user-123",
+            userName: "Test User",
+            accessToken: "mock-access-token",
+            serverName: "Mock Silo"
+        };
+        var sessions = {};
+        sessions[url] = session;
+        localStorage.setItem("silo.activeServer", url);
+        localStorage.setItem("silo.sessions", JSON.stringify(sessions));
+    }, serverUrl);
+}
+
 async function main() {
     fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
 
@@ -96,11 +112,28 @@ async function main() {
 
     await page.fill("#signin-username", "alice");
     await page.fill("#signin-password", "secret");
-    await page.focus("#signin-password");
-    await pressKey(page, "ArrowDown");
-    await pressKey(page, "Enter");
+    await page.click("#signin-submit");
     await page.waitForSelector("#signedin-signout", { timeout: 5000 });
     await page.screenshot({ path: path.join(ARTIFACT_DIR, "03-signed-in-screen.png") });
+
+    await seedSession(page, mock.baseUrl);
+    await page.route("**/Users/Me", async function (route) {
+        await new Promise(function (resolve) {
+            setTimeout(resolve, 1500);
+        });
+        await route.continue();
+    });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#connecting-wait", { timeout: 5000 });
+    await page.screenshot({ path: path.join(ARTIFACT_DIR, "06-connecting-screen.png") });
+    await page.unroute("**/Users/Me");
+    await page.waitForSelector("#signedin-signout", { timeout: 15000 });
+
+    var mockOffline = await createMockJellyfinServer({ usersMe503: true });
+    await seedSession(page, mockOffline.baseUrl);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#offline-retry", { timeout: 10000 });
+    await page.screenshot({ path: path.join(ARTIFACT_DIR, "07-offline-retry-screen.png") });
 
     await page.evaluate(function () {
         localStorage.clear();
@@ -116,11 +149,6 @@ async function main() {
     await page.screenshot({ path: path.join(ARTIFACT_DIR, "04-error-unreachable.png") });
 
     var mock401 = await createMockJellyfinServer({ auth401: true });
-    await page.evaluate(function () {
-        localStorage.clear();
-    });
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await page.waitForSelector("#server-url");
     await page.fill("#server-url", mock401.baseUrl.replace("http://", ""));
     await page.click("#server-connect");
     await page.waitForSelector("#signin-username");
@@ -137,6 +165,7 @@ async function main() {
     await staticServer.close();
     await mock.close();
     await mock401.close();
+    await mockOffline.close();
 
     console.log("Screenshots saved under " + ARTIFACT_DIR);
 }

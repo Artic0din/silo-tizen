@@ -104,13 +104,24 @@
         if (!parsed.hostname) {
             return "";
         }
-        if (!parsed.port) {
+        if (!parsed.port && parsed.protocol === "http:") {
             parsed.port = String(DEFAULT_PORT);
         }
-        parsed.pathname = "";
+        var pathPart = parsed.pathname || "/";
+        pathPart = pathPart.replace(/\/+$/, "");
+        if (pathPart === "/") {
+            pathPart = "";
+        }
         parsed.search = "";
         parsed.hash = "";
-        return parsed.origin;
+        var portSegment = parsed.port ? ":" + parsed.port : "";
+        return parsed.protocol + "//" + parsed.hostname + portSegment + pathPart;
+    }
+
+    function joinServerPath(serverUrl, apiPath) {
+        var base = String(serverUrl || "").replace(/\/+$/, "");
+        var path = apiPath.charAt(0) === "/" ? apiPath : "/" + apiPath;
+        return base + path;
     }
 
     function buildAuthHeader(deviceId, deviceName, accessToken) {
@@ -139,6 +150,7 @@
         var fetchFn = options.fetch || (typeof fetch !== "undefined" ? fetch.bind(globalThis) : null);
         var deviceName = options.deviceName || resolveDeviceName();
         var deviceId = options.deviceId || getDeviceId(storage);
+        var requestTimeoutMs = options.requestTimeoutMs || REQUEST_TIMEOUT_MS;
 
         if (!fetchFn) {
             throw new Error("fetch is not available");
@@ -174,8 +186,25 @@
             }
         }
 
+        function readResponseBody(response, timer, controller) {
+            return response.text().then(
+                function (bodyText) {
+                    if (timer) {
+                        clearTimeout(timer);
+                    }
+                    return bodyText;
+                },
+                function (err) {
+                    if (timer) {
+                        clearTimeout(timer);
+                    }
+                    throw err;
+                }
+            );
+        }
+
         function jellyfinRequest(serverUrl, path, init, accessToken) {
-            var url = serverUrl + path;
+            var url = joinServerPath(serverUrl, path);
             var headers = Object.assign({}, (init && init.headers) || {});
             headers.Authorization = buildAuthHeader(deviceId, deviceName, accessToken || "");
             if (init && init.body && !headers["Content-Type"]) {
@@ -184,17 +213,31 @@
             var controller = new AbortController();
             var timer = setTimeout(function () {
                 controller.abort();
-            }, REQUEST_TIMEOUT_MS);
+            }, requestTimeoutMs);
 
             return fetchFn(url, Object.assign({}, init, { headers: headers, signal: controller.signal }))
                 .then(function (response) {
-                    clearTimeout(timer);
-                    return response;
+                    return readResponseBody(response, timer, controller).then(function (bodyText) {
+                        return { response: response, bodyText: bodyText };
+                    });
                 })
                 .catch(function (err) {
-                    clearTimeout(timer);
+                    if (timer) {
+                        clearTimeout(timer);
+                    }
                     throw err;
                 });
+        }
+
+        function parseJsonBody(bodyText) {
+            if (!bodyText) {
+                return null;
+            }
+            try {
+                return JSON.parse(bodyText);
+            } catch (parseErr) {
+                return null;
+            }
         }
 
         function parsePublicInfo(data) {
@@ -218,17 +261,16 @@
             }
 
             return jellyfinRequest(serverUrl, "/System/Info/Public", { method: "GET" }, "")
-                .then(function (response) {
+                .then(function (result) {
+                    var response = result.response;
                     if (!response.ok) {
                         return { ok: false, error: { code: "not_silo", message: "Not a Silo or Jellyfin server." } };
                     }
-                    return response.json().then(function (body) {
-                        var info = parsePublicInfo(body);
-                        if (!info) {
-                            return { ok: false, error: { code: "not_silo", message: "Not a Silo or Jellyfin server." } };
-                        }
-                        return { ok: true, serverUrl: serverUrl, serverName: info.serverName };
-                    });
+                    var info = parsePublicInfo(parseJsonBody(result.bodyText));
+                    if (!info) {
+                        return { ok: false, error: { code: "not_silo", message: "Not a Silo or Jellyfin server." } };
+                    }
+                    return { ok: true, serverUrl: serverUrl, serverName: info.serverName };
                 })
                 .catch(function (err) {
                     return { ok: false, error: mapFetchError(err) };
@@ -247,31 +289,31 @@
             var body = JSON.stringify({ Username: username, Pw: password });
 
             return jellyfinRequest(serverUrl, "/Users/AuthenticateByName", { method: "POST", body: body }, "")
-                .then(function (response) {
+                .then(function (result) {
+                    var response = result.response;
                     if (response.status === 401) {
                         return { ok: false, error: { code: "unauthorized", message: "Incorrect username or password." } };
                     }
                     if (!response.ok) {
                         return { ok: false, error: { code: "auth_failed", message: "Sign-in failed." } };
                     }
-                    return response.json().then(function (data) {
-                        var token = data.AccessToken;
-                        var user = data.User || {};
-                        if (!token || !user.Id) {
-                            return { ok: false, error: { code: "auth_failed", message: "Sign-in failed." } };
-                        }
-                        return serverInfo(serverUrl).then(function (infoResult) {
-                            var serverName = infoResult.ok ? infoResult.serverName : serverUrl;
-                            var session = {
-                                serverUrl: serverUrl,
-                                userId: user.Id,
-                                userName: user.Name || username,
-                                accessToken: token,
-                                serverName: serverName
-                            };
-                            setActiveSession(serverUrl, session);
-                            return { ok: true, session: session };
-                        });
+                    var data = parseJsonBody(result.bodyText);
+                    var token = data && data.AccessToken;
+                    var user = (data && data.User) || {};
+                    if (!token || !user.Id) {
+                        return { ok: false, error: { code: "auth_failed", message: "Sign-in failed." } };
+                    }
+                    return serverInfo(serverUrl).then(function (infoResult) {
+                        var serverName = infoResult.ok ? infoResult.serverName : serverUrl;
+                        var session = {
+                            serverUrl: serverUrl,
+                            userId: user.Id,
+                            userName: user.Name || username,
+                            accessToken: token,
+                            serverName: serverName
+                        };
+                        setActiveSession(serverUrl, session);
+                        return { ok: true, session: session };
                     });
                 })
                 .catch(function (err) {
@@ -281,9 +323,18 @@
 
         function signOut() {
             var session = currentSession();
-            if (session && session.serverUrl) {
-                clearActiveSession(session.serverUrl);
+            if (!session || !session.serverUrl) {
+                return Promise.resolve();
             }
+            var serverUrl = session.serverUrl;
+            var token = session.accessToken;
+            return jellyfinRequest(serverUrl, "/Sessions/Logout", { method: "POST" }, token)
+                .catch(function () {
+                    /* Best-effort server logout */
+                })
+                .then(function () {
+                    clearActiveSession(serverUrl);
+                });
         }
 
         function currentSession() {
@@ -299,26 +350,40 @@
             if (!session) {
                 return Promise.resolve({ ok: false });
             }
-            return jellyfinRequest(session.serverUrl, "/System/Info/Public", { method: "GET" }, session.accessToken)
-                .then(function (response) {
-                    if (!response.ok) {
+            var userPath = "/Users/Me";
+            return jellyfinRequest(session.serverUrl, userPath, { method: "GET" }, session.accessToken)
+                .then(function (result) {
+                    var response = result.response;
+                    if (response.status === 401 || response.status === 403) {
                         clearActiveSession(session.serverUrl);
-                        return { ok: false };
+                        return { ok: false, error: { code: "unauthorized", message: "Session expired. Sign in again." } };
                     }
-                    return response.json().then(function (body) {
-                        var info = parsePublicInfo(body);
-                        if (!info) {
-                            clearActiveSession(session.serverUrl);
-                            return { ok: false };
-                        }
-                        session.serverName = info.serverName;
-                        setActiveSession(session.serverUrl, session);
-                        return { ok: true, session: session };
-                    });
+                    if (!response.ok) {
+                        return {
+                            ok: false,
+                            offline: true,
+                            session: session,
+                            error: { code: "server_error", message: "Could not verify your session." }
+                        };
+                    }
+                    var user = parseJsonBody(result.bodyText);
+                    if (!user || !user.Id) {
+                        clearActiveSession(session.serverUrl);
+                        return { ok: false, error: { code: "unauthorized", message: "Session expired. Sign in again." } };
+                    }
+                    session.userName = user.Name || session.userName;
+                    session.userId = user.Id;
+                    setActiveSession(session.serverUrl, session);
+                    return { ok: true, session: session };
                 })
-                .catch(function () {
-                    clearActiveSession(session.serverUrl);
-                    return { ok: false };
+                .catch(function (err) {
+                    var mapped = mapFetchError(err);
+                    return {
+                        ok: false,
+                        offline: true,
+                        session: session,
+                        error: mapped
+                    };
                 });
         }
 
@@ -329,6 +394,7 @@
             currentSession: currentSession,
             validateSession: validateSession,
             normalizeServerUrl: normalizeServerUrl,
+            joinServerPath: joinServerPath,
             buildAuthHeader: function (token) {
                 return buildAuthHeader(deviceId, deviceName, token || "");
             },
@@ -344,6 +410,7 @@
         DEFAULT_PORT: DEFAULT_PORT,
         REQUEST_TIMEOUT_MS: REQUEST_TIMEOUT_MS,
         normalizeServerUrl: normalizeServerUrl,
+        joinServerPath: joinServerPath,
         buildAuthHeaderForTest: buildAuthHeader
     };
 });

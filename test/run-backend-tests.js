@@ -25,18 +25,26 @@ var EXPECTED_AUTH =
     'MediaBrowser Client="Silo", Device="Test TV", DeviceId="11111111-2222-4333-8444-555555555555", Version="0.0.1"';
 
 var lastAuthHeader = null;
+var lastRequestUrl = null;
 var trackingFetch = function (url, init) {
     lastAuthHeader = (init.headers && init.headers.Authorization) || null;
+    lastRequestUrl = url;
     return fetch(url, init);
 };
 
-function makeBackend(fetchFn) {
-    return factory.createBackend({
+function makeBackend(fetchFn, extraOptions) {
+    var opts = {
         storage: memoryStorage(),
         deviceId: DEVICE_ID,
         deviceName: DEVICE_NAME,
         fetch: fetchFn
-    });
+    };
+    if (extraOptions) {
+        Object.keys(extraOptions).forEach(function (key) {
+            opts[key] = extraOptions[key];
+        });
+    }
+    return factory.createBackend(opts);
 }
 
 var passed = 0;
@@ -64,12 +72,36 @@ var tests = [
         });
     },
     function () {
+        return test("normalizeServerUrl keeps path prefix", function () {
+            assert.strictEqual(
+                factory.normalizeServerUrl("http://media.example.com/silo/"),
+                "http://media.example.com:8096/silo"
+            );
+            assert.strictEqual(
+                factory.joinServerPath("http://host:8096/silo", "/Users/Me"),
+                "http://host:8096/silo/Users/Me"
+            );
+        });
+    },
+    function () {
         return test("serverInfo success against mock", function () {
             return createMockJellyfinServer().then(function (mock) {
                 var backend = makeBackend(fetch);
                 return backend.serverInfo(mock.baseUrl).then(function (result) {
                     assert.strictEqual(result.ok, true);
                     assert.strictEqual(result.serverName, "Mock Silo");
+                    assert.strictEqual(result.serverUrl, mock.baseUrl);
+                    return mock.close();
+                });
+            });
+        });
+    },
+    function () {
+        return test("serverInfo uses path prefix on mock", function () {
+            return createMockJellyfinServer({ pathPrefix: "/silo" }).then(function (mock) {
+                var backend = makeBackend(fetch);
+                return backend.serverInfo(mock.baseUrl).then(function (result) {
+                    assert.strictEqual(result.ok, true);
                     assert.strictEqual(result.serverUrl, mock.baseUrl);
                     return mock.close();
                 });
@@ -111,15 +143,80 @@ var tests = [
         });
     },
     function () {
-        return test("signOut clears session", function () {
+        return test("signOut calls Sessions/Logout then clears session", function () {
+            return createMockJellyfinServer().then(function (mock) {
+                var backend = makeBackend(trackingFetch);
+                return backend
+                    .signIn(mock.baseUrl, "alice", "secret")
+                    .then(function () {
+                        assert.ok(backend.currentSession());
+                        return backend.signOut();
+                    })
+                    .then(function () {
+                        assert.strictEqual(backend.currentSession(), null);
+                        assert.ok(lastRequestUrl.indexOf("/Sessions/Logout") !== -1);
+                        assert.strictEqual(mock.getLogoutCalls(), 1);
+                        return mock.close();
+                    });
+            });
+        });
+    },
+    function () {
+        return test("validateSession uses Users/Me and clears on 401", function () {
+            return createMockJellyfinServer({ usersMe401: true }).then(function (mock) {
+                var backend = makeBackend(trackingFetch);
+                return backend
+                    .signIn(mock.baseUrl, "alice", "secret")
+                    .then(function () {
+                        return backend.validateSession();
+                    })
+                    .then(function (result) {
+                        assert.strictEqual(result.ok, false);
+                        assert.strictEqual(backend.currentSession(), null);
+                        assert.ok(lastRequestUrl.indexOf("/Users/Me") !== -1);
+                        return mock.close();
+                    });
+            });
+        });
+    },
+    function () {
+        return test("validateSession keeps session on network failure", function () {
             return createMockJellyfinServer().then(function (mock) {
                 var backend = makeBackend(fetch);
-                return backend.signIn(mock.baseUrl, "alice", "secret").then(function () {
-                    assert.ok(backend.currentSession());
-                    backend.signOut();
-                    assert.strictEqual(backend.currentSession(), null);
-                    return mock.close();
-                });
+                return backend
+                    .signIn(mock.baseUrl, "alice", "secret")
+                    .then(function () {
+                        return mock.close();
+                    })
+                    .then(function () {
+                        return backend.validateSession();
+                    })
+                    .then(function (result) {
+                        assert.strictEqual(result.ok, false);
+                        assert.strictEqual(result.offline, true);
+                        assert.ok(backend.currentSession());
+                        return Promise.resolve();
+                    });
+            });
+        });
+    },
+    function () {
+        return test("request timeout applies while response body is pending", function () {
+            return createMockJellyfinServer({ stallUsersMeBody: true }).then(function (mock) {
+                var backend = makeBackend(fetch, { requestTimeoutMs: 150 });
+                return backend
+                    .signIn(mock.baseUrl, "alice", "secret")
+                    .then(function () {
+                        var start = Date.now();
+                        return backend.validateSession().then(function (result) {
+                            var elapsed = Date.now() - start;
+                            assert.strictEqual(result.ok, false);
+                            assert.strictEqual(result.offline, true);
+                            assert.ok(elapsed >= 140);
+                            assert.ok(backend.currentSession());
+                            return mock.close();
+                        });
+                    });
             });
         });
     }

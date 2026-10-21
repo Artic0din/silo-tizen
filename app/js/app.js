@@ -24,8 +24,19 @@
         error: "",
         focusIds: [],
         focusIndex: 0,
-        pendingServerUrl: ""
+        pendingServerUrl: "",
+        requestGeneration: 0,
+        submitOnNextEnter: ""
     };
+
+    function bumpRequestGeneration() {
+        state.requestGeneration += 1;
+        return state.requestGeneration;
+    }
+
+    function isStaleRequest(generation) {
+        return generation !== state.requestGeneration;
+    }
 
     function clearScreen() {
         while (screenEl.firstChild) {
@@ -138,7 +149,56 @@
         }
     }
 
+    function invalidatePendingRequests() {
+        bumpRequestGeneration();
+    }
+
+    function submitForCurrentView() {
+        if (state.view === "server") {
+            onConnectClick();
+        } else if (state.view === "signin") {
+            onSignInClick();
+        }
+    }
+
+    function renderConnectingScreen() {
+        state.view = "connecting";
+        clearScreen();
+        screenEl.appendChild(el("p", "eyebrow", "Silo"));
+        screenEl.appendChild(el("h1", "title", "Connecting…"));
+        screenEl.appendChild(el("p", "subtitle", "Checking your saved session with the server."));
+        var waitBtn = makeButton("connecting-wait", "Connecting…");
+        waitBtn.setAttribute("aria-disabled", "true");
+        screenEl.appendChild(waitBtn);
+        bindFocusable(waitBtn);
+        focusByIndex(0);
+    }
+
+    function renderOfflineScreen(session, message) {
+        state.view = "offline";
+        clearScreen();
+        screenEl.appendChild(el("p", "eyebrow", "Offline"));
+        screenEl.appendChild(el("h1", "title", "Could not reach server"));
+        screenEl.appendChild(
+            el(
+                "p",
+                "signed-in-line",
+                "Signed in as " + session.userName + " on " + session.serverName
+            )
+        );
+        var err = el("p", "error");
+        err.id = "screen-error";
+        err.textContent = message || "Server unreachable. Your session is still saved.";
+        screenEl.appendChild(err);
+        var retryBtn = makeButton("offline-retry", "Retry");
+        screenEl.appendChild(retryBtn);
+        bindFocusable(retryBtn);
+        retryBtn.addEventListener("click", onOfflineRetryClick);
+        focusByIndex(0);
+    }
+
     function renderServerScreen() {
+        invalidatePendingRequests();
         state.view = "server";
         clearScreen();
         screenEl.appendChild(el("p", "eyebrow", "Connect"));
@@ -162,17 +222,12 @@
         bindFocusable(connectBtn);
 
         connectBtn.addEventListener("click", onConnectClick);
-        urlField.input.addEventListener("keydown", function (event) {
-            if (event.keyCode === KEY_ENTER) {
-                event.preventDefault();
-                onConnectClick();
-            }
-        });
 
         focusByIndex(0);
     }
 
     function renderSignInScreen() {
+        invalidatePendingRequests();
         state.view = "signin";
         clearScreen();
         screenEl.appendChild(el("p", "eyebrow", "Sign in"));
@@ -196,17 +251,12 @@
 
         [userField.input, passField.input, signInBtn].forEach(bindFocusable);
         signInBtn.addEventListener("click", onSignInClick);
-        passField.input.addEventListener("keydown", function (event) {
-            if (event.keyCode === KEY_ENTER) {
-                event.preventDefault();
-                onSignInClick();
-            }
-        });
 
         focusByIndex(0);
     }
 
     function renderSignedInScreen(session) {
+        invalidatePendingRequests();
         state.view = "signedin";
         clearScreen();
         screenEl.appendChild(el("p", "eyebrow", "Signed in"));
@@ -232,15 +282,22 @@
         if (!input) {
             return;
         }
+        var connectBtn = document.getElementById("server-connect");
+        if (connectBtn && connectBtn.disabled) {
+            return;
+        }
         setError("");
         var url = input.value;
         state.pendingServerUrl = url;
-        var connectBtn = document.getElementById("server-connect");
+        var generation = bumpRequestGeneration();
         if (connectBtn) {
             connectBtn.disabled = true;
         }
 
         backend.serverInfo(url).then(function (result) {
+            if (isStaleRequest(generation)) {
+                return;
+            }
             if (connectBtn) {
                 connectBtn.disabled = false;
             }
@@ -262,13 +319,20 @@
         if (!userInput || !passInput) {
             return;
         }
-        setError("");
         var submit = document.getElementById("signin-submit");
+        if (submit && submit.disabled) {
+            return;
+        }
+        setError("");
+        var generation = bumpRequestGeneration();
         if (submit) {
             submit.disabled = true;
         }
 
         backend.signIn(state.serverUrl, userInput.value, passInput.value).then(function (result) {
+            if (isStaleRequest(generation)) {
+                return;
+            }
             if (submit) {
                 submit.disabled = false;
             }
@@ -283,23 +347,77 @@
     }
 
     function onSignOutClick() {
-        backend.signOut();
-        state.serverUrl = "";
-        state.serverName = "";
-        state.pendingServerUrl = "";
-        state.error = "";
+        var signOutBtn = document.getElementById("signedin-signout");
+        if (signOutBtn) {
+            signOutBtn.disabled = true;
+        }
+        invalidatePendingRequests();
+        backend.signOut().then(function () {
+            state.serverUrl = "";
+            state.serverName = "";
+            state.pendingServerUrl = "";
+            state.error = "";
+            renderServerScreen();
+        });
+    }
+
+    function onOfflineRetryClick() {
+        var retryBtn = document.getElementById("offline-retry");
+        if (retryBtn && retryBtn.disabled) {
+            return;
+        }
+        var session = backend.currentSession();
+        if (!session) {
+            renderServerScreen();
+            return;
+        }
+        var generation = bumpRequestGeneration();
+        if (retryBtn) {
+            retryBtn.disabled = true;
+        }
+        renderConnectingScreen();
+        backend.validateSession().then(function (result) {
+            if (isStaleRequest(generation)) {
+                return;
+            }
+            if (retryBtn) {
+                retryBtn.disabled = false;
+            }
+            handleValidationResult(result);
+        });
+    }
+
+    function handleValidationResult(result) {
+        if (result.ok && result.session) {
+            renderSignedInScreen(result.session);
+            return;
+        }
+        if (result.offline && result.session) {
+            renderOfflineScreen(result.session, result.error && result.error.message);
+            return;
+        }
+        var existing = backend.currentSession();
+        if (existing) {
+            state.serverUrl = existing.serverUrl;
+            state.serverName = existing.serverName;
+        }
         renderServerScreen();
     }
 
     function goBackOneScreen() {
+        invalidatePendingRequests();
         if (state.view === "signin") {
             state.error = "";
             renderServerScreen();
             return true;
         }
-        if (state.view === "signedin") {
+        if (state.view === "signedin" || state.view === "offline") {
             state.error = "";
             renderSignInScreen();
+            return true;
+        }
+        if (state.view === "connecting") {
+            renderServerScreen();
             return true;
         }
         return false;
@@ -498,12 +616,20 @@
             var active = document.activeElement;
             if (active && active.classList.contains("field-input")) {
                 event.preventDefault();
-                openKeyboardIfInput();
+                if (state.submitOnNextEnter === active.id) {
+                    state.submitOnNextEnter = "";
+                    submitForCurrentView();
+                } else {
+                    openKeyboardIfInput();
+                    state.submitOnNextEnter = active.id;
+                }
                 return;
             }
             if (active && active.classList.contains("tv-button")) {
                 event.preventDefault();
-                active.click();
+                if (!active.disabled) {
+                    active.click();
+                }
                 return;
             }
         }
@@ -525,17 +651,19 @@
             }
         });
 
+        var saved = backend.currentSession();
+        if (!saved) {
+            renderServerScreen();
+            return;
+        }
+
+        var generation = bumpRequestGeneration();
+        renderConnectingScreen();
         backend.validateSession().then(function (result) {
-            if (result.ok && result.session) {
-                renderSignedInScreen(result.session);
-            } else {
-                var existing = backend.currentSession();
-                if (existing) {
-                    state.serverUrl = existing.serverUrl;
-                    state.serverName = existing.serverName;
-                }
-                renderServerScreen();
+            if (isStaleRequest(generation)) {
+                return;
             }
+            handleValidationResult(result);
         });
     }
 

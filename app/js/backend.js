@@ -419,6 +419,22 @@
             return joinServerPath(session.serverUrl, "/Items/" + encodeURIComponent(itemId) + "/Images/Primary?" + query);
         }
 
+        function unauthorizedBrowseResult(session) {
+            clearActiveSession(session.serverUrl);
+            return {
+                ok: false,
+                signedOut: true,
+                error: { code: "unauthorized", message: "Session expired. Sign in again." }
+            };
+        }
+
+        function browseAuthFailure(session, response) {
+            if (response.status === 401 || response.status === 403) {
+                return unauthorizedBrowseResult(session);
+            }
+            return null;
+        }
+
         function browseHome() {
             var session = currentSession();
             if (!session) {
@@ -430,6 +446,10 @@
 
             return jellyfinRequest(serverUrl, "/Users/" + encodeURIComponent(userId) + "/Views", { method: "GET" }, token)
                 .then(function (viewsResult) {
+                    var authFail = browseAuthFailure(session, viewsResult.response);
+                    if (authFail) {
+                        return authFail;
+                    }
                     if (!viewsResult.response.ok) {
                         return { ok: false, error: { code: "browse_failed", message: "Could not load libraries." } };
                     }
@@ -444,6 +464,10 @@
 
                     var resumePath = "/Users/" + encodeURIComponent(userId) + "/Items/Resume?Limit=24&Fields=PrimaryImageAspectRatio,Overview";
                     return jellyfinRequest(serverUrl, resumePath, { method: "GET" }, token).then(function (resumeResult) {
+                        var resumeAuthFail = browseAuthFailure(session, resumeResult.response);
+                        if (resumeAuthFail) {
+                            return resumeAuthFail;
+                        }
                         var resumeItems = [];
                         if (resumeResult.response.ok) {
                             var resumeData = parseJsonBody(resumeResult.bodyText);
@@ -458,6 +482,10 @@
                                 encodeURIComponent(lib.id) +
                                 "&Limit=24&Fields=PrimaryImageAspectRatio,Overview";
                             return jellyfinRequest(serverUrl, latestPath, { method: "GET" }, token).then(function (latestResult) {
+                                var latestAuthFail = browseAuthFailure(session, latestResult.response);
+                                if (latestAuthFail) {
+                                    return latestAuthFail;
+                                }
                                 if (!latestResult.response.ok) {
                                     return { library: lib, items: [] };
                                 }
@@ -468,6 +496,11 @@
                         });
 
                         return Promise.all(latestPromises).then(function (latestRows) {
+                            for (var rowIdx = 0; rowIdx < latestRows.length; rowIdx++) {
+                                if (latestRows[rowIdx] && latestRows[rowIdx].signedOut) {
+                                    return latestRows[rowIdx];
+                                }
+                            }
                             var sections = [];
                             if (resumeItems.length > 0) {
                                 sections.push({
@@ -541,6 +574,10 @@
 
             return jellyfinRequest(session.serverUrl, path, { method: "GET" }, session.accessToken)
                 .then(function (result) {
+                    var authFail = browseAuthFailure(session, result.response);
+                    if (authFail) {
+                        return authFail;
+                    }
                     if (!result.response.ok) {
                         return { ok: false, error: { code: "browse_failed", message: "Could not load library items." } };
                     }
@@ -573,6 +610,10 @@
                 "?Fields=Overview,PrimaryImageAspectRatio";
             return jellyfinRequest(session.serverUrl, path, { method: "GET" }, session.accessToken)
                 .then(function (result) {
+                    var authFail = browseAuthFailure(session, result.response);
+                    if (authFail) {
+                        return authFail;
+                    }
                     if (!result.response.ok) {
                         return { ok: false, error: { code: "browse_failed", message: "Could not load item details." } };
                     }

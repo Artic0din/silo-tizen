@@ -11,7 +11,6 @@
 
     var LIBRARY_PAGE_SIZE = 60;
     var LIBRARY_COLUMNS = 6;
-    var LOAD_MORE_THRESHOLD = 12;
 
     var backend = window.SiloBackend;
     var screenEl = document.getElementById("screen");
@@ -30,9 +29,11 @@
         focusIndex: 0,
         pendingServerUrl: "",
         requestGeneration: 0,
+        libraryFetchGeneration: 0,
         submitOnNextEnter: "",
         homeSections: [],
         homeLoading: false,
+        homeLoadFailed: false,
         homeFocus: { sectionId: "", itemId: "" },
         library: null,
         libraryFocusItemId: "",
@@ -47,6 +48,62 @@
 
     function isStaleRequest(generation) {
         return generation !== state.requestGeneration;
+    }
+
+    function bumpLibraryFetchGeneration() {
+        state.libraryFetchGeneration += 1;
+        return state.libraryFetchGeneration;
+    }
+
+    function isStaleLibraryFetch(generation) {
+        return generation !== state.libraryFetchGeneration;
+    }
+
+    function handleBrowseAuthFailure(result) {
+        if (result && result.signedOut) {
+            setError(result.error && result.error.message ? result.error.message : "Session expired. Sign in again.");
+            renderServerScreen();
+            return true;
+        }
+        return false;
+    }
+
+    function mergeLibraryItems(existing, incoming) {
+        var seen = Object.create(null);
+        var merged = [];
+        existing.forEach(function (item) {
+            seen[item.id] = true;
+            merged.push(item);
+        });
+        incoming.forEach(function (item) {
+            if (!seen[item.id]) {
+                seen[item.id] = true;
+                merged.push(item);
+            }
+        });
+        return merged;
+    }
+
+    function focusLibraryScreenDefault() {
+        var lib = state.library;
+        if (!lib) {
+            return;
+        }
+        if (lib.loadFailed && lib.items.length === 0) {
+            var retryBtn = document.getElementById("library-retry");
+            if (retryBtn) {
+                retryBtn.focus();
+            }
+            return;
+        }
+        if (lib.items.length > 0) {
+            focusLibraryTile(state.libraryFocusItemId || lib.items[0].id);
+            return;
+        }
+        var backBtn = document.getElementById("library-back");
+        if (backBtn) {
+            backBtn.focus();
+        }
     }
 
     function clearScreen() {
@@ -122,7 +179,7 @@
     function collectFocusables() {
         var selector = isFormView()
             ? ".field-input, .tv-button"
-            : ".tv-button, .browse-tile, .details-back";
+            : ".tv-button, .browse-tile, .details-back, .browse-action";
         var nodes = screenEl.querySelectorAll(selector);
         state.focusIds = [];
         var list = [];
@@ -425,6 +482,13 @@
         body.id = "browse-body";
         if (state.homeLoading) {
             body.appendChild(el("p", "browse-status", "Loading your libraries…"));
+        } else if (state.homeLoadFailed) {
+            body.appendChild(el("p", "browse-status", "Could not load your home rows."));
+            var homeRetry = makeButton("home-retry", "Retry");
+            homeRetry.classList.add("browse-action");
+            homeRetry.addEventListener("click", onHomeRetryClick);
+            bindFocusable(homeRetry);
+            body.appendChild(homeRetry);
         } else if (state.homeSections.length === 0) {
             body.appendChild(el("p", "browse-status", "No rows to show yet."));
         } else {
@@ -459,10 +523,15 @@
             }
             state.homeLoading = false;
             if (!result.ok) {
+                if (handleBrowseAuthFailure(result)) {
+                    return;
+                }
                 setError(result.error && result.error.message ? result.error.message : "Could not load home.");
                 state.homeSections = [];
+                state.homeLoadFailed = true;
             } else {
                 state.error = "";
+                state.homeLoadFailed = false;
                 state.homeSections = result.sections || [];
             }
             renderHomeShell(session);
@@ -478,7 +547,20 @@
         invalidatePendingRequests();
         var generation = bumpRequestGeneration();
         state.homeSections = [];
+        state.homeLoadFailed = false;
         return loadHomeData(session, generation);
+    }
+
+    function onHomeRetryClick() {
+        var session = backend.currentSession();
+        if (!session) {
+            renderServerScreen();
+            return;
+        }
+        var generation = bumpRequestGeneration();
+        state.homeLoadFailed = false;
+        setError("");
+        loadHomeData(session, generation);
     }
 
     function onHomeTileActivate(item, sectionId) {
@@ -496,7 +578,7 @@
 
     function openLibrary(libraryMeta) {
         invalidatePendingRequests();
-        var generation = bumpRequestGeneration();
+        var generation = bumpLibraryFetchGeneration();
         state.library = {
             id: libraryMeta.id,
             title: libraryMeta.title,
@@ -504,10 +586,12 @@
             items: [],
             totalRecordCount: 0,
             startIndex: 0,
-            loading: true
+            loading: true,
+            loadFailed: false
         };
         state.view = "library";
         renderLibraryScreen();
+        focusLibraryScreenDefault();
         fetchLibraryPage(generation, 0, false);
     }
 
@@ -515,6 +599,7 @@
         if (!state.library) {
             return;
         }
+        state.library.loading = true;
         var includeTypes = backend.itemTypesForLibrary(state.library.collectionType);
         backend
             .browseLibraryItems(state.library.id, {
@@ -523,17 +608,27 @@
                 includeItemTypes: includeTypes
             })
             .then(function (result) {
-                if (isStaleRequest(generation) || state.view !== "library" || !state.library) {
+                if (isStaleLibraryFetch(generation) || state.view !== "library" || !state.library) {
+                    if (state.library) {
+                        state.library.loading = false;
+                    }
                     return;
                 }
                 state.library.loading = false;
                 if (!result.ok) {
+                    if (handleBrowseAuthFailure(result)) {
+                        return;
+                    }
+                    state.library.loadFailed = true;
                     setError(result.error && result.error.message ? result.error.message : "Could not load library.");
                     renderLibraryScreen();
+                    focusLibraryScreenDefault();
                     return;
                 }
+                state.error = "";
+                state.library.loadFailed = false;
                 if (append) {
-                    state.library.items = state.library.items.concat(result.items);
+                    state.library.items = mergeLibraryItems(state.library.items, result.items);
                 } else {
                     state.library.items = result.items;
                 }
@@ -543,40 +638,30 @@
                 if (!state.libraryFocusItemId && state.library.items.length > 0) {
                     rememberLibraryFocus(state.library.items[0].id);
                 }
-                focusLibraryTile(state.libraryFocusItemId);
+                focusLibraryScreenDefault();
             });
     }
 
-    function maybeLoadMoreLibraryItems() {
+    function onLibraryLoadMoreClick() {
         if (!state.library || state.library.loading) {
             return;
         }
-        var items = state.library.items;
-        if (items.length >= state.library.totalRecordCount) {
+        if (state.library.items.length >= state.library.totalRecordCount) {
             return;
         }
-        var focused = document.activeElement;
-        if (!focused || !focused.classList.contains("browse-tile")) {
-            return;
-        }
-        var itemId = focused.getAttribute("data-item-id");
-        var index = -1;
-        for (var i = 0; i < items.length; i++) {
-            if (items[i].id === itemId) {
-                index = i;
-                break;
-            }
-        }
-        if (index < 0) {
-            return;
-        }
-        if (items.length - index > LOAD_MORE_THRESHOLD) {
-            return;
-        }
-        state.library.loading = true;
-        var generation = state.requestGeneration;
-        var nextStart = items.length;
+        var generation = state.libraryFetchGeneration;
+        var nextStart = state.library.items.length;
         fetchLibraryPage(generation, nextStart, true);
+    }
+
+    function onLibraryRetryClick() {
+        if (!state.library) {
+            return;
+        }
+        setError("");
+        state.library.loadFailed = false;
+        var generation = bumpLibraryFetchGeneration();
+        fetchLibraryPage(generation, 0, false);
     }
 
     function renderLibraryScreen() {
@@ -606,8 +691,15 @@
         screenEl.appendChild(err);
 
         var body = el("div", "browse-body browse-body-grid");
-        if (lib.loading && lib.items.length === 0) {
+        if (lib.loading && lib.items.length === 0 && !lib.loadFailed) {
             body.appendChild(el("p", "browse-status", "Loading titles…"));
+        } else if (lib.loadFailed && lib.items.length === 0) {
+            body.appendChild(el("p", "browse-status", "Could not load this library."));
+            var retryBtn = makeButton("library-retry", "Retry");
+            retryBtn.classList.add("browse-action");
+            bindFocusable(retryBtn);
+            retryBtn.addEventListener("click", onLibraryRetryClick);
+            body.appendChild(retryBtn);
         } else if (lib.items.length === 0) {
             body.appendChild(el("p", "browse-status", "This library is empty."));
         } else {
@@ -622,15 +714,19 @@
                 );
             });
             body.appendChild(grid);
-            if (lib.loading) {
-                body.appendChild(el("p", "browse-status browse-status-inline", "Loading more…"));
+            if (lib.items.length < lib.totalRecordCount) {
+                var loadMoreBtn = makeButton("library-load-more", lib.loading ? "Loading more…" : "Load more titles");
+                loadMoreBtn.classList.add("browse-action");
+                loadMoreBtn.disabled = lib.loading;
+                bindFocusable(loadMoreBtn);
+                loadMoreBtn.addEventListener("click", onLibraryLoadMoreClick);
+                body.appendChild(loadMoreBtn);
             }
         }
         screenEl.appendChild(body);
     }
 
     function openDetails(itemId, returnView) {
-        invalidatePendingRequests();
         var generation = bumpRequestGeneration();
         state.detailsReturnView = returnView === "library" ? "library" : "home";
         state.view = "details";
@@ -641,6 +737,9 @@
                 return;
             }
             if (!result.ok) {
+                if (handleBrowseAuthFailure(result)) {
+                    return;
+                }
                 setError(result.error && result.error.message ? result.error.message : "Could not load details.");
                 renderDetailsScreen();
                 return;
@@ -678,6 +777,7 @@
         err.textContent = state.error;
         screenEl.appendChild(err);
 
+        var body = el("div", "browse-body browse-body-details");
         var layout = el("div", "details-layout");
         var art = el("div", "details-poster");
         if (item.id) {
@@ -698,7 +798,8 @@
         copy.appendChild(el("p", "details-overview", item.overview || "No description available."));
         copy.appendChild(el("p", "details-placeholder", "Playback will be available in a future update."));
         layout.appendChild(copy);
-        screenEl.appendChild(layout);
+        body.appendChild(layout);
+        screenEl.appendChild(body);
 
         backBtn.focus();
     }
@@ -840,8 +941,11 @@
             state.error = "";
             if (state.detailsReturnView === "library" && state.library) {
                 state.view = "library";
+                if (state.library.loading) {
+                    state.library.loading = false;
+                }
                 renderLibraryScreen();
-                focusLibraryTile(state.libraryFocusItemId);
+                focusLibraryScreenDefault();
             } else {
                 state.view = "home";
                 var sessionFromDetails = backend.currentSession();
@@ -1125,6 +1229,16 @@
             }
             return false;
         }
+        if (active && active.id === "library-load-more") {
+            if (code === KEY_UP && state.library && state.library.items.length > 0) {
+                var lastIdx = state.library.items.length - 1;
+                var lastCol = lastIdx % LIBRARY_COLUMNS;
+                var lastRowStart = lastIdx - lastCol;
+                focusLibraryTile(state.library.items[lastRowStart + Math.min(lastCol, LIBRARY_COLUMNS - 1)].id);
+                return true;
+            }
+            return false;
+        }
         if (!active || !active.classList.contains("browse-tile") || !state.library) {
             return false;
         }
@@ -1147,7 +1261,6 @@
             if (nextIndex >= 0 && nextIndex < total) {
                 rememberLibraryFocus(state.library.items[nextIndex].id);
                 focusLibraryTile(state.library.items[nextIndex].id);
-                maybeLoadMoreLibraryItems();
             }
         }
 
@@ -1172,14 +1285,15 @@
         }
         if (code === KEY_DOWN) {
             if (row >= maxRow) {
-                maybeLoadMoreLibraryItems();
+                var loadMore = document.getElementById("library-load-more");
+                if (loadMore && !loadMore.disabled) {
+                    loadMore.focus();
+                }
                 return true;
             }
             var downIndex = index + LIBRARY_COLUMNS;
             if (downIndex < total) {
                 focusIndex(downIndex);
-            } else {
-                maybeLoadMoreLibraryItems();
             }
             return true;
         }

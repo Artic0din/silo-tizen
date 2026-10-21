@@ -145,6 +145,20 @@ body {
     overflow: hidden;
 }
 
+.screen-details {
+    overflow: hidden;
+}
+
+.browse-body-details {
+    max-height: 720px;
+}
+
+.browse-action {
+    width: auto;
+    min-width: 360px;
+    margin-top: 16px;
+}
+
 .browse-header {
     flex-shrink: 0;
     margin-bottom: 32px;

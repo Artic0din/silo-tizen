@@ -335,3 +335,21 @@ body {
     color: #9aa0b8;
     margin: 0;
 }
+
+.quickconnect-code {
+    margin: 16px 0 40px;
+    font-size: 160px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    line-height: 1;
+    color: #f2f2f7;
+    font-variant-numeric: tabular-nums;
+}
+
+.quickconnect-instructions {
+    margin: 0 0 48px;
+    font-size: 44px;
+    line-height: 1.4;
+    color: #c8cad8;
+    max-width: 1300px;
+}

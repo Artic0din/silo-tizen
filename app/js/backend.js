@@ -291,6 +291,26 @@
                 });
         }
 
+        function persistSessionFromAuth(serverUrl, data, fallbackUserName) {
+            var token = data && data.AccessToken;
+            var user = (data && data.User) || {};
+            if (!token || !user.Id) {
+                return Promise.resolve({ ok: false, error: { code: "auth_failed", message: "Sign-in failed." } });
+            }
+            return serverInfo(serverUrl).then(function (infoResult) {
+                var serverName = infoResult.ok ? infoResult.serverName : serverUrl;
+                var session = {
+                    serverUrl: serverUrl,
+                    userId: user.Id,
+                    userName: user.Name || fallbackUserName || "User",
+                    accessToken: token,
+                    serverName: serverName
+                };
+                setActiveSession(serverUrl, session);
+                return { ok: true, session: session };
+            });
+        }
+
         function signIn(urlInput, username, password) {
             var serverUrl = normalizeServerUrl(urlInput);
             if (!serverUrl) {
@@ -312,23 +332,130 @@
                         return { ok: false, error: { code: "auth_failed", message: "Sign-in failed." } };
                     }
                     var data = parseJsonBody(result.bodyText);
-                    var token = data && data.AccessToken;
-                    var user = (data && data.User) || {};
-                    if (!token || !user.Id) {
-                        return { ok: false, error: { code: "auth_failed", message: "Sign-in failed." } };
+                    return persistSessionFromAuth(serverUrl, data, username);
+                })
+                .catch(function (err) {
+                    return { ok: false, error: mapFetchError(err) };
+                });
+        }
+
+        function quickConnectEnabled(urlInput) {
+            var serverUrl = normalizeServerUrl(urlInput);
+            if (!serverUrl) {
+                return Promise.resolve({ ok: false, error: { code: "invalid_url", message: "Enter a valid server address." } });
+            }
+
+            return jellyfinRequest(serverUrl, "/QuickConnect/Enabled", { method: "GET" }, "")
+                .then(function (result) {
+                    var response = result.response;
+                    if (response.status === 401 || response.status === 404) {
+                        return { ok: true, enabled: false };
                     }
-                    return serverInfo(serverUrl).then(function (infoResult) {
-                        var serverName = infoResult.ok ? infoResult.serverName : serverUrl;
-                        var session = {
-                            serverUrl: serverUrl,
-                            userId: user.Id,
-                            userName: user.Name || username,
-                            accessToken: token,
-                            serverName: serverName
+                    if (!response.ok) {
+                        return {
+                            ok: false,
+                            error: { code: "server_error", message: "Could not check Quick Connect." }
                         };
-                        setActiveSession(serverUrl, session);
-                        return { ok: true, session: session };
-                    });
+                    }
+                    var data = parseJsonBody(result.bodyText);
+                    var enabled = false;
+                    if (typeof data === "boolean") {
+                        enabled = data;
+                    } else if (data && typeof data.Enabled === "boolean") {
+                        enabled = data.Enabled;
+                    }
+                    return { ok: true, enabled: enabled };
+                })
+                .catch(function (err) {
+                    return { ok: false, error: mapFetchError(err) };
+                });
+        }
+
+        function quickConnectInitiate(urlInput) {
+            var serverUrl = normalizeServerUrl(urlInput);
+            if (!serverUrl) {
+                return Promise.resolve({ ok: false, error: { code: "invalid_url", message: "Enter a valid server address." } });
+            }
+
+            return jellyfinRequest(serverUrl, "/QuickConnect/Initiate", { method: "POST", body: "{}" }, "")
+                .then(function (result) {
+                    var response = result.response;
+                    if (!response.ok) {
+                        return {
+                            ok: false,
+                            error: { code: "initiate_failed", message: "Could not start Quick Connect." }
+                        };
+                    }
+                    var data = parseJsonBody(result.bodyText);
+                    var secret = data && data.Secret;
+                    var code = data && data.Code;
+                    if (!secret || !code) {
+                        return { ok: false, error: { code: "initiate_failed", message: "Could not start Quick Connect." } };
+                    }
+                    return { ok: true, secret: secret, code: String(code) };
+                })
+                .catch(function (err) {
+                    return { ok: false, error: mapFetchError(err) };
+                });
+        }
+
+        function quickConnectPoll(urlInput, secret) {
+            var serverUrl = normalizeServerUrl(urlInput);
+            if (!serverUrl) {
+                return Promise.resolve({ ok: false, error: { code: "invalid_url", message: "Enter a valid server address." } });
+            }
+            if (!secret) {
+                return Promise.resolve({ ok: false, error: { code: "expired", message: "Quick Connect code expired." } });
+            }
+
+            var path = "/QuickConnect/Connect?secret=" + encodeURIComponent(secret);
+            return jellyfinRequest(serverUrl, path, { method: "GET" }, "")
+                .then(function (result) {
+                    var response = result.response;
+                    if (response.status === 400 || response.status === 404) {
+                        return { ok: false, error: { code: "expired", message: "Quick Connect code expired." } };
+                    }
+                    if (!response.ok) {
+                        return {
+                            ok: false,
+                            error: { code: "poll_failed", message: "Could not check Quick Connect status." }
+                        };
+                    }
+                    var data = parseJsonBody(result.bodyText);
+                    if (data && data.Authenticated === true) {
+                        return { ok: true, authenticated: true };
+                    }
+                    return { ok: true, authenticated: false };
+                })
+                .catch(function (err) {
+                    return { ok: false, error: mapFetchError(err) };
+                });
+        }
+
+        function authenticateWithQuickConnect(urlInput, secret) {
+            var serverUrl = normalizeServerUrl(urlInput);
+            if (!serverUrl) {
+                return Promise.resolve({ ok: false, error: { code: "invalid_url", message: "Enter a valid server address." } });
+            }
+            if (!secret) {
+                return Promise.resolve({ ok: false, error: { code: "expired", message: "Quick Connect code expired." } });
+            }
+
+            var body = JSON.stringify({ Secret: secret });
+            return jellyfinRequest(serverUrl, "/Users/AuthenticateWithQuickConnect", { method: "POST", body: body }, "")
+                .then(function (result) {
+                    var response = result.response;
+                    if (response.status === 401) {
+                        return { ok: false, error: { code: "unauthorized", message: "Quick Connect sign-in failed." } };
+                    }
+                    if (response.status === 400 || response.status === 404) {
+                        return { ok: false, error: { code: "expired", message: "Quick Connect code expired." } };
+                    }
+                    if (!response.ok) {
+                        return { ok: false, error: { code: "auth_failed", message: "Quick Connect sign-in failed." } };
+                    }
+                    var data = parseJsonBody(result.bodyText);
+                    return persistSessionFromAuth(serverUrl, data, "User");
                 })
                 .catch(function (err) {
                     return { ok: false, error: mapFetchError(err) };
@@ -674,6 +801,10 @@
         return {
             serverInfo: serverInfo,
             signIn: signIn,
+            quickConnectEnabled: quickConnectEnabled,
+            quickConnectInitiate: quickConnectInitiate,
+            quickConnectPoll: quickConnectPoll,
+            authenticateWithQuickConnect: authenticateWithQuickConnect,
             signOut: signOut,
             currentSession: currentSession,
             validateSession: validateSession,

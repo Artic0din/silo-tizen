@@ -11,6 +11,9 @@
 
     var LIBRARY_PAGE_SIZE = 60;
     var LIBRARY_COLUMNS = 6;
+    var testConfig = window.SiloTestConfig || {};
+    var QUICK_CONNECT_POLL_MS = testConfig.quickConnectPollMs || 5000;
+    var QUICK_CONNECT_TIMEOUT_MS = testConfig.quickConnectTimeoutMs || 10 * 60 * 1000;
 
     var backend = window.SiloBackend;
     var screenEl = document.getElementById("screen");
@@ -38,7 +41,16 @@
         library: null,
         libraryFocusItemId: "",
         detailsItem: null,
-        detailsReturnView: "home"
+        detailsReturnView: "home",
+        quickConnectAvailable: false,
+        quickConnectRetry: "",
+        quickConnect: {
+            secret: "",
+            code: "",
+            pollTimer: null,
+            pollGeneration: 0,
+            startedAt: 0
+        }
     };
 
     function bumpRequestGeneration() {
@@ -173,7 +185,29 @@
     }
 
     function isFormView() {
-        return state.view === "server" || state.view === "signin" || state.view === "connecting" || state.view === "offline";
+        return (
+            state.view === "server" ||
+            state.view === "signin" ||
+            state.view === "signin-choice" ||
+            state.view === "quickconnect-code" ||
+            state.view === "quickconnect-expired" ||
+            state.view === "quickconnect-error" ||
+            state.view === "connecting" ||
+            state.view === "offline"
+        );
+    }
+
+    function backToSignInChoiceFromQuickConnect() {
+        stopQuickConnectPolling();
+        state.quickConnect.secret = "";
+        state.quickConnect.code = "";
+        state.error = "";
+        var session = backend.currentSession();
+        if (session) {
+            renderHomeScreen(session);
+            return;
+        }
+        renderSignInChoiceScreen();
     }
 
     function collectFocusables() {
@@ -244,6 +278,82 @@
 
     function invalidatePendingRequests() {
         bumpRequestGeneration();
+        stopQuickConnectPolling();
+    }
+
+    function stopQuickConnectPolling() {
+        if (state.quickConnect.pollTimer) {
+            clearTimeout(state.quickConnect.pollTimer);
+            state.quickConnect.pollTimer = null;
+        }
+        state.quickConnect.pollGeneration += 1;
+    }
+
+    function scheduleQuickConnectPoll() {
+        var pollGen = state.quickConnect.pollGeneration;
+        state.quickConnect.pollTimer = setTimeout(function () {
+            state.quickConnect.pollTimer = null;
+            if (pollGen !== state.quickConnect.pollGeneration) {
+                return;
+            }
+            if (state.view !== "quickconnect-code") {
+                return;
+            }
+            performQuickConnectPoll(pollGen);
+        }, QUICK_CONNECT_POLL_MS);
+    }
+
+    function performQuickConnectPoll(pollGen) {
+        if (Date.now() - state.quickConnect.startedAt >= QUICK_CONNECT_TIMEOUT_MS) {
+            stopQuickConnectPolling();
+            renderQuickConnectExpiredScreen();
+            return;
+        }
+
+        backend.quickConnectPoll(state.serverUrl, state.quickConnect.secret).then(function (result) {
+            if (pollGen !== state.quickConnect.pollGeneration) {
+                return;
+            }
+            if (state.view !== "quickconnect-code") {
+                return;
+            }
+            if (!result.ok) {
+                stopQuickConnectPolling();
+                if (result.error.code === "expired") {
+                    renderQuickConnectExpiredScreen();
+                    return;
+                }
+                renderQuickConnectErrorScreen(result.error.message, "poll");
+                return;
+            }
+            if (result.authenticated) {
+                stopQuickConnectPolling();
+                completeQuickConnectAuth();
+                return;
+            }
+            scheduleQuickConnectPoll();
+        });
+    }
+
+    function completeQuickConnectAuth() {
+        var generation = bumpRequestGeneration();
+        backend.authenticateWithQuickConnect(state.serverUrl, state.quickConnect.secret).then(function (result) {
+            if (isStaleRequest(generation)) {
+                return;
+            }
+            if (!result.ok) {
+                if (result.error.code === "expired") {
+                    renderQuickConnectExpiredScreen();
+                    return;
+                }
+                renderQuickConnectErrorScreen(result.error.message, "auth");
+                return;
+            }
+            state.error = "";
+            state.quickConnect.secret = "";
+            state.quickConnect.code = "";
+            renderHomeScreen(result.session);
+        });
     }
 
     function submitForCurrentView() {
@@ -419,6 +529,120 @@
 
         connectBtn.addEventListener("click", onConnectClick);
 
+        focusByIndex(0);
+    }
+
+    function renderSignInChoiceScreen() {
+        invalidatePendingRequests();
+        state.view = "signin-choice";
+        clearScreen();
+        screenEl.className = "screen screen-form";
+        screenEl.appendChild(el("p", "eyebrow", "Sign in"));
+        screenEl.appendChild(el("h1", "title", state.serverName || "Silo"));
+        screenEl.appendChild(
+            el("p", "subtitle", "Approve Quick Connect on your phone or web, or sign in with a password.")
+        );
+
+        var err = el("p", "error");
+        err.id = "screen-error";
+        err.hidden = !state.error;
+        err.textContent = state.error;
+        screenEl.appendChild(err);
+
+        var stack = el("div", "form-stack");
+        var quickBtn = makeButton("signin-quickconnect-start", "Quick Connect");
+        var passwordBtn = makeButton("signin-use-password", "Sign in with password");
+        stack.appendChild(quickBtn);
+        stack.appendChild(passwordBtn);
+        screenEl.appendChild(stack);
+
+        [quickBtn, passwordBtn].forEach(bindFocusable);
+        quickBtn.addEventListener("click", onQuickConnectStartClick);
+        passwordBtn.addEventListener("click", function () {
+            state.error = "";
+            renderSignInScreen();
+        });
+
+        focusByIndex(0);
+    }
+
+    function renderQuickConnectCodeScreen() {
+        stopQuickConnectPolling();
+        state.view = "quickconnect-code";
+        clearScreen();
+        screenEl.className = "screen screen-form";
+        screenEl.appendChild(el("p", "eyebrow", "Quick Connect"));
+        screenEl.appendChild(el("h1", "title", state.serverName || "Silo"));
+
+        var codeEl = el("p", "quickconnect-code", state.quickConnect.code);
+        codeEl.id = "quickconnect-code-display";
+        screenEl.appendChild(codeEl);
+
+        screenEl.appendChild(
+            el(
+                "p",
+                "quickconnect-instructions",
+                "Enter this code in the Silo app or web UI under Quick Connect, then approve the request."
+            )
+        );
+
+        var err = el("p", "error");
+        err.id = "screen-error";
+        err.hidden = !state.error;
+        err.textContent = state.error;
+        screenEl.appendChild(err);
+
+        var cancelBtn = makeButton("quickconnect-cancel", "Cancel");
+        screenEl.appendChild(cancelBtn);
+        bindFocusable(cancelBtn);
+        cancelBtn.addEventListener("click", onQuickConnectCancelClick);
+
+        focusByIndex(0);
+        scheduleQuickConnectPoll();
+    }
+
+    function renderQuickConnectExpiredScreen() {
+        stopQuickConnectPolling();
+        state.view = "quickconnect-expired";
+        clearScreen();
+        screenEl.className = "screen screen-form";
+        screenEl.appendChild(el("p", "eyebrow", "Quick Connect"));
+        screenEl.appendChild(el("h1", "title", "Expired"));
+        screenEl.appendChild(
+            el("p", "subtitle", "This code is no longer valid. Get a new code to try again.")
+        );
+
+        var renewBtn = makeButton("quickconnect-renew", "Get a new code");
+        screenEl.appendChild(renewBtn);
+        bindFocusable(renewBtn);
+        renewBtn.addEventListener("click", onQuickConnectStartClick);
+        focusByIndex(0);
+    }
+
+    function renderQuickConnectErrorScreen(message, retryMode) {
+        stopQuickConnectPolling();
+        state.view = "quickconnect-error";
+        state.quickConnectRetry = retryMode || "poll";
+        clearScreen();
+        screenEl.className = "screen screen-form";
+        screenEl.appendChild(el("p", "eyebrow", "Quick Connect"));
+        screenEl.appendChild(el("h1", "title", "Connection problem"));
+
+        var err = el("p", "error");
+        err.id = "screen-error";
+        err.textContent = message || "Could not reach the server.";
+        screenEl.appendChild(err);
+
+        var retryBtn = makeButton("quickconnect-retry", "Retry");
+        var cancelBtn = makeButton("quickconnect-error-cancel", "Cancel");
+        var stack = el("div", "form-stack");
+        stack.appendChild(retryBtn);
+        stack.appendChild(cancelBtn);
+        screenEl.appendChild(stack);
+
+        [retryBtn, cancelBtn].forEach(bindFocusable);
+        retryBtn.addEventListener("click", onQuickConnectRetryClick);
+        cancelBtn.addEventListener("click", onQuickConnectCancelClick);
         focusByIndex(0);
     }
 
@@ -836,8 +1060,86 @@
             state.serverUrl = result.serverUrl;
             state.serverName = result.serverName;
             state.error = "";
-            renderSignInScreen();
+            backend.quickConnectEnabled(state.serverUrl).then(function (qcResult) {
+                if (isStaleRequest(generation)) {
+                    return;
+                }
+                if (qcResult.ok && qcResult.enabled) {
+                    state.quickConnectAvailable = true;
+                    renderSignInChoiceScreen();
+                    return;
+                }
+                state.quickConnectAvailable = false;
+                renderSignInScreen();
+            });
         });
+    }
+
+    function onQuickConnectStartClick() {
+        var startBtn = document.getElementById("signin-quickconnect-start");
+        var renewBtn = document.getElementById("quickconnect-renew");
+        var activeBtn = startBtn || renewBtn;
+        if (activeBtn && activeBtn.disabled) {
+            return;
+        }
+        setError("");
+        var generation = bumpRequestGeneration();
+        stopQuickConnectPolling();
+        if (activeBtn) {
+            activeBtn.disabled = true;
+        }
+
+        backend.quickConnectInitiate(state.serverUrl).then(function (result) {
+            if (isStaleRequest(generation)) {
+                return;
+            }
+            if (activeBtn) {
+                activeBtn.disabled = false;
+            }
+            if (!result.ok) {
+                if (result.error.code === "unreachable" || result.error.code === "timeout") {
+                    renderQuickConnectErrorScreen(result.error.message, "initiate");
+                } else {
+                    setError(result.error.message);
+                    ensureScreenFocus();
+                }
+                return;
+            }
+            state.quickConnect.secret = result.secret;
+            state.quickConnect.code = result.code;
+            state.quickConnect.startedAt = Date.now();
+            renderQuickConnectCodeScreen();
+        });
+    }
+
+    function onQuickConnectCancelClick() {
+        if (state.quickConnectAvailable) {
+            backToSignInChoiceFromQuickConnect();
+            return;
+        }
+        stopQuickConnectPolling();
+        state.quickConnect.secret = "";
+        state.quickConnect.code = "";
+        state.error = "";
+        if (backend.currentSession()) {
+            renderHomeScreen(backend.currentSession());
+        } else {
+            renderSignInScreen();
+        }
+    }
+
+    function onQuickConnectRetryClick() {
+        if (state.quickConnectRetry === "initiate") {
+            onQuickConnectStartClick();
+            return;
+        }
+        if (!state.quickConnect.secret || !state.quickConnect.code) {
+            onQuickConnectStartClick();
+            return;
+        }
+        state.error = "";
+        state.quickConnect.startedAt = Date.now();
+        renderQuickConnectCodeScreen();
     }
 
     function onSignInClick() {
@@ -968,10 +1270,40 @@
             }
             return true;
         }
+        if (state.view === "signin-choice") {
+            return false;
+        }
+        if (
+            state.view === "quickconnect-code" ||
+            state.view === "quickconnect-expired" ||
+            state.view === "quickconnect-error"
+        ) {
+            if (state.quickConnectAvailable) {
+                backToSignInChoiceFromQuickConnect();
+            } else {
+                invalidatePendingRequests();
+                stopQuickConnectPolling();
+                state.quickConnect.secret = "";
+                state.quickConnect.code = "";
+                state.error = "";
+                if (backend.currentSession()) {
+                    renderHomeScreen(backend.currentSession());
+                } else {
+                    renderServerScreen();
+                }
+            }
+            return true;
+        }
         invalidatePendingRequests();
         if (state.view === "signin") {
             state.error = "";
-            renderServerScreen();
+            if (state.quickConnectAvailable) {
+                backToSignInChoiceFromQuickConnect();
+            } else if (backend.currentSession()) {
+                renderHomeScreen(backend.currentSession());
+            } else {
+                renderServerScreen();
+            }
             return true;
         }
         if (state.view === "offline") {
@@ -1336,13 +1668,15 @@
             return;
         }
 
-        if (code === KEY_UP || code === KEY_DOWN) {
+        if (code === KEY_UP || code === KEY_DOWN || code === KEY_LEFT || code === KEY_RIGHT) {
             if (isFormView()) {
-                var focusables = collectFocusables();
-                if (focusables.length > 1) {
-                    event.preventDefault();
-                    var delta = code === KEY_UP ? -1 : 1;
-                    focusByIndex(state.focusIndex + delta);
+                event.preventDefault();
+                if (code === KEY_UP || code === KEY_DOWN) {
+                    var focusables = collectFocusables();
+                    if (focusables.length > 1) {
+                        var delta = code === KEY_UP ? -1 : 1;
+                        focusByIndex(state.focusIndex + delta);
+                    }
                 }
             }
             return;

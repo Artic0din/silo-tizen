@@ -1,6 +1,69 @@
 "use strict";
 
 var http = require("http");
+var url = require("url");
+
+var LIBRARY_MOVIES = "lib-movies";
+var LIBRARY_TV = "lib-tv";
+
+function makeItem(id, name, type, extra) {
+    extra = extra || {};
+    return Object.assign(
+        {
+            Id: id,
+            Name: name,
+            Type: type,
+            Overview: extra.overview || name + " overview.",
+            ParentId: extra.parentId || null,
+            ImageTags: extra.imageTags || (extra.noImage ? {} : { Primary: "tag-" + id }),
+            UserData: extra.userData || null,
+            RunTimeTicks: extra.runTimeTicks || 72000000000
+        },
+        extra.raw || {}
+    );
+}
+
+function buildMovieItems(count, prefix) {
+    prefix = prefix || "movie";
+    var items = [];
+    for (var i = 0; i < count; i++) {
+        var id = prefix + "-" + String(i).padStart(3, "0");
+        items.push(
+            makeItem(id, "Movie " + (i + 1), "Movie", {
+                parentId: LIBRARY_MOVIES,
+                noImage: i === 2
+            })
+        );
+    }
+    return items;
+}
+
+var MOVIE_CATALOG = buildMovieItems(75, "movie");
+var RESUME_ITEMS = [
+    makeItem("resume-1", "Resume One", "Movie", {
+        parentId: LIBRARY_MOVIES,
+        userData: { PlaybackPositionTicks: 36000000000, PlayedPercentage: 50 }
+    }),
+    makeItem("resume-2", "Resume Two", "Episode", {
+        parentId: LIBRARY_TV,
+        userData: { PlaybackPositionTicks: 18000000000, PlayedPercentage: 25 }
+    })
+];
+var LATEST_MOVIES = MOVIE_CATALOG.slice(0, 6);
+var LATEST_TV = [
+    makeItem("series-1", "Latest Series", "Series", { parentId: LIBRARY_TV }),
+    makeItem("series-2", "Another Show", "Series", { parentId: LIBRARY_TV, noImage: true })
+];
+var LIBRARIES = [
+    makeItem(LIBRARY_MOVIES, "Movies", "CollectionFolder", {
+        raw: { CollectionType: "movies" },
+        imageTags: { Primary: "lib-movies-tag" }
+    }),
+    makeItem(LIBRARY_TV, "TV Shows", "CollectionFolder", {
+        raw: { CollectionType: "tvshows" },
+        imageTags: { Primary: "lib-tv-tag" }
+    })
+];
 
 function createMockJellyfinServer(options) {
     options = options || {};
@@ -13,12 +76,20 @@ function createMockJellyfinServer(options) {
     var logoutCalls = 0;
     var server = null;
 
-    function pathMatches(url, suffix) {
-        var pathOnly = url.split("?")[0];
+    function pathMatches(reqUrl, suffix) {
+        var pathOnly = reqUrl.split("?")[0];
         if (pathPrefix) {
             return pathOnly === pathPrefix + suffix;
         }
         return pathOnly === suffix;
+    }
+
+    function pathEndsWith(reqUrl, suffix) {
+        var pathOnly = reqUrl.split("?")[0];
+        if (pathPrefix) {
+            return pathOnly === pathPrefix + suffix || pathOnly.endsWith(suffix);
+        }
+        return pathOnly.endsWith(suffix);
     }
 
     server = http.createServer(function (req, res) {
@@ -59,6 +130,70 @@ function createMockJellyfinServer(options) {
             }
             res.writeHead(200, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ Id: "user-123", Name: "Test User" }));
+            return;
+        }
+
+        if (req.method === "GET" && pathEndsWith(req.url, "/Users/user-123/Views")) {
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ Items: LIBRARIES }));
+            return;
+        }
+
+        if (req.method === "GET" && pathEndsWith(req.url, "/Users/user-123/Items/Resume")) {
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ Items: RESUME_ITEMS }));
+            return;
+        }
+
+        if (req.method === "GET" && req.url.indexOf("/Users/user-123/Items/Latest") !== -1) {
+            var parsedLatest = url.parse(req.url, true);
+            var parentId = parsedLatest.query.ParentId;
+            var latestItems = parentId === LIBRARY_TV ? LATEST_TV : LATEST_MOVIES;
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify(latestItems));
+            return;
+        }
+
+        if (req.method === "GET" && req.url.indexOf("/Users/user-123/Items?") !== -1) {
+            var parsedItems = url.parse(req.url, true);
+            var q = parsedItems.query;
+            var start = parseInt(q.StartIndex || "0", 10);
+            var limit = parseInt(q.Limit || "60", 10);
+            var parent = q.ParentId;
+            var pool = parent === LIBRARY_TV ? LATEST_TV : MOVIE_CATALOG;
+            var slice = pool.slice(start, start + limit);
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(
+                JSON.stringify({
+                    Items: slice,
+                    TotalRecordCount: pool.length,
+                    StartIndex: start
+                })
+            );
+            return;
+        }
+
+        if (req.method === "GET" && req.url.indexOf("/Users/user-123/Items/") !== -1) {
+            var detailPath = req.url.split("?")[0];
+            var itemId = detailPath.split("/").pop();
+            var found = null;
+            [].concat(MOVIE_CATALOG, LATEST_TV, RESUME_ITEMS, LIBRARIES).some(function (item) {
+                if (item.Id === itemId) {
+                    found = item;
+                    return true;
+                }
+                return false;
+            });
+            if (found) {
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(JSON.stringify(found));
+                return;
+            }
+        }
+
+        if (req.method === "GET" && req.url.indexOf("/Items/") !== -1 && req.url.indexOf("/Images/Primary") !== -1) {
+            res.writeHead(200, { "Content-Type": "image/png" });
+            res.end(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
             return;
         }
 
@@ -115,4 +250,8 @@ function createMockJellyfinServer(options) {
     });
 }
 
-module.exports = { createMockJellyfinServer };
+module.exports = {
+    createMockJellyfinServer: createMockJellyfinServer,
+    LIBRARY_MOVIES: LIBRARY_MOVIES,
+    LIBRARY_TV: LIBRARY_TV
+};

@@ -144,6 +144,20 @@
         return { code: "unreachable", message: "Could not reach the server." };
     }
 
+    function itemTypesForLibrary(collectionType) {
+        var kind = String(collectionType || "").toLowerCase();
+        if (kind === "movies") {
+            return "Movie";
+        }
+        if (kind === "tvshows") {
+            return "Series";
+        }
+        if (kind === "music") {
+            return "MusicAlbum,Audio";
+        }
+        return "Movie,Series,Episode,Video";
+    }
+
     function createBackend(options) {
         options = options || {};
         var storage = options.storage || defaultStorage();
@@ -345,6 +359,276 @@
             return getSessionForUrl(activeUrl);
         }
 
+        function mapBrowseItem(raw) {
+            if (!raw || !raw.Id) {
+                return null;
+            }
+            return {
+                id: raw.Id,
+                title: raw.Name || raw.SeriesName || "Untitled",
+                type: raw.Type || "Unknown",
+                overview: raw.Overview || "",
+                imageTag: raw.ImageTags && raw.ImageTags.Primary ? raw.ImageTags.Primary : null,
+                parentId: raw.ParentId || null,
+                runTimeTicks: raw.RunTimeTicks || 0,
+                userData: raw.UserData || null
+            };
+        }
+
+        function mapBrowseItems(list) {
+            if (!Array.isArray(list)) {
+                return [];
+            }
+            var out = [];
+            list.forEach(function (raw) {
+                var mapped = mapBrowseItem(raw);
+                if (mapped) {
+                    out.push(mapped);
+                }
+            });
+            return out;
+        }
+
+        function mapLibraryView(raw) {
+            if (!raw || !raw.Id) {
+                return null;
+            }
+            return {
+                id: raw.Id,
+                title: raw.Name || "Library",
+                type: raw.CollectionType || raw.Type || "Unknown",
+                imageTag: raw.ImageTags && raw.ImageTags.Primary ? raw.ImageTags.Primary : null
+            };
+        }
+
+        function primaryImageUrl(itemId, options) {
+            options = options || {};
+            var session = currentSession();
+            if (!session || !itemId) {
+                return "";
+            }
+            var maxHeight = options.maxHeight != null ? options.maxHeight : 400;
+            var quality = options.quality != null ? options.quality : 90;
+            var query =
+                "maxHeight=" +
+                encodeURIComponent(String(maxHeight)) +
+                "&quality=" +
+                encodeURIComponent(String(quality)) +
+                "&api_key=" +
+                encodeURIComponent(session.accessToken);
+            return joinServerPath(session.serverUrl, "/Items/" + encodeURIComponent(itemId) + "/Images/Primary?" + query);
+        }
+
+        function unauthorizedBrowseResult(session) {
+            clearActiveSession(session.serverUrl);
+            return {
+                ok: false,
+                signedOut: true,
+                error: { code: "unauthorized", message: "Session expired. Sign in again." }
+            };
+        }
+
+        function browseAuthFailure(session, response) {
+            if (response.status === 401 || response.status === 403) {
+                return unauthorizedBrowseResult(session);
+            }
+            return null;
+        }
+
+        function browseHome() {
+            var session = currentSession();
+            if (!session) {
+                return Promise.resolve({ ok: false, error: { code: "unauthorized", message: "Sign in required." } });
+            }
+            var userId = session.userId;
+            var token = session.accessToken;
+            var serverUrl = session.serverUrl;
+
+            return jellyfinRequest(serverUrl, "/Users/" + encodeURIComponent(userId) + "/Views", { method: "GET" }, token)
+                .then(function (viewsResult) {
+                    var authFail = browseAuthFailure(session, viewsResult.response);
+                    if (authFail) {
+                        return authFail;
+                    }
+                    if (!viewsResult.response.ok) {
+                        return { ok: false, error: { code: "browse_failed", message: "Could not load libraries." } };
+                    }
+                    var viewsData = parseJsonBody(viewsResult.bodyText);
+                    var libraries = [];
+                    (viewsData.Items || []).forEach(function (raw) {
+                        var lib = mapLibraryView(raw);
+                        if (lib) {
+                            libraries.push(lib);
+                        }
+                    });
+
+                    var resumePath = "/Users/" + encodeURIComponent(userId) + "/Items/Resume?Limit=24&Fields=PrimaryImageAspectRatio,Overview";
+                    return jellyfinRequest(serverUrl, resumePath, { method: "GET" }, token).then(function (resumeResult) {
+                        var resumeAuthFail = browseAuthFailure(session, resumeResult.response);
+                        if (resumeAuthFail) {
+                            return resumeAuthFail;
+                        }
+                        var resumeItems = [];
+                        if (resumeResult.response.ok) {
+                            var resumeData = parseJsonBody(resumeResult.bodyText);
+                            resumeItems = mapBrowseItems(resumeData.Items || []);
+                        }
+
+                        var latestPromises = libraries.map(function (lib) {
+                            var latestPath =
+                                "/Users/" +
+                                encodeURIComponent(userId) +
+                                "/Items/Latest?ParentId=" +
+                                encodeURIComponent(lib.id) +
+                                "&Limit=24&Fields=PrimaryImageAspectRatio,Overview";
+                            return jellyfinRequest(serverUrl, latestPath, { method: "GET" }, token).then(function (latestResult) {
+                                var latestAuthFail = browseAuthFailure(session, latestResult.response);
+                                if (latestAuthFail) {
+                                    return latestAuthFail;
+                                }
+                                if (!latestResult.response.ok) {
+                                    return { library: lib, items: [] };
+                                }
+                                var latestData = parseJsonBody(latestResult.bodyText);
+                                var items = mapBrowseItems(Array.isArray(latestData) ? latestData : latestData.Items || []);
+                                return { library: lib, items: items };
+                            });
+                        });
+
+                        return Promise.all(latestPromises).then(function (latestRows) {
+                            for (var rowIdx = 0; rowIdx < latestRows.length; rowIdx++) {
+                                if (latestRows[rowIdx] && latestRows[rowIdx].signedOut) {
+                                    return latestRows[rowIdx];
+                                }
+                            }
+                            var sections = [];
+                            if (resumeItems.length > 0) {
+                                sections.push({
+                                    id: "continue-watching",
+                                    title: "Continue Watching",
+                                    items: resumeItems
+                                });
+                            }
+                            latestRows.forEach(function (row) {
+                                if (row.items.length > 0) {
+                                    sections.push({
+                                        id: "latest-" + row.library.id,
+                                        title: "Latest in " + row.library.title,
+                                        items: row.items
+                                    });
+                                }
+                            });
+                            if (libraries.length > 0) {
+                                sections.push({
+                                    id: "my-libraries",
+                                    title: "My Libraries",
+                                    items: libraries.map(function (lib) {
+                                        return {
+                                            id: lib.id,
+                                            title: lib.title,
+                                            type: "Library",
+                                            overview: "",
+                                            imageTag: lib.imageTag,
+                                            parentId: null,
+                                            runTimeTicks: 0,
+                                            userData: null,
+                                            collectionType: lib.type
+                                        };
+                                    })
+                                });
+                            }
+                            return { ok: true, sections: sections };
+                        });
+                    });
+                })
+                .catch(function (err) {
+                    return { ok: false, error: mapFetchError(err) };
+                });
+        }
+
+        function browseLibraryItems(libraryId, options) {
+            options = options || {};
+            var session = currentSession();
+            if (!session) {
+                return Promise.resolve({ ok: false, error: { code: "unauthorized", message: "Sign in required." } });
+            }
+            if (!libraryId) {
+                return Promise.resolve({ ok: false, error: { code: "invalid_library", message: "Missing library." } });
+            }
+            var startIndex = options.startIndex != null ? options.startIndex : 0;
+            var limit = options.limit != null ? options.limit : 60;
+            var includeTypes = options.includeItemTypes || "Movie,Series,Episode,Video";
+            var userId = session.userId;
+            var query =
+                "ParentId=" +
+                encodeURIComponent(libraryId) +
+                "&SortBy=SortName&SortOrder=Ascending&Recursive=true" +
+                "&IncludeItemTypes=" +
+                encodeURIComponent(includeTypes) +
+                "&StartIndex=" +
+                encodeURIComponent(String(startIndex)) +
+                "&Limit=" +
+                encodeURIComponent(String(limit)) +
+                "&Fields=PrimaryImageAspectRatio,Overview";
+            var path = "/Users/" + encodeURIComponent(userId) + "/Items?" + query;
+
+            return jellyfinRequest(session.serverUrl, path, { method: "GET" }, session.accessToken)
+                .then(function (result) {
+                    var authFail = browseAuthFailure(session, result.response);
+                    if (authFail) {
+                        return authFail;
+                    }
+                    if (!result.response.ok) {
+                        return { ok: false, error: { code: "browse_failed", message: "Could not load library items." } };
+                    }
+                    var data = parseJsonBody(result.bodyText);
+                    return {
+                        ok: true,
+                        items: mapBrowseItems(data.Items || []),
+                        totalRecordCount: data.TotalRecordCount != null ? data.TotalRecordCount : 0,
+                        startIndex: startIndex
+                    };
+                })
+                .catch(function (err) {
+                    return { ok: false, error: mapFetchError(err) };
+                });
+        }
+
+        function browseItemDetails(itemId) {
+            var session = currentSession();
+            if (!session) {
+                return Promise.resolve({ ok: false, error: { code: "unauthorized", message: "Sign in required." } });
+            }
+            if (!itemId) {
+                return Promise.resolve({ ok: false, error: { code: "invalid_item", message: "Missing item." } });
+            }
+            var path =
+                "/Users/" +
+                encodeURIComponent(session.userId) +
+                "/Items/" +
+                encodeURIComponent(itemId) +
+                "?Fields=Overview,PrimaryImageAspectRatio";
+            return jellyfinRequest(session.serverUrl, path, { method: "GET" }, session.accessToken)
+                .then(function (result) {
+                    var authFail = browseAuthFailure(session, result.response);
+                    if (authFail) {
+                        return authFail;
+                    }
+                    if (!result.response.ok) {
+                        return { ok: false, error: { code: "browse_failed", message: "Could not load item details." } };
+                    }
+                    var raw = parseJsonBody(result.bodyText);
+                    var item = mapBrowseItem(raw);
+                    if (!item) {
+                        return { ok: false, error: { code: "browse_failed", message: "Could not load item details." } };
+                    }
+                    return { ok: true, item: item };
+                })
+                .catch(function (err) {
+                    return { ok: false, error: mapFetchError(err) };
+                });
+        }
+
         function validateSession() {
             var session = currentSession();
             if (!session) {
@@ -393,6 +677,11 @@
             signOut: signOut,
             currentSession: currentSession,
             validateSession: validateSession,
+            browseHome: browseHome,
+            browseLibraryItems: browseLibraryItems,
+            browseItemDetails: browseItemDetails,
+            primaryImageUrl: primaryImageUrl,
+            itemTypesForLibrary: itemTypesForLibrary,
             normalizeServerUrl: normalizeServerUrl,
             joinServerPath: joinServerPath,
             buildAuthHeader: function (token) {
@@ -411,6 +700,7 @@
         REQUEST_TIMEOUT_MS: REQUEST_TIMEOUT_MS,
         normalizeServerUrl: normalizeServerUrl,
         joinServerPath: joinServerPath,
-        buildAuthHeaderForTest: buildAuthHeader
+        buildAuthHeaderForTest: buildAuthHeader,
+        itemTypesForLibrary: itemTypesForLibrary
     };
 });

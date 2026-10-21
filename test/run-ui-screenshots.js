@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Headless Chromium walkthrough of sign-in screens against the mock Jellyfin server.
+ * Headless Chromium walkthrough of sign-in and browse screens against the mock Jellyfin server.
  * Run: npm ci && npx playwright install chromium && node test/run-ui-screenshots.js
  */
 
@@ -10,7 +10,7 @@ var os = require("os");
 var path = require("path");
 var http = require("http");
 var { chromium } = require("playwright");
-var { createMockJellyfinServer } = require("./mock-jellyfin-server");
+var { createMockJellyfinServer, LIBRARY_MOVIES } = require("./mock-jellyfin-server");
 
 var ARTIFACT_DIR = process.env.SCREENSHOT_DIR || path.join(os.tmpdir(), "silo-screenshots");
 var APP_ROOT = path.join(__dirname, "..", "app");
@@ -73,6 +73,13 @@ function pressKey(page, key) {
     return page.keyboard.press(key);
 }
 
+function dispatchBack(page) {
+    return page.evaluate(function () {
+        var event = new KeyboardEvent("keydown", { keyCode: 10009, bubbles: true });
+        document.dispatchEvent(event);
+    });
+}
+
 function seedSession(page, serverUrl) {
     return page.evaluate(function (url) {
         var session = {
@@ -113,8 +120,24 @@ async function main() {
     await page.fill("#signin-username", "alice");
     await page.fill("#signin-password", "secret");
     await page.click("#signin-submit");
-    await page.waitForSelector("#signedin-signout", { timeout: 5000 });
-    await page.screenshot({ path: path.join(ARTIFACT_DIR, "03-signed-in-screen.png") });
+    await page.waitForSelector(".browse-row", { timeout: 10000 });
+    await page.screenshot({ path: path.join(ARTIFACT_DIR, "03-home-screen.png") });
+
+    var librarySelector =
+        '.browse-tile[data-section-id="my-libraries"][data-item-id="' + LIBRARY_MOVIES + '"]';
+    await page.focus(librarySelector);
+    await page.keyboard.press("Enter");
+    await page.waitForSelector(".browse-grid", { timeout: 10000 });
+    await page.screenshot({ path: path.join(ARTIFACT_DIR, "04-library-grid.png") });
+
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("ArrowDown");
+    await page.screenshot({ path: path.join(ARTIFACT_DIR, "05-library-grid-focus-moved.png") });
+
+    await dispatchBack(page);
+    await page.waitForSelector(librarySelector, { timeout: 5000 });
+    await page.screenshot({ path: path.join(ARTIFACT_DIR, "06-home-focus-restored.png") });
 
     await seedSession(page, mock.baseUrl);
     await page.route("**/Users/Me", async function (route) {
@@ -125,15 +148,15 @@ async function main() {
     });
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForSelector("#connecting-wait", { timeout: 5000 });
-    await page.screenshot({ path: path.join(ARTIFACT_DIR, "06-connecting-screen.png") });
+    await page.screenshot({ path: path.join(ARTIFACT_DIR, "07-connecting-screen.png") });
     await page.unroute("**/Users/Me");
-    await page.waitForSelector("#signedin-signout", { timeout: 15000 });
+    await page.waitForSelector(".browse-row", { timeout: 15000 });
 
     var mockOffline = await createMockJellyfinServer({ usersMe503: true });
     await seedSession(page, mockOffline.baseUrl);
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForSelector("#offline-retry", { timeout: 10000 });
-    await page.screenshot({ path: path.join(ARTIFACT_DIR, "07-offline-retry-screen.png") });
+    await page.screenshot({ path: path.join(ARTIFACT_DIR, "08-offline-retry-screen.png") });
 
     await page.evaluate(function () {
         localStorage.clear();
@@ -146,7 +169,7 @@ async function main() {
         var err = document.getElementById("screen-error");
         return err && err.textContent.indexOf("reach") !== -1;
     });
-    await page.screenshot({ path: path.join(ARTIFACT_DIR, "04-error-unreachable.png") });
+    await page.screenshot({ path: path.join(ARTIFACT_DIR, "09-error-unreachable.png") });
 
     var mock401 = await createMockJellyfinServer({ auth401: true });
     await page.fill("#server-url", mock401.baseUrl.replace("http://", ""));
@@ -159,7 +182,7 @@ async function main() {
         var err = document.getElementById("screen-error");
         return err && err.textContent.toLowerCase().indexOf("password") !== -1;
     });
-    await page.screenshot({ path: path.join(ARTIFACT_DIR, "05-error-unauthorized.png") });
+    await page.screenshot({ path: path.join(ARTIFACT_DIR, "10-error-unauthorized.png") });
 
     await browser.close();
     await staticServer.close();

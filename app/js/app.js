@@ -9,6 +9,9 @@
     var KEY_LEFT = 37;
     var KEY_RIGHT = 39;
 
+    var LIBRARY_PAGE_SIZE = 60;
+    var LIBRARY_COLUMNS = 6;
+
     var backend = window.SiloBackend;
     var screenEl = document.getElementById("screen");
 
@@ -26,7 +29,16 @@
         focusIndex: 0,
         pendingServerUrl: "",
         requestGeneration: 0,
-        submitOnNextEnter: ""
+        libraryFetchGeneration: 0,
+        submitOnNextEnter: "",
+        homeSections: [],
+        homeLoading: false,
+        homeLoadFailed: false,
+        homeFocus: { sectionId: "", itemId: "" },
+        library: null,
+        libraryFocusItemId: "",
+        detailsItem: null,
+        detailsReturnView: "home"
     };
 
     function bumpRequestGeneration() {
@@ -36,6 +48,62 @@
 
     function isStaleRequest(generation) {
         return generation !== state.requestGeneration;
+    }
+
+    function bumpLibraryFetchGeneration() {
+        state.libraryFetchGeneration += 1;
+        return state.libraryFetchGeneration;
+    }
+
+    function isStaleLibraryFetch(generation) {
+        return generation !== state.libraryFetchGeneration;
+    }
+
+    function handleBrowseAuthFailure(result) {
+        if (result && result.signedOut) {
+            setError(result.error && result.error.message ? result.error.message : "Session expired. Sign in again.");
+            renderServerScreen();
+            return true;
+        }
+        return false;
+    }
+
+    function mergeLibraryItems(existing, incoming) {
+        var seen = Object.create(null);
+        var merged = [];
+        existing.forEach(function (item) {
+            seen[item.id] = true;
+            merged.push(item);
+        });
+        incoming.forEach(function (item) {
+            if (!seen[item.id]) {
+                seen[item.id] = true;
+                merged.push(item);
+            }
+        });
+        return merged;
+    }
+
+    function focusLibraryScreenDefault() {
+        var lib = state.library;
+        if (!lib) {
+            return;
+        }
+        if (lib.loadFailed && lib.items.length === 0) {
+            var retryBtn = document.getElementById("library-retry");
+            if (retryBtn) {
+                retryBtn.focus();
+            }
+            return;
+        }
+        if (lib.items.length > 0) {
+            focusLibraryTile(state.libraryFocusItemId || lib.items[0].id);
+            return;
+        }
+        var backBtn = document.getElementById("library-back");
+        if (backBtn) {
+            backBtn.focus();
+        }
     }
 
     function clearScreen() {
@@ -86,14 +154,33 @@
     function bindFocusable(element) {
         element.addEventListener("focus", function () {
             element.classList.add("focused");
+            scrollFocusedIntoView(element);
         });
         element.addEventListener("blur", function () {
             element.classList.remove("focused");
         });
     }
 
+    function scrollFocusedIntoView(element) {
+        if (!element || !element.scrollIntoView) {
+            return;
+        }
+        try {
+            element.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "auto" });
+        } catch (scrollErr) {
+            element.scrollIntoView(false);
+        }
+    }
+
+    function isFormView() {
+        return state.view === "server" || state.view === "signin" || state.view === "connecting" || state.view === "offline";
+    }
+
     function collectFocusables() {
-        var nodes = screenEl.querySelectorAll(".field-input, .tv-button");
+        var selector = isFormView()
+            ? ".field-input, .tv-button"
+            : ".tv-button, .browse-tile, .details-back, .browse-action";
+        var nodes = screenEl.querySelectorAll(selector);
         state.focusIds = [];
         var list = [];
         nodes.forEach(function (node) {
@@ -136,7 +223,13 @@
             }
         });
         if (!inScreen) {
-            focusByIndex(state.focusIndex);
+            if (state.view === "home") {
+                focusHomeTile(state.homeFocus.sectionId, state.homeFocus.itemId);
+            } else if (state.view === "library") {
+                focusLibraryTile(state.libraryFocusItemId);
+            } else {
+                focusByIndex(state.focusIndex);
+            }
         }
     }
 
@@ -161,9 +254,110 @@
         }
     }
 
+    function posterUrl(itemId) {
+        return backend.primaryImageUrl(itemId, { maxHeight: 420, quality: 90 });
+    }
+
+    function createPosterTile(item, sectionId, onActivate) {
+        var tile = el("button", "browse-tile");
+        tile.type = "button";
+        tile.setAttribute("data-section-id", sectionId);
+        tile.setAttribute("data-item-id", item.id);
+        tile.setAttribute("data-item-type", item.type || "");
+
+        var art = el("div", "browse-poster");
+        if (item.imageTag) {
+            var img = document.createElement("img");
+            img.className = "browse-poster-img";
+            img.alt = "";
+            img.src = posterUrl(item.id);
+            img.addEventListener("error", function () {
+                img.remove();
+                art.classList.add("browse-poster-fallback");
+                art.setAttribute("data-fallback-title", item.title);
+            });
+            art.appendChild(img);
+        } else {
+            art.classList.add("browse-poster-fallback");
+            art.setAttribute("data-fallback-title", item.title);
+        }
+
+        var caption = el("span", "browse-tile-label", item.title);
+        tile.appendChild(art);
+        tile.appendChild(caption);
+        bindFocusable(tile);
+        tile.addEventListener("click", function () {
+            if (onActivate) {
+                onActivate(item, sectionId);
+            }
+        });
+        return tile;
+    }
+
+    function rememberHomeFocus(sectionId, itemId) {
+        state.homeFocus = { sectionId: sectionId || "", itemId: itemId || "" };
+    }
+
+    function rememberLibraryFocus(itemId) {
+        state.libraryFocusItemId = itemId || "";
+    }
+
+    function focusHomeTile(sectionId, itemId) {
+        var selector =
+            '.browse-tile[data-section-id="' + sectionId + '"][data-item-id="' + itemId + '"]';
+        var node = screenEl.querySelector(selector);
+        if (node) {
+            rememberHomeFocus(sectionId, itemId);
+            node.focus();
+            return true;
+        }
+        var first = screenEl.querySelector(".browse-tile");
+        if (first) {
+            rememberHomeFocus(first.getAttribute("data-section-id"), first.getAttribute("data-item-id"));
+            first.focus();
+            return true;
+        }
+        var signOut = document.getElementById("home-signout");
+        if (signOut) {
+            signOut.focus();
+        }
+        return false;
+    }
+
+    function focusLibraryTile(itemId) {
+        var node = screenEl.querySelector('.browse-tile[data-item-id="' + itemId + '"]');
+        if (node) {
+            rememberLibraryFocus(itemId);
+            node.focus();
+            return true;
+        }
+        var first = screenEl.querySelector(".browse-grid .browse-tile");
+        if (first) {
+            rememberLibraryFocus(first.getAttribute("data-item-id"));
+            first.focus();
+            return true;
+        }
+        var backBtn = document.getElementById("library-back");
+        if (backBtn) {
+            backBtn.focus();
+        }
+        return false;
+    }
+
+    function firstHomeFocusTarget() {
+        for (var i = 0; i < state.homeSections.length; i++) {
+            var section = state.homeSections[i];
+            if (section.items && section.items.length > 0) {
+                return { sectionId: section.id, itemId: section.items[0].id };
+            }
+        }
+        return { sectionId: "", itemId: "" };
+    }
+
     function renderConnectingScreen() {
         state.view = "connecting";
         clearScreen();
+        screenEl.className = "screen screen-form";
         screenEl.appendChild(el("p", "eyebrow", "Silo"));
         screenEl.appendChild(el("h1", "title", "Connecting…"));
         screenEl.appendChild(el("p", "subtitle", "Checking your saved session with the server."));
@@ -177,6 +371,7 @@
     function renderOfflineScreen(session, message) {
         state.view = "offline";
         clearScreen();
+        screenEl.className = "screen screen-form";
         screenEl.appendChild(el("p", "eyebrow", "Offline"));
         screenEl.appendChild(el("h1", "title", "Could not reach server"));
         screenEl.appendChild(
@@ -201,6 +396,7 @@
         invalidatePendingRequests();
         state.view = "server";
         clearScreen();
+        screenEl.className = "screen screen-form";
         screenEl.appendChild(el("p", "eyebrow", "Connect"));
         screenEl.appendChild(el("h1", "title", "Silo server"));
         screenEl.appendChild(el("p", "hint", "Example: http://192.168.x.x:8096 (port 8096 is used if omitted)"));
@@ -230,6 +426,7 @@
         invalidatePendingRequests();
         state.view = "signin";
         clearScreen();
+        screenEl.className = "screen screen-form";
         screenEl.appendChild(el("p", "eyebrow", "Sign in"));
         screenEl.appendChild(el("h1", "title", state.serverName || "Silo"));
         screenEl.appendChild(el("p", "subtitle", "Enter your account for this server."));
@@ -255,26 +452,356 @@
         focusByIndex(0);
     }
 
-    function renderSignedInScreen(session) {
-        invalidatePendingRequests();
-        state.view = "signedin";
+    function renderHomeShell(session) {
+        state.view = "home";
         clearScreen();
-        screenEl.appendChild(el("p", "eyebrow", "Signed in"));
-        screenEl.appendChild(el("h1", "title", "Silo"));
+        screenEl.className = "screen screen-browse";
 
-        var line = el(
+        var header = el("header", "browse-header");
+        header.appendChild(el("p", "eyebrow browse-eyebrow", "Home"));
+        header.appendChild(el("h1", "browse-title", session.serverName || "Silo"));
+        var meta = el(
             "p",
-            "signed-in-line",
-            "Signed in as " + session.userName + " on " + session.serverName
+            "browse-meta",
+            "Signed in as " + session.userName
         );
-        screenEl.appendChild(line);
-
-        var signOutBtn = makeButton("signedin-signout", "Sign out");
-        screenEl.appendChild(signOutBtn);
+        header.appendChild(meta);
+        var signOutBtn = makeButton("home-signout", "Sign out");
+        header.appendChild(signOutBtn);
         bindFocusable(signOutBtn);
         signOutBtn.addEventListener("click", onSignOutClick);
+        screenEl.appendChild(header);
 
-        focusByIndex(0);
+        var err = el("p", "error");
+        err.id = "screen-error";
+        err.hidden = !state.error;
+        err.textContent = state.error;
+        screenEl.appendChild(err);
+
+        var body = el("div", "browse-body");
+        body.id = "browse-body";
+        if (state.homeLoading) {
+            body.appendChild(el("p", "browse-status", "Loading your libraries…"));
+        } else if (state.homeLoadFailed) {
+            body.appendChild(el("p", "browse-status", "Could not load your home rows."));
+            var homeRetry = makeButton("home-retry", "Retry");
+            homeRetry.classList.add("browse-action");
+            homeRetry.addEventListener("click", onHomeRetryClick);
+            bindFocusable(homeRetry);
+            body.appendChild(homeRetry);
+        } else if (state.homeSections.length === 0) {
+            body.appendChild(el("p", "browse-status", "No rows to show yet."));
+        } else {
+            state.homeSections.forEach(function (section) {
+                if (!section.items || section.items.length === 0) {
+                    return;
+                }
+                var row = el("section", "browse-row");
+                row.setAttribute("data-section-id", section.id);
+                row.appendChild(el("h2", "browse-row-title", section.title));
+                var strip = el("div", "browse-row-strip");
+                section.items.forEach(function (item) {
+                    strip.appendChild(
+                        createPosterTile(item, section.id, function (tileItem, sectionId) {
+                            onHomeTileActivate(tileItem, sectionId);
+                        })
+                    );
+                });
+                row.appendChild(strip);
+                body.appendChild(row);
+            });
+        }
+        screenEl.appendChild(body);
+    }
+
+    function loadHomeData(session, generation) {
+        state.homeLoading = true;
+        renderHomeShell(session);
+        return backend.browseHome().then(function (result) {
+            if (isStaleRequest(generation)) {
+                return;
+            }
+            state.homeLoading = false;
+            if (!result.ok) {
+                if (handleBrowseAuthFailure(result)) {
+                    return;
+                }
+                setError(result.error && result.error.message ? result.error.message : "Could not load home.");
+                state.homeSections = [];
+                state.homeLoadFailed = true;
+            } else {
+                state.error = "";
+                state.homeLoadFailed = false;
+                state.homeSections = result.sections || [];
+            }
+            renderHomeShell(session);
+            if (!state.homeFocus.sectionId) {
+                var first = firstHomeFocusTarget();
+                rememberHomeFocus(first.sectionId, first.itemId);
+            }
+            focusHomeTile(state.homeFocus.sectionId, state.homeFocus.itemId);
+        });
+    }
+
+    function renderHomeScreen(session) {
+        invalidatePendingRequests();
+        var generation = bumpRequestGeneration();
+        state.homeSections = [];
+        state.homeLoadFailed = false;
+        return loadHomeData(session, generation);
+    }
+
+    function onHomeRetryClick() {
+        var session = backend.currentSession();
+        if (!session) {
+            renderServerScreen();
+            return;
+        }
+        var generation = bumpRequestGeneration();
+        state.homeLoadFailed = false;
+        setError("");
+        loadHomeData(session, generation);
+    }
+
+    function onHomeTileActivate(item, sectionId) {
+        rememberHomeFocus(sectionId, item.id);
+        if (item.type === "Library") {
+            openLibrary({
+                id: item.id,
+                title: item.title,
+                collectionType: item.collectionType || "unknown"
+            });
+            return;
+        }
+        openDetails(item.id, "home");
+    }
+
+    function openLibrary(libraryMeta) {
+        invalidatePendingRequests();
+        var generation = bumpLibraryFetchGeneration();
+        state.library = {
+            id: libraryMeta.id,
+            title: libraryMeta.title,
+            collectionType: libraryMeta.collectionType,
+            items: [],
+            totalRecordCount: 0,
+            startIndex: 0,
+            loading: true,
+            loadFailed: false
+        };
+        state.view = "library";
+        renderLibraryScreen();
+        focusLibraryScreenDefault();
+        fetchLibraryPage(generation, 0, false);
+    }
+
+    function fetchLibraryPage(generation, startIndex, append) {
+        if (!state.library) {
+            return;
+        }
+        state.library.loading = true;
+        var includeTypes = backend.itemTypesForLibrary(state.library.collectionType);
+        backend
+            .browseLibraryItems(state.library.id, {
+                startIndex: startIndex,
+                limit: LIBRARY_PAGE_SIZE,
+                includeItemTypes: includeTypes
+            })
+            .then(function (result) {
+                if (isStaleLibraryFetch(generation) || state.view !== "library" || !state.library) {
+                    if (state.library) {
+                        state.library.loading = false;
+                    }
+                    return;
+                }
+                state.library.loading = false;
+                if (!result.ok) {
+                    if (handleBrowseAuthFailure(result)) {
+                        return;
+                    }
+                    state.library.loadFailed = true;
+                    setError(result.error && result.error.message ? result.error.message : "Could not load library.");
+                    renderLibraryScreen();
+                    focusLibraryScreenDefault();
+                    return;
+                }
+                state.error = "";
+                state.library.loadFailed = false;
+                if (append) {
+                    state.library.items = mergeLibraryItems(state.library.items, result.items);
+                } else {
+                    state.library.items = result.items;
+                }
+                state.library.totalRecordCount = result.totalRecordCount;
+                state.library.startIndex = startIndex;
+                renderLibraryScreen();
+                if (!state.libraryFocusItemId && state.library.items.length > 0) {
+                    rememberLibraryFocus(state.library.items[0].id);
+                }
+                focusLibraryScreenDefault();
+            });
+    }
+
+    function onLibraryLoadMoreClick() {
+        if (!state.library || state.library.loading) {
+            return;
+        }
+        if (state.library.items.length >= state.library.totalRecordCount) {
+            return;
+        }
+        var generation = state.libraryFetchGeneration;
+        var nextStart = state.library.items.length;
+        fetchLibraryPage(generation, nextStart, true);
+    }
+
+    function onLibraryRetryClick() {
+        if (!state.library) {
+            return;
+        }
+        setError("");
+        state.library.loadFailed = false;
+        var generation = bumpLibraryFetchGeneration();
+        fetchLibraryPage(generation, 0, false);
+    }
+
+    function renderLibraryScreen() {
+        clearScreen();
+        screenEl.className = "screen screen-browse";
+        var lib = state.library;
+        if (!lib) {
+            return;
+        }
+
+        var header = el("header", "browse-header");
+        header.appendChild(el("p", "eyebrow browse-eyebrow", "Library"));
+        header.appendChild(el("h1", "browse-title", lib.title));
+        var backBtn = makeButton("library-back", "Back");
+        backBtn.classList.add("details-back");
+        header.appendChild(backBtn);
+        bindFocusable(backBtn);
+        backBtn.addEventListener("click", function () {
+            goBackOneScreen();
+        });
+        screenEl.appendChild(header);
+
+        var err = el("p", "error");
+        err.id = "screen-error";
+        err.hidden = !state.error;
+        err.textContent = state.error;
+        screenEl.appendChild(err);
+
+        var body = el("div", "browse-body browse-body-grid");
+        if (lib.loading && lib.items.length === 0 && !lib.loadFailed) {
+            body.appendChild(el("p", "browse-status", "Loading titles…"));
+        } else if (lib.loadFailed && lib.items.length === 0) {
+            body.appendChild(el("p", "browse-status", "Could not load this library."));
+            var retryBtn = makeButton("library-retry", "Retry");
+            retryBtn.classList.add("browse-action");
+            bindFocusable(retryBtn);
+            retryBtn.addEventListener("click", onLibraryRetryClick);
+            body.appendChild(retryBtn);
+        } else if (lib.items.length === 0) {
+            body.appendChild(el("p", "browse-status", "This library is empty."));
+        } else {
+            var grid = el("div", "browse-grid");
+            grid.style.setProperty("--browse-columns", String(LIBRARY_COLUMNS));
+            lib.items.forEach(function (item) {
+                grid.appendChild(
+                    createPosterTile(item, "library-grid", function (tileItem) {
+                        rememberLibraryFocus(tileItem.id);
+                        openDetails(tileItem.id, "library");
+                    })
+                );
+            });
+            body.appendChild(grid);
+            if (lib.items.length < lib.totalRecordCount) {
+                var loadMoreBtn = makeButton("library-load-more", lib.loading ? "Loading more…" : "Load more titles");
+                loadMoreBtn.classList.add("browse-action");
+                loadMoreBtn.disabled = lib.loading;
+                bindFocusable(loadMoreBtn);
+                loadMoreBtn.addEventListener("click", onLibraryLoadMoreClick);
+                body.appendChild(loadMoreBtn);
+            }
+        }
+        screenEl.appendChild(body);
+    }
+
+    function openDetails(itemId, returnView) {
+        var generation = bumpRequestGeneration();
+        state.detailsReturnView = returnView === "library" ? "library" : "home";
+        state.view = "details";
+        state.detailsItem = { id: itemId, title: "Loading…", overview: "" };
+        renderDetailsScreen();
+        backend.browseItemDetails(itemId).then(function (result) {
+            if (isStaleRequest(generation) || state.view !== "details") {
+                return;
+            }
+            if (!result.ok) {
+                if (handleBrowseAuthFailure(result)) {
+                    return;
+                }
+                setError(result.error && result.error.message ? result.error.message : "Could not load details.");
+                renderDetailsScreen();
+                return;
+            }
+            state.error = "";
+            state.detailsItem = result.item;
+            renderDetailsScreen();
+            var backBtn = document.getElementById("details-back");
+            if (backBtn) {
+                backBtn.focus();
+            }
+        });
+    }
+
+    function renderDetailsScreen() {
+        clearScreen();
+        screenEl.className = "screen screen-browse screen-details";
+        var item = state.detailsItem || { title: "Item", overview: "" };
+
+        var header = el("header", "browse-header");
+        header.appendChild(el("p", "eyebrow browse-eyebrow", "Details"));
+        header.appendChild(el("h1", "browse-title", item.title));
+        var backBtn = makeButton("details-back", "Back");
+        backBtn.classList.add("details-back");
+        header.appendChild(backBtn);
+        bindFocusable(backBtn);
+        backBtn.addEventListener("click", function () {
+            goBackOneScreen();
+        });
+        screenEl.appendChild(header);
+
+        var err = el("p", "error");
+        err.id = "screen-error";
+        err.hidden = !state.error;
+        err.textContent = state.error;
+        screenEl.appendChild(err);
+
+        var body = el("div", "browse-body browse-body-details");
+        var layout = el("div", "details-layout");
+        var art = el("div", "details-poster");
+        if (item.id) {
+            var img = document.createElement("img");
+            img.className = "browse-poster-img";
+            img.alt = "";
+            img.src = posterUrl(item.id);
+            img.addEventListener("error", function () {
+                img.remove();
+                art.classList.add("browse-poster-fallback");
+                art.setAttribute("data-fallback-title", item.title);
+            });
+            art.appendChild(img);
+        }
+        layout.appendChild(art);
+
+        var copy = el("div", "details-copy");
+        copy.appendChild(el("p", "details-overview", item.overview || "No description available."));
+        copy.appendChild(el("p", "details-placeholder", "Playback will be available in a future update."));
+        layout.appendChild(copy);
+        body.appendChild(layout);
+        screenEl.appendChild(body);
+
+        backBtn.focus();
     }
 
     function onConnectClick() {
@@ -342,12 +869,12 @@
                 return;
             }
             state.error = "";
-            renderSignedInScreen(result.session);
+            renderHomeScreen(result.session);
         });
     }
 
     function onSignOutClick() {
-        var signOutBtn = document.getElementById("signedin-signout");
+        var signOutBtn = document.getElementById("home-signout") || document.getElementById("signedin-signout");
         if (signOutBtn) {
             signOutBtn.disabled = true;
         }
@@ -357,6 +884,9 @@
             state.serverName = "";
             state.pendingServerUrl = "";
             state.error = "";
+            state.homeSections = [];
+            state.library = null;
+            state.detailsItem = null;
             renderServerScreen();
         });
     }
@@ -389,7 +919,7 @@
 
     function handleValidationResult(result) {
         if (result.ok && result.session) {
-            renderSignedInScreen(result.session);
+            renderHomeScreen(result.session);
             return;
         }
         if (result.offline && result.session) {
@@ -405,13 +935,46 @@
     }
 
     function goBackOneScreen() {
+        if (state.view === "details") {
+            invalidatePendingRequests();
+            state.detailsItem = null;
+            state.error = "";
+            if (state.detailsReturnView === "library" && state.library) {
+                state.view = "library";
+                if (state.library.loading) {
+                    state.library.loading = false;
+                }
+                renderLibraryScreen();
+                focusLibraryScreenDefault();
+            } else {
+                state.view = "home";
+                var sessionFromDetails = backend.currentSession();
+                if (sessionFromDetails) {
+                    renderHomeShell(sessionFromDetails);
+                    focusHomeTile(state.homeFocus.sectionId, state.homeFocus.itemId);
+                }
+            }
+            return true;
+        }
+        if (state.view === "library") {
+            invalidatePendingRequests();
+            state.view = "home";
+            state.library = null;
+            state.error = "";
+            var session = backend.currentSession();
+            if (session) {
+                renderHomeShell(session);
+                focusHomeTile(state.homeFocus.sectionId, state.homeFocus.itemId);
+            }
+            return true;
+        }
         invalidatePendingRequests();
         if (state.view === "signin") {
             state.error = "";
             renderServerScreen();
             return true;
         }
-        if (state.view === "signedin" || state.view === "offline") {
+        if (state.view === "offline") {
             state.error = "";
             renderSignInScreen();
             return true;
@@ -578,6 +1141,165 @@
         return map[event.key] || 0;
     }
 
+    function homeRowsMeta() {
+        var rows = [];
+        state.homeSections.forEach(function (section) {
+            if (!section.items || section.items.length === 0) {
+                return;
+            }
+            rows.push({
+                sectionId: section.id,
+                items: section.items.map(function (item) {
+                    return item.id;
+                })
+            });
+        });
+        return rows;
+    }
+
+    function handleHomeBrowseKey(code) {
+        var active = document.activeElement;
+        if (active && active.id === "home-signout") {
+            if (code === KEY_DOWN) {
+                var first = firstHomeFocusTarget();
+                if (first.sectionId) {
+                    focusHomeTile(first.sectionId, first.itemId);
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (!active || !active.classList.contains("browse-tile")) {
+            return false;
+        }
+        var sectionId = active.getAttribute("data-section-id");
+        var itemId = active.getAttribute("data-item-id");
+        var rows = homeRowsMeta();
+        var rowIndex = -1;
+        var colIndex = -1;
+        rows.forEach(function (row, rIdx) {
+            if (row.sectionId === sectionId) {
+                rowIndex = rIdx;
+                colIndex = row.items.indexOf(itemId);
+            }
+        });
+        if (rowIndex < 0 || colIndex < 0) {
+            return false;
+        }
+
+        if (code === KEY_LEFT && colIndex > 0) {
+            focusHomeTile(sectionId, rows[rowIndex].items[colIndex - 1]);
+            return true;
+        }
+        if (code === KEY_RIGHT && colIndex < rows[rowIndex].items.length - 1) {
+            focusHomeTile(sectionId, rows[rowIndex].items[colIndex + 1]);
+            return true;
+        }
+        if (code === KEY_UP) {
+            if (rowIndex === 0) {
+                var signOut = document.getElementById("home-signout");
+                if (signOut) {
+                    signOut.focus();
+                }
+                return true;
+            }
+            var targetRow = rows[rowIndex - 1];
+            var nextCol = Math.min(colIndex, targetRow.items.length - 1);
+            focusHomeTile(targetRow.sectionId, targetRow.items[nextCol]);
+            return true;
+        }
+        if (code === KEY_DOWN) {
+            if (rowIndex >= rows.length - 1) {
+                return true;
+            }
+            var downRow = rows[rowIndex + 1];
+            var downCol = Math.min(colIndex, downRow.items.length - 1);
+            focusHomeTile(downRow.sectionId, downRow.items[downCol]);
+            return true;
+        }
+        return false;
+    }
+
+    function handleLibraryBrowseKey(code) {
+        var active = document.activeElement;
+        if (active && active.id === "library-back") {
+            if (code === KEY_DOWN && state.library && state.library.items.length > 0) {
+                focusLibraryTile(state.library.items[0].id);
+                return true;
+            }
+            return false;
+        }
+        if (active && active.id === "library-load-more") {
+            if (code === KEY_UP && state.library && state.library.items.length > 0) {
+                var lastIdx = state.library.items.length - 1;
+                var lastCol = lastIdx % LIBRARY_COLUMNS;
+                var lastRowStart = lastIdx - lastCol;
+                focusLibraryTile(state.library.items[lastRowStart + Math.min(lastCol, LIBRARY_COLUMNS - 1)].id);
+                return true;
+            }
+            return false;
+        }
+        if (!active || !active.classList.contains("browse-tile") || !state.library) {
+            return false;
+        }
+        var itemId = active.getAttribute("data-item-id");
+        var index = -1;
+        state.library.items.forEach(function (item, idx) {
+            if (item.id === itemId) {
+                index = idx;
+            }
+        });
+        if (index < 0) {
+            return false;
+        }
+        var col = index % LIBRARY_COLUMNS;
+        var row = Math.floor(index / LIBRARY_COLUMNS);
+        var total = state.library.items.length;
+        var maxRow = Math.floor((total - 1) / LIBRARY_COLUMNS);
+
+        function focusIndex(nextIndex) {
+            if (nextIndex >= 0 && nextIndex < total) {
+                rememberLibraryFocus(state.library.items[nextIndex].id);
+                focusLibraryTile(state.library.items[nextIndex].id);
+            }
+        }
+
+        if (code === KEY_LEFT && col > 0) {
+            focusIndex(index - 1);
+            return true;
+        }
+        if (code === KEY_RIGHT && col < LIBRARY_COLUMNS - 1 && index + 1 < total) {
+            focusIndex(index + 1);
+            return true;
+        }
+        if (code === KEY_UP) {
+            if (row === 0) {
+                var backBtn = document.getElementById("library-back");
+                if (backBtn) {
+                    backBtn.focus();
+                }
+                return true;
+            }
+            focusIndex(index - LIBRARY_COLUMNS);
+            return true;
+        }
+        if (code === KEY_DOWN) {
+            if (row >= maxRow) {
+                var loadMore = document.getElementById("library-load-more");
+                if (loadMore && !loadMore.disabled) {
+                    loadMore.focus();
+                }
+                return true;
+            }
+            var downIndex = index + LIBRARY_COLUMNS;
+            if (downIndex < total) {
+                focusIndex(downIndex);
+            }
+            return true;
+        }
+        return false;
+    }
+
     function onKeyDown(event) {
         var code = keyCodeFromEvent(event);
 
@@ -602,12 +1324,26 @@
             return;
         }
 
+        if (state.view === "home" && (code === KEY_UP || code === KEY_DOWN || code === KEY_LEFT || code === KEY_RIGHT)) {
+            event.preventDefault();
+            handleHomeBrowseKey(code);
+            return;
+        }
+
+        if (state.view === "library" && (code === KEY_UP || code === KEY_DOWN || code === KEY_LEFT || code === KEY_RIGHT)) {
+            event.preventDefault();
+            handleLibraryBrowseKey(code);
+            return;
+        }
+
         if (code === KEY_UP || code === KEY_DOWN) {
-            var focusables = collectFocusables();
-            if (focusables.length > 1) {
-                event.preventDefault();
-                var delta = code === KEY_UP ? -1 : 1;
-                focusByIndex(state.focusIndex + delta);
+            if (isFormView()) {
+                var focusables = collectFocusables();
+                if (focusables.length > 1) {
+                    event.preventDefault();
+                    var delta = code === KEY_UP ? -1 : 1;
+                    focusByIndex(state.focusIndex + delta);
+                }
             }
             return;
         }
@@ -625,7 +1361,7 @@
                 }
                 return;
             }
-            if (active && active.classList.contains("tv-button")) {
+            if (active && (active.classList.contains("tv-button") || active.classList.contains("browse-tile"))) {
                 event.preventDefault();
                 if (!active.disabled) {
                     active.click();
@@ -641,7 +1377,7 @@
         registerRemoteKeys();
         document.addEventListener("keydown", onKeyDown, false);
         document.addEventListener("focusin", function () {
-            if (!exitDialogOpen) {
+            if (!exitDialogOpen && isFormView()) {
                 var focusables = collectFocusables();
                 focusables.forEach(function (node, idx) {
                     if (node === document.activeElement) {

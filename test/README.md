@@ -18,6 +18,14 @@ node test/run-ui-screenshots.js
 
 Screenshots are written to `SCREENSHOT_DIR`, or `os.tmpdir()/silo-screenshots` when unset.
 
+## Browse focus navigation (Playwright)
+
+```bash
+npm ci
+npx playwright install chromium
+node test/run-focus-tests.js
+```
+
 ## Static checks
 
 ```bash
@@ -26,5 +34,6 @@ node --check app/js/app.js
 node --check test/run-backend-tests.js
 node --check test/mock-jellyfin-server.js
 node --check test/run-ui-screenshots.js
+node --check test/run-focus-tests.js
 xmllint --noout app/config.xml
 ```

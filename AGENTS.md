@@ -77,7 +77,7 @@ Authorization: MediaBrowser Client="Silo", Device="<device name>", DeviceId="<st
 
 - Each screen **zone** has exactly **one focus owner**.
 - Restore focus by **section id + item id**, not by list position.
-- Take over D-pad navigation only at **zone edges**.
+- Handle D-pad navigation in app code for moves **within** each zone and **between** zones; focus must never be lost. Samsung TV remotes deliver arrow keys, Enter, and Back as plain `keydown` events ([Remote Control](https://developer.samsung.com/smarttv/develop/guides/user-interaction/remote-control.html), checked 21 Oct 2026), and there is no Tab key on the remote, so the app must move focus itself ([Text-to-Speech / focus](https://developer.samsung.com/smarttv/develop/guides/fundamentals/text-to-speech.html), checked 21 Oct 2026); relying on the browser’s built-in spatial navigation can move focus twice in grids.
 - Move focus programmatically only when the focused item **disappears**.
 - **Never fetch data on focus moves.**
 

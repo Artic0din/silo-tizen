@@ -123,6 +123,30 @@ async function main() {
     await page.waitForSelector(".browse-row", { timeout: 10000 });
     await page.screenshot({ path: path.join(ARTIFACT_DIR, "03-home-screen.png") });
 
+    await page.focus('.browse-tile[data-section-id="continue-watching"][data-item-id="resume-1"]');
+    await page.keyboard.press("Enter");
+    await page.waitForSelector(".playback-overlay", { timeout: 10000 });
+    await page.screenshot({ path: path.join(ARTIFACT_DIR, "11-playback-overlay.png") });
+    await page.evaluate(function () {
+        var event = new KeyboardEvent("keydown", { keyCode: 10009, bubbles: true });
+        document.dispatchEvent(event);
+    });
+    await page.waitForSelector(".browse-row", { timeout: 10000 });
+
+    await page.evaluate(function () {
+        window.webapis.avplay._test.setFailAllOpen(true);
+    });
+    await page.focus('.browse-tile[data-section-id="continue-watching"][data-item-id="resume-1"]');
+    await page.keyboard.press("Enter");
+    await page.waitForSelector(".playback-error-panel", { timeout: 10000 });
+    await page.screenshot({ path: path.join(ARTIFACT_DIR, "12-playback-error.png") });
+    await page.evaluate(function () {
+        window.webapis.avplay._test.reset();
+        var event = new KeyboardEvent("keydown", { keyCode: 10009, bubbles: true });
+        document.dispatchEvent(event);
+    });
+    await page.waitForSelector(".browse-row", { timeout: 10000 });
+
     var librarySelector =
         '.browse-tile[data-section-id="my-libraries"][data-item-id="' + LIBRARY_MOVIES + '"]';
     await page.focus(librarySelector);

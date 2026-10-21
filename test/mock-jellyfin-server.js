@@ -39,6 +39,16 @@ function buildMovieItems(count, prefix) {
 }
 
 var MOVIE_CATALOG = buildMovieItems(75, "movie");
+MOVIE_CATALOG[0] = makeItem("movie-000", "Movie 1", "Movie", {
+    parentId: LIBRARY_MOVIES,
+    userData: { PlaybackPositionTicks: 6000000000, PlayedPercentage: 8 },
+    runTimeTicks: 72000000000
+});
+var TRANSCODE_ONLY_ID = "movie-dts-001";
+MOVIE_CATALOG[2] = makeItem(TRANSCODE_ONLY_ID, "DTS Movie", "Movie", {
+    parentId: LIBRARY_MOVIES,
+    raw: { ForceTranscode: true }
+});
 var RESUME_ITEMS = [
     makeItem("resume-1", "Resume One", "Movie", {
         parentId: LIBRARY_MOVIES,
@@ -74,6 +84,10 @@ function createMockJellyfinServer(options) {
     var usersMe503 = options.usersMe503 === true;
     var stallUsersMeBody = options.stallUsersMeBody === true;
     var logoutCalls = 0;
+    var playingStarts = 0;
+    var playingProgress = 0;
+    var playingStopped = 0;
+    var lastPlayingBody = null;
     var server = null;
 
     function pathMatches(reqUrl, suffix) {
@@ -204,6 +218,74 @@ function createMockJellyfinServer(options) {
             return;
         }
 
+        if (req.method === "POST" && pathEndsWith(req.url, "/PlaybackInfo")) {
+            var playbackChunks = [];
+            req.on("data", function (chunk) {
+                playbackChunks.push(chunk);
+            });
+            req.on("end", function () {
+                var playbackPath = req.url.split("?")[0];
+                var parts = playbackPath.split("/");
+                var playbackItemId = parts[parts.indexOf("Items") + 1];
+                var forceTranscode = playbackItemId === TRANSCODE_ONLY_ID;
+                var allItems = [].concat(MOVIE_CATALOG, LATEST_TV, RESUME_ITEMS, LIBRARIES);
+                var playbackItem = null;
+                allItems.some(function (it) {
+                    if (it.Id === playbackItemId) {
+                        playbackItem = it;
+                        return true;
+                    }
+                    return false;
+                });
+                if (playbackItem && playbackItem.ForceTranscode) {
+                    forceTranscode = true;
+                }
+                var mediaSourceId = "ms-" + playbackItemId;
+                var mediaSource = {
+                    Id: mediaSourceId,
+                    SupportsDirectPlay: !forceTranscode,
+                    SupportsDirectStream: !forceTranscode,
+                    TranscodingUrl: "/Videos/" + playbackItemId + "/master.m3u8?MediaSourceId=" + mediaSourceId
+                };
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(
+                    JSON.stringify({
+                        PlaySessionId: "mock-play-session-" + playbackItemId,
+                        MediaSources: [mediaSource]
+                    })
+                );
+            });
+            return;
+        }
+
+        if (req.method === "POST" && pathMatches(req.url, "/Sessions/Playing/Progress")) {
+            playingProgress += 1;
+            var progressChunks = [];
+            req.on("data", function (c) {
+                progressChunks.push(c);
+            });
+            req.on("end", function () {
+                lastPlayingBody = Buffer.concat(progressChunks).toString("utf8");
+                res.writeHead(204);
+                res.end();
+            });
+            return;
+        }
+
+        if (req.method === "POST" && pathMatches(req.url, "/Sessions/Playing/Stopped")) {
+            playingStopped += 1;
+            res.writeHead(204);
+            res.end();
+            return;
+        }
+
+        if (req.method === "POST" && pathMatches(req.url, "/Sessions/Playing")) {
+            playingStarts += 1;
+            res.writeHead(204);
+            res.end();
+            return;
+        }
+
         if (req.method === "POST" && pathMatches(req.url, "/Users/AuthenticateByName")) {
             var chunks = [];
             req.on("data", function (chunk) {
@@ -238,6 +320,18 @@ function createMockJellyfinServer(options) {
                 getLogoutCalls: function () {
                     return logoutCalls;
                 },
+                getPlayingStarts: function () {
+                    return playingStarts;
+                },
+                getPlayingProgress: function () {
+                    return playingProgress;
+                },
+                getPlayingStopped: function () {
+                    return playingStopped;
+                },
+                getLastPlayingBody: function () {
+                    return lastPlayingBody;
+                },
                 close: function () {
                     return new Promise(function (resClose) {
                         server.close(function () {
@@ -253,5 +347,6 @@ function createMockJellyfinServer(options) {
 module.exports = {
     createMockJellyfinServer: createMockJellyfinServer,
     LIBRARY_MOVIES: LIBRARY_MOVIES,
-    LIBRARY_TV: LIBRARY_TV
+    LIBRARY_TV: LIBRARY_TV,
+    TRANSCODE_ONLY_ID: TRANSCODE_ONLY_ID
 };

@@ -23,6 +23,11 @@ body {
     height: 1080px;
     visibility: hidden;
     pointer-events: none;
+    z-index: 1;
+}
+
+body.playback-active #avplayer {
+    visibility: visible;
 }
 
 .screen {
@@ -334,4 +339,88 @@ body {
     font-size: 36px;
     color: #9aa0b8;
     margin: 0;
+}
+
+.screen-playback {
+    position: fixed;
+    inset: 0;
+    z-index: 3;
+    max-width: none;
+    min-height: 0;
+    padding: 0;
+    justify-content: flex-end;
+    pointer-events: none;
+}
+
+.playback-overlay {
+    pointer-events: auto;
+    width: 100%;
+    padding: 48px 80px 72px;
+    background: linear-gradient(180deg, rgba(18, 18, 26, 0) 0%, rgba(18, 18, 26, 0.88) 35%, rgba(18, 18, 26, 0.96) 100%);
+}
+
+.playback-title {
+    margin: 0 0 20px;
+    font-size: 56px;
+    font-weight: 700;
+    line-height: 1.15;
+    color: #f2f2f7;
+    max-width: 1600px;
+}
+
+.playback-time {
+    margin: 0 0 20px;
+    font-size: 40px;
+    color: #e8eaf0;
+    font-variant-numeric: tabular-nums;
+}
+
+.playback-progress-track {
+    width: 100%;
+    max-width: 1760px;
+    height: 16px;
+    border-radius: 8px;
+    background: #3a4058;
+    overflow: hidden;
+    margin-bottom: 24px;
+}
+
+.playback-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: #5eb8ff;
+    border-radius: 8px;
+    transition: width 0.2s linear;
+}
+
+.playback-hint {
+    margin: 0;
+    font-size: 32px;
+    color: #9aa0b8;
+}
+
+.playback-error-panel {
+    pointer-events: auto;
+    width: 100%;
+    min-height: 1080px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 120px 160px;
+    background: rgba(18, 18, 26, 0.94);
+}
+
+.playback-error-title {
+    margin: 0 0 32px;
+    font-size: 64px;
+    font-weight: 700;
+}
+
+.playback-error-message {
+    margin: 0 0 48px;
+    font-size: 44px;
+    line-height: 1.35;
+    color: #ff8a8a;
+    max-width: 1400px;
 }

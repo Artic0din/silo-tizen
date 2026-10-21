@@ -8,12 +8,23 @@
     var KEY_DOWN = 40;
     var KEY_LEFT = 37;
     var KEY_RIGHT = 39;
+    var KEY_MEDIA_PLAY_PAUSE = 10252;
+    var KEY_MEDIA_REWIND = 412;
+    var KEY_MEDIA_FAST_FORWARD = 417;
 
     var LIBRARY_PAGE_SIZE = 60;
     var LIBRARY_COLUMNS = 6;
 
     var backend = window.SiloBackend;
     var screenEl = document.getElementById("screen");
+    var player = null;
+    var playbackUi = {
+        title: "",
+        positionMs: 0,
+        durationMs: 0,
+        paused: false,
+        error: ""
+    };
 
     var exitDialog = null;
     var exitDialogYes = null;
@@ -38,7 +49,8 @@
         library: null,
         libraryFocusItemId: "",
         detailsItem: null,
-        detailsReturnView: "home"
+        detailsReturnView: "home",
+        playbackReturn: null
     };
 
     function bumpRequestGeneration() {
@@ -174,6 +186,140 @@
 
     function isFormView() {
         return state.view === "server" || state.view === "signin" || state.view === "connecting" || state.view === "offline";
+    }
+
+    function isPlayableItemType(type) {
+        return type === "Movie" || type === "Episode" || type === "Video";
+    }
+
+    function formatPlaybackClock(ms) {
+        var totalSec = Math.max(0, Math.floor(ms / 1000));
+        var h = Math.floor(totalSec / 3600);
+        var m = Math.floor((totalSec % 3600) / 60);
+        var s = totalSec % 60;
+        function pad(n) {
+            return n < 10 ? "0" + n : String(n);
+        }
+        if (h > 0) {
+            return h + ":" + pad(m) + ":" + pad(s);
+        }
+        return m + ":" + pad(s);
+    }
+
+    function initPlayer() {
+        if (!window.SiloPlayerFactory) {
+            return;
+        }
+        player = window.SiloPlayerFactory.createPlayer({
+            backend: backend,
+            onUiUpdate: function (ui) {
+                playbackUi.title = ui.title || playbackUi.title;
+                playbackUi.positionMs = ui.positionMs || 0;
+                playbackUi.durationMs = ui.durationMs || 0;
+                playbackUi.paused = ui.paused === true;
+                playbackUi.error = ui.error || "";
+                if (state.view === "playback") {
+                    renderPlaybackScreen();
+                }
+            },
+            onExit: function (ctx) {
+                document.body.classList.remove("playback-active");
+                exitPlaybackToReturn(ctx);
+            }
+        });
+    }
+
+    function setPlaybackReturnContext(returnView, sectionId, itemId) {
+        state.playbackReturn = {
+            returnView: returnView,
+            sectionId: sectionId || "",
+            itemId: itemId || ""
+        };
+    }
+
+    function openPlaybackFromBrowse(item, sectionId, returnView) {
+        if (!player) {
+            initPlayer();
+        }
+        if (!player) {
+            setError("Playback is not available.");
+            return;
+        }
+        setPlaybackReturnContext(returnView, sectionId, item.id);
+        state.view = "playback";
+        state.error = "";
+        playbackUi = { title: item.title || "Playing…", positionMs: 0, durationMs: 0, paused: false, error: "" };
+        document.body.classList.add("playback-active");
+        renderPlaybackScreen();
+        player.start(item.id, state.playbackReturn);
+    }
+
+    function exitPlaybackToReturn(ctx) {
+        state.view = ctx && ctx.returnView === "library" ? "library" : "home";
+        state.playbackReturn = null;
+        playbackUi.error = "";
+        if (state.view === "library" && state.library) {
+            renderLibraryScreen();
+            focusLibraryTile((ctx && ctx.itemId) || state.libraryFocusItemId);
+            return;
+        }
+        var session = backend.currentSession();
+        if (session) {
+            renderHomeShell(session);
+            if (ctx && ctx.sectionId && ctx.itemId) {
+                focusHomeTile(ctx.sectionId, ctx.itemId);
+            } else {
+                focusHomeTile(state.homeFocus.sectionId, state.homeFocus.itemId);
+            }
+        }
+    }
+
+    function renderPlaybackScreen() {
+        clearScreen();
+        screenEl.className = "screen screen-playback";
+        if (playbackUi.error) {
+            var panel = el("div", "playback-error-panel");
+            panel.appendChild(el("h1", "playback-error-title", playbackUi.title || "Playback"));
+            panel.appendChild(el("p", "playback-error-message", playbackUi.error));
+            var backBtn = makeButton("playback-back", "Back");
+            backBtn.classList.add("details-back");
+            bindFocusable(backBtn);
+            backBtn.addEventListener("click", function () {
+                if (player) {
+                    player.stopAndExit();
+                } else {
+                    exitPlaybackToReturn(state.playbackReturn);
+                }
+            });
+            panel.appendChild(backBtn);
+            screenEl.appendChild(panel);
+            backBtn.focus();
+            return;
+        }
+
+        var overlay = el("div", "playback-overlay");
+        overlay.appendChild(el("h1", "playback-title", playbackUi.title || "Playing…"));
+        var timeLine =
+            formatPlaybackClock(playbackUi.positionMs) +
+            " / " +
+            (playbackUi.durationMs > 0 ? formatPlaybackClock(playbackUi.durationMs) : "—:—");
+        overlay.appendChild(el("p", "playback-time", timeLine));
+        var track = el("div", "playback-progress-track");
+        var fill = el("div", "playback-progress-fill");
+        var pct = playbackUi.durationMs > 0 ? (playbackUi.positionMs / playbackUi.durationMs) * 100 : 0;
+        fill.style.width = Math.min(100, Math.max(0, pct)) + "%";
+        track.appendChild(fill);
+        overlay.appendChild(track);
+        overlay.appendChild(
+            el(
+                "p",
+                "playback-hint",
+                playbackUi.paused
+                    ? "Paused — Enter to resume · Back to exit"
+                    : "Enter to pause · ← −10s · → +30s · Back to exit"
+            )
+        );
+        screenEl.appendChild(overlay);
     }
 
     function collectFocusables() {
@@ -573,6 +719,10 @@
             });
             return;
         }
+        if (isPlayableItemType(item.type)) {
+            openPlaybackFromBrowse(item, sectionId, "home");
+            return;
+        }
         openDetails(item.id, "home");
     }
 
@@ -709,7 +859,11 @@
                 grid.appendChild(
                     createPosterTile(item, "library-grid", function (tileItem) {
                         rememberLibraryFocus(tileItem.id);
-                        openDetails(tileItem.id, "library");
+                        if (isPlayableItemType(tileItem.type)) {
+                            openPlaybackFromBrowse(tileItem, "library-grid", "library");
+                        } else {
+                            openDetails(tileItem.id, "library");
+                        }
                     })
                 );
             });
@@ -796,7 +950,9 @@
 
         var copy = el("div", "details-copy");
         copy.appendChild(el("p", "details-overview", item.overview || "No description available."));
-        copy.appendChild(el("p", "details-placeholder", "Playback will be available in a future update."));
+        if (isPlayableItemType(item.type)) {
+            copy.appendChild(el("p", "details-placeholder", "Press Enter on the poster to play."));
+        }
         layout.appendChild(copy);
         body.appendChild(layout);
         screenEl.appendChild(body);
@@ -935,6 +1091,14 @@
     }
 
     function goBackOneScreen() {
+        if (state.view === "playback") {
+            if (player) {
+                player.stopAndExit();
+            } else {
+                exitPlaybackToReturn(state.playbackReturn);
+            }
+            return true;
+        }
         if (state.view === "details") {
             invalidatePendingRequests();
             state.detailsItem = null;
@@ -999,7 +1163,16 @@
         if (!window.tizen || !tizen.tvinputdevice) {
             return;
         }
-        var keys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter"];
+        var keys = [
+            "ArrowUp",
+            "ArrowDown",
+            "ArrowLeft",
+            "ArrowRight",
+            "Enter",
+            "MediaPlayPause",
+            "MediaRewind",
+            "MediaFastForward"
+        ];
         keys.forEach(function (keyName) {
             try {
                 tizen.tvinputdevice.registerKey(keyName);
@@ -1300,6 +1473,38 @@
         return false;
     }
 
+    function handlePlaybackKey(code) {
+        if (playbackUi.error) {
+            if (code === KEY_ENTER) {
+                var backBtn = document.getElementById("playback-back");
+                if (backBtn) {
+                    backBtn.click();
+                }
+                return true;
+            }
+            return false;
+        }
+        if (code === KEY_ENTER || code === KEY_MEDIA_PLAY_PAUSE) {
+            if (player) {
+                player.togglePause();
+            }
+            return true;
+        }
+        if (code === KEY_LEFT || code === KEY_MEDIA_REWIND) {
+            if (player) {
+                player.seekBack();
+            }
+            return true;
+        }
+        if (code === KEY_RIGHT || code === KEY_MEDIA_FAST_FORWARD) {
+            if (player) {
+                player.seekForward();
+            }
+            return true;
+        }
+        return false;
+    }
+
     function onKeyDown(event) {
         var code = keyCodeFromEvent(event);
 
@@ -1320,6 +1525,23 @@
             event.preventDefault();
             if (!goBackOneScreen()) {
                 openExitDialog();
+            }
+            return;
+        }
+
+        if (state.view === "playback") {
+            if (
+                handlePlaybackKey(code) ||
+                code === KEY_UP ||
+                code === KEY_DOWN ||
+                code === KEY_LEFT ||
+                code === KEY_RIGHT ||
+                code === KEY_ENTER ||
+                code === KEY_MEDIA_PLAY_PAUSE ||
+                code === KEY_MEDIA_REWIND ||
+                code === KEY_MEDIA_FAST_FORWARD
+            ) {
+                event.preventDefault();
             }
             return;
         }
@@ -1374,8 +1596,14 @@
     }
 
     function bootstrap() {
+        initPlayer();
         registerRemoteKeys();
         document.addEventListener("keydown", onKeyDown, false);
+        document.addEventListener("visibilitychange", function () {
+            if (player) {
+                player.handleVisibility(document.visibilityState === "hidden");
+            }
+        });
         document.addEventListener("focusin", function () {
             if (!exitDialogOpen && isFormView()) {
                 var focusables = collectFocusables();

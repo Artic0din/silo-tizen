@@ -158,6 +158,76 @@
         return "Movie,Series,Episode,Video";
     }
 
+    var TICKS_PER_SECOND = 10000000;
+    var RESUME_END_MARGIN_SEC = 5;
+
+    function buildTizenDeviceProfile(deviceId, deviceName) {
+        return {
+            MaxStreamingBitrate: 120000000,
+            MaxStaticBitrate: 100000000,
+            MusicStreamingTranscodingBitrate: 384000,
+            TimelineOffsetSeconds: 0,
+            RequiresAvcEncoding: false,
+            EnableSubtitlesInManifest: false,
+            Id: deviceId,
+            Name: deviceName,
+            DirectPlayProfiles: [
+                {
+                    Type: "Video",
+                    Container: "mp4,mkv,ts",
+                    VideoCodec: "h264,hevc",
+                    AudioCodec: "aac,ac3,eac3"
+                }
+            ],
+            TranscodingProfiles: [
+                {
+                    Container: "ts",
+                    Type: "Video",
+                    VideoCodec: "h264",
+                    AudioCodec: "aac,ac3,eac3",
+                    Protocol: "hls",
+                    Context: "Streaming",
+                    MaxAudioChannels: "6"
+                }
+            ],
+            CodecProfiles: [],
+            SubtitleProfiles: [{ Format: "srt", Method: "External" }]
+        };
+    }
+
+    function resumePositionSeconds(userData, runTimeTicks) {
+        if (!userData || !userData.PlaybackPositionTicks) {
+            return 0;
+        }
+        var positionTicks = userData.PlaybackPositionTicks;
+        if (positionTicks <= 0) {
+            return 0;
+        }
+        var runTicks = runTimeTicks || 0;
+        if (runTicks > 0) {
+            var remainingTicks = runTicks - positionTicks;
+            if (remainingTicks <= RESUME_END_MARGIN_SEC * TICKS_PER_SECOND) {
+                return 0;
+            }
+        }
+        return Math.floor(positionTicks / TICKS_PER_SECOND);
+    }
+
+    function appendApiKeyToUrl(serverUrl, streamUrl, accessToken) {
+        if (!streamUrl) {
+            return "";
+        }
+        var absolute = streamUrl;
+        if (streamUrl.indexOf("http://") !== 0 && streamUrl.indexOf("https://") !== 0) {
+            absolute = joinServerPath(serverUrl, streamUrl);
+        }
+        if (absolute.indexOf("api_key=") !== -1) {
+            return absolute;
+        }
+        var sep = absolute.indexOf("?") === -1 ? "?" : "&";
+        return absolute + sep + "api_key=" + encodeURIComponent(accessToken);
+    }
+
     function createBackend(options) {
         options = options || {};
         var storage = options.storage || defaultStorage();
@@ -629,6 +699,200 @@
                 });
         }
 
+        function playbackInfoRequest(itemId) {
+            var session = currentSession();
+            if (!session) {
+                return Promise.resolve({ ok: false, error: { code: "unauthorized", message: "Sign in required." } });
+            }
+            var path = "/Items/" + encodeURIComponent(itemId) + "/PlaybackInfo";
+            var body = JSON.stringify({
+                DeviceProfile: buildTizenDeviceProfile(deviceId, deviceName)
+            });
+            return jellyfinRequest(session.serverUrl, path, { method: "POST", body: body }, session.accessToken).then(
+                function (result) {
+                    var authFail = browseAuthFailure(session, result.response);
+                    if (authFail) {
+                        return authFail;
+                    }
+                    if (!result.response.ok) {
+                        return { ok: false, error: { code: "playback_failed", message: "Could not load playback info." } };
+                    }
+                    var data = parseJsonBody(result.bodyText);
+                    return { ok: true, data: data || {} };
+                }
+            );
+        }
+
+        function pickMediaSource(playbackData, forceTranscode) {
+            var sources = playbackData && playbackData.MediaSources;
+            if (!Array.isArray(sources) || sources.length === 0) {
+                return null;
+            }
+            return sources[0];
+        }
+
+        function resolveStreamFromSource(session, itemId, mediaSource, forceTranscode) {
+            if (!mediaSource) {
+                return { ok: false, error: { code: "playback_failed", message: "No playable source for this item." } };
+            }
+            var mediaSourceId = mediaSource.Id;
+            var supportsDirect = mediaSource.SupportsDirectPlay === true && !forceTranscode;
+            if (supportsDirect) {
+                var directPath =
+                    "/Videos/" +
+                    encodeURIComponent(itemId) +
+                    "/stream?static=true&MediaSourceId=" +
+                    encodeURIComponent(mediaSourceId);
+                return {
+                    ok: true,
+                    mode: "direct",
+                    playMethod: "DirectPlay",
+                    streamUrl: appendApiKeyToUrl(session.serverUrl, directPath, session.accessToken),
+                    mediaSourceId: mediaSourceId
+                };
+            }
+            var transcodeUrl = mediaSource.TranscodingUrl || "";
+            if (!transcodeUrl && mediaSource.SupportsDirectStream === false) {
+                return { ok: false, error: { code: "playback_failed", message: "No transcoding stream available." } };
+            }
+            if (!transcodeUrl) {
+                return { ok: false, error: { code: "playback_failed", message: "Direct play is not supported for this title." } };
+            }
+            return {
+                ok: true,
+                mode: "transcode",
+                playMethod: "Transcode",
+                streamUrl: appendApiKeyToUrl(session.serverUrl, transcodeUrl, session.accessToken),
+                mediaSourceId: mediaSourceId
+            };
+        }
+
+        function playbackStreamForItem(itemId, options) {
+            options = options || {};
+            var forceTranscode = options.forceTranscode === true;
+            var session = currentSession();
+            if (!session) {
+                return Promise.resolve({ ok: false, error: { code: "unauthorized", message: "Sign in required." } });
+            }
+            return browseItemDetails(itemId)
+                .then(function (detailsResult) {
+                    if (!detailsResult.ok) {
+                        return detailsResult;
+                    }
+                    var item = detailsResult.item;
+                    if (item.type !== "Movie" && item.type !== "Episode" && item.type !== "Video") {
+                        return { ok: false, error: { code: "not_playable", message: "This item cannot be played." } };
+                    }
+                    return playbackInfoRequest(itemId).then(function (infoResult) {
+                        if (!infoResult.ok) {
+                            return infoResult;
+                        }
+                        var playSessionId = infoResult.data.PlaySessionId || "";
+                        var mediaSource = pickMediaSource(infoResult.data, forceTranscode);
+                        var stream = resolveStreamFromSource(session, itemId, mediaSource, forceTranscode);
+                        if (!stream.ok) {
+                            return stream;
+                        }
+                        return {
+                            ok: true,
+                            itemId: itemId,
+                            title: item.title,
+                            playSessionId: playSessionId,
+                            mediaSourceId: stream.mediaSourceId,
+                            mode: stream.mode,
+                            playMethod: stream.playMethod,
+                            streamUrl: stream.streamUrl,
+                            startSeconds: resumePositionSeconds(item.userData, item.runTimeTicks),
+                            runTimeTicks: item.runTimeTicks
+                        };
+                    });
+                })
+                .catch(function (err) {
+                    return { ok: false, error: mapFetchError(err) };
+                });
+        }
+
+        function playbackSessionBody(fields) {
+            var session = currentSession();
+            if (!session) {
+                return null;
+            }
+            return {
+                ItemId: fields.itemId,
+                MediaSourceId: fields.mediaSourceId,
+                PlaySessionId: fields.playSessionId || "",
+                PositionTicks: fields.positionTicks != null ? fields.positionTicks : 0,
+                IsPaused: fields.isPaused === true,
+                IsMuted: false,
+                PlayMethod: fields.playMethod || "DirectPlay",
+                CanSeek: true
+            };
+        }
+
+        function playbackStart(fields) {
+            var session = currentSession();
+            if (!session) {
+                return Promise.resolve({ ok: false });
+            }
+            var body = playbackSessionBody(fields);
+            if (!body) {
+                return Promise.resolve({ ok: false });
+            }
+            return jellyfinRequest(session.serverUrl, "/Sessions/Playing", { method: "POST", body: JSON.stringify(body) }, session.accessToken)
+                .then(function (result) {
+                    return { ok: result.response.ok };
+                })
+                .catch(function () {
+                    return { ok: false };
+                });
+        }
+
+        function playbackProgress(fields) {
+            var session = currentSession();
+            if (!session) {
+                return Promise.resolve({ ok: false });
+            }
+            var body = playbackSessionBody(fields);
+            if (!body) {
+                return Promise.resolve({ ok: false });
+            }
+            return jellyfinRequest(
+                session.serverUrl,
+                "/Sessions/Playing/Progress",
+                { method: "POST", body: JSON.stringify(body) },
+                session.accessToken
+            )
+                .then(function (result) {
+                    return { ok: result.response.ok };
+                })
+                .catch(function () {
+                    return { ok: false };
+                });
+        }
+
+        function playbackStop(fields) {
+            var session = currentSession();
+            if (!session) {
+                return Promise.resolve({ ok: false });
+            }
+            var body = playbackSessionBody(fields);
+            if (!body) {
+                return Promise.resolve({ ok: false });
+            }
+            return jellyfinRequest(
+                session.serverUrl,
+                "/Sessions/Playing/Stopped",
+                { method: "POST", body: JSON.stringify(body) },
+                session.accessToken
+            )
+                .then(function (result) {
+                    return { ok: result.response.ok };
+                })
+                .catch(function () {
+                    return { ok: false };
+                });
+        }
+
         function validateSession() {
             var session = currentSession();
             if (!session) {
@@ -680,6 +944,11 @@
             browseHome: browseHome,
             browseLibraryItems: browseLibraryItems,
             browseItemDetails: browseItemDetails,
+            playbackStreamForItem: playbackStreamForItem,
+            playbackStart: playbackStart,
+            playbackProgress: playbackProgress,
+            playbackStop: playbackStop,
+            resumePositionSeconds: resumePositionSeconds,
             primaryImageUrl: primaryImageUrl,
             itemTypesForLibrary: itemTypesForLibrary,
             normalizeServerUrl: normalizeServerUrl,
@@ -701,6 +970,10 @@
         normalizeServerUrl: normalizeServerUrl,
         joinServerPath: joinServerPath,
         buildAuthHeaderForTest: buildAuthHeader,
-        itemTypesForLibrary: itemTypesForLibrary
+        itemTypesForLibrary: itemTypesForLibrary,
+        buildTizenDeviceProfile: buildTizenDeviceProfile,
+        resumePositionSeconds: resumePositionSeconds,
+        TICKS_PER_SECOND: TICKS_PER_SECOND,
+        RESUME_END_MARGIN_SEC: RESUME_END_MARGIN_SEC
     };
 });

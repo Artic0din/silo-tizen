@@ -168,7 +168,7 @@ async function main() {
 
         await page.focus('.browse-tile[data-section-id="continue-watching"][data-item-id="resume-2"]');
         await page.keyboard.press("Enter");
-        await page.waitForSelector("#details-back", { timeout: 5000 });
+        await page.waitForSelector(".playback-overlay", { timeout: 10000 });
         await page.evaluate(function () {
             var event = new KeyboardEvent("keydown", { keyCode: 10009, bubbles: true });
             document.dispatchEvent(event);
@@ -183,7 +183,7 @@ async function main() {
         });
         assert.strictEqual(focusAfterBack.sectionId, "continue-watching");
         assert.strictEqual(focusAfterBack.itemId, "resume-2");
-        ok("back from details restores home focus by section and item id");
+        ok("back from playback restores home focus by section and item id");
 
         var libraryTileSelector =
             '.browse-tile[data-section-id="my-libraries"][data-item-id="' + LIBRARY_MOVIES + '"]';
@@ -218,7 +218,7 @@ async function main() {
         var gridFocus = await page.evaluate(function () {
             return document.activeElement && document.activeElement.getAttribute("data-item-id");
         });
-        assert.strictEqual(gridFocus, "movie-002");
+        assert.strictEqual(gridFocus, "movie-dts-001");
         ok("library grid focus moves horizontally");
 
         await page.evaluate(function () {

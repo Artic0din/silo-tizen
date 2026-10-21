@@ -26,6 +26,14 @@ npx playwright install chromium
 node test/run-focus-tests.js
 ```
 
+## Playback (Node + Playwright)
+
+```bash
+npm ci
+npx playwright install chromium
+node test/run-playback-tests.js
+```
+
 ## Static checks
 
 ```bash
@@ -35,5 +43,7 @@ node --check test/run-backend-tests.js
 node --check test/mock-jellyfin-server.js
 node --check test/run-ui-screenshots.js
 node --check test/run-focus-tests.js
+node --check test/run-playback-tests.js
+node --check app/js/player.js
 xmllint --noout app/config.xml
 ```

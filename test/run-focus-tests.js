@@ -116,18 +116,57 @@ async function main() {
         await page.click("#signin-submit");
         await page.waitForSelector(".browse-row", { timeout: 10000 });
 
-        await page.keyboard.press("ArrowRight");
-        var focusAfterRight = await page.evaluate(function () {
-            var el = document.activeElement;
+        var homeArrowRight = await page.evaluate(function () {
+            var beforeId = document.activeElement && document.activeElement.getAttribute("data-item-id");
+            var event = new KeyboardEvent("keydown", {
+                key: "ArrowRight",
+                keyCode: 39,
+                which: 39,
+                bubbles: true,
+                cancelable: true
+            });
+            document.dispatchEvent(event);
+            var afterId = document.activeElement && document.activeElement.getAttribute("data-item-id");
             return {
-                sectionId: el && el.getAttribute("data-section-id"),
-                itemId: el && el.getAttribute("data-item-id")
+                beforeId: beforeId,
+                afterId: afterId,
+                defaultPrevented: event.defaultPrevented
             };
         });
-        assert.strictEqual(focusAfterRight.sectionId, "continue-watching");
+        assert.strictEqual(homeArrowRight.beforeId, "resume-1");
+        assert.strictEqual(homeArrowRight.afterId, "resume-2");
+        assert.strictEqual(homeArrowRight.defaultPrevented, true);
+        ok("home ArrowRight moves one tile and prevents default");
+
+        var focusAfterRight = {
+            sectionId: "continue-watching",
+            itemId: homeArrowRight.afterId
+        };
         assert.strictEqual(focusAfterRight.itemId, "resume-2");
         ok("home horizontal focus moves within row");
 
+        var homeArrowDown = await page.evaluate(function () {
+            var beforeId = document.activeElement && document.activeElement.getAttribute("data-item-id");
+            var event = new KeyboardEvent("keydown", {
+                key: "ArrowDown",
+                keyCode: 40,
+                which: 40,
+                bubbles: true,
+                cancelable: true
+            });
+            document.dispatchEvent(event);
+            var afterId = document.activeElement && document.activeElement.getAttribute("data-item-id");
+            return {
+                beforeId: beforeId,
+                afterId: afterId,
+                defaultPrevented: event.defaultPrevented
+            };
+        });
+        assert.strictEqual(homeArrowDown.defaultPrevented, true);
+        assert.notStrictEqual(homeArrowDown.afterId, homeArrowDown.beforeId);
+        ok("home ArrowDown moves one row and prevents default");
+
+        await page.focus('.browse-tile[data-section-id="continue-watching"][data-item-id="resume-2"]');
         await page.keyboard.press("Enter");
         await page.waitForSelector("#details-back", { timeout: 5000 });
         await page.evaluate(function () {
@@ -152,7 +191,29 @@ async function main() {
         await page.keyboard.press("Enter");
         await page.waitForSelector(".browse-grid", { timeout: 10000 });
 
-        await page.keyboard.press("ArrowRight");
+        await page.focus('.browse-grid .browse-tile[data-item-id="movie-000"]');
+        var gridArrowRight = await page.evaluate(function () {
+            var beforeId = document.activeElement && document.activeElement.getAttribute("data-item-id");
+            var event = new KeyboardEvent("keydown", {
+                key: "ArrowRight",
+                keyCode: 39,
+                which: 39,
+                bubbles: true,
+                cancelable: true
+            });
+            document.dispatchEvent(event);
+            var afterId = document.activeElement && document.activeElement.getAttribute("data-item-id");
+            return {
+                beforeId: beforeId,
+                afterId: afterId,
+                defaultPrevented: event.defaultPrevented
+            };
+        });
+        assert.strictEqual(gridArrowRight.beforeId, "movie-000");
+        assert.strictEqual(gridArrowRight.afterId, "movie-001");
+        assert.strictEqual(gridArrowRight.defaultPrevented, true);
+        ok("library ArrowRight moves one cell and prevents default");
+
         await page.keyboard.press("ArrowRight");
         var gridFocus = await page.evaluate(function () {
             return document.activeElement && document.activeElement.getAttribute("data-item-id");

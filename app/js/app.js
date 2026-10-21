@@ -1325,17 +1325,15 @@
         }
 
         if (state.view === "home" && (code === KEY_UP || code === KEY_DOWN || code === KEY_LEFT || code === KEY_RIGHT)) {
-            if (handleHomeBrowseKey(code)) {
-                event.preventDefault();
-                return;
-            }
+            event.preventDefault();
+            handleHomeBrowseKey(code);
+            return;
         }
 
         if (state.view === "library" && (code === KEY_UP || code === KEY_DOWN || code === KEY_LEFT || code === KEY_RIGHT)) {
-            if (handleLibraryBrowseKey(code)) {
-                event.preventDefault();
-                return;
-            }
+            event.preventDefault();
+            handleLibraryBrowseKey(code);
+            return;
         }
 
         if (code === KEY_UP || code === KEY_DOWN) {

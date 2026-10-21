@@ -117,6 +117,49 @@ async function main() {
     await page.waitForSelector("#signin-username", { timeout: 10000 });
     await page.screenshot({ path: path.join(ARTIFACT_DIR, "02-signin-screen.png") });
 
+    var mockQc = await createMockJellyfinServer({
+        quickConnectEnabled: true,
+        quickConnectCode: "739051",
+        quickConnectPollsUntilAuth: 100
+    });
+    var qcPage = await context.newPage();
+    await qcPage.addInitScript(function () {
+        window.SiloTestConfig = { quickConnectPollMs: 60000, quickConnectTimeoutMs: 600000 };
+    });
+    await qcPage.goto(staticServer.url, { waitUntil: "domcontentloaded" });
+    await qcPage.fill("#server-url", mockQc.baseUrl.replace("http://", ""));
+    await qcPage.click("#server-connect");
+    await qcPage.waitForSelector("#signin-quickconnect-start", { timeout: 10000 });
+    await qcPage.click("#signin-quickconnect-start");
+    await qcPage.waitForSelector("#quickconnect-code-display", { timeout: 10000 });
+    await qcPage.screenshot({ path: path.join(ARTIFACT_DIR, "11-quickconnect-code-screen.png") });
+
+    var mockQcExpired = await createMockJellyfinServer({
+        quickConnectEnabled: true,
+        quickConnectExpired: true
+    });
+    var expiredPage = await context.newPage();
+    await expiredPage.addInitScript(function () {
+        window.SiloTestConfig = { quickConnectPollMs: 100, quickConnectTimeoutMs: 600000 };
+    });
+    await expiredPage.goto(staticServer.url, { waitUntil: "domcontentloaded" });
+    await expiredPage.fill("#server-url", mockQcExpired.baseUrl.replace("http://", ""));
+    await expiredPage.click("#server-connect");
+    await expiredPage.waitForSelector("#signin-quickconnect-start", { timeout: 10000 });
+    await expiredPage.click("#signin-quickconnect-start");
+    await expiredPage.waitForSelector("#quickconnect-renew", { timeout: 15000 });
+    await expiredPage.screenshot({ path: path.join(ARTIFACT_DIR, "12-quickconnect-expired-screen.png") });
+
+    await qcPage.bringToFront();
+    await qcPage.click("#quickconnect-cancel");
+    await qcPage.waitForSelector("#signin-quickconnect-start", { timeout: 5000 });
+    await pressKey(qcPage, "ArrowDown");
+    await pressKey(qcPage, "Enter");
+    await qcPage.waitForSelector("#signin-username", { timeout: 5000 });
+    await qcPage.screenshot({ path: path.join(ARTIFACT_DIR, "13-signin-password-fallback.png") });
+    await qcPage.close();
+    await expiredPage.close();
+
     await page.fill("#signin-username", "alice");
     await page.fill("#signin-password", "secret");
     await page.click("#signin-submit");
@@ -187,6 +230,8 @@ async function main() {
     await browser.close();
     await staticServer.close();
     await mock.close();
+    await mockQc.close();
+    await mockQcExpired.close();
     await mock401.close();
     await mockOffline.close();
 

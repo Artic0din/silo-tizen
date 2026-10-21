@@ -201,6 +201,102 @@ var tests = [
         });
     },
     function () {
+        return test("quickConnectEnabled true on mock", function () {
+            return createMockJellyfinServer({ quickConnectEnabled: true }).then(function (mock) {
+                var backend = makeBackend(trackingFetch);
+                return backend.quickConnectEnabled(mock.baseUrl).then(function (result) {
+                    assert.strictEqual(result.ok, true);
+                    assert.strictEqual(result.enabled, true);
+                    assert.ok(lastRequestUrl.indexOf("/QuickConnect/Enabled") !== -1);
+                    assert.strictEqual(lastAuthHeader, EXPECTED_AUTH);
+                    return mock.close();
+                });
+            });
+        });
+    },
+    function () {
+        return test("quickConnectEnabled false and 404 treated as disabled", function () {
+            return createMockJellyfinServer({ quickConnectEnabled: false }).then(function (mock) {
+                var backend = makeBackend(fetch);
+                return backend
+                    .quickConnectEnabled(mock.baseUrl)
+                    .then(function (result) {
+                        assert.strictEqual(result.ok, true);
+                        assert.strictEqual(result.enabled, false);
+                        return createMockJellyfinServer({ quickConnectEnabledStatus: 404 });
+                    })
+                    .then(function (mock404) {
+                        return backend.quickConnectEnabled(mock404.baseUrl).then(function (result404) {
+                            assert.strictEqual(result404.ok, true);
+                            assert.strictEqual(result404.enabled, false);
+                            return Promise.all([mock.close(), mock404.close()]);
+                        });
+                    });
+            });
+        });
+    },
+    function () {
+        return test("quickConnectInitiate returns code and secret", function () {
+            return createMockJellyfinServer({ quickConnectEnabled: true, quickConnectCode: "902184" }).then(
+                function (mock) {
+                    var backend = makeBackend(trackingFetch);
+                    return backend.quickConnectInitiate(mock.baseUrl).then(function (result) {
+                        assert.strictEqual(result.ok, true);
+                        assert.strictEqual(result.code, "902184");
+                        assert.ok(result.secret);
+                        assert.strictEqual(lastAuthHeader, EXPECTED_AUTH);
+                        return mock.close();
+                    });
+                }
+            );
+        });
+    },
+    function () {
+        return test("quickConnectPoll until authenticated then authenticateWithQuickConnect stores token", function () {
+            return createMockJellyfinServer({
+                quickConnectEnabled: true,
+                quickConnectPollsUntilAuth: 2
+            }).then(function (mock) {
+                var backend = makeBackend(trackingFetch);
+                var secret = "mock-quick-connect-secret";
+                return backend
+                    .quickConnectPoll(mock.baseUrl, secret)
+                    .then(function (first) {
+                        assert.strictEqual(first.ok, true);
+                        assert.strictEqual(first.authenticated, false);
+                        return backend.quickConnectPoll(mock.baseUrl, secret);
+                    })
+                    .then(function (second) {
+                        assert.strictEqual(second.ok, true);
+                        assert.strictEqual(second.authenticated, true);
+                        return backend.authenticateWithQuickConnect(mock.baseUrl, secret);
+                    })
+                    .then(function (auth) {
+                        assert.strictEqual(auth.ok, true);
+                        assert.strictEqual(auth.session.accessToken, "mock-qc-access-token");
+                        assert.strictEqual(auth.session.userName, "QC User");
+                        assert.strictEqual(backend.currentSession(), null);
+                        var stored = backend.storeSession(auth.session);
+                        assert.strictEqual(stored.ok, true);
+                        assert.ok(backend.currentSession());
+                        return mock.close();
+                    });
+            });
+        });
+    },
+    function () {
+        return test("quickConnectPoll returns expired on 400", function () {
+            return createMockJellyfinServer({ quickConnectExpired: true }).then(function (mock) {
+                var backend = makeBackend(fetch);
+                return backend.quickConnectPoll(mock.baseUrl, "mock-quick-connect-secret").then(function (result) {
+                    assert.strictEqual(result.ok, false);
+                    assert.strictEqual(result.error.code, "expired");
+                    return mock.close();
+                });
+            });
+        });
+    },
+    function () {
         return test("request timeout applies while response body is pending", function () {
             return createMockJellyfinServer({ stallUsersMeBody: true }).then(function (mock) {
                 var backend = makeBackend(fetch, { requestTimeoutMs: 150 });

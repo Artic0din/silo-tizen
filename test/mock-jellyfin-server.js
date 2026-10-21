@@ -73,7 +73,17 @@ function createMockJellyfinServer(options) {
     var usersMe401 = options.usersMe401 === true;
     var usersMe503 = options.usersMe503 === true;
     var stallUsersMeBody = options.stallUsersMeBody === true;
+    var quickConnectEnabled = options.quickConnectEnabled;
+    var quickConnectEnabledStatus = options.quickConnectEnabledStatus;
+    var quickConnectInitiateFail = options.quickConnectInitiateFail === true;
+    var quickConnectPollsUntilAuth = options.quickConnectPollsUntilAuth;
+    var quickConnectExpired = options.quickConnectExpired === true;
+    var quickConnectPollFail = options.quickConnectPollFail === true;
+    var quickConnectAuth401 = options.quickConnectAuth401 === true;
+    var quickConnectCode = options.quickConnectCode || "482913";
+    var quickConnectSecret = options.quickConnectSecret || "mock-quick-connect-secret";
     var logoutCalls = 0;
+    var quickConnectPollCalls = 0;
     var server = null;
 
     function pathMatches(reqUrl, suffix) {
@@ -204,6 +214,75 @@ function createMockJellyfinServer(options) {
             return;
         }
 
+        if (req.method === "GET" && pathMatches(req.url, "/QuickConnect/Enabled")) {
+            if (quickConnectEnabledStatus) {
+                res.writeHead(quickConnectEnabledStatus, { "Content-Type": "application/json" });
+                res.end("{}");
+                return;
+            }
+            var enabledValue = options.quickConnectEnabled === true;
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify(enabledValue));
+            return;
+        }
+
+        if (req.method === "POST" && pathMatches(req.url, "/QuickConnect/Initiate")) {
+            if (quickConnectInitiateFail) {
+                res.writeHead(503, { "Content-Type": "application/json" });
+                res.end("{}");
+                return;
+            }
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(
+                JSON.stringify({
+                    Secret: quickConnectSecret,
+                    Code: quickConnectCode
+                })
+            );
+            return;
+        }
+
+        if (req.method === "GET" && pathMatches(req.url, "/QuickConnect/Connect")) {
+            quickConnectPollCalls += 1;
+            if (quickConnectPollFail) {
+                res.writeHead(503, { "Content-Type": "application/json" });
+                res.end("{}");
+                return;
+            }
+            if (quickConnectExpired) {
+                res.writeHead(400, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ Message: "Secret expired" }));
+                return;
+            }
+            var threshold = typeof quickConnectPollsUntilAuth === "number" ? quickConnectPollsUntilAuth : 1;
+            var authenticated = quickConnectPollCalls >= threshold;
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ Authenticated: authenticated }));
+            return;
+        }
+
+        if (req.method === "POST" && pathMatches(req.url, "/Users/AuthenticateWithQuickConnect")) {
+            var qcChunks = [];
+            req.on("data", function (chunk) {
+                qcChunks.push(chunk);
+            });
+            req.on("end", function () {
+                if (quickConnectAuth401) {
+                    res.writeHead(401, { "Content-Type": "application/json" });
+                    res.end("{}");
+                    return;
+                }
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(
+                    JSON.stringify({
+                        AccessToken: "mock-qc-access-token",
+                        User: { Id: "user-qc-456", Name: "QC User" }
+                    })
+                );
+            });
+            return;
+        }
+
         if (req.method === "POST" && pathMatches(req.url, "/Users/AuthenticateByName")) {
             var chunks = [];
             req.on("data", function (chunk) {
@@ -237,6 +316,12 @@ function createMockJellyfinServer(options) {
                 baseUrl: "http://127.0.0.1:" + port + pathPrefix,
                 getLogoutCalls: function () {
                     return logoutCalls;
+                },
+                getQuickConnectPollCalls: function () {
+                    return quickConnectPollCalls;
+                },
+                resetQuickConnectPollCalls: function () {
+                    quickConnectPollCalls = 0;
                 },
                 close: function () {
                     return new Promise(function (resClose) {

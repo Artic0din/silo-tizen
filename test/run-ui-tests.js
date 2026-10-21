@@ -203,6 +203,37 @@ async function main() {
         await mock.close();
     });
 
+    await runTest("Quick Connect auth after cancel does not store session", async function () {
+        var mock = await createMockJellyfinServer({
+            quickConnectEnabled: true,
+            quickConnectPollsUntilAuth: 1
+        });
+        var page = await context.newPage();
+        await page.addInitScript(function () {
+            window.SiloTestConfig = { quickConnectPollMs: 150, quickConnectTimeoutMs: 600000 };
+        });
+        await openQuickConnectChoice(page, staticServer.url, mock);
+        await page.click("#signin-quickconnect-start");
+        await page.waitForSelector("#quickconnect-code-display", { timeout: 10000 });
+        await page.route("**/Users/AuthenticateWithQuickConnect", async function (route) {
+            await new Promise(function (resolve) {
+                setTimeout(resolve, 800);
+            });
+            await route.continue();
+        });
+        await page.waitForTimeout(400);
+        await pressBack(page);
+        await page.waitForSelector("#signin-quickconnect-start", { timeout: 5000 });
+        await page.waitForTimeout(1200);
+        var sessionKeys = await page.evaluate(function () {
+            return Object.keys(JSON.parse(localStorage.getItem("silo.sessions") || "{}"));
+        });
+        assert.strictEqual(sessionKeys.length, 0);
+        await page.unroute("**/Users/AuthenticateWithQuickConnect");
+        await page.close();
+        await mock.close();
+    });
+
     await runTest("Quick Connect poll completes, stores token, and lands on Home", async function () {
         var mock = await createMockJellyfinServer({
             quickConnectEnabled: true,

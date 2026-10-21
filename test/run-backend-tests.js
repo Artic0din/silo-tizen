@@ -275,6 +275,9 @@ var tests = [
                         assert.strictEqual(auth.ok, true);
                         assert.strictEqual(auth.session.accessToken, "mock-qc-access-token");
                         assert.strictEqual(auth.session.userName, "QC User");
+                        assert.strictEqual(backend.currentSession(), null);
+                        var stored = backend.storeSession(auth.session);
+                        assert.strictEqual(stored.ok, true);
                         assert.ok(backend.currentSession());
                         return mock.close();
                     });

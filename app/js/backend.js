@@ -291,7 +291,7 @@
                 });
         }
 
-        function persistSessionFromAuth(serverUrl, data, fallbackUserName) {
+        function sessionFromAuthData(serverUrl, data, fallbackUserName) {
             var token = data && data.AccessToken;
             var user = (data && data.User) || {};
             if (!token || !user.Id) {
@@ -306,8 +306,24 @@
                     accessToken: token,
                     serverName: serverName
                 };
-                setActiveSession(serverUrl, session);
                 return { ok: true, session: session };
+            });
+        }
+
+        function storeSession(session) {
+            if (!session || !session.serverUrl) {
+                return { ok: false, error: { code: "auth_failed", message: "Sign-in failed." } };
+            }
+            setActiveSession(session.serverUrl, session);
+            return { ok: true, session: session };
+        }
+
+        function persistSessionFromAuth(serverUrl, data, fallbackUserName) {
+            return sessionFromAuthData(serverUrl, data, fallbackUserName).then(function (result) {
+                if (!result.ok) {
+                    return result;
+                }
+                return storeSession(result.session);
             });
         }
 
@@ -455,7 +471,7 @@
                         return { ok: false, error: { code: "auth_failed", message: "Quick Connect sign-in failed." } };
                     }
                     var data = parseJsonBody(result.bodyText);
-                    return persistSessionFromAuth(serverUrl, data, "User");
+                    return sessionFromAuthData(serverUrl, data, "User");
                 })
                 .catch(function (err) {
                     return { ok: false, error: mapFetchError(err) };
@@ -805,6 +821,7 @@
             quickConnectInitiate: quickConnectInitiate,
             quickConnectPoll: quickConnectPoll,
             authenticateWithQuickConnect: authenticateWithQuickConnect,
+            storeSession: storeSession,
             signOut: signOut,
             currentSession: currentSession,
             validateSession: validateSession,

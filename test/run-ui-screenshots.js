@@ -132,7 +132,7 @@ async function main() {
     await qcPage.waitForSelector("#signin-quickconnect-start", { timeout: 10000 });
     await qcPage.click("#signin-quickconnect-start");
     await qcPage.waitForSelector("#quickconnect-code-display", { timeout: 10000 });
-    await qcPage.screenshot({ path: path.join(ARTIFACT_DIR, "08-quickconnect-code-screen.png") });
+    await qcPage.screenshot({ path: path.join(ARTIFACT_DIR, "11-quickconnect-code-screen.png") });
 
     var mockQcExpired = await createMockJellyfinServer({
         quickConnectEnabled: true,
@@ -148,7 +148,7 @@ async function main() {
     await expiredPage.waitForSelector("#signin-quickconnect-start", { timeout: 10000 });
     await expiredPage.click("#signin-quickconnect-start");
     await expiredPage.waitForSelector("#quickconnect-renew", { timeout: 15000 });
-    await expiredPage.screenshot({ path: path.join(ARTIFACT_DIR, "09-quickconnect-expired-screen.png") });
+    await expiredPage.screenshot({ path: path.join(ARTIFACT_DIR, "12-quickconnect-expired-screen.png") });
 
     await qcPage.bringToFront();
     await qcPage.click("#quickconnect-cancel");
@@ -156,7 +156,7 @@ async function main() {
     await pressKey(qcPage, "ArrowDown");
     await pressKey(qcPage, "Enter");
     await qcPage.waitForSelector("#signin-username", { timeout: 5000 });
-    await qcPage.screenshot({ path: path.join(ARTIFACT_DIR, "10-signin-password-fallback.png") });
+    await qcPage.screenshot({ path: path.join(ARTIFACT_DIR, "13-signin-password-fallback.png") });
     await qcPage.close();
     await expiredPage.close();
 

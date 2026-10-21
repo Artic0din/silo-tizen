@@ -198,6 +198,7 @@
     }
 
     function backToSignInChoiceFromQuickConnect() {
+        bumpRequestGeneration();
         stopQuickConnectPolling();
         state.quickConnect.secret = "";
         state.quickConnect.code = "";
@@ -327,6 +328,11 @@
                 return;
             }
             if (result.authenticated) {
+                if (Date.now() - state.quickConnect.startedAt >= QUICK_CONNECT_TIMEOUT_MS) {
+                    stopQuickConnectPolling();
+                    renderQuickConnectExpiredScreen();
+                    return;
+                }
                 stopQuickConnectPolling();
                 completeQuickConnectAuth();
                 return;
@@ -349,10 +355,15 @@
                 renderQuickConnectErrorScreen(result.error.message, "auth");
                 return;
             }
+            var stored = backend.storeSession(result.session);
+            if (!stored.ok) {
+                renderQuickConnectErrorScreen(stored.error.message, "auth");
+                return;
+            }
             state.error = "";
             state.quickConnect.secret = "";
             state.quickConnect.code = "";
-            renderHomeScreen(result.session);
+            renderHomeScreen(stored.session);
         });
     }
 
@@ -611,6 +622,12 @@
         screenEl.appendChild(
             el("p", "subtitle", "This code is no longer valid. Get a new code to try again.")
         );
+
+        var err = el("p", "error");
+        err.id = "screen-error";
+        err.hidden = !state.error;
+        err.textContent = state.error;
+        screenEl.appendChild(err);
 
         var renewBtn = makeButton("quickconnect-renew", "Get a new code");
         screenEl.appendChild(renewBtn);
@@ -1670,6 +1687,14 @@
 
         if (code === KEY_UP || code === KEY_DOWN || code === KEY_LEFT || code === KEY_RIGHT) {
             if (isFormView()) {
+                var activeArrow = document.activeElement;
+                var editingInput =
+                    activeArrow &&
+                    activeArrow.classList &&
+                    activeArrow.classList.contains("field-input");
+                if ((code === KEY_LEFT || code === KEY_RIGHT) && editingInput) {
+                    return;
+                }
                 event.preventDefault();
                 if (code === KEY_UP || code === KEY_DOWN) {
                     var focusables = collectFocusables();

@@ -219,6 +219,72 @@ var tests = [
                     });
             });
         });
+    },
+    function () {
+        return test("browseHome returns resume, latest, and libraries", function () {
+            return createMockJellyfinServer().then(function (mock) {
+                var backend = makeBackend(trackingFetch);
+                return backend
+                    .signIn(mock.baseUrl, "alice", "secret")
+                    .then(function () {
+                        return backend.browseHome();
+                    })
+                    .then(function (result) {
+                        assert.strictEqual(result.ok, true);
+                        var ids = result.sections.map(function (s) {
+                            return s.id;
+                        });
+                        assert.ok(ids.indexOf("continue-watching") !== -1);
+                        assert.ok(ids.some(function (id) {
+                            return id.indexOf("latest-") === 0;
+                        }));
+                        assert.ok(ids.indexOf("my-libraries") !== -1);
+                        assert.ok(lastAuthHeader.indexOf('Token="mock-access-token"') !== -1);
+                        return mock.close();
+                    });
+            });
+        });
+    },
+    function () {
+        return test("browseLibraryItems pages with StartIndex and Limit", function () {
+            var mockLib = require("./mock-jellyfin-server");
+            return createMockJellyfinServer().then(function (mock) {
+                var backend = makeBackend(trackingFetch);
+                return backend
+                    .signIn(mock.baseUrl, "alice", "secret")
+                    .then(function () {
+                        return backend.browseLibraryItems(mockLib.LIBRARY_MOVIES, { startIndex: 0, limit: 30 });
+                    })
+                    .then(function (page1) {
+                        assert.strictEqual(page1.ok, true);
+                        assert.strictEqual(page1.items.length, 30);
+                        assert.strictEqual(page1.totalRecordCount, 75);
+                        assert.ok(lastRequestUrl.indexOf("StartIndex=0") !== -1);
+                        assert.ok(lastRequestUrl.indexOf("Limit=30") !== -1);
+                        return backend.browseLibraryItems(mockLib.LIBRARY_MOVIES, { startIndex: 30, limit: 30 });
+                    })
+                    .then(function (page2) {
+                        assert.strictEqual(page2.ok, true);
+                        assert.strictEqual(page2.items.length, 30);
+                        assert.ok(lastRequestUrl.indexOf("StartIndex=30") !== -1);
+                        return mock.close();
+                    });
+            });
+        });
+    },
+    function () {
+        return test("primaryImageUrl includes api_key query param", function () {
+            return createMockJellyfinServer().then(function (mock) {
+                var backend = makeBackend(fetch);
+                return backend.signIn(mock.baseUrl, "alice", "secret").then(function () {
+                    var imageUrl = backend.primaryImageUrl("movie-001", { maxHeight: 200, quality: 80 });
+                    assert.ok(imageUrl.indexOf("/Items/movie-001/Images/Primary") !== -1);
+                    assert.ok(imageUrl.indexOf("maxHeight=200") !== -1);
+                    assert.ok(imageUrl.indexOf("api_key=mock-access-token") !== -1);
+                    return mock.close();
+                });
+            });
+        });
     }
 ];
 

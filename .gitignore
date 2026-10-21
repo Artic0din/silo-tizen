@@ -18,6 +18,9 @@ signature1.xml
 # Local SDK installs
 tizen-studio/
 
+# Node (local test runs only)
+node_modules/
+
 # OS / editor
 .DS_Store
 Thumbs.db

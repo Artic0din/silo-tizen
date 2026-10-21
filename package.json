@@ -1,0 +1,8 @@
+{
+  "name": "silo-tizen-tests",
+  "private": true,
+  "description": "Headless UI test tooling for silo-tizen (app package stays dependency-free)",
+  "devDependencies": {
+    "playwright": "1.49.0"
+  }
+}

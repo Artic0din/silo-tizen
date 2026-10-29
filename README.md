@@ -11,6 +11,9 @@ Silo client for Samsung Tizen TVs from model year 2021 (Tizen 6.0).
   tsc does not check them, and they are not the final architecture.
 - `src/api/`, `src/session/` and `src/contracts/v2/` hold the native `/api/v2` session core: device login, profiles and credential storage.
   No screen uses it yet, so the packaged app still runs the legacy screens only.
+- Native rollout is blocked by [the signed-TV transport gates in #6](https://github.com/Artic0din/silo-tizen/issues/6).
+  Keep the entry point on the legacy client until a foreground signed app reads native discovery and authenticated responses over normally validated HTTPS.
+  The server currently provides no native JSON CORS policy; Node fakes and successful wire requests do not prove that the TV's JavaScript can read those responses.
 - `scripts/build.mjs` stages `app/` into `dist/wgt/` and bundles `src/main.ts` into `dist/wgt/js/main.js`.
 
 ## Build

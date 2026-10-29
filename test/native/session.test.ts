@@ -69,6 +69,47 @@ test("logout during an in-flight refresh clears local authority and the refresh 
     assert.equal(restarted.core.restore, "signed_out");
 });
 
+test("logout revokes a late refresh pair even when the old access token expired", async () => {
+    const h = await connected();
+    await signIn(h);
+    h.fake.expireAccessTokens();
+    const held = h.fake.hold("/auth/refresh", true);
+    const refreshing = h.core.session.refresh();
+    await h.clock.advance(0);
+
+    const logout = await h.core.session.logout();
+    assert.equal(logout.storage, "cleared");
+    assert.equal(logout.server, "already_ended", "the old pair can no longer revoke the rotated session");
+    assert.equal(h.fake.revokedSessions.size, 0, "the refresh response is still withheld");
+
+    held.release();
+    assert.deepEqual(await refreshing, { status: "aborted" });
+    assert.equal(h.fake.revokedSessions.size, 1, "the discarded refresh pair revokes its server session");
+    assert.equal(h.core.session.signedIn, false);
+    assert.equal(h.keyManager?.items.size, 0);
+    const restarted = await connected({ clock: h.clock, fake: h.fake, keyManager: h.keyManager, storage: h.storage });
+    assert.equal(restarted.core.restore, "signed_out");
+});
+
+test("a late refresh revokes only the replaced session when another sign-in is current", async () => {
+    const h = await connected();
+    await signIn(h);
+    h.fake.expireAccessTokens();
+    const held = h.fake.hold("/auth/refresh", true);
+    const refreshing = h.core.session.refresh();
+    await h.clock.advance(0);
+
+    await signIn(h);
+    assert.equal(h.fake.revokedSessions.size, 0);
+    held.release();
+    assert.deepEqual(await refreshing, { status: "aborted" });
+    assert.equal(h.fake.revokedSessions.size, 1, "only the replaced login session is revoked");
+    await h.core.session.call(probe);
+    const restarted = await connected({ clock: h.clock, fake: h.fake, keyManager: h.keyManager, storage: h.storage });
+    assert.equal(restarted.core.restore, "signed_in");
+    await restarted.core.session.call(probe);
+});
+
 test("logout while the server is unreachable still signs out locally", async () => {
     const h = await connected();
     await signIn(h);

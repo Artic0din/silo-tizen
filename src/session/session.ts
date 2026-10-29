@@ -309,6 +309,8 @@ export class NativeSession {
                 signal: this.accountController.signal,
             });
             if (this.accountEpoch !== epoch) {
+                // The server may have rotated before the account change aborted this request.
+                await revokeIssuedTokens(this.http, tokens);
                 return { status: "aborted" };
             }
             const next: StoredCredential = {

@@ -235,7 +235,6 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
                     expired();
                 } else {
                     screen.say(pinProblem(result), "error");
-                    screen.focusPin();
                 }
             }, (error: unknown) => {
                 if (token === view) {

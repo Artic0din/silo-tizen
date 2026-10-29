@@ -1,8 +1,16 @@
 {
-  "name": "silo-tizen-tests",
+  "name": "silo-tizen",
   "private": true,
-  "description": "Headless UI test tooling for silo-tizen (app package stays dependency-free)",
+  "description": "Silo client for Samsung Tizen TVs",
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "build": "npm run typecheck && node scripts/build.mjs",
+    "test": "npm run build && node test/run-backend-tests.js && node test/run-focus-tests.js"
+  },
   "devDependencies": {
-    "playwright": "1.49.0"
+    "esbuild": "0.28.2",
+    "playwright": "1.49.0",
+    "typescript": "7.0.2"
   }
 }

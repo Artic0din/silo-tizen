@@ -2,7 +2,7 @@
 
 var assert = require("assert");
 var { createMockJellyfinServer } = require("./mock-jellyfin-server");
-var factory = require("../app/js/backend.js");
+var factory = require("../src/legacy/backend.js");
 
 function memoryStorage() {
     var map = Object.create(null);

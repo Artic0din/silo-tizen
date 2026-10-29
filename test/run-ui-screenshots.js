@@ -2,7 +2,7 @@
 
 /**
  * Headless Chromium walkthrough of sign-in and browse screens against the mock Jellyfin server.
- * Run: npm ci && npx playwright install chromium && node test/run-ui-screenshots.js
+ * Run: npm ci && npx playwright install chromium && npm run build && node test/run-ui-screenshots.js
  */
 
 var fs = require("fs");
@@ -13,7 +13,12 @@ var { chromium } = require("playwright");
 var { createMockJellyfinServer, LIBRARY_MOVIES } = require("./mock-jellyfin-server");
 
 var ARTIFACT_DIR = process.env.SCREENSHOT_DIR || path.join(os.tmpdir(), "silo-screenshots");
-var APP_ROOT = path.join(__dirname, "..", "app");
+// Serve the staged package so tests exercise the real bundle (`npm run build`).
+var APP_ROOT = path.join(__dirname, "..", "dist", "wgt");
+if (!fs.existsSync(path.join(APP_ROOT, "index.html"))) {
+    console.error("error: " + APP_ROOT + " is missing; run `npm run build` first");
+    process.exit(1);
+}
 
 function startStaticServer() {
     var server = http.createServer(function (req, res) {

@@ -37,8 +37,8 @@ export interface RequestSpec<T> {
     readonly decode: (body: unknown) => T;
     readonly body?: JsonBody;
     readonly bearer?: string;
-    readonly profile?: ProfileHeaders;
-    readonly signal?: AbortSignal;
+    readonly profile?: ProfileHeaders | undefined;
+    readonly signal?: AbortSignal | undefined;
     readonly timeoutMs?: number;
 }
 
@@ -113,7 +113,7 @@ export class NativeHttp {
                 response = await this.fetch(this.base.apiRoot + spec.path, {
                     method: spec.method,
                     headers: this.headers(spec),
-                    body: spec.body === undefined ? undefined : JSON.stringify(spec.body),
+                    body: spec.body === undefined ? null : JSON.stringify(spec.body),
                     signal: controller.signal,
                     // A redirect could carry the bearer or the request body to another origin.
                     redirect: "error",

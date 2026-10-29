@@ -14,7 +14,7 @@ export interface Harness {
 }
 
 export async function connected(
-    options: { keyManager?: FakeKeyManager | null; storage?: MemoryPublicStorage; clock?: ManualClock; fake?: FakeSilo } = {},
+    options: { keyManager?: FakeKeyManager | null | undefined; storage?: MemoryPublicStorage; clock?: ManualClock; fake?: FakeSilo } = {},
 ): Promise<Harness> {
     const clock = options.clock ?? new ManualClock();
     const fake = options.fake ?? new FakeSilo(clock);

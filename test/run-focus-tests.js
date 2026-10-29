@@ -2,7 +2,7 @@
 
 /**
  * Playwright checks for TV-style browse focus (section/item ids, back restores focus).
- * Run: npm ci && npx playwright install chromium && node test/run-focus-tests.js
+ * Run: npm ci && npx playwright install chromium && npm run build && node test/run-focus-tests.js
  */
 
 var assert = require("assert");
@@ -12,7 +12,12 @@ var http = require("http");
 var { chromium } = require("playwright");
 var { createMockJellyfinServer, LIBRARY_MOVIES } = require("./mock-jellyfin-server");
 
-var APP_ROOT = path.join(__dirname, "..", "app");
+// Serve the staged package so tests exercise the real bundle (`npm run build`).
+var APP_ROOT = path.join(__dirname, "..", "dist", "wgt");
+if (!fs.existsSync(path.join(APP_ROOT, "index.html"))) {
+    console.error("error: " + APP_ROOT + " is missing; run `npm run build` first");
+    process.exit(1);
+}
 
 function startStaticServer() {
     var server = http.createServer(function (req, res) {

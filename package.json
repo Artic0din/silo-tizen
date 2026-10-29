@@ -10,12 +10,16 @@
     "typecheck": "tsc -p . && tsc -p tsconfig.test.json",
     "build": "npm run typecheck && node scripts/build.mjs",
     "test:native": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --test-timeout=15000 \"test/native/*.test.ts\"",
-    "test": "npm run build && npm run test:native && node test/run-backend-tests.js && node test/run-focus-tests.js"
+    "test": "npm run build && npm run test:native && npm run test:ui && node test/run-backend-tests.js && node test/run-focus-tests.js",
+    "test:ui": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --test-timeout=60000 \"test/ui/*.test.ts\""
   },
   "devDependencies": {
     "@types/node": "26.6.6",
     "esbuild": "0.28.2",
     "playwright": "1.64.1",
     "typescript": "7.0.2"
+  },
+  "dependencies": {
+    "uqr": "0.1.3"
   }
 }

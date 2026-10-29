@@ -69,6 +69,7 @@ export class FakeSilo {
     /** Paths whose next request is processed but whose answer is lost on the way back. */
     private readonly dropped: string[] = [];
     pinAttempts = 0;
+    passwordChangeRequired = false;
     lockedUntil = 0;
     private nextId = 1;
     private readonly clock: ManualClock;
@@ -255,7 +256,8 @@ export class FakeSilo {
             request.status = "consumed";
             const ok = fixture("poll_device_login_ok");
             const tokens = toRecord(ok.tokens);
-            return { status: 200, body: { ...ok, tokens: { ...tokens, ...this.mintSession() } } };
+            const user = toRecord(tokens.user);
+            return { status: 200, body: { ...ok, tokens: { ...tokens, ...this.mintSession(), user: { ...user, password_change_required: this.passwordChangeRequired } } } };
         }
         return { status: 200, body: { ...base, status: request.status } };
     }

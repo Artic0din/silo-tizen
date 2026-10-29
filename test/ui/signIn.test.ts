@@ -99,19 +99,31 @@ tvTest("the address screen explains an unusable address without contacting anyth
 });
 
 tvTest("an unreachable server can be retried, and its saved sign-in removed while offline", async (tv) => {
-    await connectTo(tv, "offline.example.test");
+    await connectTo(tv);
+    await signIn(tv);
+    assert.equal(await tv.page.evaluate(() => window.harness.keyManager?.items.size), 1);
+    await tv.page.evaluate(() => {
+        window.harness.storage.removeItem("silo.native.server");
+        window.harness.mount();
+    });
+    tv.offline = true;
+    await connectTo(tv);
     await connectFails(tv, "Could not reach the server.");
     assert.equal(await tv.focused(), "connect");
     await tv.page.keyboard.press("ArrowDown");
     assert.equal(await tv.focused(), "forget");
     await tv.page.keyboard.press("Enter");
     await shows(tv, "Removed this server's saved sign-in from this TV.");
+    assert.equal(await tv.page.evaluate(() => window.harness.keyManager?.items.size), 0);
     assert.equal(await tv.focused(), "connect");
     const blocked = tv.blocked;
     await tv.page.keyboard.press("Enter");
     await connectFails(tv, "Could not reach the server.");
     assert.ok(tv.blocked > blocked, "Connect tried again");
-    assert.deepEqual(tv.fake.requests, [], "nothing reached the real server");
+    tv.offline = false;
+    await tv.page.keyboard.press("Enter");
+    await codeScreen(tv);
+    assert.equal(await handoffs(tv), 1, "the removed account cannot restore");
 });
 
 tvTest("unsupported, misrouted and failing servers are named, and a retry connects", async (tv) => {
@@ -171,6 +183,7 @@ tvTest("the code screen shows the grouped code, its address and a QR code of the
 tvTest("an opened code says so and its deadline moves later; the code is never replaced", async (tv) => {
     await connectTo(tv);
     const code = await codeScreen(tv);
+    const displayedCode = await tv.page.locator(".signin-code").textContent();
     await tv.jump(12 * MINUTE);
     await shows(tv, "Code expires in 3:00");
     tv.fake.open(code);
@@ -178,6 +191,24 @@ tvTest("an opened code says so and its deadline moves later; the code is never r
     await shows(tv, "Code opened. Finish signing in on your phone or computer.");
     await shows(tv, "Code expires in 4:55");
     assert.equal(tv.fake.devices.size, 1);
+    assert.equal(await tv.page.locator(".signin-code").textContent(), displayedCode);
+});
+
+tvTest("a link too large for a QR code still shows manual sign-in and keeps polling", async (tv) => {
+    tv.fake.script("/auth/device/start", {
+        status: 201,
+        body: { ...fixture("start_device_login_ok"), verification_uri_complete: `https://silo.example.test/activate?code=${"x".repeat(5000)}` },
+    });
+    await connectTo(tv);
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    await shows(tv, "4821 7730");
+    await shows(tv, "QR code unavailable. Use the address and code instead.");
+    assert.equal(await tv.focused(), "change");
+    assert.equal(await tv.page.locator("svg").count(), 0);
+    await tv.jump(5000);
+    await tv.eventually(async () => polls(tv) === 1, "polling despite QR failure");
+    await tv.remote(BACK);
+    assert.equal(await tv.screen(), "entry");
 });
 
 tvTest("approval hands the server over once, removes the screens and keeps tokens off the page", async (tv) => {
@@ -407,6 +438,34 @@ for (const action of replacementActions) {
     });
 }
 
+tvTest("stalled cleanup leaves Connecting with a retry and never bypasses pending storage", async (tv) => {
+    await connectTo(tv);
+    const code = await codeScreen(tv);
+    await tv.page.evaluate(() => {
+        const keyManager = window.harness.keyManager;
+        if (keyManager === undefined) {
+            throw new Error("protected storage required");
+        }
+        window.harness.saveHold = keyManager.holdSaves();
+    });
+    tv.fake.approve(code);
+    await tv.jump(5000);
+    await tv.eventually(async () => (await tv.page.evaluate(() => window.harness.saveHold?.waiting())) === 1, "credential storage to start");
+    await tv.remote(BACK);
+    await tv.page.keyboard.press("Enter");
+    await tv.jump(10000);
+    await shows(tv, "This TV is still removing the earlier sign-in. Try connecting again in a moment.");
+    assert.equal(await tv.screen(), "entry");
+    assert.equal(await tv.focused(), "connect");
+    assert.equal(await tv.page.evaluate(() => window.harness.discoveryRequests), 1);
+    await tv.page.keyboard.press("Enter");
+    await tv.page.evaluate(() => window.harness.saveHold?.release());
+    await codeScreen(tv);
+    assert.equal(await tv.page.evaluate(() => window.harness.discoveryRequests), 2);
+    await signIn(tv);
+    assert.equal(await tv.page.evaluate(() => window.harness.handoffs[0]?.persistence), "persistent");
+});
+
 tvTest("destroying a sign-in notice revokes the account instead of handing it over", async (tv) => {
     await connectTo(tv);
     const code = await codeScreen(tv);
@@ -420,37 +479,14 @@ tvTest("destroying a sign-in notice revokes the account instead of handing it ov
 
 tvTest("an account that must change its password is signed out here and sent to the server's web page", async (tv) => {
     await connectTo(tv);
-    await codeScreen(tv);
-    tv.fake.script("/auth/device/poll", {
-        status: 200,
-        body: {
-            status: "approved",
-            poll_after: 5,
-            opened: true,
-            tokens: {
-                access_token: "acc-temporary",
-                refresh_token: "ref-temporary",
-                expires_in: 3600,
-                user: {
-                    id: "1",
-                    username: "laura",
-                    email: "laura@example.test",
-                    role: "user",
-                    permissions: [],
-                    download_allowed: true,
-                    password_change_required: true,
-                },
-            },
-            profile_id: "",
-            profile_token: "",
-            temporary: false,
-        },
-    });
+    const code = await codeScreen(tv);
+    tv.fake.passwordChangeRequired = true;
+    tv.fake.approve(code);
     await tv.jump(5000);
     await tv.page.locator('[data-screen="password"]').waitFor();
     await shows(tv, "In a web browser, open https://silo.example.test, sign in and choose a new password.");
     assert.equal(await tv.focused(), "retry");
-    await tv.eventually(async () => tv.fake.paths().includes("POST /auth/logout"), "the sign-out");
+    await tv.eventually(async () => tv.fake.revokedSessions.size === 1, "the login session to be revoked");
     await tv.eventually(async () => (await tv.page.evaluate(() => window.harness.keyManager?.items.size)) === 0, "the stored account to be removed");
     assert.equal(await handoffs(tv), 0);
     await tv.page.keyboard.press("Enter");
@@ -482,6 +518,9 @@ tvTest("remote keys move focus only between controls, never lose it, and leave B
     await tv.page.keyboard.type("silo.example.test");
     await tv.page.keyboard.press("ArrowLeft");
     assert.equal(await tv.focused(), "address", "Left moves the caret in the field");
+    await tv.page.keyboard.type("X");
+    assert.equal(await tv.page.inputValue("#signin-address"), "silo.example.tesXt", "Left changed the insertion position");
+    await tv.page.keyboard.press("Backspace");
     await tv.remote(IME_DONE);
     assert.equal(await tv.focused(), "connect", "the TV keyboard's Done moves on to Connect");
     await tv.page.keyboard.press("ArrowDown");

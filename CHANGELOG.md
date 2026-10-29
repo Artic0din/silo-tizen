@@ -15,6 +15,11 @@ All notable changes to this project are documented in this file.
 
 - Set the minimum app platform to Tizen 6.0.
 
+### Fixed
+
+- Kept manual device-code sign-in available when its link could not be encoded as a QR code.
+- Replaced an indefinite connection wait with a retry message while earlier sign-in storage cleanup remained pending.
+
 ### Security
 
 - Revoked native sign-ins abandoned before the sign-in screens handed the account to the app.

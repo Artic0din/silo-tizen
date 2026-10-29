@@ -24,6 +24,7 @@ export interface SignInScreens {
 
 /** The last server connected to, so a restart can restore its session. An address, not a secret. */
 const SERVER_KEY = "silo.native.server";
+const CLEANUP_WAIT_MS = 10000;
 
 // A new mount must not open another vault while an abandoned flow still clears the same aliases.
 let pendingAccountCleanup: Promise<void> = Promise.resolve();
@@ -128,9 +129,22 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             focus: "cancel",
             back: cancelConnecting,
         });
-        pendingAccountCleanup.then(() => connect(address, core, controller.signal)).then(
+        const cancelCleanupWait = clock.schedule(() => {
+            if (connecting === controller && !controller.signal.aborted && !destroyed) {
+                controller.abort();
+                connecting = undefined;
+                showEntry([{ text: "This TV is still removing the earlier sign-in. Try connecting again in a moment.", tone: "error" }], false, "connect");
+            }
+        }, CLEANUP_WAIT_MS);
+        pendingAccountCleanup.then(() => {
+            cancelCleanupWait();
+            if (!controller.signal.aborted && !destroyed) {
+                return connect(address, core, controller.signal);
+            }
+            return undefined;
+        }).then(
             (result) => {
-                if (connecting === controller && !controller.signal.aborted && !destroyed) {
+                if (result !== undefined && connecting === controller && !controller.signal.aborted && !destroyed) {
                     connecting = undefined;
                     connected(result);
                 }

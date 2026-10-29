@@ -1,8 +1,20 @@
 # Tests
 
-`npm test` runs the build, the adapter tests and the browse focus tests.
+`npm test` runs the build, the native session tests, the adapter tests and the browse focus tests.
+It needs Node.js 26 or later, the version CI tests.
 The Playwright tests serve the staged package in `dist/wgt/`, so run `npm run build` before running them directly.
 Desktop Chromium is not Chromium 76; these runs do not prove 2021 TV rendering.
+
+## Native session core (Node only)
+
+```bash
+npm run test:native
+```
+
+Node runs `test/native/*.test.ts` directly by stripping types; there is no compile step.
+The tests use a fake Silo server and a fake KeyManager, so they need no network, TV or account.
+The script hides Node's `MODULE_TYPELESS_PACKAGE_JSON` warning: the package stays CommonJS for the legacy runners, so Node detects the test files as ES modules.
+`npm run typecheck` checks these tests with `tsconfig.test.json`.
 
 ## Backend adapter (Node only)
 

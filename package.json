@@ -3,12 +3,17 @@
   "private": true,
   "description": "Silo client for Samsung Tizen TVs",
   "license": "AGPL-3.0-or-later",
+  "engines": {
+    "node": ">=26"
+  },
   "scripts": {
-    "typecheck": "tsc -p .",
+    "typecheck": "tsc -p . && tsc -p tsconfig.test.json",
     "build": "npm run typecheck && node scripts/build.mjs",
-    "test": "npm run build && node test/run-backend-tests.js && node test/run-focus-tests.js"
+    "test:native": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --test-timeout=15000 \"test/native/*.test.ts\"",
+    "test": "npm run build && npm run test:native && node test/run-backend-tests.js && node test/run-focus-tests.js"
   },
   "devDependencies": {
+    "@types/node": "26.6.6",
     "esbuild": "0.28.2",
     "playwright": "1.64.1",
     "typescript": "7.0.2"

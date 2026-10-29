@@ -12,6 +12,9 @@
     "noUncheckedSideEffectImports": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "allowImportingTsExtensions": true,
+    "types": [],
     "forceConsistentCasingInFileNames": true,
     "noEmit": true
   },

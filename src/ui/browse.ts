@@ -11,6 +11,10 @@ import { type Clock, systemClock } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
 import type { RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
+import { detailOperations } from "../api/detailOperations.ts";
+import type { ItemDetail } from "../contracts/v2/catalog.ts";
+import { DetailsState } from "./detailsState.ts";
+import { Synopsis } from "./browseDetails.ts";
 import type { ConnectedServer } from "../session/core.ts";
 import type { PublicStorage } from "../session/deviceIdentity.ts";
 import { Skyline } from "./skyline.ts";
@@ -73,6 +77,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let cancelSearch: () => void = () => undefined;
     let playing = false;
     let torn = false;
+    let detailWork: DetailsState | undefined;
+    const synopsis = new Synopsis(container, () => render({ zone: "actions", key: "synopsis" }));
+    const stopDetails = (): void => { synopsis.destroy(); detailWork?.stop(); detailWork = undefined; };
 
     const top = (): Route | undefined => stack[stack.length - 1];
 
@@ -81,6 +88,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             return;
         }
         torn = true;
+        stopDetails();
         stopAuthority();
         loading?.abort();
         cancelSlow();
@@ -150,6 +158,39 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const read = <T>(spec: RequestSpec<T>, signal: AbortSignal): Promise<T> => session.call({ ...spec, profileScoped: true, signal });
 
+    const detailsChanged = (current: Route): void => {
+        if ((current.kind === "item" || current.kind === "season") && current.data?.details?.changes.get("watched")?.pending) {
+            invalidateWatched(current, current.data.details.detail);
+        }
+        if (top() === current) render();
+    };
+
+    const invalidateWatched = (current: Route, detail: ItemDetail): void => {
+        // Even a lost or cancelled answer may have committed; reread covered routes on return.
+        current.stale = true;
+        const seriesId = detail.type === "series" ? detail.id : detail.seriesId;
+        for (const entry of stack) {
+            if (entry === current) continue;
+            if (entry.kind === "season" && entry.seriesId === seriesId && (detail.type !== "season" || entry.seasonNumber === detail.seasonNumber)) entry.stale = true;
+            if (entry.kind === "item") {
+                const covered = entry.data?.detail;
+                const affectedEpisode = covered?.type === "episode" && seriesId !== undefined && covered.seriesId === seriesId
+                    && (detail.type === "series" || (detail.type === "season" && detail.seasonNumber !== undefined && covered.seasonNumber === detail.seasonNumber));
+                if (entry.id === detail.id || entry.id === seriesId || affectedEpisode) entry.stale = true;
+            }
+        }
+    };
+
+    const refreshWatched = async (current: Route, detail: ItemDetail, signal: AbortSignal): Promise<void> => {
+        invalidateWatched(current, detail);
+        if (current.kind === "season") {
+            const episodes = await read(operations.listSeasonEpisodes(current.seriesId, current.seasonNumber), signal);
+            if (signal.aborted || top() !== current || current.data === undefined) return;
+            current.data.episodes = episodes;
+        }
+        current.stale = false;
+    };
+
     const loadRoute = (current: Route, quiet = false): void => {
         switch (current.kind) {
             case "home":
@@ -176,17 +217,43 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 search(current, quiet);
                 return;
             case "item":
+                stopDetails();
                 load(current, async (signal) => {
                     const detail = await read(operations.getCatalogItem(current.id), signal);
                     const seasons = detail.type === "series" ? await read(operations.listSeriesSeasons(detail.id), signal) : [];
                     return { detail, seasons };
                 }, (data) => {
-                    current.data = data;
+                    const details = new DetailsState(data.detail, session, () => detailsChanged(current), (detail, signal) => refreshWatched(current, detail, signal));
+                    details.selectedFileId = current.data?.details?.selectedFileId;
+                    current.data = { ...data, details };
+                    detailWork = details;
+                    details.start();
+                }, quiet);
+                return;
+            case "person":
+                load(current, (signal) => Promise.all([read(detailOperations.person(current.id), signal), read(detailOperations.filmography(current.id), signal)]), ([person, titles]) => {
+                    current.data = { person, titles };
                 }, quiet);
                 return;
             case "season":
-                load(current, (signal) => read(operations.listSeasonEpisodes(current.seriesId, current.seasonNumber), signal), (episodes) => {
-                    current.data = episodes;
+                stopDetails();
+                load(current, async (signal) => {
+                    const [episodes, detail] = await Promise.all([
+                        read(operations.listSeasonEpisodes(current.seriesId, current.seasonNumber), signal),
+                        current.id === undefined ? undefined : read(operations.getCatalogItem(current.id), signal).catch((error: unknown) => {
+                            if (error instanceof ApiError && error.status === 404) return undefined;
+                            throw error;
+                        }),
+                    ]);
+                    return { episodes, detail };
+                }, (data) => {
+                    current.data = data;
+                    if (data.detail !== undefined) {
+                        const details = new DetailsState(data.detail, session, () => detailsChanged(current), (detail, signal) => refreshWatched(current, detail, signal));
+                        current.data.details = details;
+                        detailWork = details;
+                        details.start();
+                    }
                 }, quiet);
         }
     };
@@ -251,6 +318,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (stack.length <= 1) {
             return;
         }
+        stopDetails();
         loading?.abort();
         loading = undefined;
         cancelSearch();
@@ -262,6 +330,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     const push = (next: Route): void => {
+        stopDetails();
         const current = top();
         if (current !== undefined) {
             current.focus = host.focused();
@@ -278,6 +347,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             input.value = current.query;
         }
         render(focus);
+        if ((current.kind === "item" || current.kind === "season") && current.data?.details !== undefined && !current.stale) {
+            detailWork = current.data.details;
+            detailWork.start();
+        }
         const queryChanged = current.kind === "search" && current.query !== current.resultsFor;
         if (!hasData(current) || current.stale || current.failure !== undefined || queryChanged) {
             loadRoute(current, hasData(current) && !queryChanged);
@@ -287,7 +360,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const open = (destination: Destination): void => {
         push(destination.kind === "item"
             ? newRoute({ kind: "item", id: destination.id, title: destination.title, data: undefined })
-            : newRoute({ kind: "season", seriesId: destination.seriesId, seasonNumber: destination.seasonNumber, title: destination.title, data: undefined }));
+            : destination.kind === "person" ? newRoute({ kind: "person", id: destination.id, title: destination.title, data: undefined })
+            : newRoute({ kind: "season", ...(destination.id === undefined ? {} : { id: destination.id }), seriesId: destination.seriesId, seasonNumber: destination.seasonNumber, title: destination.title, data: undefined }));
     };
 
     const play = (request: PlayRequest): void => {
@@ -296,6 +370,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             return;
         }
         current.focus = host.focused();
+        stopDetails();
         playing = true;
         shell.hide();
         host.stop();
@@ -310,10 +385,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const render = (focus?: FocusTarget): void => {
         const current = top();
-        if (current === undefined || torn || playing) {
+        if (current === undefined || torn || playing || synopsis.active) {
             return;
         }
-        const handlers = { context, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn };
+        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn };
         const view = routeView(current, handlers);
         const rootRoute = current.kind === "home" || current.kind === "library" || current.kind === "search";
         if (rootRoute) {

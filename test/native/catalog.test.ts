@@ -53,7 +53,7 @@ test("browse fixtures decode with the production decoders", () => {
     const detail = decodeItemDetail(fixture("get_catalog_item_ok"));
     assert.equal(detail.type, "movie");
     assert.equal(detail.tagline, "A Los Angeles crime saga");
-    assert.deepEqual(detail.versions, [{ fileId: "120", durationSeconds: 0 }]);
+    assert.deepEqual(detail.versions, [{ fileId: "120", durationSeconds: 0, label: "2160p" }]);
     assert.deepEqual(detail.watch, { played: true, positionSeconds: undefined, lastFileId: "120" });
 
     assert.deepEqual(decodeSeasons(fixture("list_series_seasons_ok")), [
@@ -121,7 +121,7 @@ test("Home keeps movies, series, seasons and episodes, and leaves other media ou
     const card = { id: "x", title: "X", year: undefined, posterUrl: undefined, seriesId: undefined, seriesTitle: undefined, seasonNumber: undefined, episodeNumber: undefined };
     assert.deepEqual(destinationOf({ ...card, type: "movie" }), { kind: "item", id: "x", title: "X" });
     assert.deepEqual(destinationOf({ ...card, type: "episode" }), { kind: "item", id: "x", title: "X" });
-    assert.deepEqual(destinationOf({ ...card, type: "season", seriesId: "s", seasonNumber: 0 }), { kind: "season", seriesId: "s", seasonNumber: 0, title: "X" });
+    assert.deepEqual(destinationOf({ ...card, type: "season", seriesId: "s", seasonNumber: 0 }), { kind: "season", id: "x", seriesId: "s", seasonNumber: 0, title: "X" });
     assert.equal(destinationOf({ ...card, type: "season" }), undefined, "a season without its series cannot open");
     assert.equal(destinationOf({ ...card, type: "unknown" }), undefined);
 });

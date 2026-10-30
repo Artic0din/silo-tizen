@@ -4,6 +4,7 @@
 // ignored and unknown item or library types decode to "unknown", so additive changes keep working.
 
 import { boolean, integer, object, optionalString, string, WireError } from "./wire.ts";
+import { decodeDetailExtras, type DetailExtras } from "./details.ts";
 
 type WireObject = ReturnType<typeof object>;
 
@@ -194,6 +195,7 @@ export function decodeCatalogPage(value: unknown): CatalogPage {
 // --- getCatalogItem ---
 
 export interface PlayableFile {
+    readonly label?: string;
     readonly fileId: string;
     /** Seconds; 0 when the server does not know. */
     readonly durationSeconds: number;
@@ -206,6 +208,8 @@ export interface WatchState {
 }
 
 export interface ItemDetail {
+    readonly played: boolean | undefined;
+    readonly extra?: DetailExtras;
     readonly id: string;
     readonly type: CardType;
     readonly title: string;
@@ -243,7 +247,10 @@ function decodeWatch(value: unknown, path: string): WatchState | undefined {
 export function decodeItemDetail(value: unknown): ItemDetail {
     const path = "item_detail";
     const obj = object(value, path);
+    const watch = decodeWatch(obj.user_data, `${path}.user_data`);
     return {
+        played: obj.user_state === undefined ? watch?.played : boolean(object(obj.user_state, `${path}.user_state`), "played", `${path}.user_state`),
+        extra: decodeDetailExtras(value),
         id: string(obj, "content_id", path),
         type: oneOf(string(obj, "type", path), CARD_TYPES),
         title: string(obj, "title", path),
@@ -264,9 +271,10 @@ export function decodeItemDetail(value: unknown): ItemDetail {
         versions: array(obj, "versions", path).map((entry, index) => {
             const versionPath = `${path}.versions[${index}]`;
             const version = object(entry, versionPath);
-            return { fileId: string(version, "file_id", versionPath), durationSeconds: integer(version, "duration", versionPath) };
+            const label = [optionalString(version, "edition_raw", versionPath), optionalString(version, "resolution", versionPath), optionalString(version, "codec_video", versionPath), version.hdr === undefined ? undefined : boolean(version, "hdr", versionPath) ? "HDR" : undefined, optionalString(version, "codec_audio", versionPath)].filter((part) => part !== undefined && part !== "").join(" · ");
+            return { fileId: string(version, "file_id", versionPath), durationSeconds: integer(version, "duration", versionPath), ...(label === "" ? {} : { label }) };
         }),
-        watch: decodeWatch(obj.user_data, `${path}.user_data`),
+        watch,
     };
 }
 

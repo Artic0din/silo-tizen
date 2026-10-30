@@ -9,7 +9,7 @@ import { SessionError } from "../session/session.ts";
 import type { FocusTarget, View } from "./browseFocus.ts";
 import { itemView, personView, seasonView, type Synopsis } from "./browseDetails.ts";
 import type { PlayRequest } from "./browseModel.ts";
-import { actionButton, homeView, pagedGrid, type SearchResults, searchView, statusView, type ViewContext } from "./browseViews.ts";
+import { actionButton, homeView, lines, pagedGrid, type SearchResults, searchView, statusView, type ViewContext, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
 import { discoveryState, type DiscoveryState, type LibraryMode, type LibrarySource } from "./libraryDiscovery.ts";
 import { discoveryView, resultsView } from "./libraryDiscoveryViews.ts";
@@ -28,6 +28,8 @@ export interface Pages {
 export type RouteData =
     | { readonly kind: "personal"; readonly source: PersonalSource; filter: PersonalFilter; capability: PersonalListCapability | undefined; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "home"; data: { libraries: UserLibrary[]; sections: HomeSection[] } | undefined }
+    | { readonly kind: "homeSection"; readonly id: string; readonly title: string; readonly continuing: boolean; pages: Pages; pendingIndex: number | undefined }
+    | { readonly kind: "resume"; readonly id: string; readonly title: string }
     | { readonly kind: "library"; readonly library: UserLibrary; pages: Pages; discovery?: DiscoveryState }
     | { readonly kind: "libraryResults"; readonly library: UserLibrary; readonly title: string; readonly source: LibrarySource; pages: Pages; descending: boolean }
     /** `resultsFor`: the query the shown page answers, which typing can move ahead of. */
@@ -55,11 +57,14 @@ export function newPages(): Pages {
 
 export function hasData(current: Route): boolean {
     switch (current.kind) {
+        case "resume":
+            return false;
         case "personal":
             return current.pages.page !== undefined || current.capability !== undefined;
         case "library":
             return current.discovery?.data !== undefined && (!(current.discovery.mode === "A–Z" || current.discovery.mode === "Recently Added" || current.discovery.genre !== undefined) || current.pages.page !== undefined);
         case "libraryResults":
+        case "homeSection":
             return current.pages.page !== undefined;
         case "search":
             return current.pages?.page !== undefined;
@@ -109,11 +114,27 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
         case "home":
             if (current.data !== undefined) {
                 return homeView(current.data.libraries, current.data.sections, context, {
+                    expand: section => handlers.push(newRoute({ kind: "homeSection", id: section.id, title: section.title, continuing: section.sectionType === "continue_watching", pages: newPages(), pendingIndex: undefined })),
                     search: () => handlers.push(newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })),
                     library: (library) => handlers.push(newRoute({ kind: "library", library, pages: newPages() })),
                     chooseProfile: handlers.chooseProfile,
                 });
             }
+            break;
+        case "homeSection":
+            if (current.pages.page !== undefined) {
+                const contents = grid(current, current.pages, current.pages.page, { ...handlers, context: { ...context, continueWatching: current.continuing } });
+                const actions = [escape, ...(current.failure === undefined ? [] : [actionButton("retry", "Try again", () => handlers.retry(current))])];
+                return {
+                    name: `homeSection:${current.id}`,
+                    content: [el("h1", "browse-title", current.title), ...contents.content,
+                        ...lines(current.failure === undefined ? (current.pages.page.items.length === 0 ? ["No titles available."] : []) : [current.failure], current.failure === undefined ? "info" : "error"), zoneNode("browse-actions", actions)],
+                    zones: [...contents.zones, { id: "actions", layout: "row", items: actions }],
+                    focus: contents.zones[0]?.items[0] === undefined ? { zone: "actions", key: "back" } : { zone: "grid", key: contents.zones[0].items[0].key }, back: pop,
+                };
+            }
+            break;
+        case "resume":
             break;
         case "libraryResults":
             if (current.pages.page !== undefined) {
@@ -194,6 +215,7 @@ export function failureText(error: unknown, current: Route): string | undefined 
               : "This title is no longer available.";
     }
     if (error.problemId === "invalid_cursor") {
+        if (current.kind === "homeSection") return "The list changed. Try again.";
         return "The list changed. Go back and open it again.";
     }
     if (kind === "invalid_response") {

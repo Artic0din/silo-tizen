@@ -42,7 +42,7 @@ async function signIn(tv: Tv): Promise<void> {
 }
 
 async function startMovie(tv: Tv, id = "movie:m0001"): Promise<void> {
-    await tv.page.locator(`[data-focus="${id}"]`).first().click();
+    await tv.page.locator(`.browse-card:not(.skyline-continue)[data-focus="${id}"]`).first().click();
     await tv.page.locator('[data-focus="play"]').click();
     await prepare(tv);
 }
@@ -73,6 +73,41 @@ appTest("the composed app signs in, selects a profile, plays and returns to the 
     assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.state), "NONE");
     await tv.eventually(async () => [...playback.sessions.values()].every((session) => session.receipt !== undefined), "final stop receipt");
 }, true);
+
+appTest("Home Continue uses the existing app player owner once and returns without replaying", async (tv, playback) => {
+    await signIn(tv);
+    const detail = tv.fake.hold("/catalog/items/movie%3Am0001", true);
+    await tv.page.locator('.skyline-continue[data-focus="movie:m0001"]').click();
+    await tv.page.locator('[data-view="resume:loading"]').waitFor();
+    assert.equal(await tv.page.locator('[data-view^="item:"]').count(), 0);
+    detail.release();
+    await prepare(tv);
+    assert.equal(playback.sessions.size, 1);
+    const starts = tv.fake.requests.filter(request => request.path === "/playback/start");
+    assert.equal(starts.length, 1);
+    assert.equal(starts[0]?.method, "POST");
+    assert.equal(starts[0]?.body?.file_id, "42");
+    assert.equal(starts[0]?.body?.start_position, 1200);
+    assert.equal(starts[0]?.headers["x-profile-id"], "p-owner");
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
+    assert.equal(await tv.focused(), "movie:m0001");
+    assert.equal(tv.fake.requests.filter(request => request.path === "/playback/start").length, 1);
+});
+
+appTest("Home Continue keeps an unreadable playback source in the existing error owner without resending", async (tv, playback) => {
+    await signIn(tv);
+    playback.next.push({ terminal: "source_unreadable" });
+    await tv.page.locator('.skyline-continue[data-focus="movie:m0001"]').click();
+    await tv.page.locator('.player-error').waitFor();
+    assert.equal(await tv.page.locator('[data-view^="item:"]').count(), 0);
+    await tv.jump(30000);
+    assert.equal(tv.fake.requests.filter(request => request.path === "/playback/start").length, 1, "a failed start never resends itself");
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
+    assert.equal(await tv.focused(), "movie:m0001");
+    assert.equal(tv.fake.requests.filter(request => request.path === "/playback/start").length, 1);
+});
 
 appTest("completion and dismissed playback errors return to browse without opening an exit dialog", async (tv) => {
     await signIn(tv);
@@ -119,7 +154,7 @@ appTest("the composed remote seeks and changes audio through the real playback o
 
 appTest("destroy during preparation is idempotent and late callbacks cannot replace a restored picker", async (tv) => {
     await signIn(tv);
-    await tv.page.locator('[data-focus="movie:m0001"]').first().click();
+    await tv.page.locator('.browse-card:not(.skyline-continue)[data-focus="movie:m0001"]').first().click();
     await tv.page.locator('[data-focus="play"]').click();
     await tv.eventually(() => tv.page.evaluate(() => window.appHarness.avplay.pendingPrepares > 0), "held preparation");
     await tv.page.evaluate(() => { window.appHarness.destroy(); window.appHarness.destroy(); window.appHarness.mount(); });
@@ -312,7 +347,7 @@ appTest("profile loading cannot remove the exit dialog or steal its focus", asyn
 appTest("missing AVPlay gives a usable Back state without creating a playback session", async (tv, playback) => {
     await tv.page.evaluate(() => window.appHarness.mount(false));
     await signIn(tv);
-    await tv.page.locator('[data-focus="movie:m0001"]').first().click();
+    await tv.page.locator('.browse-card:not(.skyline-continue)[data-focus="movie:m0001"]').first().click();
     await tv.page.locator('[data-focus="play"]').click();
     await tv.page.getByRole("heading", { name: "Playback unavailable", exact: true }).waitFor();
     assert.equal(playback.sessions.size, 0);

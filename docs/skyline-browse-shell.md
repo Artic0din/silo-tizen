@@ -5,6 +5,7 @@ Home, Movies, Series, Search and Profiles share mounted root navigation.
 Only visible video library types appear, and mixed libraries can be scoped to either video type.
 Detail, season and playback routes remove the root chrome.
 Library destinations follow the available discovery capabilities: Browse, Collections, Genres, A–Z and Recently Added.
+The broader discovery and Details parity work remains tracked by issue #28.
 
 Focus never activates a route or starts a request.
 A library tab opens its anchored selector after 250 ms.
@@ -27,6 +28,22 @@ Marquee fields come from `CatalogItem` at the pinned `src/contracts/v2/SOURCE` r
 Backdrop, overview, runtime, duration and resume position are optional.
 Missing metadata stays absent; the client does not request details on focus or invent badges.
 Continue Watching keeps landscape geometry, using its backdrop or cropping its poster when no backdrop is available.
+Home ignores sections whose server `featured` flag is true.
+Continue Watching comes first, followed by existing personalized recommendation rows with their server titles, then the remaining rows.
+The server's order within each group and additive section types remain intact; no duplicate recommendation feed is requested.
+Each row retains at most 24 cards and a remote-reachable See All action.
+See All uses the existing catalog query with `source=section`, `scope=home` and the opaque `section_id`, without overriding media type, sorting or filters.
+This preserves server-resolved membership, preferences, episode cards and cursor order.
+Expanded rows keep one page of at most 24 cards, explicit paging and Retry/Back controls, and restore the originating Home row focus and scroll on Back.
+An invalid cursor clears that row's continuation; only explicit Retry restarts it.
+Continue Watching activation resolves the profile-authorized item and reuses `playChoices` for its last available file, source resume position and file-duration end margin.
+It hands off once through the existing app/player owner without showing Details.
+Back or account/profile authority changes cancel resolution; unavailable files and unreadable or failed reads retain Retry and Back.
+Playback return restores the originating row rather than replaying the resolution route.
+Other Home rows still open normal Details pages.
+This is a scoped Home journey delivery against canonical Apple `f33479404712737499b22365430db1885cf6c6ab` and the guide hash `2d42d292e01ab6ee539278b63c286756fc432edf876a9286a33c9e853672cac2`.
+The guide takes precedence over Apple's current Details activation for Continue Watching.
+It does not complete whole-Home parity, issue #28, preplay controls, next-up behaviour or hardware acceptance.
 Progress appears only when the server supplies position and duration.
 The first card previews immediately; subsequent previews wait 150 ms and crossfade for 240 ms.
 Root transitions take 200 ms, and reduced motion snaps transitions and scrolling.
@@ -45,7 +62,7 @@ Cast and crew share a rail of at most 24 people, combining roles for the same se
 Credits without a person ID remain readable without an invented person route.
 Person pages show the biography and the first 24 accessible movie and series credits; related titles use a separate bounded rail with loading, empty and retry states.
 These bounded rails do not implement Apple's complete paged person browser.
-The reference for this slice is canonical [silo-apple at 148d5d7](https://github.com/Silo-Server/silo-apple/tree/148d5d70f8b8ce982a827fead2b16f8de40f0f57), subject to the binding Skyline guide.
+The earlier Details slice used [silo-apple at 148d5d7](https://github.com/Silo-Server/silo-apple/tree/148d5d70f8b8ce982a827fead2b16f8de40f0f57), subject to the binding Skyline guide.
 
 Version selection carries the exact file ID to playback and uses that file's duration for the five-second resume end margin.
 Watchlist and favorite controls require the personal-list capability and successful item membership reads.

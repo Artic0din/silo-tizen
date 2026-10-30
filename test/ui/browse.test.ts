@@ -78,6 +78,14 @@ async function press(tv: Tv, ...keys: string[]): Promise<void> {
     }
 }
 
+/** Details regressions enter from an ordinary row; Continue Watching now resumes directly. */
+async function activateDetails(tv: Tv, id = "movie:m0001"): Promise<void> {
+    if (await view(tv) === "home") {
+        await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).focus();
+    }
+    await press(tv, "Enter");
+}
+
 function browseReads(tv: Tv, pathname?: string): { path: string; headers: Readonly<Record<string, string>> }[] {
     const browse = /^\/(user\/libraries|settings\/values|home\/|catalog)/;
     return tv.fake.requests.filter((request) => browse.test(request.path) && (pathname === undefined || request.path.split("?")[0] === pathname));
@@ -88,7 +96,7 @@ function cardIds(tv: Tv, selector = ".browse-card:not(.discovery-collection)"): 
 }
 
 browseTest("richer Details: facts, versions, people, bounded filmography, related titles and Back focus", async (tv) => {
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     if (process.env.DETAILS_CAPTURE_DIR !== undefined) {
         await tv.jump(240);
@@ -125,7 +133,7 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
 browseTest("S-D1 synopsis keeps its dialog and focus while optional Details settle", async (tv) => {
     const related = tv.fake.hold("/recommendations/similar/movie%3Am0001", true);
     const capability = tv.fake.hold("/capabilities/personal-lists", true);
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await tv.page.locator('[data-focus="synopsis"]').focus();
     await press(tv, "Enter");
@@ -174,7 +182,7 @@ for (const kind of ["movie", "episode"]) {
         catalog.neverPlayed.add(id);
         catalog.progress.delete(id);
         catalog.watchedEpisodes.delete(id);
-        await press(tv, ...(kind === "movie" ? ["Enter"] : ["ArrowRight", "Enter"]));
+        await activateDetails(tv, id);
         await showing(tv, `item:${id}`);
         await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
         assert.equal(await tv.page.getByRole("button", { name: "Mark watched", exact: true }).count(), 1, "no progress is a valid unwatched state");
@@ -198,7 +206,7 @@ browseTest("S-D1 synopsis closes on browse destruction and optional failures rem
         await route.fulfill({ status: 400, json: problem(400, "unavailable", "Unavailable").body });
     });
     const related = tv.fake.hold("/capabilities/personal-lists", true);
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await tv.page.locator('[data-focus="synopsis"]').focus();
     await press(tv, "Enter");
@@ -212,7 +220,7 @@ browseTest("S-D1 synopsis closes on browse destruction and optional failures rem
     assert.equal(await tv.page.getByRole("dialog").count(), 0);
     await tv.page.evaluate(() => window.browseHarness.mount());
     await showing(tv, "home");
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     assert.equal(await tv.page.getByRole("dialog").count(), 0);
     assert.equal(await tv.focused(), "resume");
@@ -252,7 +260,7 @@ for (const aggregate of ["series", "season"]) {
             await tv.page.route("**/api/v2/recommendations/similar/episode%3As1e12?**", async (route) => {
                 await route.fulfill({ status: 200, json: { ...fixture("list_catalog_items_ok"), items: [{ content_id: aggregateId, type: aggregate, title: "Harbor Lights", series_id: "series:s1", season_number: 1 }] } });
             });
-            await press(tv, "ArrowRight", "Enter");
+            await activateDetails(tv, episodeId);
             await showing(tv, `item:${episodeId}`);
             await tv.page.getByRole("button", { name: played ? "Mark watched" : "Mark unwatched", exact: true }).waitFor();
             const related = tv.page.locator(`[data-detail-section="related"] [data-focus="${aggregateId}"]`);
@@ -322,7 +330,7 @@ browseTest("S-D2 aggregate reconciliation cannot paint after profile authority e
 
 browseTest("S-D3 unknown or mismatched watched postconditions remain errors", async (tv, catalog) => {
     assert.ok(catalog instanceof FakeDetails);
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     let unknown = false;
     await tv.page.route("**/api/v2/catalog/items/movie%3Am0001?**", async (route) => {
@@ -338,7 +346,7 @@ browseTest("S-D3 unknown or mismatched watched postconditions remain errors", as
 }, { catalog: new FakeDetails() });
 
 browseTest("Details portraits keep their circular geometry and combine one person's roles", async (tv) => {
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "related titles");
@@ -356,7 +364,7 @@ browseTest("long Details facts remain reachable with the remote", async (tv) => 
     await tv.page.route("**/api/v2/catalog/items/movie%3Am0001?**", async (route) => {
         await route.fulfill({ status: 200, json: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", original_language: "en", crew: Array.from({ length: 35 }, (_, index) => ({ name: `Crew ${index}`, job: `Role ${index}` })) } });
     });
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "related titles");
@@ -377,7 +385,7 @@ browseTest("long Details facts remain reachable with the remote", async (tv) => 
 
 browseTest("personal writes require confirmed state and discard late replies after a profile change", async (tv, catalog) => {
     assert.ok(catalog instanceof FakeDetails);
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await tv.page.route("**/api/v2/favorites/movie%3Am0001/membership", async (route) => {
         await route.fulfill({ status: 200, json: { item_id: "movie:m0001", is_member: false } });
@@ -404,7 +412,7 @@ browseTest("optional Details reads load independently, fail, retry and report em
     assert.ok(catalog instanceof FakeDetails);
     const related = tv.fake.hold("/recommendations/similar/movie%3Am0001", true);
     const capability = tv.fake.hold("/capabilities/personal-lists", true);
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     assert.equal(await tv.focused(), "resume", "optional reads do not block playback");
     await shows(tv, "Loading related titles.");
@@ -415,7 +423,7 @@ browseTest("optional Details reads load independently, fail, retry and report em
     await tv.jump(0);
     assert.equal(await view(tv), "home", "late optional reads cannot reopen Details");
     catalog.empty = true;
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await shows(tv, "No related titles available.");
     await tv.page.locator('[data-focus="person:river"]').focus();
@@ -426,7 +434,7 @@ browseTest("optional Details reads load independently, fail, retry and report em
     await showing(tv, "item:movie:m0001");
     await tv.remote(BACK);
     catalog.capability = false;
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await tv.eventually(async () => tv.fake.requests.filter((request) => request.path === "/capabilities/personal-lists").length === 3, "unsupported capability");
     assert.equal(await tv.page.locator('[data-focus="watchlist"], [data-focus="favorites"]').count(), 0);
@@ -443,7 +451,7 @@ browseTest("person, related and personal reads recover with explicit retries", a
         if (personalFail) await route.fulfill({ status: 400, contentType: "application/problem+json", body: JSON.stringify({ type: "about:blank", title: "Unavailable", status: 400 }) });
         else await route.fallback();
     });
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await shows(tv, "Could not load related titles.");
     await shows(tv, "Could not load personal actions.");
@@ -472,7 +480,7 @@ for (const scenario of [{ outcome: "completed", played: false }, { outcome: "los
     browseTest(`PR32 Home refreshes watched progress after a ${scenario.outcome} mutation`, async (tv, catalog) => {
         assert.ok(catalog instanceof FakeDetails);
         assert.equal(await tv.page.locator('[data-focus="movie:m0001"] .skyline-progress').count(), 1);
-        await press(tv, "Enter");
+        await activateDetails(tv);
         await showing(tv, "item:movie:m0001");
         const path = "/watched/movie%3Am0001";
         const held = scenario.outcome === "cancelled" ? tv.fake.hold(path, true) : undefined;
@@ -494,7 +502,7 @@ for (const scenario of [{ outcome: "completed", played: false }, { outcome: "los
 for (const kind of ["favorites", "watchlist"]) {
     browseTest(`PR32 returning from a person exposes reconciliation for cancelled ${kind}`, async (tv, catalog) => {
         assert.ok(catalog instanceof FakeDetails);
-        await press(tv, "Enter");
+        await activateDetails(tv);
         await showing(tv, "item:movie:m0001");
         await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
         await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "all optional reads finished");
@@ -520,7 +528,7 @@ for (const kind of ["favorites", "watchlist"]) {
 
 browseTest("a lost watched answer is reconciled on Retry without repeating the non-retryable POST", async (tv, catalog) => {
     assert.ok(catalog instanceof FakeDetails);
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     tv.fake.dropNextAnswer("/watched/movie%3Am0001");
     await tv.page.getByRole("button", { name: "Mark watched", exact: true }).click();
@@ -576,7 +584,7 @@ browseTest("season Details keeps watched available when the server rejects list 
 
 browseTest("Details rejects insecure artwork and retains its text title when logo decoding fails", async (tv, catalog) => {
     catalog.failNext("/catalog/items/movie%3Am0001", { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", title: "Readable title", logo_url: "/broken-logo.svg", backdrop_url: "http://art.example.test/backdrop.jpg" } });
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await tv.jump(240);
     assert.equal(await tv.page.locator(".browse h1").textContent(), "Readable title");
@@ -587,7 +595,7 @@ browseTest("Details rejects insecure artwork and retains its text title when log
 
 browseTest("personal failure never repeats a write automatically and explicit retry reconciles state", async (tv, catalog) => {
     assert.ok(catalog instanceof FakeDetails);
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await tv.page.getByRole("button", { name: "Add to watchlist", exact: true }).waitFor();
     catalog.mutationFailure = problem(503, "unavailable", "Unavailable");
@@ -1166,7 +1174,7 @@ browseTest("many libraries stay bounded; dwell and Back never commit; scope surv
 
 browseTest("long synopsis expands and scrolls accessibly; empty search omits Page 1 of 1", async (tv, catalog) => {
     catalog.failNext("/catalog/items/movie%3Am0001", { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", overview: "A long synopsis. ".repeat(900) } });
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await tv.page.locator('[data-focus="synopsis"]').focus();
     await press(tv, "Enter");
@@ -1179,7 +1187,7 @@ browseTest("long synopsis expands and scrolls accessibly; empty search omits Pag
     assert.equal(await tv.focused(), "synopsis");
     await tv.remote(BACK);
     await showing(tv, "home");
-    await press(tv, "ArrowUp", "ArrowRight", "ArrowRight", "ArrowRight", "Enter");
+    await tv.page.locator('[data-focus="search"]').click();
     await tv.page.fill("#browse-search", "no-such-title");
     await tv.remote(IME_DONE);
     await shows(tv, 'No results for "no-such-title".');
@@ -1300,7 +1308,7 @@ browseTest(
 );
 
 browseTest("details hand the player the file and resume point; returning restores focus and refreshes progress", async (tv, catalog) => {
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     assert.equal(await tv.focused(), "resume");
     await shows(tv, "Resume from 20:00");
@@ -1446,7 +1454,7 @@ browseTest("loading, slow, offline, removed, empty and missing-artwork states al
     assert.ok(missing.indexOf("movie:m0002") !== -1 && missing.indexOf("movie:m0003") !== -1, "no artwork and failed artwork both show the title");
 
     const hold = tv.fake.hold("/catalog/items/movie%3Am0001");
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await showing(tv, "item:loading");
     assert.equal(await tv.focused(), "back");
     await tv.jump(5000);
@@ -1459,17 +1467,17 @@ browseTest("loading, slow, offline, removed, empty and missing-artwork states al
     assert.equal(await tv.focused(), "movie:m0001");
 
     tv.offline = true;
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await tv.jump(1000);
     await shows(tv, "Could not reach the server. Check the connection and try again.");
     assert.equal(await tv.focused(), "retry");
     tv.offline = false;
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await tv.remote(BACK);
 
     catalog.removed.add("movie:m0001");
-    await press(tv, "Enter");
+    await activateDetails(tv);
     await shows(tv, "This title is no longer available.");
     await press(tv, "ArrowRight", "Enter");
     await showing(tv, "home");

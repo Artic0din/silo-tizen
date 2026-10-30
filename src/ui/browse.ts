@@ -72,7 +72,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     input.spellcheck = false;
     input.autocomplete = "off";
     input.setAttribute("data-focus", "query");
-    const searchLabel = el("label", "browse-label", "Search movies and series");
+    const searchLabel = el("label", "browse-label", "Search titles");
     searchLabel.htmlFor = input.id;
     // Kept across renders so the field, and the TV keyboard open on it, are never detached.
     const searchHead = [el("h1", "browse-title", "Search"), searchLabel, input];
@@ -393,19 +393,27 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }, quiet || pages.page !== undefined);
             return;
         }
-        const scope: { q: string; type: "video" } | undefined = current.kind === "search" ? { q: current.query, type: "video" } : undefined;
-        if (scope === undefined) {
+        if (current.kind !== "search") {
             return;
         }
-        const query = current.kind === "search" ? current.query : "";
-        load(current, (signal) => read(operations.listCatalogItems({ ...scope, limit: PAGE_SIZE, cursor: pages.cursors[index] }), signal), (page) => {
+        const query = current.query;
+        load(current, async signal => {
+            let type = current.searchType;
+            if (type === undefined) {
+                const capability = await read(operations.getCatalogSearchCapabilities(), signal);
+                type = capability.allowed && capability.state === "available" && capability.videoWithEpisodesScope === true
+                    ? "video_with_episodes" : "video";
+                if (!signal.aborted && top() === current && current.query === query) {
+                    current.searchType = type;
+                }
+            }
+            return read(operations.listCatalogItems({ q: query, type, limit: PAGE_SIZE, cursor: pages.cursors[index] }), signal);
+        }, (page) => {
             pages.page = page;
             pages.index = index;
             pages.cursors = pages.cursors.slice(0, index + 1);
             pages.cursors.push(page.nextCursor);
-            if (current.kind === "search") {
-                current.resultsFor = query;
-            }
+            current.resultsFor = query;
         }, quiet || pages.page !== undefined);
     };
 

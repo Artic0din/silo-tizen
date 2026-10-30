@@ -69,14 +69,14 @@ const DETAIL_IMAGES = "medium";
 /** The media scope of a catalog page: what a library or search may list. */
 export type BrowseScope = "movie" | "series" | "video";
 
-export interface CatalogPageRequest {
-    readonly libraryId?: string;
-    /** Search text; absent browses. */
-    readonly q?: string;
-    readonly type: BrowseScope;
+export type TextSearchScope = "video" | "video_with_episodes";
+
+export type CatalogPageRequest = {
     readonly limit: number;
     readonly cursor: string | undefined;
-}
+} & ({ readonly libraryId?: string; readonly q?: string; readonly type: BrowseScope }
+    // Search-only scope on listCatalogItems' default query source, never a library browse.
+    | { readonly libraryId?: never; readonly q: string; readonly type: "video_with_episodes" });
 
 export const operations = {
     ...discoveryOperations,

@@ -1,5 +1,5 @@
 import type { NativeSession } from "../session/session.ts";
-import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, numericLibraryId, type SettingValue, type SettingsKey } from "../contracts/v2/settings.ts";
+import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, TITLE_ART_KEY, numericLibraryId, type SettingValue, type SettingsKey } from "../contracts/v2/settings.ts";
 import { FocusHost, type FocusItem, type FocusTarget } from "./browseFocus.ts";
 import { actionButton, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
@@ -186,6 +186,21 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         const body = el("div", "settings-pane");
         body.append(el("h2", "browse-section-title", category === "general" ? "General" : "Playback"), ...feedback());
         const pickers: readonly Picker[] = category === "general" ? ["hidden"] : ["audio", "quality", "bitrate", "seek-back", "seek-forward"];
+        const titleArt = state.effective.get(TITLE_ART_KEY);
+        if (category === "general" && state.loaded && titleArt !== undefined) {
+            const all = titleArt.source === "profile";
+            for (const [key, text, checked, action] of [
+                ["title-art", "Show Title Art", titleArt.value === true, () => { void state.save(TITLE_ART_KEY, titleArt.value !== true); }],
+                ["title-art-all", "Apply to All Devices", all, () => { void state.setTitleArtScope(!all); }],
+            ] as const) {
+                const item = button(key, text, action);
+                item.element.setAttribute("role", "switch");
+                item.element.setAttribute("aria-checked", String(checked));
+                rows.push(item);
+                body.appendChild(item.element);
+            }
+            body.appendChild(el("p", "settings-value", `${titleArt.value ? "On" : "Off"} · ${titleArt.source === "default" ? "Inherited default" : all ? "All devices" : "This TV"}`));
+        }
         for (const id of pickers) {
             const key = PICKER_KEYS[id];
             if (!state.loaded || !state.definitions.some(def => def.key === key)) continue;
@@ -201,7 +216,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         body.appendChild(zoneNode("settings-controls", rows.slice(settingRows)));
         const panes = el("div", "settings-panes");
         panes.append(zoneNode("settings-categories", categories), body);
-        host.show({ name: "settings", content: [el("h1", "browse-title", "Settings"), el("p", "settings-scope", "Profile defaults"), panes], zones: [
+        host.show({ name: "settings", content: [el("h1", "browse-title", "Settings"), panes], zones: [
             { id: "settings-categories", layout: "column", right: "settings-rows", items: categories },
             { id: "settings-rows", layout: "column", left: "settings-categories", items: rows },
         ], focus: { zone: "settings-categories", key: category }, back }, focus);

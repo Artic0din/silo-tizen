@@ -43,6 +43,9 @@ const controls: PlayerControls = {
         listener?.({ phase: "error", title: "The Movie", error: { kind: "backgrounded" } });
     },
     dismissError: () => commands.push("dismissError"),
+    selectAudio: (id) => commands.push(`selectAudio ${id}`),
+    selectSubtitle: (id) => commands.push(`selectSubtitle ${id ?? "off"}`),
+    retryTrackInfo: () => commands.push("retryTrackInfo"),
 };
 const screen: PlayerScreen = mountPlayerScreen(root, controls);
 

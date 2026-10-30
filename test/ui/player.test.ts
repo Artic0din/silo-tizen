@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { build } from "esbuild";
 import { type Browser, chromium, type Page } from "playwright";
-import type { PlaybackView } from "../../src/player/controller.ts";
+import type { PlaybackView, TrackView } from "../../src/player/controller.ts";
 
 const ORIGIN = "https://tv.example.test";
 const CSS = readFileSync(new URL("../../src/player/player.css", import.meta.url), "utf8");
@@ -17,6 +17,30 @@ const BACK = 10009;
 const ENTER = 13;
 const LEFT = 37;
 const RIGHT = 39;
+const UP = 38;
+const DOWN = 40;
+
+const NO_TRACKS: TrackView = { audio: { state: "loading" }, selectedAudioId: undefined, subtitles: [], selectedSubtitleId: undefined, subtitleMode: "off", change: { state: "idle" }, notices: [] };
+const TRACKS: TrackView = {
+    audio: {
+        state: "ready",
+        choices: [
+            { id: "file:42:audio:0", label: "English · 5.1 · EAC3" },
+            { id: "file:42:audio:1", label: "Japanese · Stereo · AAC" },
+        ],
+    },
+    selectedAudioId: "file:42:audio:0",
+    subtitles: [
+        { id: "file:42:subtitle:0", label: "English" },
+        { id: "file:42:subtitle:1", label: "English (Signs) · Forced" },
+        { id: "file:42:subtitle:2", label: "Japanese" },
+    ],
+    selectedSubtitleId: undefined,
+    subtitleMode: "off",
+    change: { state: "idle" },
+    notices: [],
+};
+const playing = (tracks: TrackView): PlaybackView => ({ phase: "playing", title: "The Movie", positionSeconds: 754, durationSeconds: 7200, buffering: false, tracks });
 
 let browser: Browser;
 let script: string;
@@ -83,18 +107,18 @@ test("loading, playing and paused are readable; the remote pauses, seeks and goe
         assert.equal(await text(page, ".player-overlay .player-title"), "The Movie");
         assert.equal(await focused(page), "player");
 
-        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 754, durationSeconds: 7200, buffering: false });
+        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 754, durationSeconds: 7200, buffering: false, tracks: NO_TRACKS });
         assert.equal(await text(page, ".player-time"), "12:34 / 2:00:00");
         assert.equal(await page.locator(".player-overlay").getAttribute("class"), "player-overlay", "shown when playback starts");
         await page.clock.fastForward(5000);
-        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 759, durationSeconds: 7200, buffering: false });
+        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 759, durationSeconds: 7200, buffering: false, tracks: NO_TRACKS });
         assert.equal(await page.locator(".player-overlay").getAttribute("class"), "player-overlay player-overlay-hidden");
 
         await remote(page, ENTER);
         await remote(page, LEFT);
         await remote(page, RIGHT);
         assert.equal(await page.locator(".player-overlay").getAttribute("class"), "player-overlay", "a key brings the overlay back");
-        await show(page, { phase: "paused", title: "The Movie", positionSeconds: 759, durationSeconds: undefined, buffering: false });
+        await show(page, { phase: "paused", title: "The Movie", positionSeconds: 759, durationSeconds: undefined, buffering: false, tracks: NO_TRACKS });
         assert.equal(await text(page, ".player-status"), "Paused");
         assert.equal(await text(page, ".player-time"), "12:39");
         await capture(page, "player-paused");
@@ -134,7 +158,7 @@ test("the AVPlay object stays hidden so its browser placeholder cannot cover nat
         const surface = page.locator("object.player-video");
         assert.equal(await surface.count(), 1, "AVPlay retains its object");
         assert.equal(await surface.evaluate((node) => getComputedStyle(node).visibility), "hidden");
-        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 60, durationSeconds: 7200, buffering: false });
+        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 60, durationSeconds: 7200, buffering: false, tracks: NO_TRACKS });
         assert.equal(await surface.evaluate((node) => getComputedStyle(node).visibility), "hidden");
         assert.equal(await page.locator(".player-overlay").isVisible(), true);
     } finally {
@@ -155,10 +179,147 @@ test("teardown removes only the player's own node and stops listening for keys",
     }
 });
 
+const menuShown = (page: Page): Promise<boolean> => page.locator(".player-menu").isVisible();
+/** innerText puts a blank line after paragraphs; compare lines only. */
+const lines = async (page: Page, selector: string): Promise<string> => (await text(page, selector)).replace(/\n+/g, "\n");
+
+test("Down opens audio and subtitles with focus on the current track; the menu keeps every key to itself", async () => {
+    const { page, logs } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        assert.equal(await page.locator(".player-hint").count(), 0);
+        assert.equal(await page.getByRole("button", { name: "Audio and subtitles", exact: true }).count(), 1);
+        assert.equal(await menuShown(page), false);
+        await page.getByRole("button", { name: "Audio and subtitles", exact: true }).click();
+        assert.equal(await menuShown(page), true);
+        await remote(page, BACK);
+        assert.equal(await menuShown(page), false);
+        await remote(page, DOWN);
+        assert.equal(await menuShown(page), true);
+        assert.equal(await focused(page), "file:42:audio:0");
+        assert.equal(await text(page, ".player-menu-audio"), "Audio\nEnglish · 5.1 · EAC3\nJapanese · Stereo · AAC");
+        assert.equal(await page.locator('[data-focus="file:42:audio:0"]').getAttribute("aria-pressed"), "true");
+        await capture(page, "player-tracks-menu");
+
+        await remote(page, UP);
+        assert.equal(await focused(page), "file:42:audio:0", "the top of a list holds focus");
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "file:42:audio:1");
+        await remote(page, ENTER);
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "subtitles-off", "the current subtitle choice is Off");
+        await remote(page, DOWN);
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "file:42:subtitle:1");
+        await remote(page, ENTER);
+        await remote(page, UP);
+        await remote(page, UP);
+        await remote(page, ENTER);
+        await remote(page, LEFT);
+        assert.equal(await focused(page), "file:42:audio:0", "a list is entered at its current track");
+        await remote(page, BACK);
+        assert.equal(await menuShown(page), false);
+        assert.equal(await focused(page), "player");
+        assert.deepEqual(await commands(page), ["selectAudio file:42:audio:1", "selectSubtitle file:42:subtitle:1", "selectSubtitle off"]);
+
+        await remote(page, ENTER);
+        await remote(page, BACK);
+        assert.deepEqual((await commands(page)).slice(3), ["togglePause", "back"], "closed again, the keys drive playback");
+        assert.deepEqual(logs, []);
+    } finally {
+        await page.close();
+    }
+});
+
+test("the menu says what is happening: loading, a failed list with Retry, a change, a refusal and notices", async () => {
+    const { page, logs } = await open();
+    try {
+        await show(page, playing({ ...TRACKS, audio: { state: "loading" } }));
+        await remote(page, DOWN);
+        assert.equal(await lines(page, ".player-menu-audio"), "Audio\nLoading audio tracks");
+        assert.equal(await focused(page), "subtitles-off", "with no audio choice, focus starts in subtitles");
+
+        await show(page, playing({ ...TRACKS, audio: { state: "failed" } }));
+        assert.equal(await lines(page, ".player-menu-audio"), "Audio\nCouldn't load audio tracks.\nRetry");
+        await remote(page, LEFT);
+        assert.equal(await focused(page), "audio-retry");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["retryTrackInfo"]);
+
+        await show(page, playing({ ...TRACKS, change: { state: "changing" } }));
+        assert.equal(await text(page, ".player-menu-status"), "Changing track");
+        await show(page, playing({ ...TRACKS, change: { state: "refused", message: "The selected subtitle source cannot be burned in by the installed transport." } }));
+        assert.equal(await text(page, ".player-menu-status"), "Not available: The selected subtitle source cannot be burned in by the installed transport.");
+        await show(page, playing({ ...TRACKS, change: { state: "failed" } }));
+        assert.equal(await text(page, ".player-menu-status"), "Couldn't change the track. Try again.");
+        await show(page, playing({ ...TRACKS, selectedSubtitleId: "file:42:subtitle:2", subtitleMode: "burn_in", notices: ["Subtitles are burned into the video."] }));
+        assert.equal(await text(page, ".player-menu-status"), "Subtitles are burned into the video.");
+        await capture(page, "player-tracks-burned-in");
+        assert.deepEqual(logs, []);
+    } finally {
+        await page.close();
+    }
+});
+
+test("long track lists scroll within the panel and keep the focused choice and status visible", async () => {
+    const { page } = await open();
+    try {
+        const subtitles = Array.from({ length: 12 }, (_, n) => ({ id: `file:42:subtitle:${n}`, label: `Subtitle ${n + 1}` }));
+        await show(page, playing({ ...TRACKS, subtitles, change: { state: "failed" } }));
+        await remote(page, DOWN);
+        await remote(page, RIGHT);
+        for (let i = 0; i < subtitles.length; i += 1) {
+            await remote(page, DOWN);
+        }
+        assert.equal(await focused(page), "file:42:subtitle:11");
+        const geometry = await page.evaluate(() => {
+            const player = document.querySelector(".player");
+            const list = document.querySelector(".player-menu-subtitles");
+            const status = document.querySelector(".player-menu-status");
+            const focus = document.activeElement;
+            if (!(player instanceof HTMLElement) || !(list instanceof HTMLElement) || status === null || focus === null) {
+                throw new Error("Missing track menu");
+            }
+            return { playerScroll: player.scrollTop, listScroll: list.scrollTop, list: list.getBoundingClientRect().toJSON(), status: status.getBoundingClientRect().toJSON(), focus: focus.getBoundingClientRect().toJSON() };
+        });
+        assert.equal(geometry.playerScroll, 0, "the player surface must not scroll");
+        assert.ok(geometry.listScroll > 0, "only the track list scrolls");
+        assert.ok(geometry.focus.top >= geometry.list.top && geometry.focus.bottom <= geometry.list.bottom, "focused choice stays inside the list");
+        assert.ok(geometry.status.top >= geometry.list.bottom && geometry.status.bottom <= 1080, "status remains below the list and on screen");
+        await capture(page, "player-tracks-overflow");
+    } finally {
+        await page.close();
+    }
+});
+
+test("an update keeps focus on the same track; leaving playback closes the menu", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await remote(page, DOWN);
+        await remote(page, RIGHT);
+        await remote(page, DOWN);
+        await remote(page, DOWN);
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "file:42:subtitle:2");
+        await show(page, playing({ ...TRACKS, change: { state: "changing" } }));
+        assert.equal(await focused(page), "file:42:subtitle:2");
+        await show(page, playing({ ...TRACKS, subtitles: TRACKS.subtitles.slice(0, 2) }));
+        assert.equal(await focused(page), "subtitles-off", "a track that disappears hands focus to the current choice");
+        await show(page, { phase: "loading", title: "The Movie" });
+        assert.equal(await menuShown(page), false);
+        assert.equal(await focused(page), "player");
+        await show(page, playing(TRACKS));
+        assert.equal(await menuShown(page), false, "the menu stays closed until asked for again");
+    } finally {
+        await page.close();
+    }
+});
+
 test("backgrounding stops the attempt, shows a restart notice and removes its visibility listener on teardown", async () => {
     const { page, logs } = await open();
     try {
-        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 30, durationSeconds: 7200, buffering: false });
+        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 30, durationSeconds: 7200, buffering: false, tracks: NO_TRACKS });
         await page.evaluate(() => {
             Object.defineProperty(document, "hidden", { configurable: true, value: true });
             document.dispatchEvent(new Event("visibilitychange"));

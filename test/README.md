@@ -1,6 +1,6 @@
 # Tests
 
-`npm test` runs the build, the native session, browse contract and playback tests, the native sign-in, profile, browse and player screen tests, the adapter tests and the legacy browse focus and layout tests.
+`npm test` runs the build, the native session, browse contract, playback and track tests, the native sign-in, profile, browse and player screen tests, the adapter tests and the legacy browse focus and layout tests.
 It needs Node.js 26 or later, the version CI tests.
 The browse Playwright tests serve the staged package in `dist/wgt/`, so run `npm run build` before running them directly.
 Desktop Chromium is not Chromium 76; these runs do not prove 2021 TV rendering.
@@ -42,9 +42,11 @@ The fake serves synthetic SVG artwork from `/art/`; other image hosts fail, whic
 `test/native/playback.test.ts` runs the playback controller against the fake Silo's playback operations (`support/fakePlayback.ts`) and a fake AVPlay (`support/fakeAVPlay.ts`) that enforces the documented call states and retains uncancellable callbacks.
 The fake rejects AVPlay calls during a pending seek; teardown and replacement wait for its callback before closing or opening a transport.
 Tests also cover pause preservation after a server re-anchor, Retry-After delays, authority changes before dispatch and HTTPS-only media URLs.
+`test/native/tracks.test.ts` covers audio and subtitle choices: every choice is a `track_change` replan with the server's identity, at the current source position and pause state; a refused change keeps the current plan playing; one change at a time; late answers after Back or a profile change are dropped.
+The fake server applies the pinned server's track rules: canonical identities on the effective file, burn-in for embedded subtitles, refusal for external and downloaded ones, and the default audio track with a warning for a track the file lacks.
+`test/ui/player.test.ts` drives the player screen in Chromium over stub controls, including the audio and subtitles menu's remote keys and focus.
 Codec failures received during a seek are handled after its callback, unless the attempt has ended.
 Backgrounding ends the attempt, stops progress and shows a restart notice; authenticated suspend/restore is deferred to issue #13.
-`test/ui/player.test.ts` drives the player screen in Chromium over stub controls.
 Set `PLAYER_CAPTURE_DIR` to a folder outside the repository to save its screenshots.
 Neither proves AVPlay media authentication or playback on a TV.
 

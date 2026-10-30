@@ -4,7 +4,8 @@
 // Conservative for every 2021-or-later Samsung TV: Samsung's 2021 TV video specification lists
 // H.264 and HEVC (MP4, MKV and TS), AAC, AC3, E-AC3 and MP3, and no DTS. Tizen offers no decoder
 // enumeration, so the evidence tier is `declared`, capped at 1080p SDR because panel size and
-// HDR output are not probed. Audio passthrough is never claimed. Subtitles are off until #11.
+// HDR output are not probed. Audio passthrough is never claimed. Every subtitle capability
+// stays false until a TV proves a renderer (#11), so the server burns embedded subtitles in.
 // The progressive class is omitted (no proof AVPlay plays a forward-only chunked remux).
 
 import type { ClientCapabilities, ClientPlaybackContext, DeliveryCapability } from "../contracts/v2/playback.ts";

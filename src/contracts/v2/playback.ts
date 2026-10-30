@@ -32,6 +32,18 @@ function strings(obj: WireObject, key: string, path: string): string[] {
     });
 }
 
+function optionalInteger(obj: WireObject, key: string, path: string): number | undefined {
+    return obj[key] === undefined ? undefined : integer(obj, key, path);
+}
+
+function list(obj: WireObject, key: string, path: string): unknown[] {
+    const value = obj[key];
+    if (!Array.isArray(value)) {
+        throw new WireError(`${path}.${key}`, "an array");
+    }
+    return value;
+}
+
 function oneOf<T extends string>(raw: string, known: readonly T[]): T | "unknown" {
     for (const value of known) {
         if (value === raw) {
@@ -71,6 +83,9 @@ export function decodePlaybackCapabilities(value: unknown): PlaybackCapabilities
 // --- startPlayback / replanPlayback decisions ---
 
 const DELIVERIES = ["original_http", "server_remux_progressive", "server_remux_hls", "server_transcode_hls"] as const;
+const SUBTITLE_MODES = ["off", "render", "convert", "burn_in"] as const;
+const SUBTITLE_SOURCES = ["external", "embedded", "downloaded"] as const;
+const SUBTITLE_DELIVERIES = ["sidecar", "burn_in_only"] as const;
 
 export type TrackIdentity = {
     readonly id: string;
@@ -95,6 +110,33 @@ export interface PlanTimeline {
     readonly seekWindowEndSeconds: number | undefined;
 }
 
+/**
+ * One entry of plan.subtitle.inventory (protocol v3 §8): the authoritative combined ordinal space.
+ * Its track_id is echoed to select it; urls are not decoded because this client fetches none.
+ */
+export interface SubtitleTrack {
+    readonly trackId: string;
+    readonly combinedIndex: number;
+    readonly source: "external" | "embedded" | "downloaded" | "unknown";
+    readonly delivery: "sidecar" | "burn_in_only" | "unknown";
+    readonly label: string | undefined;
+    readonly language: string | undefined;
+    readonly forced: boolean;
+    readonly hearingImpaired: boolean;
+}
+
+/** The current plan's subtitle decision; `off` carries no trackId even when the inventory lists tracks. */
+export interface PlanSubtitle {
+    readonly mode: "off" | "render" | "convert" | "burn_in" | "unknown";
+    readonly trackId: string | undefined;
+    readonly inventory: readonly SubtitleTrack[];
+}
+
+export interface DegradationWarning {
+    readonly code: string;
+    readonly message: string;
+}
+
 export interface PlaybackPlan {
     /** Opaque; echoed as failed_plan_id. */
     readonly planId: string;
@@ -107,6 +149,10 @@ export interface PlaybackPlan {
     readonly selectedTracks: SelectedTracks;
     /** Full runtime; undefined when the server does not know it. Never the engine's duration. */
     readonly durationSeconds: number | undefined;
+    /** The edition the plan plays; its track identities belong to this file, not the requested one. */
+    readonly effectiveMediaFileId: string;
+    readonly subtitle: PlanSubtitle;
+    readonly warnings: readonly DegradationWarning[];
 }
 
 export interface PlaybackTerminal {
@@ -143,6 +189,34 @@ function decodeTimeline(value: unknown, path: string): PlanTimeline {
     };
 }
 
+function decodeSubtitleTrack(value: unknown, path: string): SubtitleTrack {
+    const obj = object(value, path);
+    return {
+        trackId: nonEmptyString(obj, "track_id", path),
+        combinedIndex: integer(obj, "combined_index", path),
+        source: oneOf(string(obj, "source", path), SUBTITLE_SOURCES),
+        delivery: oneOf(string(obj, "delivery", path), SUBTITLE_DELIVERIES),
+        label: optionalString(obj, "label", path),
+        language: optionalString(obj, "language", path),
+        forced: boolean(obj, "forced", path),
+        hearingImpaired: boolean(obj, "hearing_impaired", path),
+    };
+}
+
+function decodeSubtitle(value: unknown, path: string): PlanSubtitle {
+    const obj = object(value, path);
+    return {
+        mode: oneOf(string(obj, "mode", path), SUBTITLE_MODES),
+        trackId: optionalString(obj, "track_id", path),
+        inventory: list(obj, "inventory", path).map((entry, index) => decodeSubtitleTrack(entry, `${path}.inventory[${index}]`)),
+    };
+}
+
+function decodeWarning(value: unknown, path: string): DegradationWarning {
+    const obj = object(value, path);
+    return { code: nonEmptyString(obj, "code", path), message: string(obj, "message", path) };
+}
+
 function decodePlan(value: unknown, path: string): PlaybackPlan {
     const obj = object(value, path);
     const tracks = object(obj.selected_tracks, `${path}.selected_tracks`);
@@ -157,6 +231,10 @@ function decodePlan(value: unknown, path: string): PlaybackPlan {
         timeline: decodeTimeline(obj.timeline, `${path}.timeline`),
         selectedTracks: { ...(audio === undefined ? {} : { audio }), ...(subtitle === undefined ? {} : { subtitle }) },
         durationSeconds: optionalNumber(source, "duration_seconds", `${path}.source`),
+        // openapi.json types it as an opaque string id (the v3 design schema shows an integer).
+        effectiveMediaFileId: nonEmptyString(obj, "effective_media_file_id", path),
+        subtitle: decodeSubtitle(obj.subtitle, `${path}.subtitle`),
+        warnings: list(obj, "degradation_warnings", path).map((entry, index) => decodeWarning(entry, `${path}.degradation_warnings[${index}]`)),
     };
 }
 
@@ -284,7 +362,7 @@ export type StartPlaybackBody = {
     readonly client_playback_context: ClientPlaybackContext;
 };
 
-export type ReplanOperation = "failure_recovery" | "seek_reanchor";
+export type ReplanOperation = "failure_recovery" | "seek_reanchor" | "track_change";
 
 export type ReplanPlaybackBody = {
     readonly installation_id: string;
@@ -321,3 +399,46 @@ export type StopBody = {
     readonly position: number;
     readonly is_paused: boolean;
 };
+
+// --- listCatalogItemVersions ---
+// Each version's audio_tracks is the server's copy of the file's probed audio streams, in order
+// (internal/catalog/detail.go). The audio ordinal of `file:{id}:audio:{n}` indexes that same list
+// (resolveV3AudioIndex in internal/api/handlers/playback_v3.go), so position n names track n.
+
+export interface AudioTrackInfo {
+    readonly isDefault: boolean;
+    readonly language: string | undefined;
+    readonly codec: string | undefined;
+    readonly channels: number | undefined;
+    readonly title: string | undefined;
+}
+
+export interface FileVersionTracks {
+    readonly fileId: string;
+    readonly audio: readonly AudioTrackInfo[];
+}
+
+function decodeAudioTrack(value: unknown, path: string): AudioTrackInfo {
+    const obj = object(value, path);
+    return {
+        isDefault: boolean(obj, "default", path),
+        language: optionalString(obj, "language", path),
+        codec: optionalString(obj, "codec", path),
+        channels: optionalInteger(obj, "channels", path),
+        title: optionalString(obj, "title", path) ?? optionalString(obj, "embedded_title", path),
+    };
+}
+
+export function decodeFileVersionTracks(value: unknown): FileVersionTracks[] {
+    const path = "file_versions";
+    const obj = object(value, path);
+    return list(obj, "items", path).map((entry, index) => {
+        const itemPath = `${path}.items[${index}]`;
+        const item = object(entry, itemPath);
+        const audio = item.audio_tracks === undefined ? [] : list(item, "audio_tracks", itemPath);
+        return {
+            fileId: nonEmptyString(item, "file_id", itemPath),
+            audio: audio.map((track, trackIndex) => decodeAudioTrack(track, `${itemPath}.audio_tracks[${trackIndex}]`)),
+        };
+    });
+}

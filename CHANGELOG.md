@@ -11,6 +11,7 @@ All notable changes to this project are documented in this file.
 - Added native sign-in screens for server address entry and device-code sign-in with a QR code, remote-key focus and recovery for each failure. The app does not show them yet.
 - Added native household profile screens for choosing and switching profiles, PIN entry with lockout handling, and sign-out. The app does not show them yet.
 - Added a native player that plays one file through the server's playback plan with AVPlay, with resume, pause, seeking, progress reporting and a final stop, and recovers from a failed route by asking the server for another one. The app does not show it yet; full TV playback acceptance remains open.
+- Added an audio and subtitles menu to the native player: the server switches the audio track, burns in embedded subtitles or turns them off at the current position, and says plainly when a choice isn't available on this TV. Audible audio changes and visible subtitles are not yet proven on a TV.
 - Added native Movies and Series browsing for the selected profile: Home rows, visible libraries in pages, search with the TV keyboard, and movie, series, season and episode pages that hand the chosen file and resume point to the player. The app does not show them yet.
 - Added a CI workflow that runs the type checks, the build and all tests.
 
@@ -20,6 +21,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept playback progress current during track changes and stopped safely when a change's outcome could not be confirmed.
+
+- Kept long audio and subtitle lists inside the staged player's menu with the focused choice and track status visible.
 - Removed the browser placeholder icon from native TV playback.
 
 - Fixed layouts on 2021 TVs, whose Chromium 76 engine lacks some newer CSS: sign-in fields, poster rows and the details screen keep their spacing, posters keep their 2:3 shape, and titles show in posters without artwork.

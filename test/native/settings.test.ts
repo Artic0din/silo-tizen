@@ -1,12 +1,166 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { operations } from "../../src/api/operations.ts";
-import { AUDIO_KEY, HIDDEN_KEY, SETTINGS_KEYS, decodeEffectiveSettings, decodeExplicitSettings, decodeSettingsCapabilities, decodeSettingsContract, decodeSettingValue, numericLibraryId } from "../../src/contracts/v2/settings.ts";
+import { AUDIO_KEY, HIDDEN_KEY, SETTINGS_KEYS, decodeEffectiveSettings, decodeExplicitSettings, decodeSettingsCapabilities, decodeSettingsContract, decodeSettingValue, numericLibraryId, type SettingsKey } from "../../src/contracts/v2/settings.ts";
+import { PlaybackController } from "../../src/player/controller.ts";
+import { FakePlayback } from "./support/fakePlayback.ts";
+import { FakeAVPlay } from "./support/fakeAVPlay.ts";
 import { SettingsState } from "../../src/ui/settingsState.ts";
 import { connected, signIn } from "./support/harness.ts";
 import { FakeCatalog } from "./support/fakeCatalog.ts";
 import { FakeSettings } from "./support/fakeSettings.ts";
 import { fixture, problem } from "./support/fakeSilo.ts";
+
+const QUALITY = "playback.preferred_quality" as SettingsKey;
+const BITRATE = "playback.max_bitrate_kbps" as SettingsKey;
+
+test("profile quality and bitrate are discovered from the supported manifest", () => {
+    const keys = decodeSettingsContract(fixture("settings_contract_ok")).definitions.filter(def => def.profile).map(def => def.key);
+    assert.ok(keys.includes(QUALITY), "preferred quality must be a supported profile control");
+    assert.ok(keys.includes(BITRATE), "maximum bitrate must be a supported profile control");
+});
+
+test("quality reads preserve legacy strings and bitrate rejects coercion, missing values and invalid bounds", () => {
+    for (const value of ["auto", "480p", "720p", "1080p", "2160p", "original", "future-quality"]) assert.equal(decodeSettingValue(QUALITY, value), value);
+    for (const value of [null, 100, 6000, 200000]) assert.equal(decodeSettingValue(BITRATE, value), value);
+    for (const value of [undefined, "", "100", 0, 99, 200001, 100.5, NaN, Infinity, false]) assert.throws(() => decodeSettingValue(BITRATE, value), String(value));
+    for (const value of [null, "", " ", 720]) assert.throws(() => decodeSettingValue(QUALITY, value));
+    assert.throws(() => decodeEffectiveSettings([BITRATE], { items: [{ key: BITRATE, source: "default", definition_revision: 24 }], revision: 24 }));
+});
+
+test("quality/cap discovery excludes incompatible schemas, platform aliases and unsupported profile scopes", async () => {
+    for (const key of [QUALITY, BITRATE]) {
+        for (const change of [
+            { platforms: ["tvOS"] }, { platforms: ["tv"] }, { allowed_scopes: ["profile_device"] },
+            { persistence: "client_local" }, { value_schema: { type: "string", nullable: true } }, { recommended_control: "unknown" },
+        ]) {
+            const contract = fixture("settings_contract_ok");
+            assert.ok(Array.isArray(contract.definitions));
+            contract.definitions = contract.definitions.map(def => def.key === key ? { ...def, ...change } : def);
+            const supported = decodeSettingsContract(contract).definitions.filter(def => def.profile);
+            assert.ok(!supported.some(def => def.key === key), JSON.stringify(change));
+        }
+    }
+    const { state, fake } = await setup();
+    const contract = fixture("settings_contract_ok");
+    assert.ok(Array.isArray(contract.definitions));
+    contract.definitions = contract.definitions.map(def => def.key === QUALITY || def.key === BITRATE ? { ...def, introduced_in: 25 } : def);
+    fake.script("/settings/contract", { status: 200, body: contract });
+    const count = fake.requests.length;
+    await state.load();
+    assert.equal(state.loaded, true);
+    assert.ok(!state.definitions.some(def => def.key === QUALITY || def.key === BITRATE));
+    assert.ok(fake.requests.slice(count).filter(r => r.path.startsWith("/settings/values")).every(r => !r.path.includes(QUALITY) && !r.path.includes(BITRATE)));
+    state.stop();
+});
+
+test("PIN-authorised quality writes capture proof and ignore answers after profile replacement", async () => {
+    const { state, core, fake, fakeSettings, clock } = await setup();
+    state.stop();
+    const profiles = await core.profiles.list();
+    const kid = profiles.find(profile => profile.id === "p-kid");
+    const owner = profiles.find(profile => profile.id === "p-owner");
+    assert.ok(kid && owner);
+    core.profiles.select(kid);
+    assert.deepEqual(await core.profiles.verifyPin(kid.id, "2468"), { status: "verified" });
+    const next = new SettingsState(core.session, () => undefined, clock);
+    await next.load();
+    const hold = fake.hold(`/settings/values/${QUALITY}`, true);
+    const saving = next.save(QUALITY, "1080p");
+    while (!fake.requests.some(r => r.method === "PUT")) await new Promise<void>(resolve => setImmediate(resolve));
+    const write = fake.requests.find(r => r.method === "PUT");
+    assert.equal(write?.headers["x-profile-id"], kid.id);
+    assert.ok(write?.headers["x-profile-token"]);
+    core.profiles.select(owner);
+    hold.release();
+    await saving;
+    assert.equal(next.loaded, false);
+    assert.equal(next.explicit.size, 0);
+    assert.equal(next.effective.size, 0);
+    assert.equal(fakeSettings.profile(kid.id).get(QUALITY), "1080p");
+    assert.equal(fakeSettings.profile(owner.id).has(QUALITY), false);
+    assert.equal(fake.requests.filter(r => r.method === "PUT").length, 1);
+});
+
+test("profile defaults keep explicit null/reset separate from device overrides and never rewrite legacy reads", async () => {
+    const { state, fakeSettings, fake, core } = await setup();
+    fakeSettings.profile().set(QUALITY, "original");
+    fakeSettings.overrides.set(QUALITY, "480p");
+    fakeSettings.overrides.set(BITRATE, 1500);
+    await state.load();
+    assert.equal(state.explicit.get(QUALITY)?.isSet, true);
+    assert.equal(fake.requests.filter(r => r.method === "PUT").length, 0);
+    await state.save(QUALITY, "2160p");
+    await state.save(BITRATE, null);
+    assert.deepEqual(state.explicit.get(BITRATE), { isSet: true, value: null, revision: 7 });
+    assert.equal(state.effective.get(BITRATE)?.value, 1500);
+    await state.reset(BITRATE);
+    await state.reset(QUALITY);
+    assert.equal(state.explicit.get(BITRATE)?.isSet, false);
+    assert.equal(state.explicit.get(QUALITY)?.isSet, false);
+    assert.equal(state.effective.get(QUALITY)?.source, "profile_device");
+    assert.equal(fakeSettings.overrides.get(QUALITY), "480p");
+    assert.equal(fakeSettings.overrides.get(BITRATE), 1500);
+    const writes = fake.requests.filter(r => r.method === "PUT" || r.method === "DELETE");
+    assert.equal(writes.length, 4);
+    assert.deepEqual(writes.map(r => r.path), [QUALITY, BITRATE, BITRATE, QUALITY].map(key => `/settings/values/${key}?scope=profile`));
+    for (const request of writes) {
+        assert.equal(request.headers["x-profile-id"], core.session.activeProfile?.id);
+        assert.ok(request.headers.authorization);
+        assert.equal(request.headers["x-silo-device-id"], fake.requests.find(r => r.path === "/settings/contract/capabilities")?.headers["x-silo-device-id"]);
+        assert.equal(request.headers["x-silo-client-family"], undefined);
+    }
+    state.stop();
+});
+
+test("quality/cap lost write answers and failed readback reconcile on Retry without duplicate mutation", async () => {
+    for (const [key, value] of [[QUALITY, "720p"], [BITRATE, 6000]] as const) {
+        const { state, fake, clock } = await setup();
+        fake.dropNextAnswer(`/settings/values/${key}?scope=profile`);
+        const hold = fake.hold(operations.settingsValues([key]).path);
+        const saving = state.save(key, value);
+        while (!fake.requests.some(r => r.path === operations.settingsValues([key]).path)) await new Promise<void>(resolve => setImmediate(resolve));
+        fake.script(operations.settingsValues([key]).path, problem(429, "rate_limited", "Wait", { "Retry-After": "1" }));
+        hold.release();
+        await saving;
+        assert.ok(state.error);
+        assert.equal(state.canRetry, true);
+        assert.equal(fake.requests.filter(r => r.method === "PUT").length, 1);
+        await clock.advance(1000);
+        await state.retry();
+        assert.equal(state.error, undefined);
+        assert.deepEqual(state.explicit.get(key), { isSet: true, value, revision: 7 });
+        assert.equal(fake.requests.filter(r => r.method === "PUT").length, 1);
+        state.stop();
+    }
+});
+
+test("Settings confirmed profile writes feed every new real PlaybackController start", async () => {
+    const { state, fake, fakeSettings, core, clock } = await setup();
+    const server = new FakePlayback(fake);
+    const avplay = new FakeAVPlay();
+    let serial = 0;
+    const controller = new PlaybackController({ session: core.session, avplay, clock, randomBytes: bytes => bytes.fill(++serial), device: { model: "S95C", appVersion: "0.1.0" }, exits: { onBack() {}, onEnd() {}, onError(error) { assert.fail(error.kind); } } });
+    try {
+        for (const [quality, cap] of [["720p", 4321], ["2160p", 200000], ["auto", null]] as const) {
+            await state.save(QUALITY, quality);
+            await state.save(BITRATE, cap);
+            assert.equal(state.error, undefined);
+            assert.equal(fakeSettings.profile().get(QUALITY), quality);
+            assert.equal(state.effective.get(BITRATE)?.value, cap);
+            controller.play({ contentId: "movie-1", fileId: "42", title: "Synthetic movie", startSeconds: 0 });
+            await clock.advance(0);
+            const starts = fake.requests.filter(r => r.path === "/playback/start");
+            const request = starts[starts.length - 1];
+            assert.equal(request?.body?.quality_preference, quality);
+            assert.equal(request?.body?.bandwidth_cap_kbps, cap ?? undefined);
+            assert.equal(Object.prototype.hasOwnProperty.call(request?.body ?? {}, "bandwidth_cap_kbps"), cap !== null);
+            controller.back();
+            await clock.advance(0);
+        }
+        assert.equal(server.sessions.size, 3);
+    } finally { controller.destroy(); state.stop(); }
+});
 
 test("the hidden-library editor can request hidden libraries explicitly", () => {
     const request = Reflect.apply(operations.listUserLibraries, undefined, [true]);

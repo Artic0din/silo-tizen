@@ -1,5 +1,5 @@
 import type { NativeSession } from "../session/session.ts";
-import { AUDIO_KEY, HIDDEN_KEY, numericLibraryId, type SettingValue, type SettingsKey } from "../contracts/v2/settings.ts";
+import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, numericLibraryId, type SettingValue, type SettingsKey } from "../contracts/v2/settings.ts";
 import { FocusHost, type FocusItem, type FocusTarget } from "./browseFocus.ts";
 import { actionButton, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
@@ -7,7 +7,9 @@ import { remoteKey } from "./keys.ts";
 import { SettingsState } from "./settingsState.ts";
 
 type Category = "general" | "playback";
-type Picker = "hidden" | "audio";
+type Picker = "hidden" | "audio" | "quality" | "bitrate";
+const PICKER_KEYS = { hidden: HIDDEN_KEY, audio: AUDIO_KEY, quality: QUALITY_KEY, bitrate: BITRATE_KEY } as const;
+const PICKER_LABELS = { hidden: "Hidden libraries", audio: "Preferred audio", quality: "Preferred quality", bitrate: "Maximum bitrate" } as const;
 export interface SettingsScreen { destroy(): void }
 
 export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void): SettingsScreen {
@@ -17,6 +19,9 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     const host = new FocusHost(container);
     let category: Category = "general";
     let picker: Picker | undefined;
+    let returnRow: Picker = "hidden";
+    let bitrateDraft = "";
+    let bitrateError: string | undefined;
     let torn = false;
     const state = new SettingsState(session, () => render());
     const destroy = (): void => {
@@ -30,7 +35,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     };
     const stopAuthority = session.onAuthorityChange(destroy);
     const exit = (): void => { const changed = state.hiddenChanged; destroy(); close(changed); };
-    const rowFocus = (): FocusTarget => ({ zone: "settings-rows", key: category === "general" ? "hidden" : "audio" });
+    const rowFocus = (): FocusTarget => ({ zone: "settings-rows", key: returnRow });
     const back = (): void => {
         if (picker !== undefined) { picker = undefined; render(rowFocus()); }
         else if (host.focused()?.zone !== "settings-categories") render({ zone: "settings-categories", key: category });
@@ -44,7 +49,14 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         }
     };
     container.addEventListener("keydown", onKey, true);
-    const openPicker = (next: Picker): void => { picker = next; render({ zone: "settings-picker", key: "back" }); };
+    const openPicker = (next: Picker): void => {
+        picker = next;
+        returnRow = next;
+        bitrateError = undefined;
+        const stored = state.explicit.get(BITRATE_KEY);
+        bitrateDraft = stored?.isSet && typeof stored.value === "number" ? String(stored.value) : "";
+        render({ zone: "settings-picker", key: "back" });
+    };
     const commit = async (key: SettingsKey, value: SettingValue | undefined): Promise<void> => {
         const startedPicker = picker;
         if (value === undefined) await state.reset(key);
@@ -59,14 +71,17 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     };
     const profileValue = (key: SettingsKey): string => {
         const stored = state.explicit.get(key);
-        return stored?.isSet ? valueLabel(stored.value, key) : "Inherited";
+        return stored?.isSet ? label(stored.value, key) : "Inherited";
     };
+    const label = (value: SettingValue, key: SettingsKey): string => key === QUALITY_KEY
+        ? state.definitions.find(def => def.key === key)?.options.find(option => option.value === value)?.label ?? String(value)
+        : valueLabel(value, key);
     const note = (key: SettingsKey): HTMLElement => {
         const effective = state.effective.get(key);
         const sources: Readonly<Record<string, string>> = { default: "Inherited default", profile: "Profile default", profile_device: "Device override", profile_library: "Library override", profile_series: "Series override" };
         const source = effective === undefined ? "" : sources[effective.source] ?? effective.source.replace(/_/g, " ");
-        const permitted = effective?.constrained && effective.permittedValues !== undefined ? ` · Permitted: ${effective.permittedValues.map(value => valueLabel(value, key)).join(", ")}` : "";
-        const text = effective === undefined ? "" : `On this TV: ${valueLabel(effective.value, key)} · ${source}${effective.constrained ? " · Limited by server policy" : ""}${permitted}`;
+        const permitted = effective?.constrained && effective.permittedValues !== undefined ? ` · Permitted: ${effective.permittedValues.map(value => label(value, key)).join(", ")}` : "";
+        const text = effective === undefined ? "" : `On this TV: ${label(effective.value, key)} · ${source}${effective.constrained ? " · Limited by server policy" : ""}${permitted}`;
         return el("p", "settings-value", text);
     };
     const feedback = (): HTMLElement[] => {
@@ -78,11 +93,12 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     const retryButton = (): FocusItem[] => state.error === undefined ? [] : [button("retry", state.canRetry ? "Check and retry" : "Reload settings", () => { void state.retry(); })];
 
     const renderPicker = (): void => {
+        if (picker === undefined) return;
         const hidden = picker === "hidden";
-        const key = hidden ? HIDDEN_KEY : AUDIO_KEY;
+        const key = PICKER_KEYS[picker];
         const stored = state.explicit.get(key);
-        const controls: FocusItem[] = [actionButton("back", "Back", back)];
-        const content: HTMLElement[] = [el("h1", "browse-title", hidden ? "Hidden libraries" : "Preferred audio"), note(key), ...feedback()];
+        const controls: FocusItem[] = [actionButton("back", picker === "bitrate" ? "Cancel" : "Back", back)];
+        const content: HTMLElement[] = [el("h1", "browse-title", picker === "bitrate" ? "Maximum bitrate (kbps)" : PICKER_LABELS[picker]), el("p", "settings-value", `Profile default: ${profileValue(key)}`), note(key), ...feedback()];
         if (hidden) {
             const ids = stored?.isSet && Array.isArray(stored.value) ? stored.value : [];
             for (const library of state.libraries) {
@@ -99,7 +115,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             const unavailable = ids.filter(id => !visibleIds.has(String(id))).length;
             if (unavailable > 0) content.push(el("p", "browse-text", `${unavailable} unavailable ${unavailable === 1 ? "library will" : "libraries will"} remain hidden.`));
             controls.push(button("clear-hidden", "No hidden libraries", () => { void commit(key, null); }));
-        } else {
+        } else if (picker === "audio") {
             const current = stored?.isSet ? stored.value : undefined;
             const effective = state.effective.get(AUDIO_KEY);
             const options = [...new Set([...state.audioOptions, ...(effective?.suggestedValues?.filter((value): value is string | null => value === null || typeof value === "string") ?? []), ...(typeof current === "string" ? [current] : [])])];
@@ -110,6 +126,45 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 item.element.setAttribute("aria-checked", String(stored?.isSet === true && current === value));
                 controls.push(item);
             }
+        } else if (picker === "quality") {
+            const current = stored?.isSet ? stored.value : undefined;
+            if (current !== undefined && !state.qualityOptions.some(option => option.value === current)) content.push(el("p", "browse-text", `Current profile value: ${label(current, key)} · Not offered`));
+            for (const option of state.qualityOptions) {
+                const item = button(`quality:${option.value}`, option.label, () => { void commit(key, option.value); });
+                item.element.setAttribute("role", "radio");
+                item.element.setAttribute("aria-checked", String(current === option.value));
+                controls.push(item);
+            }
+        } else {
+            const input = el("input", "browse-button settings-input");
+            input.type = "text";
+            input.inputMode = "numeric";
+            input.pattern = "[0-9]*";
+            input.setAttribute("aria-label", "Maximum bitrate (kbps)");
+            input.setAttribute("data-focus", "bitrate-input");
+            input.value = bitrateDraft;
+            input.readOnly = state.busy || state.canRetry;
+            input.addEventListener("input", () => { bitrateDraft = input.value; });
+            if (bitrateError !== undefined) {
+                input.setAttribute("aria-invalid", "true");
+                input.setAttribute("aria-describedby", "bitrate-error");
+                const error = el("p", "browse-text browse-error", bitrateError);
+                error.id = "bitrate-error";
+                error.setAttribute("role", "alert");
+                content.push(error);
+            }
+            controls.push({ key: "bitrate-input", element: input });
+            controls.push(button("save", "Save", () => {
+                const cap = Number(bitrateDraft);
+                if (!/^\d+$/.test(bitrateDraft) || !Number.isInteger(cap) || cap < 100 || cap > 200000) {
+                    bitrateError = "Enter a whole number from 100 to 200000 kbps, or choose No limit.";
+                    render();
+                    return;
+                }
+                bitrateError = undefined;
+                void commit(key, cap);
+            }));
+            controls.push(button("no-limit", "No limit", () => { void commit(key, null); }));
         }
         if (stored?.isSet) controls.push(button("reset", "Use inherited default", () => { void commit(key, undefined); }));
         controls.push(...retryButton());
@@ -121,7 +176,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         if (torn) return;
         if (picker !== undefined) { renderPicker(); return; }
         const categories = (["general", "playback"] as const).map(id => {
-            const item = actionButton(id, id === "general" ? "General" : "Playback", () => { category = id; render(rowFocus()); });
+            const item = actionButton(id, id === "general" ? "General" : "Playback", () => { category = id; returnRow = id === "general" ? "hidden" : "audio"; render(rowFocus()); });
             item.element.setAttribute("aria-current", id === category ? "page" : "false");
             item.element.addEventListener("focus", () => { if (category !== id) { category = id; render({ zone: "settings-categories", key: id }); } });
             return item;
@@ -129,14 +184,20 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         const rows: FocusItem[] = [];
         const body = el("div", "settings-pane");
         body.append(el("h2", "browse-section-title", category === "general" ? "General" : "Playback"), ...feedback());
-        const key = category === "general" ? HIDDEN_KEY : AUDIO_KEY;
-        if (state.loaded && state.definitions.some(def => def.key === key)) {
-            rows.push(button(category === "general" ? "hidden" : "audio", `${category === "general" ? "Hidden libraries" : "Preferred audio"} · ${profileValue(key)}`, () => openPicker(category === "general" ? "hidden" : "audio")));
-            body.appendChild(note(key));
-        } else if (state.loaded) body.appendChild(el("p", "browse-text", "No supported settings in this category."));
+        const pickers: readonly Picker[] = category === "general" ? ["hidden"] : ["audio", "quality", "bitrate"];
+        for (const id of pickers) {
+            const key = PICKER_KEYS[id];
+            if (!state.loaded || !state.definitions.some(def => def.key === key)) continue;
+            const item = button(id, `${PICKER_LABELS[id]} · ${profileValue(key)}`, () => openPicker(id));
+            rows.push(item);
+            body.append(item.element, note(key));
+        }
+        if (state.loaded && rows.length === 0) body.appendChild(el("p", "browse-text", "No supported settings in this category."));
+        const settingRows = rows.length;
         rows.push(...retryButton());
         rows.push(actionButton("settings-back", "Back", back));
-        body.appendChild(zoneNode("settings-controls", rows));
+        body.classList.add("settings-controls");
+        body.appendChild(zoneNode("settings-controls", rows.slice(settingRows)));
         const panes = el("div", "settings-panes");
         panes.append(zoneNode("settings-categories", categories), body);
         host.show({ name: "settings", content: [el("h1", "browse-title", "Settings"), el("p", "settings-scope", "Profile defaults"), panes], zones: [
@@ -151,6 +212,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
 }
 
 function valueLabel(value: SettingValue, key: SettingsKey = AUDIO_KEY): string {
+    if (key === BITRATE_KEY) return value === null ? "No limit" : `${value} kbps`;
     if (value === null) return key === HIDDEN_KEY ? "None hidden" : "No preference";
     if (Array.isArray(value)) return `${value.length} hidden`;
     return value === "x-silo-original" ? "Original language" : String(value);

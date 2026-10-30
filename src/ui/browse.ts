@@ -19,10 +19,12 @@ import type { ConnectedServer } from "../session/core.ts";
 import type { PublicStorage } from "../session/deviceIdentity.ts";
 import { Skyline } from "./skyline.ts";
 import { FocusHost, type FocusTarget } from "./browseFocus.ts";
-import { type Destination, type PlayRequest, scopeOf, visibleLibraries } from "./browseModel.ts";
+import { type Destination, type PlayRequest, visibleLibraries } from "./browseModel.ts";
 import { failureText, hasData, newPages, newRoute, PAGE_SIZE, type Pages, type Route, routeView } from "./browseRoutes.ts";
 import type { ViewContext } from "./browseViews.ts";
 import { el } from "./screen.ts";
+import { discoveryState, genreGroups, libraryScope, readDiscovery, type LibraryMode } from "./libraryDiscovery.ts";
+import { availableModes } from "./libraryDiscoveryViews.ts";
 
 export type { PlayRequest } from "./browseModel.ts";
 
@@ -80,6 +82,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let detailWork: DetailsState | undefined;
     const synopsis = new Synopsis(container, () => render({ zone: "actions", key: "synopsis" }));
     const stopDetails = (): void => { synopsis.destroy(); detailWork?.stop(); detailWork = undefined; };
+    let inputRevision = 0;
+    const recordInput = (): void => { inputRevision++; };
+    document.addEventListener("keydown", recordInput, true);
+    document.addEventListener("pointerdown", recordInput, true);
 
     const top = (): Route | undefined => stack[stack.length - 1];
 
@@ -93,6 +99,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         loading?.abort();
         cancelSlow();
         cancelSearch();
+        document.removeEventListener("keydown", recordInput, true);
+        document.removeEventListener("pointerdown", recordInput, true);
         stack = [];
         shell.destroy();
         host.destroy();
@@ -108,6 +116,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         cancelSlow();
         const controller = new AbortController();
         loading = controller;
+        const entryRevision = inputRevision;
+        const enterResults = current.kind === "library" && !quiet && host.focused()?.key !== "sort";
         current.slow = false;
         if (!quiet) {
             cancelSlow = clock.schedule(() => {
@@ -128,7 +138,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 current.stale = false;
                 apply(value);
                 if (top() === current) {
-                    render();
+                    const enterLibrary = enterResults && inputRevision === entryRevision;
+                    render(current.kind === "library" && !enterLibrary ? host.focused() : undefined);
+                    if (enterLibrary) host.focusDefault();
                 }
             },
             (error: unknown) => {
@@ -137,9 +149,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }
                 loading = undefined;
                 cancelSlow();
-                if (error instanceof ApiError && error.problemId === "invalid_cursor" && (current.kind === "library" || current.kind === "search") && current.pages !== undefined) {
+                if (error instanceof ApiError && error.problemId === "invalid_cursor" && (current.kind === "library" || current.kind === "libraryResults" || current.kind === "search") && current.pages !== undefined) {
                     Object.assign(current.pages, newPages());
                     current.focus = undefined;
+                    if (current.kind === "library" && current.discovery !== undefined) {
+                        current.discovery.windowCursor = undefined;
+                        current.discovery.seek = undefined;
+                        current.discovery.letter = undefined;
+                    }
                 }
                 const text = failureText(error, current);
                 if (text === undefined) {
@@ -211,6 +228,29 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }, quiet);
                 return;
             case "library":
+                current.discovery ??= discoveryState();
+                if (current.discovery.data !== undefined && (current.discovery.mode === "Recently Added" || current.discovery.mode === "A–Z" || current.discovery.genre !== undefined)) {
+                    loadPage(current, current.pages, current.pages.index, quiet);
+                    return;
+                }
+                load(current, async signal => {
+                    const state = current.discovery ?? discoveryState();
+                    const data = await readDiscovery(current.library, state.mode, spec => read(spec, signal));
+                    const page = (state.mode === "Recently Added" || state.mode === "A–Z") && data.capabilities?.allowed === true
+                        ? await read(operations.queryCatalogItems({ ...libraryScope(current.library), limit: PAGE_SIZE, sort: state.mode === "Recently Added" ? "added_at" : "title", order: state.mode === "Recently Added" ? "desc" : "asc" }), signal) : undefined;
+                    return { data, page };
+                }, ({ data, page }) => {
+                    if (current.discovery !== undefined) {
+                        current.discovery.data = data;
+                        current.discovery.capabilities = data.capabilities;
+                        shell.setLibraryModes(availableModes(data.capabilities));
+                    }
+                    current.pages.page = page;
+                    current.pages.cursors = [undefined, page?.nextCursor];
+                    if (current.discovery !== undefined) current.discovery.windowCursor = page?.windowCursor;
+                }, quiet);
+                return;
+            case "libraryResults":
                 loadPage(current, current.pages, current.pages.index, quiet);
                 return;
             case "search":
@@ -259,7 +299,36 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     const loadPage = (current: Route, pages: Pages, index: number, quiet = false): void => {
-        const scope = current.kind === "library" ? { libraryId: current.library.id, type: scopeOf(current.library) } : current.kind === "search" ? { q: current.query, type: "video" as const } : undefined;
+        if (current.kind === "library" || current.kind === "libraryResults") {
+            load(current, async signal => {
+                const cursor = pages.cursors[index];
+                if (current.kind === "libraryResults" && current.source.kind === "collection" && current.source.groupKind === "admin") return read(operations.getLibraryCollectionItems(current.library.id, current.source.id, { limit: PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) }), signal);
+                if (current.kind === "libraryResults" && current.source.kind === "section" && index === 0) await read(operations.getLibrarySectionItems(current.library.id, current.source.id), signal);
+                const state = current.kind === "library" ? current.discovery : undefined;
+                const recent = state?.mode === "Recently Added";
+                const source = current.kind === "libraryResults" ? current.source : undefined;
+                const query = operations.queryCatalogItems({
+                    ...libraryScope(current.library), limit: PAGE_SIZE,
+                    sort: recent ? "added_at" : "title",
+                    order: recent || state?.descending === true || (current.kind === "libraryResults" && current.descending) ? "desc" : "asc",
+                    ...(cursor === undefined ? {} : { cursor }),
+                    ...(state?.seek === undefined || index !== 0 ? {} : { seek: state.seek, ...(state.windowCursor === undefined ? {} : { cursor: state.windowCursor }) }),
+                    ...(source?.kind === "genre" ? { groups: genreGroups(source.name) } : {}),
+                    ...(state?.genre === undefined ? {} : { groups: genreGroups(state.genre) }),
+                    ...(source?.kind === "collection" && source.groupKind === "user_collections" ? { source: "user_collection", scope: "library", collection_id: source.id } : {}),
+                    ...(source?.kind === "section" ? { source: "section", scope: "library", section_id: source.id } : {}),
+                });
+                return read(query, signal);
+            }, page => {
+                pages.page = page;
+                pages.index = index;
+                pages.cursors = pages.cursors.slice(0, index + 1);
+                pages.cursors.push(page.nextCursor);
+                if (current.kind === "library" && current.discovery !== undefined && "windowCursor" in page && typeof page.windowCursor === "string") current.discovery.windowCursor = page.windowCursor;
+            }, quiet || pages.page !== undefined);
+            return;
+        }
+        const scope: { q: string; type: "video" } | undefined = current.kind === "search" ? { q: current.query, type: "video" } : undefined;
         if (scope === undefined) {
             return;
         }
@@ -315,6 +384,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     });
 
     const pop = (): void => {
+        const active = top();
+        if (active?.kind === "library" && active.discovery?.genre !== undefined) {
+            genre(active, undefined);
+            return;
+        }
         if (stack.length <= 1) {
             return;
         }
@@ -388,12 +462,15 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (current === undefined || torn || playing || synopsis.active) {
             return;
         }
-        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn };
+        if (current.kind === "library") shell.setLibraryModes(availableModes(current.discovery?.data?.capabilities ?? current.discovery?.capabilities));
+        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre };
         const view = routeView(current, handlers);
         const rootRoute = current.kind === "home" || current.kind === "library" || current.kind === "search";
         if (rootRoute) {
             const selected = current.kind === "library" ? (current.library.type === "series" ? "series" : "movies") : current.kind;
-            host.show(shell.decorate(view, selected, current.kind !== "search"), focus);
+            const preview = current.kind === "home" || (current.kind === "library" && (current.discovery?.mode ?? "Browse") === "Browse");
+            const decorated = shell.decorate(view, selected, preview, current.kind === "library" && current.discovery?.genre !== undefined ? pop : undefined);
+            host.show(current.kind === "library" && current.discovery?.genre !== undefined ? { ...decorated, back: pop } : decorated, focus);
         } else {
             shell.hide();
             host.show(view, focus);
@@ -404,6 +481,50 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         current.failure = undefined;
         render();
         loadRoute(current);
+    };
+
+    const mode = (current: Extract<Route, { kind: "library" }>, value: LibraryMode): void => {
+        if (current.discovery?.mode === value && hasData(current)) {
+            host.focusDefault();
+            return;
+        }
+        current.discovery = { ...discoveryState(), mode: value, capabilities: current.discovery?.capabilities };
+        current.pages = newPages();
+        current.failure = undefined;
+        loadRoute(current);
+        render({ zone: "pills", key: `mode:${value}` });
+    };
+    const jump = (current: Extract<Route, { kind: "library" }>, letter: string, position: number): void => {
+        const state = current.discovery;
+        if (state === undefined) return;
+        state.seek = position;
+        state.letter = letter;
+        current.pages = newPages();
+        current.failure = undefined;
+        loadPage(current, current.pages, 0);
+        render({ zone: "letters", key: `letter:${letter}` });
+    };
+    const genre = (current: Extract<Route, { kind: "library" }>, name: string | undefined): void => {
+        const state = current.discovery;
+        if (state === undefined) return;
+        const previous = state.genre;
+        state.genre = name;
+        state.descending = false;
+        current.pages = newPages();
+        current.failure = undefined;
+        if (name !== undefined) loadPage(current, current.pages, 0);
+        else { loading?.abort(); loading = undefined; cancelSlow(); }
+        render(name === undefined && previous !== undefined ? { zone: "genres", key: `genre:${previous}` } : undefined);
+    };
+    const sort = (current: Extract<Route, { kind: "libraryResults" | "library" }>): void => {
+        if (current.kind === "library") {
+            if (current.discovery === undefined) return;
+            current.discovery.descending = !current.discovery.descending;
+        } else current.descending = !current.descending;
+        current.pages = newPages();
+        current.failure = undefined;
+        loadRoute(current);
+        render({ zone: "actions", key: "sort" });
     };
 
     const turn = (current: Route, pages: Pages, step: -1 | 1): void => {
@@ -419,7 +540,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const home = newRoute({ kind: "home", data: undefined });
     const roots = new Map<string, Route>([["home", home]]);
-    const shell = new Skyline(container, clock, (target) => {
+    const shell = new Skyline(container, clock, (target, destinationMode) => {
         const current = top();
         if (current !== undefined) current.focus = host.focused();
         const key = typeof target === "string" ? target : `library:${target.id}:${target.type}`;
@@ -429,6 +550,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 ? newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
                 : newRoute({ kind: "library", library: target, pages: newPages() });
             roots.set(key, route);
+        }
+        if (route.kind === "library" && destinationMode !== undefined) {
+            route.discovery = { ...discoveryState(), mode: destinationMode, capabilities: route.discovery?.capabilities };
+            route.pages = newPages();
         }
         loading?.abort();
         loading = undefined;

@@ -7,6 +7,7 @@ import { actionButton, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
 import { SkylineScroll } from "./skylineScroll.ts";
 import { remoteKey } from "./keys.ts";
+import type { LibraryMode } from "./libraryDiscovery.ts";
 
 type VideoTab = "movies" | "series";
 
@@ -23,6 +24,7 @@ function replaceNodes(container: HTMLElement, nodes: readonly HTMLElement[]): vo
 
 /** Root chrome owns no requests. Only explicit activation changes the route or library. */
 export class Skyline {
+    private routeBack: (() => void) | undefined;
     private readonly nav = el("nav", "browse-nav");
     private readonly tabs = el("div", "skyline-tabs");
     private readonly tools = el("div", "skyline-tools");
@@ -32,6 +34,8 @@ export class Skyline {
     private readonly scrim = el("div", "skyline-dropdown-scrim");
     private readonly flyout = el("div", "skyline-selector skyline-flyout");
     private flyoutItem: FocusItem | undefined;
+    private flyoutItems: FocusItem[] = [];
+    private libraryModes: readonly LibraryMode[] = ["Browse", "Collections"];
     private libraryRow: FocusItem | undefined;
     private cancelFlyout = (): void => undefined;
     private readonly scroll = new SkylineScroll();
@@ -50,7 +54,7 @@ export class Skyline {
     private immediatePreview = true;
     private readonly container: HTMLElement;
     private readonly clock: Clock;
-    private readonly activate: (target: "home" | "search" | UserLibrary) => void;
+    private readonly activate: (target: "home" | "search" | UserLibrary, mode?: LibraryMode) => void;
     private readonly profiles: ProfileMenu;
     private readonly refresh: () => void;
     private readonly storage: PublicStorage | undefined;
@@ -60,7 +64,7 @@ export class Skyline {
     constructor(
         container: HTMLElement,
         clock: Clock,
-        activate: (target: "home" | "search" | UserLibrary) => void,
+        activate: (target: "home" | "search" | UserLibrary, mode?: LibraryMode) => void,
         profiles: ProfileMenu,
         refresh: () => void,
         storage: PublicStorage | undefined,
@@ -128,17 +132,20 @@ export class Skyline {
         return this.forType(type).find((library) => library.id === id) ?? this.forType(type)[0];
     }
 
-    private commit(target: "home" | "search" | UserLibrary): void {
+    setLibraryModes(modes: readonly LibraryMode[]): void { this.libraryModes = modes; }
+
+    private commit(target: "home" | "search" | UserLibrary, mode?: LibraryMode): void {
         if (typeof target !== "string") {
             const type = this.panelTab ?? (target.type === "series" ? "series" : "movies");
             this.scopes.set(type, target.id);
             try { this.storage?.setItem(`${this.storageKey}:${type}`, target.id); } catch { /* Keep the selection for this session. */ }
         }
         this.close();
-        this.activate(target);
+        this.activate(target, mode);
     }
 
-    decorate(view: View, selected: string, preview: boolean): View {
+    decorate(view: View, selected: string, preview: boolean, routeBack?: () => void): View {
+        this.routeBack = routeBack;
         this.visible = true;
         if (this.selected !== selected) this.immediatePreview = true;
         this.selected = selected;
@@ -148,11 +155,12 @@ export class Skyline {
         }
         const zones: Zone[] = [{ id: "nav", layout: "row", items: this.items }];
         if (!this.selector.hidden) zones.push({ id: "selector", layout: "column", items: this.panel });
-        if (!this.flyout.hidden && this.flyoutItem !== undefined) zones.push({ id: "flyout", layout: "column", items: [this.flyoutItem] });
+        if (!this.flyout.hidden) zones.push({ id: "flyout", layout: "column", items: this.flyoutItems });
         const prepare = (): void => {
             this.container.classList.add("skyline-root");
             this.container.classList.toggle("skyline-preview", preview);
-            this.container.classList.toggle("skyline-library", selected === "movies" || selected === "series");
+            this.container.classList.toggle("skyline-library", preview && (selected === "movies" || selected === "series"));
+            this.container.classList.toggle("skyline-grid", !preview && (selected === "movies" || selected === "series"));
             view.content.forEach((node, index) => {
                 const existing = this.body.children[index];
                 if (existing !== node) this.body.insertBefore(node, existing ?? null);
@@ -163,6 +171,7 @@ export class Skyline {
     }
 
     hide(): void {
+        this.routeBack = undefined;
         this.visible = false;
         this.close();
         this.cancelPreview();
@@ -286,7 +295,7 @@ export class Skyline {
             this.libraryRow?.element.focus({ preventScroll: true });
             return;
         }
-        if (this.flyout.contains(document.activeElement) && (key === "up" || key === "down" || key === "right")) {
+        if (this.flyout.contains(document.activeElement) && key === "right") {
             event.preventDefault();
             return;
         }
@@ -312,7 +321,10 @@ export class Skyline {
             return;
         }
         const back = key === "back";
-        if (back && (!this.selector.hidden || (this.selected !== "search" && (!this.nav.contains(document.activeElement) || this.selected !== "home")))) {
+        if (back && this.selector.hidden && this.routeBack !== undefined) {
+            event.preventDefault();
+            this.routeBack();
+        } else if (back && (!this.selector.hidden || (this.selected !== "search" && (!this.nav.contains(document.activeElement) || this.selected !== "home")))) {
             event.preventDefault();
             this.back();
         } else if (key === "down" && !this.selector.hidden && this.nav.contains(document.activeElement)) {
@@ -352,9 +364,13 @@ export class Skyline {
         const library = this.libraries.find((candidate) => `library:${candidate.id}` === row.key);
         if (library === undefined) return;
         const type = this.panelTab;
-        this.flyoutItem = actionButton("section:browse", "Browse", () => this.commit({ ...library, type }));
-        this.flyoutItem.element.setAttribute("role", "menuitem");
-        replaceNodes(this.flyout, [this.flyoutItem.element]);
+        this.flyoutItems = this.libraryModes.map(mode => {
+            const item = actionButton(`section:${mode === "Browse" ? "browse" : mode}`, mode, () => this.commit({ ...library, type }, mode));
+            item.element.setAttribute("role", "menuitem");
+            return item;
+        });
+        this.flyoutItem = this.flyoutItems[0];
+        replaceNodes(this.flyout, this.flyoutItems.map(item => item.element));
         this.flyout.style.left = `${Math.min(1532, this.selector.getBoundingClientRect().right + 18)}px`;
         this.flyout.style.top = `${Math.min(900, row.element.getBoundingClientRect().top)}px`;
         this.flyout.hidden = false;

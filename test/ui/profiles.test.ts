@@ -167,7 +167,12 @@ tvTest("a large household wraps into rows that Up and Down move between", async 
 });
 
 tvTest("wrong PINs are reported, never kept or resent, and the right PIN unlocks the profile", async (tv) => {
+    await tv.page.evaluate(() => {
+        window.harness.storage.setItem("silo.native.deviceId", "01232468-89ab-4cde-8fab-0123456789ab");
+    });
     await picker(tv);
+    const deviceIdBeforePin = await tv.page.evaluate(() => window.harness.storage.getItem("silo.native.deviceId"));
+    assert.equal(deviceIdBeforePin, "01232468-89ab-4cde-8fab-0123456789ab", "sign-in retains the synthetic install identity containing the PIN digits");
     await openKid(tv);
     await tv.page.getByRole("heading", { name: "Kid", exact: true }).waitFor();
     await tv.remote(IME_DONE);
@@ -192,13 +197,20 @@ tvTest("wrong PINs are reported, never kept or resent, and the right PIN unlocks
     assert.ok(probe?.headers["x-profile-token"]?.startsWith("pvt-"), "the proof goes with the profile");
 
     const kept = await tv.page.evaluate(() => {
-        const stored: string[] = [];
-        window.harness.storage.items.forEach((value) => stored.push(value));
-        window.harness.keyManager?.items.forEach((value) => stored.push(value));
-        return { dom: document.documentElement.outerHTML, stored: stored.join("\n") };
+        return {
+            dom: document.documentElement.outerHTML,
+            publicEntries: [...window.harness.storage.items],
+            protectedValues: [...(window.harness.keyManager?.items.values() ?? [])],
+        };
     });
-    assert.ok(!kept.dom.includes(KID_PIN) && !kept.stored.includes(KID_PIN), "the PIN stays nowhere");
-    assert.ok(!kept.stored.includes("pvt-"), "the PIN proof is kept in memory only");
+    assert.equal(kept.publicEntries.find(([key]) => key === "silo.native.deviceId")?.[1], deviceIdBeforePin, "unlock leaves the public device ID unchanged");
+    const stored = [
+        ...kept.publicEntries.filter(([key]) => key !== "silo.native.deviceId").map(([, value]) => value),
+        ...kept.protectedValues,
+    ].join("\n");
+    assert.ok(!kept.dom.includes(KID_PIN) && !stored.includes(KID_PIN), "the PIN stays nowhere except the unchanged public device ID's coincidental digits");
+    const allStored = [...kept.publicEntries.map(([, value]) => value), ...kept.protectedValues].join("\n");
+    assert.ok(!allStored.includes("pvt-"), "the PIN proof is kept in memory only");
 });
 
 tvTest("a lockout's Retry-After is shown and honored without sending checks, then the PIN works", async (tv) => {

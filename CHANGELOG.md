@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Corrected the profile PIN regression test to distinguish an unchanged public device ID from retained PIN material while continuing to check all stored values for profile proofs.
 - Updated Calendar's Today state at local midnight and refreshed retained weeks after watched, favorites, watchlist and playback changes.
 - Preserved the expanded Home row's page and card after playback interrupted a pending page turn.
 - Restored playback focus after a media button cancelled a seek preview so the controls could hide again.

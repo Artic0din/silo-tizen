@@ -89,10 +89,13 @@ journey("Home playback return discards an abandoned expanded-row page turn", asy
     await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "playback handoff");
     await tv.page.evaluate(() => window.browseHarness.resume());
     await tv.page.locator('.browse [data-focus="play"]').waitFor();
+    const refresh = tv.fake.hold("/catalog/query", true);
     await tv.remote(10009);
+    await tv.eventually(async () => catalog.queries.length === 3, "held return refresh");
     const cached = await tv.page.locator('.browse [data-focus="movie:m0001"]').elementHandle();
     assert.ok(cached);
     held.release();
+    refresh.release();
     await tv.eventually(async () => await cached.evaluate(node => !node.isConnected), "expanded-row refresh rendered");
     assert.equal(await tv.page.locator('.browse').getByText("Page 1 of 3", { exact: true }).count(), 1);
     assert.equal(await tv.focused(), "movie:m0001");

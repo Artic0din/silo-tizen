@@ -37,6 +37,8 @@ The tests press remote keys and check what the screen shows and where focus is.
 `test/native/playback.test.ts` runs the playback controller against the fake Silo's playback operations (`support/fakePlayback.ts`) and a fake AVPlay (`support/fakeAVPlay.ts`) that enforces the documented call states and retains uncancellable callbacks.
 The fake rejects AVPlay calls during a pending seek; teardown and replacement wait for its callback before closing or opening a transport.
 Tests also cover pause preservation after a server re-anchor, Retry-After delays, authority changes before dispatch and HTTPS-only media URLs.
+Codec failures received during a seek are handled after its callback, unless the attempt has ended.
+Backgrounding ends the attempt, stops progress and shows a restart notice; authenticated suspend/restore is deferred to issue #13.
 `test/ui/player.test.ts` drives the player screen in Chromium over stub controls.
 Set `PLAYER_CAPTURE_DIR` to a folder outside the repository to save its screenshots.
 Neither proves AVPlay media authentication or playback on a TV.

@@ -44,6 +44,7 @@ export type PlaybackError =
     /** The server no longer knows the session (expired or restarted). Recovery belongs to #13. */
     | { readonly kind: "session_expired" }
     | { readonly kind: "installation_changed" }
+    | { readonly kind: "backgrounded" }
     | { readonly kind: "server" };
 
 export interface PlaybackExits {
@@ -74,6 +75,8 @@ export interface PlayerControls {
     /** Source seconds, negative to go back. */
     seekBy(seconds: number): void;
     back(): void;
+    /** Ends the attempt safely; authenticated suspension/restore belongs to recovery. */
+    background(): void;
     dismissError(): void;
 }
 
@@ -118,6 +121,7 @@ interface Attempt {
     buffering: boolean;
     /** A seek or replan is in flight. */
     busy: boolean;
+    seekFailure: string | undefined;
     progress: Promise<void> | undefined;
     cancelTimer: (() => void) | undefined;
 }
@@ -184,6 +188,7 @@ export class PlaybackController implements PlayerControls {
             started: false,
             buffering: false,
             busy: false,
+            seekFailure: undefined,
             progress: undefined,
             cancelTimer: undefined,
         };
@@ -250,6 +255,12 @@ export class PlaybackController implements PlayerControls {
             if (moved) {
                 attempt.sourceSeconds = target;
             }
+            const failure = attempt.seekFailure;
+            attempt.seekFailure = undefined;
+            if (failure !== undefined) {
+                this.routeFailed(attempt, failure);
+                return;
+            }
             this.showPlayback(attempt);
         };
         try {
@@ -260,6 +271,13 @@ export class PlaybackController implements PlayerControls {
             );
         } catch {
             settled(false);
+        }
+    }
+
+    background(): void {
+        const attempt = this.active();
+        if (attempt !== undefined) {
+            this.fail(attempt, { kind: "backgrounded" }, true);
         }
     }
 
@@ -412,7 +430,14 @@ export class PlaybackController implements PlayerControls {
     /** A codec or route failure on this TV: the server picks the next route, a bounded number of times. */
     private routeFailed(attempt: Attempt, classification: string): void {
         const plan = attempt.plan;
-        if (!attempt.live || attempt.busy || plan === undefined) {
+        if (!attempt.live || plan === undefined) {
+            return;
+        }
+        if (attempt.busy) {
+            if (this.pending.seek !== undefined && attempt.seekFailure === undefined) {
+                attempt.seekFailure = classification;
+                this.show({ phase: "loading", title: attempt.request.title });
+            }
             return;
         }
         this.closeTransport();

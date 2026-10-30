@@ -35,6 +35,8 @@ export function errorText(error: PlaybackError): string {
             return "The server ended playback. Try again.";
         case "installation_changed":
             return "The server was reset or replaced. Try again.";
+        case "backgrounded":
+            return "Playback stopped when you left Silo. Go back and select the title to play again.";
         case "server":
             return "The server couldn't start playback. Try again.";
     }
@@ -155,10 +157,27 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         render();
     };
 
+    const onVisibility = (): void => {
+        if (document.hidden) {
+            cancelHide?.();
+            cancelHide = undefined;
+            if (view.phase !== "closed" && view.phase !== "error") {
+                controls.background();
+            }
+        } else {
+            render();
+        }
+    };
+
     document.addEventListener("keydown", onKey);
+    document.addEventListener("visibilitychange", onVisibility);
     const unsubscribe = controls.subscribe((next) => {
         const starting = next.phase === "playing" && view.phase !== "playing" && view.phase !== "paused";
         view = next;
+        if (document.hidden && next.phase !== "closed" && next.phase !== "error") {
+            onVisibility();
+            return;
+        }
         if (starting) {
             reveal();
         }
@@ -170,6 +189,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             unsubscribe();
             cancelHide?.();
             document.removeEventListener("keydown", onKey);
+            document.removeEventListener("visibilitychange", onVisibility);
             if (section.parentNode === root) {
                 root.removeChild(section);
             }

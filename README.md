@@ -18,6 +18,8 @@ Silo client for Samsung Tizen TVs from model year 2021 (Tizen 6.0).
 - `src/player/` holds the native playback planner, AVPlay controller and player screen.
   `startPlayback` takes the connected server and chosen file, then reports Back, natural completion or a playback error to its caller.
   The entry point does not use it yet, and real authenticated media playback on a TV remains unproven.
+  As an interim safety boundary, backgrounding ends playback and requires selecting the title again.
+  Authenticated suspend/restore remains in [#13](https://github.com/Artic0din/silo-tizen/issues/13).
 - A signed foreground app on a 2023 TV running Tizen 9 has read native discovery and authenticated responses over normally validated HTTPS ([#6](https://github.com/Artic0din/silo-tizen/issues/6)).
   2021 hardware, store signing, PIN profiles and media delivery are still unproven there.
   Keep the entry point on the legacy client until the native journey from sign-in through profiles and browsing is complete.

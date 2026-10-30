@@ -19,6 +19,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Stopped the staged native player when Silo was backgrounded and preserved codec failures received during a seek.
 - Kept playback teardown safe during pending seeks, preserved pause after server re-anchoring, and honored server retry delays in the staged native player.
 - Preserved remote focus when a PIN check finished unsuccessfully.
 - Kept focus during native profile sign-out and waited for credential cleanup before returning to sign-in.

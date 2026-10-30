@@ -36,7 +36,7 @@ after(async () => {
     await browser.close();
 });
 
-async function open(): Promise<{ page: Page; logs: string[] }> {
+async function open(hidden = false): Promise<{ page: Page; logs: string[] }> {
     const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
     const logs: string[] = [];
     page.on("console", (message) => logs.push(message.text()));
@@ -52,6 +52,9 @@ async function open(): Promise<{ page: Page; logs: string[] }> {
         await route.fulfill({ status: 200, contentType: type, body });
     });
     await page.clock.install();
+    if (hidden) {
+        await page.addInitScript(() => Object.defineProperty(document, "hidden", { configurable: true, value: true }));
+    }
     await page.goto(`${ORIGIN}/index.html`);
     return { page, logs };
 }
@@ -133,6 +136,46 @@ test("teardown removes only the player's own node and stops listening for keys",
         assert.equal(await page.locator("#sibling").count(), 1);
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), []);
+    } finally {
+        await page.close();
+    }
+});
+
+test("backgrounding stops the attempt, shows a restart notice and removes its visibility listener on teardown", async () => {
+    const { page, logs } = await open();
+    try {
+        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 30, durationSeconds: 7200, buffering: false });
+        await page.evaluate(() => {
+            Object.defineProperty(document, "hidden", { configurable: true, value: true });
+            document.dispatchEvent(new Event("visibilitychange"));
+        });
+        assert.deepEqual(await commands(page), ["background"]);
+        assert.equal(await text(page, ".player-error-text"), "Playback stopped when you left Silo. Go back and select the title to play again.");
+        await capture(page, "player-backgrounded");
+        await page.evaluate(() => {
+            Object.defineProperty(document, "hidden", { configurable: true, value: false });
+            document.dispatchEvent(new Event("visibilitychange"));
+        });
+        assert.deepEqual(await commands(page), ["background"], "returning never silently starts another attempt");
+        assert.equal(await focused(page), "back");
+        await page.evaluate(() => {
+            window.player.destroy();
+            Object.defineProperty(document, "hidden", { configurable: true, value: true });
+            document.dispatchEvent(new Event("visibilitychange"));
+        });
+        assert.deepEqual(await commands(page), ["background"], "retired screen ignores visibility");
+        assert.deepEqual(logs, []);
+    } finally {
+        await page.close();
+    }
+});
+
+test("a screen mounted while hidden stops its loading attempt before normal controls are shown", async () => {
+    const { page, logs } = await open(true);
+    try {
+        assert.deepEqual(await commands(page), ["background"]);
+        assert.equal(await text(page, ".player-error-text"), "Playback stopped when you left Silo. Go back and select the title to play again.");
+        assert.deepEqual(logs, []);
     } finally {
         await page.close();
     }

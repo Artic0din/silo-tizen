@@ -14,6 +14,10 @@ Silo client for Samsung Tizen TVs from model year 2021 (Tizen 6.0).
   `mountSignIn` takes a root element and the core's dependencies and calls `onSignedIn` with the connected server; profiles and browsing come in later work.
   Their stylesheet is `src/ui/signIn.css`, written for Chromium 76.
   The entry point does not use them yet, so the packaged app still runs the legacy screens only.
+- `src/ui/browse.ts` holds the native Movies and Series browsing for the selected profile ([#9](https://github.com/Artic0din/silo-tizen/issues/9)): Home, libraries, search and item pages.
+  `mountBrowse(root, { server, onPlay, onChooseProfile })` draws inside its own container in `root`, removes only that container when the account or profile changes, and calls `onPlay` with the content id, file id and resume point.
+  Its stylesheet is `src/ui/browse.css`, written for Chromium 76.
+  The entry point does not use it yet, and no native player exists yet.
 - A signed foreground app on a 2023 TV running Tizen 9 has read native discovery and authenticated responses over normally validated HTTPS ([#6](https://github.com/Artic0din/silo-tizen/issues/6)).
   2021 hardware, store signing, PIN profiles and media delivery are still unproven there.
   Keep the entry point on the legacy client until the native journey from sign-in through profiles and browsing is complete.

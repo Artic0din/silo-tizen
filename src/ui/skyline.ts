@@ -8,10 +8,12 @@ import { el } from "./screen.ts";
 import { SkylineScroll } from "./skylineScroll.ts";
 import { remoteKey } from "./keys.ts";
 import type { LibraryMode } from "./libraryDiscovery.ts";
+import { PERSONAL_TITLES, type PersonalSource } from "./personalLists.ts";
 
 type VideoTab = "movies" | "series";
 
 interface ProfileMenu {
+    readonly personal?: (source: PersonalSource) => void;
     readonly name: string;
     readonly switchProfile: () => void;
     readonly signOut?: () => void;
@@ -160,7 +162,7 @@ export class Skyline {
             this.container.classList.add("skyline-root");
             this.container.classList.toggle("skyline-preview", preview);
             this.container.classList.toggle("skyline-library", preview && (selected === "movies" || selected === "series"));
-            this.container.classList.toggle("skyline-grid", !preview && (selected === "movies" || selected === "series"));
+            this.container.classList.toggle("skyline-grid", !preview && (selected === "movies" || selected === "series" || selected === "profiles"));
             view.content.forEach((node, index) => {
                 const existing = this.body.children[index];
                 if (existing !== node) this.body.insertBefore(node, existing ?? null);
@@ -348,6 +350,10 @@ export class Skyline {
         this.close();
         this.profileOpen = true;
         this.panel = [actionButton("switch-profile", "Switch profile", this.profiles.switchProfile)];
+        const personal = this.profiles.personal;
+        if (personal !== undefined) for (const source of ["watchlist", "favorites", "history"] as const) {
+            this.panel.push(actionButton(source, PERSONAL_TITLES[source], () => { this.close(); personal(source); }));
+        }
         if (this.profiles.signOut !== undefined) this.panel.push(actionButton("signout", "Sign out", this.profiles.signOut));
         for (const item of this.panel) item.element.setAttribute("role", "menuitem");
         replaceNodes(this.selector, [el("h2", "skyline-profile-name", this.profiles.name), ...this.panel.map((item) => item.element)]);

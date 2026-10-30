@@ -18,8 +18,9 @@ export type CatalogLettersRequest = {
     readonly groups?: readonly FilterGroup[];
     readonly order?: Order;
 };
-export type CatalogQueryRequest = CatalogLettersRequest & {
-    readonly source?: "query" | "section" | "library_collection" | "user_collection";
+export type CatalogQueryRequest = Omit<CatalogLettersRequest, "type"> & {
+    readonly type?: MediaScope | "episode";
+    readonly source?: "query" | "section" | "library_collection" | "user_collection" | "watchlist" | "favorites" | "history";
     readonly scope?: "home" | "library";
     readonly section_id?: string;
     readonly collection_id?: string;

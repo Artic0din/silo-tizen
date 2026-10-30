@@ -19,6 +19,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Fixed layouts on 2021 TVs, whose Chromium 76 engine lacks some newer CSS: sign-in fields, poster rows and the details screen keep their spacing, posters keep their 2:3 shape, and titles show in posters without artwork.
+- Fixed the exit dialog on 2021 TVs: it now covers the screen instead of opening below it, with space between its Yes and No buttons.
+- Kept the details poster at 2:3 when the description is taller than the poster, instead of stretching it.
 - Reloaded an edited search when returning from a result opened before the search delay elapsed.
 - Preserved remote focus when a PIN check finished unsuccessfully.
 - Kept focus during native profile sign-out and waited for credential cleanup before returning to sign-in.

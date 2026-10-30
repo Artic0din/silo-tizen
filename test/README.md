@@ -1,6 +1,6 @@
 # Tests
 
-`npm test` runs the build, the native session and browse contract tests, the native sign-in, profile and browse screen tests, the adapter tests and the legacy browse focus tests.
+`npm test` runs the build, the native session and browse contract tests, the native sign-in, profile and browse screen tests, the adapter tests and the legacy browse focus and layout tests.
 It needs Node.js 26 or later, the version CI tests.
 The browse Playwright tests serve the staged package in `dist/wgt/`, so run `npm run build` before running them directly.
 Desktop Chromium is not Chromium 76; these runs do not prove 2021 TV rendering.
@@ -56,7 +56,7 @@ node test/run-ui-screenshots.js
 
 Screenshots are written to `SCREENSHOT_DIR`, or `os.tmpdir()/silo-screenshots` when unset.
 
-## Browse focus navigation (Playwright)
+## Browse focus and layout (Playwright)
 
 ```bash
 npm ci
@@ -64,6 +64,11 @@ npx playwright install chromium
 npm run build
 node test/run-focus-tests.js
 ```
+
+The run serves `app.css` without the CSS that Chromium 76 drops or ignores: `aspect-ratio`, `inset`, and `gap` in flex containers.
+It also makes `inset` and `aspectRatio` assignments through `element.style` do nothing, and removes inline flex `gap` from the exit dialog after it opens.
+It then checks form and tile spacing and 2:3 posters on the sign-in, home, details and library screens, and that the exit dialog covers the screen with its buttons 32px apart.
+This simulates only those three features in desktop Chromium; it is not a Chromium 76 run and does not check other CSS or JavaScript support.
 
 ## Static checks
 

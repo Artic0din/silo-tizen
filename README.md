@@ -53,5 +53,5 @@ The script runs `npm run build`, packages `dist/wgt/` and writes `dist/Silo.wgt`
 ## Test
 
 See [test/README.md](test/README.md).
-`npm test` builds, then runs the native session and catalog tests, the sign-in, profile and browse screen tests, the adapter tests and the browse focus tests.
+`npm test` builds, then runs the native session and catalog tests, the sign-in, profile and browse screen tests, the adapter tests and the browse focus and layout tests.
 The native tests run the TypeScript sources directly with Node.js; CI and the type definitions use Node.js 26, the supported version.

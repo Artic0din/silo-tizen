@@ -186,9 +186,11 @@ export function decodeCatalogPage(value: unknown): CatalogPage {
     const obj = object(value, path);
     const page = obj.page === undefined ? undefined : object(obj.page, `${path}.page`);
     const hasMore = page === undefined ? false : boolean(page, "has_more", `${path}.page`);
+    const nextCursor = page !== undefined && hasMore ? string(page, "next_cursor", `${path}.page`) : undefined;
+    if (nextCursor === "") throw new WireError(`${path}.page.next_cursor`, "a nonempty continuation");
     return {
         items: array(obj, "items", path).map((entry, index) => decodeCard(entry, `${path}.items[${index}]`)),
-        nextCursor: page !== undefined && hasMore ? optionalString(page, "next_cursor", `${path}.page`) : undefined,
+        nextCursor,
         total: integer(obj, "total", path),
         totalExact: boolean(obj, "total_exact", path),
     };

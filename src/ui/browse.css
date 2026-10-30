@@ -354,6 +354,7 @@
 .skyline-library .skyline-marquee { top: 246px; }
 .skyline-library .skyline-title { font-size: 66px; max-height: 136px; }
 .skyline-pills { position: fixed; top: 150px; left: 88px; width: 1744px; z-index: 4; }
+.skyline-pills.person-filmography-filters { position: static; width: auto; margin-bottom: 24px; }
 .skyline-pills .browse-button { font-size: 19px; padding: 9px 22px; border-radius: 30px; background: rgba(255,255,255,.07); color: #ededed; border-color: rgba(255,255,255,.09); }
 .skyline-pills .browse-button[aria-pressed="true"] { background: #fff; color: #000; }
 .discovery-facets, .discovery-letters { display: flex; flex-wrap: wrap; }

@@ -26,6 +26,8 @@ import { el } from "./screen.ts";
 import { discoveryState, genreGroups, libraryScope, readDiscovery, type LibraryMode } from "./libraryDiscovery.ts";
 import { availableModes } from "./libraryDiscoveryViews.ts";
 import { personalListCapability, readPersonalPage, type PersonalFilter } from "./personalLists.ts";
+import type { MediaScope } from "../contracts/v2/discovery.ts";
+import { personQuery } from "./personFilmography.ts";
 import { mountSettings, type SettingsScreen } from "./settings.ts";
 import { getCalendar } from "../api/calendarOperations.ts";
 import { calendarEventKeys, calendarState, calendarWeek, CalendarTimezoneError, deviceTimezone, localDateKey, shiftDay } from "./calendarState.ts";
@@ -131,7 +133,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const controller = new AbortController();
         loading = controller;
         const entryRevision = inputRevision;
-        const enterResults = !quiet && (current.kind === "personal" || (current.kind === "library" && host.focused()?.key !== "sort"));
+        const enterResults = !quiet && (current.kind === "personal" || current.kind === "personFilmography" || (current.kind === "library" && host.focused()?.key !== "sort"));
         current.slow = false;
         if (!quiet) {
             cancelSlow = clock.schedule(() => {
@@ -154,7 +156,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (top() === current) {
                     const enterContent = enterResults && inputRevision === entryRevision;
                     const lateCalendarContext = (current.kind === "item" && current.seriesContext !== undefined) || (current.kind === "season" && current.episodeId !== undefined);
-                    const nextFocus = lateCalendarContext && inputRevision !== entryRevision ? host.focused() : (current.kind === "library" || (current.kind === "personal" && !quiet)) && !enterContent ? host.focused() : focus;
+                    const nextFocus = lateCalendarContext && inputRevision !== entryRevision ? host.focused() : (current.kind === "library" || ((current.kind === "personal" || current.kind === "personFilmography") && !quiet)) && !enterContent ? host.focused() : focus;
                     render(nextFocus === undefined ? undefined : nextFocus);
                     if (enterContent) host.focusDefault();
                 }
@@ -165,10 +167,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }
                 loading = undefined;
                 cancelSlow();
-                if (error instanceof ApiError && error.problemId === "invalid_cursor" && (current.kind === "homeSection" || current.kind === "personal" || current.kind === "library" || current.kind === "libraryResults" || current.kind === "search") && current.pages !== undefined) {
+                if (error instanceof ApiError && error.problemId === "invalid_cursor" && (current.kind === "homeSection" || current.kind === "personFilmography" || current.kind === "personal" || current.kind === "library" || current.kind === "libraryResults" || current.kind === "search") && current.pages !== undefined) {
                     Object.assign(current.pages, newPages());
                     current.focus = undefined;
-                    if (current.kind === "personal" || current.kind === "homeSection") current.pendingIndex = undefined;
+                    if (current.kind === "personal" || current.kind === "homeSection" || current.kind === "personFilmography") current.pendingIndex = undefined;
                     if (current.kind === "library" && current.discovery !== undefined) {
                         current.discovery.windowCursor = undefined;
                         current.discovery.seek = undefined;
@@ -300,6 +302,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 });
                 return;
             case "homeSection":
+            case "personFilmography":
                 loadPage(current, current.pages, current.pendingIndex ?? current.pages.index, quiet);
                 return;
             case "personal":
@@ -374,7 +377,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }, quiet);
                 return;
             case "person":
-                load(current, (signal) => Promise.all([read(detailOperations.person(current.id), signal), read(detailOperations.filmography(current.id), signal)]), ([person, titles]) => {
+                load(current, (signal) => Promise.all([current.data?.person ?? read(detailOperations.person(current.id), signal), read(detailOperations.filmography(current.id), signal)]), ([person, titles]) => {
                     current.data = { person, titles };
                 }, quiet);
                 return;
@@ -403,6 +406,27 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     const loadPage = (current: Route, pages: Pages, index: number, quiet = false): void => {
+        if (current.kind === "personFilmography") {
+            current.pendingIndex = index;
+            load(current, async signal => {
+                const page = await read(operations.queryCatalogItems(personQuery(current.id, current.filter, pages.cursors[index])), signal);
+                if (page.nextCursor !== undefined && pages.cursors.slice(0, index + 1).includes(page.nextCursor)) {
+                    throw new ApiError({ kind: "invalid_response", path: "personFilmography.page.next_cursor" });
+                }
+                return page;
+            }, page => {
+                const focus = host.focused();
+                const oldIndex = pages.page?.items.findIndex(item => item.id === focus?.key) ?? -1;
+                const nearby = index === pages.index && focus?.zone === "grid" && oldIndex >= 0 && !page.items.some(item => item.id === focus.key)
+                    ? page.items[Math.min(oldIndex, page.items.length - 1)] : undefined;
+                pages.page = page;
+                pages.index = index;
+                pages.cursors = [...pages.cursors.slice(0, index + 1), page.nextCursor];
+                current.pendingIndex = undefined;
+                return nearby === undefined ? undefined : { zone: "grid", key: nearby.id };
+            }, quiet || pages.page !== undefined);
+            return;
+        }
         if (current.kind === "homeSection") {
             current.pendingIndex = index;
             load(current, signal => read(operations.queryCatalogItems({ source: "section", scope: "home", section_id: current.id, limit: PAGE_SIZE, ...(pages.cursors[index] === undefined ? {} : { cursor: pages.cursors[index] }) }), signal), page => {
@@ -544,8 +568,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         stack.pop();
         const current = top();
         if (current !== undefined) {
-            if (current.kind === "personal" || current.kind === "calendar") {
-                if (current.kind === "personal") current.pendingIndex = undefined;
+            if (current.kind === "personal" || current.kind === "personFilmography" || current.kind === "calendar") {
+                if (current.kind !== "calendar") current.pendingIndex = undefined;
                 current.stale = true;
             }
             showRoute(current, current.focus);
@@ -557,7 +581,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const current = top();
         if (current !== undefined) {
             current.focus = host.focused();
-            if (current.kind === "homeSection") current.pendingIndex = undefined;
+            if (current.kind === "homeSection" || current.kind === "personFilmography") current.pendingIndex = undefined;
         }
         loading?.abort();
         loading = undefined;
@@ -625,7 +649,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             cancelCalendarDay = clock.schedule(() => render(host.focused()), midnight.getTime() - clock.now());
         }
         if (current.kind === "library") shell.setLibraryModes(availableModes(current.discovery?.data?.capabilities ?? current.discovery?.capabilities));
-        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, calendar: calendarHandlers };
+        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, personFilter, calendar: calendarHandlers };
         const view = routeView(current, handlers);
         const rootRoute = current.kind === "home" || current.kind === "library" || current.kind === "search" || current.kind === "personal" || current.kind === "calendar";
         if (rootRoute) {
@@ -676,6 +700,16 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         },
     });
     const personalFilter = (current: Extract<Route, { kind: "personal" }>, filter: PersonalFilter): void => {
+        if (current.filter === filter) return;
+        current.filter = filter;
+        current.pages = newPages();
+        current.pendingIndex = undefined;
+        current.failure = undefined;
+        loadRoute(current, true);
+        render({ zone: "filters", key: `filter:${filter}` });
+    };
+
+    const personFilter = (current: Extract<Route, { kind: "personFilmography" }>, filter: MediaScope): void => {
         if (current.filter === filter) return;
         current.filter = filter;
         current.pages = newPages();

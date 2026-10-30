@@ -13,6 +13,7 @@ import { actionButton, homeView, pagedGrid, type SearchResults, searchView, stat
 import { el } from "./screen.ts";
 import { discoveryState, type DiscoveryState, type LibraryMode, type LibrarySource } from "./libraryDiscovery.ts";
 import { discoveryView, resultsView } from "./libraryDiscoveryViews.ts";
+import { personalView, type PersonalFilter, type PersonalSource, type PersonalListCapability } from "./personalLists.ts";
 
 /** Cards per catalog page: four grid rows. Only the shown page is kept. */
 export const PAGE_SIZE = 24;
@@ -25,6 +26,7 @@ export interface Pages {
 }
 
 export type RouteData =
+    | { readonly kind: "personal"; readonly source: PersonalSource; filter: PersonalFilter; capability: PersonalListCapability | undefined; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "home"; data: { libraries: UserLibrary[]; sections: HomeSection[] } | undefined }
     | { readonly kind: "library"; readonly library: UserLibrary; pages: Pages; discovery?: DiscoveryState }
     | { readonly kind: "libraryResults"; readonly library: UserLibrary; readonly title: string; readonly source: LibrarySource; pages: Pages; descending: boolean }
@@ -53,6 +55,8 @@ export function newPages(): Pages {
 
 export function hasData(current: Route): boolean {
     switch (current.kind) {
+        case "personal":
+            return current.pages.page !== undefined || current.capability !== undefined;
         case "library":
             return current.discovery?.data !== undefined && (!(current.discovery.mode === "A–Z" || current.discovery.mode === "Recently Added" || current.discovery.genre !== undefined) || current.pages.page !== undefined);
         case "libraryResults":
@@ -65,6 +69,7 @@ export function hasData(current: Route): boolean {
 }
 
 export interface RouteHandlers {
+    readonly personalFilter: (route: Extract<Route, { kind: "personal" }>, filter: PersonalFilter) => void;
     readonly synopsis: Synopsis;
     readonly context: ViewContext;
     readonly focusDefault: () => void;
@@ -89,6 +94,7 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
     const { context, pop } = handlers;
     const back = current.kind === "home" ? undefined : pop;
     const escape = back === undefined ? actionButton("profiles", "Profiles", handlers.chooseProfile) : actionButton("back", "Back", back);
+    if (current.kind === "personal") return personalView(current, handlers);
     if (current.kind === "library") {
         current.discovery ??= discoveryState();
         return discoveryView(current, current.discovery, handlers);

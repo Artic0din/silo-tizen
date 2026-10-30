@@ -15,7 +15,7 @@ export class FakeDetails extends FakeCatalog {
     readonly neverPlayed = new Set<string>();
     readonly watchedEpisodes = new Set([...this.titles.values()].filter((title) => title.type === "episode" && title.season === 1).map((title) => title.id));
 
-    override route(method: string, path: string, profileId: string | undefined): Reply | undefined {
+    override route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): Reply | undefined {
         const url = new URL(path, "https://example.test");
         if (url.pathname === "/catalog/items/series%3As1-S1") return { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "series:s1-S1", type: "season", series_id: "series:s1", season_number: 1, title: "Harbor Lights · Season 1", overview: "The first season follows the night shift at a coastal observatory.", backdrop_url: "/art/harbor.svg", play_content_id: "episode:s1e11", versions: [], user_state: { played: this.episodesPlayed("series:s1", 1) }, user_data: { played: this.episodesPlayed("series:s1", 1) } } };
         if (profileId !== "p-owner" && !url.pathname.startsWith("/user/") && (url.pathname.startsWith("/catalog/people/") || url.pathname.startsWith("/recommendations/") || url.pathname.startsWith("/capabilities/"))) return problem(404, "not_found", "Not found");
@@ -49,7 +49,7 @@ export class FakeDetails extends FakeCatalog {
             }
             return { status: 204 };
         }
-        const reply = super.route(method, path, profileId);
+        const reply = super.route(method, path, profileId, body);
         if (reply?.status === 200 && url.pathname.endsWith("/episodes")) {
             const body = object(reply.body, "episodes");
             assert.ok(Array.isArray(body.items));

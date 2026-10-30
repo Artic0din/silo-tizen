@@ -1,10 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { detailOperations, type PersonalAction } from "../../src/api/detailOperations.ts";
-import { decodeItemDetail } from "../../src/contracts/v2/catalog.ts";
+import { decodeCatalogPage, decodeItemDetail } from "../../src/contracts/v2/catalog.ts";
 import { decodePerson, decodeMembership, decodePersonalCapability } from "../../src/contracts/v2/details.ts";
 import { playChoices } from "../../src/ui/browseModel.ts";
 import { fixture } from "./support/fakeSilo.ts";
+import { FakeDetails } from "./support/fakeDetails.ts";
+import type { FakeCatalog } from "./support/fakeCatalog.ts";
+
+test("combined Details fake preserves scoped catalog query bodies", () => {
+    const catalog: FakeCatalog = new FakeDetails();
+    const reply = catalog.route("POST", "/catalog/query", "p-owner", { library_id: "12", type: "movie", limit: 2, seek: 24, sort: "title", order: "asc" });
+    assert.ok(reply, "Details must preserve inherited catalog reads");
+    assert.equal(reply.status, 200);
+    assert.deepEqual(decodeCatalogPage(reply.body).items.map(item => item.id), ["movie:m0025", "movie:m0026"]);
+});
 
 test("Details decodes real facts and person identity without manufacturing routes", () => {
     const detail = decodeItemDetail({ ...fixture("get_catalog_item_ok"),

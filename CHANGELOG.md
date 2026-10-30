@@ -4,8 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Refreshed Home progress after watched changes and made interrupted personal actions retryable when returning to Details.
+- Kept synopsis dialogs open during Details updates, refreshed visible and cached episode watched controls after aggregate changes, and enabled watched actions for titles without playback progress.
+
 ### Added
 
+- Added richer title and season details with artwork, ratings, facts, cast and crew, person pages, related titles, file version selection and server-confirmed personal actions.
 - Added Movies and Series library sections, collections, genres, A–Z letter navigation and recently added titles.
 - Added strict TypeScript checks and a bundled build targeting Chrome 76.
 - Added a native Silo `/api/v2` session core with device-code sign-in, household profiles and PIN checks, and credential storage in Tizen KeyManager.

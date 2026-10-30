@@ -15,8 +15,9 @@ export interface PlayRequest {
 
 /** A place a card or row opens. Items open their detail page; seasons open their episode list. */
 export type Destination =
+    | { readonly kind: "person"; readonly id: string; readonly title: string }
     | { readonly kind: "item"; readonly id: string; readonly title: string }
-    | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string };
+    | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string };
 
 /** Within this many seconds of the end, a stored position is treated as finished. */
 export const RESUME_END_MARGIN_SECONDS = 5;
@@ -31,7 +32,7 @@ export function destinationOf(card: Card): Destination | undefined {
         case "season":
             return card.seriesId === undefined || card.seasonNumber === undefined
                 ? undefined
-                : { kind: "season", seriesId: card.seriesId, seasonNumber: card.seasonNumber, title: card.title };
+                : { kind: "season", id: card.id, seriesId: card.seriesId, seasonNumber: card.seasonNumber, title: card.title };
         case "unknown":
             return undefined;
     }
@@ -89,16 +90,18 @@ export interface PlayChoices {
  * The version last played when it is still listed, else the first; startPlayback may still
  * switch to another version the profile may play. Undefined when nothing can be played here.
  */
-export function playChoices(detail: ItemDetail): PlayChoices | undefined {
+export function playChoices(detail: ItemDetail, selectedFileId?: string): PlayChoices | undefined {
     if (detail.type !== "movie" && detail.type !== "episode") {
         return undefined;
     }
     const lastFileId = detail.watch?.lastFileId;
-    const file = detail.versions.find((version) => version.fileId === lastFileId) ?? detail.versions[0];
+    const file = selectedFileId === undefined
+        ? detail.versions.find((version) => version.fileId === lastFileId) ?? detail.versions[0]
+        : detail.versions.find((version) => version.fileId === selectedFileId);
     if (file === undefined) {
         return undefined;
     }
-    const duration = detail.durationSeconds ?? (file.durationSeconds > 0 ? file.durationSeconds : undefined);
+    const duration = file.durationSeconds > 0 ? file.durationSeconds : detail.durationSeconds;
     const base = { contentId: detail.id, fileId: file.fileId, title: detail.title };
     const start = resumeSeconds(detail.watch?.positionSeconds, duration);
     return {

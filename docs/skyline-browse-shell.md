@@ -30,6 +30,30 @@ The first card previews immediately; subsequent previews wait 150 ms and crossfa
 Root transitions take 200 ms, and reduced motion snaps transitions and scrolling.
 The noninteractive outgoing layer keeps its CSS classes and scroll position without serializing computed styles for each card.
 The synopsis dialog exposes the complete detail overview with remote scrolling and restores focus on close.
+Optional Details responses retain the active synopsis and its focus; closing shows the latest data, and route or profile teardown removes the dialog.
+
+Pushed Details pages show optional title artwork, server-ordered ratings, facts and credits from the pinned v2 contract.
+Cast and crew share a rail of at most 24 people, combining roles for the same server person ID.
+Credits without a person ID remain readable without an invented person route.
+Person pages show the biography and the first 24 accessible movie and series credits; related titles use a separate bounded rail with loading, empty and retry states.
+These bounded rails do not implement Apple's complete paged person browser.
+The reference for this slice is canonical [silo-apple at 148d5d7](https://github.com/Silo-Server/silo-apple/tree/148d5d70f8b8ce982a827fead2b16f8de40f0f57), subject to the binding Skyline guide.
+
+Version selection carries the exact file ID to playback and uses that file's duration for the five-second resume end margin.
+Watchlist and favorite controls require the personal-list capability and successful item membership reads.
+The pinned server accepts movie, series and episode list membership; season list membership returns not found, so season pages retain watched actions only.
+Writes are profile-scoped, never automatically retried or replayed after account refresh, and must be confirmed by a read.
+An explicit retry reconciles the server's state before sending another write, including when the first answer was lost.
+Watched controls use the authoritative `user_state.played` flag independently of optional `user_data` progress, falling back to the progress flag when no viewer flags are supplied.
+Unknown watched state cannot confirm a write.
+Aggregate watched changes reread visible episode rows and invalidate covered season data, including when a write answer is lost or cancelled.
+If an episode reread fails, the existing rows remain with an explicit retry that reconciles state before another write.
+Season metadata uses its real catalog ID; missing metadata leaves the episode list usable.
+Facts remain individually reachable by remote, including lists taller than the screen.
+
+Remote trailer metadata contains a site and site key, not an AVPlay stream URL.
+A Samsung trailer handoff remains unverified, so this slice exposes no trailer control.
+Apple's local extras, artwork preferences, automatic version quality ranking and complete person filters remain outside this slice.
 
 The shell uses the shared tokens in `src/theme.css` alongside Skyline's navigation, marquee and card dimensions.
 Desktop Chromium tests and synthetic captures do not prove actual Chromium 76, Tizen emulator, signed package or Samsung TV behavior.

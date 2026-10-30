@@ -547,7 +547,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (rootRoute) {
             const selected = current.kind === "library" ? (current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? "profiles" : current.kind;
             const preview = current.kind === "home" || (current.kind === "library" && (current.discovery?.mode ?? "Browse") === "Browse");
-            const decorated = shell.decorate(view, selected, preview, current.kind === "personal" || (current.kind === "library" && current.discovery?.genre !== undefined) ? pop : undefined);
+            const decorated = shell.decorate(view, selected, preview, current.kind === "personal" || (current.kind === "library" && current.discovery?.genre !== undefined) ? pop : undefined, current.kind === "library" ? `library:${current.library.id}:${current.library.type}:${current.discovery?.mode ?? "Browse"}` : undefined);
             host.show(current.kind === "library" && current.discovery?.genre !== undefined ? { ...decorated, back: pop } : decorated, focus);
         } else {
             shell.hide();

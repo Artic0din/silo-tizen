@@ -30,6 +30,7 @@ after(async () => {
 
 interface Start {
     readonly catalog?: FakeCatalog;
+    readonly multipleLibraries?: boolean;
     readonly profile?: string;
     readonly pin?: string;
 }
@@ -39,6 +40,11 @@ function browseTest(name: string, body: (tv: Tv, catalog: FakeCatalog) => Promis
         const tv = await openTv(browser, { app: "browse", ...(process.env.DISCOVERY_VIDEO !== undefined && name.startsWith("discovery flow") ? { video: process.env.DISCOVERY_VIDEO } : {}) });
         try {
             const catalog = start.catalog ?? new FakeCatalog();
+            if (start.multipleLibraries) {
+                const household = catalog.households.get(start.profile ?? "p-owner");
+                assert.ok(household);
+                household.hidden = [];
+            }
             await signedInBrowse(tv, catalog, start.profile ?? "p-owner", start.pin);
             await body(tv, catalog);
             assert.deepEqual(tv.console, [], "the page logs nothing");
@@ -623,7 +629,7 @@ browseTest("entering a library flyout cancels its pending row dwell", async (tv)
     assert.equal(tv.fake.requests.length, reads);
     await press(tv, "Enter");
     await showing(tv, "library:12");
-});
+}, { multipleLibraries: true });
 
 browseTest("R2 cached library restores flyout modes without reads on focus", async (tv, catalog) => {
     await tv.page.locator('[data-focus="movies"]').click();
@@ -639,7 +645,7 @@ browseTest("R2 cached library restores flyout modes without reads on focus", asy
     await press(tv, "ArrowDown", "ArrowRight");
     assert.deepEqual(await tv.page.locator('.skyline-flyout [role="menuitem"]').allTextContents(), ["Browse", "Collections", "Genres", "A–Z", "Recently Added"]);
     assert.equal(tv.fake.requests.length, reads);
-});
+}, { multipleLibraries: true });
 
 browseTest("a completed library read preserves navigation chosen while loading", async (tv) => {
     const pending = tv.fake.hold("/library/12/sections", true);
@@ -1026,7 +1032,7 @@ browseTest("discovery uses nonzero letter positions and cancels an obsolete quer
     assert.deepEqual(await tv.page.locator('.skyline-flyout [role="menuitem"]').allTextContents(), ["Browse", "Collections", "Genres", "A–Z", "Recently Added"]);
     await tv.remote(18);
     assert.equal(await tv.fake.requests.length, requests);
-});
+}, { multipleLibraries: true });
 
 browseTest("Skyline keeps bounded type tabs and a passive debounced marquee", async (tv) => {
     assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["home", "movies", "series", "search", "profiles"]);
@@ -1214,7 +1220,7 @@ browseTest("reduced motion snaps scrolling and the real Browse flyout preserves 
     assert.equal(await view(tv), "home");
     await press(tv, "Enter");
     await showing(tv, "library:12");
-});
+}, { multipleLibraries: true });
 
 browseTest("Home lists visible video libraries and supported rows, and every row is reachable by remote", async (tv) => {
     const nav = await cardIds(tv, ".browse-nav .browse-button");

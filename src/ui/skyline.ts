@@ -135,7 +135,20 @@ export class Skyline {
         return this.forType(type).find((library) => library.id === id) ?? this.forType(type)[0];
     }
 
-    setLibraryModes(modes: readonly LibraryMode[]): void { this.libraryModes = modes; }
+    setLibraryModes(modes: readonly LibraryMode[]): void {
+        if (this.libraryModes.length === modes.length && this.libraryModes.every((mode, index) => mode === modes[index])) return;
+        this.libraryModes = modes;
+        const type = this.panelTab;
+        if (type === undefined || this.selector.hidden || this.profileOpen) return;
+        const libraries = this.forType(type);
+        const library = libraries.length === 1 ? libraries[0] : undefined;
+        if (library === undefined) return;
+        const previous = this.panel;
+        const focused = previous.find(item => item.element === document.activeElement);
+        this.panel = this.modeItems(library, type).map(item => previous.find(candidate => candidate.key === item.key) ?? item);
+        replaceNodes(this.selector, this.panel.map(item => item.element));
+        if (focused !== undefined) (this.panel.find(item => item.key === focused.key) ?? this.panel[0])?.element.focus({ preventScroll: true });
+    }
 
     private commit(target: "home" | "search" | UserLibrary, mode?: LibraryMode): void {
         if (typeof target !== "string") {
@@ -147,7 +160,7 @@ export class Skyline {
         this.activate(target, mode);
     }
 
-    decorate(view: View, selected: string, preview: boolean, routeBack?: () => void): View {
+    decorate(view: View, selected: string, preview: boolean, routeBack?: () => void, libraryKey?: string): View {
         this.routeBack = routeBack;
         this.visible = true;
         if (this.selected !== selected) this.immediatePreview = true;
@@ -170,7 +183,7 @@ export class Skyline {
             });
             while (this.body.children.length > view.content.length) this.body.lastElementChild?.remove();
         };
-        return { ...view, prepare, content: [this.scrim, this.nav, this.selector, this.flyout, ...(preview ? [this.marquee] : []), this.body], zones: [...zones, ...view.zones], back: selected === "search" ? view.back : () => this.back() };
+        return { ...view, prepare, transition: { key: libraryKey ?? selected, group: selected }, content: [this.scrim, this.nav, this.selector, this.flyout, ...(preview ? [this.marquee] : []), this.body], zones: [...zones, ...view.zones], back: selected === "search" ? view.back : () => this.back() };
     }
 
     hide(): void {
@@ -247,7 +260,7 @@ export class Skyline {
         this.nav.classList.toggle("skyline-muted", !(event.target instanceof Node && this.nav.contains(event.target)));
         const row = this.panel.find((candidate) => candidate.element === event.target);
         if (row !== undefined) {
-            if (this.profileOpen) return;
+            if (this.profileOpen || !row.key.startsWith("library:")) return;
             this.libraryRow = row;
             this.cancelFlyout();
             this.cancelFlyout = this.clock.schedule(() => this.showFlyout(row), 150);
@@ -276,8 +289,11 @@ export class Skyline {
             if (document.activeElement !== item.element || !this.visible) return;
             this.panelTab = type;
             const libraries = this.forType(type);
-            this.panel = libraries.map((library) => actionButton(`library:${library.id}`, libraries.length === 1 ? "Browse" : library.name, () => this.commit({ ...library, type })));
-            for (const row of this.panel) {
+            const single = libraries.length === 1 ? libraries[0] : undefined;
+            this.panel = single === undefined
+                ? libraries.map((library) => actionButton(`library:${library.id}`, library.name, () => this.commit({ ...library, type })))
+                : this.modeItems(single, type);
+            if (single === undefined) for (const row of this.panel) {
                 row.element.setAttribute("role", "menuitemradio");
                 row.element.setAttribute("aria-checked", String(row.key === `library:${this.scope(type)?.id}`));
             }
@@ -317,8 +333,8 @@ export class Skyline {
         }
         if (index >= 0 && key === "right") {
             event.preventDefault();
-            if (this.profileOpen) return;
             const row = this.panel[index];
+            if (this.profileOpen || !row?.key.startsWith("library:")) return;
             if (row !== undefined) this.showFlyout(row);
             this.flyoutItem?.element.focus({ preventScroll: true });
             return;
@@ -367,17 +383,20 @@ export class Skyline {
         this.refresh();
     }
 
+    private modeItems(library: UserLibrary, type: VideoTab): FocusItem[] {
+        return this.libraryModes.map(mode => {
+            const item = actionButton(`section:${mode === "Browse" ? "browse" : mode}`, mode, () => this.commit({ ...library, type }, mode));
+            item.element.setAttribute("role", "menuitem");
+            return item;
+        });
+    }
+
     private showFlyout(row: FocusItem): void {
         this.cancelFlyout();
         if (this.selector.hidden || this.panelTab === undefined) return;
         const library = this.libraries.find((candidate) => `library:${candidate.id}` === row.key);
         if (library === undefined) return;
-        const type = this.panelTab;
-        this.flyoutItems = this.libraryModes.map(mode => {
-            const item = actionButton(`section:${mode === "Browse" ? "browse" : mode}`, mode, () => this.commit({ ...library, type }, mode));
-            item.element.setAttribute("role", "menuitem");
-            return item;
-        });
+        this.flyoutItems = this.modeItems(library, this.panelTab);
         this.flyoutItem = this.flyoutItems[0];
         replaceNodes(this.flyout, this.flyoutItems.map(item => item.element));
         this.flyout.style.left = `${Math.min(1532, this.selector.getBoundingClientRect().right + 18)}px`;

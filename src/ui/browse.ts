@@ -75,6 +75,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let cancelSearch: () => void = () => undefined;
     let playing = false;
     let torn = false;
+    let inputRevision = 0;
+    const recordInput = (): void => { inputRevision++; };
+    document.addEventListener("keydown", recordInput, true);
+    document.addEventListener("pointerdown", recordInput, true);
 
     const top = (): Route | undefined => stack[stack.length - 1];
 
@@ -87,6 +91,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         loading?.abort();
         cancelSlow();
         cancelSearch();
+        document.removeEventListener("keydown", recordInput, true);
+        document.removeEventListener("pointerdown", recordInput, true);
         stack = [];
         shell.destroy();
         host.destroy();
@@ -102,6 +108,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         cancelSlow();
         const controller = new AbortController();
         loading = controller;
+        const entryRevision = inputRevision;
+        const enterResults = current.kind === "library" && !quiet && host.focused()?.key !== "sort";
         current.slow = false;
         if (!quiet) {
             cancelSlow = clock.schedule(() => {
@@ -122,8 +130,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 current.stale = false;
                 apply(value);
                 if (top() === current) {
-                    render();
-                    if (current.kind === "library" && !quiet) host.focusDefault();
+                    const enterLibrary = enterResults && inputRevision === entryRevision;
+                    render(current.kind === "library" && !enterLibrary ? host.focused() : undefined);
+                    if (enterLibrary) host.focusDefault();
                 }
             },
             (error: unknown) => {

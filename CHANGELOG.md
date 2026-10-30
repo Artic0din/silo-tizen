@@ -26,6 +26,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserved remote focus when library reads finished and kept inline collection cards at their intended width.
 - Returned directly between the A–Z grid and its navigation pills while keeping the alphabet rail reachable from the side.
 - Cleared invalid pagination cursors so reopening a cached list starts from its first page.
 - Kept focus in explicitly opened library menus and revealed the first card when Browse was activated from a scrolled library.

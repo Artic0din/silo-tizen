@@ -110,6 +110,61 @@ browseTest("R2 cached library restores flyout modes without reads on focus", asy
     assert.equal(tv.fake.requests.length, reads);
 });
 
+browseTest("a completed library read preserves navigation chosen while loading", async (tv) => {
+    const pending = tv.fake.hold("/library/12/sections", true);
+    await tv.page.locator('[data-focus="movies"]').click();
+    await tv.page.locator('[aria-label="Loading"]').waitFor();
+    await press(tv, "ArrowUp", "ArrowRight");
+    const focused = await tv.focused();
+    assert.equal(focused, "movies");
+    pending.release();
+    await tv.eventually(async () => (await cardIds(tv)).length > 0, "library sections");
+    assert.equal(await tv.focused(), focused);
+});
+
+browseTest("a completed letter jump preserves a different focused letter", async (tv, catalog) => {
+    catalog.add({ id: "movie:alpha", type: "movie", title: "Alpha", libraryId: "12" });
+    catalog.add({ id: "movie:zulu", type: "movie", title: "Zulu", libraryId: "12" });
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await tv.page.locator('[data-focus="mode:A–Z"]').click();
+    await tv.eventually(async () => (await tv.focused()) === "movie:alpha", "alphabetical grid");
+    const pending = tv.fake.hold("/catalog/query", true);
+    await tv.page.locator('[data-focus="letter:A"]').click();
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "letter:M");
+    pending.release();
+    await tv.eventually(async () => (await cardIds(tv)).length > 0, "letter results");
+    assert.equal(await tv.focused(), "letter:M");
+});
+
+browseTest("a completed genre sort preserves its Sort control", async (tv) => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await tv.page.locator('[data-focus="mode:Genres"]').click();
+    await tv.page.locator('[data-focus="genre:Drama"]').click();
+    await tv.eventually(async () => (await cardIds(tv)).length > 0, "genre results");
+    const pending = tv.fake.hold("/catalog/query", true);
+    await tv.page.locator('[data-focus="sort"]').click();
+    assert.equal(await tv.focused(), "sort");
+    pending.release();
+    await tv.eventually(async () => (await cardIds(tv)).length > 0, "sorted results");
+    assert.equal(await tv.focused(), "sort");
+});
+
+browseTest("inline collection fans retain their width and contain their text", async (tv) => {
+    await tv.page.emulateMedia({ reducedMotion: "reduce" });
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    const fan = tv.page.locator('.browse-row .discovery-collection').first();
+    const geometry = await fan.evaluate(node => {
+        const card = node.getBoundingClientRect();
+        const text = Array.from(node.querySelectorAll('.discovery-collection-name, .discovery-collection-count')).map(item => item.getBoundingClientRect());
+        return { width: getComputedStyle(node).width, contained: text.every(item => item.right <= card.right && item.left >= card.left) };
+    });
+    assert.deepEqual(geometry, { width: "430px", contained: true });
+});
+
 browseTest("A–Z first row returns directly to pills with multiple letters", async (tv, catalog) => {
     catalog.add({ id: "movie:alpha", type: "movie", title: "Alpha", libraryId: "12" });
     catalog.add({ id: "movie:zulu", type: "movie", title: "Zulu", libraryId: "12" });

@@ -11,6 +11,10 @@ response enum values decode to `"unknown"`, so additive server changes keep work
 
 ## Operations used
 
+`calendar.ts` consumes `getCalendar` from the pinned OpenAPI schema without converting events to catalog cards.
+The weekly query includes the device IANA timezone and an inclusive seven-day window.
+Server day groups, event order, release metadata and all returned events are retained; there is no Calendar pagination or local access filtering.
+
 | Operation | Retry class (`x-silo-retry-safety`) | Client behavior |
 | --- | --- | --- |
 | `getSystemInfo`, `getServerIdentity`, `getDeviceLoginCapability`, `listProfiles` | read | One transport retry after no answer or 502/503/504 |

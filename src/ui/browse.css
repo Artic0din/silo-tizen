@@ -415,3 +415,15 @@
     .browse *, .browse *::before, .browse *::after { animation: none !important; transition: none !important; }
     .skyline-route-outgoing { display: none; animation: none; }
 }
+/* Calendar events keep their own metadata and are never paged or capped. */
+.calendar-strip { display: flex; margin: 24px 0 32px; }
+.calendar-day { flex: 1; margin-right: 12px; min-height: 84px; }
+.calendar-day[aria-pressed="true"] { background: var(--silo-selected); }
+.calendar-day[aria-current="date"] { border-bottom: 4px solid currentColor; }
+.calendar-shelf { margin-bottom: 32px; }
+.calendar-event .browse-card-subtitle { white-space: normal; max-height: none; }
+/* A refresh must not move shelves above the restored event. */
+.calendar-status { height: 48px; }
+.calendar-status .browse-text { margin: 0; max-width: none; font-size: 24px; }
+.calendar-filters .browse-button[aria-pressed="true"] { background: #fff; color: #000; }
+.calendar-week { margin-bottom: 20px; }

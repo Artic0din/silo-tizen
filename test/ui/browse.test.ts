@@ -394,6 +394,25 @@ browseTest(
     { catalog: new FakeCatalog(5000) },
 );
 
+browseTest("reopening a library after invalid_cursor starts a fresh page sequence", async (tv, catalog) => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await tv.page.locator('.browse [data-focus="next"]').click();
+    await shows(tv, "Page 2 of 3");
+    catalog.failNext("/catalog", problem(400, "invalid_cursor", "Invalid cursor"));
+    await tv.page.locator('.browse [data-focus="next"]').click();
+    await shows(tv, "The list changed. Go back and open it again.");
+    await tv.page.locator('[data-focus="home"]').click();
+    await showing(tv, "home");
+    const before = browseReads(tv, "/catalog").length;
+    await tv.page.locator('[data-focus="movies"]').click();
+    await tv.eventually(async () => browseReads(tv, "/catalog").length > before, "a reopened library request");
+    const reopened = browseReads(tv, "/catalog").pop();
+    assert.equal(new URL(reopened?.path ?? "", "https://silo.example.test").searchParams.has("cursor"), false, "reopening must discard the failed cursor sequence");
+    await shows(tv, "Page 1 of 3");
+    assert.equal((await cardIds(tv))[0], "movie:m0001");
+});
+
 browseTest("details hand the player the file and resume point; returning restores focus and refreshes progress", async (tv, catalog) => {
     await press(tv, "Enter");
     await showing(tv, "item:movie:m0001");

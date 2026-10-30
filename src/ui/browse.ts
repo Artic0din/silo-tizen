@@ -129,6 +129,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }
                 loading = undefined;
                 cancelSlow();
+                if (error instanceof ApiError && error.problemId === "invalid_cursor" && (current.kind === "library" || current.kind === "search") && current.pages !== undefined) {
+                    Object.assign(current.pages, newPages());
+                    current.focus = undefined;
+                }
                 const text = failureText(error, current);
                 if (text === undefined) {
                     // A defect, not a server answer: offer a retry, and surface it as uncaught.

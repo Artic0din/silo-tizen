@@ -42,6 +42,7 @@ import {
 } from "../contracts/v2/catalog.ts";
 import type { RequestSpec } from "./http.ts";
 import { discoveryOperations } from "./discoveryOperations.ts";
+import { settingsOperations } from "./settingsOperations.ts";
 import { trickplayOperations } from "./trickplayOperations.ts";
 
 type Spec<T> = RequestSpec<T>;
@@ -79,6 +80,7 @@ export interface CatalogPageRequest {
 
 export const operations = {
     ...discoveryOperations,
+    ...settingsOperations,
     ...trickplayOperations,
     /** getSystemInfo: public, read. */
     systemInfo: (): Spec<ReturnType<typeof decodeSystemInfo>> => ({
@@ -204,10 +206,10 @@ export const operations = {
     // Browse reads. All are profile_scoped reads: the server applies the profile's library
     // access, content-rating and advisory limits, so the client never filters for access.
 
-    /** listUserLibraries: without include_hidden; the profile's own hidden list is a separate setting. */
-    listUserLibraries: (): Spec<UserLibrary[]> => ({
+    /** include_hidden is only for the editor; access limits still belong to the server. */
+    listUserLibraries: (includeHidden = false): Spec<UserLibrary[]> => ({
         method: "GET",
-        path: "/user/libraries",
+        path: `/user/libraries${includeHidden ? "?include_hidden=true" : ""}`,
         retry: "safe",
         decode: decodeUserLibraries,
     }),

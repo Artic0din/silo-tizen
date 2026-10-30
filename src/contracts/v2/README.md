@@ -1,8 +1,9 @@
 # Silo /api/v2 contract (vendored)
 
 `SOURCE` holds the exact `silo-server` commit these files come from.
-`fixtures/` holds only the response bodies this client consumes, copied unchanged from
-`contracts/api/v2/fixtures/` at that commit.
+`fixtures/` holds the response bodies this client consumes, copied unchanged from
+`contracts/api/v2/fixtures/` at that commit, except `settings_contract_ok.json`,
+which contains the selected Settings manifest subset consumed by this client.
 `wire.ts` decodes only the members the client reads; unknown members are ignored and unknown
 response enum values decode to `"unknown"`, so additive server changes keep working.
 
@@ -21,6 +22,9 @@ response enum values decode to `"unknown"`, so additive server changes keep work
 | `startPlayback`, `replanPlayback`, `stopPlayback` | `domain_identity` | The player resends only the identical body (same `playback_attempt_id`, `replan_request_id` or `stop_id`) after no answer or a transient failure |
 | `updatePlaybackProgress` | `domain_identity` | Never resent; the next sample has a higher `sequence` |
 | `listUserLibraries`, `listEffectiveSettings` (hidden libraries and playback defaults), `listHomeSections`, `listCatalogItems`, `getCatalogItem`, `listSeriesSeasons`, `listSeasonEpisodes` | read (`profile_scoped`) | One transport retry; sent with the active profile's headers |
+| `settingsCapabilities`, `settingsContract` | read | One transport retry; discover the Settings manifest and supported profile controls |
+| `settingsValues`, `effectiveSettings` | read (`profile_scoped`) | One transport retry; read explicit profile rows separately from effective hidden-library and preferred-audio values |
+| `putSetting`, `deleteSetting` | `non_retryable` (`profile_scoped`) | Never resent automatically; write a profile value (including explicit null) or delete its override to restore inheritance, then confirm explicit and effective readback |
 
 Playback bodies live in `playback.ts`, following `docs/playback-api.md` and `docs/architecture/playback-protocol-v3.md` at the same commit.
 The vendored `playback_start_opaque_ids` plan is a direct plan at offset 0; the test server builds offset timelines, terminal decisions and problems without a fixture from the OpenAPI schemas.

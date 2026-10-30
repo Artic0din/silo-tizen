@@ -26,6 +26,7 @@ import { el } from "./screen.ts";
 import { discoveryState, genreGroups, libraryScope, readDiscovery, type LibraryMode } from "./libraryDiscovery.ts";
 import { availableModes } from "./libraryDiscoveryViews.ts";
 import { personalListCapability, readPersonalPage, type PersonalFilter } from "./personalLists.ts";
+import { mountSettings, type SettingsScreen } from "./settings.ts";
 
 export type { PlayRequest } from "./browseModel.ts";
 
@@ -81,6 +82,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let playing = false;
     let torn = false;
     let detailWork: DetailsState | undefined;
+    let settingsScreen: SettingsScreen | undefined;
     const synopsis = new Synopsis(container, () => render({ zone: "actions", key: "synopsis" }));
     const stopDetails = (): void => { synopsis.destroy(); detailWork?.stop(); detailWork = undefined; };
     let inputRevision = 0;
@@ -96,6 +98,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
         torn = true;
         stopDetails();
+        settingsScreen?.destroy();
+        settingsScreen = undefined;
         stopAuthority();
         loading?.abort();
         cancelSlow();
@@ -230,8 +234,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     }),
                     read(operations.listHomeSections(), signal),
                 ]), ([libraries, hidden, sections]) => {
+                    const focus = host.focused();
                     current.data = { libraries: visibleLibraries(libraries, hidden), sections };
                     shell.update(current.data.libraries);
+                    // Changed tabs replace the nav nodes, including the still-present avatar.
+                    return focus?.zone === "nav" ? focus : undefined;
                 }, quiet);
                 return;
             case "library":
@@ -493,7 +500,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const render = (focus?: FocusTarget): void => {
         const current = top();
-        if (current === undefined || torn || playing || synopsis.active) {
+        if (current === undefined || torn || playing || synopsis.active || settingsScreen !== undefined) {
             return;
         }
         if (current.kind === "library") shell.setLibraryModes(availableModes(current.discovery?.data?.capabilities ?? current.discovery?.capabilities));
@@ -606,6 +613,30 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (hasData(route) && (route.focus === undefined || route.focus.zone === "nav")) host.focusDefault();
     }, {
         name: options.profileName ?? "Profiles",
+        settings: () => {
+            stopDetails();
+            loading?.abort();
+            loading = undefined;
+            cancelSlow();
+            cancelSearch();
+            shell.hide();
+            host.stop();
+            container.hidden = true;
+            settingsScreen = mountSettings(root, session, hiddenChanged => {
+                settingsScreen = undefined;
+                if (torn) return;
+                container.hidden = false;
+                if (hiddenChanged) {
+                    home.stale = true;
+                    roots.clear();
+                    roots.set("home", home);
+                    stack = [home];
+                }
+                host.listen();
+                const current = top();
+                if (current !== undefined) showRoute(current, { zone: "nav", key: "profiles" });
+            });
+        },
         personal: source => {
             const origin = top();
             push(newRoute({ kind: "personal", source, filter: "movie", pages: newPages(), capability: undefined, pendingIndex: undefined }));

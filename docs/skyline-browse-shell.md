@@ -10,7 +10,7 @@ Focus never activates a route or starts a request.
 A library tab opens its anchored selector after 250 ms.
 Down enters the selector, Right enters its Browse flyout, Left returns, and Back closes without committing.
 Explicit activation commits one library, never a merged scope.
-The profile avatar opens an anchored menu with Switch profile and Sign out.
+The profile avatar opens an anchored menu with Switch profile, personal lists, Settings and Sign out.
 Back dismisses either anchored menu until focus leaves its anchor or the viewer presses it again.
 
 `BrowseOptions.publicStorage` accepts the existing `PublicStorage` interface.
@@ -57,3 +57,31 @@ Apple's local extras, artwork preferences, automatic version quality ranking and
 
 The shell uses the shared tokens in `src/theme.css` alongside Skyline's navigation, marquee and card dimensions.
 Desktop Chromium tests and synthetic captures do not prove actual Chromium 76, Tizen emulator, signed package or Samsung TV behavior.
+
+Settings edits profile defaults through the existing native session and HTTP owners.
+General contains Hidden libraries; Playback contains Preferred audio.
+The category rail, control pane and pickers share `FocusHost`.
+Category focus only previews loaded controls; requests and writes require explicit activation.
+Back cancels a picker, returns from controls to the category rail, then returns to browse with avatar focus.
+Loading, empty and failed states retain reachable Back and retry controls.
+
+Discovery checks the settings API version, capability state, allowed flag, manifest revision and profile scope before exposing controls.
+The consumed contract subset is pinned to server `cc8514943289045e7b9f7ac8d36d4968bfe93926` in the synthetic settings fixture.
+Language suggestions come from the discovered server contract, filtered by their introduction revision; unfamiliar valid stored tags remain selectable.
+Original language uses `x-silo-original` from revision 9.
+Automatic playback starts already omit explicit audio ID and index, allowing the server to consume the preference.
+No quality-default or subtitle-default controls are exposed in this slice.
+
+Profile rows and effective values are read separately and never copied into one another.
+`No preference` stores explicit JSON null; `Use inherited default` deletes only the profile row.
+A device, library or series audio override can continue to take priority.
+The current effective value, source and policy constraints are shown separately from the edited profile value.
+Writes are serialized, not automatically replayed, and confirmed by explicit and effective readback.
+After an uncertain answer, retry first reconciles the exact profile scope; Retry-After blocks early requests.
+Account/profile authority changes cancel work and clear old settings data.
+
+The hidden-library editor requests `include_hidden=true`; access restrictions remain server-owned.
+Library IDs stay opaque strings until the validated positive JSON-integer write boundary.
+Each toggle rereads the profile list and preserves IDs absent from the editable library list.
+Returning after a hidden-list mutation refreshes Home and root navigation and drops cached library roots.
+The whole-array API remains last-write-wins across clients; rereading does not make concurrent edits atomic.

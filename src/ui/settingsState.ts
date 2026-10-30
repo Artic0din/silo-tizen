@@ -3,7 +3,7 @@ import { systemClock, type Clock } from "../api/clock.ts";
 import type { RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import type { UserLibrary } from "../contracts/v2/catalog.ts";
-import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, SETTINGS_KEYS, decodeSettingValue, numericLibraryId, type EffectiveSetting, type ExplicitSetting, type SettingDefinition, type SettingsKey, type SettingValue } from "../contracts/v2/settings.ts";
+import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, SEEK_KEYS, SETTINGS_KEYS, decodeSettingValue, numericLibraryId, profileSettings, type EffectiveSetting, type ExplicitSetting, type SettingDefinition, type SettingsKey, type SettingValue } from "../contracts/v2/settings.ts";
 import { NativeSession, SessionError } from "../session/session.ts";
 
 type Edit = { key: SettingsKey } & ({ kind: "reset" } | { kind: "value"; value: SettingValue } | { kind: "hidden"; id: number; hidden: boolean });
@@ -23,6 +23,7 @@ export class SettingsState {
     private readonly changed: () => void;
     private readonly clock: Clock;
     private retryAt = 0;
+    private batchedEffective = false;
     private readonly controller = new AbortController();
     private readonly stopAuthority: () => void;
 
@@ -58,13 +59,14 @@ export class SettingsState {
             if (!this.active) return;
             if (contract.apiVersion !== 1 || contract.revision < capability.manifestRevision) throw new Error("The server settings contract changed. Try again.");
             const revision = Math.min(contract.revision, capability.manifestRevision);
-            this.definitions = contract.definitions.filter(def => def.profile && def.introducedIn <= revision);
+            this.definitions = profileSettings(contract, capability);
+            this.batchedEffective = capability.supportsBatchedEffective;
             const keys = SETTINGS_KEYS.filter(key => this.definitions.some(def => def.key === key));
             if (keys.length > 0) await this.readValues(keys);
             const libraries = keys.includes(HIDDEN_KEY) ? await this.call(operations.listUserLibraries(true)) : [];
             if (!this.active) return;
             this.libraries = libraries;
-            const options = this.definitions.find(def => def.key === AUDIO_KEY)?.options.filter(option => option.introducedIn <= revision).map(option => option.value) ?? [];
+            const options = this.definitions.find(def => def.key === AUDIO_KEY)?.options.filter(option => option.introducedIn <= revision).map(option => option.value).filter((value): value is string => typeof value === "string") ?? [];
             this.audioOptions = [null, ...(revision >= 9 ? ["x-silo-original"] : []), ...options];
             this.loaded = true;
             this.retryEdit = undefined;
@@ -77,10 +79,10 @@ export class SettingsState {
     }
 
     private async readValues(keys: readonly SettingsKey[]): Promise<void> {
-        const [explicit, effective] = await Promise.all([this.call(operations.settingsValues(keys)), this.call(operations.effectiveSettings(keys))]);
+        const [explicit, effective] = await Promise.all([this.call(operations.settingsValues(keys)), Promise.all((this.batchedEffective ? [keys] : keys.map(key => [key])).map(group => this.call(operations.effectiveSettings(group))))]);
         if (!this.active) return;
         for (const [key, value] of explicit) this.explicit.set(key, value);
-        for (const [key, value] of effective) this.effective.set(key, value);
+        for (const values of effective) for (const [key, value] of values) this.effective.set(key, value);
     }
 
     save(key: SettingsKey, value: SettingValue): Promise<void> { return this.edit({ key, kind: "value", value }); }
@@ -108,6 +110,7 @@ export class SettingsState {
             if (edit.kind === "value") {
                 decodeSettingValue(edit.key, edit.value);
                 if (edit.key === QUALITY_KEY && !this.qualityOptions.some(option => option.value === edit.value)) throw new Error("Choose a supported quality.");
+                if (SEEK_KEYS.some(key => key === edit.key) && !this.definitions.find(def => def.key === edit.key)?.options.some(option => option.value === edit.value)) throw new Error("Choose a supported seek interval.");
             }
             await this.readValues([edit.key]);
             if (!this.active || this.achieved(edit)) {

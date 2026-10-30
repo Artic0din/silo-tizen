@@ -213,9 +213,9 @@ export const operations = {
         retry: "safe",
         decode: decodeUserLibraries,
     }),
-    playbackDefaults: (): Spec<ReturnType<typeof decodePlaybackDefaults>> => ({
+    playbackDefaults: (keys: readonly string[] = PLAYBACK_SETTING_KEYS): Spec<ReturnType<typeof decodePlaybackDefaults>> => ({
         method: "GET",
-        path: `/settings/values/effective?${PLAYBACK_SETTING_KEYS.map((key) => `keys=${encodeURIComponent(key)}`).join("&")}`,
+        path: `/settings/values/effective?${keys.map((key) => `keys=${encodeURIComponent(key)}`).join("&")}`,
         retry: "safe",
         decode: decodePlaybackDefaults,
     }),

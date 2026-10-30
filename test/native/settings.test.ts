@@ -13,6 +13,75 @@ import { fixture, problem } from "./support/fakeSilo.ts";
 
 const QUALITY = "playback.preferred_quality" as SettingsKey;
 const BITRATE = "playback.max_bitrate_kbps" as SettingsKey;
+const SEEK_BACK = "player.video_skip_back_seconds" as SettingsKey;
+const SEEK_FORWARD = "player.video_skip_forward_seconds" as SettingsKey;
+
+test("video seek intervals are numeric enum members, never nullable or coerced", () => {
+    for (const key of [SEEK_BACK, SEEK_FORWARD]) {
+        for (const value of [5, 10, 15, 30, 45, 60, 90]) assert.equal(decodeSettingValue(key, value), value);
+        for (const value of [null, undefined, "15", 15.5, 20, false, true]) assert.throws(() => decodeSettingValue(key, value), String(value));
+    }
+});
+
+test("Settings confirmed seek writes and DELETE resets feed fresh real controller directions", async () => {
+    const { state, fake, fakeSettings, core, clock } = await setup();
+    const server = new FakePlayback(fake);
+    const avplay = new FakeAVPlay();
+    let serial = 0;
+    const controller = new PlaybackController({ session: core.session, avplay, clock, randomBytes: bytes => bytes.fill(++serial), device: { model: "S95C", appVersion: "0.1.0" }, exits: { onBack() {}, onEnd() {}, onError(error) { assert.fail(error.kind); } } });
+    let view: PlaybackViewForSeek | undefined;
+    controller.subscribe(next => { if (next.phase === "playing" || next.phase === "paused") view = next; });
+    try {
+        await state.save(SEEK_BACK, 15);
+        await state.save(SEEK_FORWARD, 45);
+        assert.equal(fakeSettings.profile().get(SEEK_BACK), 15);
+        assert.equal(fakeSettings.profile().get(SEEK_FORWARD), 45);
+        for (const [backward, forward] of [[15, 45], [10, 45], [10, 30]] as const) {
+            if (backward === 10) await state.reset(SEEK_BACK);
+            if (forward === 30) await state.reset(SEEK_FORWARD);
+            controller.play({ contentId: "movie-1", fileId: "42", title: "Synthetic movie", startSeconds: 100 });
+            await clock.advance(0);
+            avplay.finishPrepare();
+            avplay.finishSeek();
+            avplay.tick(100000);
+            assert.deepEqual(view?.seekIntervals, { backward, forward });
+            controller.seekBy(-backward);
+            assert.equal(avplay.calls[avplay.calls.length - 1], `seekTo ${(100 - backward) * 1000}`);
+            avplay.finishSeek();
+            avplay.tick(100000);
+            controller.seekBy(forward);
+            assert.equal(avplay.calls[avplay.calls.length - 1], `seekTo ${(100 + forward) * 1000}`);
+            avplay.finishSeek();
+            controller.back();
+            await clock.advance(0);
+        }
+        assert.equal(server.sessions.size, 3);
+        const writes = fake.requests.filter(r => r.path.startsWith("/settings/values/") && (r.method === "PUT" || r.method === "DELETE"));
+        assert.deepEqual(writes.map(r => r.method), ["PUT", "PUT", "DELETE", "DELETE"]);
+        assert.deepEqual(writes.slice(0, 2).map(r => r.body), [{ value: 15 }, { value: 45 }]);
+    } finally { controller.destroy(); state.stop(); }
+});
+
+type PlaybackViewForSeek = { readonly seekIntervals?: { readonly backward: number; readonly forward: number } };
+
+test("unsupported seek definitions never expose profile edits or request their values", async () => {
+    for (const mode of ["revision8", "missing", "profile_client", "denied"] as const) {
+        const { state, fake, fakeSettings } = await setup();
+        if (mode === "revision8") fakeSettings.revision = 8;
+        if (mode === "denied") fakeSettings.allowed = false;
+        const contract = fixture("settings_contract_ok");
+        assert.ok(Array.isArray(contract.definitions));
+        contract.definitions = contract.definitions.flatMap(def => def.key !== SEEK_FORWARD ? [def] : mode === "missing" ? [] : mode === "profile_client" ? [{ ...def, allowed_scopes: ["profile_client"] }] : [def]);
+        fake.script("/settings/contract", { status: 200, body: contract });
+        const count = fake.requests.length;
+        await state.load();
+        assert.ok(!state.definitions.some(def => def.key === SEEK_BACK || def.key === SEEK_FORWARD));
+        await state.save(SEEK_BACK, 15);
+        await state.save(SEEK_FORWARD, 45);
+        assert.equal(fake.requests.slice(count).filter(r => r.path.includes("player.video_skip")).length, 0, mode);
+        state.stop();
+    }
+});
 
 test("profile quality and bitrate are discovered from the supported manifest", () => {
     const keys = decodeSettingsContract(fixture("settings_contract_ok")).definitions.filter(def => def.profile).map(def => def.key);
@@ -113,8 +182,8 @@ test("profile defaults keep explicit null/reset separate from device overrides a
     state.stop();
 });
 
-test("quality/cap lost write answers and failed readback reconcile on Retry without duplicate mutation", async () => {
-    for (const [key, value] of [[QUALITY, "720p"], [BITRATE, 6000]] as const) {
+test("quality/cap/seek lost write answers and failed readback reconcile on Retry without duplicate mutation", async () => {
+    for (const [key, value] of [[QUALITY, "720p"], [BITRATE, 6000], [SEEK_BACK, 15], [SEEK_FORWARD, 45]] as const) {
         const { state, fake, clock } = await setup();
         fake.dropNextAnswer(`/settings/values/${key}?scope=profile`);
         const hold = fake.hold(operations.settingsValues([key]).path);
@@ -133,6 +202,56 @@ test("quality/cap lost write answers and failed readback reconcile on Retry with
         assert.equal(fake.requests.filter(r => r.method === "PUT").length, 1);
         state.stop();
     }
+});
+
+test("seek resets reconcile lost DELETE replies and Retry reads before any repeated write", async () => {
+    for (const key of [SEEK_BACK, SEEK_FORWARD]) {
+        const { state, fake, fakeSettings, clock } = await setup();
+        await state.save(key, 45);
+        fake.dropNextAnswer(`/settings/values/${key}?scope=profile`);
+        const hold = fake.hold(operations.settingsValues([key]).path);
+        const resetting = state.reset(key);
+        await clock.advance(0);
+        fake.script(operations.settingsValues([key]).path, problem(429, "rate_limited", "Wait", { "Retry-After": "1" }));
+        hold.release();
+        await resetting;
+        assert.ok(state.error);
+        assert.equal(state.canRetry, true);
+        assert.equal(fakeSettings.profile().has(key), false);
+        assert.equal(fake.requests.filter(r => r.method === "DELETE").length, 1);
+        const requests = fake.requests.length;
+        await state.retry();
+        assert.equal(fake.requests.length, requests, "Retry-After locks requests");
+        await clock.advance(1000);
+        await state.retry();
+        assert.equal(state.error, undefined);
+        assert.equal(state.explicit.get(key)?.isSet, false);
+        assert.equal(state.effective.get(key)?.value, key === SEEK_BACK ? 10 : 30);
+        assert.equal(fake.requests.filter(r => r.method === "DELETE").length, 1);
+        state.stop();
+    }
+});
+
+test("seek refusal preserves confirmed pair and profile replacement fences an old save", async () => {
+    const { state, fake, fakeSettings, core, clock } = await setup();
+    await state.save(SEEK_BACK, 15);
+    await state.save(SEEK_FORWARD, 45);
+    fake.script(`/settings/values/${SEEK_BACK}?scope=profile`, problem(422, "validation_failed", "Refused"));
+    await state.save(SEEK_BACK, 60);
+    assert.ok(state.error);
+    assert.equal(state.effective.get(SEEK_BACK)?.value, 15);
+    assert.equal(state.effective.get(SEEK_FORWARD)?.value, 45);
+    await state.load();
+    const hold = fake.hold(`/settings/values/${SEEK_FORWARD}?scope=profile`, true);
+    const saving = state.save(SEEK_FORWARD, 60);
+    await clock.advance(0);
+    core.profiles.clear();
+    hold.release();
+    await saving;
+    assert.equal(state.loaded, false);
+    assert.equal(state.explicit.size, 0);
+    assert.equal(state.effective.size, 0);
+    assert.equal(fakeSettings.profile().get(SEEK_BACK), 15);
 });
 
 test("Settings confirmed profile writes feed every new real PlaybackController start", async () => {

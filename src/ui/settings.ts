@@ -1,5 +1,5 @@
 import type { NativeSession } from "../session/session.ts";
-import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, numericLibraryId, type SettingValue, type SettingsKey } from "../contracts/v2/settings.ts";
+import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, numericLibraryId, type SettingValue, type SettingsKey } from "../contracts/v2/settings.ts";
 import { FocusHost, type FocusItem, type FocusTarget } from "./browseFocus.ts";
 import { actionButton, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
@@ -7,9 +7,9 @@ import { remoteKey } from "./keys.ts";
 import { SettingsState } from "./settingsState.ts";
 
 type Category = "general" | "playback";
-type Picker = "hidden" | "audio" | "quality" | "bitrate";
-const PICKER_KEYS = { hidden: HIDDEN_KEY, audio: AUDIO_KEY, quality: QUALITY_KEY, bitrate: BITRATE_KEY } as const;
-const PICKER_LABELS = { hidden: "Hidden libraries", audio: "Preferred audio", quality: "Preferred quality", bitrate: "Maximum bitrate" } as const;
+type Picker = "hidden" | "audio" | "quality" | "bitrate" | "seek-back" | "seek-forward";
+const PICKER_KEYS = { hidden: HIDDEN_KEY, audio: AUDIO_KEY, quality: QUALITY_KEY, bitrate: BITRATE_KEY, "seek-back": SEEK_BACK_KEY, "seek-forward": SEEK_FORWARD_KEY } as const;
+const PICKER_LABELS = { hidden: "Hidden libraries", audio: "Preferred audio", quality: "Preferred quality", bitrate: "Maximum bitrate", "seek-back": "Video rewind interval", "seek-forward": "Video fast-forward interval" } as const;
 export interface SettingsScreen { destroy(): void }
 
 export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void): SettingsScreen {
@@ -73,7 +73,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         const stored = state.explicit.get(key);
         return stored?.isSet ? label(stored.value, key) : "Inherited";
     };
-    const label = (value: SettingValue, key: SettingsKey): string => key === QUALITY_KEY
+    const label = (value: SettingValue, key: SettingsKey): string => key === QUALITY_KEY || key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY
         ? state.definitions.find(def => def.key === key)?.options.find(option => option.value === value)?.label ?? String(value)
         : valueLabel(value, key);
     const note = (key: SettingsKey): HTMLElement => {
@@ -126,11 +126,12 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 item.element.setAttribute("aria-checked", String(stored?.isSet === true && current === value));
                 controls.push(item);
             }
-        } else if (picker === "quality") {
+        } else if (picker === "quality" || picker === "seek-back" || picker === "seek-forward") {
             const current = stored?.isSet ? stored.value : undefined;
-            if (current !== undefined && !state.qualityOptions.some(option => option.value === current)) content.push(el("p", "browse-text", `Current profile value: ${label(current, key)} · Not offered`));
-            for (const option of state.qualityOptions) {
-                const item = button(`quality:${option.value}`, option.label, () => { void commit(key, option.value); });
+            const options = picker === "quality" ? state.qualityOptions : state.definitions.find(def => def.key === key)?.options ?? [];
+            if (current !== undefined && !options.some(option => option.value === current)) content.push(el("p", "browse-text", `Current profile value: ${label(current, key)} · Not offered`));
+            for (const option of options) {
+                const item = button(`${picker}:${option.value}`, option.label, () => { void commit(key, option.value); });
                 item.element.setAttribute("role", "radio");
                 item.element.setAttribute("aria-checked", String(current === option.value));
                 controls.push(item);
@@ -184,7 +185,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         const rows: FocusItem[] = [];
         const body = el("div", "settings-pane");
         body.append(el("h2", "browse-section-title", category === "general" ? "General" : "Playback"), ...feedback());
-        const pickers: readonly Picker[] = category === "general" ? ["hidden"] : ["audio", "quality", "bitrate"];
+        const pickers: readonly Picker[] = category === "general" ? ["hidden"] : ["audio", "quality", "bitrate", "seek-back", "seek-forward"];
         for (const id of pickers) {
             const key = PICKER_KEYS[id];
             if (!state.loaded || !state.definitions.some(def => def.key === key)) continue;

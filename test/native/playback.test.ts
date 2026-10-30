@@ -7,7 +7,10 @@ import { test } from "node:test";
 import { type PlaybackError, PlaybackController, type PlaybackView, type PlayRequest } from "../../src/player/controller.ts";
 import { FakeAVPlay } from "./support/fakeAVPlay.ts";
 import { FakePlayback } from "./support/fakePlayback.ts";
-import { fixture, type RecordedRequest } from "./support/fakeSilo.ts";
+import { fixture, problem, type RecordedRequest } from "./support/fakeSilo.ts";
+import { FakeSettings } from "./support/fakeSettings.ts";
+import { SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS } from "../../src/contracts/v2/settings.ts";
+import { operations } from "../../src/api/operations.ts";
 import { connected, type Harness, signIn } from "./support/harness.ts";
 
 const MOVIE: PlayRequest = { contentId: "movie-1", fileId: "42", title: "Movie", startSeconds: 12.5 };
@@ -111,6 +114,143 @@ async function playMovie(r: Rig, request: PlayRequest = MOVIE): Promise<string> 
     assert.ok(id !== undefined);
     return id;
 }
+
+test("supported seek defaults are 10/30 and unbatched discovery uses legal single reads", async () => {
+    for (const batched of [true, false]) {
+        const r = await rig();
+        const settings = new FakeSettings(r.h.fake);
+        settings.supportsBatchedEffective = batched;
+        try {
+            await playMovie(r);
+            const view = last(r.views);
+            assert.ok(view.phase === "playing");
+            assert.deepEqual(view.seekIntervals, { backward: 10, forward: 30 });
+            const reads = r.h.fake.requests.filter(request => request.path.startsWith("/settings/values/effective?"));
+            assert.equal(reads.length, batched ? 2 : 4);
+            if (!batched) assert.ok(reads.every(request => new URL(request.path, "https://fake.invalid").searchParams.getAll("keys").length === 1));
+            assert.ok(reads.every(request => request.headers["x-profile-id"] === "p-owner"));
+        } finally { r.controller.destroy(); }
+    }
+});
+
+test("confirmed 15/45 deltas clamp in the real controller at zero and source duration", async () => {
+    const r = await rig();
+    const settings = new FakeSettings(r.h.fake);
+    settings.profile().set(SEEK_BACK_KEY, 15);
+    settings.profile().set(SEEK_FORWARD_KEY, 45);
+    r.server.next.push({ durationSeconds: 200, timeline: { source_start_seconds: 100, player_start_seconds: 100, timeline_offset_seconds: 0 } });
+    try {
+        await playMovie(r);
+        r.avplay.tick(5000);
+        r.controller.seekBy(-15);
+        assert.equal(r.avplay.calls[r.avplay.calls.length - 1], "seekTo 0");
+        r.avplay.finishSeek();
+        r.avplay.tick(190000);
+        r.controller.seekBy(45);
+        assert.equal(r.avplay.calls[r.avplay.calls.length - 1], "seekTo 200000");
+        r.avplay.finishSeek();
+    } finally { r.controller.destroy(); }
+});
+
+test("unsupported seek contracts keep legacy 10/10 without requesting unknown keys", async () => {
+    for (const unsupported of ["revision8", "denied", "missing", "profile_client", "integer", "enum20", "future-member", "missing-capability", "denied-capability"] as const) {
+        const r = await rig();
+        const settings = new FakeSettings(r.h.fake);
+        if (unsupported === "revision8") settings.revision = 8;
+        if (unsupported === "denied") settings.allowed = false;
+        if (unsupported === "missing-capability" || unsupported === "denied-capability") r.h.fake.script("/settings/contract/capabilities", problem(unsupported === "missing-capability" ? 404 : 403, "not_available", "Unavailable"));
+        const contract = fixture("settings_contract_ok");
+        assert.ok(Array.isArray(contract.definitions));
+        contract.definitions = contract.definitions.flatMap(def => {
+            if (def.key !== SEEK_FORWARD_KEY) return [def];
+            if (unsupported === "missing") return [];
+            if (unsupported === "profile_client") return [{ ...def, allowed_scopes: ["profile_client"] }];
+            if (unsupported === "integer") return [{ ...def, value_schema: { type: "integer", minimum: 5, maximum: 90 } }];
+            if (unsupported === "enum20") return [{ ...def, value_schema: { type: "enum", values: [{ value: 20, label: "20 seconds" }] } }];
+            if (unsupported === "future-member") return [{ ...def, value_schema: { type: "enum", values: [5, 10, 15, 30, 45, 60, 90].map(value => ({ value, label: `${value} seconds`, introduced_in: value === 45 ? 25 : 9 })) } }];
+            return [def];
+        });
+        r.h.fake.script("/settings/contract", { status: 200, body: contract });
+        try {
+            await playMovie(r);
+            const view = last(r.views);
+            assert.ok(view.phase === "playing", unsupported);
+            assert.deepEqual(view.seekIntervals, { backward: 10, forward: 10 });
+            assert.equal(r.h.fake.requests.filter(request => request.path.startsWith("/settings/values") && request.path.includes("player.video_skip")).length, 0, unsupported);
+        } finally { r.controller.destroy(); }
+    }
+});
+
+test("supported seek read failures and malformed/missing/duplicate rows fail visibly and Retry re-reads", async () => {
+    const path = operations.effectiveSettings(SEEK_KEYS).path;
+    const row = (key: string, value: unknown) => ({ key, value, source: "profile", definition_revision: 24 });
+    const valid = row(SEEK_BACK_KEY, 15);
+    for (const items of [[], [valid], [valid, valid, row(SEEK_FORWARD_KEY, 45)], ...[null, "15", 15.5, 20, false].map(value => [row(SEEK_BACK_KEY, value), row(SEEK_FORWARD_KEY, 45)])]) {
+        const r = await rig();
+        new FakeSettings(r.h.fake);
+        r.h.fake.script(path, { status: 200, body: { revision: 24, items } });
+        try {
+            r.controller.play(MOVIE);
+            await r.h.clock.advance(0);
+            const view = last(r.views);
+            assert.ok(view.phase === "error");
+            assert.equal(view.error.kind, "settings");
+            assert.equal(bodies(r.h, "/start").length, 0);
+            assert.equal(r.avplay.urls.length, 0);
+            r.controller.retrySettings();
+            await r.h.clock.advance(0);
+            assert.equal(bodies(r.h, "/start").length, 1);
+        } finally { r.controller.destroy(); }
+    }
+    for (const path of ["/settings/contract/capabilities", "/settings/contract", operations.effectiveSettings(SEEK_KEYS).path]) {
+        const r = await rig();
+        new FakeSettings(r.h.fake);
+        r.h.fake.script(path, ...Array.from({ length: 3 }, () => problem(503, "unavailable", "Unavailable")));
+        r.controller.play(MOVIE);
+        await r.h.clock.advance(5000);
+        assert.equal(last(r.views).phase, "error");
+        assert.equal(bodies(r.h, "/start").length, 0);
+        r.controller.destroy();
+    }
+});
+
+test("profile and attempt replacement discard held seek answers before any old start", async () => {
+    for (const replacement of ["profile", "attempt", "back"] as const) {
+        const r = await rig();
+        const settings = new FakeSettings(r.h.fake);
+        settings.profile().set(SEEK_BACK_KEY, 15);
+        settings.profile().set(SEEK_FORWARD_KEY, 45);
+        const path = operations.effectiveSettings(SEEK_KEYS).path;
+        const hold = r.h.fake.hold(path, true);
+        r.controller.play(MOVIE);
+        await r.h.clock.advance(0);
+        assert.equal(last(r.views).phase, "loading");
+        if (replacement === "profile") {
+            const profiles = await r.h.core.profiles.list();
+            const kid = profiles.find(profile => profile.id === "p-kid");
+            assert.ok(kid);
+            r.h.core.profiles.select(kid);
+            await r.h.core.profiles.verifyPin(kid.id, "2468");
+            settings.profile(kid.id).set(SEEK_FORWARD_KEY, 60);
+            r.controller.play(MOVIE);
+        } else if (replacement === "attempt") {
+            settings.profile().set(SEEK_FORWARD_KEY, 90);
+            r.controller.play(MOVIE);
+        } else r.controller.back();
+        await r.h.clock.advance(0);
+        hold.release();
+        await r.h.clock.advance(0);
+        assert.equal(bodies(r.h, "/start").length, replacement === "back" ? 0 : 1);
+        if (replacement !== "back") {
+            r.avplay.finishPrepare();
+            r.avplay.finishSeek();
+            const view = last(r.views);
+            assert.ok(view.phase === "playing");
+            assert.deepEqual(view.seekIntervals, replacement === "profile" ? { backward: 10, forward: 60 } : { backward: 15, forward: 90 });
+        }
+        r.controller.destroy();
+    }
+});
 
 test("explicit pause and play are idempotent and leave pending seeks alone", async () => {
     const r = await rig();

@@ -32,6 +32,7 @@ const KID = "p-kid";
 const MAX_LIMIT = 200;
 
 export class FakeCatalog implements CatalogRoutes {
+    searchCapabilities = fixture("get_catalog_search_capabilities_ok");
     readonly titles = new Map<string, FakeTitle>();
     readonly households = new Map<string, Household>();
     /** content id -> resume position in seconds. */
@@ -39,6 +40,7 @@ export class FakeCatalog implements CatalogRoutes {
     readonly fileIds = new Map<string, string>();
     readonly removed = new Set<string>();
     private readonly failures = new Map<string, Reply[]>();
+    private readonly searchContinuations = new Map<string, { q: string; type: string | null; household: Household; offset: number }>();
 
     constructor(movieCount = 60) {
         for (let i = 1; i <= movieCount; i++) {
@@ -100,6 +102,14 @@ export class FakeCatalog implements CatalogRoutes {
         }
         const household = profileId === undefined ? undefined : this.households.get(profileId);
         if (household !== undefined) {
+            if (body?.type === "video_with_episodes" && body.source !== undefined && body.source !== "query") {
+                return problem(422, "validation_failed", "Unsupported search scope");
+            }
+            if (method === "POST" && url.pathname === "/catalog/query" && typeof body?.q === "string") {
+                const params = new URLSearchParams();
+                for (const [key, value] of Object.entries(body)) if (typeof value === "string" || typeof value === "number") params.set(key, String(value));
+                return this.page(household, params);
+            }
             const discovery = this.discoveryRoute(household, method, url, body);
             if (discovery !== undefined) return discovery;
         }
@@ -131,7 +141,7 @@ export class FakeCatalog implements CatalogRoutes {
     }
 
     private discoveryRoute(household: Household, method: string, url: URL, body: Record<string, unknown> | undefined): Reply | undefined {
-        if (url.pathname === "/catalog/search/capabilities") return { status: 200, body: fixture("get_catalog_search_capabilities_ok") };
+        if (url.pathname === "/catalog/search/capabilities") return { status: 200, body: this.searchCapabilities };
         if (url.pathname === "/catalog/filters") return { status: 200, body: { ...fixture("get_catalog_filters_ok"), genres: ["Drama", "Comedy"] } };
         const library = /^\/library\/([^/]+)\/(sections|collections)(?:\/([^/]+)\/items)?$/.exec(url.pathname);
         const id = library?.[1] ?? (typeof body?.library_id === "string" ? body.library_id : undefined);
@@ -231,19 +241,29 @@ export class FakeCatalog implements CatalogRoutes {
         }
         const type = params.get("type");
         const q = (params.get("q") ?? "").toLowerCase();
+        if (type === "video_with_episodes" && ((params.get("source") ?? "query") !== "query" || this.searchCapabilities.video_with_episodes_scope !== true)) {
+            return problem(422, "validation_failed", "Unsupported search scope");
+        }
         const matches = [...this.titles.values()]
             .filter((title) => this.visible(household, title.id) && (libraryId === null || title.libraryId === libraryId))
-            .filter((title) => (type === "video" ? title.type === "movie" || title.type === "series" : title.type === type))
+            .filter((title) => (type === "video" || type === "video_with_episodes"
+                ? title.type === "movie" || title.type === "series" || (type === "video_with_episodes" && q.trim() !== "" && title.type === "episode")
+                : title.type === type))
             .filter((title) => q === "" || title.title.toLowerCase().indexOf(q) !== -1)
             .sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0));
         const cursor = params.get("cursor");
-        const offset = cursor === null ? 0 : Number(/^cursor-(\d+)$/.exec(cursor)?.[1] ?? "NaN");
+        const continuation = cursor === null ? undefined : this.searchContinuations.get(cursor);
+        const offset = cursor === null ? 0 : q !== ""
+            ? continuation?.q === q && continuation.type === type && continuation.household === household ? continuation.offset : NaN
+            : Number(/^cursor-(\d+)$/.exec(cursor)?.[1] ?? "NaN");
         if (!Number.isInteger(offset)) {
             return problem(400, "invalid_cursor", "Invalid cursor");
         }
         const items = matches.slice(offset, offset + limit).map((title) => this.card(title.id));
         const more = offset + limit < matches.length;
-        const page = more ? { has_more: true, next_cursor: `cursor-${offset + limit}` } : { has_more: false };
+        const next = q === "" ? `cursor-${offset + limit}` : `search+/= ?字:${q}:${type}:${offset + limit}`;
+        if (more && q !== "") this.searchContinuations.set(next, { q, type, household, offset: offset + limit });
+        const page = more ? { has_more: true, next_cursor: next } : { has_more: false };
         return { status: 200, body: { window_cursor: "window", items, page, total: matches.length, total_exact: true } };
     }
 

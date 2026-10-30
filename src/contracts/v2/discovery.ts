@@ -216,6 +216,7 @@ export interface CatalogSearchCapabilities {
     readonly allowed: boolean;
     readonly letterIndex: boolean | undefined;
     readonly extendedQueryRules: boolean | undefined;
+    readonly videoWithEpisodesScope: boolean | undefined;
     readonly provider: "postgres" | "meilisearch" | "unknown" | undefined;
 }
 export function decodeCatalogSearchCapabilities(value: unknown): CatalogSearchCapabilities {
@@ -227,6 +228,7 @@ export function decodeCatalogSearchCapabilities(value: unknown): CatalogSearchCa
         state: enumValue(string(obj, "state", path), ["available", "disabled", "not_configured", "unsupported"]),
         allowed: boolean(obj, "allowed", path), letterIndex: optionalBoolean(obj, "letter_index", path),
         extendedQueryRules: optionalBoolean(obj, "extended_query_rules", path),
+        videoWithEpisodesScope: optionalBoolean(obj, "video_with_episodes_scope", path),
         provider: provider === undefined ? undefined : enumValue<"postgres" | "meilisearch">(provider, ["postgres", "meilisearch"]),
     };
 }

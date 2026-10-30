@@ -2,6 +2,7 @@
 // failed, or its data (with a note when a refresh or page turn failed). Loading lives in browse.ts.
 
 import { ApiError } from "../api/errors.ts";
+import type { TextSearchScope } from "../api/operations.ts";
 import type { CatalogPage, Episode, HomeSection, ItemDetail, Season, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { Person } from "../contracts/v2/details.ts";
 import type { DetailsState } from "./detailsState.ts";
@@ -33,7 +34,7 @@ export type RouteData =
     | { readonly kind: "library"; readonly library: UserLibrary; pages: Pages; discovery?: DiscoveryState }
     | { readonly kind: "libraryResults"; readonly library: UserLibrary; readonly title: string; readonly source: LibrarySource; pages: Pages; descending: boolean }
     /** `resultsFor`: the query the shown page answers, which typing can move ahead of. */
-    | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string }
+    | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope }
     | { readonly kind: "item"; readonly id: string; readonly title: string; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState } | undefined }
     | { readonly kind: "person"; readonly id: string; readonly title: string; data: { person: Person; titles: CatalogPage } | undefined }
     | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string; data: { episodes: Episode[]; detail: ItemDetail | undefined; details?: DetailsState } | undefined };

@@ -65,11 +65,14 @@ test("hidden libraries persist absent IDs and refresh Home and navigation on ret
         await tv.page.locator('[data-focus="library:12"]').click();
         await tv.eventually(async () => JSON.stringify(settings.profile().get(HIDDEN_KEY)) === "[15,999,12]", "confirmed hidden libraries");
         await tv.page.getByText("Saving…", { exact: true }).waitFor({ state: "hidden" });
+        const refreshedLibraries = tv.fake.hold("/user/libraries");
         await tv.remote(10009);
         await tv.remote(10009);
         await tv.remote(10009);
         await tv.eventually(async () => tv.fake.requests.filter(request => request.path === "/user/libraries").length === 2, "refreshed Home libraries");
         assert.ok(tv.fake.requests.some(request => request.path === "/user/libraries?include_hidden=true"));
+        refreshedLibraries.release();
+        await tv.page.locator('[role="tab"][data-focus="movies"]').waitFor({ state: "detached" });
         assert.equal(await tv.page.locator('[role="tab"][data-focus="movies"]').count(), 0);
         assert.equal(await tv.focused(), "profiles");
     } finally { await tv.page.context().close(); }

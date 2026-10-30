@@ -4,9 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Refreshed Home progress after watched changes and made interrupted personal actions retryable when returning to Details.
+- Kept synopsis dialogs open during Details updates, refreshed visible and cached episode watched controls after aggregate changes, and enabled watched actions for titles without playback progress.
+
 ### Added
 
 - Added profile-scoped Watchlist, Favorites and History pages with bounded pagination, server-side media filters including History episodes, and page and item focus retained on return from Details even after an interrupted page turn.
+- Added richer title and season details with artwork, ratings, facts, cast and crew, person pages, related titles, file version selection and server-confirmed personal actions.
 - Added Movies and Series library sections, collections, genres, A–Z letter navigation and recently added titles.
 - Added strict TypeScript checks and a bundled build targeting Chrome 76.
 - Added a native Silo `/api/v2` session core with device-code sign-in, household profiles and PIN checks, and credential storage in Tizen KeyManager.
@@ -27,6 +33,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserved remote focus when library reads finished and kept inline collection cards at their intended width.
 - Returned directly between the A–Z grid and its navigation pills while keeping the alphabet rail reachable from the side.
 - Cleared invalid pagination cursors so reopening a cached list starts from its first page.
 - Kept focus in explicitly opened library menus and revealed the first card when Browse was activated from a scrolled library.

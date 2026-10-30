@@ -36,7 +36,9 @@ The existing session supplies profile and PIN proof headers.
 
 `personalLists.ts` exports `PersonalSource`, `PersonalFilter`, `PersonalListCapability`, `decodePersonalListCapability`, `personalListCapability`, `personalQuery`, `readPersonalPage`, `personalView` and `PERSONAL_TITLES`.
 The capability helper is read-only and deliberately has no item mutation or membership controller.
-The separate Details lane owns item actions; integration only needs to preserve the `item` route identity and the Back lifecycle in `browse.ts`.
+Details owns item mutations and membership confirmation.
+Personal pages preserve the `item` route identity and refresh their current page on Back.
+Browser tests remove Watchlist and Favorites membership through the production Details controls against a coherent fake server, retaining page-three focus and preserving the other list.
 The shared route additions are `personal`, `RouteHandlers.personalFilter`, the three catalog query source literals and the optional Skyline profile `personal` callback.
 
 This is the personal-pages portion of issue 29 only.

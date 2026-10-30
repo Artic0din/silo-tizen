@@ -2,18 +2,31 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { mkdir } from "node:fs/promises";
-import { FakeCatalog } from "../native/support/fakeCatalog.ts";
+import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem, type Reply } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 import { personalQuery } from "../../src/ui/personalLists.ts";
 
-class PersonalCatalog extends FakeCatalog {
+class PersonalCatalog extends FakeDetails {
     readonly excluded = new Set<string>();
+    private readonly membershipState = new Map<string, Set<string>>();
     unavailable = false;
     capabilityReplies: Reply[] = [];
     pageReplies: Reply[] = [];
     override route(method: string, path: string, profile: string | undefined, body?: Record<string, unknown>): Reply | undefined {
-        if (path.startsWith("/capabilities/personal-lists")) return this.capabilityReplies.shift() ?? { status: 200, body: { revision: "1", state: this.unavailable ? "unsupported" : "available", allowed: !this.unavailable, membership_supported: false } };
+        if (path.startsWith("/capabilities/personal-lists")) return this.capabilityReplies.shift() ?? { status: 200, body: { revision: "1", state: this.unavailable ? "unsupported" : "available", allowed: !this.unavailable, membership_supported: true } };
+        const personal = /^\/(watchlist|favorites)\/([^/?]+)(?:\/membership)?(?:\?.*)?$/.exec(path);
+        if (personal?.[1] !== undefined && personal[2] !== undefined) {
+            const members = this.members(profile, personal[1]);
+            const id = decodeURIComponent(personal[2]);
+            if (method === "GET") return { status: 200, body: { item_id: id, is_member: members.has(id) } };
+            const reply = super.route(method, path, profile, body);
+            if (reply?.status === 204) {
+                if (method === "DELETE") members.delete(id);
+                else members.add(id);
+            }
+            return reply;
+        }
         if (path.startsWith("/catalog/query") && typeof body?.source === "string" && ["watchlist", "favorites", "history"].includes(body.source)) {
             assert.equal(method, "POST");
             assert.equal(body.limit, 24);
@@ -22,13 +35,15 @@ class PersonalCatalog extends FakeCatalog {
             const scope = `${profile}:${body.source}:${body.type}`;
             // Unset scope queries media_items; episode history aggregates into series there.
             const scoped = [...this.titles.values()].filter(t => (profile === "p-kid" ? t.libraryId === "16" : ["12", "13"].includes(t.libraryId)) && (body.type === undefined || body.type === "video" ? ["movie", "series"].includes(t.type) : t.type === body.type));
-            const ids = scoped.filter(t => !this.excluded.has(t.id));
+            const members = body.source === "history" ? undefined : this.members(profile, body.source);
+            const included = (id: string): boolean => !this.excluded.has(id) && (members?.has(id) ?? true);
+            const ids = scoped.filter(t => included(t.id));
             const cursor = body.cursor;
             if (cursor !== undefined && (typeof cursor !== "string" || !cursor.startsWith(scope + ":"))) return problem(400, "invalid_cursor", "Invalid cursor");
             const offset = typeof cursor === "string" ? Number(cursor.slice(scope.length + 1)) : 0;
             // The immutable fixture order stands in for the server's fenced keyset.
             // A removed row before the anchor cannot shift a later page backwards.
-            const remaining = scoped.slice(offset).filter(t => !this.excluded.has(t.id));
+            const remaining = scoped.slice(offset).filter(t => included(t.id));
             const selected = remaining.slice(0, 24);
             const last = selected[selected.length - 1];
             const next = last === undefined ? offset : scoped.indexOf(last) + 1;
@@ -39,6 +54,15 @@ class PersonalCatalog extends FakeCatalog {
             return { status: 200, body: { window_cursor: scope, items: cards, total: ids.length, total_exact: true, page: remaining.length > 24 ? { has_more: true, next_cursor: `${scope}:${next}` } : { has_more: false } } };
         }
         return super.route(method, path, profile, body);
+    }
+    private members(profile: string | undefined, source: string): Set<string> {
+        const key = JSON.stringify([profile, source]);
+        let members = this.membershipState.get(key);
+        if (members === undefined) {
+            members = new Set(this.titles.keys());
+            this.membershipState.set(key, members);
+        }
+        return members;
     }
 }
 let browser: Browser;
@@ -98,6 +122,41 @@ test("Details return discards an abandoned personal-page turn", async () => {
         await tv.eventually(async () => await cached.evaluate(node => !node.isConnected), "personal-page refresh rendered");
         assert.equal(await tv.page.getByText("Page 2 of 3", { exact: true }).count(), 1);
         assert.equal(await tv.focused(), "movie:m0026");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+for (const source of ["watchlist", "favorites"]) test(`integrated Details removes ${source} membership without changing the other list`, async () => {
+    const { tv, catalog } = await setup();
+    try {
+        await openList(tv, source);
+        for (let page = 2; page <= 3; page++) {
+            await tv.page.locator('[data-focus="next"]').click();
+            await tv.page.getByText(`Page ${page} of 3`, { exact: true }).waitFor();
+        }
+        await tv.page.locator('.browse [data-focus="movie:m0050"]').click();
+        await tv.page.locator('[data-view="item:movie:m0050"]').waitFor();
+        const remove = tv.page.getByRole("button", { name: source === "favorites" ? "Remove favorite" : "Remove from watchlist", exact: true });
+        await tv.eventually(async () => await remove.count() === 1, "Details exposes authoritative list membership");
+        const held = tv.fake.hold(`/${source}/movie%3Am0050/membership`, true);
+        await remove.click();
+        await tv.eventually(async () => catalog.mutations.length === 1, "Details removal committed");
+        assert.equal(await tv.page.locator(`[data-focus="${source}"]`).getAttribute("aria-disabled"), "true");
+        held.release();
+        await tv.page.getByRole("button", { name: source === "favorites" ? "Add favorite" : "Add to watchlist", exact: true }).waitFor();
+        await tv.remote(10009);
+        await tv.eventually(async () => await tv.page.locator('.browse [data-focus="movie:m0050"]').count() === 0, "confirmed removal reconciles the current page");
+        assert.equal(await tv.page.getByText("Page 3 of 3", { exact: true }).count(), 1);
+        assert.equal(await tv.focused(), "movie:m0051");
+        assert.equal(catalog.mutations.length, 1);
+        await tv.page.locator('[data-focus="back"]').click();
+        await tv.page.locator('[data-view="home"]').waitFor();
+        await openList(tv, source === "watchlist" ? "favorites" : "watchlist");
+        for (let page = 2; page <= 3; page++) {
+            await tv.page.locator('[data-focus="next"]').click();
+            await tv.page.getByText(`Page ${page} of 3`, { exact: true }).waitFor();
+        }
+        assert.equal(await tv.page.locator('.browse [data-focus="movie:m0050"]').count(), 1);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

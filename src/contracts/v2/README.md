@@ -73,6 +73,10 @@ The six GET operations are reads; `queryCatalogItems` and `queryCatalogLetters` 
 The public discovery fixtures are byte-identical copies of `contracts/api/v2/fixtures/` at `SOURCE`:
 `list_library_sections_ok`, `get_library_section_items_ok`, `get_library_collections_ok`, `get_catalog_filters_ok`, `query_catalog_items_ok`, `query_catalog_letters_ok`, and `get_catalog_search_capabilities_ok`.
 Only consumed video facets and capability flags are decoded.
+Text Search also consumes optional `video_with_episodes_scope` as a strict boolean and negotiates the existing GET `listCatalogItems` request only after an allowed, available, true response.
+Absent/false flags keep video-only searches; capability read/decode failures remain recoverable failures rather than unsupported facts.
+The episode-inclusive request type is limited to text Search and is not added to library, facet, letter or POST source types.
+See [Text Search](../../../docs/skyline-browse-shell.md#text-search) for route ownership, continuation and source evidence.
 Unknown members are ignored and response enums are additive; malformed consumed fields fail without echoing values.
 These factories do not implement the library UI or complete issue 28.
 

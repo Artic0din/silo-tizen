@@ -124,6 +124,14 @@ test("browse operations are profile-scoped reads on the documented paths", () =>
     assert.ok(specs.every((spec) => spec.path.indexOf("include_hidden") === -1));
 });
 
+test("episode-inclusive text search uses the existing GET operation with opaque continuation", () => {
+    const spec = operations.listCatalogItems({ q: "Signal & echo", type: "video_with_episodes", limit: 24, cursor: "opaque+/= ?字" });
+    assert.equal(spec.method, "GET");
+    assert.equal(spec.path, "/catalog?q=Signal%20%26%20echo&type=video_with_episodes&limit=24&cursor=opaque%2B%2F%3D%20%3F%E5%AD%97&image_size=small");
+    assert.equal(spec.retry, "safe");
+    assert.equal(spec.body, undefined);
+});
+
 test("Home keeps movies, series, seasons and episodes, and leaves other media out", () => {
     const card = { id: "x", title: "X", year: undefined, posterUrl: undefined, seriesId: undefined, seriesTitle: undefined, seasonNumber: undefined, episodeNumber: undefined };
     assert.deepEqual(destinationOf({ ...card, type: "movie" }), { kind: "item", id: "x", title: "X" });

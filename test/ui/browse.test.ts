@@ -14,6 +14,12 @@ const BACK = 10009;
 const IME_DONE = 65376;
 const PAGE_SIZE = 24;
 
+function videoOnlyCatalog(): FakeCatalog {
+    const catalog = new FakeCatalog();
+    delete catalog.searchCapabilities.video_with_episodes_scope;
+    return catalog;
+}
+
 let browser: Browser;
 before(async () => {
     browser = await launchBrowser();
@@ -24,6 +30,7 @@ after(async () => {
 
 interface Start {
     readonly catalog?: FakeCatalog;
+    readonly multipleLibraries?: boolean;
     readonly profile?: string;
     readonly pin?: string;
 }
@@ -33,6 +40,11 @@ function browseTest(name: string, body: (tv: Tv, catalog: FakeCatalog) => Promis
         const tv = await openTv(browser, { app: "browse", ...(process.env.DISCOVERY_VIDEO !== undefined && name.startsWith("discovery flow") ? { video: process.env.DISCOVERY_VIDEO } : {}) });
         try {
             const catalog = start.catalog ?? new FakeCatalog();
+            if (start.multipleLibraries) {
+                const household = catalog.households.get(start.profile ?? "p-owner");
+                assert.ok(household);
+                household.hidden = [];
+            }
             await signedInBrowse(tv, catalog, start.profile ?? "p-owner", start.pin);
             await body(tv, catalog);
             assert.deepEqual(tv.console, [], "the page logs nothing");
@@ -617,7 +629,7 @@ browseTest("entering a library flyout cancels its pending row dwell", async (tv)
     assert.equal(tv.fake.requests.length, reads);
     await press(tv, "Enter");
     await showing(tv, "library:12");
-});
+}, { multipleLibraries: true });
 
 browseTest("R2 cached library restores flyout modes without reads on focus", async (tv, catalog) => {
     await tv.page.locator('[data-focus="movies"]').click();
@@ -633,7 +645,7 @@ browseTest("R2 cached library restores flyout modes without reads on focus", asy
     await press(tv, "ArrowDown", "ArrowRight");
     assert.deepEqual(await tv.page.locator('.skyline-flyout [role="menuitem"]').allTextContents(), ["Browse", "Collections", "Genres", "A–Z", "Recently Added"]);
     assert.equal(tv.fake.requests.length, reads);
-});
+}, { multipleLibraries: true });
 
 browseTest("a completed library read preserves navigation chosen while loading", async (tv) => {
     const pending = tv.fake.hold("/library/12/sections", true);
@@ -1020,7 +1032,7 @@ browseTest("discovery uses nonzero letter positions and cancels an obsolete quer
     assert.deepEqual(await tv.page.locator('.skyline-flyout [role="menuitem"]').allTextContents(), ["Browse", "Collections", "Genres", "A–Z", "Recently Added"]);
     await tv.remote(18);
     assert.equal(await tv.fake.requests.length, requests);
-});
+}, { multipleLibraries: true });
 
 browseTest("Skyline keeps bounded type tabs and a passive debounced marquee", async (tv) => {
     assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["home", "movies", "series", "search", "profiles"]);
@@ -1208,7 +1220,7 @@ browseTest("reduced motion snaps scrolling and the real Browse flyout preserves 
     assert.equal(await view(tv), "home");
     await press(tv, "Enter");
     await showing(tv, "library:12");
-});
+}, { multipleLibraries: true });
 
 browseTest("Home lists visible video libraries and supported rows, and every row is reachable by remote", async (tv) => {
     const nav = await cardIds(tv, ".browse-nav .browse-button");
@@ -1364,6 +1376,198 @@ browseTest("series open seasons, seasons list episodes, and Back retraces each s
     assert.equal(await tv.focused(), "series:s1");
 });
 
+browseTest("episode-aware text Search returns an episode-only match and preserves Details, resume and Back focus", async (tv, catalog) => {
+    catalog.progress.set("episode:s1e12", 420);
+    await tv.page.locator('[data-focus="search"]').click();
+    assert.equal(browseReads(tv, "/catalog/search/capabilities").length, 0, "empty Search performs no negotiation");
+    await tv.page.fill("#browse-search", "chapter 1.2");
+    await tv.remote(IME_DONE);
+    await tv.eventually(async () => (await cardIds(tv)).includes("episode:s1e12"), "the episode-only match");
+    assert.deepEqual(await cardIds(tv), ["episode:s1e12", "episode:s2e12"]);
+    assert.match(browseReads(tv, "/catalog")[0]?.path ?? "", /q=chapter%201\.2&type=video_with_episodes&limit=24/);
+    await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+    const reads = browseReads(tv).length;
+    await press(tv, "ArrowRight", "ArrowLeft");
+    assert.equal(browseReads(tv).length, reads, "focus never fetches");
+    await press(tv, "Enter");
+    await showing(tv, "item:episode:s1e12");
+    await tv.remote(BACK);
+    await showing(tv, "search");
+    assert.equal(await tv.focused(), "episode:s1e12");
+    await press(tv, "Enter");
+    await showing(tv, "item:episode:s1e12");
+    await tv.page.getByRole("button", { name: /^Resume/ }).click();
+    assert.deepEqual((await tv.page.evaluate(() => window.browseHarness.plays))[0], {
+        contentId: "episode:s1e12", fileId: "f-episode:s1e12", title: "Harbor Lights chapter 1.2", startSeconds: 420,
+    });
+    await tv.page.evaluate(() => window.browseHarness.resume());
+    await showing(tv, "item:episode:s1e12");
+    await tv.remote(BACK);
+    await showing(tv, "search");
+    assert.equal(await tv.focused(), "episode:s1e12");
+    assert.equal(await tv.page.inputValue("#browse-search"), "chapter 1.2");
+    assert.equal(browseReads(tv, "/catalog/search/capabilities").length, 1);
+});
+
+browseTest("episode-aware Search keeps movies, series and episode metadata without fetching on focus", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    for (const [query, ids] of [["Movie 0001", ["movie:m0001"]], ["Harbor Lights", ["series:s1", "episode:s1e11", "episode:s1e12", "episode:s1e13", "episode:s1e21", "episode:s1e22", "episode:s1e23"]]] as const) {
+        await tv.page.fill("#browse-search", query);
+        await press(tv, "Enter");
+        await tv.eventually(async () => (await cardIds(tv)).join() === ids.join(), "the scoped results");
+    }
+    assert.match(await tv.page.locator('[data-focus="episode:s1e12"]').innerText(), /Harbor Lights · S1:E2/);
+    const requests = browseReads(tv, "/catalog");
+    assert.equal(requests.length, 2);
+    for (const request of requests) {
+        assert.equal(new URL(request.path, "https://fake.invalid").searchParams.get("type"), "video_with_episodes");
+        assert.equal(request.headers["x-profile-id"], "p-owner");
+        assert.ok(request.headers.authorization?.startsWith("Bearer "));
+    }
+    assert.equal(browseReads(tv, "/catalog/search/capabilities").length, 1, "resolved route capability survives new queries");
+});
+
+for (const [name, capability] of [
+    ["older response", { video_with_episodes_scope: undefined }],
+    ["false flag", { video_with_episodes_scope: false }],
+    ["disallowed", { allowed: false }],
+    ["unsupported", { state: "unsupported" }],
+    ["disabled", { state: "disabled" }],
+    ["not configured", { state: "not_configured" }],
+    ["unknown additive state", { state: "future" }],
+] as const) {
+    browseTest(`episode-aware Search uses video-only fallback after confirmed ${name}`, async (tv, catalog) => {
+        catalog.searchCapabilities = { ...catalog.searchCapabilities, ...capability };
+        await tv.page.locator('[data-focus="search"]').click();
+        await tv.page.fill("#browse-search", "chapter 1.2");
+        await tv.remote(IME_DONE);
+        await shows(tv, 'No results for "chapter 1.2".');
+        assert.deepEqual(await cardIds(tv), []);
+        assert.equal(new URL(browseReads(tv, "/catalog")[0]?.path ?? "", "https://fake.invalid").searchParams.get("type"), "video");
+        await tv.page.fill("#browse-search", "Night Shift");
+        await tv.remote(IME_DONE);
+        await tv.eventually(async () => (await cardIds(tv)).join() === "series:s2", "video-only series");
+        assert.equal(browseReads(tv, "/catalog/search/capabilities").length, 1);
+    });
+}
+
+for (const failure of ["malformed flag", "malformed document", "server failure", "network failure"] as const) {
+    browseTest(`episode-aware Search exposes recoverable capability ${failure} without silently narrowing`, async (tv, catalog) => {
+        if (failure === "malformed flag") catalog.failNext("/catalog/search/capabilities", { status: 200, body: { ...catalog.searchCapabilities, video_with_episodes_scope: "true" } });
+        if (failure === "malformed document") catalog.failNext("/catalog/search/capabilities", { status: 200, body: {} });
+        if (failure === "server failure") catalog.failNext("/catalog/search/capabilities", ...Array.from({ length: 2 }, () => problem(503, "service_unavailable", "Unavailable")));
+        await tv.page.locator('[data-focus="search"]').click();
+        if (failure === "network failure") tv.offline = true;
+        await tv.page.fill("#browse-search", "chapter 1.2");
+        await tv.remote(IME_DONE);
+        if (failure.endsWith("failure")) await tv.jump(1000);
+        await tv.page.getByRole("button", { name: "Try again", exact: true }).waitFor();
+        assert.equal(browseReads(tv, "/catalog").length, 0, "failure cannot fabricate unsupported scope or an empty result");
+        assert.equal(await tv.page.getByText('No results for "chapter 1.2".').count(), 0);
+        tv.offline = false;
+        await press(tv, "ArrowDown", "Enter");
+        await tv.eventually(async () => (await cardIds(tv)).includes("episode:s1e12"), "episode results after Retry");
+        assert.equal(await tv.focused(), "query");
+    });
+}
+
+browseTest("episode-aware Search drops a late old-query capability before debounce and retains the new scope", async (tv, catalog) => {
+    await tv.page.locator('[data-focus="search"]').click();
+    const held = tv.fake.hold("/catalog/search/capabilities", true);
+    const supported = catalog.searchCapabilities;
+    catalog.searchCapabilities = { ...supported, video_with_episodes_scope: false };
+    await tv.page.fill("#browse-search", "Movie 0001");
+    await tv.remote(IME_DONE);
+    await tv.eventually(async () => browseReads(tv, "/catalog/search/capabilities").length === 1, "old capability request");
+    await tv.page.fill("#browse-search", "chapter 1.2");
+    held.release();
+    await tv.jump(0);
+    assert.deepEqual(await cardIds(tv), []);
+    assert.equal(browseReads(tv, "/catalog").length, 0, "aborted negotiation cannot send the old query");
+    catalog.searchCapabilities = supported;
+    await tv.jump(600);
+    await tv.eventually(async () => (await cardIds(tv)).includes("episode:s1e12"), "the new supported query");
+    assert.equal(browseReads(tv, "/catalog/search/capabilities").length, 2);
+    assert.equal(browseReads(tv, "/catalog").length, 1);
+});
+
+browseTest("episode-aware Search ignores a late episode result for an older query", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    const held = tv.fake.hold("/catalog", true);
+    await tv.page.fill("#browse-search", "chapter 1.2");
+    await tv.remote(IME_DONE);
+    await tv.eventually(async () => browseReads(tv, "/catalog").length === 1, "held episode query");
+    await tv.page.fill("#browse-search", "Movie 0001");
+    await tv.remote(IME_DONE);
+    await tv.eventually(async () => (await cardIds(tv)).join() === "movie:m0001", "new movie query");
+    held.release();
+    await tv.jump(0);
+    assert.deepEqual(await cardIds(tv), ["movie:m0001"]);
+    assert.equal(browseReads(tv, "/catalog/search/capabilities").length, 1);
+});
+
+for (const path of ["/catalog/search/capabilities", "/catalog"] as const) {
+    browseTest(`episode-aware Search drops late profile answers from ${path}`, async tv => {
+        await tv.page.locator('[data-focus="search"]').click();
+        const held = tv.fake.hold(path, true);
+        await tv.page.fill("#browse-search", "chapter 1.2");
+        await tv.remote(IME_DONE);
+        await tv.eventually(async () => browseReads(tv, path).length === 1, "held profile read");
+        await tv.page.evaluate(() => window.browseHarness.clearProfile());
+        assert.equal(await tv.page.evaluate(() => window.browseHarness.selectProfile("p-kid", "2468")), "verified");
+        await tv.page.evaluate(() => window.browseHarness.mount());
+        await showing(tv, "home");
+        await tv.page.locator('[data-focus="search"]').click();
+        await tv.page.fill("#browse-search", "chapter 1.2");
+        await tv.remote(IME_DONE);
+        await shows(tv, 'No results for "chapter 1.2".');
+        const reads = browseReads(tv, "/catalog").length;
+        held.release();
+        await tv.jump(0);
+        assert.deepEqual(await cardIds(tv), []);
+        assert.equal(browseReads(tv, "/catalog").length, reads, "old capability cannot start a query under the new profile");
+        assert.equal(browseReads(tv, "/catalog").slice(-1)[0]?.headers["x-profile-id"], "p-kid");
+    });
+}
+
+browseTest("episode-aware Search preserves opaque paging scope, invalid-cursor Retry and cached page focus", async (tv, catalog) => {
+    for (let i = 1; i <= 50; i++) catalog.add({ id: `episode:signal${i}`, title: `Signal ${String(i).padStart(2, "0")}`, type: "episode", libraryId: "13", seriesId: "series:s1", season: 3, episode: i });
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Signal");
+    await tv.remote(IME_DONE);
+    await tv.eventually(async () => (await cardIds(tv)).length === 24, "first episode page");
+    catalog.searchCapabilities = { ...catalog.searchCapabilities, allowed: false };
+    await tv.page.getByRole("button", { name: "Next page", exact: true }).click();
+    await tv.eventually(async () => (await cardIds(tv))[0] === "episode:signal25", "second episode page");
+    const second = new URL(browseReads(tv, "/catalog").slice(-1)[0]?.path ?? "", "https://fake.invalid");
+    assert.equal(second.searchParams.get("cursor"), "search+/= ?字:signal:video_with_episodes:24");
+    assert.equal(second.searchParams.get("type"), "video_with_episodes");
+    await tv.page.locator('[data-focus="episode:signal25"]').focus();
+    await press(tv, "Enter");
+    await showing(tv, "item:episode:signal25");
+    await tv.remote(BACK);
+    await showing(tv, "search");
+    assert.equal(await tv.focused(), "episode:signal25");
+    await tv.page.locator('[data-focus="home"]').click();
+    await tv.page.locator('[data-focus="search"]').click();
+    assert.equal(await tv.focused(), "query", "cached Search retains its existing field-first entry");
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "episode:signal25");
+    assert.equal((await cardIds(tv))[0], "episode:signal25");
+    catalog.failNext("/catalog", problem(400, "invalid_cursor", "Invalid cursor"));
+    await tv.page.getByRole("button", { name: "Next page", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Try again", exact: true }).click();
+    await tv.eventually(async () => (await cardIds(tv))[0] === "episode:signal1", "restarted episode cursor sequence");
+    const retry = new URL(browseReads(tv, "/catalog").slice(-1)[0]?.path ?? "", "https://fake.invalid");
+    assert.equal(retry.searchParams.get("cursor"), null);
+    assert.equal(retry.searchParams.get("type"), "video_with_episodes");
+    assert.equal(browseReads(tv, "/catalog/search/capabilities").length, 1, "pages and reopening keep resolved route facts");
+    await tv.page.fill("#browse-search", "Movie 0001");
+    await tv.remote(IME_DONE);
+    await tv.eventually(async () => (await cardIds(tv)).join() === "movie:m0001", "new query starts without an incompatible cursor");
+    assert.equal(new URL(browseReads(tv, "/catalog").slice(-1)[0]?.path ?? "", "https://fake.invalid").searchParams.get("cursor"), null);
+});
+
 browseTest("typing invalidates an in-flight search before the debounce expires", async (tv) => {
     await press(tv, "ArrowUp", "ArrowRight", "ArrowRight", "ArrowRight", "Enter");
     await showing(tv, "search");
@@ -1381,7 +1585,7 @@ browseTest("typing invalidates an in-flight search before the debounce expires",
     await shows(tv, "Night Shift");
     assert.deepEqual(await cardIds(tv), ["series:s2"]);
     assert.equal(await tv.focused(), "query");
-});
+}, { catalog: videoOnlyCatalog() });
 
 browseTest("search uses the TV keyboard, shows only the latest query's answer, and recovers from failures", async (tv, catalog) => {
     await press(tv, "ArrowUp", "ArrowRight", "ArrowRight", "ArrowRight", "Enter");
@@ -1420,7 +1624,7 @@ browseTest("search uses the TV keyboard, shows only the latest query's answer, a
     await press(tv, "Enter");
     await tv.eventually(async () => (await cardIds(tv)).length === 9, "results after retry");
     assert.equal(await tv.focused(), "query", "the focused retry button is gone: focus returns to the field");
-});
+}, { catalog: videoOnlyCatalog() });
 
 browseTest("Back from a result reloads a query edited before its debounce could run", async (tv) => {
     await press(tv, "ArrowUp", "ArrowRight", "ArrowRight", "ArrowRight", "Enter");
@@ -1440,7 +1644,7 @@ browseTest("Back from a result reloads a query edited before its debounce could 
     held.release();
     await shows(tv, "Night Shift");
     assert.deepEqual(await cardIds(tv), ["series:s2"]);
-});
+}, { catalog: videoOnlyCatalog() });
 
 browseTest("loading, slow, offline, removed, empty and missing-artwork states all leave a way forward", async (tv, catalog) => {
     await tv.eventually(async () => (await tv.page.locator(".browse-art-missing").count()) >= 2, "placeholders");

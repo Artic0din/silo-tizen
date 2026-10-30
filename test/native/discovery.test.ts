@@ -116,6 +116,17 @@ test("capabilities default absent optional flags to undefined and tolerate futur
     assert.throws(() => decodeCatalogQueryPage({ ...fixture("query_catalog_items_ok"), effective_sort: { field: "title", order: 7 } }), WireError);
 });
 
+test("episode-search capability consumes only a boolean and retains confirmed absence", () => {
+    const base = fixture("get_catalog_search_capabilities_ok");
+    assert.equal(decodeCatalogSearchCapabilities({ ...base, future: { flag: 7 } }).videoWithEpisodesScope, true);
+    assert.equal(decodeCatalogSearchCapabilities({ ...base, video_with_episodes_scope: false }).videoWithEpisodesScope, false);
+    delete base.video_with_episodes_scope;
+    assert.equal(decodeCatalogSearchCapabilities(base).videoWithEpisodesScope, undefined);
+    for (const value of [null, "true", 1, [], {}]) {
+        assert.throws(() => decodeCatalogSearchCapabilities({ ...base, video_with_episodes_scope: value }), WireError);
+    }
+});
+
 test("discovery POST reads carry session profile headers, retry identically and cancel on profile change", async () => {
     const h = await connected();
     await signIn(h);

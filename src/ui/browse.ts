@@ -267,8 +267,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             input.value = current.query;
         }
         render(focus);
-        if (!hasData(current) || current.stale || current.failure !== undefined) {
-            loadRoute(current, hasData(current));
+        const queryChanged = current.kind === "search" && current.query !== current.resultsFor;
+        if (!hasData(current) || current.stale || current.failure !== undefined || queryChanged) {
+            loadRoute(current, hasData(current) && !queryChanged);
         }
     };
 

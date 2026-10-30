@@ -11,6 +11,7 @@ import { FakeSilo } from "../../native/support/fakeSilo.ts";
 
 const ORIGIN = "https://silo.example.test";
 const PAGE = `${ORIGIN}/tv/index.html`;
+const EVENTUALLY_TIMEOUT_MS = 10000;
 /** Which screens the page mounts: the sign-in harness or the browse harness. */
 export type TvApp = "signIn" | "browse";
 const ENTRY: Record<TvApp, string> = { signIn: "../harness.ts", browse: "../browseHarness.ts" };
@@ -122,11 +123,13 @@ export async function openTv(browser: Browser, options: { sessionOnly?: boolean;
         screen: () => page.evaluate(() => document.querySelector("[data-screen]")?.getAttribute("data-screen") ?? null),
         focused: () => page.evaluate(() => document.activeElement?.getAttribute("data-focus") ?? null),
         async eventually(check, what) {
-            for (let i = 0; i < 200; i++) {
+            const deadline = performance.now() + EVENTUALLY_TIMEOUT_MS;
+            while (performance.now() < deadline) {
                 if (await check()) {
                     return;
                 }
-                await new Promise<void>((resolve) => setImmediate(resolve));
+                // Host-only checks must yield to the browser and its routed network requests.
+                await page.evaluate(() => undefined);
             }
             throw new Error(`timed out waiting for ${what}`);
         },

@@ -19,6 +19,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Reloaded an edited search when returning from a result opened before the search delay elapsed.
 - Preserved remote focus when a PIN check finished unsuccessfully.
 - Kept focus during native profile sign-out and waited for credential cleanup before returning to sign-in.
 - Kept manual device-code sign-in available when its link could not be encoded as a QR code.

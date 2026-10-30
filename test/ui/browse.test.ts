@@ -286,6 +286,26 @@ browseTest("search uses the TV keyboard, shows only the latest query's answer, a
     assert.equal(await tv.focused(), "query", "the focused retry button is gone: focus returns to the field");
 });
 
+browseTest("Back from a result reloads a query edited before its debounce could run", async (tv) => {
+    await press(tv, "ArrowUp", "Enter");
+    await showing(tv, "search");
+    await tv.page.fill("#browse-search", "Movie 0001");
+    await tv.remote(IME_DONE);
+    await tv.eventually(async () => (await cardIds(tv)).join() === "movie:m0001", "the original search result");
+    await tv.page.fill("#browse-search", "night");
+    await press(tv, "ArrowDown", "Enter");
+    await showing(tv, "item:movie:m0001");
+    const held = tv.fake.hold("/catalog", true);
+    await tv.remote(BACK);
+    await showing(tv, "search");
+    assert.equal(await tv.page.inputValue("#browse-search"), "night");
+    assert.deepEqual(await cardIds(tv), [], "the old query's cards cannot be restored under the edited query");
+    await tv.eventually(async () => browseReads(tv, "/catalog").length === 2, "the edited query request");
+    held.release();
+    await shows(tv, "Night Shift");
+    assert.deepEqual(await cardIds(tv), ["series:s2"]);
+});
+
 browseTest("loading, slow, offline, removed, empty and missing-artwork states all leave a way forward", async (tv, catalog) => {
     await tv.eventually(async () => (await tv.page.locator(".browse-art-missing").count()) >= 2, "placeholders");
     const missing = await tv.page.evaluate(() => Array.from(document.querySelectorAll(".browse-art-missing")).map((node) => node.parentElement?.getAttribute("data-focus")));

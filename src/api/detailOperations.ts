@@ -7,8 +7,8 @@ export type PersonalAction = "watchlist" | "favorites" | "watched";
 
 export const detailOperations = {
     person: (id: string): RequestSpec<ReturnType<typeof decodePerson>> => ({ method: "GET", path: `/catalog/people/${encodeURIComponent(id)}`, retry: "safe", decode: decodePerson }),
-    // shortcut: first 24 accessible movie/series credits only, add paging when person browsing grows.
-    filmography: (id: string): RequestSpec<ReturnType<typeof decodeCatalogPage>> => ({ method: "GET", path: `/catalog?source=person&person_id=${encodeURIComponent(id)}&type=video&limit=24&image_size=small`, retry: "safe", decode: decodeCatalogPage }),
+    // The preview and full query start independently; GET and POST cursors have different scopes.
+    filmography: (id: string): RequestSpec<ReturnType<typeof decodeCatalogPage>> => ({ method: "GET", path: `/catalog?source=person&person_id=${encodeURIComponent(id)}&type=video&sort=-year&limit=24&image_size=small`, retry: "safe", decode: decodeCatalogPage }),
     similar: (id: string): RequestSpec<ReturnType<typeof decodeCatalogPage>> => ({ method: "GET", path: `/recommendations/similar/${encodeURIComponent(id)}?limit=24&image_size=small`, retry: "safe", decode: decodeCatalogPage }),
     personalCapability: (): RequestSpec<boolean> => ({ method: "GET", path: "/capabilities/personal-lists", retry: "safe", decode: decodePersonalCapability }),
     membership: (kind: "watchlist" | "favorites", id: string): RequestSpec<ReturnType<typeof decodeMembership>> => ({ method: "GET", path: `/${kind}/${encodeURIComponent(id)}/membership`, retry: "safe", decode: decodeMembership }),

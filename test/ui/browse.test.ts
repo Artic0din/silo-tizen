@@ -110,16 +110,16 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
     personal.release();
     await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "refreshed related titles");
-    await tv.page.locator('[data-focus="person:river"]').first().focus();
+    await tv.page.locator('[data-focus="person:7"]').first().focus();
     const reads = tv.fake.requests.length;
     await press(tv, "ArrowRight", "ArrowLeft");
     assert.equal(tv.fake.requests.length, reads, "focus performs no reads");
     await press(tv, "Enter");
-    await showing(tv, "person:river");
+    await showing(tv, "person:7");
     assert.equal(await tv.page.locator(".browse-card").count(), 24);
     await tv.remote(BACK);
     await showing(tv, "item:movie:m0001");
-    assert.equal(await tv.focused(), "person:river");
+    assert.equal(await tv.focused(), "person:7");
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "the bounded related rail");
     assert.equal(await tv.page.getByRole("button", { name: /trailer/i }).count(), 0);
 }, { catalog: new FakeDetails() });
@@ -350,7 +350,7 @@ browseTest("Details portraits keep their circular geometry and combine one perso
         const art = node.querySelector(".details-backdrop");
         return art !== null && art.getBoundingClientRect().bottom <= node.getBoundingClientRect().bottom;
     }), true, "hero artwork cannot paint over later rails");
-    assert.equal(await tv.page.locator('[data-focus="person:river"]').count(), 1);
+    assert.equal(await tv.page.locator('[data-focus="person:7"]').count(), 1);
     await shows(tv, "Alex · Director");
 }, { catalog: new FakeDetails() });
 
@@ -420,9 +420,9 @@ browseTest("optional Details reads load independently, fail, retry and report em
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await shows(tv, "No related titles available.");
-    await tv.page.locator('[data-focus="person:river"]').focus();
+    await tv.page.locator('[data-focus="person:7"]').focus();
     await press(tv, "Enter");
-    await showing(tv, "person:river");
+    await showing(tv, "person:7");
     await shows(tv, "No available titles for this person.");
     await tv.remote(BACK);
     await showing(tv, "item:movie:m0001");
@@ -454,8 +454,8 @@ browseTest("person, related and personal reads recover with explicit retries", a
     await tv.page.getByRole("button", { name: "Retry personal actions", exact: true }).click();
     await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "related retry");
-    const person = tv.fake.hold("/catalog/people/river", true);
-    await tv.page.locator('[data-focus="person:river"]').focus();
+    const person = tv.fake.hold("/catalog/people/7", true);
+    await tv.page.locator('[data-focus="person:7"]').focus();
     await press(tv, "Enter");
     await showing(tv, "person:loading");
     await tv.page.evaluate(() => window.browseHarness.clearProfile());
@@ -504,9 +504,9 @@ for (const kind of ["favorites", "watchlist"]) {
         const held = tv.fake.hold(path, true);
         await tv.page.getByRole("button", { name: kind === "favorites" ? "Add favorite" : "Add to watchlist", exact: true }).click();
         await tv.eventually(async () => catalog.mutations.length === 1, "personal mutation committed");
-        await tv.page.locator('[data-focus="person:river"]').first().focus();
+        await tv.page.locator('[data-focus="person:7"]').first().focus();
         await press(tv, "Enter");
-        await showing(tv, "person:river");
+        await showing(tv, "person:7");
         await tv.remote(BACK);
         held.release();
         await showing(tv, "item:movie:m0001");

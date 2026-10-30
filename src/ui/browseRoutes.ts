@@ -14,6 +14,8 @@ import { el } from "./screen.ts";
 import { discoveryState, type DiscoveryState, type LibraryMode, type LibrarySource } from "./libraryDiscovery.ts";
 import { discoveryView, resultsView } from "./libraryDiscoveryViews.ts";
 import { personalView, type PersonalFilter, type PersonalSource, type PersonalListCapability } from "./personalLists.ts";
+import type { MediaScope } from "../contracts/v2/discovery.ts";
+import { personFilmographyView } from "./personFilmography.ts";
 
 /** Cards per catalog page: four grid rows. Only the shown page is kept. */
 export const PAGE_SIZE = 24;
@@ -26,6 +28,7 @@ export interface Pages {
 }
 
 export type RouteData =
+    | { readonly kind: "personFilmography"; readonly id: string; readonly title: string; filter: MediaScope; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "personal"; readonly source: PersonalSource; filter: PersonalFilter; capability: PersonalListCapability | undefined; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "home"; data: { libraries: UserLibrary[]; sections: HomeSection[] } | undefined }
     | { readonly kind: "homeSection"; readonly id: string; readonly title: string; readonly continuing: boolean; pages: Pages; pendingIndex: number | undefined }
@@ -64,6 +67,7 @@ export function hasData(current: Route): boolean {
         case "library":
             return current.discovery?.data !== undefined && (!(current.discovery.mode === "A–Z" || current.discovery.mode === "Recently Added" || current.discovery.genre !== undefined) || current.pages.page !== undefined);
         case "libraryResults":
+        case "personFilmography":
         case "homeSection":
             return current.pages.page !== undefined;
         case "search":
@@ -74,6 +78,7 @@ export function hasData(current: Route): boolean {
 }
 
 export interface RouteHandlers {
+    readonly personFilter: (route: Extract<Route, { kind: "personFilmography" }>, filter: MediaScope) => void;
     readonly personalFilter: (route: Extract<Route, { kind: "personal" }>, filter: PersonalFilter) => void;
     readonly synopsis: Synopsis;
     readonly context: ViewContext;
@@ -100,6 +105,7 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
     const back = current.kind === "home" ? undefined : pop;
     const escape = back === undefined ? actionButton("profiles", "Profiles", handlers.chooseProfile) : actionButton("back", "Back", back);
     if (current.kind === "personal") return personalView(current, handlers);
+    if (current.kind === "personFilmography") return personFilmographyView(current, handlers);
     if (current.kind === "library") {
         current.discovery ??= discoveryState();
         return discoveryView(current, current.discovery, handlers);
@@ -147,7 +153,8 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
             }
             break;
         case "person":
-            if (current.data !== undefined) return personView(current.data.person, current.data.titles.items, context, pop, handlers.synopsis);
+            if (current.data !== undefined) return personView(current.data.person, current.data.titles.items, context, pop, handlers.synopsis,
+                () => handlers.push(newRoute({ kind: "personFilmography", id: current.id, title: current.data?.person.name ?? current.title, filter: "video", pages: newPages(), pendingIndex: undefined })));
             break;
         case "season":
             if (current.data !== undefined) {
@@ -212,10 +219,10 @@ export function failureText(error: unknown, current: Route): string | undefined 
             ? "This library is no longer available."
             : current.kind === "season"
               ? "This season is no longer available."
-              : "This title is no longer available.";
+              : current.kind === "person" ? "This person is no longer available." : "This title is no longer available.";
     }
     if (error.problemId === "invalid_cursor") {
-        if (current.kind === "homeSection") return "The list changed. Try again.";
+        if (current.kind === "homeSection" || current.kind === "personFilmography") return "The list changed. Try again.";
         return "The list changed. Go back and open it again.";
     }
     if (kind === "invalid_response") {

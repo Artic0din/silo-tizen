@@ -20,7 +20,8 @@ export type CatalogLettersRequest = {
 };
 export type CatalogQueryRequest = Omit<CatalogLettersRequest, "type"> & {
     readonly type?: MediaScope | "episode";
-    readonly source?: "query" | "section" | "library_collection" | "user_collection" | "watchlist" | "favorites" | "history";
+    readonly source?: "query" | "section" | "library_collection" | "user_collection" | "watchlist" | "favorites" | "history" | "person";
+    readonly person_id?: string;
     readonly scope?: "home" | "library";
     readonly section_id?: string;
     readonly collection_id?: string;

@@ -49,6 +49,7 @@ const controls: PlayerControls = {
     selectSubtitle: (id) => commands.push(`selectSubtitle ${id ?? "off"}`),
     selectQuality: (id) => commands.push(`selectQuality ${id}`),
     retryTrackInfo: () => commands.push("retryTrackInfo"),
+    retrySettings: () => commands.push("retrySettings"),
     seekThumbnail: async () => undefined,
 };
 const screen: PlayerScreen = mountPlayerScreen(root, controls);

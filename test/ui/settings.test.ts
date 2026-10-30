@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
-import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY } from "../../src/contracts/v2/settings.ts";
+import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY } from "../../src/contracts/v2/settings.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
@@ -32,6 +32,46 @@ async function openSettings(tv: Tv): Promise<void> {
     await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
     await tv.page.getByRole("button", { name: /Hidden libraries/ }).waitFor();
 }
+
+test("video intervals show numeric server labels, profile values and independent inherited resets", async () => {
+    const { tv, settings } = await setup();
+    try {
+        settings.supportsBatchedEffective = false;
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        await tv.page.getByText("On this TV: 10 seconds · Inherited default", { exact: true }).waitFor();
+        await tv.page.getByText("On this TV: 30 seconds · Inherited default", { exact: true }).waitFor();
+        for (const [picker, seconds] of [["seek-back", 15], ["seek-forward", 45]] as const) {
+            await tv.page.locator(`[data-focus="${picker}"]`).click();
+            assert.deepEqual(await tv.page.getByRole("radio").allTextContents(), ["5 seconds", "10 seconds", "15 seconds", "30 seconds", "45 seconds", "60 seconds", "90 seconds"]);
+            assert.equal(await tv.page.getByRole("radio", { name: "No preference", exact: true }).count(), 0);
+            assert.equal(await tv.page.locator('[data-focus="reset"]').count(), 0);
+            const count = tv.fake.requests.length;
+            await tv.page.keyboard.press("ArrowDown");
+            await tv.page.keyboard.press("ArrowDown");
+            assert.equal(tv.fake.requests.length, count);
+            for (let step = 0; step < 5; step++) await tv.page.keyboard.press("ArrowDown");
+            await tv.jump(250);
+            assert.equal(await tv.focused(), `${picker}:90`);
+            const bounds = await tv.page.getByRole("radio", { name: "90 seconds", exact: true }).boundingBox();
+            assert.ok(bounds !== null && bounds.y >= 0 && bounds.y + bounds.height <= 1080, "last numeric choice scrolls fully into view");
+            assert.equal(tv.fake.requests.length, count);
+            await tv.page.getByRole("radio", { name: `${seconds} seconds`, exact: true }).click();
+            await tv.page.locator(`[data-focus="${picker}"]`).waitFor();
+            assert.equal(await tv.focused(), picker);
+        }
+        for (const [picker, key, defaultSeconds] of [["seek-back", SEEK_BACK_KEY, 10], ["seek-forward", SEEK_FORWARD_KEY, 30]] as const) {
+            await tv.page.locator(`[data-focus="${picker}"]`).click();
+            await tv.page.locator('[data-focus="reset"]').click();
+            await tv.page.locator(`[data-focus="${picker}"]`).waitFor();
+            assert.equal(settings.profile().has(key), false);
+            await tv.page.getByText(`On this TV: ${defaultSeconds} seconds · Inherited default`, { exact: true }).waitFor();
+            if (key === SEEK_BACK_KEY) assert.equal(settings.profile().get(SEEK_FORWARD_KEY), 45);
+        }
+        assert.deepEqual(tv.fake.requests.filter(r => r.method === "DELETE").map(r => r.path), [`/settings/values/${SEEK_BACK_KEY}?scope=profile`, `/settings/values/${SEEK_FORWARD_KEY}?scope=profile`]);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
 
 test("Settings uses category, row and picker Back focus with no requests on focus", async () => {
     const { tv } = await setup();

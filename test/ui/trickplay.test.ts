@@ -8,6 +8,8 @@ import { ManualClock } from "../native/support/clock.ts";
 import { FakeSilo, fixture } from "../native/support/fakeSilo.ts";
 import { FakePlayback } from "../native/support/fakePlayback.ts";
 import { FakeTrickplay } from "../native/support/fakeTrickplay.ts";
+import { FakeSettings } from "../native/support/fakeSettings.ts";
+import { SEEK_BACK_KEY, SEEK_FORWARD_KEY } from "../../src/contracts/v2/settings.ts";
 
 const ORIGIN = "https://silo.example.test";
 const CAPTURE = process.env.TRICKPLAY_CAPTURE_DIR;
@@ -64,13 +66,18 @@ before(async () => {
 });
 after(async () => { await browser.close(); });
 
-async function open(timelineOffset = 0) {
+async function open(timelineOffset = 0, intervals?: { backward: number; forward: number }) {
     const context = await browser.newContext({ viewport: { width: 1920, height: 1080 },
         ...(CAPTURE === undefined ? {} : { recordVideo: { dir: join(CAPTURE, "journeys"), size: { width: 1920, height: 1080 } } }) });
     const page = await context.newPage();
     const clock = new ManualClock();
     const fake = new FakeSilo(clock);
     const playback = new FakePlayback(fake);
+    if (intervals !== undefined) {
+        const settings = new FakeSettings(fake);
+        settings.profile().set(SEEK_BACK_KEY, intervals.backward);
+        settings.profile().set(SEEK_FORWARD_KEY, intervals.forward);
+    }
     const previews = new FakeTrickplay(fake, clock);
     fake.script("/playback/capabilities", { status: 200, body: { ...fixture("playback_capability_available"), features: ["trickplay_v1"] } });
     playback.next.push({ timeline: { source_start_seconds: 1225, player_start_seconds: 1225 - timelineOffset, timeline_offset_seconds: timelineOffset },
@@ -130,6 +137,23 @@ const remote = (page: Page, keyCode: number): Promise<void> => page.evaluate((co
 }, keyCode);
 const focus = (page: Page) => page.evaluate(() => document.activeElement?.getAttribute("data-focus"));
 const capture = async (page: Page, name: string): Promise<void> => { if (CAPTURE !== undefined) await page.screenshot({ path: join(CAPTURE, `${name}.png`), animations: "disabled" }); };
+
+test("15/45 previews select thumbnails by resulting source time, independently of ten-second sprite cadence", async () => {
+    const r = await open(0, { backward: 15, forward: 45 });
+    try {
+        await remote(r.page, 37);
+        assert.match(await r.page.locator(".player-time").innerText(), /^20:10/);
+        await r.page.locator(".player-thumbnail:not([hidden]) img").waitFor();
+        assert.equal(await r.page.locator(".player-thumbnail img").evaluate(image => (image as HTMLElement).style.left), "-320px");
+        await remote(r.page, 39);
+        assert.match(await r.page.locator(".player-time").innerText(), /^20:55/);
+        await r.page.waitForFunction(() => (document.querySelector(".player-thumbnail img") as HTMLElement | null)?.style.left === "-1600px");
+        await remote(r.page, 10009);
+        assert.match(await r.page.locator(".player-time").innerText(), /^20:25/);
+        assert.equal(await r.page.locator(".player-thumbnail:not([hidden])").count(), 0);
+        assert.deepEqual(r.errors, []);
+    } finally { await r.close(); }
+});
 
 test("matched native-size seek journey: active JPEG, failure fallback and cancel", async () => {
     const r = await open();

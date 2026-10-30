@@ -40,7 +40,7 @@ const TRACKS: TrackView = {
     change: { state: "idle" },
     notices: [],
 };
-const playing = (tracks: TrackView): Extract<PlaybackView, { phase: "playing" | "paused" }> => ({ phase: "playing", title: "The Movie", positionSeconds: 754, durationSeconds: 7200, buffering: false, tracks });
+const playing = (tracks: TrackView): Extract<PlaybackView, { phase: "playing" | "paused" }> => ({ phase: "playing", title: "The Movie", positionSeconds: 754, durationSeconds: 7200, buffering: false, seekIntervals: { backward: 10, forward: 10 }, tracks });
 
 let browser: Browser;
 let script: string;
@@ -91,6 +91,61 @@ const show = (page: Page, view: PlaybackView): Promise<void> => page.evaluate((n
 const commands = (page: Page): Promise<string[]> => page.evaluate(() => window.player.commands.slice());
 const focused = (page: Page): Promise<string | null> => page.evaluate(() => document.activeElement?.getAttribute("data-focus") ?? null);
 const text = (page: Page, selector: string): Promise<string> => page.locator(selector).innerText();
+
+test("saved 15/45 drives transport labels, repeated preview, dedicated keys and clamping", async () => {
+    const { page, logs } = await open();
+    const view = { ...playing(TRACKS), positionSeconds: 100, durationSeconds: 200, seekIntervals: { backward: 15, forward: 45 } };
+    try {
+        await show(page, view);
+        assert.equal(await page.getByRole("button", { name: "Back 15 seconds", exact: true }).count(), 1);
+        assert.equal(await page.getByRole("button", { name: "Forward 45 seconds", exact: true }).count(), 1);
+        const position = () => page.getByRole("slider").getAttribute("aria-valuenow");
+        await remote(page, LEFT);
+        assert.equal(await position(), "85");
+        await remote(page, RIGHT);
+        assert.equal(await position(), "130");
+        await remote(page, BACK);
+        assert.equal(await position(), "100");
+        assert.deepEqual(await commands(page), []);
+        await remote(page, RIGHT);
+        assert.equal(await position(), "145");
+        await remote(page, ENTER);
+        await remote(page, 412);
+        await remote(page, 417);
+        assert.deepEqual(await commands(page), ["seekToSeconds 145", "seekBy -15", "seekBy 45"]);
+        await page.getByRole("button", { name: "Back 15 seconds", exact: true }).click();
+        assert.equal(await position(), "85");
+        await remote(page, BACK);
+        await page.getByRole("button", { name: "Forward 45 seconds", exact: true }).click();
+        assert.equal(await position(), "145");
+        await remote(page, BACK);
+        await show(page, { ...view, positionSeconds: 5 });
+        await remote(page, LEFT);
+        assert.equal(await position(), "0");
+        await remote(page, BACK);
+        await show(page, { ...view, positionSeconds: 190 });
+        await remote(page, RIGHT);
+        assert.equal(await position(), "200");
+        assert.deepEqual(logs, []);
+    } finally { await page.close(); }
+});
+
+test("settings read failure exposes Retry with remote focus and Back dismissal", async () => {
+    const { page, logs } = await open();
+    try {
+        await show(page, { phase: "error", title: "Synthetic film", error: { kind: "settings" } });
+        assert.equal(await focused(page), "settings-retry");
+        assert.match(await page.getByRole("alert").innerText(), /seek intervals/);
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "back");
+        await remote(page, UP);
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["retrySettings"]);
+        await remote(page, BACK);
+        assert.deepEqual(await commands(page), ["retrySettings", "dismissError"]);
+        assert.deepEqual(logs, []);
+    } finally { await page.close(); }
+});
 
 test("dedicated media buttons set playback state and still work over the track menu", async () => {
     const { page, logs } = await open();
@@ -231,18 +286,18 @@ test("loading, playing and paused are readable; the remote cancels a seek previe
         assert.equal(await text(page, ".player-overlay .player-title"), "The Movie");
         assert.equal(await focused(page), "player");
 
-        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 754, durationSeconds: 7200, buffering: false, tracks: NO_TRACKS });
+        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 754, durationSeconds: 7200, buffering: false, seekIntervals: { backward: 10, forward: 10 }, tracks: NO_TRACKS });
         assert.equal(await text(page, ".player-time"), "12:34 / 2:00:00");
         assert.equal(await page.locator(".player-overlay").getAttribute("class"), "player-overlay", "shown when playback starts");
         await page.clock.fastForward(5000);
-        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 759, durationSeconds: 7200, buffering: false, tracks: NO_TRACKS });
+        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 759, durationSeconds: 7200, buffering: false, seekIntervals: { backward: 10, forward: 10 }, tracks: NO_TRACKS });
         assert.equal(await page.locator(".player-overlay").getAttribute("class"), "player-overlay player-overlay-hidden");
 
         await remote(page, ENTER);
         await remote(page, LEFT);
         await remote(page, RIGHT);
         assert.equal(await page.locator(".player-overlay").getAttribute("class"), "player-overlay", "a key brings the overlay back");
-        await show(page, { phase: "paused", title: "The Movie", positionSeconds: 759, durationSeconds: undefined, buffering: false, tracks: NO_TRACKS });
+        await show(page, { phase: "paused", title: "The Movie", positionSeconds: 759, durationSeconds: undefined, buffering: false, seekIntervals: { backward: 10, forward: 10 }, tracks: NO_TRACKS });
         assert.equal(await text(page, ".player-status"), "Paused");
         assert.equal(await text(page, ".player-time"), "12:39");
         await capture(page, "player-paused");
@@ -283,7 +338,7 @@ test("the AVPlay object stays hidden so its browser placeholder cannot cover nat
         const surface = page.locator("object.player-video");
         assert.equal(await surface.count(), 1, "AVPlay retains its object");
         assert.equal(await surface.evaluate((node) => getComputedStyle(node).visibility), "hidden");
-        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 60, durationSeconds: 7200, buffering: false, tracks: NO_TRACKS });
+        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 60, durationSeconds: 7200, buffering: false, seekIntervals: { backward: 10, forward: 10 }, tracks: NO_TRACKS });
         assert.equal(await surface.evaluate((node) => getComputedStyle(node).visibility), "hidden");
         assert.equal(await page.locator(".player-overlay").isVisible(), true);
     } finally {
@@ -455,7 +510,7 @@ test("an update keeps focus on the same track; leaving playback closes the menu"
 test("backgrounding stops the attempt, shows a restart notice and removes its visibility listener on teardown", async () => {
     const { page, logs } = await open();
     try {
-        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 30, durationSeconds: 7200, buffering: false, tracks: NO_TRACKS });
+        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 30, durationSeconds: 7200, buffering: false, seekIntervals: { backward: 10, forward: 10 }, tracks: NO_TRACKS });
         await page.evaluate(() => {
             Object.defineProperty(document, "hidden", { configurable: true, value: true });
             document.dispatchEvent(new Event("visibilitychange"));

@@ -18,7 +18,7 @@
 
 import { type Clock, sleep } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
-import { abortedError } from "../api/http.ts";
+import { abortedError, type RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import type { AudioTrackInfo, FileVersionTracks, PlaybackDecision, PlaybackDefaults, PlaybackPlan, ReplanOperation, SelectedTracks, SubtitleTrack } from "../contracts/v2/playback.ts";
 import type { RandomBytes } from "../session/deviceIdentity.ts";
@@ -26,6 +26,7 @@ import type { NativeSession } from "../session/session.ts";
 import type { AVPlay, AVPlayListener } from "./avplay.ts";
 import { CLIENT_CAPABILITIES, CLIENT_FEATURES, playbackContext } from "./capabilities.ts";
 import { SeekThumbnails, type ThumbnailSheetLoader } from "./seekThumbnails.ts";
+import { QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS, profileSettings } from "../contracts/v2/settings.ts";
 import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
 
 /** What browse hands over: one file of one catalog item. */
@@ -40,6 +41,7 @@ export interface PlayRequest {
 export type EndReason = "completed" | "ended_by_server" | "authority_changed";
 
 export type PlaybackError =
+    | { readonly kind: "settings" }
     /** The server has no native playback for this client (not configured, not allowed, no protocol 3). */
     | { readonly kind: "unavailable" }
     /** The server decided this file cannot play here. */
@@ -98,6 +100,7 @@ export type PlaybackView =
           readonly durationSeconds: number | undefined;
           readonly buffering: boolean;
           readonly tracks: TrackView;
+          readonly seekIntervals: { readonly backward: number; readonly forward: number };
           readonly previewKey?: string | undefined;
       }
     | { readonly phase: "error"; readonly title: string; readonly error: PlaybackError }
@@ -120,6 +123,7 @@ export interface PlayerControls {
     selectSubtitle(trackId: string | undefined): void;
     selectQuality(preference: string): void;
     retryTrackInfo(): void;
+    retrySettings(): void;
     seekThumbnail(seconds: number, signal: AbortSignal, loadSheet: ThumbnailSheetLoader): Promise<SeekThumbnail | undefined>;
 }
 
@@ -171,6 +175,8 @@ interface Attempt {
     bandwidthCapKbps: number | undefined;
     autoBandwidthCapKbps: number | undefined;
     qualityPicked: boolean;
+    seekIntervals: { readonly backward: number; readonly forward: number };
+    batchedSettings: boolean;
     serverFeatures: readonly string[];
     trickplayEnabled: boolean;
     thumbnails: SeekThumbnails | undefined;
@@ -253,6 +259,8 @@ export class PlaybackController implements PlayerControls {
             bandwidthCapKbps: undefined,
             autoBandwidthCapKbps: undefined,
             qualityPicked: false,
+            seekIntervals: { backward: 10, forward: 10 },
+            batchedSettings: true,
             serverFeatures: [],
             trickplayEnabled: false,
             thumbnails: undefined,
@@ -309,6 +317,11 @@ export class PlaybackController implements PlayerControls {
     seekBy(seconds: number): void {
         const attempt = this.active();
         if (attempt !== undefined) this.seekToSeconds(attempt.sourceSeconds + seconds);
+    }
+
+    retrySettings(): void {
+        const attempt = this.attempt;
+        if (this.shownError?.kind === "settings" && attempt !== undefined && !attempt.signal.aborted && attempt.signal === this.deps.session.authoritySignal) this.play(attempt.request);
     }
 
     async seekThumbnail(seconds: number, signal: AbortSignal, loadSheet: ThumbnailSheetLoader): Promise<SeekThumbnail | undefined> {
@@ -478,6 +491,38 @@ export class PlaybackController implements PlayerControls {
 
     // --- planning ---
 
+    private async readSeekIntervals(attempt: Attempt): Promise<boolean> {
+        const call = <T>(spec: RequestSpec<T>): Promise<T> => this.deps.session.call({ ...spec, profileScoped: true, signal: attempt.signal });
+        try {
+            let capability;
+            try {
+                capability = await call(operations.settingsCapabilities());
+            } catch (error) {
+                if (error instanceof ApiError && [403, 404, 501].includes(error.status ?? 0)) return attempt.live;
+                throw error;
+            }
+            if (!attempt.live) return false;
+            attempt.batchedSettings = capability.supportsBatchedEffective;
+            if (capability.apiVersion !== 1 || capability.state !== "available" || !capability.allowed || !capability.scopes.includes("profile") || capability.manifestRevision < 9) return true;
+            const contract = await call(operations.settingsContract());
+            if (!attempt.live) return false;
+            if (contract.apiVersion !== 1 || contract.revision < capability.manifestRevision) throw new Error("Settings contract changed");
+            const definitions = profileSettings(contract, capability);
+            if (!SEEK_KEYS.every(key => definitions.some(def => def.key === key))) return true;
+            const values = await Promise.all((capability.supportsBatchedEffective ? [SEEK_KEYS] : SEEK_KEYS.map(key => [key])).map(keys => call(operations.effectiveSettings(keys))));
+            if (!attempt.live) return false;
+            const effective = new Map(values.flatMap(values => [...values]));
+            const backward = effective.get(SEEK_BACK_KEY)?.value;
+            const forward = effective.get(SEEK_FORWARD_KEY)?.value;
+            if (typeof backward !== "number" || typeof forward !== "number") throw new Error("Missing seek intervals");
+            attempt.seekIntervals = { backward, forward };
+            return true;
+        } catch {
+            if (attempt.live) this.fail(attempt, { kind: "settings" }, false);
+            return false;
+        }
+    }
+
     private async begin(attempt: Attempt): Promise<void> {
         const session = this.deps.session;
         let decision: PlaybackDecision;
@@ -500,7 +545,13 @@ export class PlaybackController implements PlayerControls {
             }
             attempt.installationId = installationId;
             attempt.trickplayEnabled = capabilities.features.includes("trickplay_v1");
-            const defaults = await session.call({ ...operations.playbackDefaults(), profileScoped: true, signal: attempt.signal });
+            if (!await this.readSeekIntervals(attempt)) return;
+            const defaults = attempt.batchedSettings
+                ? await session.call({ ...operations.playbackDefaults(), profileScoped: true, signal: attempt.signal })
+                : await Promise.all([
+                    session.call({ ...operations.playbackDefaults([QUALITY_KEY]), profileScoped: true, signal: attempt.signal }),
+                    session.call({ ...operations.playbackDefaults([BITRATE_KEY]), profileScoped: true, signal: attempt.signal }),
+                ]).then(([quality, cap]) => ({ qualityPreference: quality.qualityPreference, bandwidthCapKbps: cap.bandwidthCapKbps }));
             if (!attempt.live) {
                 return;
             }
@@ -1055,6 +1106,7 @@ export class PlaybackController implements PlayerControls {
             durationSeconds: plan.durationSeconds,
             buffering: attempt.buffering,
             tracks: trackView(attempt, plan),
+            seekIntervals: attempt.seekIntervals,
             previewKey: attempt.busy ? undefined : attempt.planAttemptId,
         });
     }

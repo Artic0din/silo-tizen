@@ -3,6 +3,8 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakePlayback } from "../native/support/fakePlayback.ts";
+import { FakeSettings } from "../native/support/fakeSettings.ts";
+import { SEEK_BACK_KEY, SEEK_FORWARD_KEY } from "../../src/contracts/v2/settings.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
@@ -58,6 +60,49 @@ async function prepare(tv: Tv): Promise<void> {
     });
     await tv.eventually(() => tv.page.evaluate(() => window.appHarness.avplay.state === "PLAYING"), "playback");
 }
+
+appTest("profile Settings 15/45 reaches the composed controller and every remote seek surface", async (tv, playback) => {
+    const settings = new FakeSettings(tv.fake);
+    await signIn(tv);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+    await tv.page.locator('[data-focus="playback"]').click();
+    for (const [picker, seconds] of [["seek-back", 15], ["seek-forward", 45]] as const) {
+        await tv.page.locator(`[data-focus="${picker}"]`).click();
+        assert.deepEqual(await tv.page.getByRole("radio").allTextContents(), ["5 seconds", "10 seconds", "15 seconds", "30 seconds", "45 seconds", "60 seconds", "90 seconds"]);
+        await tv.page.getByRole("radio", { name: `${seconds} seconds`, exact: true }).click();
+        await tv.page.locator(`[data-focus="${picker}"]`).waitFor();
+        assert.equal(await tv.focused(), picker);
+    }
+    assert.equal(settings.profile().get(SEEK_BACK_KEY), 15);
+    assert.equal(settings.profile().get(SEEK_FORWARD_KEY), 45);
+    await tv.remote(10009);
+    await tv.remote(10009);
+    playback.next.push({ durationSeconds: 200, timeline: { source_start_seconds: 100, player_start_seconds: 100, timeline_offset_seconds: 0 } });
+    await startMovie(tv);
+    const position = () => tv.page.getByRole("slider").getAttribute("aria-valuenow");
+    assert.equal(await tv.page.getByRole("button", { name: "Back 15 seconds", exact: true }).count(), 1);
+    assert.equal(await tv.page.getByRole("button", { name: "Forward 45 seconds", exact: true }).count(), 1);
+    await tv.remote(37);
+    assert.equal(await position(), "85");
+    await tv.remote(39);
+    assert.equal(await position(), "130");
+    await tv.remote(10009);
+    assert.equal(await position(), "100");
+    await tv.remote(39);
+    assert.equal(await position(), "145");
+    await tv.remote(13);
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.calls.slice(-1)[0]), "seekTo 145000");
+    await tv.page.evaluate(() => { window.appHarness.avplay.finishSeek(); window.appHarness.avplay.tick(100000); });
+    await tv.remote(412);
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.calls.slice(-1)[0]), "seekTo 85000");
+    await tv.page.evaluate(() => { window.appHarness.avplay.finishSeek(); window.appHarness.avplay.tick(100000); });
+    await tv.remote(417);
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.calls.slice(-1)[0]), "seekTo 145000");
+    await tv.page.evaluate(() => window.appHarness.avplay.finishSeek());
+    await tv.remote(10009);
+    assert.equal(tv.fake.requests.filter(r => r.path === "/playback/start").length, 1);
+});
 
 appTest("the composed app signs in, selects a profile, plays and returns to the same title", async (tv, playback) => {
     await signIn(tv);

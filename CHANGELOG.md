@@ -13,6 +13,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added separate profile-saved video rewind and fast-forward intervals across player buttons, seek previews and dedicated remote keys.
 - Added server-provided JPEG thumbnails during seek previews, with timestamp seeking retained when previews are unavailable.
 - Added saved profile quality and maximum bitrate controls in Playback Settings, with server-confirmed values and device override visibility.
 - Added profile Settings with Hidden libraries and Preferred audio controls.

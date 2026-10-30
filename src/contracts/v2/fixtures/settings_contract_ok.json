@@ -326,6 +326,124 @@
       "description": "Cap how much bandwidth playback may use. No cap means Silo picks for the chosen resolution.",
       "recommended_control": "select",
       "notes": "The bitrate axis, orthogonal to playback.preferred_quality. Splitting them is what the clients were already doing: the in-player switcher sends resolution and bitrate as separate fields, and downloads (DownloadQuality in silo-android) dropped resolution entirely and kept only a bitrate ladder. Two values rather than one compound enum means a client can offer \"1080p High\" without the server having to agree on what \"High\" means \u2014 retuning a preset is a client release, not a contract break, and it stays additive under the widening rule. null is uncapped, which is why this is nullable rather than defaulting to a large number: absent and \"as much as you like\" are the same statement, and a numeric sentinel would have to be widened every time hardware improves. The bounds are deliberately loose \u2014 100 kbps is below any watchable stream and 200 Mbps is above any remux \u2014 because this caps a preference, not a policy; entitlement limits live in internal/policy. Migration decomposes the legacy compound values: 1080p-high becomes (1080p, 10000), 720p-medium becomes (720p, 3000), 420p becomes (480p, 720), following the bitrates in web/src/player/hooks/useTranscodeQuality.ts, so no stored preference is lost to the rejects table."
+    },
+    {
+      "key": "player.video_skip_back_seconds",
+      "introduced_in": 9,
+      "persistence": "remote",
+      "allowed_scopes": [
+        "profile"
+      ],
+      "resolution_order": [
+        "profile",
+        "default"
+      ],
+      "value_schema": {
+        "type": "enum",
+        "values": [
+          {
+            "value": 5,
+            "label": "5 seconds"
+          },
+          {
+            "value": 10,
+            "label": "10 seconds"
+          },
+          {
+            "value": 15,
+            "label": "15 seconds"
+          },
+          {
+            "value": 30,
+            "label": "30 seconds"
+          },
+          {
+            "value": 45,
+            "label": "45 seconds"
+          },
+          {
+            "value": 60,
+            "label": "60 seconds"
+          },
+          {
+            "value": 90,
+            "label": "90 seconds"
+          }
+        ]
+      },
+      "default_value": 10,
+      "unit": "seconds",
+      "platforms": [
+        "ios",
+        "tvos",
+        "macos",
+        "android",
+        "android_tv",
+        "web"
+      ],
+      "category": "player",
+      "label": "Video rewind interval",
+      "description": "Seconds to skip back in video playback. Applies to buttons, keyboard shortcuts, gestures, and supported media controls.",
+      "recommended_control": "select"
+    },
+    {
+      "key": "player.video_skip_forward_seconds",
+      "introduced_in": 9,
+      "persistence": "remote",
+      "allowed_scopes": [
+        "profile"
+      ],
+      "resolution_order": [
+        "profile",
+        "default"
+      ],
+      "value_schema": {
+        "type": "enum",
+        "values": [
+          {
+            "value": 5,
+            "label": "5 seconds"
+          },
+          {
+            "value": 10,
+            "label": "10 seconds"
+          },
+          {
+            "value": 15,
+            "label": "15 seconds"
+          },
+          {
+            "value": 30,
+            "label": "30 seconds"
+          },
+          {
+            "value": 45,
+            "label": "45 seconds"
+          },
+          {
+            "value": 60,
+            "label": "60 seconds"
+          },
+          {
+            "value": 90,
+            "label": "90 seconds"
+          }
+        ]
+      },
+      "default_value": 30,
+      "unit": "seconds",
+      "platforms": [
+        "ios",
+        "tvos",
+        "macos",
+        "android",
+        "android_tv",
+        "web"
+      ],
+      "category": "player",
+      "label": "Video fast-forward interval",
+      "description": "Seconds to skip forward in video playback. Applies to buttons, keyboard shortcuts, gestures, and supported media controls.",
+      "recommended_control": "select"
     }
   ]
 }

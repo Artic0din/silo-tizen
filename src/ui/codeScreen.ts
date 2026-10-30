@@ -28,12 +28,10 @@ export function codeScreen(first: Waiting, notes: readonly Note[], clock: Clock,
 
     const qrBox = el("div", "signin-qr-box");
     const qr = qrCode(code.verificationUriComplete, "QR code that opens the sign-in page with this code");
-    qrBox.appendChild(qr ?? el("p", "signin-text", "QR code unavailable. Use the address and code instead."));
+    qrBox.appendChild(qr ?? el("p", "signin-text", "QR code unavailable."));
     const info = el("div", "signin-code-info");
     for (const node of [
-        el("p", "signin-text", "Scan the QR code with your phone, or go to"),
         el("p", "signin-uri", code.verificationUri),
-        el("p", "signin-text", "and enter this code:"),
         codeText,
         status,
         countdown,

@@ -3,7 +3,7 @@
 // Back leaves. In that menu Up/Down move within a list, Left/Right switch lists, Enter chooses
 // and Back closes it; no key reaches playback while it is open. The screen owns one child of the
 // root and removes only that child, so a screen the parent already showed (after a profile
-// switch, say) is never erased. Not mounted by src/main.ts yet.
+// switch, say) is never erased.
 
 import type { Clock } from "../api/clock.ts";
 import { systemClock } from "../api/clock.ts";
@@ -274,6 +274,20 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             }
         }
     };
+
+    menu.addEventListener("click", (event) => {
+        if (!menuOpen || !(event.target instanceof Element)) {
+            return;
+        }
+        const button = event.target.closest<HTMLButtonElement>("button[data-focus]");
+        const index = button === null ? -1 : lists.findIndex((list) => list.contains(button));
+        if (button !== null && index !== -1) {
+            column = index;
+            button.focus();
+            menuKey("enter");
+            render();
+        }
+    });
 
     const reveal = (): void => {
         cancelHide?.();

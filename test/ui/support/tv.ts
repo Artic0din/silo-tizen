@@ -13,11 +13,12 @@ const ORIGIN = "https://silo.example.test";
 const PAGE = `${ORIGIN}/tv/index.html`;
 const EVENTUALLY_TIMEOUT_MS = 10000;
 /** Which screens the page mounts: the sign-in harness or the browse harness. */
-export type TvApp = "signIn" | "browse";
-const ENTRY: Record<TvApp, string> = { signIn: "../harness.ts", browse: "../browseHarness.ts" };
+export type TvApp = "signIn" | "browse" | "application";
+const ENTRY: Record<TvApp, string> = { signIn: "../harness.ts", browse: "../browseHarness.ts", application: "../appHarness.ts" };
 const CSS: Record<TvApp, string> = {
     signIn: readFileSync(new URL("../../../src/ui/signIn.css", import.meta.url), "utf8"),
     browse: readFileSync(new URL("../../../src/ui/browse.css", import.meta.url), "utf8"),
+    application: ["ui/signIn.css", "ui/browse.css", "player/player.css", "app.css"].map((name) => readFileSync(new URL(`../../../src/${name}`, import.meta.url), "utf8")).join("\n"),
 };
 const HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -50,6 +51,8 @@ export function harnessBundle(app: TvApp = "signIn"): Promise<string> {
         format: "iife",
         target: "chrome76",
         write: false,
+        outfile: "harness.js",
+        define: { APP_VERSION: JSON.stringify(/<widget\b[^>]*\bversion="([^"]+)"/.exec(readFileSync(new URL("../../../app/config.xml", import.meta.url), "utf8"))?.[1]) },
         logLevel: "silent",
     }).then((result) => {
         const file = result.outputFiles[0];
@@ -85,7 +88,7 @@ export interface Tv {
     eventually(check: () => Promise<boolean>, what: string): Promise<void>;
 }
 
-export async function openTv(browser: Browser, options: { sessionOnly?: boolean; profiles?: boolean; video?: string; app?: TvApp } = {}): Promise<Tv> {
+export async function openTv(browser: Browser, options: { sessionOnly?: boolean; profiles?: boolean; production?: boolean; video?: string; app?: TvApp } = {}): Promise<Tv> {
     const app = options.app ?? "signIn";
     const script = await harnessBundle(app);
     const context = await browser.newContext({
@@ -184,6 +187,6 @@ export async function openTv(browser: Browser, options: { sessionOnly?: boolean;
         await route.fulfill({ status: response.status, headers, body: await response.text() }).catch(() => undefined);
     });
     await page.clock.install({ time: clock.now() });
-    await page.goto(`${PAGE}${options.profiles === true ? "?flow=profiles" : ""}${options.sessionOnly === true ? "#session-only" : ""}`);
+    await page.goto(`${PAGE}${options.profiles === true ? "?flow=profiles" : ""}${options.production === true ? "#production" : options.sessionOnly === true ? "#session-only" : ""}`);
     return tv;
 }

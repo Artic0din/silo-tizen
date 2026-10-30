@@ -112,11 +112,11 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         begin();
         current = undefined;
         leaving = true;
-        const status = el("p", "signin-text signin-button", "Signing out of this TV.");
+        const status = el("h1", "signin-title signin-button", "Signing out");
         status.tabIndex = 0;
         status.setAttribute("data-focus", "signing-out");
         status.setAttribute("role", "status");
-        message("signing-out", "Signing out", [], [{ key: "signing-out", element: status }]);
+        show({ name: "signing-out", content: [status], controls: [{ key: "signing-out", element: status }], focus: "signing-out", back: undefined });
         void logoutCollectedAccount(server).then(leave, (error: unknown) => {
             leave(undefined);
             rethrow(clock, error);
@@ -163,7 +163,10 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             tile.appendChild(el("span", "profile-initial", (Array.from(profile.name)[0] ?? "?").toUpperCase()));
             tile.appendChild(el("span", "profile-name", profile.name));
             if (profile.hasPin) {
-                tile.appendChild(el("span", "profile-lock", "PIN"));
+                const lock = el("span", "profile-lock");
+                lock.setAttribute("aria-hidden", "true");
+                tile.setAttribute("aria-label", `${profile.name}, PIN protected`);
+                tile.appendChild(lock);
             }
             tile.addEventListener("click", () => choose(profile));
             grid.appendChild(tile);

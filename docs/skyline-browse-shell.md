@@ -4,11 +4,13 @@ This slice applies the [Skyline guide](https://github.com/Silo-Server/silo-apple
 Home, Movies, Series, Search and Profiles share mounted root navigation.
 Only visible video library types appear, and mixed libraries can be scoped to either video type.
 Detail, season and playback routes remove the root chrome.
-Browse is the only implemented library destination; the remaining section destinations belong to issue #28.
+Library destinations follow the available discovery capabilities: Browse, Collections, Genres, A–Z and Recently Added.
 
 Focus never activates a route or starts a request.
 A library tab opens its anchored selector after 250 ms.
-Down enters the selector, Right enters its Browse flyout, Left returns, and Back closes without committing.
+With one visible library, Down enters its modes directly in a single-level panel.
+With multiple libraries, Down enters the scoped library list, Right enters its modes flyout, and Left returns to the library row.
+Back closes either panel without committing.
 Explicit activation commits one library, never a merged scope.
 The profile avatar opens an anchored menu with Switch profile, personal lists, Settings and Sign out.
 Back dismisses either anchored menu until focus leaves its anchor or the viewer presses it again.
@@ -28,6 +30,12 @@ Continue Watching keeps landscape geometry, using its backdrop or cropping its p
 Progress appears only when the server supplies position and duration.
 The first card previews immediately; subsequent previews wait 150 ms and crossfade for 240 ms.
 Root transitions take 200 ms, and reduced motion snaps transitions and scrolling.
+Deliberate pill and same-tab scope changes crossfade for 200 ms with a 12 px upward drift of incoming content.
+Focus and remote input take effect synchronously; chrome and pills stay mounted above the outgoing layer.
+The marquee crossfades without translation so its fixed backdrop keeps the viewport as its containing block.
+The shell receives a library/type/mode identity separately from the loading view name.
+Loading, data completion and selector refreshes do not start a second transition.
+Rapid changes replace the outgoing layer, and stopping or destroying the focus host removes that layer, incoming motion classes and its cleanup timer.
 The noninteractive outgoing layer keeps its CSS classes and scroll position without serializing computed styles for each card.
 The synopsis dialog exposes the complete detail overview with remote scrolling and restores focus on close.
 Optional Details responses retain the active synopsis and its focus; closing shows the latest data, and route or profile teardown removes the dialog.

@@ -60,7 +60,7 @@ after(async () => {
     await browser.close();
 });
 
-async function open(): Promise<{ page: Page; logs: string[] }> {
+async function open(hidden = false): Promise<{ page: Page; logs: string[] }> {
     const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
     const logs: string[] = [];
     page.on("console", (message) => logs.push(message.text()));
@@ -76,6 +76,9 @@ async function open(): Promise<{ page: Page; logs: string[] }> {
         await route.fulfill({ status: 200, contentType: type, body });
     });
     await page.clock.install();
+    if (hidden) {
+        await page.addInitScript(() => Object.defineProperty(document, "hidden", { configurable: true, value: true }));
+    }
     await page.goto(`${ORIGIN}/index.html`);
     return { page, logs };
 }
@@ -144,6 +147,20 @@ test("an error is shown in words with Back focused; Back or Enter dismisses it, 
         assert.deepEqual(await commands(page), ["dismissError", "dismissError"]);
         assert.equal(await focused(page), "back");
         assert.deepEqual(logs, []);
+    } finally {
+        await page.close();
+    }
+});
+
+test("the AVPlay object stays hidden so its browser placeholder cannot cover native video", async () => {
+    const { page } = await open();
+    try {
+        const surface = page.locator("object.player-video");
+        assert.equal(await surface.count(), 1, "AVPlay retains its object");
+        assert.equal(await surface.evaluate((node) => getComputedStyle(node).visibility), "hidden");
+        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 60, durationSeconds: 7200, buffering: false, tracks: NO_TRACKS });
+        assert.equal(await surface.evaluate((node) => getComputedStyle(node).visibility), "hidden");
+        assert.equal(await page.locator(".player-overlay").isVisible(), true);
     } finally {
         await page.close();
     }
@@ -294,6 +311,46 @@ test("an update keeps focus on the same track; leaving playback closes the menu"
         assert.equal(await focused(page), "player");
         await show(page, playing(TRACKS));
         assert.equal(await menuShown(page), false, "the menu stays closed until asked for again");
+    } finally {
+        await page.close();
+    }
+});
+
+test("backgrounding stops the attempt, shows a restart notice and removes its visibility listener on teardown", async () => {
+    const { page, logs } = await open();
+    try {
+        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 30, durationSeconds: 7200, buffering: false, tracks: NO_TRACKS });
+        await page.evaluate(() => {
+            Object.defineProperty(document, "hidden", { configurable: true, value: true });
+            document.dispatchEvent(new Event("visibilitychange"));
+        });
+        assert.deepEqual(await commands(page), ["background"]);
+        assert.equal(await text(page, ".player-error-text"), "Playback stopped when you left Silo. Go back and select the title to play again.");
+        await capture(page, "player-backgrounded");
+        await page.evaluate(() => {
+            Object.defineProperty(document, "hidden", { configurable: true, value: false });
+            document.dispatchEvent(new Event("visibilitychange"));
+        });
+        assert.deepEqual(await commands(page), ["background"], "returning never silently starts another attempt");
+        assert.equal(await focused(page), "back");
+        await page.evaluate(() => {
+            window.player.destroy();
+            Object.defineProperty(document, "hidden", { configurable: true, value: true });
+            document.dispatchEvent(new Event("visibilitychange"));
+        });
+        assert.deepEqual(await commands(page), ["background"], "retired screen ignores visibility");
+        assert.deepEqual(logs, []);
+    } finally {
+        await page.close();
+    }
+});
+
+test("a screen mounted while hidden stops its loading attempt before normal controls are shown", async () => {
+    const { page, logs } = await open(true);
+    try {
+        assert.deepEqual(await commands(page), ["background"]);
+        assert.equal(await text(page, ".player-error-text"), "Playback stopped when you left Silo. Go back and select the title to play again.");
+        assert.deepEqual(logs, []);
     } finally {
         await page.close();
     }

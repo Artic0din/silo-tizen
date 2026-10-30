@@ -38,6 +38,10 @@ const controls: PlayerControls = {
     togglePause: () => commands.push("togglePause"),
     seekBy: (seconds) => commands.push(`seekBy ${seconds}`),
     back: () => commands.push("back"),
+    background: () => {
+        commands.push("background");
+        listener?.({ phase: "error", title: "The Movie", error: { kind: "backgrounded" } });
+    },
     dismissError: () => commands.push("dismissError"),
     selectAudio: (id) => commands.push(`selectAudio ${id}`),
     selectSubtitle: (id) => commands.push(`selectSubtitle ${id ?? "off"}`),

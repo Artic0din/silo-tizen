@@ -41,7 +41,12 @@ interface Hold {
 
 export type Reply = { status: number; body?: unknown; headers?: Record<string, string> };
 
-const PROBLEM_BASE = "https://siloserver.org/docs/api/v2/problems/";
+/** Answers the browse reads once the caller's bearer and profile proof are checked. */
+export interface CatalogRoutes {
+    route(method: string, path: string, profileId: string | undefined): Reply | undefined;
+}
+
+export const PROBLEM_BASE = "https://siloserver.org/docs/api/v2/problems/";
 
 export function problem(status: number, id: string, title: string, headers?: Record<string, string>): Reply {
     return {
@@ -72,6 +77,8 @@ export class FakeSilo {
     private readonly dropped: string[] = [];
     /** Further operations, e.g. playback; answered before the 404 fallback. */
     readonly extraRoutes: ((method: string, path: string, headers: Record<string, string>, body: Record<string, unknown> | undefined) => Reply | undefined)[] = [];
+    /** Browse reads (test/native/support/fakeCatalog.ts); unset, they answer 404. */
+    catalog: CatalogRoutes | undefined;
     /** The household GET /profiles returns: the fixture's owner and a PIN-locked child. */
     profiles: Record<string, unknown> = household();
     pinAttempts = 0;
@@ -182,7 +189,8 @@ export class FakeSilo {
             this.dropped.splice(dropIndex, 1);
             throw new TypeError("Failed to fetch");
         }
-        const holdIndex = this.holds.findIndex((candidate) => candidate.path === path);
+        // A hold without a query holds that path with any query.
+        const holdIndex = this.holds.findIndex((candidate) => candidate.path === path || candidate.path === path.split("?")[0]);
         const hold = holdIndex === -1 ? undefined : this.holds.splice(holdIndex, 1)[0];
         if (hold !== undefined) {
             await waitOrAbort(hold.released, hold.ignoreAbort ? undefined : signal);
@@ -233,7 +241,17 @@ export class FakeSilo {
             return this.verifyPin(decodeURIComponent(pinMatch[1]), headers, String(body?.pin));
         }
         if (method === "GET" && path === "/catalog/probe") {
-            return this.profileScopedRead(headers);
+            return this.profileRefusal(headers) ?? { status: 200, body: { profile: headers["x-profile-id"] ?? null } };
+        }
+        if (this.catalog !== undefined) {
+            const refusal = this.profileRefusal(headers);
+            if (refusal !== undefined) {
+                return refusal;
+            }
+            const reply = this.catalog.route(method, path, headers["x-profile-id"]);
+            if (reply !== undefined) {
+                return reply;
+            }
         }
         for (const extra of this.extraRoutes) {
             const reply = extra(method, path, headers, body);
@@ -340,8 +358,8 @@ export class FakeSilo {
         return { status: 200, body: { ...fixture("verify_profile_pin_ok"), profile_token: token } };
     }
 
-    /** Stands for any profile-scoped catalog read the player or screens make. */
-    private profileScopedRead(headers: Record<string, string>): Reply {
+    /** A profile-scoped read naming a PIN profile without its current proof; route() has already checked the bearer. */
+    private profileRefusal(headers: Record<string, string>): Reply | undefined {
         const profileId = headers["x-profile-id"];
         if (profileId !== undefined && this.pins.has(profileId)) {
             const proof = this.profileTokens.get(headers["x-profile-token"] ?? "");
@@ -349,7 +367,7 @@ export class FakeSilo {
                 return { status: 403, headers: { "Content-Type": "application/problem+json" }, body: fixture("profile_verification_required") };
             }
         }
-        return { status: 200, body: { profile: profileId ?? null } };
+        return undefined;
     }
 
     private mustDevice(deviceCode: string): DeviceRequest {

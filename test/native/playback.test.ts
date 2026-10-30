@@ -459,6 +459,41 @@ test("an offset timeline reports source time and reanchors seeks through the ser
     assert.equal(r.avplay.calls[r.avplay.calls.length - 1], "seekTo 600000");
 });
 
+test("an old stream completing during a held seek reanchor cannot end the replacement", async () => {
+    const r = await rig();
+    r.server.next.push({ timeline: { can_seek_anywhere: false } });
+    const id = await playMovie(r);
+    r.avplay.tick(7190000);
+    const oldListener = r.avplay.listener;
+    assert.ok(oldListener !== undefined);
+    const hold = r.h.fake.hold(`/playback/${id}/replan`);
+    r.controller.seekBy(-10);
+    await r.h.clock.advance(0);
+    assert.equal(only(bodies(r.h, "/replan")).position_seconds, 7180);
+
+    oldListener.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.deepEqual(r.exits, [], "the superseded stream must not complete the playback attempt");
+    assert.equal(r.server.session(id).receipt, undefined);
+    assert.equal(r.avplay.state, "NONE", "close the superseded transport while waiting for the plan");
+    assert.equal(last(r.views).phase, "loading");
+
+    hold.release();
+    await r.h.clock.advance(0);
+    assert.equal(r.avplay.urls.length, 2);
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    assert.equal(r.avplay.state, "PLAYING");
+    oldListener.onstreamcompleted();
+    assert.deepEqual(r.exits, []);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.deepEqual(r.exits, ["end:completed"]);
+    assert.notEqual(r.server.session(id).receipt, undefined);
+});
+
 test("a seek on a direct plan stays local, at source time minus the offset", async () => {
     const r = await rig();
     await playMovie(r);
@@ -694,4 +729,79 @@ test("an HTTP media plan fails without sending its signed credential to AVPlay",
     assert.equal(last(r.views).phase, "error");
     assert.equal(ops(r.h)[ops(r.h).length - 1], "DELETE /playback/S1");
     assert.equal(bodies(r.h, "/replan").length, 0, "an insecure URL must not trigger client route selection");
+});
+
+const SEEK_RESULTS: readonly ("success" | "failure")[] = ["success", "failure"];
+for (const result of SEEK_RESULTS) {
+    test(`a codec failure during a local seek is replanned after seek ${result}`, async () => {
+        const r = await rig();
+        await playMovie(r);
+        r.avplay.tick(30000);
+        r.controller.seekBy(-10);
+        const calls = r.avplay.calls.length;
+        r.avplay.listener?.onerror("PLAYER_ERROR_NOT_SUPPORTED_FORMAT");
+        r.avplay.listener?.onerror("PLAYER_ERROR_NOT_SUPPORTED_FORMAT");
+        assert.equal(bodies(r.h, "/replan").length, 0);
+        assert.equal(r.avplay.calls.length, calls, "no transport call during seek");
+        r.avplay.finishSeek(result === "failure" ? "NotSupportedError" : undefined);
+        await r.h.clock.advance(0);
+        const replan = only(bodies(r.h, "/replan"));
+        assert.deepEqual(replan.failure, { classification: "avplay_playback_error" });
+        assert.equal(replan.position_seconds, result === "success" ? 20 : 30);
+        assert.equal(r.avplay.urls.length, 2, "the server's replacement transport opens once");
+        r.avplay.finishPrepare();
+        await r.h.clock.advance(0);
+        r.avplay.finishSeek();
+        await r.h.clock.advance(0);
+        assert.equal(r.avplay.state, "PLAYING");
+    });
+}
+
+test("backgrounding stops the session once and never reports progress or resumes afterward", async () => {
+    const r = await rig();
+    const id = await playMovie(r);
+    r.avplay.tick(32000);
+    r.controller.background();
+    await r.h.clock.advance(0);
+    assert.equal(r.avplay.state, "NONE");
+    const view = last(r.views);
+    assert.deepEqual(view.phase === "error" ? view.error : undefined, { kind: "backgrounded" });
+    assert.equal(only(bodies(r.h, `/playback/${id}`)).position, 32);
+    const count = ops(r.h).length;
+    r.controller.background();
+    await r.h.clock.advance(60000);
+    assert.equal(ops(r.h).length, count);
+    assert.deepEqual(r.exits, []);
+    r.controller.dismissError();
+    assert.deepEqual(r.exits, ["error:backgrounded"]);
+});
+
+test("an approval to start playback received after backgrounding is stopped without opening AVPlay", async () => {
+    const r = await rig();
+    const held = r.h.fake.hold("/playback/start");
+    r.controller.play(MOVIE);
+    await r.h.clock.advance(0);
+    r.controller.background();
+    held.release();
+    await r.h.clock.advance(0);
+    assert.deepEqual(r.avplay.urls, []);
+    assert.equal(ops(r.h)[ops(r.h).length - 1], "DELETE /playback/S1");
+    assert.equal(last(r.views).phase, "error");
+    assert.deepEqual(r.exits, []);
+});
+
+test("backgrounding during a failed seek cancels its deferred replan and closes after settlement", async () => {
+    const r = await rig();
+    await playMovie(r);
+    r.controller.seekBy(10);
+    r.avplay.listener?.onerror("PLAYER_ERROR_NOT_SUPPORTED_FORMAT");
+    const calls = r.avplay.calls.length;
+    r.controller.background();
+    assert.equal(r.avplay.calls.length, calls);
+    r.avplay.finishSeek("NotSupportedError");
+    await r.h.clock.advance(0);
+    assert.equal(r.avplay.state, "NONE");
+    assert.equal(bodies(r.h, "/replan").length, 0);
+    const view = last(r.views);
+    assert.deepEqual(view.phase === "error" ? view.error : undefined, { kind: "backgrounded" });
 });

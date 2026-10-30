@@ -49,6 +49,7 @@ export type PlaybackError =
     /** The server no longer knows the session (expired or restarted). Recovery belongs to #13. */
     | { readonly kind: "session_expired" }
     | { readonly kind: "installation_changed" }
+    | { readonly kind: "backgrounded" }
     | { readonly kind: "server" };
 
 export interface PlaybackExits {
@@ -105,6 +106,8 @@ export interface PlayerControls {
     /** Source seconds, negative to go back. */
     seekBy(seconds: number): void;
     back(): void;
+    /** Ends the attempt safely; authenticated suspension/restore belongs to recovery. */
+    background(): void;
     dismissError(): void;
     selectAudio(trackId: string): void;
     /** Undefined turns subtitles off. */
@@ -168,6 +171,7 @@ interface Attempt {
     change: TrackChange;
     /** A failed route reported while a track change was pending; recovered once it settles. */
     changeFailure: string | undefined;
+    seekFailure: string | undefined;
     progress: Promise<void> | undefined;
     cancelTimer: (() => void) | undefined;
 }
@@ -238,6 +242,7 @@ export class PlaybackController implements PlayerControls {
             trackRead: 0,
             change: { state: "idle" },
             changeFailure: undefined,
+            seekFailure: undefined,
             progress: undefined,
             cancelTimer: undefined,
         };
@@ -292,6 +297,9 @@ export class PlaybackController implements PlayerControls {
         attempt.busy = true;
         if (!local) {
             // An open or partial window has no bytes there yet: the server re-anchors the timeline.
+            this.closeTransport();
+            attempt.started = false;
+            this.show({ phase: "loading", title: attempt.request.title });
             void this.replan(attempt, plan, "seek_reanchor", target, undefined);
             return;
         }
@@ -304,6 +312,12 @@ export class PlaybackController implements PlayerControls {
             if (moved) {
                 attempt.sourceSeconds = target;
             }
+            const failure = attempt.seekFailure;
+            attempt.seekFailure = undefined;
+            if (failure !== undefined) {
+                this.routeFailed(attempt, failure);
+                return;
+            }
             this.showPlayback(attempt);
         };
         try {
@@ -314,6 +328,13 @@ export class PlaybackController implements PlayerControls {
             );
         } catch {
             settled(false);
+        }
+    }
+
+    background(): void {
+        const attempt = this.active();
+        if (attempt !== undefined) {
+            this.fail(attempt, { kind: "backgrounded" }, true);
         }
     }
 
@@ -517,6 +538,9 @@ export class PlaybackController implements PlayerControls {
         if (attempt.busy) {
             if (attempt.change.state === "changing") {
                 attempt.changeFailure = attempt.changeFailure ?? classification;
+            } else if (this.pending.seek !== undefined && attempt.seekFailure === undefined) {
+                attempt.seekFailure = classification;
+                this.show({ phase: "loading", title: attempt.request.title });
             }
             return;
         }

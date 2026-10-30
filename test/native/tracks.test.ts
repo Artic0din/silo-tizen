@@ -7,6 +7,8 @@ import { test } from "node:test";
 import { decodeFileVersionTracks, decodePlaybackDecision } from "../../src/contracts/v2/playback.ts";
 import { PlaybackController, type PlaybackView, type PlayRequest, type TrackView } from "../../src/player/controller.ts";
 import { FakeAVPlay } from "./support/fakeAVPlay.ts";
+import { FakeCatalog } from "./support/fakeCatalog.ts";
+import { operations } from "../../src/api/operations.ts";
 import { FakePlayback } from "./support/fakePlayback.ts";
 import { fixture, problem, type RecordedRequest } from "./support/fakeSilo.ts";
 import { connected, type Harness, signIn } from "./support/harness.ts";
@@ -409,6 +411,67 @@ test("a failed route during a refused change is recovered once the change settle
     const recovery = replans(r.h)[1];
     assert.equal(recovery?.operation, "failure_recovery");
     assert.deepEqual(recovery?.failure, { classification: "avplay_playback_error" });
+});
+
+test("a seek failure after a refused track change recovers after the physical seek settles", async () => {
+    const r = await rig();
+    await playMovie(r);
+    r.controller.selectSubtitle("file:42:subtitle:0");
+    await settle(r);
+    assert.equal(tracks(r).change.state, "refused");
+    r.avplay.tick(30000);
+    r.controller.seekBy(-10);
+    const calls = r.avplay.calls.length;
+    r.avplay.listener?.onerror("PLAYER_ERROR_NOT_SUPPORTED_FORMAT");
+    assert.equal(replans(r.h).length, 1);
+    assert.equal(r.avplay.calls.length, calls);
+    r.avplay.finishSeek();
+    await settle(r);
+    const recovery = replans(r.h)[1];
+    assert.equal(recovery?.operation, "failure_recovery");
+    assert.equal(recovery?.position_seconds, 20);
+    assert.deepEqual(recovery?.failure, { classification: "avplay_playback_error" });
+    await playReplacement(r);
+    assert.equal(r.avplay.state, "PLAYING");
+    assert.equal(tracks(r).change.state, "idle");
+});
+
+test("backgrounding during a failed pending track change cancels deferred recovery and late adoption", async () => {
+    const r = await rig();
+    const id = await playMovie(r);
+    const hold = r.h.fake.hold(`/playback/${id}/replan`, true);
+    r.controller.selectSubtitle("file:42:subtitle:0");
+    await settle(r);
+    r.avplay.listener?.onerror("PLAYER_ERROR_NOT_SUPPORTED_FORMAT");
+    r.controller.background();
+    await settle(r);
+    hold.release();
+    await settle(r);
+    assert.equal(replans(r.h).length, 1, "backgrounded attempts never dispatch deferred recovery");
+    assert.equal(r.avplay.urls.length, 1);
+    assert.equal(r.avplay.state, "NONE");
+    const view = last(r.views);
+    assert.deepEqual(view.phase === "error" ? view.error : undefined, { kind: "backgrounded" });
+    const count = r.h.fake.requests.length;
+    await r.h.clock.advance(30000);
+    assert.equal(r.h.fake.requests.length, count);
+    assert.deepEqual(r.exits, []);
+});
+
+test("catalog reads, track metadata and playback dispatch coexist on the same authenticated fake", async () => {
+    const r = await rig();
+    r.h.fake.catalog = new FakeCatalog();
+    const home = await r.h.core.session.call({ ...operations.listHomeSections(), profileScoped: true });
+    assert.ok(home.length > 0);
+    await playMovie(r);
+    const audio = tracks(r).audio;
+    assert.ok(audio.state === "ready");
+    assert.equal(audio.choices.length, 3);
+    r.controller.selectAudio("file:42:audio:1");
+    await settle(r);
+    await playReplacement(r);
+    assert.equal(tracks(r).selectedAudioId, "file:42:audio:1");
+    assert.deepEqual(r.exits, []);
 });
 
 test("a track change that cannot be sent is a readable, non-fatal failure", async () => {

@@ -20,6 +20,7 @@ response enum values decode to `"unknown"`, so additive server changes keep work
 | `listCatalogItemVersions` | read (`profile_scoped`) | One transport retry; read once per play for each version's `audio_tracks`; a failure only disables audio choices |
 | `startPlayback`, `replanPlayback`, `stopPlayback` | `domain_identity` | The player resends only the identical body (same `playback_attempt_id`, `replan_request_id` or `stop_id`) after no answer or a transient failure |
 | `updatePlaybackProgress` | `domain_identity` | Never resent; the next sample has a higher `sequence` |
+| `listUserLibraries`, `listEffectiveSettings` (`ui.disabled_library_ids` only), `listHomeSections`, `listCatalogItems`, `getCatalogItem`, `listSeriesSeasons`, `listSeasonEpisodes` | read (`profile_scoped`) | One transport retry; sent with the active profile's headers |
 
 Playback bodies live in `playback.ts`, following `docs/playback-api.md` and `docs/architecture/playback-protocol-v3.md` at the same commit.
 The vendored `playback_start_opaque_ids` plan is a direct plan at offset 0; the test server builds offset timelines, terminal decisions and problems without a fixture from the OpenAPI schemas.
@@ -29,6 +30,10 @@ Its subtitle inventory (external, embedded, burn-in-only and downloaded tracks) 
 The audio identity `file:{effective file}:audio:{n}` is built from the nth `audio_tracks` entry of that file's version (`list_catalog_item_versions_ok` carries none; the test server adds them from the `AudioTrack` schema).
 At the commit in `SOURCE` that position is the server's own ordinal: `internal/catalog/detail.go` copies the file's stored `AudioTracks` in order into each version, `internal/apiv2/catalog_items.go` passes them through unchanged, and `resolveV3AudioIndex` in `internal/api/handlers/playback_v3.go` reads the ordinal as an index into the same `AudioTracks`.
 Re-check those three places when `SOURCE` moves.
+
+`catalog.ts` holds the browse decoders. They are handwritten from `openapi.json` at the commit in `SOURCE`, not generated.
+The browse fixtures (`user_libraries`, `list_effective_settings_ok`, `list_home_sections_ok`, `list_catalog_items_ok`, `get_catalog_item_ok`, `list_series_seasons_ok`, `list_series_seasons_without_artwork`, `list_season_episodes_ok`) are copied unchanged from the same commit.
+Artwork URLs in these responses are signed (`/api/v2/artwork/{key}?exp=…&sig=…`, operation `getArtwork`, public) or presigned storage URLs ([`docs/images-api.md`](https://github.com/Artic0din/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/docs/images-api.md)); the client draws them with plain `<img>` and never adds credentials.
 
 ## Updating
 

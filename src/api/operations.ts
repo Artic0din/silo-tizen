@@ -22,12 +22,55 @@ import {
     type StartPlaybackBody,
     type StopBody,
 } from "../contracts/v2/playback.ts";
+import {
+    type CatalogPage,
+    decodeCatalogPage,
+    decodeEpisodes,
+    decodeHiddenLibraries,
+    decodeHomeSections,
+    decodeItemDetail,
+    decodeSeasons,
+    decodeUserLibraries,
+    type Episode,
+    HIDDEN_LIBRARIES_KEY,
+    type HomeSection,
+    type ItemDetail,
+    type Season,
+    type UserLibrary,
+} from "../contracts/v2/catalog.ts";
 import type { RequestSpec } from "./http.ts";
 
 type Spec<T> = RequestSpec<T>;
 
 function noContent(): undefined {
     return undefined;
+}
+
+function query(params: Record<string, string | number | undefined>): string {
+    const parts: string[] = [];
+    for (const key of Object.keys(params)) {
+        const value = params[key];
+        if (value !== undefined) {
+            parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+        }
+    }
+    return parts.length === 0 ? "" : `?${parts.join("&")}`;
+}
+
+/** Card rows and grids draw posters near 300px (the `small` rung); detail pages near 500px posters and full-width backdrops (`medium`). */
+const LIST_IMAGES = "small";
+const DETAIL_IMAGES = "medium";
+
+/** The media scope of a catalog page: what a library or search may list. */
+export type BrowseScope = "movie" | "series" | "video";
+
+export interface CatalogPageRequest {
+    readonly libraryId?: string;
+    /** Search text; absent browses. */
+    readonly q?: string;
+    readonly type: BrowseScope;
+    readonly limit: number;
+    readonly cursor: string | undefined;
 }
 
 export const operations = {
@@ -151,5 +194,64 @@ export const operations = {
         retry: "never",
         body,
         decode: decodePlaybackMutation,
+    }),
+    // Browse reads. All are profile_scoped reads: the server applies the profile's library
+    // access, content-rating and advisory limits, so the client never filters for access.
+
+    /** listUserLibraries: without include_hidden; the profile's own hidden list is a separate setting. */
+    listUserLibraries: (): Spec<UserLibrary[]> => ({
+        method: "GET",
+        path: "/user/libraries",
+        retry: "safe",
+        decode: decodeUserLibraries,
+    }),
+    /** listEffectiveSettings for ui.disabled_library_ids only. */
+    hiddenLibraries: (): Spec<string[]> => ({
+        method: "GET",
+        path: `/settings/values/effective${query({ keys: HIDDEN_LIBRARIES_KEY })}`,
+        retry: "safe",
+        decode: decodeHiddenLibraries,
+    }),
+    /** listHomeSections: every section with its first cards, bounded by each section's item_limit. */
+    listHomeSections: (): Spec<HomeSection[]> => ({
+        method: "GET",
+        path: `/home/sections${query({ image_size: LIST_IMAGES })}`,
+        retry: "safe",
+        decode: decodeHomeSections,
+    }),
+    /** listCatalogItems: one page of a library or a search, continued with page.next_cursor. */
+    listCatalogItems: (request: CatalogPageRequest): Spec<CatalogPage> => ({
+        method: "GET",
+        path: `/catalog${query({
+            library_id: request.libraryId,
+            q: request.q,
+            type: request.type,
+            limit: request.limit,
+            cursor: request.cursor,
+            image_size: LIST_IMAGES,
+        })}`,
+        retry: "safe",
+        decode: decodeCatalogPage,
+    }),
+    /** getCatalogItem: a movie, series, season or episode page with the viewer's state. */
+    getCatalogItem: (contentId: string): Spec<ItemDetail> => ({
+        method: "GET",
+        path: `/catalog/items/${encodeURIComponent(contentId)}${query({ image_size: DETAIL_IMAGES })}`,
+        retry: "safe",
+        decode: decodeItemDetail,
+    }),
+    /** listSeriesSeasons: bounded, unpaginated. */
+    listSeriesSeasons: (seriesId: string): Spec<Season[]> => ({
+        method: "GET",
+        path: `/catalog/series/${encodeURIComponent(seriesId)}/seasons${query({ image_size: LIST_IMAGES })}`,
+        retry: "safe",
+        decode: decodeSeasons,
+    }),
+    /** listSeasonEpisodes: bounded, unpaginated; season 0 is specials. */
+    listSeasonEpisodes: (seriesId: string, seasonNumber: number): Spec<Episode[]> => ({
+        method: "GET",
+        path: `/catalog/series/${encodeURIComponent(seriesId)}/seasons/${seasonNumber}/episodes${query({ image_size: LIST_IMAGES })}`,
+        retry: "safe",
+        decode: decodeEpisodes,
     }),
 };

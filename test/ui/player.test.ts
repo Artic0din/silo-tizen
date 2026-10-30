@@ -128,6 +128,20 @@ test("an error is shown in words with Back focused; Back or Enter dismisses it, 
     }
 });
 
+test("the AVPlay object stays hidden so its browser placeholder cannot cover native video", async () => {
+    const { page } = await open();
+    try {
+        const surface = page.locator("object.player-video");
+        assert.equal(await surface.count(), 1, "AVPlay retains its object");
+        assert.equal(await surface.evaluate((node) => getComputedStyle(node).visibility), "hidden");
+        await show(page, { phase: "playing", title: "The Movie", positionSeconds: 60, durationSeconds: 7200, buffering: false });
+        assert.equal(await surface.evaluate((node) => getComputedStyle(node).visibility), "hidden");
+        assert.equal(await page.locator(".player-overlay").isVisible(), true);
+    } finally {
+        await page.close();
+    }
+});
+
 test("teardown removes only the player's own node and stops listening for keys", async () => {
     const { page } = await open();
     try {

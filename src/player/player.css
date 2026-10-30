@@ -11,6 +11,8 @@
 }
 
 .player-video {
+    /* AVPlay draws video separately; this object's browser placeholder must not cover it. */
+    visibility: hidden;
     position: absolute;
     top: 0;
     left: 0;

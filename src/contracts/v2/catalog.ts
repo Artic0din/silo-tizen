@@ -110,6 +110,11 @@ const CARD_TYPES = ["movie", "series", "season", "episode"] as const;
 export type CardType = (typeof CARD_TYPES)[number] | "unknown";
 
 export interface Card {
+    readonly backdropUrl?: string | undefined;
+    readonly overview?: string | undefined;
+    readonly runtimeMinutes?: number | undefined;
+    readonly durationSeconds?: number | undefined;
+    readonly positionSeconds?: number | undefined;
     readonly id: string;
     readonly type: CardType;
     readonly title: string;
@@ -125,6 +130,11 @@ export interface Card {
 function decodeCard(value: unknown, path: string): Card {
     const obj = object(value, path);
     return {
+        backdropUrl: optionalString(obj, "backdrop_url", path),
+        overview: optionalString(obj, "overview", path),
+        runtimeMinutes: optionalInteger(obj, "runtime", path),
+        durationSeconds: optionalNumber(obj, "duration_seconds", path),
+        positionSeconds: optionalNumber(obj, "position_seconds", path),
         id: string(obj, "content_id", path),
         type: oneOf(string(obj, "type", path), CARD_TYPES),
         title: string(obj, "title", path),

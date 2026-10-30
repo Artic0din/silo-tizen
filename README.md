@@ -14,9 +14,20 @@ The server address is remembered publicly; credentials use Tizen KeyManager or t
 The profile controller remains active while browsing and playback use its profile authority.
 When that authority ends, the app removes the old content before the profile controller takes the screen back.
 Player Back, completion and dismissed errors return to the same browse view and focus.
-Root Back opens an Exit/Cancel dialog; modal keys do not reach the screen underneath.
+Back from Home or library content returns to the navigation bar, then selects Home, then opens an Exit/Cancel dialog.
+Modal keys do not reach the screen underneath.
 
 ## Layout
+
+The TV interface follows the [Skyline design guide](https://github.com/Silo-Server/silo-apple/blob/main/docs/skyline-design-guide.md).
+`src/theme.css` owns the shared OLED palette, type family and motion durations.
+Sign-in, profiles, dialogs and playback use monochrome focus states and respect the system Reduced Motion preference.
+The launcher uses the existing Silo app artwork.
+Samsung's Play/Pause key is registered when supported; Enter remains available on every remote.
+The mounted Skyline bar groups visible libraries into Movies and Series tabs, with anchored library and profile menus.
+Library scope is remembered per server, profile and content type.
+Card focus drives a passive preview without fetching details; scrolling retargets immediately and respects Reduced Motion.
+See [Skyline browse behavior](docs/skyline-browse-shell.md) for the implemented section boundary.
 
 - `app/` holds the package manifest, HTML entry and icon.
 - `src/api/`, `src/session/` and `src/contracts/v2/` own native transport, sessions, profile authority and contract decoders.

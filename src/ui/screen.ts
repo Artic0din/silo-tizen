@@ -39,10 +39,15 @@ export class ScreenHost {
     }
 
     show(screen: Screen, focus?: string): void {
+        const changed = this.current?.name !== screen.name;
         const kept = this.current?.name === screen.name ? this.focusedKey() : undefined;
         this.current = screen;
         const section = el("section", "signin-screen");
+        if (changed) {
+            section.classList.add("signin-screen-enter");
+        }
         section.setAttribute("data-screen", screen.name);
+        section.appendChild(el("div", "signin-wordmark", "SILO"));
         for (const node of screen.content) {
             section.appendChild(node);
         }

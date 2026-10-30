@@ -17,12 +17,17 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Replaced per-library navigation with Skyline type tabs, anchored library and profile menus, a focus-driven preview and smooth remote scrolling.
+- Applied Skyline's OLED palette, typography, focus states and reduced-motion transitions to sign-in, profiles, dialogs and playback, and replaced the blank launcher with Silo artwork.
 - Connected native sign-in, profiles, browsing and playback in the packaged app, replacing the earlier Jellyfin-compatible client and password sign-in on the TV.
 - Removed redundant sign-in instructions and movie taglines from the native screens.
 - Set the minimum app platform to Tizen 6.0.
 
 ### Fixed
 
+- Removed blocking style copies from page transitions and kept menu dismissal from redirecting Search or trapping remote focus.
+- Kept dismissed menus closed until reopened deliberately, remembered library scope across launches, and made complete synopses reachable.
+- Kept full profile names visible, made empty server fields distinguishable, and supported the Samsung Play/Pause button.
 - Kept the exit dialog visible and focused while a screen finished loading.
 - Made track-choice buttons activate the same selection as remote Enter.
 - Kept playback progress current during track changes and stopped safely when a change's outcome could not be confirmed.

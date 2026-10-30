@@ -15,6 +15,10 @@ export interface FakeTitle {
     readonly seriesId?: string;
     readonly season?: number;
     readonly episode?: number;
+    readonly backdrop?: string;
+    readonly overview?: string;
+    readonly runtime?: number;
+    readonly duration?: number;
 }
 
 interface Household {
@@ -209,6 +213,7 @@ export class FakeCatalog implements CatalogRoutes {
         const template = toRecord(arrayOf(fixture("list_catalog_items_ok").items)[0]);
         const series = title.seriesId === undefined ? undefined : this.titles.get(title.seriesId);
         const card: Record<string, unknown> = { ...template, content_id: id, type: title.type, title: title.title, year: title.year };
+        Object.assign(card, { backdrop_url: title.backdrop, overview: title.overview, runtime: title.runtime, duration_seconds: title.duration });
         const poster = title.poster === undefined ? `/art/${encodeURIComponent(id)}.svg` : title.poster;
         if (poster !== null) {
             card.poster_url = poster;

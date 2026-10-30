@@ -29,6 +29,23 @@ function exit(): void {
     leave.call(current);
 }
 
+function registerMediaKey(): void {
+    const input = field(field(globalThis, "tizen"), "tvinputdevice");
+    const register = field(input, "registerKey");
+    const supported = field(input, "getSupportedKeys");
+    if (typeof register !== "function" || typeof supported !== "function") {
+        return;
+    }
+    try {
+        const keys: unknown = supported.call(input);
+        if (Array.isArray(keys) && keys.some((key: unknown) => field(key, "name") === "MediaPlayPause")) {
+            register.call(input, "MediaPlayPause");
+        }
+    } catch {
+        // Enter remains available when this optional remote key is absent or refused.
+    }
+}
+
 export function platformOptions(appVersion: string): AppOptions {
     if (typeof crypto === "undefined" || typeof crypto.getRandomValues !== "function") {
         throw new Error("Secure random generation is unavailable");
@@ -42,6 +59,7 @@ export function platformOptions(appVersion: string): AppOptions {
     const randomBytes = (bytes: Uint8Array): void => { bytes.set(crypto.getRandomValues(new Uint8Array(bytes.length))); };
     const model = modelName();
     const avplay = findAVPlay();
+    registerMediaKey();
     return {
         core: {
             fetch: (url, init) => window.fetch(url, init),

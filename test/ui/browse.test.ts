@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
-import { problem } from "../native/support/fakeSilo.ts";
+import { fixture, problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
@@ -76,12 +76,186 @@ function browseReads(tv: Tv, pathname?: string): { path: string; headers: Readon
 }
 
 function cardIds(tv: Tv, selector = ".browse-card"): Promise<string[]> {
-    return tv.page.evaluate((query) => Array.from(document.querySelectorAll(query)).map((node) => node.getAttribute("data-focus") ?? ""), selector);
+    return tv.page.evaluate((query) => Array.from(document.querySelector(".browse")?.querySelectorAll(query) ?? []).map((node) => node.getAttribute("data-focus") ?? ""), selector);
 }
+
+browseTest("Skyline keeps bounded type tabs and a passive debounced marquee", async (tv) => {
+    assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["home", "movies", "series", "search", "profiles"]);
+    assert.equal(await tv.page.locator(".skyline-marquee h1").textContent(), "Movie 0001");
+    const reads = tv.fake.requests.length;
+    await press(tv, "ArrowRight");
+    assert.equal(await tv.focused(), "episode:s1e12");
+    assert.equal(await tv.page.locator(".skyline-marquee h1").textContent(), "Movie 0001");
+    await tv.jump(150);
+    assert.equal(await tv.page.locator(".skyline-marquee h1").last().textContent(), "Harbor Lights chapter 1.2");
+    assert.equal(tv.fake.requests.length, reads);
+});
+
+browseTest("row scrolling has intermediate frames without delaying focus", async (tv) => {
+    await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
+    await tv.page.evaluate(() => { document.querySelector(".browse")?.setAttribute("data-probe", "scroll"); });
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "series:s1");
+    const start = await tv.page.locator(".browse .skyline-content").evaluate((node) => node.scrollTop);
+    await tv.page.clock.runFor(80);
+    const middle = await tv.page.locator(".browse .skyline-content").evaluate((node) => node.scrollTop);
+    await tv.page.clock.runFor(300);
+    const end = await tv.page.locator(".browse .skyline-content").evaluate((node) => node.scrollTop);
+    assert.ok(start < middle && middle < end, `${start} < ${middle} < ${end}`);
+});
+
+browseTest("Continue Watching keeps landscape geometry when backdrop or progress metadata is missing", async (tv) => {
+    const boxes = await tv.page.locator('[data-section="continue_watching"] .browse-art').evaluateAll((nodes) => nodes.map((node) => ({ width: node.clientWidth, height: node.clientHeight })));
+    assert.deepEqual(boxes, [{ width: 372, height: 209 }, { width: 372, height: 209 }]);
+});
+
+browseTest("a populated Home changes route without copying every descendant's computed styles", async (tv, catalog) => {
+    const household = catalog.households.get("p-owner");
+    assert.ok(household !== undefined);
+    household.sections = Array.from({ length: 6 }, (_, row) => ({
+        id: `shelf-${row}`,
+        title: `Shelf ${row + 1}`,
+        items: Array.from({ length: 20 }, (_, column) => `movie:m${String(row * 20 + column + 1).padStart(4, "0")}`),
+    }));
+    await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+    await showing(tv, "home");
+    await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
+    const response = tv.fake.hold("/catalog", true);
+    const reads = await tv.page.evaluate(() => {
+        let calls = 0;
+        const original = window.getComputedStyle;
+        window.getComputedStyle = (element, pseudo) => { calls++; return original.call(window, element, pseudo); };
+        try {
+            document.querySelector<HTMLButtonElement>('[data-focus="movies"]')?.click();
+        } finally {
+            window.getComputedStyle = original;
+        }
+        return calls;
+    });
+    assert.ok(reads < 20, `navigation must not read computed styles for every card node: ${reads}`);
+    await showing(tv, "library:loading");
+    const snapshot = tv.page.locator(".skyline-route-outgoing");
+    assert.equal(await snapshot.getAttribute("aria-hidden"), "true");
+    assert.equal(await snapshot.locator(".browse-card").count(), 120);
+    assert.equal(await snapshot.locator(".browse-nav, [data-focus]").count(), 0);
+    assert.deepEqual(await snapshot.locator(".browse-art").first().evaluate((node) => ({ width: node.clientWidth, height: node.clientHeight })), { width: 208, height: 312 });
+    response.release();
+    await showing(tv, "library:12");
+    assert.equal(await tv.focused(), "movie:m0001");
+}, { catalog: new FakeCatalog(120) });
+
+browseTest("Back dismisses a profile menu on Search without leaving its results", async (tv) => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "night");
+    await tv.remote(IME_DONE);
+    await shows(tv, "Night Shift");
+    await tv.page.locator('[data-focus="profiles"]').focus();
+    await tv.jump(250);
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "switch-profile");
+    const reads = tv.fake.requests.length;
+    await tv.remote(BACK);
+    assert.equal(await view(tv), "search");
+    assert.equal(await tv.focused(), "profiles");
+    assert.equal(await tv.page.locator(".skyline-selector").first().isVisible(), false);
+    assert.equal(await tv.page.inputValue("#browse-search"), "night");
+    assert.equal(tv.fake.requests.length, reads);
+});
+
+browseTest("sideways menu dismissal removes its hidden focus zone", async (tv) => {
+    await press(tv, "ArrowUp", "ArrowRight");
+    await tv.jump(250);
+    assert.equal(await tv.page.locator(".skyline-selector").first().isVisible(), true);
+    await press(tv, "ArrowLeft");
+    assert.equal(await tv.focused(), "home");
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "movie:m0001");
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "series:s1");
+});
+
+browseTest("many libraries stay bounded; dwell and Back never commit; scope survives remount", async (tv, catalog) => {
+    const household = catalog.households.get("p-owner");
+    assert.ok(household);
+    household.hidden = [];
+    for (let index = 0; index < 20; index++) household.libraries.push({ id: String(index + 30), name: `Library ${index} with a long title`, type: "movies", sort_order: index + 10 });
+    await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+    await showing(tv, "home");
+    assert.equal(await tv.page.locator(".browse").evaluate((node) => node.scrollWidth), 1920);
+    await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
+    await tv.page.evaluate(() => { window.retainedNavigation = document.querySelector(".browse-nav"); });
+    const reads = tv.fake.requests.length;
+    await press(tv, "ArrowUp", "ArrowRight");
+    await tv.jump(249);
+    assert.equal(await tv.page.locator(".skyline-selector").first().isVisible(), false);
+    await tv.jump(1);
+    assert.equal(await tv.page.locator(".skyline-selector").first().isVisible(), true);
+    assert.equal(await tv.focused(), "movies", "dwell does not steal focus");
+    assert.equal(tv.fake.requests.length, reads);
+    await press(tv, "ArrowDown", "ArrowDown");
+    await tv.remote(BACK);
+    assert.equal(await tv.focused(), "movies");
+    assert.equal(await view(tv), "home");
+    await tv.jump(500);
+    assert.equal(await tv.page.locator(".skyline-selector").first().isVisible(), false, "Back keeps the menu dismissed until focus leaves its anchor");
+    await press(tv, "ArrowLeft", "ArrowRight");
+    await tv.jump(250);
+    await press(tv, "ArrowDown", "ArrowDown", "Enter");
+    await showing(tv, "library:15");
+    assert.equal(await tv.page.evaluate(() => window.retainedNavigation === document.querySelector(".browse-nav")), true);
+    await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+    await showing(tv, "home");
+    await press(tv, "ArrowUp", "ArrowRight", "Enter");
+    await showing(tv, "library:15");
+});
+
+browseTest("long synopsis expands and scrolls accessibly; empty search omits Page 1 of 1", async (tv, catalog) => {
+    catalog.failNext("/catalog/items/movie%3Am0001", { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", overview: "A long synopsis. ".repeat(900) } });
+    await press(tv, "Enter");
+    await showing(tv, "item:movie:m0001");
+    await tv.page.locator('[data-focus="synopsis"]').focus();
+    await press(tv, "Enter");
+    const dialog = tv.page.getByRole("dialog", { name: "Synopsis" });
+    assert.equal(await dialog.isVisible(), true);
+    await press(tv, "ArrowDown");
+    await tv.page.clock.runFor(220);
+    assert.ok(await dialog.evaluate((node) => node.scrollTop > 0));
+    await tv.remote(BACK);
+    assert.equal(await tv.focused(), "synopsis");
+    await tv.remote(BACK);
+    await showing(tv, "home");
+    await press(tv, "ArrowUp", "ArrowRight", "ArrowRight", "ArrowRight", "Enter");
+    await tv.page.fill("#browse-search", "no-such-title");
+    await tv.remote(IME_DONE);
+    await shows(tv, 'No results for "no-such-title".');
+    assert.equal(await tv.page.locator(".browse-page-status").count(), 0);
+});
+
+browseTest("reduced motion snaps scrolling and the real Browse flyout preserves scope on Back", async (tv) => {
+    await tv.page.emulateMedia({ reducedMotion: "reduce" });
+    await press(tv, "ArrowDown");
+    const top = await tv.page.locator(".browse .skyline-content").evaluate((node) => node.scrollTop);
+    assert.ok(top > 0);
+    await tv.page.clock.runFor(100);
+    assert.equal(await tv.page.locator(".browse .skyline-content").evaluate((node) => node.scrollTop), top);
+    await tv.remote(BACK);
+    await press(tv, "ArrowRight");
+    await tv.jump(250);
+    await tv.remote(40);
+    await tv.remote(39);
+    assert.equal(await tv.focused(), "section:browse");
+    assert.equal(await tv.page.locator(".skyline-flyout").textContent(), "Browse");
+    await tv.remote(37);
+    assert.equal(await tv.focused(), "library:12");
+    await tv.remote(BACK);
+    assert.equal(await view(tv), "home");
+    await press(tv, "Enter");
+    await showing(tv, "library:12");
+});
 
 browseTest("Home lists visible video libraries and supported rows, and every row is reachable by remote", async (tv) => {
     const nav = await cardIds(tv, ".browse-nav .browse-button");
-    assert.deepEqual(nav, ["search", "library:12", "library:13", "profiles"], "no audiobooks, no library the profile hid");
+    assert.deepEqual(nav, ["home", "movies", "series", "search", "profiles"], "bounded video types only");
     const rows = await tv.page.evaluate(() => Array.from(document.querySelectorAll("[data-section]")).map((node) => node.getAttribute("data-section")));
     assert.deepEqual(rows, ["continue_watching", "recently_added"], "a row of only books is left out");
     assert.equal((await cardIds(tv)).indexOf("ebook:atlas"), -1, "the book card in a mixed row is left out");
@@ -94,9 +268,9 @@ browseTest("Home lists visible video libraries and supported rows, and every row
     await press(tv, "ArrowUp");
     assert.equal(await tv.focused(), "episode:s1e12", "back to the card last focused in the row above");
     await press(tv, "ArrowUp", "ArrowRight");
-    assert.equal(await tv.focused(), "library:12");
+    assert.equal(await tv.focused(), "movies");
     await press(tv, "ArrowUp");
-    assert.equal(await tv.focused(), "library:12", "nothing above the top zone");
+    assert.equal(await tv.focused(), "movies", "nothing above the top zone");
 
     const reads = browseReads(tv);
     assert.ok(reads.length >= 3);
@@ -159,8 +333,9 @@ browseTest(
         assert.match(browseReads(tv, "/catalog").pop()?.path ?? "", /cursor=cursor-48/, "the refresh reloads the page shown, not the first");
         assert.equal(await tv.focused(), "movie:m0050", "focus returns to the card that was opened");
         await tv.remote(BACK);
+        assert.equal(await tv.focused(), "movies", "Back returns to the selected type tab");
+        await tv.remote(BACK);
         await showing(tv, "home");
-        assert.equal(await tv.focused(), "library:12", "Back restores the library button");
     },
     { catalog: new FakeCatalog(5000) },
 );
@@ -229,7 +404,7 @@ browseTest("series open seasons, seasons list episodes, and Back retraces each s
 });
 
 browseTest("typing invalidates an in-flight search before the debounce expires", async (tv) => {
-    await press(tv, "ArrowUp", "Enter");
+    await press(tv, "ArrowUp", "ArrowRight", "ArrowRight", "ArrowRight", "Enter");
     await showing(tv, "search");
     const first = tv.fake.hold("/catalog", true);
     await tv.page.fill("#browse-search", "Movie 0001");
@@ -248,7 +423,7 @@ browseTest("typing invalidates an in-flight search before the debounce expires",
 });
 
 browseTest("search uses the TV keyboard, shows only the latest query's answer, and recovers from failures", async (tv, catalog) => {
-    await press(tv, "ArrowUp", "Enter");
+    await press(tv, "ArrowUp", "ArrowRight", "ArrowRight", "ArrowRight", "Enter");
     await showing(tv, "search");
     assert.equal(await tv.focused(), "query");
 
@@ -287,7 +462,7 @@ browseTest("search uses the TV keyboard, shows only the latest query's answer, a
 });
 
 browseTest("Back from a result reloads a query edited before its debounce could run", async (tv) => {
-    await press(tv, "ArrowUp", "Enter");
+    await press(tv, "ArrowUp", "ArrowRight", "ArrowRight", "ArrowRight", "Enter");
     await showing(tv, "search");
     await tv.page.fill("#browse-search", "Movie 0001");
     await tv.remote(IME_DONE);
@@ -347,15 +522,17 @@ browseTest("loading, slow, offline, removed, empty and missing-artwork states al
         window.browseHarness.mount();
     });
     await showing(tv, "home");
-    await press(tv, "ArrowUp", "ArrowRight", "ArrowRight", "ArrowRight", "Enter");
+    await press(tv, "ArrowUp", "ArrowRight");
+    await tv.jump(250);
+    await press(tv, "ArrowDown", "ArrowDown", "Enter");
     await showing(tv, "library:17");
     await shows(tv, "This library is empty.");
-    assert.equal(await tv.focused(), "back");
+    assert.equal(await tv.focused(), "home", "empty scope retains root navigation");
 });
 
 browseTest("an authority change removes only browse, aborts its reads, and the next profile sees only its own catalog", async (tv) => {
-    await press(tv, "ArrowUp", "ArrowRight", "Enter");
     const held = tv.fake.hold("/catalog", true);
+    await press(tv, "ArrowUp", "ArrowRight", "Enter");
     await showing(tv, "library:loading");
     await tv.page.evaluate(() => window.browseHarness.clearProfile());
     held.release();
@@ -367,18 +544,19 @@ browseTest("an authority change removes only browse, aborts its reads, and the n
     assert.equal(await tv.page.evaluate(() => window.browseHarness.selectProfile("p-kid", "2468")), "verified");
     await tv.page.evaluate(() => window.browseHarness.mount());
     await showing(tv, "home");
-    assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["search", "library:16", "profiles"]);
+    assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["home", "movies", "search", "profiles"]);
     const kidReads = browseReads(tv).filter((read) => read.headers["x-profile-id"] === "p-kid");
     assert.ok(kidReads.length >= 3 && kidReads.every((read) => read.headers["x-profile-token"]?.startsWith("pvt-")));
 
-    await press(tv, "ArrowUp", "Enter");
+    await press(tv, "ArrowUp", "ArrowRight", "ArrowRight", "Enter");
     await tv.page.fill("#browse-search", "movie");
     await tv.remote(IME_DONE);
     await shows(tv, 'No results for "movie".');
     await tv.remote(BACK);
     await showing(tv, "home");
 
-    await press(tv, "ArrowUp", "ArrowRight", "ArrowRight", "Enter");
+    await press(tv, "ArrowUp", "ArrowRight", "ArrowRight", "ArrowRight", "Enter");
+    await press(tv, "ArrowDown", "Enter");
     assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.chooseProfileCalls), [false], "browse was gone before onChooseProfile ran");
     assert.equal(await tv.page.locator(".browse").count(), 0);
 }, { profile: "p-owner" });

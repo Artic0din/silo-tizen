@@ -96,6 +96,27 @@ function profile(id: string, name: string): Record<string, unknown> {
     return { ...owner, id, name, has_pin: false, is_primary: false };
 }
 
+tvTest("long profile names remain fully visible and distinct", async (tv) => {
+    const names = ["Alexandra Elizabeth Smith", "Alexandra Elizabeth Jones"];
+    tv.fake.profiles = { ...tv.fake.profiles, items: names.map((name, index) => profile(`long-${index}`, name)) };
+    await picker(tv);
+    const geometry = await tv.page.locator(".profile-name").evaluateAll((nodes) => nodes.map((node) => ({
+        height: node.clientHeight,
+        fullHeight: node.scrollHeight,
+        width: node.clientWidth,
+        fullWidth: node.scrollWidth,
+        overflow: getComputedStyle(node).overflow,
+        textOverflow: getComputedStyle(node).textOverflow,
+    })));
+    assert.equal(geometry.length, 2);
+    for (const name of geometry) {
+        assert.ok(name.fullWidth <= name.width && name.fullHeight <= name.height, "the whole name must fit its visible box");
+        assert.notEqual(name.textOverflow, "ellipsis");
+    }
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), "profile:long-1");
+});
+
 tvTest("a profile without a PIN is chosen with the remote and handed to browse; Back on the first choice reaches the app", async (tv) => {
     const list = tv.fake.hold("/profiles");
     await signIn(tv);

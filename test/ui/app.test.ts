@@ -9,7 +9,7 @@ let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
 
-function appTest(name: string, body: (tv: Tv, playback: FakePlayback) => Promise<void>, production = false): void {
+function appTest(name: string, body: (tv: Tv, playback: FakePlayback, catalog: FakeCatalog) => Promise<void>, production = false): void {
     test(name, async () => {
         const tv = await openTv(browser, { app: "application", production });
         const catalog = new FakeCatalog();
@@ -20,7 +20,7 @@ function appTest(name: string, body: (tv: Tv, playback: FakePlayback) => Promise
         playback.items.set("movie:m0001", ["42"]);
         playback.items.set("movie:k1", ["42"]);
         try {
-            await body(tv, playback);
+            await body(tv, playback, catalog);
             assert.deepEqual(tv.console, []);
         } finally {
             await tv.page.context().close();
@@ -130,9 +130,12 @@ appTest("destroy during preparation is idempotent and late callbacks cannot repl
 
 appTest("native posters keep their shape and the exit modal covers the viewport", async (tv) => {
     await signIn(tv);
-    const poster = await tv.page.locator('.browse-card .browse-art').first().boundingBox();
+    const poster = await tv.page.locator('.browse-card:not(.skyline-continue) .browse-art').first().boundingBox();
     assert.ok(poster !== null);
-    assert.equal(poster.height / poster.width, 1.5);
+    assert.ok(Math.abs(poster.height / poster.width - 1.5) < 0.001);
+    await tv.remote(10009);
+    assert.equal(await tv.focused(), "home");
+    assert.equal(await tv.page.getByRole("dialog").count(), 0);
     await tv.remote(10009);
     const dialog = await tv.page.getByRole("dialog").boundingBox();
     assert.deepEqual(dialog, { x: 0, y: 0, width: 1920, height: 1080 });
@@ -146,6 +149,7 @@ appTest("native posters keep their shape and the exit modal covers the viewport"
 appTest("a profile-proof refusal stops playback and leaves the PIN successor intact", async (tv) => {
     await signIn(tv);
     await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="switch-profile"]').click();
     await tv.page.getByRole("button", { name: "Kid, PIN protected", exact: true }).waitFor();
     await tv.page.locator('[data-focus="profile:p-kid"]').click();
     await tv.page.fill("#profile-pin", "2468");
@@ -165,6 +169,7 @@ appTest("a profile-proof refusal stops playback and leaves the PIN successor int
 appTest("sign-out returns its notice to entry and relaunch cannot restore the removed account", async (tv) => {
     await signIn(tv);
     await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="switch-profile"]').click();
     await tv.page.getByRole("button", { name: "Sign out", exact: true }).click();
     await tv.page.locator('[data-screen="entry"]').waitFor();
     await tv.page.evaluate(() => window.appHarness.mount());
@@ -195,11 +200,17 @@ appTest("root Back opens an isolated exit dialog; Cancel restores focus and Exit
     const focused = await tv.focused();
     const requests = tv.fake.requests.length;
     await tv.remote(10009);
+    assert.equal(await tv.focused(), "home");
+    assert.equal(await tv.page.getByRole("dialog").count(), 0);
+    await tv.remote(10009);
     await tv.page.keyboard.press("ArrowDown");
     await tv.page.keyboard.press("ArrowRight");
     assert.equal(tv.fake.requests.length, requests, "modal keys never reach browse");
     await tv.page.keyboard.press("Enter");
+    assert.equal(await tv.focused(), "home");
+    await tv.page.keyboard.press("ArrowDown");
     assert.equal(await tv.focused(), focused);
+    await tv.remote(10009);
     await tv.remote(10009);
     await tv.page.keyboard.press("ArrowLeft");
     await tv.page.keyboard.press("Enter");
@@ -207,6 +218,50 @@ appTest("root Back opens an isolated exit dialog; Cancel restores focus and Exit
     assert.equal(await tv.page.locator("#root").evaluate((root) => root.childElementCount), 0);
     await tv.remote(10009);
     assert.equal(await tv.page.getByRole("dialog").count(), 0, "teardown removed the app key listener");
+});
+
+appTest("library scope survives a full app remount for the same server and profile", async (tv, _playback, catalog) => {
+    const owner = catalog.households.get("p-owner");
+    assert.ok(owner !== undefined);
+    owner.hidden = null;
+    await signIn(tv);
+    await tv.page.locator('[data-focus="movies"]').focus();
+    await tv.jump(250);
+    await tv.page.locator('[data-focus="library:15"]').click();
+    await tv.page.locator('[data-view="library:15"]').waitFor();
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    await tv.page.locator('[data-focus="profile:p-owner"]').click();
+    await tv.page.locator('[data-view="home"]').waitFor();
+    await tv.page.locator('[data-focus="movies"]').click();
+    await tv.page.locator('[data-view="library:15"]').waitFor();
+    assert.equal(await tv.page.locator('.skyline-scope').innerText(), "Archive");
+});
+
+appTest("the profile menu opens without changing content, stays dismissed after Back and signs out through its owner", async (tv) => {
+    await signIn(tv);
+    const requests = tv.fake.requests.length;
+    await tv.page.locator('[data-focus="profiles"]').focus();
+    await tv.jump(249);
+    assert.equal(await tv.page.locator(".skyline-selector").first().isVisible(), false);
+    await tv.jump(1);
+    assert.equal(await tv.page.locator(".skyline-selector").first().isVisible(), true);
+    assert.equal(await tv.focused(), "profiles");
+    assert.equal(tv.fake.requests.length, requests);
+    await tv.page.keyboard.press("ArrowDown");
+    assert.equal(await tv.focused(), "switch-profile");
+    await tv.remote(10009);
+    await tv.jump(500);
+    assert.equal(await tv.page.locator(".skyline-selector").first().isVisible(), false);
+    assert.equal(await tv.focused(), "profiles");
+    await tv.page.keyboard.press("Enter");
+    await tv.page.keyboard.press("ArrowDown");
+    await tv.page.keyboard.press("ArrowDown");
+    assert.equal(await tv.focused(), "signout");
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-screen="entry"]').waitFor();
+    assert.equal(tv.fake.revokedSessions.size, 1);
+    assert.equal(await tv.page.locator(".browse").count(), 0);
 });
 
 appTest("an exit failure keeps the dialog usable and Cancel restores the app", async (tv) => {

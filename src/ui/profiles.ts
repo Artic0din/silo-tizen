@@ -35,6 +35,7 @@ export interface ProfileOptions {
 export interface ProfileScreens {
     /** Shows the profiles over the caller's content; the current profile acts until another is chosen. */
     switchProfile(): void;
+    signOut(): void;
     destroy(): void;
 }
 
@@ -325,6 +326,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
 
     showList();
     return {
+        signOut,
         switchProfile() {
             if (!destroyed && host === undefined) {
                 showList(current?.id);

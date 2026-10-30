@@ -14,6 +14,8 @@ export interface ViewContext {
     /** Resolves relative artwork references. */
     readonly baseUrl: string;
     readonly open: (destination: Destination) => void;
+    readonly preview?: (card: Card, row: string) => void;
+    readonly continueWatching?: boolean;
 }
 
 export function actionButton(key: string, label: string, onPress: () => void): FocusItem {
@@ -68,13 +70,25 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     const element = el("button", "browse-card");
     element.type = "button";
     element.setAttribute("data-focus", card.id);
-    element.appendChild(artwork("browse-art", card.posterUrl, context.baseUrl, card.title));
+    const continuing = context.continueWatching === true;
+    element.appendChild(artwork("browse-art", continuing ? card.backdropUrl ?? card.posterUrl : card.posterUrl, context.baseUrl, card.title));
+    if (continuing) {
+        element.classList.add("skyline-continue");
+        if (card.positionSeconds !== undefined && card.durationSeconds !== undefined && card.durationSeconds > 0) {
+            const progress = el("span", "skyline-progress");
+            const fill = el("span", "skyline-progress-fill");
+            fill.style.width = `${Math.min(100, Math.max(0, card.positionSeconds / card.durationSeconds * 100))}%`;
+            progress.appendChild(fill);
+            element.firstElementChild?.appendChild(progress);
+        }
+    }
     element.appendChild(el("span", "browse-card-title", card.title));
     const subtitle = cardSubtitle(card);
     if (subtitle !== undefined) {
         element.appendChild(el("span", "browse-card-subtitle", subtitle));
     }
     element.addEventListener("click", () => context.open(destination));
+    element.addEventListener("focus", () => context.preview?.(card, "Browse"));
     return { key: card.id, element };
 }
 
@@ -129,15 +143,10 @@ export interface HomeHandlers {
 }
 
 export function homeView(libraries: readonly UserLibrary[], sections: readonly HomeSection[], context: ViewContext, handlers: HomeHandlers): View {
-    const nav = [
-        actionButton("search", "Search", handlers.search),
-        ...libraries.map((library) => actionButton(`library:${library.id}`, library.name, () => handlers.library(library))),
-        actionButton("profiles", "Profiles", handlers.chooseProfile),
-    ];
-    const zones: Zone[] = [{ id: "nav", layout: "row", items: nav }];
-    const content: HTMLElement[] = [zoneNode("browse-nav", nav)];
+    const zones: Zone[] = [];
+    const content: HTMLElement[] = [];
     for (const section of sections) {
-        const cards = cardItems(section.items, context);
+        const cards = cardItems(section.items, { ...context, continueWatching: section.id === "continue_watching", preview: (card) => context.preview?.(card, section.title) });
         // A row of only books, podcasts or other media this client does not browse is left out.
         if (cards.length === 0) {
             continue;
@@ -150,11 +159,11 @@ export function homeView(libraries: readonly UserLibrary[], sections: readonly H
         block.appendChild(zoneNode("browse-row", cards));
         content.push(block);
     }
-    if (zones.length === 1) {
-        content.push(...lines([libraries.length === 0 ? "There is nothing to watch on this profile yet." : "Choose a library or search to find something to watch."]));
+    if (zones.length === 0) {
+        content.push(...lines(["There is nothing to watch on this profile yet."]));
     }
-    const first = zones[1]?.items[0];
-    return { name: "home", content, zones, focus: first === undefined ? { zone: "nav", key: "search" } : { zone: zones[1]?.id ?? "nav", key: first.key }, back: undefined };
+    const first = zones[0]?.items[0];
+    return { name: "home", content, zones, focus: first === undefined ? { zone: "nav", key: "home" } : { zone: zones[0]?.id ?? "nav", key: first.key }, back: undefined };
 }
 
 export interface PagerState {
@@ -184,7 +193,7 @@ export function pagedGrid(state: PagerState, context: ViewContext): { content: H
     const status = el("p", "browse-text browse-page-status", position);
     status.setAttribute("role", "status");
     return {
-        content: [zoneNode("browse-grid", cards), status, zoneNode("browse-actions", pager)],
+        content: [zoneNode("browse-grid", cards), ...(cards.length === 0 && pager.length === 0 ? [] : [status]), zoneNode("browse-actions", pager)],
         zones: [
             { id: "grid", layout: "grid", columns: GRID_COLUMNS, items: cards },
             { id: "pager", layout: "row", items: pager },
@@ -194,8 +203,11 @@ export function pagedGrid(state: PagerState, context: ViewContext): { content: H
 
 export function libraryView(library: UserLibrary, grid: { content: HTMLElement[]; zones: Zone[] }, back: () => void): View {
     const empty = grid.zones[0]?.items.length === 0;
-    const content = [heading(library.name), ...(empty ? lines(["This library is empty."]) : []), ...grid.content];
-    const zones = [...grid.zones];
+    const browse = actionButton("browse", "Browse", () => grid.zones[0]?.items[0]?.element.focus({ preventScroll: true }));
+    const pills = zoneNode("skyline-pills", [browse]);
+    pills.appendChild(el("span", "skyline-scope", library.name));
+    const content = [pills, ...(empty ? lines(["This library is empty."]) : []), ...grid.content];
+    const zones: Zone[] = [{ id: "pills", layout: "row", items: [browse] }, ...grid.zones];
     if (zones.every((zone) => zone.items.length === 0)) {
         const escape = actionButton("back", "Back", back);
         content.push(zoneNode("browse-actions", [escape]));

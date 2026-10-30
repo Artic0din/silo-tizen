@@ -12,6 +12,8 @@ import { ApiError } from "../api/errors.ts";
 import type { RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import type { ConnectedServer } from "../session/core.ts";
+import type { PublicStorage } from "../session/deviceIdentity.ts";
+import { Skyline } from "./skyline.ts";
 import { FocusHost, type FocusTarget } from "./browseFocus.ts";
 import { type Destination, type PlayRequest, scopeOf, visibleLibraries } from "./browseModel.ts";
 import { failureText, hasData, newPages, newRoute, PAGE_SIZE, type Pages, type Route, routeView } from "./browseRoutes.ts";
@@ -27,7 +29,10 @@ export interface BrowseOptions {
     readonly onPlay: (request: PlayRequest) => void;
     /** The person asked for the profile screens; browse has already removed itself. */
     readonly onChooseProfile: () => void;
+    readonly onSignOut?: () => void;
+    readonly profileName?: string;
     readonly clock?: Clock;
+    readonly publicStorage?: PublicStorage;
 }
 
 export interface Browse {
@@ -50,7 +55,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const container = el("div", "browse");
     root.appendChild(container);
     const host = new FocusHost(container);
-    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, open: (destination) => open(destination) };
+    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, open: (destination) => open(destination), preview: (card, row) => shell.preview(card, row) };
     const input = el("input", "browse-input");
     input.id = "browse-search";
     input.type = "search";
@@ -81,6 +86,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         cancelSlow();
         cancelSearch();
         stack = [];
+        shell.destroy();
         host.destroy();
         if (container.parentNode === root) {
             root.removeChild(container);
@@ -156,6 +162,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     read(operations.listHomeSections(), signal),
                 ]), ([libraries, hidden, sections]) => {
                     current.data = { libraries: visibleLibraries(libraries, hidden), sections };
+                    shell.update(current.data.libraries);
                 }, quiet);
                 return;
             case "library":
@@ -286,6 +293,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
         current.focus = host.focused();
         playing = true;
+        shell.hide();
         host.stop();
         container.hidden = true;
         options.onPlay(request);
@@ -302,7 +310,15 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             return;
         }
         const handlers = { context, busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn };
-        host.show(routeView(current, handlers), focus);
+        const view = routeView(current, handlers);
+        const rootRoute = current.kind === "home" || current.kind === "library" || current.kind === "search";
+        if (rootRoute) {
+            const selected = current.kind === "library" ? (current.library.type === "series" ? "series" : "movies") : current.kind;
+            host.show(shell.decorate(view, selected, current.kind !== "search"), focus);
+        } else {
+            shell.hide();
+            host.show(view, focus);
+        }
     };
 
     const retry = (current: Route): void => {
@@ -322,7 +338,32 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         render();
     };
 
-    stack = [newRoute({ kind: "home", data: undefined })];
+    const home = newRoute({ kind: "home", data: undefined });
+    const roots = new Map<string, Route>([["home", home]]);
+    const shell = new Skyline(container, clock, (target) => {
+        const current = top();
+        if (current !== undefined) current.focus = host.focused();
+        const key = typeof target === "string" ? target : `library:${target.id}:${target.type}`;
+        let route = roots.get(key);
+        if (route === undefined) {
+            route = typeof target === "string"
+                ? newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
+                : newRoute({ kind: "library", library: target, pages: newPages() });
+            roots.set(key, route);
+        }
+        loading?.abort();
+        loading = undefined;
+        cancelSearch();
+        stack = route === home ? [home] : [home, route];
+        showRoute(route, route.focus?.zone === "nav" ? undefined : route.focus);
+        if (hasData(route) && (route.focus === undefined || route.focus.zone === "nav")) host.focusDefault();
+    }, {
+        name: options.profileName ?? "Profiles",
+        switchProfile: chooseProfile,
+        ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
+    }, () => render(), options.publicStorage, `silo.skyline.scope:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`, context.baseUrl);
+    shell.update([]);
+    stack = [home];
     host.listen();
     const first = top();
     if (first !== undefined) {

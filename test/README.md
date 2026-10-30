@@ -1,11 +1,11 @@
 # Tests
 
-`npm test` runs the build, the native session tests, the sign-in screen tests, the adapter tests and the browse focus tests.
+`npm test` runs the build, the native session and playback tests, the sign-in, profile and player screen tests, the adapter tests and the browse focus tests.
 It needs Node.js 26 or later, the version CI tests.
 The browse Playwright tests serve the staged package in `dist/wgt/`, so run `npm run build` before running them directly.
 Desktop Chromium is not Chromium 76; these runs do not prove 2021 TV rendering.
 
-## Native session core (Node only)
+## Native core and player (Node only)
 
 ```bash
 npm run test:native
@@ -16,7 +16,7 @@ The tests use a fake Silo server and a fake KeyManager, so they need no network,
 The script hides Node's `MODULE_TYPELESS_PACKAGE_JSON` warning: the package stays CommonJS for the legacy runners, so Node detects the test files as ES modules.
 `npm run typecheck` checks these tests with `tsconfig.test.json`.
 
-## Native sign-in screens (Playwright)
+## Native sign-in and profile screens (Playwright)
 
 ```bash
 npm ci
@@ -25,6 +25,7 @@ npm run test:ui
 ```
 
 `test/ui/harness.ts` mounts the real sign-in screens and session core in a test page, bundled with the TV build's esbuild settings.
+With `?flow=profiles` it continues into the real profile screens and a stand-in for the browse screens.
 Playwright routes the page's `/api/v2` requests to the fake Silo the native tests use and serves the page from the fake server's origin, so no CORS is involved.
 The page stores credentials in the native tests' fake KeyManager.
 Other hosts fail as unreachable.

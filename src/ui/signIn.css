@@ -1,4 +1,4 @@
-/* Native sign-in screens, 1920x1080. Chrome 76: no flex gap, clamp() or :focus-visible. */
+/* Native sign-in and profile screens, 1920x1080. Chrome 76: no flex gap, clamp() or :focus-visible. */
 
 .signin {
     box-sizing: border-box;
@@ -126,4 +126,61 @@
 
 .signin-countdown {
     color: #9aa0b8;
+}
+
+/* Five profiles per row: 5 x (256 + 32) fits the 1600px screen. */
+.profile-grid {
+    margin: 0 0 24px;
+    font-size: 0;
+}
+
+.profile-tile {
+    display: inline-block;
+    vertical-align: top;
+    width: 256px;
+    /* Same height with or without the PIN line, so rows stay aligned. */
+    height: 296px;
+    margin: 0 32px 32px 0;
+    padding: 28px 16px;
+    border: 4px solid #4a4d63;
+    border-radius: 16px;
+    background: #24263a;
+    color: #f2f2f7;
+    font: inherit;
+    text-align: center;
+}
+
+.profile-tile:focus {
+    outline: none;
+    border-color: #ffffff;
+    background: #3d4170;
+    box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.35);
+}
+
+.profile-initial {
+    display: block;
+    width: 128px;
+    height: 128px;
+    margin: 0 auto 20px;
+    border-radius: 50%;
+    background: #4a4d63;
+    font-size: 64px;
+    font-weight: 700;
+    line-height: 128px;
+}
+
+.profile-name {
+    display: block;
+    overflow: hidden;
+    font-size: 36px;
+    font-weight: 600;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.profile-lock {
+    display: block;
+    margin-top: 12px;
+    font-size: 28px;
+    color: #c8cad8;
 }

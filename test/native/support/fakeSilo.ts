@@ -43,7 +43,7 @@ export type Reply = { status: number; body?: unknown; headers?: Record<string, s
 
 /** Answers the browse reads once the caller's bearer and profile proof are checked. */
 export interface CatalogRoutes {
-    route(method: string, path: string, profileId: string | undefined): Reply | undefined;
+    route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): Reply | undefined;
 }
 
 export const PROBLEM_BASE = "https://siloserver.org/docs/api/v2/problems/";
@@ -248,7 +248,7 @@ export class FakeSilo {
             if (refusal !== undefined) {
                 return refusal;
             }
-            const reply = this.catalog.route(method, path, headers["x-profile-id"]);
+            const reply = this.catalog.route(method, path, headers["x-profile-id"], body);
             if (reply !== undefined) {
                 return reply;
             }

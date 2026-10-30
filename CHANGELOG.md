@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added Movies and Series library sections, collections, genres, A–Z letter navigation and recently added titles.
 - Added strict TypeScript checks and a bundled build targeting Chrome 76.
 - Added a native Silo `/api/v2` session core with device-code sign-in, household profiles and PIN checks, and credential storage in Tizen KeyManager.
 - Added native sign-in screens for server address entry and device-code sign-in with a QR code, remote-key focus and recovery for each failure.
@@ -25,6 +26,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Returned directly between the A–Z grid and its navigation pills while keeping the alphabet rail reachable from the side.
+- Cleared invalid pagination cursors so reopening a cached list starts from its first page.
+- Kept focus in explicitly opened library menus and revealed the first card when Browse was activated from a scrolled library.
+- Restored interrupted library reads, preserved discovery chrome and personal groups, and matched collection cards and grid destinations to Skyline.
 - Used the server's section type to keep Continue Watching cards landscape when its section ID is opaque.
 - Removed blocking style copies from page transitions and kept menu dismissal from redirecting Search or trapping remote focus.
 - Kept dismissed menus closed until reopened deliberately, remembered library scope across launches, and made complete synopses reachable.

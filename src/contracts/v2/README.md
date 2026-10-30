@@ -35,7 +35,28 @@ Re-check those three places when `SOURCE` moves.
 The browse fixtures (`user_libraries`, `list_effective_settings_ok`, `list_home_sections_ok`, `list_catalog_items_ok`, `get_catalog_item_ok`, `list_series_seasons_ok`, `list_series_seasons_without_artwork`, `list_season_episodes_ok`) are copied unchanged from the same commit.
 Artwork URLs in these responses are signed (`/api/v2/artwork/{key}?exp=…&sig=…`, operation `getArtwork`, public) or presigned storage URLs ([`docs/images-api.md`](https://github.com/Artic0din/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/docs/images-api.md)); the client draws them with plain `<img>` and never adds credentials.
 
-## Updating
+## Library discovery reads
+
+`discovery.ts` decodes the consumed library collection, query, facet, letter-index and search-capability members at `SOURCE`.
+`api/discoveryOperations.ts` supplies the eight factories, exposed through `operations`.
+Every factory must be passed to `session.call({ ...spec, profileScoped: true })`; the session owns authentication, profile proof and cancellation.
+`listLibrarySections` and `getLibrarySectionItems` reuse the Home section decoder; collection items and query results reuse the catalog page/card decoder.
+Query results additionally retain `window_cursor` and `effective_sort`.
+Section item reads return a Section, with no cursor/limit parameters in this pinned contract.
+Collection item pages accept limits 1–200; catalog queries accept limits 1–100 and server seek positions 0–10000000.
+Recent browsing uses `sort: "added_at", order: "desc"`.
+Letter requests carry the same library, media type, filter groups and title order as the title browse.
+Use server letter positions as `seek` and retain the window cursor when continuing that browse; runs may repeat a letter.
+The factories add no credentials or new retry machinery.
+The six GET operations are reads; `queryCatalogItems` and `queryCatalogLetters` declare `natural_idempotent`, so both use the transport's existing safe retry.
+
+The public discovery fixtures are byte-identical copies of `contracts/api/v2/fixtures/` at `SOURCE`:
+`list_library_sections_ok`, `get_library_section_items_ok`, `get_library_collections_ok`, `get_catalog_filters_ok`, `query_catalog_items_ok`, `query_catalog_letters_ok`, and `get_catalog_search_capabilities_ok`.
+Only consumed video facets and capability flags are decoded.
+Unknown members are ignored and response enums are additive; malformed consumed fields fail without echoing values.
+These factories do not implement the library UI or complete issue 28.
+
+## Updating the pinned contract
 
 1. Pick the new server commit and copy the same fixture names from its `contracts/api/v2/fixtures/`.
 2. Write the commit SHA to `SOURCE`.

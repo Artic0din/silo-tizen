@@ -39,6 +39,7 @@ import {
     type UserLibrary,
 } from "../contracts/v2/catalog.ts";
 import type { RequestSpec } from "./http.ts";
+import { discoveryOperations } from "./discoveryOperations.ts";
 
 type Spec<T> = RequestSpec<T>;
 
@@ -74,6 +75,7 @@ export interface CatalogPageRequest {
 }
 
 export const operations = {
+    ...discoveryOperations,
     /** getSystemInfo: public, read. */
     systemInfo: (): Spec<ReturnType<typeof decodeSystemInfo>> => ({
         method: "GET",

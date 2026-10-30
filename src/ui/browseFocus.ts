@@ -16,6 +16,10 @@ export interface FocusItem {
 
 export interface Zone {
     readonly id: string;
+    readonly up?: string;
+    readonly down?: string;
+    readonly left?: string;
+    readonly right?: string;
     /** row: Left/Right move. column: Up/Down move. grid: both, `columns` items per row. */
     readonly layout: "row" | "column" | "grid";
     readonly columns?: number;
@@ -262,8 +266,11 @@ export class FocusHost {
         const target = moveWithin(zone, zone.items.length, index, key);
         if (target !== undefined) {
             this.focusItem(zone, zone.items[target]);
-        } else if (key === "up" || key === "down") {
-            this.enterZone(zoneIndex, key === "up" ? -1 : 1);
+        } else {
+            const destination = zone[key];
+            const next = view.zones.find(candidate => candidate.id === destination && candidate.items.length > 0);
+            if (next !== undefined) this.focusItem(next, next.items.find(item => item.key === this.memory.get(next.id)) ?? next.items[0]);
+            else if (key === "up" || key === "down") this.enterZone(zoneIndex, key === "up" ? -1 : 1);
         }
     };
 }

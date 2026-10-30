@@ -201,9 +201,9 @@ export function pagedGrid(state: PagerState, context: ViewContext): { content: H
     };
 }
 
-export function libraryView(library: UserLibrary, grid: { content: HTMLElement[]; zones: Zone[] }, back: () => void): View {
+export function libraryView(library: UserLibrary, grid: { content: HTMLElement[]; zones: Zone[] }, back: () => void, focusDefault: () => void): View {
     const empty = grid.zones[0]?.items.length === 0;
-    const browse = actionButton("browse", "Browse", () => grid.zones[0]?.items[0]?.element.focus({ preventScroll: true }));
+    const browse = actionButton("browse", "Browse", focusDefault);
     const pills = zoneNode("skyline-pills", [browse]);
     pills.appendChild(el("span", "skyline-scope", library.name));
     const content = [pills, ...(empty ? lines(["This library is empty."]) : []), ...grid.content];

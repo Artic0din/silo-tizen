@@ -25,6 +25,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept focus in explicitly opened library menus and revealed the first card when Browse was activated from a scrolled library.
 - Used the server's section type to keep Continue Watching cards landscape when its section ID is opaque.
 - Removed blocking style copies from page transitions and kept menu dismissal from redirecting Search or trapping remote focus.
 - Kept dismissed menus closed until reopened deliberately, remembered library scope across launches, and made complete synopses reachable.

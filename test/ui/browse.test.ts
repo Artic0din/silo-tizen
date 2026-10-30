@@ -223,6 +223,46 @@ browseTest("many libraries stay bounded; dwell and Back never commit; scope surv
     await showing(tv, "library:15");
 });
 
+browseTest("entering a library flyout cancels its pending row dwell", async (tv) => {
+    await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
+    await press(tv, "ArrowUp", "ArrowRight");
+    await tv.jump(250);
+    await press(tv, "ArrowDown", "ArrowRight");
+    assert.equal(await tv.focused(), "section:browse");
+    const reads = tv.fake.requests.length;
+    await tv.jump(150);
+    assert.equal(await tv.focused(), "section:browse", "the delayed row dwell must not replace the focused flyout");
+    assert.equal(tv.fake.requests.length, reads);
+    await press(tv, "Enter");
+    await showing(tv, "library:12");
+});
+
+browseTest("activating Browse reveals the first card after returning from a lower grid row", async (tv) => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
+    await press(tv, "ArrowDown", "ArrowDown", "ArrowDown");
+    await tv.page.clock.runFor(220);
+    assert.equal(await tv.focused(), "movie:m0019");
+    assert.ok(await tv.page.locator(".browse .skyline-content").evaluate((node) => node.scrollTop > 0));
+    await tv.remote(BACK);
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "browse");
+    const reads = tv.fake.requests.length;
+    await press(tv, "Enter");
+    assert.equal(await tv.focused(), "movie:m0001");
+    await tv.page.clock.runFor(220);
+    const visible = await tv.page.locator('.browse [data-focus="movie:m0001"]').evaluate((node) => {
+        const viewport = node.closest(".skyline-content");
+        if (viewport === null) return false;
+        const card = node.getBoundingClientRect();
+        const bounds = viewport.getBoundingClientRect();
+        return card.top >= bounds.top && card.bottom <= bounds.bottom;
+    });
+    assert.equal(visible, true, "Browse must reveal its focused first card");
+    assert.equal(tv.fake.requests.length, reads);
+});
+
 browseTest("long synopsis expands and scrolls accessibly; empty search omits Page 1 of 1", async (tv, catalog) => {
     catalog.failNext("/catalog/items/movie%3Am0001", { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", overview: "A long synopsis. ".repeat(900) } });
     await press(tv, "Enter");

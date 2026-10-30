@@ -309,7 +309,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (current === undefined || torn || playing) {
             return;
         }
-        const handlers = { context, busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn };
+        const handlers = { context, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn };
         const view = routeView(current, handlers);
         const rootRoute = current.kind === "home" || current.kind === "library" || current.kind === "search";
         if (rootRoute) {

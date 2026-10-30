@@ -240,6 +240,7 @@ appTest("library scope survives a full app remount for the same server and profi
 
 appTest("the profile menu opens without changing content, stays dismissed after Back and signs out through its owner", async (tv) => {
     await signIn(tv);
+    await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
     const requests = tv.fake.requests.length;
     await tv.page.locator('[data-focus="profiles"]').focus();
     await tv.jump(249);

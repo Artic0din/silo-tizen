@@ -347,6 +347,7 @@ export class Skyline {
     }
 
     private showFlyout(row: FocusItem): void {
+        this.cancelFlyout();
         if (this.selector.hidden || this.panelTab === undefined) return;
         const library = this.libraries.find((candidate) => `library:${candidate.id}` === row.key);
         if (library === undefined) return;

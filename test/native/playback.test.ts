@@ -112,6 +112,37 @@ async function playMovie(r: Rig, request: PlayRequest = MOVIE): Promise<string> 
     return id;
 }
 
+test("explicit pause and play are idempotent and leave pending seeks alone", async () => {
+    const r = await rig();
+    await playMovie(r);
+    assert.equal(typeof r.controller.setPaused, "function");
+    const before = r.avplay.calls.length;
+    r.controller.setPaused(false);
+    r.controller.setPaused(true);
+    r.controller.setPaused(true);
+    r.controller.setPaused(false);
+    assert.deepEqual(r.avplay.calls.slice(before), ["pause", "play"]);
+    r.controller.seekBy(10);
+    r.controller.setPaused(true);
+    assert.equal(r.avplay.calls[r.avplay.calls.length - 1], "seekTo 22500");
+    r.avplay.finishSeek();
+    r.controller.destroy();
+});
+
+test("committing an absolute source seek does not drift with live progress", async () => {
+    const r = await rig();
+    await playMovie(r);
+    assert.equal(typeof r.controller.seekToSeconds, "function");
+    r.avplay.tick(30000);
+    r.controller.seekToSeconds(45);
+    assert.equal(r.avplay.calls[r.avplay.calls.length - 1], "seekTo 45000");
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    const view = last(r.views);
+    assert.equal(view.phase === "playing" ? view.positionSeconds : -1, 45);
+    r.controller.destroy();
+});
+
 test("a start sends the v3 body under the active profile and plays the server's URL from the resume point", async () => {
     const r = await rig();
     r.controller.play(MOVIE);

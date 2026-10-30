@@ -869,6 +869,26 @@ test("quality preserves a nondefault audio and burned subtitle; pending pause in
     assert.equal(tracks(r).selectedSubtitleId, "file:42:subtitle:1");
 });
 
+test("explicit pause remains idempotent during a quality change and survives replacement", async () => {
+    const r = await rig();
+    r.server.next.push({ availableQualities: QUALITIES });
+    const id = await playMovie(r);
+    const hold = r.h.fake.hold(`/playback/${id}/replan`);
+    r.server.next.push({ availableQualities: QUALITIES });
+    r.controller.selectQuality("future-rung");
+    await settle(r);
+    const pauses = r.avplay.calls.filter(call => call === "pause").length;
+    r.controller.setPaused(true);
+    r.controller.setPaused(true);
+    assert.equal(last(r.views).phase, "paused");
+    assert.equal(r.avplay.calls.filter(call => call === "pause").length, pauses + 1);
+    hold.release();
+    await settle(r);
+    await playReplacement(r);
+    assert.equal(last(r.views).phase, "paused");
+    assert.equal(tracks(r).quality?.selectedId, "future-rung");
+});
+
 test("quality serializes with local seeks and other choices, and accepts a repeated route key for new intent", async () => {
     const r = await rig();
     r.server.next.push({ availableQualities: QUALITIES });

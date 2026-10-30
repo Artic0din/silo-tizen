@@ -29,7 +29,8 @@ Unexpected page logs and errors fail the screen tests.
 It covers the approved device-code journey, returning from playback, PIN-proof revocation during playback, sign-out/relaunch, protected-account restore, exit modal focus/key isolation, unavailable AVPlay and startup failure recovery.
 Its production case imports the actual `src/main.ts`, supplies the Tizen platform ports and exercises the same journey through that entry.
 The focused sign-in, profile, browse and player suites retain their failure/loading/empty-state, navigation, paging and track-menu checks.
-Skyline regressions cover full profile names, the contrast of an unfocused empty server field, and Samsung Play/Pause registration and dispatch.
+Skyline regressions cover full profile names, the contrast of an unfocused empty server field, and Samsung media-key registration and dispatch.
+Player tests cover explicit Play/Pause idempotency, visible transport focus, seek preview/commit/cancel and preservation of the preview during live progress updates.
 Browse and composition tests also cover bounded type tabs, menu dwell and dismissal, server/profile-scoped library persistence, intermediate scroll frames, debounced previews and full synopsis access.
 
 The retired Jellyfin adapter and its legacy browser/layout fixtures are no longer part of the app or test gate.

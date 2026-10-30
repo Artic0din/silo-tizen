@@ -40,7 +40,7 @@ const TRACKS: TrackView = {
     change: { state: "idle" },
     notices: [],
 };
-const playing = (tracks: TrackView): PlaybackView => ({ phase: "playing", title: "The Movie", positionSeconds: 754, durationSeconds: 7200, buffering: false, tracks });
+const playing = (tracks: TrackView): Extract<PlaybackView, { phase: "playing" | "paused" }> => ({ phase: "playing", title: "The Movie", positionSeconds: 754, durationSeconds: 7200, buffering: false, tracks });
 
 let browser: Browser;
 let script: string;
@@ -92,6 +92,114 @@ const commands = (page: Page): Promise<string[]> => page.evaluate(() => window.p
 const focused = (page: Page): Promise<string | null> => page.evaluate(() => document.activeElement?.getAttribute("data-focus") ?? null);
 const text = (page: Page, selector: string): Promise<string> => page.locator(selector).innerText();
 
+test("dedicated media buttons set playback state and still work over the track menu", async () => {
+    const { page, logs } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        for (const key of [415, 415, 19, 19]) await remote(page, key);
+        await remote(page, DOWN);
+        await page.evaluate(() => {
+            for (const key of ["MediaPlay", "MediaPause"]) document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+        });
+        await remote(page, 412);
+        await remote(page, 417);
+        await remote(page, 413);
+        assert.deepEqual(await commands(page), ["setPaused false", "setPaused false", "setPaused true", "setPaused true", "setPaused false", "setPaused true", "seekBy -10", "seekBy 10", "back"]);
+        assert.deepEqual(logs, []);
+    } finally { await page.close(); }
+});
+
+for (const [code, command] of [[415, "setPaused false"], [19, "setPaused true"], [10252, "togglePause"], [412, "seekBy -10"], [417, "seekBy 10"]] as const) test(`media key ${code} cancels a seek preview and restores playback focus`, async () => {
+    const { page, logs } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "position");
+        await remote(page, code);
+        assert.equal(await focused(page), "player", "discarding the preview restores the playback surface");
+        assert.deepEqual(await commands(page), [command], "discarded preview never commits an absolute seek");
+        await show(page, playing(TRACKS));
+        await page.clock.fastForward(5000);
+        await show(page, { ...playing(TRACKS), positionSeconds: 760 });
+        assert.equal(await page.locator(".player-overlay").getAttribute("class"), "player-overlay player-overlay-hidden");
+        await remote(page, UP);
+        await remote(page, code);
+        assert.equal(await focused(page), "pause", "a media key without an active preview retains an explicitly focused control");
+        assert.deepEqual(logs, []);
+    } finally { await page.close(); }
+});
+
+test("seeking previews source time without commands until commit and Back cancels", async () => {
+    const { page, logs } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
+        assert.deepEqual(await commands(page), [], "preview must not send a seek");
+        assert.equal(await page.getByRole("slider", { name: "Playback position" }).getAttribute("aria-valuenow"), "774");
+        await show(page, { ...playing(TRACKS), positionSeconds: 760 });
+        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), "774", "live progress must not move the preview");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["seekToSeconds 774"]);
+        await remote(page, LEFT);
+        await remote(page, BACK);
+        assert.deepEqual(await commands(page), ["seekToSeconds 774"], "cancelling does not seek or leave playback");
+        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), "760");
+        await remote(page, BACK);
+        assert.deepEqual(await commands(page), ["seekToSeconds 774", "back"]);
+        assert.deepEqual(logs, []);
+    } finally { await page.close(); }
+});
+
+test("visible transport controls are reachable by remote and keep focus across progress", async () => {
+    const { page, logs } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await remote(page, UP);
+        assert.equal(await focused(page), "pause");
+        await show(page, { ...playing(TRACKS), positionSeconds: 755 });
+        assert.equal(await focused(page), "pause");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["togglePause"]);
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "forward");
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "tracks");
+        await remote(page, ENTER);
+        assert.equal(await menuShown(page), true);
+        await remote(page, BACK);
+        await page.getByRole("button", { name: "Back 10 seconds", exact: true }).click();
+        assert.deepEqual(await commands(page), ["togglePause"], "visible seek controls preview before committing");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["togglePause", "seekToSeconds 745"]);
+        assert.deepEqual(logs, []);
+    } finally { await page.close(); }
+});
+
+test("seek previews clamp to the source bounds and disappear when playback leaves", async () => {
+    const { page, logs } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), positionSeconds: 5, durationSeconds: 20 });
+        await remote(page, LEFT);
+        await remote(page, LEFT);
+        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), "0");
+        for (let i = 0; i < 5; i++) await remote(page, RIGHT);
+        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), "20");
+        assert.deepEqual(await commands(page), []);
+        await show(page, { phase: "loading", title: "The Movie" });
+        await show(page, { ...playing(TRACKS), positionSeconds: 10 });
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["togglePause"], "loading clears the abandoned preview");
+        await remote(page, UP);
+        const bounds = await page.locator(".player-transport").evaluate(node => {
+            const parent = node.getBoundingClientRect();
+            return Array.from(node.children).every(child => { const r = child.getBoundingClientRect(); return r.top >= parent.top && r.bottom <= 1080 && r.left >= 0 && r.right <= 1920; });
+        });
+        assert.equal(bounds, true);
+        assert.deepEqual(logs, []);
+    } finally { await page.close(); }
+});
+
 test("the Samsung play-pause button operates playback without changing a track selection", async () => {
     const { page, logs } = await open();
     try {
@@ -116,7 +224,7 @@ async function capture(page: Page, name: string): Promise<void> {
     }
 }
 
-test("loading, playing and paused are readable; the remote pauses, seeks and goes back with focus kept", async () => {
+test("loading, playing and paused are readable; the remote cancels a seek preview and goes back with focus kept", async () => {
     const { page, logs } = await open();
     try {
         assert.equal(await text(page, ".player-status"), "Loading");
@@ -139,7 +247,8 @@ test("loading, playing and paused are readable; the remote pauses, seeks and goe
         assert.equal(await text(page, ".player-time"), "12:39");
         await capture(page, "player-paused");
         await remote(page, BACK);
-        assert.deepEqual(await commands(page), ["togglePause", "seekBy -10", "seekBy 10", "back"]);
+        await remote(page, BACK);
+        assert.deepEqual(await commands(page), ["togglePause", "back"]);
         assert.equal(await focused(page), "player");
         assert.deepEqual(logs, []);
     } finally {

@@ -1,6 +1,6 @@
 # Tests
 
-`npm test` runs the build, the native session tests, the sign-in and profile screen tests, the adapter tests and the browse focus tests.
+`npm test` runs the build, the native session and browse contract tests, the native sign-in, profile and browse screen tests, the adapter tests and the legacy browse focus tests.
 It needs Node.js 26 or later, the version CI tests.
 The browse Playwright tests serve the staged package in `dist/wgt/`, so run `npm run build` before running them directly.
 Desktop Chromium is not Chromium 76; these runs do not prove 2021 TV rendering.
@@ -31,6 +31,11 @@ The page stores credentials in the native tests' fake KeyManager.
 Other hosts fail as unreachable.
 Playwright's fake clock and the fake server's clock move together, so polling, expiry and retry waits need no real waiting.
 The tests press remote keys and check what the screen shows and where focus is.
+
+`test/ui/browse.test.ts` does the same for the native browse screens with `test/ui/browseHarness.ts`.
+The harness signs in through the real device-code flow and selects a profile through the real `Profiles`.
+`test/native/support/fakeCatalog.ts` adds a household to the fake Silo: an owner and a PIN-locked child profile whose library access the fake applies server-side, synthetic titles, cursor paging and search.
+The fake serves synthetic SVG artwork from `/art/`; other image hosts fail, which exercises the placeholders.
 
 ## Backend adapter (Node only)
 

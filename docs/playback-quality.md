@@ -12,7 +12,7 @@ These defaults are captured for the attempt, and an in-player choice is session-
 Successful quality changes replace its requested preference and current cap; track changes, seeking and route recovery repeat both.
 Fixed choices use the server rung's positive `bitrate_kbps`, and source-preserving rungs omit the cap.
 Auto restores the saved bandwidth cap captured at startup.
-No Settings UI or settings writes are added.
+Playback Settings edits the saved profile defaults through the existing Settings owner described below.
 
 Auto remains selected when the session requests Auto, regardless of the delivered rung.
 For a fixed preference, `plan_active_quality_v1` makes only a returned, offered `active_quality` authoritative.
@@ -32,5 +32,36 @@ A playable replacement retires the predecessor on the server; load failure recov
 
 Contracts were checked against [server cc85149](https://github.com/Silo-Server/silo-server/tree/cc8514943289045e7b9f7ac8d36d4968bfe93926) and [canonical Apple quality rules](https://github.com/Silo-Server/silo-apple/blob/148d5d70f8b8ce982a827fead2b16f8de40f0f57/iosApp/iosApp/Screens/Player/ApplePlaybackQuality.swift).
 The existing Skyline tokens and Chrome 76-compatible list layout are reused.
+
+## Saved profile defaults
+
+Profile menu → Settings → Playback offers Preferred audio, Preferred quality and Maximum bitrate.
+General → Hidden libraries retains the same owner and readback behaviour.
+Quality choices come from the supported server manifest, with its labels: Auto, 480p, 720p, 1080p and 2160p / 4K.
+Deprecated Original and unfamiliar stored strings are displayed as current values, without becoming new choices or being rewritten during a read.
+New profiles inherit Auto and no cap.
+
+Maximum bitrate uses a native text field with numeric input mode and an explicit Save action.
+Only whole integers from 100 to 200000 kbps are accepted; blank, zero, fractions and out-of-range values never send a write.
+No limit writes JSON null; Use inherited default deletes only the profile row.
+Cancel and remote Back discard the draft and return focus to the Maximum bitrate row.
+The field starts from the explicit profile value, never a narrower effective device value.
+
+Explicit profile defaults and the effective value/source on this TV remain separate.
+A device override can still win after a confirmed profile write or reset and is never cleared here.
+All writes use profile scope, the captured profile proof and stable device headers through the existing API/session owner.
+Writes are never automatically resent; uncertain answers reconcile the explicit row and effective value before a user-triggered retry.
+Profile authority changes discard late answers and remove the screen.
+Unsupported capabilities, platforms, schema shapes or profile scopes do not expose these controls.
+
+The pinned [Apple TV Settings](https://github.com/Silo-Server/silo-apple/blob/148d5d70f8b8ce982a827fead2b16f8de40f0f57/iosApp/iosApp/tvOS/Screens/Settings/TVPlaybackSettingsView.swift) separates resolution and bitrate into two pickers.
+Its [quality presets](https://github.com/Silo-Server/silo-apple/blob/148d5d70f8b8ce982a827fead2b16f8de40f0f57/iosApp/iosApp/Networking/SiloQualityPresets.swift) offer discrete bitrate choices while retaining a stored custom cap.
+This Tizen slice uses the requested numeric editor across the server's complete valid range, without adding a preset ladder or device-scope editor.
+The binding [Skyline guide](https://github.com/Silo-Server/silo-apple/blob/148d5d70f8b8ce982a827fead2b16f8de40f0f57/docs/skyline-design-guide.md) has SHA-256 `2d42d292e01ab6ee539278b63c286756fc432edf876a9286a33c9e853672cac2`.
+The selected fixture definitions remain an exact subset of the pinned public manifest; provenance is recorded in the contract README.
+
+Native tests write and read back Settings, then start the real PlaybackController repeatedly and assert exact quality and bandwidth request fields.
+The existing player consumer reads these defaults before every start; this slice changes no player production code.
 Native fake-server tests and synthetic desktop captures do not prove real server playback, Chromium 76 rendering, Tizen software emulator behaviour or Samsung TV playback.
-This slice does not implement visible transport controls, absolute seeking, trickplay, chapters, next-up or the broader recovery work.
+Device override editing, automatic subtitle resolution, trickplay and playback-planner redesign remain outside this slice.
+Issue 29 and whole-app acceptance remain incomplete.

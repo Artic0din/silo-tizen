@@ -4,6 +4,8 @@
 `fixtures/` holds the response bodies this client consumes, copied unchanged from
 `contracts/api/v2/fixtures/` at that commit, except `settings_contract_ok.json`,
 which contains the selected Settings manifest subset consumed by this client.
+That documented exception selects four definitions unchanged from `contracts/settings/v1/manifest.json` at `SOURCE` (v1, revision 24): `ui.disabled_library_ids`, `playback.audio_language`, `playback.preferred_quality` and `playback.max_bitrate_kbps`, plus the unchanged `playback_audio_languages` option set.
+The source manifest SHA-256 is `95b716c8b34974e4b97ee96f5c644135c437e09f4a6f2285fb263e3351e6c6ea`.
 `wire.ts` decodes only the members the client reads; unknown members are ignored and unknown
 response enum values decode to `"unknown"`, so additive server changes keep working.
 
@@ -23,7 +25,7 @@ response enum values decode to `"unknown"`, so additive server changes keep work
 | `updatePlaybackProgress` | `domain_identity` | Never resent; the next sample has a higher `sequence` |
 | `listUserLibraries`, `listEffectiveSettings` (hidden libraries and playback defaults), `listHomeSections`, `listCatalogItems`, `getCatalogItem`, `listSeriesSeasons`, `listSeasonEpisodes` | read (`profile_scoped`) | One transport retry; sent with the active profile's headers |
 | `settingsCapabilities`, `settingsContract` | read | One transport retry; discover the Settings manifest and supported profile controls |
-| `settingsValues`, `effectiveSettings` | read (`profile_scoped`) | One transport retry; read explicit profile rows separately from effective hidden-library and preferred-audio values |
+| `settingsValues`, `effectiveSettings` | read (`profile_scoped`) | One transport retry; read explicit profile rows separately from effective hidden-library, audio, quality and bitrate values |
 | `putSetting`, `deleteSetting` | `non_retryable` (`profile_scoped`) | Never resent automatically; write a profile value (including explicit null) or delete its override to restore inheritance, then confirm explicit and effective readback |
 
 Playback bodies live in `playback.ts`, following `docs/playback-api.md` and `docs/architecture/playback-protocol-v3.md` at the same commit.

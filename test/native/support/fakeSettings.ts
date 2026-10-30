@@ -1,6 +1,6 @@
 import type { FakeSilo, Reply } from "./fakeSilo.ts";
 import { fixture, problem } from "./fakeSilo.ts";
-import { AUDIO_KEY, HIDDEN_KEY, type SettingsKey, type SettingValue } from "../../../src/contracts/v2/settings.ts";
+import { AUDIO_KEY, QUALITY_KEY, SETTINGS_KEYS, type SettingsKey, type SettingValue } from "../../../src/contracts/v2/settings.ts";
 
 export class FakeSettings {
     readonly rows = new Map<string, Map<SettingsKey, SettingValue>>();
@@ -32,13 +32,13 @@ export class FakeSettings {
                 const base = { key, scope: "profile", profile_id: profile };
                 if (!effective) return rows.has(typed) ? { ...base, is_set: true, value: rows.get(typed), revision: 7 } : { ...base, is_set: false };
                 const override = this.overrides.has(typed);
-                const value = override ? this.overrides.get(typed) : rows.get(typed) ?? null;
+                const value = override ? this.overrides.get(typed) : rows.has(typed) ? rows.get(typed) : typed === QUALITY_KEY ? "auto" : null;
                 return { key, value, source: override ? "profile_device" : rows.has(typed) ? "profile" : "default", definition_revision: this.revision, ...(this.constrained && typed === AUDIO_KEY ? { constrained: true, requested_value: rows.get(typed) ?? null, permitted_values: [null, "en"] } : {}) };
             });
             return { status: 200, body: { items, revision: this.revision } };
         }
         const key = pathname.slice("/settings/values/".length) as SettingsKey;
-        if (key !== HIDDEN_KEY && key !== AUDIO_KEY) return problem(422, "validation_failed", "Unknown setting");
+        if (!SETTINGS_KEYS.includes(key)) return problem(422, "validation_failed", "Unknown setting");
         if (url.searchParams.get("scope") !== "profile") return problem(422, "validation_failed", "Profile scope required");
         if (method === "DELETE") {
             if (!rows.delete(key)) return problem(404, "not_found", "Unset");

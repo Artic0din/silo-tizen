@@ -3,7 +3,7 @@ import { systemClock, type Clock } from "../api/clock.ts";
 import type { RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import type { UserLibrary } from "../contracts/v2/catalog.ts";
-import { AUDIO_KEY, HIDDEN_KEY, SETTINGS_KEYS, decodeSettingValue, numericLibraryId, type EffectiveSetting, type ExplicitSetting, type SettingDefinition, type SettingsKey, type SettingValue } from "../contracts/v2/settings.ts";
+import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, SETTINGS_KEYS, decodeSettingValue, numericLibraryId, type EffectiveSetting, type ExplicitSetting, type SettingDefinition, type SettingsKey, type SettingValue } from "../contracts/v2/settings.ts";
 import { NativeSession, SessionError } from "../session/session.ts";
 
 type Edit = { key: SettingsKey } & ({ kind: "reset" } | { kind: "value"; value: SettingValue } | { kind: "hidden"; id: number; hidden: boolean });
@@ -33,6 +33,7 @@ export class SettingsState {
         this.stopAuthority = session.onAuthorityChange(() => { this.stop(); this.changed(); });
     }
     get canRetry(): boolean { return this.retryEdit !== undefined; }
+    get qualityOptions(): SettingDefinition["options"] { return this.definitions.find(def => def.key === QUALITY_KEY)?.options.filter(option => !option.deprecated && option.value !== "original") ?? []; }
     private get active(): boolean { return !this.controller.signal.aborted; }
     private call<T>(spec: RequestSpec<T>): Promise<T> {
         return this.session.call({ ...spec, profileScoped: true, replayAfterRefresh: spec.method === "GET", signal: this.controller.signal });
@@ -104,6 +105,10 @@ export class SettingsState {
         this.retryEdit = undefined;
         this.changed();
         try {
+            if (edit.kind === "value") {
+                decodeSettingValue(edit.key, edit.value);
+                if (edit.key === QUALITY_KEY && !this.qualityOptions.some(option => option.value === edit.value)) throw new Error("Choose a supported quality.");
+            }
             await this.readValues([edit.key]);
             if (!this.active || this.achieved(edit)) {
                 if (edit.key === HIDDEN_KEY) this.hiddenChanged = true;

@@ -13,6 +13,7 @@
 .settings-categories .browse-button[aria-current="page"],
 .settings-controls .browse-button[aria-checked="true"] { background: var(--silo-selected); }
 .settings .browse-button:focus { outline: none; background: #fff; color: #000; border-color: #fff; }
+.settings-input { box-sizing: border-box; }
 .settings-value { color: var(--silo-secondary); font-size: 26px; line-height: 1.4; margin: 0 0 32px; }
 .settings [aria-disabled="true"] { opacity: .7; }
 

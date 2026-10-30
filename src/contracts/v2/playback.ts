@@ -63,6 +63,7 @@ export interface PlaybackCapabilities {
     /** Echoed on every mutation; absent when playback is not configured. */
     readonly installationId: string | undefined;
     readonly protocolVersions: readonly number[];
+    readonly features: readonly string[];
 }
 
 export function decodePlaybackCapabilities(value: unknown): PlaybackCapabilities {
@@ -77,6 +78,7 @@ export function decodePlaybackCapabilities(value: unknown): PlaybackCapabilities
         allowed: boolean(obj, "allowed", path),
         installationId: optionalString(obj, "installation_id", path),
         protocolVersions: versions.filter((entry: unknown): entry is number => typeof entry === "number"),
+        features: obj.features === undefined ? [] : strings(obj, "features", path),
     };
 }
 

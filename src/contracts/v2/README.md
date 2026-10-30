@@ -63,6 +63,15 @@ Only consumed video facets and capability flags are decoded.
 Unknown members are ignored and response enums are additive; malformed consumed fields fail without echoing values.
 These factories do not implement the library UI or complete issue 28.
 
+## Seek preview reads
+
+`trickplay.ts` decodes consumed watch availability and seek-thumbnail manifest members from the same `SOURCE`.
+The exact public fixtures are `get_watch_state_ok` and `get_watch_trickplay_ok`.
+`getWatchState` and `getWatchTrickplay` are profile-scoped reads using the existing safe transport retry.
+Playback capability `features` is retained for the independent `trickplay_v1` gate.
+Signed JPEG URLs bypass the authenticated API transport and remain unchanged.
+See [seek thumbnails](../../../docs/seek-thumbnails.md) for lifecycle and browser proof limits.
+
 ## Updating the pinned contract
 
 1. Pick the new server commit and copy the same fixture names from its `contracts/api/v2/fixtures/`.

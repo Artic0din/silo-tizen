@@ -14,6 +14,7 @@ import { remoteKey } from "../ui/keys.ts";
 import { el } from "../ui/screen.ts";
 import type { AVPlay } from "./avplay.ts";
 import { type PlaybackError, type PlaybackExits, PlaybackController, type PlaybackView, type PlayerControls, type PlayRequest, type TrackView } from "./controller.ts";
+import { mountSeekThumbnail } from "./seekThumbnailView.ts";
 
 const SEEK_STEP_SECONDS = 10;
 /** While playing, the overlay hides this long after the last key. */
@@ -128,6 +129,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const overlay = el("div", "player-overlay");
     overlay.setAttribute("data-focus", "player");
     overlay.tabIndex = -1;
+    const thumbnail = mountSeekThumbnail(overlay, controls, clock);
     const title = el("h1", "player-title");
     const status = el("p", "player-status");
     status.setAttribute("role", "status");
@@ -247,6 +249,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const render = (): void => {
         const active = view.phase === "playing" || view.phase === "paused";
         if (!active) seekPreview = undefined;
+        if (seekPreview === undefined) thumbnail.clear();
         transport.hidden = !active;
         bar.setAttribute("aria-disabled", String(!active));
         const showing = view.phase === "error" ? "error" : "overlay";
@@ -304,6 +307,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         reveal();
         render();
         bar.focus();
+        thumbnail.show(seekPreview);
     };
 
     const menuKey = (key: string): void => {
@@ -453,6 +457,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
 
     const onVisibility = (): void => {
         if (document.hidden) {
+            seekPreview = undefined;
+            thumbnail.clear();
             cancelHide?.();
             cancelHide = undefined;
             if (view.phase !== "closed" && view.phase !== "error") {
@@ -467,6 +473,10 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     document.addEventListener("visibilitychange", onVisibility);
     const unsubscribe = controls.subscribe((next) => {
         const starting = next.phase === "playing" && view.phase !== "playing" && view.phase !== "paused";
+        if ((next.phase === "playing" || next.phase === "paused") && (view.phase === "playing" || view.phase === "paused") && next.previewKey !== view.previewKey) {
+            seekPreview = undefined;
+            thumbnail.clear();
+        }
         view = next;
         if (document.hidden && next.phase !== "closed" && next.phase !== "error") {
             onVisibility();
@@ -480,6 +490,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
 
     return {
         destroy() {
+            thumbnail.clear();
             unsubscribe();
             cancelHide?.();
             document.removeEventListener("keydown", onKey);

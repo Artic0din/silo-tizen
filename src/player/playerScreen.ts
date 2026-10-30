@@ -362,6 +362,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             return;
         }
         if (key === "play_pause" || key === "play" || key === "pause" || key === "stop" || key === "rewind" || key === "fast_forward") {
+            if (seekPreview !== undefined) overlay.focus();
             seekPreview = undefined;
             if (key === "stop") {
                 controls.back();

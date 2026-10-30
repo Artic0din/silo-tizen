@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Restored playback focus after a media button cancelled a seek preview so the controls could hide again.
 - Preserved navigation during slow personal-list loads and refreshed covered personal lists after membership changes in another list.
 - Refreshed Home progress after watched changes and made interrupted personal actions retryable when returning to Details.
 - Kept synopsis dialogs open during Details updates, refreshed visible and cached episode watched controls after aggregate changes, and enabled watched actions for titles without playback progress.

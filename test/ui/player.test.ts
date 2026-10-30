@@ -109,6 +109,26 @@ test("dedicated media buttons set playback state and still work over the track m
     } finally { await page.close(); }
 });
 
+for (const [code, command] of [[415, "setPaused false"], [19, "setPaused true"], [10252, "togglePause"], [412, "seekBy -10"], [417, "seekBy 10"]] as const) test(`media key ${code} cancels a seek preview and restores playback focus`, async () => {
+    const { page, logs } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "position");
+        await remote(page, code);
+        assert.equal(await focused(page), "player", "discarding the preview restores the playback surface");
+        assert.deepEqual(await commands(page), [command], "discarded preview never commits an absolute seek");
+        await show(page, playing(TRACKS));
+        await page.clock.fastForward(5000);
+        await show(page, { ...playing(TRACKS), positionSeconds: 760 });
+        assert.equal(await page.locator(".player-overlay").getAttribute("class"), "player-overlay player-overlay-hidden");
+        await remote(page, UP);
+        await remote(page, code);
+        assert.equal(await focused(page), "pause", "a media key without an active preview retains an explicitly focused control");
+        assert.deepEqual(logs, []);
+    } finally { await page.close(); }
+});
+
 test("seeking previews source time without commands until commit and Back cancels", async () => {
     const { page, logs } = await open();
     try {

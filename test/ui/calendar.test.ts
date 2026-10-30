@@ -261,11 +261,11 @@ calendarTest("Calendar Settings hidden-library return reuses current route and c
     const settings = new FakeSettings(tv.fake);
     settings.profile().set(HIDDEN_KEY, [15]);
     const routes = tv.fake.catalog; assert.ok(routes);
-    tv.fake.catalog = { route: (method, path, profile, body) => {
+    tv.fake.catalog = { route: (method, path, profile, body, headers) => {
         const household = catalog.households.get(profile ?? "");
         const hidden = settings.profile(profile).get(HIDDEN_KEY);
         if (household !== undefined && (hidden === null || Array.isArray(hidden))) household.hidden = hidden as number[] | null;
-        return routes.route(method, path, profile, body);
+        return routes.route(method, path, profile, body, headers);
     } };
     await activate(tv, "calendar"); await ready(tv, 3); await activate(tv, "filter:everything"); await ready(tv, 32);
     assert.equal(await tv.page.locator('.calendar-event[data-content-id="movie:archived"]').count(), 0);

@@ -54,6 +54,7 @@ const RETRYABLE_STATUSES = [502, 503, 504];
 
 export class NativeHttp {
     readonly base: ServerBase;
+    get deviceId(): string { return this.device.id; }
     private readonly device: DeviceHeaders;
     private readonly fetch: FetchLike;
     private readonly clock: Clock;

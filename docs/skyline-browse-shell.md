@@ -4,12 +4,37 @@ This slice applies the [Skyline guide](https://github.com/Silo-Server/silo-apple
 Home, Movies, Series, Search and Profiles share mounted root navigation.
 Only visible video library types appear, and mixed libraries can be scoped to either video type.
 Detail, season and playback routes remove the root chrome.
-Libraries include Browse, Collections, Genres, A–Z and Recently Added.
+Library destinations follow the available discovery capabilities: Browse, Collections, Genres, A–Z and Recently Added.
+
+## Text Search
+
+Non-empty text Search reads `getCatalogSearchCapabilities` through the existing profile-scoped session before its first query.
+It uses `type=video_with_episodes` only when `allowed` is true, `state` is `available`, and `video_with_episodes_scope` is true.
+A valid older response without the optional flag, a false flag, or a confirmed unavailable/disallowed capability retains `type=video`.
+Network, server and malformed capability responses fail visibly with Try again; they never fabricate unsupported status or empty results.
+The optional flag is strictly boolean when present, while unknown additive fields remain accepted.
+
+The operation remains `listCatalogItems`, **GET `/api/v2/catalog`**, with `q`, `type`, `limit=24`, opaque continuation and small artwork.
+At [server cc851494](https://github.com/Silo-Server/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/internal/catalog/catalog_parser.go), `video_with_episodes` is legal only on the query source; with text it includes movies, series and episodes, and without text it browses movies and series.
+The typed client exposes that scope only for text Search, leaving library/Home types and POST source requests unchanged.
+Resolved scope belongs to the active Search route and stays fixed through its cursor sequence, retries, Details and cached reopening.
+Changing text resets the cursor; late query/profile answers cannot paint or start another authorised query.
+Focus, render and page changes do not reread a resolved Search capability.
+
+Episode cards retain their content ID, series title and season/episode metadata, opening the existing episode Details, resume and player handoff.
+Back restores result focus; reopening Search through navigation preserves the query and page with its existing field-first entry.
+The 600 ms debounce, TV Done key, cancellation and profile-menu Back priority remain unchanged.
+
+Primary sources are the pinned [OpenAPI](https://github.com/Silo-Server/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/contracts/api/v2/openapi.json), its catalog handler/parser/resolver, and canonical [Apple SearchViewModel at f334794](https://github.com/Silo-Server/silo-apple/blob/f33479404712737499b22365430db1885cf6c6ab/iosApp/iosApp/Screens/Search/SearchViewModel.swift).
+The binding Skyline guide SHA-256 remains `2d42d292e01ab6ee539278b63c286756fc432edf876a9286a33c9e853672cac2`; section 6.7 retains the existing Search screen.
+Synthetic desktop tests and captures establish this Search slice only, not live-server, decoded playback, Chromium 76 runtime, Tizen or whole-app acceptance.
 The broader discovery and Details parity work remains tracked by issue #28.
 
 Focus never activates a route or starts a request.
 A library tab opens its anchored selector after 250 ms.
-Down enters the selector, Right enters its Browse flyout, Left returns, and Back closes without committing.
+With one visible library, Down enters its modes directly in a single-level panel.
+With multiple libraries, Down enters the scoped library list, Right enters its modes flyout, and Left returns to the library row.
+Back closes either panel without committing.
 Explicit activation commits one library, never a merged scope.
 The profile avatar opens an anchored menu with Switch profile, personal lists, Settings and Sign out.
 Back dismisses either anchored menu until focus leaves its anchor or the viewer presses it again.
@@ -45,6 +70,12 @@ It does not complete whole-Home parity, issue #28, preplay controls, next-up beh
 Progress appears only when the server supplies position and duration.
 The first card previews immediately; subsequent previews wait 150 ms and crossfade for 240 ms.
 Root transitions take 200 ms, and reduced motion snaps transitions and scrolling.
+Deliberate pill and same-tab scope changes crossfade for 200 ms with a 12 px upward drift of incoming content.
+Focus and remote input take effect synchronously; chrome and pills stay mounted above the outgoing layer.
+The marquee crossfades without translation so its fixed backdrop keeps the viewport as its containing block.
+The shell receives a library/type/mode identity separately from the loading view name.
+Loading, data completion and selector refreshes do not start a second transition.
+Rapid changes replace the outgoing layer, and stopping or destroying the focus host removes that layer, incoming motion classes and its cleanup timer.
 The noninteractive outgoing layer keeps its CSS classes and scroll position without serializing computed styles for each card.
 The synopsis dialog exposes the complete detail overview with remote scrolling and restores focus on close.
 Optional Details responses retain the active synopsis and its focus; closing shows the latest data, and route or profile teardown removes the dialog.
@@ -75,8 +106,8 @@ Apple's local extras, artwork preferences, automatic version quality ranking and
 The shell uses the shared tokens in `src/theme.css` alongside Skyline's navigation, marquee and card dimensions.
 Desktop Chromium tests and synthetic captures do not prove actual Chromium 76, Tizen emulator, signed package or Samsung TV behavior.
 
-Settings edits profile defaults through the existing native session and HTTP owners.
-General contains Hidden libraries; Playback contains the [saved profile defaults](playback-quality.md#saved-profile-defaults), including separate video seek intervals.
+Settings uses the existing native session and HTTP owners.
+General contains Hidden libraries and the [title-art switches](title-art.md) with this-TV/all-devices scope; Playback contains the [saved profile defaults](playback-quality.md#saved-profile-defaults), including separate video seek intervals.
 The category rail, control pane and pickers share `FocusHost`.
 Category focus only previews loaded controls; requests and writes require explicit activation.
 Back cancels a picker, returns from controls to the category rail, then returns to browse with avatar focus.
@@ -94,7 +125,7 @@ Profile rows and effective values are read separately and never copied into one 
 A device, library or series audio override can continue to take priority.
 The current effective value, source and policy constraints are shown separately from the edited profile value.
 Writes are serialized, not automatically replayed, and confirmed by explicit and effective readback.
-After an uncertain answer, retry first reconciles the exact profile scope; Retry-After blocks early requests.
+After an uncertain answer, retry first reconciles the edited scopes (both profile and this profile-device row for title art); Retry-After blocks early requests.
 Account/profile authority changes cancel work and clear old settings data.
 
 The hidden-library editor requests `include_hidden=true`; access restrictions remain server-owned.

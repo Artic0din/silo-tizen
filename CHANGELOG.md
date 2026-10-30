@@ -16,6 +16,9 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - Added a weekly catalog Calendar with Following, Trending and All filters, release and episode shelves, and context-preserving Details navigation.
+- Added Show Title Art and Apply to All Devices in General Settings, with server-confirmed title and season artwork choices and text retained during settings recovery.
+- Added episode-aware text Search when the server confirms support, with video-only fallback for older servers and retryable capability failures.
+- Added direct single-library menus and fluid library transitions while preserving immediate remote focus and reduced-motion navigation.
 - Added separate profile-saved video rewind and fast-forward intervals across player buttons, seek previews and dedicated remote keys.
 - Added Home row expansion with bounded pages and direct Continue Watching resume, while omitting featured rows and folding existing recommendations after Continue Watching.
 - Added server-provided JPEG thumbnails during seek previews, with timestamp seeking retained when previews are unavailable.

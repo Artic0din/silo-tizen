@@ -146,7 +146,7 @@ export function homeView(libraries: readonly UserLibrary[], sections: readonly H
     const zones: Zone[] = [];
     const content: HTMLElement[] = [];
     for (const section of sections) {
-        const cards = cardItems(section.items, { ...context, continueWatching: section.id === "continue_watching", preview: (card) => context.preview?.(card, section.title) });
+        const cards = cardItems(section.items, { ...context, continueWatching: section.sectionType === "continue_watching", preview: (card) => context.preview?.(card, section.title) });
         // A row of only books, podcasts or other media this client does not browse is left out.
         if (cards.length === 0) {
             continue;

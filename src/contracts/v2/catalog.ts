@@ -149,6 +149,7 @@ function decodeCard(value: unknown, path: string): Card {
 
 export interface HomeSection {
     readonly id: string;
+    readonly sectionType: string;
     readonly title: string;
     readonly items: readonly Card[];
 }
@@ -161,6 +162,7 @@ export function decodeHomeSections(value: unknown): HomeSection[] {
         const section = object(entry, sectionPath);
         return {
             id: string(section, "id", sectionPath),
+            sectionType: string(section, "section_type", sectionPath),
             title: string(section, "title", sectionPath),
             items: array(section, "items", sectionPath).map((card, cardIndex) => decodeCard(card, `${sectionPath}.items[${cardIndex}]`)),
         };

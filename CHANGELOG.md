@@ -25,6 +25,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Used the server's section type to keep Continue Watching cards landscape when its section ID is opaque.
 - Removed blocking style copies from page transitions and kept menu dismissal from redirecting Search or trapping remote focus.
 - Kept dismissed menus closed until reopened deliberately, remembered library scope across launches, and made complete synopses reachable.
 - Kept full profile names visible, made empty server fields distinguishable, and supported the Samsung Play/Pause button.

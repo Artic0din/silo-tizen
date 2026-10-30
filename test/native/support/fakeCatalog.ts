@@ -24,7 +24,7 @@ export interface FakeTitle {
 interface Household {
     readonly libraries: { id: string; name: string; type: string; sort_order: number }[];
     hidden: number[] | null;
-    sections: { id: string; title: string; items: string[] }[];
+    sections: { id: string; sectionType?: string; title: string; items: string[] }[];
 }
 
 const OWNER = "p-owner";
@@ -116,7 +116,7 @@ export class FakeCatalog implements CatalogRoutes {
             const template = toRecord(arrayOf(fixture("list_home_sections_ok").sections)[0]);
             const sections = household.sections.map((section) => {
                 const items = section.items.filter((id) => this.visible(household, id)).map((id) => this.card(id));
-                return { ...template, id: section.id, section_type: section.id, title: section.title, total_count: items.length, items };
+                return { ...template, id: section.id, section_type: section.sectionType ?? section.id, title: section.title, total_count: items.length, items };
             });
             return { status: 200, body: { sections } };
         }

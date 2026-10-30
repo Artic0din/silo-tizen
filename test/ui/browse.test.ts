@@ -109,6 +109,20 @@ browseTest("Continue Watching keeps landscape geometry when backdrop or progress
     assert.deepEqual(boxes, [{ width: 372, height: 209 }, { width: 372, height: 209 }]);
 });
 
+browseTest("Continue Watching uses section type rather than its opaque identity", async (tv, catalog) => {
+    const household = catalog.households.get("p-owner");
+    assert.ok(household !== undefined);
+    const section = household.sections[0];
+    assert.ok(section !== undefined);
+    section.sectionType = "continue_watching";
+    section.id = "shelf-resume-opaque";
+    section.title = "Resume";
+    await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+    await tv.page.locator('[data-section="shelf-resume-opaque"] .browse-art').first().waitFor();
+    const boxes = await tv.page.locator('[data-section="shelf-resume-opaque"] .browse-art').evaluateAll((nodes) => nodes.map((node) => ({ width: node.clientWidth, height: node.clientHeight })));
+    assert.deepEqual(boxes, [{ width: 372, height: 209 }, { width: 372, height: 209 }]);
+});
+
 browseTest("a populated Home changes route without copying every descendant's computed styles", async (tv, catalog) => {
     const household = catalog.households.get("p-owner");
     assert.ok(household !== undefined);

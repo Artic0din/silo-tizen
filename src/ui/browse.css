@@ -1,6 +1,21 @@
 /* Native browse screens, 1920x1080. Chrome 76: no flex gap, aspect-ratio, inset, clamp() or
    :focus-visible, so spacing is margins and card sizes are fixed (GRID_COLUMNS in browseViews.ts). */
 
+/* Settings shares the browse focus grammar and one scrollable control pane. */
+.settings { overflow-y: auto; }
+.settings-scope { margin: -12px 0 40px; color: var(--silo-secondary); font-size: 26px; }
+.settings-panes { display: flex; align-items: flex-start; }
+.settings-categories { width: 340px; flex-shrink: 0; padding-right: 40px; }
+.settings-pane { width: 1332px; padding-left: 48px; border-left: 1px solid var(--silo-hairline); }
+.settings-controls .browse-button,
+.settings-categories .browse-button { display: block; width: 100%; margin: 0 0 16px; border-radius: 12px; text-align: left; }
+.settings-controls .browse-button { padding: 24px 32px; font-size: 30px; }
+.settings-categories .browse-button[aria-current="page"],
+.settings-controls .browse-button[aria-checked="true"] { background: var(--silo-selected); }
+.settings .browse-button:focus { outline: none; background: #fff; color: #000; border-color: #fff; }
+.settings-value { color: var(--silo-secondary); font-size: 26px; line-height: 1.4; margin: 0 0 32px; }
+.settings [aria-disabled="true"] { opacity: .7; }
+
 /* Pushed Details pages: editorial hero and remote-reachable rails, no root chrome. */
 .details-hero {
     position: relative;

@@ -257,7 +257,7 @@ appTest("the profile menu opens without changing content, stays dismissed after 
     assert.equal(await tv.focused(), "profiles");
     await tv.page.keyboard.press("Enter");
     await tv.page.keyboard.press("ArrowDown");
-    for (const destination of ["watchlist", "favorites", "history"]) {
+    for (const destination of ["watchlist", "favorites", "history", "settings"]) {
         await tv.page.keyboard.press("ArrowDown");
         assert.equal(await tv.focused(), destination);
     }

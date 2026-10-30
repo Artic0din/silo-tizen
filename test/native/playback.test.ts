@@ -127,6 +127,8 @@ test("a start sends the v3 body under the active profile and plays the server's 
     assert.equal(body.file_id, "42");
     assert.equal(body.profile_id, "p-owner");
     assert.equal(body.start_position, 12.5);
+    assert.equal("audio_track_id" in body, false, "automatic starts leave audio selection to the server preference");
+    assert.equal("audio_track_index" in body, false);
     assert.match(String(body.playback_attempt_id), BOUNDED_IDENTIFIER);
     const capabilities = JSON.stringify(body.client_capabilities);
     assert.ok(!capabilities.includes("dts"), "no DTS claim on 2021 TVs");

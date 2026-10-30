@@ -13,6 +13,7 @@ import { PERSONAL_TITLES, type PersonalSource } from "./personalLists.ts";
 type VideoTab = "movies" | "series";
 
 interface ProfileMenu {
+    readonly settings?: () => void;
     readonly personal?: (source: PersonalSource) => void;
     readonly name: string;
     readonly switchProfile: () => void;
@@ -354,6 +355,8 @@ export class Skyline {
         if (personal !== undefined) for (const source of ["watchlist", "favorites", "history"] as const) {
             this.panel.push(actionButton(source, PERSONAL_TITLES[source], () => { this.close(); personal(source); }));
         }
+        const settings = this.profiles.settings;
+        if (settings !== undefined) this.panel.push(actionButton("settings", "Settings", () => { this.close(); settings(); }));
         if (this.profiles.signOut !== undefined) this.panel.push(actionButton("signout", "Sign out", this.profiles.signOut));
         for (const item of this.panel) item.element.setAttribute("role", "menuitem");
         replaceNodes(this.selector, [el("h2", "skyline-profile-name", this.profiles.name), ...this.panel.map((item) => item.element)]);

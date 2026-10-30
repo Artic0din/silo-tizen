@@ -12,6 +12,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added profile Settings with Hidden libraries and Preferred audio controls.
 - Added profile-scoped Watchlist, Favorites and History pages with bounded pagination, server-side media filters including History episodes, and page and item focus retained on return from Details even after an interrupted page turn.
 - Added richer title and season details with artwork, ratings, facts, cast and crew, person pages, related titles, file version selection and server-confirmed personal actions.
 - Added Movies and Series library sections, collections, genres, A–Z letter navigation and recently added titles.

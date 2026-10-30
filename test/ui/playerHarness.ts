@@ -36,7 +36,9 @@ const controls: PlayerControls = {
         };
     },
     togglePause: () => commands.push("togglePause"),
+    setPaused: (paused) => commands.push(`setPaused ${paused}`),
     seekBy: (seconds) => commands.push(`seekBy ${seconds}`),
+    seekToSeconds: (seconds) => commands.push(`seekToSeconds ${seconds}`),
     back: () => commands.push("back"),
     background: () => {
         commands.push("background");

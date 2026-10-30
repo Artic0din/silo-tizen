@@ -103,8 +103,10 @@ export type PlaybackView =
 export interface PlayerControls {
     subscribe(listener: (view: PlaybackView) => void): () => void;
     togglePause(): void;
+    setPaused(paused: boolean): void;
     /** Source seconds, negative to go back. */
     seekBy(seconds: number): void;
+    seekToSeconds(seconds: number): void;
     back(): void;
     /** Ends the attempt safely; authenticated suspension/restore belongs to recovery. */
     background(): void;
@@ -264,16 +266,21 @@ export class PlaybackController implements PlayerControls {
 
     togglePause(): void {
         const attempt = this.active();
-        if (attempt === undefined || !attempt.started || attempt.busy) {
+        if (attempt !== undefined) this.setPaused(!attempt.paused);
+    }
+
+    setPaused(paused: boolean): void {
+        const attempt = this.active();
+        if (attempt === undefined || !attempt.started || attempt.busy || attempt.paused === paused) {
             return;
         }
         try {
-            if (attempt.paused) {
-                this.deps.avplay.play();
-            } else {
+            if (paused) {
                 this.deps.avplay.pause();
+            } else {
+                this.deps.avplay.play();
             }
-            attempt.paused = !attempt.paused;
+            attempt.paused = paused;
         } catch {
             // Not allowed in the player's state right now; the next key press tries again.
         }
@@ -282,12 +289,17 @@ export class PlaybackController implements PlayerControls {
 
     seekBy(seconds: number): void {
         const attempt = this.active();
+        if (attempt !== undefined) this.seekToSeconds(attempt.sourceSeconds + seconds);
+    }
+
+    seekToSeconds(seconds: number): void {
+        const attempt = this.active();
         const plan = attempt?.plan;
         if (attempt === undefined || plan === undefined || !attempt.started || attempt.busy) {
             return;
         }
         const duration = plan.durationSeconds;
-        const target = Math.max(0, Math.min(attempt.sourceSeconds + seconds, duration ?? Number.MAX_VALUE));
+        const target = Math.max(0, Math.min(seconds, duration ?? Number.MAX_VALUE));
         const timeline = plan.timeline;
         const local =
             timeline.canSeekAnywhere &&

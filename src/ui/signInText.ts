@@ -141,7 +141,7 @@ function failure(state: Extract<DeviceLoginState, { readonly phase: "failed" }>)
     }
 }
 
-function waitText(seconds: number): string {
+export function waitText(seconds: number): string {
     if (seconds <= 1) {
         return "1 second";
     }

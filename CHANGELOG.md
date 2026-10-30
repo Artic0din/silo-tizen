@@ -9,6 +9,7 @@ All notable changes to this project are documented in this file.
 - Added strict TypeScript checks and a bundled build targeting Chrome 76.
 - Added a native Silo `/api/v2` session core with device-code sign-in, household profiles and PIN checks, and credential storage in Tizen KeyManager. No screen uses it yet.
 - Added native sign-in screens for server address entry and device-code sign-in with a QR code, remote-key focus and recovery for each failure. The app does not show them yet.
+- Added native household profile screens for choosing and switching profiles, PIN entry with lockout handling, and sign-out. The app does not show them yet.
 - Added a CI workflow that runs the type checks, the build and all tests.
 
 ### Changed
@@ -17,6 +18,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserved remote focus when a PIN check finished unsuccessfully.
+- Kept focus during native profile sign-out and waited for credential cleanup before returning to sign-in.
 - Kept manual device-code sign-in available when its link could not be encoded as a QR code.
 - Replaced an indefinite connection wait with a retry message while earlier sign-in storage cleanup remained pending.
 

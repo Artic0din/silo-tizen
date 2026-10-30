@@ -313,22 +313,83 @@ test("a paused viewer stays paused after a track change", async () => {
 test("a change waiting on Retry-After resends the same request; a new choice gets a new id", async () => {
     const r = await rig();
     const id = await playMovie(r);
+    r.avplay.tick(30000);
     r.h.fake.script(`/playback/${id}/replan`, { status: 503, headers: { "Retry-After": "30" } });
     r.controller.selectAudio("file:42:audio:1");
     await settle(r);
     assert.equal(replans(r.h).length, 1);
     assert.equal(tracks(r).change.state, "changing");
+    r.avplay.tick(45000);
     await r.h.clock.advance(29999);
     assert.equal(replans(r.h).length, 1);
+    assert.equal(requests(r.h, "/progress").pop()?.body?.position, 45);
     await r.h.clock.advance(1);
     await settle(r);
     const sent = replans(r.h);
     assert.equal(sent.length, 2);
     assert.deepEqual(sent[1], sent[0]);
+    assert.equal(sent[1]?.position_seconds, 30, "live progress never changes the retry body");
     await playReplacement(r);
     r.controller.selectAudio("file:42:audio:2");
     await settle(r);
     assert.notEqual(replans(r.h)[2]?.replan_request_id, sent[0]?.replan_request_id);
+});
+
+for (const ending of ["back", "background"]) {
+    test(`a pending track change keeps live progress and the final ${ending} position`, async () => {
+        const r = await rig();
+        const id = await playMovie(r);
+        r.avplay.tick(30000);
+        const hold = r.h.fake.hold(`/playback/${id}/replan`, true);
+        r.controller.selectAudio("file:42:audio:1");
+        await settle(r);
+        r.avplay.tick(45000);
+        await r.h.clock.advance(10000);
+        await settle(r);
+        assert.equal(requests(r.h, "/progress").pop()?.body?.position, 45);
+        assert.equal(only(replans(r.h)).position_seconds, 30, "the replan keeps its original position");
+        r.avplay.tick(50000);
+        if (ending === "back") {
+            r.controller.back();
+        } else {
+            r.controller.background();
+        }
+        await settle(r);
+        const stop = only(requests(r.h, `/playback/${id}`).filter((request) => request.method === "DELETE"));
+        assert.equal(stop.body?.position, 50);
+        hold.release();
+        await settle(r);
+        assert.equal(r.avplay.state, "NONE", "a late change cannot reopen playback");
+        assert.equal(r.avplay.urls.length, 1);
+    });
+}
+
+test("three lost track-change answers end the attempt instead of continuing with an obsolete plan", async () => {
+    const r = await rig();
+    const id = await playMovie(r);
+    const path = `/playback/${id}/replan`;
+    for (let i = 0; i < 3; i++) {
+        r.h.fake.dropNextAnswer(path);
+    }
+    r.controller.selectAudio("file:42:audio:1");
+    await settle(r);
+    assert.equal(r.server.session(id).audioIndex, 1, "the first request committed before its answer was lost");
+    await r.h.clock.advance(1000);
+    await settle(r);
+    await r.h.clock.advance(2000);
+    await settle(r);
+    const sent = replans(r.h);
+    assert.equal(sent.length, 3);
+    assert.deepEqual(sent[1], sent[0]);
+    assert.deepEqual(sent[2], sent[0]);
+    const view = last(r.views);
+    assert.deepEqual(view.phase === "error" ? view.error : undefined, { kind: "network" });
+    assert.equal(r.avplay.state, "NONE");
+    assert.ok(r.server.session(id).receipt !== undefined, "the ambiguous server session is stopped");
+    r.controller.selectAudio("file:42:audio:2");
+    r.avplay.listener?.onerror("PLAYER_ERROR_NOT_SUPPORTED_FORMAT");
+    await settle(r);
+    assert.equal(replans(r.h).length, 3, "no new request can use the obsolete local plan");
 });
 
 test("a second choice while one is pending is refused as busy, and a seek waits too", async () => {

@@ -21,6 +21,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept playback progress current during track changes and stopped safely when a change's outcome could not be confirmed.
+
 - Kept long audio and subtitle lists inside the staged player's menu with the focused choice and track status visible.
 - Removed the browser placeholder icon from native TV playback.
 

@@ -506,7 +506,8 @@ export class PlaybackController implements PlayerControls {
             if (!attempt.live) {
                 return;
             }
-            if (operation === "track_change" && !sessionGone(error)) {
+            // A missing or unusable answer cannot prove that the server rolled the change back.
+            if (operation === "track_change" && error instanceof ApiError && !error.transient && error.failure.kind !== "invalid_response" && !sessionGone(error)) {
                 this.changeSettled(attempt, { state: "failed" });
                 return;
             }
@@ -744,7 +745,7 @@ export class PlaybackController implements PlayerControls {
             },
             oncurrentplaytime: (milliseconds) => {
                 const plan = attempt.plan;
-                if (current() && attempt.started && !attempt.busy && plan !== undefined) {
+                if (current() && attempt.started && (!attempt.busy || attempt.change.state === "changing") && plan !== undefined) {
                     attempt.sourceSeconds = milliseconds / 1000 + plan.timeline.timelineOffsetSeconds;
                     this.showPlayback(attempt);
                 }

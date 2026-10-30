@@ -31,6 +31,18 @@ Other hosts fail as unreachable.
 Playwright's fake clock and the fake server's clock move together, so polling, expiry and retry waits need no real waiting.
 The tests press remote keys and check what the screen shows and where focus is.
 
+## Native player
+
+`test/native/playback.test.ts` runs the playback controller against the fake Silo's playback operations (`support/fakePlayback.ts`) and a fake AVPlay (`support/fakeAVPlay.ts`) that enforces the documented call states and retains uncancellable callbacks.
+The fake rejects AVPlay calls during a pending seek; teardown and replacement wait for its callback before closing or opening a transport.
+Tests also cover pause preservation after a server re-anchor, Retry-After delays, authority changes before dispatch and HTTPS-only media URLs.
+`test/ui/player.test.ts` drives the player screen in Chromium over stub controls.
+Set `PLAYER_CAPTURE_DIR` to a folder outside the repository to save its screenshots.
+Neither proves AVPlay media authentication or playback on a TV.
+
+The Gitleaks configuration keeps the default rules and excludes only the exact synthetic subtitle-path hash in the pinned public playback fixture.
+The same value in another file, or another value in that fixture, remains subject to scanning.
+
 ## Backend adapter (Node only)
 
 ```bash

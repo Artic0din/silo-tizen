@@ -39,11 +39,11 @@ interface Hold {
     readonly released: Promise<void>;
 }
 
-type Reply = { status: number; body?: unknown; headers?: Record<string, string> };
+export type Reply = { status: number; body?: unknown; headers?: Record<string, string> };
 
 const PROBLEM_BASE = "https://siloserver.org/docs/api/v2/problems/";
 
-function problem(status: number, id: string, title: string, headers?: Record<string, string>): Reply {
+export function problem(status: number, id: string, title: string, headers?: Record<string, string>): Reply {
     return {
         status,
         headers: { "Content-Type": "application/problem+json", ...headers },
@@ -68,6 +68,8 @@ export class FakeSilo {
     private readonly holds: Hold[] = [];
     /** Paths whose next request is processed but whose answer is lost on the way back. */
     private readonly dropped: string[] = [];
+    /** Further operations, e.g. playback; answered before the 404 fallback. */
+    readonly extraRoutes: ((method: string, path: string, headers: Record<string, string>, body: Record<string, unknown> | undefined) => Reply | undefined)[] = [];
     pinAttempts = 0;
     passwordChangeRequired = false;
     lockedUntil = 0;
@@ -227,6 +229,12 @@ export class FakeSilo {
         if (method === "GET" && path === "/catalog/probe") {
             return this.profileScopedRead(headers);
         }
+        for (const extra of this.extraRoutes) {
+            const reply = extra(method, path, headers, body);
+            if (reply !== undefined) {
+                return reply;
+            }
+        }
         return problem(404, "not_found", "Not found");
     }
 
@@ -291,7 +299,7 @@ export class FakeSilo {
         return { status: 200, body: this.mintSession(session) };
     }
 
-    private authenticate(headers: Record<string, string>): number | undefined {
+    authenticate(headers: Record<string, string>): number | undefined {
         const match = /^Bearer (.+)$/.exec(headers.authorization ?? "");
         const session = match?.[1] === undefined ? undefined : this.accessTokens.get(match[1]);
         return session === undefined || this.revokedSessions.has(session) ? undefined : session;

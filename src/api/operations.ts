@@ -12,6 +12,15 @@ import {
     decodeServerIdentity,
     decodeSystemInfo,
 } from "../contracts/v2/wire.ts";
+import {
+    decodePlaybackCapabilities,
+    decodePlaybackDecision,
+    decodePlaybackMutation,
+    type ProgressBody,
+    type ReplanPlaybackBody,
+    type StartPlaybackBody,
+    type StopBody,
+} from "../contracts/v2/playback.ts";
 import type { RequestSpec } from "./http.ts";
 
 type Spec<T> = RequestSpec<T>;
@@ -95,5 +104,44 @@ export const operations = {
         retry: "never",
         body: { pin },
         decode: decodeProfileVerification,
+    }),
+    /** getPlaybackCapabilities: read; carries installation_id for every playback mutation. */
+    playbackCapabilities: (): Spec<ReturnType<typeof decodePlaybackCapabilities>> => ({
+        method: "GET",
+        path: "/playback/capabilities",
+        retry: "safe",
+        decode: decodePlaybackCapabilities,
+    }),
+    /** startPlayback: domain_identity; only the identical body may be resent (same playback_attempt_id). */
+    startPlayback: (body: StartPlaybackBody): Spec<ReturnType<typeof decodePlaybackDecision>> => ({
+        method: "POST",
+        path: "/playback/start",
+        retry: "never",
+        body,
+        decode: decodePlaybackDecision,
+    }),
+    /** replanPlayback: domain_identity; only the identical body may be resent (same replan_request_id). */
+    replanPlayback: (sessionId: string, body: ReplanPlaybackBody): Spec<ReturnType<typeof decodePlaybackDecision>> => ({
+        method: "POST",
+        path: `/playback/${encodeURIComponent(sessionId)}/replan`,
+        retry: "never",
+        body,
+        decode: decodePlaybackDecision,
+    }),
+    /** updatePlaybackProgress: domain_identity; each sample has its own sequence. */
+    updatePlaybackProgress: (sessionId: string, body: ProgressBody): Spec<ReturnType<typeof decodePlaybackMutation>> => ({
+        method: "POST",
+        path: `/playback/${encodeURIComponent(sessionId)}/progress`,
+        retry: "never",
+        body,
+        decode: decodePlaybackMutation,
+    }),
+    /** stopPlayback: domain_identity; only the identical body may be resent (same stop_id). */
+    stopPlayback: (sessionId: string, body: StopBody): Spec<ReturnType<typeof decodePlaybackMutation>> => ({
+        method: "DELETE",
+        path: `/playback/${encodeURIComponent(sessionId)}`,
+        retry: "never",
+        body,
+        decode: decodePlaybackMutation,
     }),
 };

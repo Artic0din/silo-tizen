@@ -1,0 +1,14 @@
+[extend]
+useDefault = true
+
+# The pinned public fixture uses SHA-256("/library/movie.en.srt"), not a credential.
+# Provenance: https://github.com/Silo-Server/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/internal/playback/testdata/protocol_v3/subtitle_inventory.json
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Synthetic subtitle path hash in the pinned playback fixture"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''^src/contracts/v2/fixtures/playback_start_opaque_ids\.json$''']
+regexes = ['''^f903db1c5624c46c4a2c20f2fd8cd247fc0d46e6471c91d4ddb651ae4e039448$''']

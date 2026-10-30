@@ -216,18 +216,8 @@ export class NativeSession {
         };
         let replayed = false;
         for (;;) {
-            let credential = this.credential;
-            if (credential === undefined) {
-                throw new SessionError("signed_out");
-            }
-            if (credential.accessExpiresAt - this.clock.now() <= REFRESH_SKEW_MS) {
-                throwUnlessRefreshed(await this.refresh());
-                ensureCurrent();
-                credential = this.credential;
-                if (credential === undefined) {
-                    throw new SessionError("signed_out");
-                }
-            }
+            const credential = await this.freshCredential(ensureCurrent);
+            ensureCurrent();
             const profile = spec.profileScoped ? this.profile : undefined;
             const linked = linkSignals(this.authorityController.signal, spec.signal);
             try {
@@ -256,6 +246,40 @@ export class NativeSession {
                 linked.dispose();
             }
         }
+    }
+
+    /**
+     * The account access token for a media URL the platform player fetches without headers
+     * (AVPlay sends the `token` query instead). Refreshed first when about to expire, as `call` does.
+     */
+    async mediaToken(signal?: AbortSignal): Promise<string> {
+        const generation = this.generation;
+        const ensureCurrent = (): void => {
+            if (this.generation !== generation || signal?.aborted === true) {
+                throw abortedError();
+            }
+        };
+        const credential = await this.freshCredential(ensureCurrent);
+        ensureCurrent();
+        return credential.accessToken;
+    }
+
+    private async freshCredential(ensureCurrent: () => void): Promise<StoredCredential> {
+        ensureCurrent();
+        const credential = this.credential;
+        if (credential === undefined) {
+            throw new SessionError("signed_out");
+        }
+        if (credential.accessExpiresAt - this.clock.now() > REFRESH_SKEW_MS) {
+            return credential;
+        }
+        throwUnlessRefreshed(await this.refresh());
+        ensureCurrent();
+        const refreshed = this.credential;
+        if (refreshed === undefined) {
+            throw new SessionError("signed_out");
+        }
+        return refreshed;
     }
 
     /** Single-flight: concurrent callers share one refresh request. */

@@ -27,10 +27,13 @@ export interface ProfileHeaders {
  */
 export type RetryPolicy = "safe" | "never";
 
-export type JsonBody = { readonly [key: string]: string | number | boolean };
+export type JsonValue = string | number | boolean | readonly JsonValue[] | { readonly [key: string]: JsonValue | undefined };
+
+/** A JSON object body; members set to undefined are omitted on the wire. */
+export type JsonBody = { readonly [key: string]: JsonValue | undefined };
 
 export interface RequestSpec<T> {
-    readonly method: "GET" | "POST";
+    readonly method: "GET" | "POST" | "DELETE";
     /** Operation path below /api/v2, starting with "/". */
     readonly path: string;
     readonly retry: RetryPolicy;

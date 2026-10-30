@@ -1,5 +1,6 @@
 // Full-screen playback: the AVPlay surface plus a readable overlay for loading, progress and
-// errors. Remote: Enter pauses or resumes, Left/Right seek 10 s, Down opens audio and subtitles,
+// errors. Remote: Enter pauses or resumes, Left/Right preview seeking, Up enters transport,
+// Enter commits a seek and Back cancels it; Down opens audio and subtitles,
 // Back leaves. In that menu Up/Down move within a list, Left/Right switch lists, Enter chooses
 // and Back closes it; no key reaches playback while it is open. The screen owns one child of the
 // root and removes only that child, so a screen the parent already showed (after a profile
@@ -120,18 +121,38 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const status = el("p", "player-status");
     status.setAttribute("role", "status");
     const bar = el("div", "player-bar");
+    bar.setAttribute("role", "slider");
+    bar.setAttribute("aria-label", "Playback position");
+    bar.setAttribute("aria-valuemin", "0");
+    bar.setAttribute("data-focus", "position");
+    bar.tabIndex = -1;
     const fill = el("div", "player-bar-fill");
     bar.appendChild(fill);
     const time = el("p", "player-time");
     const tracksButton = el("button", "player-button player-tracks-button", "Audio and subtitles");
     tracksButton.type = "button";
     tracksButton.tabIndex = -1;
+    tracksButton.setAttribute("data-focus", "tracks");
     tracksButton.addEventListener("click", () => openMenu());
+    const transport = el("div", "player-transport");
+    const backward = el("button", "player-button", "Back 10 seconds");
+    const pause = el("button", "player-button", "Pause");
+    const forward = el("button", "player-button", "Forward 10 seconds");
+    const transportButtons = [backward, pause, forward, tracksButton];
+    for (const [index, button] of transportButtons.entries()) {
+        button.type = "button";
+        button.tabIndex = -1;
+        button.setAttribute("data-focus", ["backward", "pause", "forward", "tracks"][index] ?? "");
+        transport.appendChild(button);
+    }
+    backward.addEventListener("click", () => previewSeek(-SEEK_STEP_SECONDS));
+    forward.addEventListener("click", () => previewSeek(SEEK_STEP_SECONDS));
+    pause.addEventListener("click", () => { controls.togglePause(); reveal(); render(); });
     overlay.appendChild(title);
     overlay.appendChild(status);
     overlay.appendChild(bar);
     overlay.appendChild(time);
-    overlay.appendChild(tracksButton);
+    overlay.appendChild(transport);
     const menu = el("div", "player-menu");
     const lists = [el("div", "player-menu-list player-menu-audio"), el("div", "player-menu-list player-menu-subtitles")];
     const menuStatus = el("p", "player-menu-status");
@@ -160,6 +181,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     let view: PlaybackView = { phase: "closed" };
     let cancelHide: (() => void) | undefined;
     let menuOpen = false;
+    let seekPreview: number | undefined;
     /** The list (0 audio, 1 subtitles) that holds the menu's focus. */
     let column = 0;
     let drawn: string | undefined;
@@ -206,6 +228,10 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     };
 
     const render = (): void => {
+        const active = view.phase === "playing" || view.phase === "paused";
+        if (!active) seekPreview = undefined;
+        transport.hidden = !active;
+        bar.setAttribute("aria-disabled", String(!active));
         const showing = view.phase === "error" ? "error" : "overlay";
         failure.style.display = showing === "error" ? "block" : "none";
         overlay.style.display = showing === "overlay" ? "block" : "none";
@@ -233,18 +259,33 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             fill.style.width = "0";
         } else {
             tracksButton.hidden = false;
+            pause.textContent = view.phase === "paused" ? "Play" : "Pause";
             status.textContent = view.buffering ? "Buffering" : view.phase === "paused" ? "Paused" : "";
             const duration = view.durationSeconds;
-            time.textContent = duration === undefined ? clockText(view.positionSeconds) : `${clockText(view.positionSeconds)} / ${clockText(duration)}`;
-            fill.style.width = duration === undefined || duration <= 0 ? "0" : `${Math.min(100, (view.positionSeconds / duration) * 100)}%`;
+            const position = seekPreview ?? view.positionSeconds;
+            time.textContent = duration === undefined ? clockText(position) : `${clockText(position)} / ${clockText(duration)}`;
+            bar.setAttribute("aria-valuenow", String(position));
+            bar.setAttribute("aria-valuetext", clockText(position));
+            if (duration === undefined) bar.removeAttribute("aria-valuemax");
+            else bar.setAttribute("aria-valuemax", String(duration));
+            bar.className = seekPreview === undefined ? "player-bar" : "player-bar player-bar-preview";
+            fill.style.width = duration === undefined || duration <= 0 ? "0" : `${Math.min(100, (position / duration) * 100)}%`;
         }
-        const hidden = view.phase === "playing" && !view.buffering && cancelHide === undefined && !menuOpen;
+        const hidden = view.phase === "playing" && !view.buffering && cancelHide === undefined && !menuOpen && seekPreview === undefined && document.activeElement === overlay;
         overlay.className = hidden ? "player-overlay player-overlay-hidden" : "player-overlay";
         if (menuOpen && view.phase !== "loading") {
             drawMenu(view.tracks);
-        } else if (document.activeElement !== overlay) {
+        } else if (!overlay.contains(document.activeElement) || (view.phase === "loading" && document.activeElement !== overlay)) {
             overlay.focus();
         }
+    };
+
+    const previewSeek = (delta: number): void => {
+        if (view.phase !== "playing" && view.phase !== "paused") return;
+        seekPreview = Math.max(0, Math.min((seekPreview ?? view.positionSeconds) + delta, view.durationSeconds ?? Number.MAX_VALUE));
+        reveal();
+        render();
+        bar.focus();
     };
 
     const menuKey = (key: string): void => {
@@ -320,8 +361,16 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             }
             return;
         }
-        if (key === "play_pause") {
-            controls.togglePause();
+        if (key === "play_pause" || key === "play" || key === "pause" || key === "stop" || key === "rewind" || key === "fast_forward") {
+            if (seekPreview !== undefined) overlay.focus();
+            seekPreview = undefined;
+            if (key === "stop") {
+                controls.back();
+                return;
+            }
+            if (key === "play_pause") controls.togglePause();
+            else if (key === "play" || key === "pause") controls.setPaused(key === "pause");
+            else controls.seekBy(key === "rewind" ? -SEEK_STEP_SECONDS : SEEK_STEP_SECONDS);
             reveal();
             render();
             return;
@@ -332,6 +381,37 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             return;
         }
         reveal();
+        if (seekPreview !== undefined) {
+            if (key === "left" || key === "right") previewSeek(key === "left" ? -SEEK_STEP_SECONDS : SEEK_STEP_SECONDS);
+            else if (key === "enter" || key === "back") {
+                const target = seekPreview;
+                seekPreview = undefined;
+                overlay.focus();
+                if (key === "enter") controls.seekToSeconds(target);
+            }
+            render();
+            return;
+        }
+        const at = transportButtons.findIndex(button => button === document.activeElement);
+        if (at >= 0 && (key === "left" || key === "right")) {
+            transportButtons[Math.max(0, Math.min(transportButtons.length - 1, at + (key === "left" ? -1 : 1)))]?.focus();
+            render();
+            return;
+        }
+        if (key === "up" && (view.phase === "playing" || view.phase === "paused")) {
+            pause.focus();
+            render();
+            return;
+        }
+        if (key === "back" && at >= 0) {
+            overlay.focus();
+            render();
+            return;
+        }
+        if (key === "enter" && at >= 0) {
+            transportButtons[at]?.click();
+            return;
+        }
         if (key === "down" || (key === "enter" && document.activeElement === tracksButton)) {
             openMenu();
             return;
@@ -341,9 +421,9 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         } else if (key === "enter") {
             controls.togglePause();
         } else if (key === "left") {
-            controls.seekBy(-SEEK_STEP_SECONDS);
+            previewSeek(-SEEK_STEP_SECONDS);
         } else if (key === "right") {
-            controls.seekBy(SEEK_STEP_SECONDS);
+            previewSeek(SEEK_STEP_SECONDS);
         }
         render();
     };

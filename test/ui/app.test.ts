@@ -93,6 +93,8 @@ appTest("the composed remote seeks and changes audio through the real playback o
     await startMovie(tv);
     await tv.page.evaluate(() => window.appHarness.avplay.tick(90000));
     await tv.page.keyboard.press("ArrowLeft");
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.positionMs), 90000, "preview leaves playback untouched");
+    await tv.page.keyboard.press("Enter");
     await tv.page.evaluate(() => window.appHarness.avplay.finishSeek());
     assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.positionMs), 80000);
     await tv.page.keyboard.press("ArrowDown");

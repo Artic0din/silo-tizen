@@ -37,9 +37,14 @@ export class DetailsState {
     start(): void {
         if (this.controller !== undefined) return;
         this.controller = new AbortController();
+        let interrupted = false;
         for (const [kind, change] of this.changes) {
-            if (change.pending) this.changes.set(kind, { ...change, pending: false, failed: true });
+            if (change.pending) {
+                this.changes.set(kind, { ...change, pending: false, failed: true });
+                interrupted = true;
+            }
         }
+        if (interrupted) this.changed();
         if (this.related === undefined) this.loadRelated();
         if (this.personalSupported === undefined) this.loadPersonal();
     }

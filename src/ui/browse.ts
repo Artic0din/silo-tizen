@@ -188,6 +188,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const seriesId = detail.type === "series" ? detail.id : detail.seriesId;
         for (const entry of stack) {
             if (entry === current) continue;
+            if (entry.kind === "home") entry.stale = true;
             if (entry.kind === "season" && entry.seriesId === seriesId && (detail.type !== "season" || entry.seasonNumber === detail.seasonNumber)) entry.stale = true;
             if (entry.kind === "item") {
                 const covered = entry.data?.detail;

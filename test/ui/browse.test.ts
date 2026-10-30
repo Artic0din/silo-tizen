@@ -457,6 +457,61 @@ browseTest("person, related and personal reads recover with explicit retries", a
     assert.equal(await tv.page.locator("#successor").count(), 1);
 }, { catalog: new FakeDetails() });
 
+for (const scenario of [{ outcome: "completed", played: false }, { outcome: "lost", played: true }, { outcome: "cancelled", played: false }]) {
+    const fixtureCatalog = new FakeDetails();
+    const title = fixtureCatalog.titles.get("movie:m0001");
+    assert.ok(title);
+    fixtureCatalog.add({ ...title, duration: 5400 });
+    fixtureCatalog.watched = scenario.played;
+    browseTest(`PR32 Home refreshes watched progress after a ${scenario.outcome} mutation`, async (tv, catalog) => {
+        assert.ok(catalog instanceof FakeDetails);
+        assert.equal(await tv.page.locator('[data-focus="movie:m0001"] .skyline-progress').count(), 1);
+        await press(tv, "Enter");
+        await showing(tv, "item:movie:m0001");
+        const path = "/watched/movie%3Am0001";
+        const held = scenario.outcome === "cancelled" ? tv.fake.hold(path, true) : undefined;
+        if (scenario.outcome === "lost") tv.fake.dropNextAnswer(path);
+        await tv.page.getByRole("button", { name: scenario.played ? "Mark unwatched" : "Mark watched", exact: true }).click();
+        await tv.eventually(async () => catalog.mutations.length === 1, "watched mutation committed");
+        if (scenario.outcome === "completed") await tv.page.getByRole("button", { name: scenario.played ? "Mark watched" : "Mark unwatched", exact: true }).waitFor();
+        if (scenario.outcome === "lost") await tv.page.getByRole("button", { name: "Retry watched", exact: true }).waitFor();
+        await tv.remote(BACK);
+        held?.release();
+        await showing(tv, "home");
+        assert.equal(catalog.progress.has("movie:m0001"), false);
+        await tv.eventually(async () => await tv.page.locator('[data-focus="movie:m0001"] .skyline-progress').count() === 0, "Home discards obsolete progress");
+        assert.equal(browseReads(tv, "/home/sections").length, 2);
+        assert.equal(catalog.mutations.length, 1);
+    }, { catalog: fixtureCatalog });
+}
+
+for (const kind of ["favorites", "watchlist"]) {
+    browseTest(`PR32 returning from a person exposes reconciliation for cancelled ${kind}`, async (tv, catalog) => {
+        assert.ok(catalog instanceof FakeDetails);
+        await press(tv, "Enter");
+        await showing(tv, "item:movie:m0001");
+        await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
+        await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "all optional reads finished");
+        const path = `/${kind}/movie%3Am0001`;
+        const held = tv.fake.hold(path, true);
+        await tv.page.getByRole("button", { name: kind === "favorites" ? "Add favorite" : "Add to watchlist", exact: true }).click();
+        await tv.eventually(async () => catalog.mutations.length === 1, "personal mutation committed");
+        await tv.page.locator('[data-focus="person:river"]').first().focus();
+        await press(tv, "Enter");
+        await showing(tv, "person:river");
+        await tv.remote(BACK);
+        held.release();
+        await showing(tv, "item:movie:m0001");
+        await tv.eventually(async () => await tv.page.getByRole("button", { name: `Retry ${kind}`, exact: true }).count() === 1, "cancelled action becomes visibly retryable");
+        assert.equal(await tv.page.locator(`[data-focus="${kind}"]`).getAttribute("aria-disabled"), "false");
+        assert.equal(tv.fake.requests.filter(request => request.path === `${path}/membership`).length, 1);
+        await tv.page.getByRole("button", { name: `Retry ${kind}`, exact: true }).click();
+        await tv.page.getByRole("button", { name: kind === "favorites" ? "Remove favorite" : "Remove from watchlist", exact: true }).waitFor();
+        assert.equal(tv.fake.requests.filter(request => request.path === `${path}/membership`).length, 2);
+        assert.equal(catalog.mutations.length, 1, "Retry reconciles the committed state without another write");
+    }, { catalog: new FakeDetails() });
+}
+
 browseTest("a lost watched answer is reconciled on Retry without repeating the non-retryable POST", async (tv, catalog) => {
     assert.ok(catalog instanceof FakeDetails);
     await press(tv, "Enter");

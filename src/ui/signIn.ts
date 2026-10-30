@@ -29,7 +29,8 @@ const CLEANUP_WAIT_MS = 10000;
 // A new mount must not open another vault while an abandoned flow still clears the same aliases.
 let pendingAccountCleanup: Promise<void> = Promise.resolve();
 
-function logoutCollectedAccount(server: ConnectedServer): Promise<LogoutResult> {
+/** Signs the account out; a sign-in mounted meanwhile connects only after its storage is cleared. */
+export function logoutCollectedAccount(server: ConnectedServer): Promise<LogoutResult> {
     const logout = server.session.logout();
     const settled = logout.then(() => undefined, () => undefined);
     pendingAccountCleanup = Promise.all([pendingAccountCleanup, settled]).then(() => undefined);

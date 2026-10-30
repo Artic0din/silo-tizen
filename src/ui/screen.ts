@@ -1,6 +1,7 @@
 // Shows one screen at a time in a root element and moves focus for the remote. A screen is one
 // focus zone: its controls in remote order, with one control focused when it appears. Focus is
-// restored by control key, never by position, and never left on nothing.
+// restored by control key, never by position, and never left on nothing. Controls placed in rows
+// move Left/Right within a row and Up/Down between rows.
 
 import { remoteKey } from "./keys.ts";
 
@@ -8,6 +9,8 @@ export interface Control {
     /** Stable identity within a screen, e.g. "connect"; restores focus across re-renders. */
     readonly key: string;
     readonly element: HTMLElement;
+    /** Grid placement, set on every control of the screen or on none; rows in remote order. */
+    readonly row?: number;
 }
 
 export interface Screen {
@@ -90,6 +93,15 @@ export class ScreenHost {
             this.focus(screen.focus);
             return;
         }
+        const arrow = key === "up" || key === "down" || key === "left" || key === "right";
+        if (screen.controls.every((control) => control.row !== undefined)) {
+            // Enter is left to the browser here too.
+            if (arrow) {
+                event.preventDefault();
+                screen.controls[gridTarget(screen.controls, index, key)]?.element.focus();
+            }
+            return;
+        }
         const inText = active instanceof HTMLInputElement;
         let step = 0;
         if (key === "up" || (key === "left" && !inText)) {
@@ -104,6 +116,25 @@ export class ScreenHost {
         event.preventDefault();
         screen.controls[Math.min(screen.controls.length - 1, Math.max(0, index + step))]?.element.focus();
     };
+}
+
+/** Left/Right stay within the row; Up/Down keep the column where the next row has one. */
+function gridTarget(controls: readonly Control[], index: number, key: "up" | "down" | "left" | "right"): number {
+    const rowOf = (at: number): number => controls[at]?.row ?? 0;
+    const row = rowOf(index);
+    const inRow = (r: number): number[] => controls.flatMap((_, at) => (rowOf(at) === r ? [at] : []));
+    const current = inRow(row);
+    const column = current.indexOf(index);
+    if (key === "left" || key === "right") {
+        return current[Math.min(current.length - 1, Math.max(0, column + (key === "left" ? -1 : 1)))] ?? index;
+    }
+    const rows = [...new Set(controls.map((_, at) => rowOf(at)))].sort((a, b) => a - b);
+    const next = rows[rows.indexOf(row) + (key === "up" ? -1 : 1)];
+    if (next === undefined) {
+        return index;
+    }
+    const target = inRow(next);
+    return target[Math.min(column, target.length - 1)] ?? index;
 }
 
 export function el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text?: string): HTMLElementTagNameMap[K] {

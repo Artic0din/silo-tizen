@@ -39,11 +39,16 @@ interface Hold {
     readonly released: Promise<void>;
 }
 
-type Reply = { status: number; body?: unknown; headers?: Record<string, string> };
+export type Reply = { status: number; body?: unknown; headers?: Record<string, string> };
 
-const PROBLEM_BASE = "https://siloserver.org/docs/api/v2/problems/";
+/** Answers the browse reads once the caller's bearer and profile proof are checked. */
+export interface CatalogRoutes {
+    route(method: string, path: string, profileId: string | undefined): Reply | undefined;
+}
 
-function problem(status: number, id: string, title: string, headers?: Record<string, string>): Reply {
+export const PROBLEM_BASE = "https://siloserver.org/docs/api/v2/problems/";
+
+export function problem(status: number, id: string, title: string, headers?: Record<string, string>): Reply {
     return {
         status,
         headers: { "Content-Type": "application/problem+json", ...headers },
@@ -61,6 +66,8 @@ export class FakeSilo {
     /** refresh token -> session id; access token -> session id. */
     private readonly refreshTokens = new Map<string, number>();
     private readonly accessTokens = new Map<string, number>();
+    /** Access tokens minted while the account held a temporary password. */
+    private readonly restrictedTokens = new Set<string>();
     readonly revokedSessions = new Set<number>();
     readonly pins = new Map<string, string>([["p-kid", "2468"]]);
     private readonly pinRevision = new Map<string, number>([["p-kid", 1]]);
@@ -68,6 +75,10 @@ export class FakeSilo {
     private readonly holds: Hold[] = [];
     /** Paths whose next request is processed but whose answer is lost on the way back. */
     private readonly dropped: string[] = [];
+    /** Browse reads (test/native/support/fakeCatalog.ts); unset, they answer 404. */
+    catalog: CatalogRoutes | undefined;
+    /** The household GET /profiles returns: the fixture's owner and a PIN-locked child. */
+    profiles: Record<string, unknown> = household();
     pinAttempts = 0;
     passwordChangeRequired = false;
     lockedUntil = 0;
@@ -176,7 +187,8 @@ export class FakeSilo {
             this.dropped.splice(dropIndex, 1);
             throw new TypeError("Failed to fetch");
         }
-        const holdIndex = this.holds.findIndex((candidate) => candidate.path === path);
+        // A hold without a query holds that path with any query.
+        const holdIndex = this.holds.findIndex((candidate) => candidate.path === path || candidate.path === path.split("?")[0]);
         const hold = holdIndex === -1 ? undefined : this.holds.splice(holdIndex, 1)[0];
         if (hold !== undefined) {
             await waitOrAbort(hold.released, hold.ignoreAbort ? undefined : signal);
@@ -213,19 +225,31 @@ export class FakeSilo {
                 this.revokedSessions.add(session);
                 return { status: 204 };
             }
-            case "GET /profiles": {
-                if (this.authenticate(headers) === undefined) {
-                    return problem(401, "authentication_required", "Authentication required");
-                }
-                return { status: 200, body: this.profileCollection() };
-            }
+        }
+        // Until the password changes, the session may only log out (auth-api.md, temporary passwords).
+        const denied = this.denyUnauthenticated(headers);
+        if (denied !== undefined) {
+            return denied;
+        }
+        if (key === "GET /profiles") {
+            return { status: 200, body: this.profiles };
         }
         const pinMatch = /^\/profiles\/([^/]+)\/verify-pin$/.exec(path);
         if (method === "POST" && pinMatch?.[1] !== undefined) {
             return this.verifyPin(decodeURIComponent(pinMatch[1]), headers, String(body?.pin));
         }
         if (method === "GET" && path === "/catalog/probe") {
-            return this.profileScopedRead(headers);
+            return this.profileRefusal(headers) ?? { status: 200, body: { profile: headers["x-profile-id"] ?? null } };
+        }
+        if (this.catalog !== undefined) {
+            const refusal = this.profileRefusal(headers);
+            if (refusal !== undefined) {
+                return refusal;
+            }
+            const reply = this.catalog.route(method, path, headers["x-profile-id"]);
+            if (reply !== undefined) {
+                return reply;
+            }
         }
         return problem(404, "not_found", "Not found");
     }
@@ -278,6 +302,9 @@ export class FakeSilo {
         const access = `acc-${sessionId}-${serial}`;
         const refresh = `ref-${sessionId}-${serial}`;
         this.accessTokens.set(access, sessionId);
+        if (this.passwordChangeRequired) {
+            this.restrictedTokens.add(access);
+        }
         this.refreshTokens.set(refresh, sessionId);
         return { access_token: access, refresh_token: refresh, expires_in: 3600 };
     }
@@ -297,17 +324,15 @@ export class FakeSilo {
         return session === undefined || this.revokedSessions.has(session) ? undefined : session;
     }
 
-    private profileCollection(): Record<string, unknown> {
-        const collection = fixture("list_profiles_ok");
-        const items = Array.isArray(collection.items) ? collection.items : [];
-        const owner = toRecord(items[0]);
-        return { ...collection, items: [owner, { ...owner, id: "p-kid", name: "Kid", has_pin: true, is_primary: false, is_child: true }] };
-    }
-
-    private verifyPin(profileId: string, headers: Record<string, string>, pin: string): Reply {
+    private denyUnauthenticated(headers: Record<string, string>): Reply | undefined {
         if (this.authenticate(headers) === undefined) {
             return problem(401, "authentication_required", "Authentication required");
         }
+        const token = /^Bearer (.+)$/.exec(headers.authorization ?? "")?.[1] ?? "";
+        return this.restrictedTokens.has(token) ? problem(403, "password_change_required", "Password change required") : undefined;
+    }
+
+    private verifyPin(profileId: string, headers: Record<string, string>, pin: string): Reply {
         const now = this.clock.now();
         if (now < this.lockedUntil) {
             return problem(429, "rate_limited", "Rate limited", { "Retry-After": String(Math.ceil((this.lockedUntil - now) / 1000)) });
@@ -325,11 +350,8 @@ export class FakeSilo {
         return { status: 200, body: { ...fixture("verify_profile_pin_ok"), profile_token: token } };
     }
 
-    /** Stands for any profile-scoped catalog read the player or screens make. */
-    private profileScopedRead(headers: Record<string, string>): Reply {
-        if (this.authenticate(headers) === undefined) {
-            return problem(401, "authentication_required", "Authentication required");
-        }
+    /** A profile-scoped read naming a PIN profile without its current proof; route() has already checked the bearer. */
+    private profileRefusal(headers: Record<string, string>): Reply | undefined {
         const profileId = headers["x-profile-id"];
         if (profileId !== undefined && this.pins.has(profileId)) {
             const proof = this.profileTokens.get(headers["x-profile-token"] ?? "");
@@ -337,7 +359,7 @@ export class FakeSilo {
                 return { status: 403, headers: { "Content-Type": "application/problem+json" }, body: fixture("profile_verification_required") };
             }
         }
-        return { status: 200, body: { profile: profileId ?? null } };
+        return undefined;
     }
 
     private mustDevice(deviceCode: string): DeviceRequest {
@@ -347,6 +369,13 @@ export class FakeSilo {
         }
         return request;
     }
+}
+
+function household(): Record<string, unknown> {
+    const collection = fixture("list_profiles_ok");
+    const items = Array.isArray(collection.items) ? collection.items : [];
+    const owner = toRecord(items[0]);
+    return { ...collection, items: [owner, { ...owner, id: "p-kid", name: "Kid", has_pin: true, is_primary: false, is_child: true }] };
 }
 
 function toRecord(value: unknown): Record<string, unknown> {

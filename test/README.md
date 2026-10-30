@@ -1,6 +1,6 @@
 # Tests
 
-`npm test` runs the build, the native session tests, the sign-in screen tests, the adapter tests and the browse focus and layout tests.
+`npm test` runs the build, the native session and browse contract tests, the native sign-in, profile and browse screen tests, the adapter tests and the legacy browse focus and layout tests.
 It needs Node.js 26 or later, the version CI tests.
 The browse Playwright tests serve the staged package in `dist/wgt/`, so run `npm run build` before running them directly.
 Desktop Chromium is not Chromium 76; these runs do not prove 2021 TV rendering.
@@ -16,7 +16,7 @@ The tests use a fake Silo server and a fake KeyManager, so they need no network,
 The script hides Node's `MODULE_TYPELESS_PACKAGE_JSON` warning: the package stays CommonJS for the legacy runners, so Node detects the test files as ES modules.
 `npm run typecheck` checks these tests with `tsconfig.test.json`.
 
-## Native sign-in screens (Playwright)
+## Native sign-in and profile screens (Playwright)
 
 ```bash
 npm ci
@@ -25,11 +25,17 @@ npm run test:ui
 ```
 
 `test/ui/harness.ts` mounts the real sign-in screens and session core in a test page, bundled with the TV build's esbuild settings.
+With `?flow=profiles` it continues into the real profile screens and a stand-in for the browse screens.
 Playwright routes the page's `/api/v2` requests to the fake Silo the native tests use and serves the page from the fake server's origin, so no CORS is involved.
 The page stores credentials in the native tests' fake KeyManager.
 Other hosts fail as unreachable.
 Playwright's fake clock and the fake server's clock move together, so polling, expiry and retry waits need no real waiting.
 The tests press remote keys and check what the screen shows and where focus is.
+
+`test/ui/browse.test.ts` does the same for the native browse screens with `test/ui/browseHarness.ts`.
+The harness signs in through the real device-code flow and selects a profile through the real `Profiles`.
+`test/native/support/fakeCatalog.ts` adds a household to the fake Silo: an owner and a PIN-locked child profile whose library access the fake applies server-side, synthetic titles, cursor paging and search.
+The fake serves synthetic SVG artwork from `/art/`; other image hosts fail, which exercises the placeholders.
 
 ## Backend adapter (Node only)
 

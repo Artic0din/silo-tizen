@@ -11,20 +11,41 @@ import { FakeSilo } from "../../native/support/fakeSilo.ts";
 
 const ORIGIN = "https://silo.example.test";
 const PAGE = `${ORIGIN}/tv/index.html`;
-const CSS = readFileSync(new URL("../../../src/ui/signIn.css", import.meta.url), "utf8");
+const EVENTUALLY_TIMEOUT_MS = 10000;
+/** Which screens the page mounts: the sign-in harness or the browse harness. */
+export type TvApp = "signIn" | "browse";
+const ENTRY: Record<TvApp, string> = { signIn: "../harness.ts", browse: "../browseHarness.ts" };
+const CSS: Record<TvApp, string> = {
+    signIn: readFileSync(new URL("../../../src/ui/signIn.css", import.meta.url), "utf8"),
+    browse: readFileSync(new URL("../../../src/ui/browse.css", import.meta.url), "utf8"),
+};
 const HTML = `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=1920, height=1080"><title>Silo</title>
-<link rel="stylesheet" href="signIn.css"></head>
+<link rel="stylesheet" href="app.css"></head>
 <body style="margin:0"><main id="root"></main><script src="harness.js"></script></body>
 </html>`;
 
-let bundle: Promise<string> | undefined;
+const bundles = new Map<TvApp, Promise<string>>();
+
+/** Synthetic artwork: a coloured card with the file name, so screenshots show real images. */
+function svgArt(name: string): string {
+    let hue = 0;
+    for (let i = 0; i < name.length; i++) {
+        hue = (hue * 31 + name.charCodeAt(i)) % 360;
+    }
+    const label = name.replace(/[^A-Za-z0-9:.-]/g, " ").slice(0, 24);
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="500" height="750" viewBox="0 0 500 750"><rect width="500" height="750" fill="hsl(${hue},45%,32%)"/><text x="250" y="400" font-family="sans-serif" font-size="40" fill="#fff" text-anchor="middle">${label}</text></svg>`;
+}
 
 /** The harness as the TV build bundles it: one classic script lowered to Chrome 76. */
-export function harnessBundle(): Promise<string> {
-    bundle ??= build({
-        entryPoints: [new URL("../harness.ts", import.meta.url).pathname],
+export function harnessBundle(app: TvApp = "signIn"): Promise<string> {
+    const cached = bundles.get(app);
+    if (cached !== undefined) {
+        return cached;
+    }
+    const bundle = build({
+        entryPoints: [new URL(ENTRY[app], import.meta.url).pathname],
         bundle: true,
         format: "iife",
         target: "chrome76",
@@ -37,6 +58,7 @@ export function harnessBundle(): Promise<string> {
         }
         return file.text;
     });
+    bundles.set(app, bundle);
     return bundle;
 }
 
@@ -63,8 +85,9 @@ export interface Tv {
     eventually(check: () => Promise<boolean>, what: string): Promise<void>;
 }
 
-export async function openTv(browser: Browser, options: { sessionOnly?: boolean; video?: string } = {}): Promise<Tv> {
-    const script = await harnessBundle();
+export async function openTv(browser: Browser, options: { sessionOnly?: boolean; profiles?: boolean; video?: string; app?: TvApp } = {}): Promise<Tv> {
+    const app = options.app ?? "signIn";
+    const script = await harnessBundle(app);
     const context = await browser.newContext({
         viewport: { width: 1920, height: 1080 },
         ...(options.video === undefined ? {} : { recordVideo: { dir: options.video, size: { width: 1280, height: 720 } } }),
@@ -100,11 +123,13 @@ export async function openTv(browser: Browser, options: { sessionOnly?: boolean;
         screen: () => page.evaluate(() => document.querySelector("[data-screen]")?.getAttribute("data-screen") ?? null),
         focused: () => page.evaluate(() => document.activeElement?.getAttribute("data-focus") ?? null),
         async eventually(check, what) {
-            for (let i = 0; i < 200; i++) {
+            const deadline = performance.now() + EVENTUALLY_TIMEOUT_MS;
+            while (performance.now() < deadline) {
                 if (await check()) {
                     return;
                 }
-                await new Promise<void>((resolve) => setImmediate(resolve));
+                // Host-only checks must yield to the browser and its routed network requests.
+                await page.evaluate(() => undefined);
             }
             throw new Error(`timed out waiting for ${what}`);
         },
@@ -126,8 +151,12 @@ export async function openTv(browser: Browser, options: { sessionOnly?: boolean;
             await route.fulfill({ status: 200, contentType: "application/javascript", body: script });
             return;
         }
-        if (url.pathname === "/tv/signIn.css") {
-            await route.fulfill({ status: 200, contentType: "text/css", body: CSS });
+        if (url.pathname === "/tv/app.css") {
+            await route.fulfill({ status: 200, contentType: "text/css", body: CSS[app] });
+            return;
+        }
+        if (url.pathname.startsWith("/art/")) {
+            await route.fulfill({ status: 200, contentType: "image/svg+xml", body: svgArt(decodeURIComponent(url.pathname.slice(5))) });
             return;
         }
         if (!url.pathname.startsWith("/api/v2/")) {
@@ -155,6 +184,6 @@ export async function openTv(browser: Browser, options: { sessionOnly?: boolean;
         await route.fulfill({ status: response.status, headers, body: await response.text() }).catch(() => undefined);
     });
     await page.clock.install({ time: clock.now() });
-    await page.goto(options.sessionOnly === true ? `${PAGE}#session-only` : PAGE);
+    await page.goto(`${PAGE}${options.profiles === true ? "?flow=profiles" : ""}${options.sessionOnly === true ? "#session-only" : ""}`);
     return tv;
 }

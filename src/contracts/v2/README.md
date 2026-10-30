@@ -16,6 +16,11 @@ response enum values decode to `"unknown"`, so additive server changes keep work
 | `cancelDeviceLogin`, `logout` | `natural_idempotent` | One transport retry |
 | `refreshSession` | `domain_identity` | Never resent; 401/400/422 end the session, others keep the tokens |
 | `verifyProfilePIN` | `non_retryable` | Never resent, not even after a token refresh |
+| `listUserLibraries`, `listEffectiveSettings` (`ui.disabled_library_ids` only), `listHomeSections`, `listCatalogItems`, `getCatalogItem`, `listSeriesSeasons`, `listSeasonEpisodes` | read (`profile_scoped`) | One transport retry; sent with the active profile's headers |
+
+`catalog.ts` holds the browse decoders. They are handwritten from `openapi.json` at the commit in `SOURCE`, not generated.
+The browse fixtures (`user_libraries`, `list_effective_settings_ok`, `list_home_sections_ok`, `list_catalog_items_ok`, `get_catalog_item_ok`, `list_series_seasons_ok`, `list_series_seasons_without_artwork`, `list_season_episodes_ok`) are copied unchanged from the same commit.
+Artwork URLs in these responses are signed (`/api/v2/artwork/{key}?exp=…&sig=…`, operation `getArtwork`, public) or presigned storage URLs ([`docs/images-api.md`](https://github.com/Artic0din/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/docs/images-api.md)); the client draws them with plain `<img>` and never adds credentials.
 
 ## Updating
 

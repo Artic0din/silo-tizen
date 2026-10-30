@@ -33,6 +33,8 @@ export interface FocusTarget {
 
 export interface View {
     readonly prepare?: () => void;
+    /** Stable through loading/data renders; a same-group change drifts incoming content. */
+    readonly transition?: { readonly key: string; readonly group: string };
     /** Identifies the view; re-showing the same name keeps each zone's last focused item. */
     readonly name: string;
     readonly content: readonly HTMLElement[];
@@ -53,6 +55,7 @@ export class FocusHost {
     private readonly scroll = new SkylineScroll();
     private readonly visits = new Map<string, { memory: Map<string, string>; lastZone: string | undefined; top: number; rows: Map<string, number> }>();
     private outgoing: HTMLElement | undefined;
+    private incoming: HTMLElement[] = [];
     private transitionTimer: number | undefined;
 
     constructor(container: HTMLElement) {
@@ -73,8 +76,15 @@ export class FocusHost {
      * remains (the focused item disappeared), else the first item anywhere.
      */
     show(view: View, focus?: FocusTarget): void {
-        if (this.view?.name !== view.name && this.view !== undefined && this.container.classList.contains("skyline-root") && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        const changed = (this.view?.transition?.key ?? this.view?.name) !== (view.transition?.key ?? view.name);
+        const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const animate = changed && this.view !== undefined && this.container.classList.contains("skyline-root") && !reduced;
+        const drift = view.transition !== undefined && view.transition.group === this.view?.transition?.group;
+        if (changed || reduced) {
             this.clearTransition();
+            this.scroll.stop();
+        }
+        if (animate) {
             const outgoing = document.createElement("div");
             outgoing.className = [...this.container.classList].filter((name) => name !== "browse").concat("skyline-route-outgoing").join(" ");
             for (const child of this.container.childNodes) outgoing.appendChild(child.cloneNode(true));
@@ -117,6 +127,10 @@ export class FocusHost {
         this.viewport().scrollTop = visit?.top ?? 0;
         this.container.querySelectorAll<HTMLElement>(".browse-row").forEach((row, index) => { row.scrollLeft = visit?.rows.get(this.rowKey(row, index)) ?? 0; });
         this.focusFirst([focus, kept, view.focus]);
+        if (animate) {
+            this.incoming = Array.from(this.container.querySelectorAll<HTMLElement>(".skyline-content > :not(.skyline-pills), .skyline-marquee"));
+            for (const node of this.incoming) node.classList.add(drift && !node.classList.contains("skyline-marquee") ? "skyline-content-drift" : "skyline-content-enter");
+        }
     }
 
     focused(): FocusTarget | undefined {
@@ -145,6 +159,8 @@ export class FocusHost {
     private clearTransition(): void {
         if (this.transitionTimer !== undefined) window.clearTimeout(this.transitionTimer);
         this.outgoing?.remove();
+        for (const node of this.incoming) node.classList.remove("skyline-content-enter", "skyline-content-drift");
+        this.incoming = [];
         this.outgoing = undefined;
         this.transitionTimer = undefined;
     }

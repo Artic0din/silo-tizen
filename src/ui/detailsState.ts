@@ -5,6 +5,7 @@ import { detailOperations, type PersonalAction } from "../api/detailOperations.t
 import { operations } from "../api/operations.ts";
 import type { Card, ItemDetail } from "../contracts/v2/catalog.ts";
 import type { NativeSession } from "../session/session.ts";
+import { TITLE_ART_KEY, profileSettings } from "../contracts/v2/settings.ts";
 
 export interface PersonalChange {
     readonly target: boolean;
@@ -19,9 +20,12 @@ export class DetailsState {
     relatedFailed = false;
     personalSupported: boolean | undefined;
     personalFailed = false;
+    titleArtPolicy: "pending" | "supported" | "compatibility" | "failed" = "pending";
+    titleArt: boolean | undefined;
     readonly values = new Map<PersonalAction, boolean>();
     readonly changes = new Map<PersonalAction, PersonalChange>();
     private controller: AbortController | undefined;
+    private stopAuthority: (() => void) | undefined;
     private readonly session: NativeSession;
     private readonly changed: () => void;
     private readonly watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>;
@@ -37,6 +41,8 @@ export class DetailsState {
     start(): void {
         if (this.controller !== undefined) return;
         this.controller = new AbortController();
+        this.stopAuthority = this.session.onAuthorityChange(() => { this.stop(); this.changed(); });
+        this.loadTitleArt();
         let interrupted = false;
         for (const [kind, change] of this.changes) {
             if (change.pending) {
@@ -52,6 +58,54 @@ export class DetailsState {
     stop(): void {
         this.controller?.abort();
         this.controller = undefined;
+        this.stopAuthority?.();
+        this.stopAuthority = undefined;
+        this.titleArt = undefined;
+        this.titleArtPolicy = "pending";
+    }
+
+    /** Capture the route generation as well as the confirmed policy for late image events. */
+    titleArtGuard(): () => boolean {
+        const controller = this.controller;
+        return () => controller !== undefined && this.current(controller) && (this.titleArtPolicy === "compatibility" || (this.titleArtPolicy === "supported" && this.titleArt === true));
+    }
+
+    loadTitleArt(): void {
+        const controller = this.controller;
+        if (controller === undefined) return;
+        this.titleArt = undefined;
+        this.titleArtPolicy = "pending";
+        this.changed();
+        const run = async (): Promise<void> => {
+            let capability;
+            try { capability = await this.read(operations.settingsCapabilities(), controller); }
+            catch (error) {
+                if (error instanceof ApiError && (error.status === 404 || error.status === 501)) {
+                    if (this.current(controller)) this.titleArtPolicy = "compatibility";
+                    return;
+                }
+                throw error;
+            }
+            if (!this.current(controller)) return;
+            if (capability.apiVersion !== 1 || capability.state !== "available" || !capability.allowed) throw new Error("Title-art settings unavailable");
+            if (capability.manifestRevision < 16) { this.titleArtPolicy = "compatibility"; return; }
+            const contract = await this.read(operations.settingsContract(), controller);
+            if (!this.current(controller)) return;
+            if (contract.revision < capability.manifestRevision || !profileSettings(contract, capability).some(def => def.key === TITLE_ART_KEY)) throw new Error("Incompatible title-art definition");
+            const profile = this.session.activeProfile;
+            if (profile === undefined) return;
+            const effective = await this.read(operations.effectiveSettings([TITLE_ART_KEY], { profileId: profile.id, deviceId: this.session.http.deviceId, manifestRevision: contract.revision }), controller);
+            if (!this.current(controller)) return;
+            const value = effective.get(TITLE_ART_KEY)?.value;
+            if (typeof value !== "boolean") throw new Error("Missing title-art boolean");
+            this.titleArt = value;
+            this.titleArtPolicy = "supported";
+        };
+        run().then(() => { if (this.current(controller)) this.changed(); }, () => {
+            if (!this.current(controller)) return;
+            this.titleArtPolicy = "failed";
+            this.changed();
+        });
     }
 
     select(fileId: string): void {

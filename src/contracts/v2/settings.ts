@@ -2,6 +2,7 @@
 import { boolean, integer, object, string, WireError } from "./wire.ts";
 
 export const HIDDEN_KEY = "ui.disabled_library_ids";
+export const TITLE_ART_KEY = "ui.title_art";
 export const AUDIO_KEY = "playback.audio_language";
 export const QUALITY_KEY = "playback.preferred_quality";
 export const BITRATE_KEY = "playback.max_bitrate_kbps";
@@ -9,9 +10,11 @@ export const SEEK_BACK_KEY = "player.video_skip_back_seconds";
 export const SEEK_FORWARD_KEY = "player.video_skip_forward_seconds";
 export const SEEK_KEYS = [SEEK_BACK_KEY, SEEK_FORWARD_KEY] as const;
 const SEEK_SECONDS = [5, 10, 15, 30, 45, 60, 90];
-export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY, QUALITY_KEY, BITRATE_KEY, ...SEEK_KEYS] as const;
+export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY, QUALITY_KEY, BITRATE_KEY, ...SEEK_KEYS, TITLE_ART_KEY] as const;
 export type SettingsKey = (typeof SETTINGS_KEYS)[number];
-export type SettingValue = null | string | number | readonly number[];
+export type SettingValue = null | boolean | string | number | readonly number[];
+export type SettingsScope = "profile" | "profile_device";
+export interface SettingsIdentity { readonly profileId: string; readonly deviceId: string; readonly manifestRevision?: number }
 export interface SettingsCapabilities {
     readonly apiVersion: number;
     readonly revision: string;
@@ -71,12 +74,19 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
     const obj = object(value, "settings_contract");
     const sets = object(obj.option_sets, "settings_contract.option_sets");
     const definitions: SettingDefinition[] = [];
+    let titleArtSeen = false;
     for (const raw of array(obj.definitions, "settings_contract.definitions")) {
         const def = object(raw, "setting_definition");
         const key = SETTINGS_KEYS.find(key => def.key === key);
         if (key === undefined) continue;
+        if (key === TITLE_ART_KEY) {
+            if (titleArtSeen) throw new WireError("setting_definition.key", "each title-art key once");
+            titleArtSeen = true;
+        }
         const schema = object(def.value_schema, "setting_definition.value_schema");
         const seek = key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY;
+        const titleArt = key === TITLE_ART_KEY;
+        if (titleArt && (def.persistence !== "remote" || schema.type !== "boolean" || (schema.nullable !== undefined && schema.nullable !== false) || def.default_value !== true || def.introduced_in !== 16 || def.recommended_control !== "switch")) continue;
         if (seek && (def.persistence !== "remote" || schema.type !== "enum" || schema.nullable === true || def.default_value !== (key === SEEK_BACK_KEY ? 10 : 30) || def.unit !== "seconds" || def.recommended_control !== "select" || def.introduced_in !== 9)) continue;
         if ((key === QUALITY_KEY || key === BITRATE_KEY) && def.persistence !== "remote") continue;
         if (key === AUDIO_KEY && (schema.nullable !== true || schema.type !== "language_tag")) continue;
@@ -86,6 +96,7 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
         // Definitions restricted to another platform are advisory exclusions, not Tizen aliases.
         const platforms = def.platforms === undefined ? undefined : strings(def.platforms, "setting_definition.platforms");
         const scopes = strings(def.allowed_scopes, "setting_definition.allowed_scopes");
+        if (titleArt && (scopes.length !== 2 || !scopes.includes("profile") || !scopes.includes("profile_device") || JSON.stringify(def.resolution_order) !== JSON.stringify(["profile", "profile_device", "default"]))) continue;
         if (seek && (scopes.length !== 1 || scopes[0] !== "profile" || JSON.stringify(def.resolution_order) !== JSON.stringify(["profile", "default"]))) continue;
         let options: SettingDefinition["options"] = [];
         if (key === AUDIO_KEY && typeof def.suggested_options === "string") {
@@ -115,8 +126,8 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
             });
             if (definitions.some(def => def.key === key)) throw new WireError("setting_definition.key", "each seek key once");
         }
-        // The approved Tizen adoption covers only these two keys; platform metadata is advisory.
-        definitions.push({ key, introducedIn: integer(def, "introduced_in", "setting_definition"), profile: scopes.includes("profile") && (seek || platforms === undefined || platforms.includes("tizen")), options });
+        // Only the two seek keys and title art have approved advisory-platform adoption.
+        definitions.push({ key, introducedIn: integer(def, "introduced_in", "setting_definition"), profile: scopes.includes("profile") && (seek || titleArt || platforms === undefined || platforms.includes("tizen")), options });
     }
     return { apiVersion: integer(obj, "api_version", "settings_contract"), revision: integer(obj, "revision", "settings_contract"), definitions };
 }
@@ -126,7 +137,7 @@ export function profileSettings(contract: SettingsContract, capability: Settings
     const revision = Math.min(contract.revision, capability.manifestRevision);
     const definitions = contract.definitions.filter(def => def.profile && def.introducedIn <= revision).map(def => ({ ...def, options: def.options.filter(option => option.introducedIn <= revision) }));
     const pair = revision >= 9 && SEEK_KEYS.every(key => definitions.some(def => def.key === key && def.options.length === SEEK_SECONDS.length && def.options.every(option => !option.deprecated)));
-    return definitions.filter(def => pair || (def.key !== SEEK_BACK_KEY && def.key !== SEEK_FORWARD_KEY));
+    return definitions.filter(def => (pair || (def.key !== SEEK_BACK_KEY && def.key !== SEEK_FORWARD_KEY)) && (def.key !== TITLE_ART_KEY || capability.scopes.includes("profile_device")));
 }
 
 /** Keep opaque library IDs as strings everywhere except this validated JSON-integer boundary. */
@@ -137,6 +148,10 @@ export function numericLibraryId(id: string): number {
 }
 
 export function decodeSettingValue(key: SettingsKey, value: unknown): SettingValue {
+    if (key === TITLE_ART_KEY) {
+        if (typeof value !== "boolean") throw new WireError("title_art.value", "a JSON boolean");
+        return value;
+    }
     if (key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY) {
         if (typeof value !== "number" || !SEEK_SECONDS.includes(value)) throw new WireError("video_skip_seconds.value", "one of 5, 10, 15, 30, 45, 60 or 90");
         return value;
@@ -178,27 +193,42 @@ function duplicateSubtags(value: string): boolean {
     return false;
 }
 
-export function decodeStoredSetting(key: SettingsKey, value: unknown): Extract<ExplicitSetting, { isSet: true }> {
+function titleIdentity(row: Readonly<Record<string, unknown>>, scope: SettingsScope, identity?: SettingsIdentity): void {
+    if (row.scope !== scope || typeof row.profile_id !== "string" || row.profile_id === "" || (identity !== undefined && row.profile_id !== identity.profileId)
+        || (scope === "profile_device" ? typeof row.device_id !== "string" || row.device_id === "" || (identity !== undefined && row.device_id !== identity.deviceId) : row.device_id !== undefined)
+        || row.client_family !== undefined || row.library_id !== undefined || row.series_id !== undefined) throw new WireError("title_art.identity", "the requested profile and device scope identity");
+}
+
+export function decodeStoredSetting(key: SettingsKey, value: unknown, scope: SettingsScope = "profile", identity?: SettingsIdentity, previousRevision = 0): Extract<ExplicitSetting, { isSet: true }> {
     const obj = object(value, "setting_value");
-    if (obj.key !== key || obj.scope !== "profile") throw new WireError("setting_value", "the requested profile setting");
+    if (obj.key !== key || obj.scope !== scope) throw new WireError("setting_value", "the requested scoped setting");
+    if (key === TITLE_ART_KEY) {
+        titleIdentity(obj, scope, identity);
+        if (integer(obj, "revision", "setting_value") <= previousRevision) throw new WireError("setting_value.revision", "an advancing positive row revision");
+    }
     return { isSet: true, value: decodeSettingValue(key, obj.value), revision: integer(obj, "revision", "setting_value") };
 }
 
-export function decodeExplicitSettings(keys: readonly SettingsKey[], value: unknown): Map<SettingsKey, ExplicitSetting> {
+export function decodeExplicitSettings(keys: readonly SettingsKey[], value: unknown, scope: SettingsScope = "profile", identity?: SettingsIdentity): Map<SettingsKey, ExplicitSetting> {
     const obj = object(value, "explicit_settings");
     integer(obj, "revision", "explicit_settings");
+    if (keys.includes(TITLE_ART_KEY) && Number(obj.revision) < 16) throw new WireError("explicit_settings.revision", "a title-art contract revision");
+    if (keys.includes(TITLE_ART_KEY) && identity?.manifestRevision !== undefined && obj.revision !== identity.manifestRevision) throw new WireError("explicit_settings.revision", "the discovered contract revision");
     const entries = array(obj.items, "explicit_settings.items").map(raw => object(raw, "explicit_setting"));
     return new Map(keys.map(key => {
         const rows = entries.filter(entry => entry.key === key);
         const row = rows[0];
-        if (rows.length !== 1 || row?.scope !== "profile") throw new WireError("explicit_settings.items", "each requested profile key once");
-        return [key, boolean(row, "is_set", "explicit_setting") ? decodeStoredSetting(key, row) : { isSet: false }];
+        if (rows.length !== 1 || row?.scope !== scope) throw new WireError("explicit_settings.items", "each requested scoped key once");
+        if (key === TITLE_ART_KEY) titleIdentity(row, scope, identity);
+        return [key, boolean(row, "is_set", "explicit_setting") ? decodeStoredSetting(key, row, scope, identity) : { isSet: false }];
     }));
 }
 
-export function decodeEffectiveSettings(keys: readonly SettingsKey[], value: unknown): Map<SettingsKey, EffectiveSetting> {
+export function decodeEffectiveSettings(keys: readonly SettingsKey[], value: unknown, identity?: SettingsIdentity): Map<SettingsKey, EffectiveSetting> {
     const obj = object(value, "effective_settings");
     integer(obj, "revision", "effective_settings");
+    if (keys.includes(TITLE_ART_KEY) && Number(obj.revision) < 16) throw new WireError("effective_settings.revision", "a title-art contract revision");
+    if (keys.includes(TITLE_ART_KEY) && identity?.manifestRevision !== undefined && obj.revision !== identity.manifestRevision) throw new WireError("effective_settings.revision", "the discovered contract revision");
     const entries = array(obj.items, "effective_settings.items").map(raw => object(raw, "effective_setting"));
     return new Map(keys.map(key => {
         const rows = entries.filter(entry => entry.key === key);
@@ -214,6 +244,15 @@ export function decodeEffectiveSettings(keys: readonly SettingsKey[], value: unk
             ...(row.suggested_values === undefined ? {} : { suggestedValues: array(row.suggested_values, "suggested_values").map(value => decodeSettingValue(key, value)) }),
         };
         if ((key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY) && (!["profile", "default"].includes(result.source) || result.definitionRevision < 9)) throw new WireError("effective_setting", "a profile or default seek interval introduced at revision 9");
+        if (key === TITLE_ART_KEY) {
+            if (!["profile", "profile_device", "default"].includes(result.source) || result.definitionRevision < 16 || result.definitionRevision > Number(obj.revision)) throw new WireError("title_art.effective", "a compatible effective source and definition revision");
+            if (result.source === "default") {
+                if (["scope", "profile_id", "device_id", "source_context", "client_family", "library_id", "series_id"].some(field => row[field] !== undefined)) throw new WireError("title_art.default", "an inherited default without a stored identity");
+            } else {
+                titleIdentity(row, result.source as SettingsScope, identity);
+                if (row.source_context !== undefined) titleIdentity({ scope: result.source, ...object(row.source_context, "source_context") }, result.source as SettingsScope, identity);
+            }
+        }
         return [key, result];
     }));
 }

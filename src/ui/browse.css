@@ -383,7 +383,10 @@
 .skyline-progress-fill { display: block; height: 100%; background: #fff; }
 .skyline-synopsis-dialog { position: fixed; z-index: 20; top: 100px; left: 200px; width: 1520px; height: 880px; padding: 48px; overflow: auto; background: #15171c; border: 2px solid #fff; border-radius: 18px; outline: none; }
 .skyline-synopsis-dialog .browse-text { max-width: none; color: #ededed; }
-.skyline-route-outgoing { position: fixed; top: 0; left: 0; pointer-events: none; z-index: 3; animation: skyline-leave 200ms ease-out forwards; }
+.skyline-route-outgoing { position: fixed; top: 0; left: 0; pointer-events: none; z-index: 3; animation: skyline-leave var(--silo-page) ease-out forwards; }
+.skyline-content-enter { animation: skyline-appear var(--silo-page) ease-out both; }
+.skyline-content-drift { animation: skyline-content-rise var(--silo-page) ease-out both; }
+@keyframes skyline-content-rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes skyline-leave { from { opacity: 1; } to { opacity: 0; } }
 .skyline-content { position: fixed; top: 180px; left: 88px; width: 1744px; height: 900px; overflow: hidden; }
 .skyline-preview .skyline-content { top: 545px; height: 535px; }

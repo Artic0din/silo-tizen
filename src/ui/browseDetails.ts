@@ -79,7 +79,7 @@ function metaLine(detail: ItemDetail): string {
     return [...parts, ...detail.genres.slice(0, 3)].join(" · ");
 }
 
-function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonly FocusItem[]): HTMLElement[] {
+function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonly FocusItem[], state?: DetailsState): HTMLElement[] {
     const nodes: HTMLElement[] = [];
     const label = episodeLabel(detail.seasonNumber, detail.episodeNumber);
     if (detail.type === "episode" && (detail.seriesTitle !== undefined || label !== undefined)) {
@@ -87,11 +87,16 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     }
     const title = heading(detail.title);
     const logo = artworkUrl(detail.extra?.logoUrl, context.baseUrl);
-    if (logo !== undefined) {
+    const allowed = state?.titleArtGuard();
+    if (logo !== undefined && allowed?.()) {
         const image = el("img", "details-logo");
         image.alt = detail.title;
         image.referrerPolicy = "no-referrer";
-        image.addEventListener("load", () => { title.textContent = ""; title.appendChild(image); });
+        image.addEventListener("load", () => {
+            if (!allowed() || !title.isConnected || title.closest("[hidden]") !== null) return;
+            title.textContent = "";
+            title.appendChild(image);
+        });
         image.src = logo;
     }
     nodes.push(title);
@@ -140,7 +145,9 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     if (actions.length === 0 && seasonItems.length === 0) {
         actions.push(actionButton("back", "Back", back));
     }
-    const content = [...detailHeader(detail, context, actions), ...lines(notes)];
+    if (state?.titleArtPolicy === "failed") actions.push(actionButton("retry-title-art", "Retry title art", () => state.loadTitleArt()));
+    const content = [...detailHeader(detail, context, actions, state), ...lines(notes)];
+    if (state?.titleArtPolicy === "failed") content.push(...lines(["Could not load title-art settings."], "error"));
     if (seasonItems.length > 0) {
         content.push(el("h2", "browse-section-title", "Seasons"), zoneNode("browse-row", seasonItems));
     }

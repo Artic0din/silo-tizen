@@ -73,7 +73,7 @@ export class FakeCatalog implements CatalogRoutes {
             sections: [
                 { id: "continue_watching", title: "Continue Watching", items: ["movie:m0001", "episode:s1e12"] },
                 { id: "books", title: "Books for you", items: ["ebook:atlas"] },
-                { id: "recently_added", title: "Recently Added", items: ["ebook:atlas", "series:s1", "series:s2", ...this.ids("12").slice(0, 12)] },
+                { id: "recently_added", title: "Recently Added", items: ["ebook:atlas", "series:s1", "series:s2", ...this.ids("12").slice(0, 12), "episode:s1e12"] },
             ],
         });
         this.households.set(KID, {

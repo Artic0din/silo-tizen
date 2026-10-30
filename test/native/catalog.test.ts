@@ -68,6 +68,13 @@ test("browse fixtures decode with the production decoders", () => {
     ]);
 });
 
+test("Home featured is a boolean independent of the opaque section identity and type", () => {
+    const section = { id: "opaque/row", section_type: "future_valid_row", title: "Synthetic picks", items: [] };
+    assert.equal(decodeHomeSections({ sections: [{ ...section, featured: true }] })[0]?.featured, true);
+    assert.equal(decodeHomeSections({ sections: [section] })[0]?.featured, false);
+    assert.throws(() => decodeHomeSections({ sections: [{ ...section, featured: "true" }] }), WireError);
+});
+
 test("unknown media and library kinds decode as unknown; wrong shapes fail without echoing values", () => {
     const sections = decodeHomeSections({
         sections: [{ id: "books", section_type: "recommendations", title: "Books", items: [{ content_id: "ebook:1", type: "ebook", title: "Dune" }] }],

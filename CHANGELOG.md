@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserved the expanded Home row's page and card after playback interrupted a pending page turn.
 - Restored playback focus after a media button cancelled a seek preview so the controls could hide again.
 - Preserved navigation during slow personal-list loads and refreshed covered personal lists after membership changes in another list.
 - Refreshed Home progress after watched changes and made interrupted personal actions retryable when returning to Details.
@@ -13,6 +14,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added Home row expansion with bounded pages and direct Continue Watching resume, while omitting featured rows and folding existing recommendations after Continue Watching.
 - Added saved profile quality and maximum bitrate controls in Playback Settings, with server-confirmed values and device override visibility.
 - Added profile Settings with Hidden libraries and Preferred audio controls.
 - Added in-player quality selection from the server's available alternatives, preserving saved quality and bandwidth preferences throughout playback.

@@ -29,20 +29,21 @@ function exit(): void {
     leave.call(current);
 }
 
-function registerMediaKey(): void {
+function registerMediaKeys(): void {
     const input = field(field(globalThis, "tizen"), "tvinputdevice");
     const register = field(input, "registerKey");
     const supported = field(input, "getSupportedKeys");
     if (typeof register !== "function" || typeof supported !== "function") {
         return;
     }
-    try {
-        const keys: unknown = supported.call(input);
-        if (Array.isArray(keys) && keys.some((key: unknown) => field(key, "name") === "MediaPlayPause")) {
-            register.call(input, "MediaPlayPause");
+    let keys: unknown;
+    try { keys = supported.call(input); } catch { return; }
+    if (!Array.isArray(keys)) return;
+    for (const name of ["MediaPlayPause", "MediaPlay", "MediaPause", "MediaStop", "MediaRewind", "MediaFastForward"]) {
+        if (!keys.some((key: unknown) => field(key, "name") === name)) continue;
+        try { register.call(input, name); } catch {
+            // A refused optional key must not prevent the other supported keys from registering.
         }
-    } catch {
-        // Enter remains available when this optional remote key is absent or refused.
     }
 }
 
@@ -59,7 +60,7 @@ export function platformOptions(appVersion: string): AppOptions {
     const randomBytes = (bytes: Uint8Array): void => { bytes.set(crypto.getRandomValues(new Uint8Array(bytes.length))); };
     const model = modelName();
     const avplay = findAVPlay();
-    registerMediaKey();
+    registerMediaKeys();
     return {
         core: {
             fetch: (url, init) => window.fetch(url, init),

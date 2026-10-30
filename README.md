@@ -23,7 +23,10 @@ The TV interface follows the [Skyline design guide](https://github.com/Silo-Serv
 `src/theme.css` owns the shared OLED palette, type family and motion durations.
 Sign-in, profiles, dialogs and playback use monochrome focus states and respect the system Reduced Motion preference.
 The launcher uses the existing Silo app artwork.
-Samsung's Play/Pause key is registered when supported; Enter remains available on every remote.
+Samsung's supported Play/Pause, Play, Pause, Stop, Rewind and Fast Forward keys are registered independently; Enter remains available on every remote.
+Player Up focuses the visible transport controls.
+Left and Right preview a seek without changing playback; Enter commits the source position and Back cancels.
+Dedicated Rewind and Fast Forward keys seek ten seconds directly.
 The mounted Skyline bar groups visible libraries into Movies and Series tabs, with anchored library and profile menus.
 Library scope is remembered per server, profile and content type.
 Card focus drives a passive preview without fetching details; scrolling retargets immediately and respects Reduced Motion.

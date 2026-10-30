@@ -70,6 +70,40 @@
     background: var(--silo-text);
 }
 
+.player-bar:focus {
+    outline: 2px solid var(--silo-text);
+    outline-offset: 8px;
+}
+
+.player-bar-preview .player-bar-fill {
+    position: relative;
+}
+
+.player-bar-preview .player-bar-fill::after {
+    content: "";
+    position: absolute;
+    right: -9px;
+    top: -6px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--silo-text);
+}
+
+.player-transport {
+    display: flex;
+    align-items: center;
+    margin-top: 32px;
+}
+
+.player-transport[hidden] {
+    display: none;
+}
+
+.player-transport .player-button {
+    margin-right: 20px;
+}
+
 .player-time {
     margin: 0;
     font-size: 23px;
@@ -105,7 +139,8 @@
 }
 
 .player-tracks-button {
-    margin-top: 24px;
+    margin-left: auto;
+    margin-right: 0;
 }
 
 /* Audio and subtitles: two lists side by side on the right, over the video. */

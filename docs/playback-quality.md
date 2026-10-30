@@ -1,5 +1,18 @@
 # In-player quality
 
+Playback Settings also offers separate video rewind and fast-forward intervals.
+The profile-only remote keys are `player.video_skip_back_seconds` and `player.video_skip_forward_seconds`, introduced in settings manifest revision 9.
+Their numeric choices are 5, 10, 15, 30, 45, 60 and 90 seconds, with inherited defaults of 10 and 30 seconds.
+The controls use server labels, display explicit and effective values, and reset one key with DELETE.
+They reuse Settings' pre-write read, post-write confirmation, uncertain-answer reconciliation, busy lock, Retry-After and profile authority fences.
+
+The controller discovers the supported pair before each start and carries it in PlaybackView to buttons, repeated Left/Right previews and dedicated Rewind/Fast Forward keys.
+Settings capability revision remains opaque; numeric manifest, definition and option revisions negotiate support.
+Effective reads batch only when advertised; otherwise supported settings use single-key reads, including quality and cap through the unchanged playback-default decoder.
+Servers without seek support retain the existing 10/10 behavior and labels.
+A network or malformed supported seek read blocks startup with a visible Retry; it never fabricates saved defaults.
+The approved Tizen adoption applies only to these two known video keys despite advisory platform metadata omitting Tizen; other platform filters and client identity are unchanged.
+
 The existing audio/subtitle menu includes Quality only when the current server plan offers an alternative.
 Auto is followed by server entries in server order, preferring `display_name` and sending the exact `label` as `quality_preference`.
 Legacy Original entries are excluded.
@@ -35,7 +48,7 @@ The existing Skyline tokens and Chrome 76-compatible list layout are reused.
 
 ## Saved profile defaults
 
-Profile menu → Settings → Playback offers Preferred audio, Preferred quality and Maximum bitrate.
+Profile menu → Settings → Playback offers Preferred audio, Preferred quality, Maximum bitrate and both video seek intervals.
 General → Hidden libraries retains the same owner and readback behaviour.
 Quality choices come from the supported server manifest, with its labels: Auto, 480p, 720p, 1080p and 2160p / 4K.
 Deprecated Original and unfamiliar stored strings are displayed as current values, without becoming new choices or being rewritten during a read.
@@ -61,7 +74,7 @@ The binding [Skyline guide](https://github.com/Silo-Server/silo-apple/blob/148d5
 The selected fixture definitions remain an exact subset of the pinned public manifest; provenance is recorded in the contract README.
 
 Native tests write and read back Settings, then start the real PlaybackController repeatedly and assert exact quality and bandwidth request fields.
-The existing player consumer reads these defaults before every start; this slice changes no player production code.
+The player reads these defaults before every start and publishes the confirmed seek pair through its existing view.
 Native fake-server tests and synthetic desktop captures do not prove real server playback, Chromium 76 rendering, Tizen software emulator behaviour or Samsung TV playback.
 Device override editing, automatic subtitle resolution, trickplay and playback-planner redesign remain outside this slice.
 Issue 29 and whole-app acceptance remain incomplete.

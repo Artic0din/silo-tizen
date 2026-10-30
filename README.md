@@ -26,7 +26,8 @@ The launcher uses the existing Silo app artwork.
 Samsung's supported Play/Pause, Play, Pause, Stop, Rewind and Fast Forward keys are registered independently; Enter remains available on every remote.
 Player Up focuses the visible transport controls.
 Left and Right preview a seek without changing playback; Enter commits the source position and Back cancels.
-Dedicated Rewind and Fast Forward keys seek ten seconds directly.
+Dedicated Rewind and Fast Forward keys use the separate profile-saved video intervals, also used by transport buttons and Left/Right previews.
+Supported servers inherit 10 seconds backward and 30 seconds forward; unsupported servers retain ten seconds in each direction.
 The mounted Skyline bar groups visible libraries into Movies and Series tabs, with anchored library and profile menus.
 Library scope is remembered per server, profile and content type.
 Card focus drives a passive preview without fetching details; scrolling retargets immediately and respects Reduced Motion.

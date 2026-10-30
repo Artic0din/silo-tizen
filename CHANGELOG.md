@@ -14,6 +14,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added separate profile-saved video rewind and fast-forward intervals across player buttons, seek previews and dedicated remote keys.
 - Added Home row expansion with bounded pages and direct Continue Watching resume, while omitting featured rows and folding existing recommendations after Continue Watching.
 - Added server-provided JPEG thumbnails during seek previews, with timestamp seeking retained when previews are unavailable.
 - Added saved profile quality and maximum bitrate controls in Playback Settings, with server-confirmed values and device override visibility.

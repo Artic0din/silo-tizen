@@ -16,7 +16,6 @@ import type { AVPlay } from "./avplay.ts";
 import { type PlaybackError, type PlaybackExits, PlaybackController, type PlaybackView, type PlayerControls, type PlayRequest, type TrackView } from "./controller.ts";
 import { mountSeekThumbnail } from "./seekThumbnailView.ts";
 
-const SEEK_STEP_SECONDS = 10;
 /** While playing, the overlay hides this long after the last key. */
 const OVERLAY_MS = 5000;
 
@@ -26,6 +25,8 @@ export interface PlayerScreen {
 
 export function errorText(error: PlaybackError): string {
     switch (error.kind) {
+        case "settings":
+            return "Could not read this profile's seek intervals. Check the connection and retry.";
         case "terminal":
             // The server's sentence for its own refusal (protocol v3 §7.3).
             return error.message;
@@ -148,9 +149,9 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     tracksButton.setAttribute("data-focus", "tracks");
     tracksButton.addEventListener("click", () => openMenu());
     const transport = el("div", "player-transport");
-    const backward = el("button", "player-button", "Back 10 seconds");
+    const backward = el("button", "player-button");
     const pause = el("button", "player-button", "Pause");
-    const forward = el("button", "player-button", "Forward 10 seconds");
+    const forward = el("button", "player-button");
     const transportButtons = [backward, pause, forward, tracksButton];
     for (const [index, button] of transportButtons.entries()) {
         button.type = "button";
@@ -158,8 +159,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         button.setAttribute("data-focus", ["backward", "pause", "forward", "tracks"][index] ?? "");
         transport.appendChild(button);
     }
-    backward.addEventListener("click", () => previewSeek(-SEEK_STEP_SECONDS));
-    forward.addEventListener("click", () => previewSeek(SEEK_STEP_SECONDS));
+    backward.addEventListener("click", () => previewSeek("backward"));
+    forward.addEventListener("click", () => previewSeek("forward"));
     pause.addEventListener("click", () => { controls.togglePause(); reveal(); render(); });
     overlay.appendChild(title);
     overlay.appendChild(status);
@@ -182,8 +183,13 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     back.type = "button";
     back.setAttribute("data-focus", "back");
     back.addEventListener("click", () => controls.dismissError());
+    const retry = el("button", "player-button", "Retry");
+    retry.type = "button";
+    retry.setAttribute("data-focus", "settings-retry");
+    retry.addEventListener("click", () => controls.retrySettings());
     failure.appendChild(failureTitle);
     failure.appendChild(failureText);
+    failure.appendChild(retry);
     failure.appendChild(back);
     section.appendChild(surface);
     section.appendChild(overlay);
@@ -261,10 +267,11 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         menu.style.display = menuOpen ? "block" : "none";
         tracksButton.setAttribute("aria-expanded", String(menuOpen));
         if (view.phase === "error") {
+            retry.hidden = view.error.kind !== "settings";
             failureTitle.textContent = view.title;
             failureText.textContent = errorText(view.error);
-            if (document.activeElement !== back) {
-                back.focus();
+            if (document.activeElement !== back && document.activeElement !== retry) {
+                (retry.hidden ? back : retry).focus();
             }
             return;
         }
@@ -278,6 +285,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             tracksButton.hidden = true;
             fill.style.width = "0";
         } else {
+            backward.textContent = `Back ${view.seekIntervals.backward} seconds`;
+            forward.textContent = `Forward ${view.seekIntervals.forward} seconds`;
             tracksButton.hidden = false;
             tracksButton.textContent = (view.tracks.quality?.choices.length ?? 0) > 1 ? "Audio, subtitles and quality" : "Audio and subtitles";
             pause.textContent = view.phase === "paused" ? "Play" : "Pause";
@@ -301,8 +310,9 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }
     };
 
-    const previewSeek = (delta: number): void => {
+    const previewSeek = (direction: "backward" | "forward"): void => {
         if (view.phase !== "playing" && view.phase !== "paused") return;
+        const delta = view.seekIntervals[direction] * (direction === "backward" ? -1 : 1);
         seekPreview = Math.max(0, Math.min((seekPreview ?? view.positionSeconds) + delta, view.durationSeconds ?? Number.MAX_VALUE));
         reveal();
         render();
@@ -383,7 +393,11 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }
         event.preventDefault();
         if (view.phase === "error") {
-            if (key === "enter" || key === "back") {
+            if (view.error.kind === "settings" && (key === "up" || key === "down" || key === "left" || key === "right")) {
+                (document.activeElement === retry ? back : retry).focus();
+            } else if (view.error.kind === "settings" && key === "enter" && document.activeElement === retry) {
+                controls.retrySettings();
+            } else if (key === "enter" || key === "back") {
                 controls.dismissError();
             }
             return;
@@ -397,7 +411,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             }
             if (key === "play_pause") controls.togglePause();
             else if (key === "play" || key === "pause") controls.setPaused(key === "pause");
-            else controls.seekBy(key === "rewind" ? -SEEK_STEP_SECONDS : SEEK_STEP_SECONDS);
+            else if (view.phase === "playing" || view.phase === "paused") controls.seekBy(key === "rewind" ? -view.seekIntervals.backward : view.seekIntervals.forward);
             reveal();
             render();
             return;
@@ -409,7 +423,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }
         reveal();
         if (seekPreview !== undefined) {
-            if (key === "left" || key === "right") previewSeek(key === "left" ? -SEEK_STEP_SECONDS : SEEK_STEP_SECONDS);
+            if (key === "left" || key === "right") previewSeek(key === "left" ? "backward" : "forward");
             else if (key === "enter" || key === "back") {
                 const target = seekPreview;
                 seekPreview = undefined;
@@ -448,9 +462,9 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         } else if (key === "enter") {
             controls.togglePause();
         } else if (key === "left") {
-            previewSeek(-SEEK_STEP_SECONDS);
+            previewSeek("backward");
         } else if (key === "right") {
-            previewSeek(SEEK_STEP_SECONDS);
+            previewSeek("forward");
         }
         render();
     };

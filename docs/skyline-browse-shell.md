@@ -76,7 +76,7 @@ The shell uses the shared tokens in `src/theme.css` alongside Skyline's navigati
 Desktop Chromium tests and synthetic captures do not prove actual Chromium 76, Tizen emulator, signed package or Samsung TV behavior.
 
 Settings edits profile defaults through the existing native session and HTTP owners.
-General contains Hidden libraries; Playback contains Preferred audio.
+General contains Hidden libraries; Playback contains the [saved profile defaults](playback-quality.md#saved-profile-defaults), including separate video seek intervals.
 The category rail, control pane and pickers share `FocusHost`.
 Category focus only previews loaded controls; requests and writes require explicit activation.
 Back cancels a picker, returns from controls to the category rail, then returns to browse with avatar focus.

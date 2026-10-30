@@ -31,6 +31,7 @@ Its production case imports the actual `src/main.ts`, supplies the Tizen platfor
 The focused sign-in, profile, browse and player suites retain their failure/loading/empty-state, navigation, paging and track-menu checks.
 Skyline regressions cover full profile names, the contrast of an unfocused empty server field, and Samsung media-key registration and dispatch.
 Player tests cover explicit Play/Pause idempotency, visible transport focus, seek preview/commit/cancel and preservation of the preview during live progress updates.
+Profile seek tests save 15/45 through Settings and consume them through the real controller and screen, including numeric enum boundaries, independent DELETE resets, unbatched reads, unsupported servers, malformed responses, Retry and authority replacement.
 Browse and composition tests also cover bounded type tabs, menu dwell and dismissal, server/profile-scoped library persistence, intermediate scroll frames, debounced previews and full synopsis access.
 
 The retired Jellyfin adapter and its legacy browser/layout fixtures are no longer part of the app or test gate.

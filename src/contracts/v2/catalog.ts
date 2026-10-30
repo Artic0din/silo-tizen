@@ -149,6 +149,7 @@ function decodeCard(value: unknown, path: string): Card {
 }
 
 export interface HomeSection {
+    readonly featured?: boolean;
     readonly id: string;
     readonly sectionType: string;
     readonly title: string;
@@ -162,6 +163,7 @@ export function decodeHomeSections(value: unknown): HomeSection[] {
         const sectionPath = `${path}.sections[${index}]`;
         const section = object(entry, sectionPath);
         return {
+            featured: section.featured === undefined ? false : boolean(section, "featured", sectionPath),
             id: string(section, "id", sectionPath),
             sectionType: string(section, "section_type", sectionPath),
             title: string(section, "title", sectionPath),

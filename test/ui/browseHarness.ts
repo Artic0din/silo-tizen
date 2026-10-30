@@ -21,6 +21,7 @@ export interface BrowseHarness {
     destroy(): void;
     /** As the profile screens do on Switch profile: clear the profile, which ends browse's authority. */
     clearProfile(): void;
+    logout(): Promise<void>;
 }
 
 declare global {
@@ -122,6 +123,9 @@ const harness: BrowseHarness = {
     },
     clearProfile() {
         connected().profiles.clear();
+    },
+    async logout() {
+        await connected().session.logout();
     },
 };
 

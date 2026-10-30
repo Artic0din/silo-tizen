@@ -19,7 +19,7 @@ import type { ConnectedServer } from "../session/core.ts";
 import type { PublicStorage } from "../session/deviceIdentity.ts";
 import { Skyline } from "./skyline.ts";
 import { FocusHost, type FocusTarget } from "./browseFocus.ts";
-import { type Destination, type PlayRequest, visibleLibraries } from "./browseModel.ts";
+import { type Destination, type PlayRequest, playChoices, visibleLibraries } from "./browseModel.ts";
 import { failureText, hasData, newPages, newRoute, PAGE_SIZE, type Pages, type Route, routeView } from "./browseRoutes.ts";
 import type { ViewContext } from "./browseViews.ts";
 import { el } from "./screen.ts";
@@ -63,7 +63,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const container = el("div", "browse");
     root.appendChild(container);
     const host = new FocusHost(container);
-    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, open: (destination) => open(destination), preview: (card, row) => shell.preview(card, row) };
+    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, open: (destination) => open(destination), preview: (card, row) => shell.preview(card, row), resume: (id, title) => {
+        if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title }));
+    } };
     const input = el("input", "browse-input");
     input.id = "browse-search";
     input.type = "search";
@@ -155,10 +157,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }
                 loading = undefined;
                 cancelSlow();
-                if (error instanceof ApiError && error.problemId === "invalid_cursor" && (current.kind === "personal" || current.kind === "library" || current.kind === "libraryResults" || current.kind === "search") && current.pages !== undefined) {
+                if (error instanceof ApiError && error.problemId === "invalid_cursor" && (current.kind === "homeSection" || current.kind === "personal" || current.kind === "library" || current.kind === "libraryResults" || current.kind === "search") && current.pages !== undefined) {
                     Object.assign(current.pages, newPages());
                     current.focus = undefined;
-                    if (current.kind === "personal") current.pendingIndex = undefined;
+                    if (current.kind === "personal" || current.kind === "homeSection") current.pendingIndex = undefined;
                     if (current.kind === "library" && current.discovery !== undefined) {
                         current.discovery.windowCursor = undefined;
                         current.discovery.seek = undefined;
@@ -195,7 +197,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const seriesId = detail.type === "series" ? detail.id : detail.seriesId;
         for (const entry of stack) {
             if (entry === current) continue;
-            if (entry.kind === "home") entry.stale = true;
+            if (entry.kind === "home" || entry.kind === "homeSection") entry.stale = true;
             if (entry.kind === "season" && entry.seriesId === seriesId && (detail.type !== "season" || entry.seasonNumber === detail.seasonNumber)) entry.stale = true;
             if (entry.kind === "item") {
                 const covered = entry.data?.detail;
@@ -218,6 +220,22 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const loadRoute = (current: Route, quiet = false): void => {
         switch (current.kind) {
+            case "resume":
+                load(current, async signal => {
+                    const detail = await read(operations.getCatalogItem(current.id), signal);
+                    if (detail.id !== current.id || (detail.type !== "movie" && detail.type !== "episode")) throw new ApiError({ kind: "invalid_response", path: "resume.item" });
+                    return playChoices(detail);
+                }, choices => {
+                    if (choices === undefined) { current.failure = "No playable version is available for this title."; return; }
+                    // Discard the resolution route before handing off so returning cannot replay it.
+                    stack.pop();
+                    render(top()?.focus);
+                    play(choices.resume ?? choices.fromStart);
+                });
+                return;
+            case "homeSection":
+                loadPage(current, current.pages, current.pendingIndex ?? current.pages.index, quiet);
+                return;
             case "personal":
                 loadPage(current, current.pages, current.pendingIndex ?? current.pages.index, quiet);
                 return;
@@ -313,6 +331,16 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     const loadPage = (current: Route, pages: Pages, index: number, quiet = false): void => {
+        if (current.kind === "homeSection") {
+            current.pendingIndex = index;
+            load(current, signal => read(operations.queryCatalogItems({ source: "section", scope: "home", section_id: current.id, limit: PAGE_SIZE, ...(pages.cursors[index] === undefined ? {} : { cursor: pages.cursors[index] }) }), signal), page => {
+                pages.page = page;
+                pages.index = index;
+                pages.cursors = [...pages.cursors.slice(0, index + 1), page.nextCursor];
+                current.pendingIndex = undefined;
+            }, quiet || pages.page !== undefined);
+            return;
+        }
         if (current.kind === "personal") {
             current.pendingIndex = index;
             load(current, async signal => {
@@ -449,6 +477,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const current = top();
         if (current !== undefined) {
             current.focus = host.focused();
+            if (current.kind === "homeSection") current.pendingIndex = undefined;
         }
         loading?.abort();
         loading = undefined;
@@ -481,7 +510,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const play = (request: PlayRequest): void => {
         const current = top();
-        if (current === undefined) {
+        if (current === undefined || torn || playing) {
             return;
         }
         current.focus = host.focused();

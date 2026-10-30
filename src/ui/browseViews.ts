@@ -16,6 +16,7 @@ export interface ViewContext {
     readonly open: (destination: Destination) => void;
     readonly preview?: (card: Card, row: string) => void;
     readonly continueWatching?: boolean;
+    readonly resume?: (id: string, title: string) => void;
 }
 
 export function actionButton(key: string, label: string, onPress: () => void): FocusItem {
@@ -87,7 +88,10 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     if (subtitle !== undefined) {
         element.appendChild(el("span", "browse-card-subtitle", subtitle));
     }
-    element.addEventListener("click", () => context.open(destination));
+    element.addEventListener("click", () => {
+        if (continuing && context.resume !== undefined && (card.type === "movie" || card.type === "episode")) context.resume(card.id, card.title);
+        else context.open(destination);
+    });
     element.addEventListener("focus", () => context.preview?.(card, "Browse"));
     return { key: card.id, element };
 }
@@ -137,6 +141,7 @@ export function statusView(name: string, title: string, texts: readonly string[]
 }
 
 export interface HomeHandlers {
+    readonly expand: (section: HomeSection) => void;
     readonly search: () => void;
     readonly library: (library: UserLibrary) => void;
     readonly chooseProfile: () => void;
@@ -145,13 +150,19 @@ export interface HomeHandlers {
 export function homeView(libraries: readonly UserLibrary[], sections: readonly HomeSection[], context: ViewContext, handlers: HomeHandlers): View {
     const zones: Zone[] = [];
     const content: HTMLElement[] = [];
-    for (const section of sections) {
-        const cards = cardItems(section.items, { ...context, continueWatching: section.sectionType === "continue_watching", preview: (card) => context.preview?.(card, section.title) });
+    const rows = sections.filter(section => section.featured !== true);
+    const recommendations = ["recommended_for_you", "because_you_watched", "similar_users_liked", "taste_match"];
+    const rank = (section: HomeSection): number => section.sectionType === "continue_watching" ? 0 : recommendations.includes(section.sectionType) ? 1 : 2;
+    // Only guide-mandated groups move; each group's server preference order stays intact.
+    const ordered = [0, 1, 2].flatMap(group => rows.filter(section => rank(section) === group));
+    for (const section of ordered) {
+        const cards = cardItems(section.items, { ...context, continueWatching: section.sectionType === "continue_watching", preview: (card) => context.preview?.(card, section.title) }).slice(0, 24);
         // A row of only books, podcasts or other media this client does not browse is left out.
         if (cards.length === 0) {
             continue;
         }
         const id = `section:${section.id}`;
+        cards.push(actionButton(`expand:${section.id}`, "See All", () => handlers.expand(section)));
         zones.push({ id, layout: "row", items: cards });
         const block = el("section", "browse-section");
         block.setAttribute("data-section", section.id);
@@ -178,7 +189,7 @@ export interface PagerState {
 
 /** One page of cards and the buttons that move between pages. */
 export function pagedGrid(state: PagerState, context: ViewContext): { content: HTMLElement[]; zones: Zone[] } {
-    const cards = cardItems(state.page.items, context);
+    const cards = cardItems(state.page.items, context).slice(0, state.pageSize);
     const pager: FocusItem[] = [];
     if (state.index > 0) {
         pager.push(actionButton("previous", "Previous page", state.previous));

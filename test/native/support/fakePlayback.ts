@@ -168,7 +168,9 @@ export class FakePlayback {
 
     private route(method: string, path: string, headers: Record<string, string>, body: Record<string, unknown> | undefined): Reply | undefined {
         if (method === "GET" && path.startsWith("/settings/values/effective?")) {
-            return { status: 200, body: { items: [] } };
+            const keys = new URL(path, "https://fake.invalid").searchParams.getAll("keys");
+            if (!keys.every(key => key === "playback.preferred_quality" || key === "playback.max_bitrate_kbps")) return undefined;
+            return { status: 200, body: { revision: 24, items: keys.map(key => ({ key, value: key === "playback.preferred_quality" ? "auto" : null, source: "default", definition_revision: 24 })) } };
         }
         if (!path.startsWith("/playback")) {
             return undefined;

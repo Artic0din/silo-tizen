@@ -5,7 +5,11 @@ export const HIDDEN_KEY = "ui.disabled_library_ids";
 export const AUDIO_KEY = "playback.audio_language";
 export const QUALITY_KEY = "playback.preferred_quality";
 export const BITRATE_KEY = "playback.max_bitrate_kbps";
-export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY, QUALITY_KEY, BITRATE_KEY] as const;
+export const SEEK_BACK_KEY = "player.video_skip_back_seconds";
+export const SEEK_FORWARD_KEY = "player.video_skip_forward_seconds";
+export const SEEK_KEYS = [SEEK_BACK_KEY, SEEK_FORWARD_KEY] as const;
+const SEEK_SECONDS = [5, 10, 15, 30, 45, 60, 90];
+export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY, QUALITY_KEY, BITRATE_KEY, ...SEEK_KEYS] as const;
 export type SettingsKey = (typeof SETTINGS_KEYS)[number];
 export type SettingValue = null | string | number | readonly number[];
 export interface SettingsCapabilities {
@@ -15,12 +19,13 @@ export interface SettingsCapabilities {
     readonly state: string;
     readonly allowed: boolean;
     readonly scopes: readonly string[];
+    readonly supportsBatchedEffective: boolean;
 }
 export interface SettingDefinition {
     readonly key: SettingsKey;
     readonly introducedIn: number;
     readonly profile: boolean;
-    readonly options: readonly { value: string; label: string; introducedIn: number; deprecated: boolean }[];
+    readonly options: readonly { value: string | number; label: string; introducedIn: number; deprecated: boolean }[];
 }
 export interface SettingsContract {
     readonly apiVersion: number;
@@ -58,6 +63,7 @@ export function decodeSettingsCapabilities(value: unknown): SettingsCapabilities
         state: string(obj, "state", "settings_capabilities"),
         allowed: boolean(obj, "allowed", "settings_capabilities"),
         scopes: strings(obj.scopes, "settings_capabilities.scopes"),
+        supportsBatchedEffective: obj.supports_batched_effective === undefined ? false : boolean(obj, "supports_batched_effective", "settings_capabilities"),
     };
 }
 
@@ -70,6 +76,8 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
         const key = SETTINGS_KEYS.find(key => def.key === key);
         if (key === undefined) continue;
         const schema = object(def.value_schema, "setting_definition.value_schema");
+        const seek = key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY;
+        if (seek && (def.persistence !== "remote" || schema.type !== "enum" || schema.nullable === true || def.default_value !== (key === SEEK_BACK_KEY ? 10 : 30) || def.unit !== "seconds" || def.recommended_control !== "select" || def.introduced_in !== 9)) continue;
         if ((key === QUALITY_KEY || key === BITRATE_KEY) && def.persistence !== "remote") continue;
         if (key === AUDIO_KEY && (schema.nullable !== true || schema.type !== "language_tag")) continue;
         if (key === HIDDEN_KEY && (schema.nullable !== true || schema.type !== "object" || schema.schema_ref !== "library-id-list.json")) continue;
@@ -78,6 +86,7 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
         // Definitions restricted to another platform are advisory exclusions, not Tizen aliases.
         const platforms = def.platforms === undefined ? undefined : strings(def.platforms, "setting_definition.platforms");
         const scopes = strings(def.allowed_scopes, "setting_definition.allowed_scopes");
+        if (seek && (scopes.length !== 1 || scopes[0] !== "profile" || JSON.stringify(def.resolution_order) !== JSON.stringify(["profile", "default"]))) continue;
         let options: SettingDefinition["options"] = [];
         if (key === AUDIO_KEY && typeof def.suggested_options === "string") {
             const set = object(sets[def.suggested_options], "audio_options");
@@ -95,9 +104,29 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
             }).filter(option => ["auto", "480p", "720p", "1080p", "2160p", "original"].includes(option.value));
             if (!options.some(option => option.value === "auto" && !option.deprecated)) continue;
         }
-        definitions.push({ key, introducedIn: integer(def, "introduced_in", "setting_definition"), profile: scopes.includes("profile") && (platforms === undefined || platforms.includes("tizen")), options });
+        if (seek) {
+            const members = array(schema.values, "seek_options").map(raw => object(raw, "seek_option"));
+            if (members.length !== SEEK_SECONDS.length || !SEEK_SECONDS.every(value => members.filter(option => option.value === value).length === 1)) continue;
+            options = members.map(option => {
+                const value = integer(option, "value", "seek_option");
+                const label = string(option, "label", "seek_option");
+                if (label.trim() === "") throw new WireError("seek_option.label", "a nonblank label");
+                return { value, label, introducedIn: option.introduced_in === undefined ? 9 : integer(option, "introduced_in", "seek_option"), deprecated: option.deprecated === true };
+            });
+            if (definitions.some(def => def.key === key)) throw new WireError("setting_definition.key", "each seek key once");
+        }
+        // The approved Tizen adoption covers only these two keys; platform metadata is advisory.
+        definitions.push({ key, introducedIn: integer(def, "introduced_in", "setting_definition"), profile: scopes.includes("profile") && (seek || platforms === undefined || platforms.includes("tizen")), options });
     }
     return { apiVersion: integer(obj, "api_version", "settings_contract"), revision: integer(obj, "revision", "settings_contract"), definitions };
+}
+
+export function profileSettings(contract: SettingsContract, capability: SettingsCapabilities): readonly SettingDefinition[] {
+    if (capability.apiVersion !== 1 || capability.state !== "available" || !capability.allowed || !capability.scopes.includes("profile") || contract.apiVersion !== 1) return [];
+    const revision = Math.min(contract.revision, capability.manifestRevision);
+    const definitions = contract.definitions.filter(def => def.profile && def.introducedIn <= revision).map(def => ({ ...def, options: def.options.filter(option => option.introducedIn <= revision) }));
+    const pair = revision >= 9 && SEEK_KEYS.every(key => definitions.some(def => def.key === key && def.options.length === SEEK_SECONDS.length && def.options.every(option => !option.deprecated)));
+    return definitions.filter(def => pair || (def.key !== SEEK_BACK_KEY && def.key !== SEEK_FORWARD_KEY));
 }
 
 /** Keep opaque library IDs as strings everywhere except this validated JSON-integer boundary. */
@@ -108,6 +137,10 @@ export function numericLibraryId(id: string): number {
 }
 
 export function decodeSettingValue(key: SettingsKey, value: unknown): SettingValue {
+    if (key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY) {
+        if (typeof value !== "number" || !SEEK_SECONDS.includes(value)) throw new WireError("video_skip_seconds.value", "one of 5, 10, 15, 30, 45, 60 or 90");
+        return value;
+    }
     if (key === QUALITY_KEY) {
         // Legacy and future stored strings remain visible; they are never offered as new choices.
         if (typeof value !== "string" || value.trim() === "") throw new WireError("preferred_quality.value", "a nonblank string");
@@ -180,6 +213,7 @@ export function decodeEffectiveSettings(keys: readonly SettingsKey[], value: unk
             ...(row.permitted_values === undefined ? {} : { permittedValues: array(row.permitted_values, "permitted_values").map(value => decodeSettingValue(key, value)) }),
             ...(row.suggested_values === undefined ? {} : { suggestedValues: array(row.suggested_values, "suggested_values").map(value => decodeSettingValue(key, value)) }),
         };
+        if ((key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY) && (!["profile", "default"].includes(result.source) || result.definitionRevision < 9)) throw new WireError("effective_setting", "a profile or default seek interval introduced at revision 9");
         return [key, result];
     }));
 }

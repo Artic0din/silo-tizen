@@ -1,12 +1,13 @@
 import type { FakeSilo, Reply } from "./fakeSilo.ts";
 import { fixture, problem } from "./fakeSilo.ts";
-import { AUDIO_KEY, QUALITY_KEY, SETTINGS_KEYS, type SettingsKey, type SettingValue } from "../../../src/contracts/v2/settings.ts";
+import { AUDIO_KEY, QUALITY_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SETTINGS_KEYS, type SettingsKey, type SettingValue } from "../../../src/contracts/v2/settings.ts";
 
 export class FakeSettings {
     readonly rows = new Map<string, Map<SettingsKey, SettingValue>>();
     readonly overrides = new Map<SettingsKey, SettingValue>();
     revision = 24;
     allowed = true;
+    supportsBatchedEffective = true;
     constrained = false;
     constructor(fake: FakeSilo) {
         const catalog = fake.catalog;
@@ -20,19 +21,20 @@ export class FakeSettings {
     private route(method: string, path: string, profile: string | undefined, body: Record<string, unknown> | undefined): Reply | undefined {
         const url = new URL(path, "https://fake.invalid");
         const pathname = url.pathname;
-        if (pathname === "/settings/contract/capabilities") return { status: 200, body: { api_version: 1, revision: "opaque-24", manifest_revision: this.revision, state: "available", allowed: this.allowed, scopes: ["profile"] } };
+        if (pathname === "/settings/contract/capabilities") return { status: 200, body: { api_version: 1, revision: "opaque-24", manifest_revision: this.revision, state: "available", allowed: this.allowed, scopes: ["profile"], supports_batched_effective: this.supportsBatchedEffective } };
         if (pathname === "/settings/contract") return { status: 200, body: fixture("settings_contract_ok") };
         if (!pathname.startsWith("/settings/values")) return undefined;
         if (profile === undefined) return problem(422, "validation_failed", "Profile required");
         const rows = this.profile(profile);
         if (pathname === "/settings/values" || pathname === "/settings/values/effective") {
             const effective = pathname.endsWith("/effective");
+            if (effective && !this.supportsBatchedEffective && url.searchParams.getAll("keys").length > 1) return problem(422, "validation_failed", "Batch not supported");
             const items = url.searchParams.getAll("keys").map(key => {
                 const typed = key as SettingsKey;
                 const base = { key, scope: "profile", profile_id: profile };
                 if (!effective) return rows.has(typed) ? { ...base, is_set: true, value: rows.get(typed), revision: 7 } : { ...base, is_set: false };
                 const override = this.overrides.has(typed);
-                const value = override ? this.overrides.get(typed) : rows.has(typed) ? rows.get(typed) : typed === QUALITY_KEY ? "auto" : null;
+                const value = override ? this.overrides.get(typed) : rows.has(typed) ? rows.get(typed) : typed === QUALITY_KEY ? "auto" : typed === SEEK_BACK_KEY ? 10 : typed === SEEK_FORWARD_KEY ? 30 : null;
                 return { key, value, source: override ? "profile_device" : rows.has(typed) ? "profile" : "default", definition_revision: this.revision, ...(this.constrained && typed === AUDIO_KEY ? { constrained: true, requested_value: rows.get(typed) ?? null, permitted_values: [null, "en"] } : {}) };
             });
             return { status: 200, body: { items, revision: this.revision } };

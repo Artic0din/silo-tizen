@@ -51,7 +51,7 @@ const RETRY = "audio-retry";
 function changeText(tracks: TrackView): string {
     switch (tracks.change.state) {
         case "changing":
-            return "Changing track";
+            return tracks.change.kind === "quality" ? "Changing quality" : "Changing track";
         case "refused":
             return `Not available: ${tracks.change.message}`;
         case "failed":
@@ -95,6 +95,17 @@ function fillSubtitles(list: HTMLElement, tracks: TrackView): void {
     list.appendChild(choice(OFF, "Off", tracks.selectedSubtitleId === undefined));
     for (const track of tracks.subtitles) {
         list.appendChild(choice(track.id, track.label, track.id === tracks.selectedSubtitleId));
+    }
+}
+
+function fillQuality(list: HTMLElement, tracks: TrackView): void {
+    const quality = tracks.quality;
+    if (quality === undefined || quality.choices.length < 2) {
+        return;
+    }
+    list.appendChild(el("h2", "player-menu-heading", "Quality"));
+    for (const qualityChoice of quality.choices) {
+        list.appendChild(choice(`quality:${qualityChoice.id}`, qualityChoice.label, qualityChoice.id === quality.selectedId));
     }
 }
 
@@ -154,7 +165,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     overlay.appendChild(time);
     overlay.appendChild(transport);
     const menu = el("div", "player-menu");
-    const lists = [el("div", "player-menu-list player-menu-audio"), el("div", "player-menu-list player-menu-subtitles")];
+    const lists = [el("div", "player-menu-list player-menu-audio"), el("div", "player-menu-list player-menu-subtitles"), el("div", "player-menu-list player-menu-quality")];
     const menuStatus = el("p", "player-menu-status");
     menuStatus.setAttribute("role", "status");
     for (const list of lists) {
@@ -182,7 +193,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     let cancelHide: (() => void) | undefined;
     let menuOpen = false;
     let seekPreview: number | undefined;
-    /** The list (0 audio, 1 subtitles) that holds the menu's focus. */
+    /** The list (0 audio, 1 subtitles, 2 quality) that holds the menu's focus. */
     let column = 0;
     let drawn: string | undefined;
 
@@ -208,16 +219,22 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         if (key !== drawn) {
             drawn = key;
             const keep = focusedId();
+            const hasQuality = (tracks.quality?.choices.length ?? 0) > 1;
+            menu.className = hasQuality ? "player-menu player-menu-with-quality" : "player-menu";
             for (const [index, list] of lists.entries()) {
                 list.textContent = "";
-                (index === 0 ? fillAudio : fillSubtitles)(list, tracks);
+                list.style.display = index === 2 && !hasQuality ? "none" : "";
+                (index === 0 ? fillAudio : index === 1 ? fillSubtitles : fillQuality)(list, tracks);
+                for (const button of buttons(index)) {
+                    button.setAttribute("aria-disabled", String(tracks.change.state === "changing"));
+                }
             }
             menuStatus.textContent = changeText(tracks);
             const same = keep === null ? undefined : buttons(column).find((button) => button.getAttribute("data-focus") === keep);
             if (same !== undefined) {
                 same.focus();
             } else if (!focusList(column)) {
-                focusList(1 - column);
+                if (!focusList(0)) focusList(1);
             }
         }
     };
@@ -259,6 +276,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             fill.style.width = "0";
         } else {
             tracksButton.hidden = false;
+            tracksButton.textContent = (view.tracks.quality?.choices.length ?? 0) > 1 ? "Audio, subtitles and quality" : "Audio and subtitles";
             pause.textContent = view.phase === "paused" ? "Play" : "Pause";
             status.textContent = view.buffering ? "Buffering" : view.phase === "paused" ? "Paused" : "";
             const duration = view.durationSeconds;
@@ -299,8 +317,11 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         if (key === "up" || key === "down") {
             all[Math.max(0, Math.min(all.length - 1, at + (key === "up" ? -1 : 1)))]?.focus();
         } else if (key === "left" || key === "right") {
-            focusList(key === "left" ? 0 : 1);
+            focusList(Math.max(0, Math.min(lists.length - 1, column + (key === "left" ? -1 : 1))));
         } else if (key === "enter") {
+            if ((view.phase === "playing" || view.phase === "paused") && view.tracks.change.state === "changing") {
+                return;
+            }
             const id = focusedId();
             if (id === RETRY) {
                 controls.retryTrackInfo();
@@ -309,8 +330,10 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             } else if (id !== null) {
                 if (column === 0) {
                     controls.selectAudio(id);
-                } else {
+                } else if (column === 1) {
                     controls.selectSubtitle(id);
+                } else {
+                    controls.selectQuality(id.slice("quality:".length));
                 }
             }
         }

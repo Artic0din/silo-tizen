@@ -13,6 +13,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added in-player quality selection from the server's available alternatives, preserving saved quality and bandwidth preferences throughout playback.
 - Added visible player transport controls, cancellable seek previews and support for dedicated Samsung media buttons.
 - Added profile-scoped Watchlist, Favorites and History pages with bounded pagination, server-side media filters including History episodes, and page and item focus retained on return from Details even after an interrupted page turn.
 - Added richer title and season details with artwork, ratings, facts, cast and crew, person pages, related titles, file version selection and server-confirmed personal actions.

@@ -170,6 +170,14 @@
     scroll-behavior: smooth;
 }
 
+.player-menu-with-quality {
+    width: 1500px;
+}
+
+.player-menu-with-quality .player-menu-list {
+    width: calc(33.333% - 20px);
+}
+
 .player-menu-heading {
     margin: 0 0 24px;
     font-size: 30px;

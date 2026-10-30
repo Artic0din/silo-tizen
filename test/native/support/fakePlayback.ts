@@ -66,6 +66,9 @@ export function defaultFiles(): Map<string, FakeMediaFile> {
 }
 
 export interface PlanShape {
+    readonly availableQualities?: readonly Record<string, unknown>[];
+    readonly activeQuality?: string;
+    readonly serverFeatures?: readonly string[];
     readonly delivery?: string;
     /** The edition the server plays; defaults to the session's current one (the requested file at start). */
     readonly effectiveFileId?: string;
@@ -164,6 +167,9 @@ export class FakePlayback {
     }
 
     private route(method: string, path: string, headers: Record<string, string>, body: Record<string, unknown> | undefined): Reply | undefined {
+        if (method === "GET" && path.startsWith("/settings/values/effective?")) {
+            return { status: 200, body: { items: [] } };
+        }
         if (!path.startsWith("/playback")) {
             return undefined;
         }
@@ -371,9 +377,12 @@ export class FakePlayback {
             status,
             body: {
                 ...base,
+                server_features: shape.serverFeatures ?? base.server_features,
                 session_id: session.id,
                 playback_plan: {
                     ...plan,
+                    available_qualities: shape.availableQualities ?? [],
+                    active_quality: shape.activeQuality,
                     session_id: session.id,
                     plan_id: session.planId,
                     plan_attempt_key: session.planKey,

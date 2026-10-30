@@ -118,7 +118,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const controller = new AbortController();
         loading = controller;
         const entryRevision = inputRevision;
-        const enterResults = current.kind === "library" && !quiet && host.focused()?.key !== "sort";
+        const enterResults = !quiet && (current.kind === "personal" || (current.kind === "library" && host.focused()?.key !== "sort"));
         current.slow = false;
         if (!quiet) {
             cancelSlow = clock.schedule(() => {
@@ -139,10 +139,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 current.stale = false;
                 const focus = apply(value);
                 if (top() === current) {
-                    const enterLibrary = enterResults && inputRevision === entryRevision;
-                    const nextFocus = current.kind === "library" && !enterLibrary ? host.focused() : focus;
+                    const enterContent = enterResults && inputRevision === entryRevision;
+                    const nextFocus = (current.kind === "library" || (current.kind === "personal" && !quiet)) && !enterContent ? host.focused() : focus;
                     render(nextFocus === undefined ? undefined : nextFocus);
-                    if (enterLibrary || (current.kind === "personal" && !quiet)) host.focusDefault();
+                    if (enterContent) host.focusDefault();
                 }
             },
             (error: unknown) => {
@@ -429,7 +429,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         stack.pop();
         const current = top();
         if (current !== undefined) {
-            if (current.kind === "personal" && active?.kind === "item") {
+            if (current.kind === "personal") {
                 current.pendingIndex = undefined;
                 current.stale = true;
             }

@@ -4,7 +4,7 @@
 `fixtures/` holds the response bodies this client consumes, copied unchanged from
 `contracts/api/v2/fixtures/` at that commit, except `settings_contract_ok.json`,
 which contains the selected Settings manifest subset consumed by this client.
-That documented exception selects six definitions unchanged from `contracts/settings/v1/manifest.json` at `SOURCE` (v1, revision 24): `ui.disabled_library_ids`, `playback.audio_language`, `playback.preferred_quality`, `playback.max_bitrate_kbps`, `player.video_skip_back_seconds` and `player.video_skip_forward_seconds`, plus the unchanged `playback_audio_languages` option set.
+That documented exception selects seven definitions unchanged from `contracts/settings/v1/manifest.json` at `SOURCE` (v1, revision 24): `ui.disabled_library_ids`, `playback.audio_language`, `playback.preferred_quality`, `playback.max_bitrate_kbps`, `player.video_skip_back_seconds`, `player.video_skip_forward_seconds` and `ui.title_art`, plus the unchanged `playback_audio_languages` option set.
 The source manifest SHA-256 is `95b716c8b34974e4b97ee96f5c644135c437e09f4a6f2285fb263e3351e6c6ea`.
 `wire.ts` decodes only the members the client reads; unknown members are ignored and unknown
 response enum values decode to `"unknown"`, so additive server changes keep working.
@@ -25,8 +25,15 @@ response enum values decode to `"unknown"`, so additive server changes keep work
 | `updatePlaybackProgress` | `domain_identity` | Never resent; the next sample has a higher `sequence` |
 | `listUserLibraries`, `listEffectiveSettings` (hidden libraries and playback defaults), `listHomeSections`, `listCatalogItems`, `getCatalogItem`, `listSeriesSeasons`, `listSeasonEpisodes` | read (`profile_scoped`) | One transport retry; sent with the active profile's headers |
 | `settingsCapabilities`, `settingsContract` | read | One transport retry; discover the Settings manifest and supported profile controls |
-| `settingsValues`, `effectiveSettings` | read (`profile_scoped`) | One transport retry; read explicit profile rows separately from effective hidden-library, audio, quality and bitrate values |
-| `putSetting`, `deleteSetting` | `non_retryable` (`profile_scoped`) | Never resent automatically; write a profile value (including explicit null) or delete its override to restore inheritance, then confirm explicit and effective readback |
+| `settingsValues`, `effectiveSettings` | read (`profile_scoped`) | One transport retry; read explicit profile rows separately from effective settings; title art also reads this profile-device row |
+| `putSetting`, `deleteSetting` | `non_retryable` (`profile_scoped`) | Never resent automatically; profile scope by default (including explicit null for nullable keys); title art uses its selected profile/device scope and confirms both scopes and effective readback |
+
+Title art is the only newly adopted advisory-platform definition, alongside the existing two seek exceptions.
+It requires settings API v1, numeric manifest revision 16 or later, the compatible remote boolean definition and both `profile` and `profile_device` scopes.
+Opaque capability `revision` remains opaque.
+The decoder checks title-art JSON booleans, explicit and effective identities, discovered collection revisions and advancing PUT row revisions.
+It accepts a server administrator's effective `source=default, value=false` without manufacturing a saved row.
+See [title art](../../../docs/title-art.md) for the ordered write plan and compatibility behavior.
 
 Playback bodies live in `playback.ts`, following `docs/playback-api.md` and `docs/architecture/playback-protocol-v3.md` at the same commit.
 The vendored `playback_start_opaque_ids` plan is a direct plan at offset 0; the test server builds offset timelines, terminal decisions and problems without a fixture from the OpenAPI schemas.

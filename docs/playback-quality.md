@@ -62,7 +62,7 @@ The field starts from the explicit profile value, never a narrower effective dev
 
 Explicit profile defaults and the effective value/source on this TV remain separate.
 A device override can still win after a confirmed profile write or reset and is never cleared here.
-All writes use profile scope, the captured profile proof and stable device headers through the existing API/session owner.
+These playback-default writes use profile scope, the captured profile proof and stable device headers through the existing API/session owner.
 Writes are never automatically resent; uncertain answers reconcile the explicit row and effective value before a user-triggered retry.
 Profile authority changes discard late answers and remove the screen.
 Unsupported capabilities, platforms, schema shapes or profile scopes do not expose these controls.

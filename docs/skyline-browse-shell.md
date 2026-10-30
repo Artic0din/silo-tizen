@@ -106,8 +106,8 @@ Apple's local extras, artwork preferences, automatic version quality ranking and
 The shell uses the shared tokens in `src/theme.css` alongside Skyline's navigation, marquee and card dimensions.
 Desktop Chromium tests and synthetic captures do not prove actual Chromium 76, Tizen emulator, signed package or Samsung TV behavior.
 
-Settings edits profile defaults through the existing native session and HTTP owners.
-General contains Hidden libraries; Playback contains the [saved profile defaults](playback-quality.md#saved-profile-defaults), including separate video seek intervals.
+Settings uses the existing native session and HTTP owners.
+General contains Hidden libraries and the [title-art switches](title-art.md) with this-TV/all-devices scope; Playback contains the [saved profile defaults](playback-quality.md#saved-profile-defaults), including separate video seek intervals.
 The category rail, control pane and pickers share `FocusHost`.
 Category focus only previews loaded controls; requests and writes require explicit activation.
 Back cancels a picker, returns from controls to the category rail, then returns to browse with avatar focus.
@@ -125,7 +125,7 @@ Profile rows and effective values are read separately and never copied into one 
 A device, library or series audio override can continue to take priority.
 The current effective value, source and policy constraints are shown separately from the edited profile value.
 Writes are serialized, not automatically replayed, and confirmed by explicit and effective readback.
-After an uncertain answer, retry first reconciles the exact profile scope; Retry-After blocks early requests.
+After an uncertain answer, retry first reconciles the edited scopes (both profile and this profile-device row for title art); Retry-After blocks early requests.
 Account/profile authority changes cancel work and clear old settings data.
 
 The hidden-library editor requests `include_hidden=true`; access restrictions remain server-owned.

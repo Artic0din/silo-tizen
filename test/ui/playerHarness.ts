@@ -47,6 +47,7 @@ const controls: PlayerControls = {
     dismissError: () => commands.push("dismissError"),
     selectAudio: (id) => commands.push(`selectAudio ${id}`),
     selectSubtitle: (id) => commands.push(`selectSubtitle ${id ?? "off"}`),
+    selectQuality: (id) => commands.push(`selectQuality ${id}`),
     retryTrackInfo: () => commands.push("retryTrackInfo"),
 };
 const screen: PlayerScreen = mountPlayerScreen(root, controls);

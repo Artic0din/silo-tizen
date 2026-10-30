@@ -17,6 +17,8 @@ import {
     decodePlaybackCapabilities,
     decodePlaybackDecision,
     decodePlaybackMutation,
+    decodePlaybackDefaults,
+    PLAYBACK_SETTING_KEYS,
     type ProgressBody,
     type ReplanPlaybackBody,
     type StartPlaybackBody,
@@ -208,6 +210,12 @@ export const operations = {
         path: `/user/libraries${includeHidden ? "?include_hidden=true" : ""}`,
         retry: "safe",
         decode: decodeUserLibraries,
+    }),
+    playbackDefaults: (): Spec<ReturnType<typeof decodePlaybackDefaults>> => ({
+        method: "GET",
+        path: `/settings/values/effective?${PLAYBACK_SETTING_KEYS.map((key) => `keys=${encodeURIComponent(key)}`).join("&")}`,
+        retry: "safe",
+        decode: decodePlaybackDefaults,
     }),
     /** listEffectiveSettings for ui.disabled_library_ids only. */
     hiddenLibraries: (): Spec<string[]> => ({

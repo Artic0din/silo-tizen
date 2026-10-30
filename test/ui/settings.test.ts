@@ -3,8 +3,8 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
-import { AUDIO_KEY, HIDDEN_KEY } from "../../src/contracts/v2/settings.ts";
-import { problem } from "../native/support/fakeSilo.ts";
+import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY } from "../../src/contracts/v2/settings.ts";
+import { fixture, problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
@@ -136,5 +136,155 @@ test("empty hidden-library editor keeps Back and explicit-null controls reachabl
         await tv.page.keyboard.press("ArrowDown");
         assert.equal(await tv.focused(), "clear-hidden");
         assert.equal(tv.fake.requests.filter(request => request.method === "PUT").length, 0);
+    } finally { await tv.page.context().close(); }
+});
+
+test("quality picker uses server labels, keeps legacy current values honest and preserves overrides", async () => {
+    const { tv, settings } = await setup();
+    try {
+        settings.profile().set(QUALITY_KEY, "original");
+        settings.overrides.set(QUALITY_KEY, "480p");
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        await tv.page.locator('[data-focus="quality"]').click();
+        await tv.page.getByText("Current profile value: Original quality · Not offered", { exact: true }).waitFor();
+        assert.equal(await tv.page.locator('[data-focus="quality:original"]').count(), 0);
+        assert.deepEqual(await tv.page.getByRole("radio").allTextContents(), ["Auto", "480p", "720p", "1080p", "2160p / 4K"]);
+        assert.equal(tv.fake.requests.filter(r => r.method === "PUT").length, 0);
+        await tv.page.getByRole("radio", { name: "2160p / 4K", exact: true }).click();
+        await tv.page.locator('[data-focus="quality"]').waitFor();
+        assert.equal(await tv.focused(), "quality");
+        assert.equal(settings.profile().get(QUALITY_KEY), "2160p");
+        assert.equal(settings.overrides.get(QUALITY_KEY), "480p");
+        await tv.page.getByText("On this TV: 480p · Device override", { exact: true }).waitFor();
+        assert.equal(await tv.page.getByText("Saved", { exact: true }).count(), 0);
+        await tv.page.locator('[data-focus="quality"]').click();
+        await tv.page.locator('[data-focus="reset"]').click();
+        await tv.page.locator('[data-focus="quality"]').waitFor();
+        assert.equal(settings.profile().has(QUALITY_KEY), false);
+        assert.equal(settings.overrides.get(QUALITY_KEY), "480p");
+        settings.profile().set(QUALITY_KEY, "future-quality");
+        await tv.remote(10009);
+        await tv.remote(10009);
+        await tv.remote(10009);
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        await tv.page.locator('[data-focus="quality"]').click();
+        await tv.page.getByText("Current profile value: future-quality · Not offered", { exact: true }).waitFor();
+        assert.equal(await tv.page.locator('[data-focus="quality:future-quality"]').count(), 0);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("bitrate editor validates whole kbps, saves only explicitly, cancels and keeps null distinct from reset", async () => {
+    const { tv, settings } = await setup();
+    try {
+        settings.profile().set(BITRATE_KEY, 6000);
+        settings.overrides.set(BITRATE_KEY, 1500);
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        await tv.page.locator('[data-focus="bitrate"]').click();
+        const input = tv.page.getByRole("textbox", { name: "Maximum bitrate (kbps)" });
+        assert.equal(await input.inputValue(), "6000", "edit the explicit profile row, not the device override");
+        const count = tv.fake.requests.length;
+        for (const value of ["", "0", "99", "200001", "100.5", "NaN", "1e3", "-100", " 100 "]) {
+            await input.fill(value);
+            await tv.page.getByRole("button", { name: "Save", exact: true }).click();
+            await tv.page.getByRole("alert").waitFor();
+            assert.equal(await input.getAttribute("aria-invalid"), "true");
+        }
+        assert.equal(tv.fake.requests.length, count, "invalid inputs never send reads or writes");
+        await input.fill("100");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "save");
+        await tv.page.keyboard.press("Enter");
+        await tv.page.locator('[data-focus="bitrate"]').waitFor();
+        assert.equal(await tv.focused(), "bitrate");
+        assert.equal(settings.profile().get(BITRATE_KEY), 100);
+        await tv.page.keyboard.press("Enter");
+        await input.fill("200000");
+        await tv.page.getByRole("button", { name: "Save", exact: true }).click();
+        await tv.page.locator('[data-focus="bitrate"]').waitFor();
+        assert.equal(settings.profile().get(BITRATE_KEY), 200000);
+        await tv.page.keyboard.press("Enter");
+        await input.fill("1234");
+        await tv.page.getByRole("button", { name: "Cancel", exact: true }).click();
+        assert.equal(await tv.focused(), "bitrate");
+        assert.equal(settings.profile().get(BITRATE_KEY), 200000);
+        await tv.page.keyboard.press("Enter");
+        await input.fill("4321");
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "bitrate");
+        assert.equal(settings.profile().get(BITRATE_KEY), 200000);
+        await tv.page.keyboard.press("Enter");
+        await tv.page.getByRole("button", { name: "No limit", exact: true }).click();
+        await tv.page.locator('[data-focus="bitrate"]').waitFor();
+        assert.equal(settings.profile().get(BITRATE_KEY), null);
+        await tv.page.keyboard.press("Enter");
+        assert.equal(await input.inputValue(), "");
+        await tv.page.getByRole("button", { name: "Use inherited default", exact: true }).click();
+        await tv.page.locator('[data-focus="bitrate"]').waitFor();
+        assert.equal(settings.profile().has(BITRATE_KEY), false);
+        assert.equal(settings.overrides.get(BITRATE_KEY), 1500);
+        await tv.page.getByText("On this TV: 1500 kbps · Device override", { exact: true }).waitFor();
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("quality controls remain absent for unsupported manifests and empty Playback keeps Back reachable", async () => {
+    const { tv } = await setup();
+    try {
+        const contract = fixture("settings_contract_ok");
+        contract.definitions = [];
+        const requests = tv.fake.requests.length;
+        tv.fake.script("/settings/contract", { status: 200, body: contract });
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+        await tv.page.getByText("No supported settings in this category.", { exact: true }).waitFor();
+        await tv.page.locator('[data-focus="playback"]').click();
+        assert.equal(await tv.page.locator('[data-focus="quality"], [data-focus="bitrate"]').count(), 0);
+        assert.equal(tv.fake.requests.slice(requests).filter(r => r.path.startsWith("/settings/values")).length, 0);
+        await tv.page.keyboard.press("Enter");
+        assert.equal(await tv.focused(), "playback");
+    } finally { await tv.page.context().close(); }
+});
+
+test("bitrate uncertain readback keeps the draft and Retry checks the committed value without resending", async () => {
+    const { tv, settings } = await setup();
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        await tv.page.locator('[data-focus="bitrate"]').click();
+        await tv.page.getByRole("textbox").fill("4321");
+        const path = `/settings/values?scope=profile&keys=${BITRATE_KEY}`;
+        const preflight = tv.fake.hold(path);
+        tv.fake.dropNextAnswer(`/settings/values/${BITRATE_KEY}?scope=profile`);
+        await tv.page.getByRole("button", { name: "Save", exact: true }).click();
+        await tv.eventually(async () => tv.fake.requests.some(r => r.path === path), "preflight read");
+        tv.fake.script(path, problem(429, "rate_limited", "Wait", { "Retry-After": "1" }));
+        preflight.release();
+        await tv.page.getByRole("alert").waitFor();
+        assert.equal(settings.profile().get(BITRATE_KEY), 4321);
+        assert.equal(await tv.page.getByRole("textbox").inputValue(), "4321");
+        assert.equal(await tv.page.getByRole("textbox").getAttribute("readonly"), "");
+        assert.equal(tv.fake.requests.filter(r => r.method === "PUT").length, 1);
+        await tv.jump(1000);
+        await tv.page.getByRole("button", { name: "Check and retry", exact: true }).click();
+        await tv.page.getByRole("alert").waitFor({ state: "hidden" });
+        await tv.page.getByText("Profile default: 4321 kbps", { exact: true }).waitFor();
+        assert.equal(tv.fake.requests.filter(r => r.method === "PUT").length, 1);
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "bitrate");
+        await tv.page.keyboard.press("Enter");
+        await tv.page.getByRole("textbox").fill("9999");
+        const held = tv.fake.hold(`/settings/values/${BITRATE_KEY}`, true);
+        await tv.page.getByRole("button", { name: "Save", exact: true }).click();
+        await tv.eventually(async () => tv.fake.requests.filter(r => r.method === "PUT").length === 2, "pending write");
+        await tv.page.evaluate(() => window.browseHarness.clearProfile());
+        held.release();
+        await tv.page.locator("#successor").waitFor();
+        assert.equal(await tv.page.locator(".settings").count(), 0);
+        assert.equal(tv.fake.requests.filter(r => r.method === "PUT").length, 2);
+        assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

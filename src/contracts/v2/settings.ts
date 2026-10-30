@@ -3,9 +3,11 @@ import { boolean, integer, object, string, WireError } from "./wire.ts";
 
 export const HIDDEN_KEY = "ui.disabled_library_ids";
 export const AUDIO_KEY = "playback.audio_language";
-export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY] as const;
+export const QUALITY_KEY = "playback.preferred_quality";
+export const BITRATE_KEY = "playback.max_bitrate_kbps";
+export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY, QUALITY_KEY, BITRATE_KEY] as const;
 export type SettingsKey = (typeof SETTINGS_KEYS)[number];
-export type SettingValue = null | string | readonly number[];
+export type SettingValue = null | string | number | readonly number[];
 export interface SettingsCapabilities {
     readonly apiVersion: number;
     readonly revision: string;
@@ -18,7 +20,7 @@ export interface SettingDefinition {
     readonly key: SettingsKey;
     readonly introducedIn: number;
     readonly profile: boolean;
-    readonly options: readonly { value: string; introducedIn: number }[];
+    readonly options: readonly { value: string; label: string; introducedIn: number; deprecated: boolean }[];
 }
 export interface SettingsContract {
     readonly apiVersion: number;
@@ -68,7 +70,11 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
         const key = SETTINGS_KEYS.find(key => def.key === key);
         if (key === undefined) continue;
         const schema = object(def.value_schema, "setting_definition.value_schema");
-        if (schema.nullable !== true || (key === AUDIO_KEY ? schema.type !== "language_tag" : schema.schema_ref !== "library-id-list.json")) continue;
+        if ((key === QUALITY_KEY || key === BITRATE_KEY) && def.persistence !== "remote") continue;
+        if (key === AUDIO_KEY && (schema.nullable !== true || schema.type !== "language_tag")) continue;
+        if (key === HIDDEN_KEY && (schema.nullable !== true || schema.type !== "object" || schema.schema_ref !== "library-id-list.json")) continue;
+        if (key === QUALITY_KEY && (schema.type !== "enum" || schema.nullable === true || def.default_value !== "auto" || def.recommended_control !== "select")) continue;
+        if (key === BITRATE_KEY && (schema.type !== "integer" || schema.nullable !== true || schema.minimum !== 100 || schema.maximum !== 200000 || def.default_value !== null || def.unit !== "kbps" || def.recommended_control !== "select")) continue;
         // Definitions restricted to another platform are advisory exclusions, not Tizen aliases.
         const platforms = def.platforms === undefined ? undefined : strings(def.platforms, "setting_definition.platforms");
         const scopes = strings(def.allowed_scopes, "setting_definition.allowed_scopes");
@@ -79,8 +85,15 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
                 const option = object(raw, "audio_option");
                 const value = string(option, "value", "audio_option");
                 decodeSettingValue(AUDIO_KEY, value);
-                return { value, introducedIn: integer(option, "introduced_in", "audio_option") };
+                return { value, label: value, introducedIn: integer(option, "introduced_in", "audio_option"), deprecated: false };
             });
+        }
+        if (key === QUALITY_KEY) {
+            options = array(schema.values, "quality_options").map(raw => {
+                const option = object(raw, "quality_option");
+                return { value: string(option, "value", "quality_option"), label: string(option, "label", "quality_option"), introducedIn: integer(def, "introduced_in", "setting_definition"), deprecated: option.deprecated === true };
+            }).filter(option => ["auto", "480p", "720p", "1080p", "2160p", "original"].includes(option.value));
+            if (!options.some(option => option.value === "auto" && !option.deprecated)) continue;
         }
         definitions.push({ key, introducedIn: integer(def, "introduced_in", "setting_definition"), profile: scopes.includes("profile") && (platforms === undefined || platforms.includes("tizen")), options });
     }
@@ -95,7 +108,16 @@ export function numericLibraryId(id: string): number {
 }
 
 export function decodeSettingValue(key: SettingsKey, value: unknown): SettingValue {
+    if (key === QUALITY_KEY) {
+        // Legacy and future stored strings remain visible; they are never offered as new choices.
+        if (typeof value !== "string" || value.trim() === "") throw new WireError("preferred_quality.value", "a nonblank string");
+        return value;
+    }
     if (value === null) return null;
+    if (key === BITRATE_KEY) {
+        if (typeof value !== "number" || !Number.isInteger(value) || value < 100 || value > 200000) throw new WireError("max_bitrate_kbps.value", "an integer from 100 to 200000 or null");
+        return value;
+    }
     if (key === HIDDEN_KEY) {
         const ids = array(value, "hidden_libraries.value");
         if (ids.length > 512 || new Set(ids).size !== ids.length || ids.some(id => typeof id !== "number" || !Number.isSafeInteger(id) || id < 1)) throw new WireError("hidden_libraries.value", "up to 512 unique positive integer IDs");

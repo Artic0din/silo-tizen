@@ -25,6 +25,8 @@ import type { RandomBytes } from "../session/deviceIdentity.ts";
 import type { NativeSession } from "../session/session.ts";
 import type { AVPlay, AVPlayListener } from "./avplay.ts";
 import { CLIENT_CAPABILITIES, CLIENT_FEATURES, playbackContext } from "./capabilities.ts";
+import { SeekThumbnails, type ThumbnailSheetLoader } from "./seekThumbnails.ts";
+import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
 
 /** What browse hands over: one file of one catalog item. */
 export interface PlayRequest {
@@ -96,6 +98,7 @@ export type PlaybackView =
           readonly durationSeconds: number | undefined;
           readonly buffering: boolean;
           readonly tracks: TrackView;
+          readonly previewKey?: string | undefined;
       }
     | { readonly phase: "error"; readonly title: string; readonly error: PlaybackError }
     | { readonly phase: "closed" };
@@ -117,6 +120,7 @@ export interface PlayerControls {
     selectSubtitle(trackId: string | undefined): void;
     selectQuality(preference: string): void;
     retryTrackInfo(): void;
+    seekThumbnail(seconds: number, signal: AbortSignal, loadSheet: ThumbnailSheetLoader): Promise<SeekThumbnail | undefined>;
 }
 
 export interface PlaybackDeps {
@@ -168,6 +172,8 @@ interface Attempt {
     autoBandwidthCapKbps: number | undefined;
     qualityPicked: boolean;
     serverFeatures: readonly string[];
+    trickplayEnabled: boolean;
+    thumbnails: SeekThumbnails | undefined;
     /** The current transport is playing or paused. */
     started: boolean;
     buffering: boolean;
@@ -248,6 +254,8 @@ export class PlaybackController implements PlayerControls {
             autoBandwidthCapKbps: undefined,
             qualityPicked: false,
             serverFeatures: [],
+            trickplayEnabled: false,
+            thumbnails: undefined,
             started: false,
             buffering: false,
             busy: false,
@@ -303,6 +311,21 @@ export class PlaybackController implements PlayerControls {
         if (attempt !== undefined) this.seekToSeconds(attempt.sourceSeconds + seconds);
     }
 
+    async seekThumbnail(seconds: number, signal: AbortSignal, loadSheet: ThumbnailSheetLoader): Promise<SeekThumbnail | undefined> {
+        const attempt = this.changeable();
+        const fileId = attempt?.plan?.effectiveMediaFileId;
+        if (attempt === undefined || fileId === undefined || !attempt.trickplayEnabled) return undefined;
+        const provider = attempt.thumbnails ?? new SeekThumbnails(this.deps.session, this.deps.clock, attempt.request.contentId, fileId);
+        attempt.thumbnails = provider;
+        const tile = await provider.load(seconds, signal, loadSheet);
+        return attempt.live && attempt.thumbnails === provider && !attempt.busy && !signal.aborted ? tile : undefined;
+    }
+
+    private clearThumbnails(attempt: Attempt): void {
+        attempt.thumbnails?.destroy();
+        attempt.thumbnails = undefined;
+    }
+
     seekToSeconds(seconds: number): void {
         const attempt = this.active();
         const plan = attempt?.plan;
@@ -318,6 +341,7 @@ export class PlaybackController implements PlayerControls {
             (timeline.seekWindowStartSeconds === undefined || target >= timeline.seekWindowStartSeconds) &&
             (timeline.seekWindowEndSeconds === undefined || target <= timeline.seekWindowEndSeconds);
         attempt.busy = true;
+        this.clearThumbnails(attempt);
         if (!local) {
             // An open or partial window has no bytes there yet: the server re-anchors the timeline.
             this.closeTransport();
@@ -418,6 +442,7 @@ export class PlaybackController implements PlayerControls {
         attempt.attemptedKeys.length = 0;
         attempt.recoveries = 0;
         attempt.busy = true;
+        this.clearThumbnails(attempt);
         attempt.change = { state: "changing", kind: "quality" };
         this.showPlayback(attempt);
         const audio = plan.selectedTracks.audio;
@@ -474,6 +499,7 @@ export class PlaybackController implements PlayerControls {
                 return;
             }
             attempt.installationId = installationId;
+            attempt.trickplayEnabled = capabilities.features.includes("trickplay_v1");
             const defaults = await session.call({ ...operations.playbackDefaults(), profileScoped: true, signal: attempt.signal });
             if (!attempt.live) {
                 return;
@@ -618,6 +644,7 @@ export class PlaybackController implements PlayerControls {
         }
         attempt.busy = true;
         this.show({ phase: "loading", title: attempt.request.title });
+        this.clearThumbnails(attempt);
         void this.replan(attempt, plan, "failure_recovery", attempt.sourceSeconds, classification);
     }
 
@@ -630,6 +657,7 @@ export class PlaybackController implements PlayerControls {
     }
 
     private changeTracks(attempt: Attempt, plan: PlaybackPlan, selected: SelectedTracks): void {
+        this.clearThumbnails(attempt);
         attempt.busy = true;
         attempt.change = { state: "changing" };
         this.showPlayback(attempt);
@@ -670,6 +698,7 @@ export class PlaybackController implements PlayerControls {
     // --- transport ---
 
     private adopt(attempt: Attempt, plan: PlaybackPlan, serverFeatures: readonly string[]): void {
+        this.clearThumbnails(attempt);
         attempt.plan = plan;
         attempt.serverFeatures = serverFeatures;
         attempt.change = { state: "idle" };
@@ -952,6 +981,7 @@ export class PlaybackController implements PlayerControls {
             return;
         }
         attempt.live = false;
+        this.clearThumbnails(attempt);
         attempt.cancelTimer?.();
         if (this.attempt === attempt) {
             this.closeTransport();
@@ -1025,6 +1055,7 @@ export class PlaybackController implements PlayerControls {
             durationSeconds: plan.durationSeconds,
             buffering: attempt.buffering,
             tracks: trackView(attempt, plan),
+            previewKey: attempt.busy ? undefined : attempt.planAttemptId,
         });
     }
 

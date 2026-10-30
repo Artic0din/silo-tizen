@@ -64,6 +64,21 @@
     background: var(--silo-boundary);
 }
 
+.player-thumbnail {
+    position: absolute;
+    left: 88px;
+    bottom: calc(100% - 96px);
+    overflow: hidden;
+    border-radius: 12px;
+    pointer-events: none;
+    background: var(--silo-elevated);
+}
+
+.player-thumbnail img {
+    position: absolute;
+    max-width: none;
+}
+
 .player-bar-fill {
     height: 6px;
     border-radius: 6px;

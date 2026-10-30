@@ -14,6 +14,7 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - Added direct single-library menus and fluid library transitions while preserving immediate remote focus and reduced-motion navigation.
+- Added server-provided JPEG thumbnails during seek previews, with timestamp seeking retained when previews are unavailable.
 - Added saved profile quality and maximum bitrate controls in Playback Settings, with server-confirmed values and device override visibility.
 - Added profile Settings with Hidden libraries and Preferred audio controls.
 - Added in-player quality selection from the server's available alternatives, preserving saved quality and bandwidth preferences throughout playback.

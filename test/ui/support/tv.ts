@@ -84,7 +84,7 @@ export interface Tv {
     eventually(check: () => Promise<boolean>, what: string): Promise<void>;
 }
 
-export async function openTv(browser: Browser, options: { sessionOnly?: boolean; video?: string; app?: TvApp } = {}): Promise<Tv> {
+export async function openTv(browser: Browser, options: { sessionOnly?: boolean; profiles?: boolean; video?: string; app?: TvApp } = {}): Promise<Tv> {
     const app = options.app ?? "signIn";
     const script = await harnessBundle(app);
     const context = await browser.newContext({
@@ -181,6 +181,6 @@ export async function openTv(browser: Browser, options: { sessionOnly?: boolean;
         await route.fulfill({ status: response.status, headers, body: await response.text() }).catch(() => undefined);
     });
     await page.clock.install({ time: clock.now() });
-    await page.goto(options.sessionOnly === true ? `${PAGE}#session-only` : PAGE);
+    await page.goto(`${PAGE}${options.profiles === true ? "?flow=profiles" : ""}${options.sessionOnly === true ? "#session-only" : ""}`);
     return tv;
 }

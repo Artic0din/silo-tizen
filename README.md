@@ -11,7 +11,8 @@ Silo client for Samsung Tizen TVs from model year 2021 (Tizen 6.0).
   tsc does not check them, and they are not the final architecture.
 - `src/api/`, `src/session/` and `src/contracts/v2/` hold the native `/api/v2` session core: device login, profiles and credential storage.
 - `src/ui/` holds the native sign-in screens built on that core: server address entry, then the eight-digit code with a QR code.
-  `mountSignIn` takes a root element and the core's dependencies and calls `onSignedIn` with the connected server; profiles and browsing come in later work.
+  `mountSignIn` takes a root element and the core's dependencies and calls `onSignedIn` with the connected server.
+  `mountProfiles` takes that server, shows the household profiles and PIN entry, and calls `onSelected` with the chosen profile and the signal that ends when it stops acting; app composition comes in later work.
   Their stylesheet is `src/ui/signIn.css`, written for Chromium 76.
   The entry point does not use them yet, so the packaged app still runs the legacy screens only.
 - `src/ui/browse.ts` holds the native Movies and Series browsing for the selected profile ([#9](https://github.com/Artic0din/silo-tizen/issues/9)): Home, libraries, search and item pages.
@@ -52,5 +53,5 @@ The script runs `npm run build`, packages `dist/wgt/` and writes `dist/Silo.wgt`
 ## Test
 
 See [test/README.md](test/README.md).
-`npm test` builds, then runs the native session tests, the sign-in screen tests, the adapter tests and the browse focus tests.
+`npm test` builds, then runs the native session and catalog tests, the sign-in, profile and browse screen tests, the adapter tests and the browse focus tests.
 The native tests run the TypeScript sources directly with Node.js; CI and the type definitions use Node.js 26, the supported version.

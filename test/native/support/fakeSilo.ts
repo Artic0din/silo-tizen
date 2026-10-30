@@ -66,6 +66,8 @@ export class FakeSilo {
     /** refresh token -> session id; access token -> session id. */
     private readonly refreshTokens = new Map<string, number>();
     private readonly accessTokens = new Map<string, number>();
+    /** Access tokens minted while the account held a temporary password. */
+    private readonly restrictedTokens = new Set<string>();
     readonly revokedSessions = new Set<number>();
     readonly pins = new Map<string, string>([["p-kid", "2468"]]);
     private readonly pinRevision = new Map<string, number>([["p-kid", 1]]);
@@ -75,6 +77,8 @@ export class FakeSilo {
     private readonly dropped: string[] = [];
     /** Browse reads (test/native/support/fakeCatalog.ts); unset, they answer 404. */
     catalog: CatalogRoutes | undefined;
+    /** The household GET /profiles returns: the fixture's owner and a PIN-locked child. */
+    profiles: Record<string, unknown> = household();
     pinAttempts = 0;
     passwordChangeRequired = false;
     lockedUntil = 0;
@@ -221,12 +225,14 @@ export class FakeSilo {
                 this.revokedSessions.add(session);
                 return { status: 204 };
             }
-            case "GET /profiles": {
-                if (this.authenticate(headers) === undefined) {
-                    return problem(401, "authentication_required", "Authentication required");
-                }
-                return { status: 200, body: this.profileCollection() };
-            }
+        }
+        // Until the password changes, the session may only log out (auth-api.md, temporary passwords).
+        const denied = this.denyUnauthenticated(headers);
+        if (denied !== undefined) {
+            return denied;
+        }
+        if (key === "GET /profiles") {
+            return { status: 200, body: this.profiles };
         }
         const pinMatch = /^\/profiles\/([^/]+)\/verify-pin$/.exec(path);
         if (method === "POST" && pinMatch?.[1] !== undefined) {
@@ -296,6 +302,9 @@ export class FakeSilo {
         const access = `acc-${sessionId}-${serial}`;
         const refresh = `ref-${sessionId}-${serial}`;
         this.accessTokens.set(access, sessionId);
+        if (this.passwordChangeRequired) {
+            this.restrictedTokens.add(access);
+        }
         this.refreshTokens.set(refresh, sessionId);
         return { access_token: access, refresh_token: refresh, expires_in: 3600 };
     }
@@ -315,17 +324,15 @@ export class FakeSilo {
         return session === undefined || this.revokedSessions.has(session) ? undefined : session;
     }
 
-    private profileCollection(): Record<string, unknown> {
-        const collection = fixture("list_profiles_ok");
-        const items = Array.isArray(collection.items) ? collection.items : [];
-        const owner = toRecord(items[0]);
-        return { ...collection, items: [owner, { ...owner, id: "p-kid", name: "Kid", has_pin: true, is_primary: false, is_child: true }] };
-    }
-
-    private verifyPin(profileId: string, headers: Record<string, string>, pin: string): Reply {
+    private denyUnauthenticated(headers: Record<string, string>): Reply | undefined {
         if (this.authenticate(headers) === undefined) {
             return problem(401, "authentication_required", "Authentication required");
         }
+        const token = /^Bearer (.+)$/.exec(headers.authorization ?? "")?.[1] ?? "";
+        return this.restrictedTokens.has(token) ? problem(403, "password_change_required", "Password change required") : undefined;
+    }
+
+    private verifyPin(profileId: string, headers: Record<string, string>, pin: string): Reply {
         const now = this.clock.now();
         if (now < this.lockedUntil) {
             return problem(429, "rate_limited", "Rate limited", { "Retry-After": String(Math.ceil((this.lockedUntil - now) / 1000)) });
@@ -343,11 +350,8 @@ export class FakeSilo {
         return { status: 200, body: { ...fixture("verify_profile_pin_ok"), profile_token: token } };
     }
 
-    /** A profile-scoped read without a live bearer, or naming a PIN profile without its current proof. */
+    /** A profile-scoped read naming a PIN profile without its current proof; route() has already checked the bearer. */
     private profileRefusal(headers: Record<string, string>): Reply | undefined {
-        if (this.authenticate(headers) === undefined) {
-            return problem(401, "authentication_required", "Authentication required");
-        }
         const profileId = headers["x-profile-id"];
         if (profileId !== undefined && this.pins.has(profileId)) {
             const proof = this.profileTokens.get(headers["x-profile-token"] ?? "");
@@ -365,6 +369,13 @@ export class FakeSilo {
         }
         return request;
     }
+}
+
+function household(): Record<string, unknown> {
+    const collection = fixture("list_profiles_ok");
+    const items = Array.isArray(collection.items) ? collection.items : [];
+    const owner = toRecord(items[0]);
+    return { ...collection, items: [owner, { ...owner, id: "p-kid", name: "Kid", has_pin: true, is_primary: false, is_child: true }] };
 }
 
 function toRecord(value: unknown): Record<string, unknown> {

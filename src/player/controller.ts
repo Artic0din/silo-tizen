@@ -20,7 +20,7 @@ import { type Clock, sleep } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
 import { abortedError } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
-import type { AudioTrackInfo, FileVersionTracks, PlaybackDecision, PlaybackPlan, ReplanOperation, SelectedTracks, SubtitleTrack } from "../contracts/v2/playback.ts";
+import type { AudioTrackInfo, FileVersionTracks, PlaybackDecision, PlaybackDefaults, PlaybackPlan, ReplanOperation, SelectedTracks, SubtitleTrack } from "../contracts/v2/playback.ts";
 import type { RandomBytes } from "../session/deviceIdentity.ts";
 import type { NativeSession } from "../session/session.ts";
 import type { AVPlay, AVPlayListener } from "./avplay.ts";
@@ -69,12 +69,13 @@ export type AudioTracks = { readonly state: "loading" } | { readonly state: "fai
 
 export type TrackChange =
     | { readonly state: "idle" }
-    | { readonly state: "changing" }
+    | { readonly state: "changing"; readonly kind?: "quality" }
     /** The server refused the choice; the current plan keeps playing. */
     | { readonly state: "refused"; readonly message: string }
     | { readonly state: "failed" };
 
 export interface TrackView {
+    readonly quality?: { readonly choices: readonly TrackChoice[]; readonly selectedId: string | undefined };
     readonly audio: AudioTracks;
     readonly selectedAudioId: string | undefined;
     readonly subtitles: readonly TrackChoice[];
@@ -112,6 +113,7 @@ export interface PlayerControls {
     selectAudio(trackId: string): void;
     /** Undefined turns subtitles off. */
     selectSubtitle(trackId: string | undefined): void;
+    selectQuality(preference: string): void;
     retryTrackInfo(): void;
 }
 
@@ -132,7 +134,6 @@ const STARTUP_TIMEOUT_MS = 60000;
 const MAX_RECOVERY_REPLANS = 3;
 /** Waits before resending an identical start, replan or stop that got no usable answer. */
 const RESEND_DELAYS_MS = [1000, 2000];
-const QUALITY_PREFERENCE = "auto";
 /** AVPlay's display coordinates are in the app's 1920x1080 space. */
 const SCREEN = { width: 1920, height: 1080 };
 
@@ -160,6 +161,11 @@ interface Attempt {
     sequence: number;
     sourceSeconds: number;
     paused: boolean;
+    qualityPreference: string;
+    bandwidthCapKbps: number | undefined;
+    autoBandwidthCapKbps: number | undefined;
+    qualityPicked: boolean;
+    serverFeatures: readonly string[];
     /** The current transport is playing or paused. */
     started: boolean;
     buffering: boolean;
@@ -235,6 +241,11 @@ export class PlaybackController implements PlayerControls {
             sequence: 0,
             sourceSeconds: request.startSeconds ?? 0,
             paused: false,
+            qualityPreference: "auto",
+            bandwidthCapKbps: undefined,
+            autoBandwidthCapKbps: undefined,
+            qualityPicked: false,
+            serverFeatures: [],
             started: false,
             buffering: false,
             busy: false,
@@ -264,7 +275,7 @@ export class PlaybackController implements PlayerControls {
 
     togglePause(): void {
         const attempt = this.active();
-        if (attempt === undefined || !attempt.started || attempt.busy) {
+        if (attempt === undefined || !attempt.started || (attempt.busy && !(attempt.change.state === "changing" && attempt.change.kind === "quality"))) {
             return;
         }
         try {
@@ -386,6 +397,26 @@ export class PlaybackController implements PlayerControls {
         }
     }
 
+    selectQuality(preference: string): void {
+        const attempt = this.changeable();
+        const plan = attempt?.plan;
+        if (attempt === undefined || plan === undefined || preference === attempt.qualityPreference || !qualityChoices(plan).some((choice) => choice.id === preference)) {
+            return;
+        }
+        attempt.attemptedKeys.length = 0;
+        attempt.recoveries = 0;
+        attempt.busy = true;
+        attempt.change = { state: "changing", kind: "quality" };
+        this.showPlayback(attempt);
+        const audio = plan.selectedTracks.audio;
+        const subtitle = plan.subtitle.mode === "off" ? undefined : plan.selectedTracks.subtitle;
+        const selected = { ...(audio === undefined ? {} : { audio }), ...(subtitle === undefined ? {} : { subtitle }) };
+        const offered = plan.availableQualities.find((quality) => quality.label === preference);
+        const cap = preference === "auto" ? attempt.autoBandwidthCapKbps
+            : offered !== undefined && !offered.preservesSource && offered.bitrateKbps !== undefined && offered.bitrateKbps > 0 ? offered.bitrateKbps : undefined;
+        void this.replan(attempt, plan, "quality_change", attempt.sourceSeconds, undefined, selected, { qualityPreference: preference, bandwidthCapKbps: cap });
+    }
+
     dismissError(): void {
         const error = this.shownError;
         if (error === undefined) {
@@ -431,6 +462,13 @@ export class PlaybackController implements PlayerControls {
                 return;
             }
             attempt.installationId = installationId;
+            const defaults = await session.call({ ...operations.playbackDefaults(), profileScoped: true, signal: attempt.signal });
+            if (!attempt.live) {
+                return;
+            }
+            attempt.qualityPreference = defaults.qualityPreference;
+            attempt.bandwidthCapKbps = defaults.bandwidthCapKbps;
+            attempt.autoBandwidthCapKbps = defaults.bandwidthCapKbps;
             const start = operations.startPlayback({
                 installation_id: installationId,
                 protocol_version: 3,
@@ -438,7 +476,8 @@ export class PlaybackController implements PlayerControls {
                 file_id: attempt.request.fileId,
                 profile_id: profile.id,
                 playback_attempt_id: attempt.playbackAttemptId,
-                quality_preference: QUALITY_PREFERENCE,
+                quality_preference: attempt.qualityPreference,
+                ...(attempt.bandwidthCapKbps === undefined ? {} : { bandwidth_cap_kbps: attempt.bandwidthCapKbps }),
                 subtitle_fidelity_preference: "compatible",
                 ...(attempt.request.startSeconds === undefined ? {} : { start_position: attempt.request.startSeconds }),
                 client_capabilities: CLIENT_CAPABILITIES,
@@ -464,7 +503,7 @@ export class PlaybackController implements PlayerControls {
             return;
         }
         this.scheduleProgress(attempt);
-        this.adopt(attempt, decision.plan);
+        this.adopt(attempt, decision.plan, decision.serverFeatures);
     }
 
     private async replan(
@@ -474,6 +513,7 @@ export class PlaybackController implements PlayerControls {
         positionSeconds: number,
         classification: string | undefined,
         selected: SelectedTracks = plan.selectedTracks,
+        quality: PlaybackDefaults = attempt,
     ): Promise<void> {
         const sessionId = attempt.sessionId;
         const installationId = attempt.installationId;
@@ -492,7 +532,8 @@ export class PlaybackController implements PlayerControls {
             plan_attempt_key: plan.planAttemptKey,
             attempted_plan_keys: attempt.attemptedKeys.slice(),
             attempt_count: Math.max(1, attempt.recoveries),
-            quality_preference: QUALITY_PREFERENCE,
+            quality_preference: quality.qualityPreference,
+            ...(quality.bandwidthCapKbps === undefined ? {} : { bandwidth_cap_kbps: quality.bandwidthCapKbps }),
             position_seconds: positionSeconds,
             selected_tracks: selected,
             ...(classification === undefined ? {} : { failure: { classification } }),
@@ -517,14 +558,23 @@ export class PlaybackController implements PlayerControls {
         if (!attempt.live) {
             return;
         }
-        if (operation === "track_change" && decision.outcome !== "playable") {
+        if ((operation === "track_change" || operation === "quality_change") && decision.outcome === "adaptation_unavailable") {
             // The server rolled the change back; the current plan and transport keep playing.
-            this.changeSettled(attempt, decision.outcome === "adaptation_unavailable" ? { state: "refused", message: decision.terminal.message } : { state: "failed" });
+            this.changeSettled(attempt, { state: "refused", message: decision.terminal.message });
             return;
         }
         attempt.busy = false;
         if (decision.outcome === "playable") {
-            this.adopt(attempt, decision.plan);
+            if (decision.sessionId !== sessionId) {
+                this.fail(attempt, { kind: "server" }, true);
+                return;
+            }
+            if (operation === "quality_change") {
+                attempt.qualityPreference = quality.qualityPreference;
+                attempt.bandwidthCapKbps = quality.bandwidthCapKbps;
+                attempt.qualityPicked = true;
+            }
+            this.adopt(attempt, decision.plan, decision.serverFeatures);
         } else {
             this.fail(attempt, decisionFailure(decision), true);
         }
@@ -607,8 +657,9 @@ export class PlaybackController implements PlayerControls {
 
     // --- transport ---
 
-    private adopt(attempt: Attempt, plan: PlaybackPlan): void {
+    private adopt(attempt: Attempt, plan: PlaybackPlan, serverFeatures: readonly string[]): void {
         attempt.plan = plan;
+        attempt.serverFeatures = serverFeatures;
         attempt.change = { state: "idle" };
         attempt.changeFailure = undefined;
         if (attempt.tracks === undefined) {
@@ -1000,6 +1051,12 @@ function trackView(attempt: Attempt, plan: PlaybackPlan): TrackView {
         notices.push("This TV can't show these subtitles.");
     }
     return {
+        quality: {
+            choices: qualityChoices(plan),
+            selectedId: attempt.qualityPreference === "auto" ? "auto" : attempt.serverFeatures.includes("plan_active_quality_v1")
+                ? qualityChoices(plan).find((quality) => quality.id === plan.activeQuality && quality.id !== "auto")?.id
+                : attempt.qualityPicked ? plan.availableQualities.find((quality) => quality.label === attempt.qualityPreference)?.label : undefined,
+        },
         audio: tracks === undefined || tracks.state !== "ready" ? { state: tracks?.state ?? "loading" } : { state: "ready", choices: audioChoices(attempt, plan) },
         selectedAudioId: plan.selectedTracks.audio?.id,
         subtitles: plan.subtitle.inventory.map((entry) => ({ id: entry.trackId, label: subtitleLabel(entry) })),
@@ -1008,6 +1065,11 @@ function trackView(attempt: Attempt, plan: PlaybackPlan): TrackView {
         change: attempt.change,
         notices,
     };
+}
+
+function qualityChoices(plan: PlaybackPlan): TrackChoice[] {
+    const offered = plan.availableQualities.filter((quality) => quality.label !== "original" && quality.label !== "auto");
+    return offered.length === 0 ? [] : [{ id: "auto", label: "Auto" }, ...offered.map((quality) => ({ id: quality.label, label: quality.displayName || quality.label }))];
 }
 
 /** The effective edition's audio tracks; empty until the versions read answers. */

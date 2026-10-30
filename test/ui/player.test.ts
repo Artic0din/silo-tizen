@@ -382,3 +382,87 @@ test("a screen mounted while hidden stops its loading attempt before normal cont
         await page.close();
     }
 });
+
+test("quality is server-gated, remote reachable and reports pending/refused state without stealing focus", async () => {
+    const { page, logs } = await open();
+    const quality = { choices: [{ id: "auto", label: "Auto" }, { id: "future-rung", label: "Server Quality" }], selectedId: "auto" };
+    try {
+        await show(page, playing(TRACKS));
+        await remote(page, DOWN);
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "subtitles-off", "no quality stop when only Auto exists");
+        await show(page, playing({ ...TRACKS, quality }));
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "quality:auto");
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "quality:future-rung");
+        assert.equal(await page.locator(".player-menu-quality .player-choice").last().innerText(), "Server Quality");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["selectQuality future-rung"]);
+        await show(page, playing({ ...TRACKS, quality, change: { state: "changing", kind: "quality" } }));
+        assert.equal(await focused(page), "quality:future-rung");
+        assert.equal(await text(page, ".player-menu-status"), "Changing quality");
+        await show(page, playing({ ...TRACKS, quality, change: { state: "refused", message: "This quality is unavailable." } }));
+        assert.match(await text(page, ".player-menu-status"), /This quality is unavailable/);
+        assert.equal(await page.locator('[data-focus="quality:auto"]').getAttribute("aria-pressed"), "true");
+        await capture(page, "player-quality-after");
+        await show(page, playing({ ...TRACKS, quality: { choices: [], selectedId: undefined } }));
+        assert.equal(await focused(page), "file:42:audio:0", "disappearing quality hands focus to a usable list");
+        await remote(page, BACK);
+        assert.equal(await focused(page), "player");
+        assert.deepEqual(logs, []);
+    } finally {
+        await page.close();
+    }
+});
+
+test("long server quality lists scroll within the menu with focus and status kept on screen", async () => {
+    const { page, logs } = await open();
+    const quality = { choices: [{ id: "auto", label: "Auto" }, ...Array.from({ length: 16 }, (_, index) => ({ id: `rung-${index}`, label: `Server quality ${index + 1} with a longer label` }))], selectedId: "auto" };
+    try {
+        await show(page, playing({ ...TRACKS, quality }));
+        await remote(page, DOWN);
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
+        for (let index = 0; index < 16; index++) await remote(page, DOWN);
+        assert.equal(await focused(page), "quality:rung-15");
+        await page.clock.resume();
+        await page.waitForFunction(() => {
+            const list = document.querySelector(".player-menu-quality");
+            const focus = document.activeElement;
+            if (list === null || focus === null) return false;
+            const bounds = list.getBoundingClientRect();
+            const item = focus.getBoundingClientRect();
+            return item.top >= bounds.top && item.bottom <= bounds.bottom;
+        });
+        const geometry = await page.evaluate(() => {
+            const list = document.querySelector(".player-menu-quality");
+            const status = document.querySelector(".player-menu-status");
+            assertElement(list);
+            assertElement(status);
+            const focus = document.activeElement;
+            assertElement(focus);
+            return { list: list.getBoundingClientRect().toJSON(), focus: focus.getBoundingClientRect().toJSON(), status: status.getBoundingClientRect().toJSON(), scroll: list.scrollTop };
+            function assertElement(value: Element | null): asserts value is HTMLElement {
+                if (!(value instanceof HTMLElement)) throw new Error("missing element");
+            }
+        });
+        assert.ok(geometry.scroll > 0);
+        assert.ok(geometry.focus.top >= geometry.list.top && geometry.focus.bottom <= geometry.list.bottom);
+        assert.ok(geometry.status.top >= geometry.list.bottom && geometry.status.bottom <= 1080);
+        await show(page, playing({ ...TRACKS, quality, change: { state: "changing", kind: "quality" } }));
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), [], "busy choices remain focusable but cannot send a second intent");
+        await remote(page, LEFT);
+        assert.equal(await focused(page), "subtitles-off");
+        await page.locator('[data-focus="quality:rung-1"]').dispatchEvent("click");
+        assert.deepEqual(await commands(page), []);
+        await show(page, { phase: "loading", title: "The Movie" });
+        assert.equal(await focused(page), "player");
+        assert.equal(await menuShown(page), false);
+        assert.deepEqual(logs, []);
+    } finally {
+        await page.close();
+    }
+});

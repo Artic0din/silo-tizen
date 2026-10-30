@@ -138,6 +138,8 @@ export interface DegradationWarning {
 }
 
 export interface PlaybackPlan {
+    readonly availableQualities: readonly PlaybackQuality[];
+    readonly activeQuality: string | undefined;
     /** Opaque; echoed as failed_plan_id. */
     readonly planId: string;
     /** Opaque `v3:` loop-guard key; echoed and collected unchanged. */
@@ -162,9 +164,55 @@ export interface PlaybackTerminal {
 }
 
 export type PlaybackDecision =
-    | { readonly outcome: "playable"; readonly sessionId: string; readonly plan: PlaybackPlan }
+    | { readonly outcome: "playable"; readonly sessionId: string; readonly plan: PlaybackPlan; readonly serverFeatures: readonly string[] }
     | { readonly outcome: "adaptation_unavailable"; readonly terminal: PlaybackTerminal }
     | { readonly outcome: "unknown" };
+
+export interface PlaybackQuality {
+    readonly label: string;
+    readonly displayName: string | undefined;
+    readonly height: number | undefined;
+    readonly bitrateKbps: number | undefined;
+    readonly preservesSource: boolean;
+}
+
+function decodeQuality(value: unknown, path: string): PlaybackQuality {
+    const obj = object(value, path);
+    const label = nonEmptyString(obj, "label", path);
+    if (label.trim() === "") {
+        throw new WireError(`${path}.label`, "a nonblank string");
+    }
+    return {
+        label,
+        displayName: optionalString(obj, "display_name", path),
+        height: optionalInteger(obj, "height", path),
+        bitrateKbps: optionalInteger(obj, "bitrate_kbps", path),
+        preservesSource: boolean(obj, "preserves_source", path),
+    };
+}
+
+export interface PlaybackDefaults {
+    readonly qualityPreference: string;
+    readonly bandwidthCapKbps: number | undefined;
+}
+
+export const PLAYBACK_SETTING_KEYS: readonly string[] = ["playback.preferred_quality", "playback.max_bitrate_kbps"];
+
+export function decodePlaybackDefaults(value: unknown): PlaybackDefaults {
+    const path = "effective_settings";
+    const entries = list(object(value, path), "items", path).map((entry, index) => object(entry, `${path}.items[${index}]`));
+    const qualityEntry = entries.find((entry) => entry.key === PLAYBACK_SETTING_KEYS[0]);
+    const quality = qualityEntry === undefined ? "auto" : string(qualityEntry, "value", path);
+    const capEntry = entries.find((entry) => entry.key === PLAYBACK_SETTING_KEYS[1]);
+    const cap = capEntry?.value;
+    if (quality.trim() === "") {
+        throw new WireError(`${path}.quality`, "a nonblank string");
+    }
+    if (capEntry !== undefined && cap !== null && (typeof cap !== "number" || !Number.isInteger(cap) || cap < 100 || cap > 200000)) {
+        throw new WireError(`${path}.bandwidth`, "an integer from 100 to 200000 or null");
+    }
+    return { qualityPreference: quality === "original" ? "auto" : quality, bandwidthCapKbps: typeof cap === "number" ? cap : undefined };
+}
 
 function decodeTrack(value: unknown, path: string): TrackIdentity | undefined {
     if (value === undefined) {
@@ -224,6 +272,8 @@ function decodePlan(value: unknown, path: string): PlaybackPlan {
     const subtitle = decodeTrack(tracks.subtitle, `${path}.selected_tracks.subtitle`);
     const source = object(obj.source, `${path}.source`);
     return {
+        availableQualities: obj.available_qualities === undefined ? [] : list(obj, "available_qualities", path).map((entry, index) => decodeQuality(entry, `${path}.available_qualities[${index}]`)),
+        activeQuality: optionalString(obj, "active_quality", path),
         planId: nonEmptyString(obj, "plan_id", path),
         planAttemptKey: nonEmptyString(obj, "plan_attempt_key", path),
         delivery: oneOf(string(obj, "delivery", path), DELIVERIES),
@@ -249,6 +299,7 @@ export function decodePlaybackDecision(value: unknown): PlaybackDecision {
         return {
             outcome,
             sessionId: nonEmptyString(obj, "session_id", path),
+            serverFeatures: obj.server_features === undefined ? [] : strings(obj, "server_features", path),
             plan: decodePlan(obj.playback_plan, `${path}.playback_plan`),
         };
     }
@@ -355,6 +406,7 @@ export type StartPlaybackBody = {
     readonly profile_id: string;
     readonly playback_attempt_id: string;
     readonly quality_preference: string;
+    readonly bandwidth_cap_kbps?: number;
     readonly subtitle_fidelity_preference: "preserve" | "compatible";
     /** Omitted: the server resumes from the profile's saved position. */
     readonly start_position?: number;
@@ -362,7 +414,7 @@ export type StartPlaybackBody = {
     readonly client_playback_context: ClientPlaybackContext;
 };
 
-export type ReplanOperation = "failure_recovery" | "seek_reanchor" | "track_change";
+export type ReplanOperation = "failure_recovery" | "seek_reanchor" | "track_change" | "quality_change";
 
 export type ReplanPlaybackBody = {
     readonly installation_id: string;
@@ -377,6 +429,7 @@ export type ReplanPlaybackBody = {
     readonly attempted_plan_keys: readonly string[];
     readonly attempt_count: number;
     readonly quality_preference: string;
+    readonly bandwidth_cap_kbps?: number;
     readonly position_seconds: number;
     readonly selected_tracks: SelectedTracks;
     readonly failure?: { readonly classification: string };

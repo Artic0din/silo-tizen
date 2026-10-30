@@ -16,6 +16,7 @@ const avplay = new FakeAVPlay();
 let app: SiloApp | undefined;
 let exits = 0;
 let exitFails = false;
+const registeredKeys: string[] = [];
 
 const mount = (withPlayer = true): void => {
     app?.destroy();
@@ -43,6 +44,7 @@ const harness = {
     avplay,
     storage,
     keyManager,
+    registeredKeys,
     get exits() { return exits; },
     failExit() { exitFails = true; },
     mount,
@@ -56,7 +58,14 @@ window.appHarness = harness;
 if (location.hash === "#production") {
     root.id = "screen";
     Object.defineProperty(globalThis, "webapis", { value: { avplay, productinfo: { getRealModel: () => "QN55Q60AAFXZA" } } });
-    Object.defineProperty(globalThis, "tizen", { value: { keymanager: keyManager, application: { getCurrentApplication: () => ({ exit: () => { exits++; } }) } } });
+    Object.defineProperty(globalThis, "tizen", { value: {
+        keymanager: keyManager,
+        application: { getCurrentApplication: () => ({ exit: () => { exits++; } }) },
+        tvinputdevice: {
+            getSupportedKeys: () => [{ name: "MediaPlayPause", code: 10252 }],
+            registerKey: (name: string) => registeredKeys.push(name),
+        },
+    } });
     void import("../../src/main.ts").then((entry) => { app = entry.app; });
 } else {
     mount();

@@ -26,6 +26,7 @@ export interface BrowseHarness {
 declare global {
     interface Window {
         browseHarness: BrowseHarness;
+        retainedNavigation: Element | null;
     }
 }
 
@@ -44,6 +45,7 @@ if (root === null) {
 }
 let server: ConnectedServer | undefined;
 let browse: Browse | undefined;
+const publicStorage = new MemoryPublicStorage();
 
 function connected(): ConnectedServer {
     if (server === undefined) {
@@ -60,7 +62,7 @@ const harness: BrowseHarness = {
     async connect() {
         const result = await connect("https://silo.example.test", {
             fetch: (url, init) => window.fetch(url, init),
-            publicStorage: new MemoryPublicStorage(),
+            publicStorage,
             keyManager: new FakeKeyManager(),
             randomBytes: (bytes) => {
                 bytes.set(crypto.getRandomValues(new Uint8Array(bytes.length)));
@@ -103,6 +105,7 @@ const harness: BrowseHarness = {
         document.getElementById("successor")?.remove();
         browse = mountBrowse(root, {
             server: connected(),
+            publicStorage,
             onPlay: (request) => {
                 harness.plays.push(request);
             },

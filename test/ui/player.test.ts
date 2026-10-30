@@ -9,7 +9,7 @@ import { type Browser, chromium, type Page } from "playwright";
 import type { PlaybackView, TrackView } from "../../src/player/controller.ts";
 
 const ORIGIN = "https://tv.example.test";
-const CSS = readFileSync(new URL("../../src/player/player.css", import.meta.url), "utf8");
+const CSS = ["theme.css", "player/player.css"].map((name) => readFileSync(new URL(`../../src/${name}`, import.meta.url), "utf8")).join("\n");
 const HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Silo</title>
 <link rel="stylesheet" href="player.css"></head>
 <body style="margin:0;background:#000"><main id="root"></main><script src="harness.js"></script></body></html>`;
@@ -91,6 +91,22 @@ const show = (page: Page, view: PlaybackView): Promise<void> => page.evaluate((n
 const commands = (page: Page): Promise<string[]> => page.evaluate(() => window.player.commands.slice());
 const focused = (page: Page): Promise<string | null> => page.evaluate(() => document.activeElement?.getAttribute("data-focus") ?? null);
 const text = (page: Page, selector: string): Promise<string> => page.locator(selector).innerText();
+
+test("the Samsung play-pause button operates playback without changing a track selection", async () => {
+    const { page, logs } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await remote(page, 10252);
+        assert.deepEqual(await commands(page), ["togglePause"]);
+        await remote(page, DOWN);
+        await remote(page, 10252);
+        assert.deepEqual(await commands(page), ["togglePause", "togglePause"]);
+        assert.equal(await page.locator(".player-menu").isVisible(), true);
+        assert.deepEqual(logs, []);
+    } finally {
+        await page.close();
+    }
+});
 
 /** Saves a capture outside the repository when PLAYER_CAPTURE_DIR is set, for manual review. */
 async function capture(page: Page, name: string): Promise<void> {
@@ -272,6 +288,17 @@ test("long track lists scroll within the panel and keep the focused choice and s
             await remote(page, DOWN);
         }
         assert.equal(await focused(page), "file:42:subtitle:11");
+        await page.clock.resume();
+        await page.waitForFunction(() => {
+            const list = document.querySelector(".player-menu-subtitles");
+            const focus = document.activeElement;
+            if (list === null || focus === null) {
+                return false;
+            }
+            const bounds = list.getBoundingClientRect();
+            const item = focus.getBoundingClientRect();
+            return item.top >= bounds.top && item.bottom <= bounds.bottom;
+        });
         const geometry = await page.evaluate(() => {
             const player = document.querySelector(".player");
             const list = document.querySelector(".player-menu-subtitles");

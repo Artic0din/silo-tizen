@@ -1,0 +1,27 @@
+:root {
+    --silo-background: #000000;
+    --silo-surface: #0a0a0a;
+    --silo-elevated: #15171c;
+    --silo-text: #ededed;
+    /* Small metadata needs more contrast than the mockup's 38% white. */
+    --silo-secondary: #a0a0a0;
+    --silo-boundary: #767676;
+    --silo-hairline: rgba(255, 255, 255, 0.12);
+    --silo-selected: rgba(255, 255, 255, 0.14);
+    --silo-error: #ffb4ab;
+    --silo-font: system-ui, sans-serif;
+    --silo-fast: 120ms;
+    --silo-page: 200ms;
+}
+
+@keyframes silo-page-enter {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    :root {
+        --silo-fast: 0ms;
+        --silo-page: 0ms;
+    }
+}

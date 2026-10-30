@@ -320,6 +320,12 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             }
             return;
         }
+        if (key === "play_pause") {
+            controls.togglePause();
+            reveal();
+            render();
+            return;
+        }
         if (menuOpen) {
             menuKey(key);
             render();

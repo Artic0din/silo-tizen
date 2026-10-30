@@ -15,6 +15,7 @@ const EVENTUALLY_TIMEOUT_MS = 10000;
 /** Which screens the page mounts: the sign-in harness or the browse harness. */
 export type TvApp = "signIn" | "browse" | "application";
 const ENTRY: Record<TvApp, string> = { signIn: "../harness.ts", browse: "../browseHarness.ts", application: "../appHarness.ts" };
+const THEME = readFileSync(new URL("../../../src/theme.css", import.meta.url), "utf8");
 const CSS: Record<TvApp, string> = {
     signIn: readFileSync(new URL("../../../src/ui/signIn.css", import.meta.url), "utf8"),
     browse: readFileSync(new URL("../../../src/ui/browse.css", import.meta.url), "utf8"),
@@ -155,7 +156,7 @@ export async function openTv(browser: Browser, options: { sessionOnly?: boolean;
             return;
         }
         if (url.pathname === "/tv/app.css") {
-            await route.fulfill({ status: 200, contentType: "text/css", body: CSS[app] });
+            await route.fulfill({ status: 200, contentType: "text/css", body: THEME + CSS[app] });
             return;
         }
         if (url.pathname.startsWith("/art/")) {

@@ -15,12 +15,16 @@ export interface FakeTitle {
     readonly seriesId?: string;
     readonly season?: number;
     readonly episode?: number;
+    readonly backdrop?: string;
+    readonly overview?: string;
+    readonly runtime?: number;
+    readonly duration?: number;
 }
 
 interface Household {
     readonly libraries: { id: string; name: string; type: string; sort_order: number }[];
     hidden: number[] | null;
-    sections: { id: string; title: string; items: string[] }[];
+    sections: { id: string; sectionType?: string; title: string; items: string[] }[];
 }
 
 const OWNER = "p-owner";
@@ -112,7 +116,7 @@ export class FakeCatalog implements CatalogRoutes {
             const template = toRecord(arrayOf(fixture("list_home_sections_ok").sections)[0]);
             const sections = household.sections.map((section) => {
                 const items = section.items.filter((id) => this.visible(household, id)).map((id) => this.card(id));
-                return { ...template, id: section.id, section_type: section.id, title: section.title, total_count: items.length, items };
+                return { ...template, id: section.id, section_type: section.sectionType ?? section.id, title: section.title, total_count: items.length, items };
             });
             return { status: 200, body: { sections } };
         }
@@ -209,6 +213,7 @@ export class FakeCatalog implements CatalogRoutes {
         const template = toRecord(arrayOf(fixture("list_catalog_items_ok").items)[0]);
         const series = title.seriesId === undefined ? undefined : this.titles.get(title.seriesId);
         const card: Record<string, unknown> = { ...template, content_id: id, type: title.type, title: title.title, year: title.year };
+        Object.assign(card, { backdrop_url: title.backdrop, overview: title.overview, runtime: title.runtime, duration_seconds: title.duration });
         const poster = title.poster === undefined ? `/art/${encodeURIComponent(id)}.svg` : title.poster;
         if (poster !== null) {
             card.poster_url = poster;

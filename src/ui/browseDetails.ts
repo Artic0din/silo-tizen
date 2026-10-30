@@ -5,6 +5,44 @@ import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { clockTime, episodeLabel, playChoices, type PlayRequest } from "./browseModel.ts";
 import { actionButton, artwork, heading, lines, type ViewContext, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
+import { SkylineScroll } from "./skylineScroll.ts";
+import { remoteKey } from "./keys.ts";
+
+function synopsisAction(text: string): FocusItem {
+    const scroll = new SkylineScroll();
+    const action = actionButton("synopsis", "Read synopsis", () => {
+        const panel = el("div", "skyline-synopsis-dialog");
+        panel.tabIndex = 0;
+        panel.setAttribute("role", "dialog");
+        panel.setAttribute("aria-modal", "true");
+        panel.setAttribute("aria-label", "Synopsis");
+        panel.appendChild(el("p", "browse-text", text));
+        const close = (): void => {
+            scroll.stop();
+            panel.remove();
+            action.element.focus({ preventScroll: true });
+        };
+        const closeButton = actionButton("close-synopsis", "Close synopsis", close);
+        panel.prepend(closeButton.element);
+        panel.addEventListener("keydown", (event) => {
+            event.stopPropagation();
+            const key = remoteKey(event);
+            if (key === "down" || key === "up") {
+                event.preventDefault();
+                scroll.move(panel, 0, Math.max(0, Math.min(panel.scrollHeight - panel.clientHeight, panel.scrollTop + (key === "down" ? 240 : -240))));
+            } else if (key === "back" || key === "enter") {
+                event.preventDefault();
+                close();
+            } else if (event.key === "Tab") {
+                event.preventDefault();
+                closeButton.element.focus({ preventScroll: true });
+            }
+        });
+        action.element.closest(".browse")?.appendChild(panel);
+        panel.focus({ preventScroll: true });
+    });
+    return action;
+}
 
 function metaLine(detail: ItemDetail): string {
     const parts: string[] = [];
@@ -62,6 +100,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         actions.push(actionButton("next-episode", "Next episode", () => context.open({ kind: "item", id: next, title: detail.title })));
     }
     const seasonItems = detail.type === "series" ? seasons.map((season) => seasonItem(detail.id, detail.title, season, context)) : [];
+    if (detail.overview) actions.push(synopsisAction(detail.overview));
     if (detail.type === "series" && seasonItems.length === 0) {
         notes.push("This series has no seasons yet.");
     }

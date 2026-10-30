@@ -58,6 +58,7 @@ export function hasData(current: Route): boolean {
 
 export interface RouteHandlers {
     readonly context: ViewContext;
+    readonly focusDefault: () => void;
     /** A read is in flight. */
     readonly busy: boolean;
     /** The search heading, label and field, kept across renders. */
@@ -93,7 +94,7 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
             break;
         case "library":
             if (current.pages.page !== undefined) {
-                return withNote(libraryView(current.library, grid(current, current.pages, current.pages.page, handlers), pop), current.failure);
+                return withNote(libraryView(current.library, grid(current, current.pages, current.pages.page, handlers), pop, handlers.focusDefault), current.failure);
             }
             break;
         case "item":

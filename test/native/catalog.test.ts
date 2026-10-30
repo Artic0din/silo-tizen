@@ -26,12 +26,18 @@ test("browse fixtures decode with the production decoders", () => {
     const sections = decodeHomeSections(fixture("list_home_sections_ok"));
     assert.equal(sections.length, 1);
     assert.equal(sections[0]?.id, "continue_watching");
+    assert.equal(sections[0]?.sectionType, "continue_watching");
     assert.deepEqual(sections[0]?.items[0], {
         id: "movie:heat-1995",
         type: "movie",
         title: "Heat",
         year: 1995,
         posterUrl: "https://s3.example.test/poster.jpg",
+        backdropUrl: undefined,
+        overview: undefined,
+        runtimeMinutes: 170,
+        durationSeconds: 10200,
+        positionSeconds: 1200.5,
         seriesId: undefined,
         seriesTitle: undefined,
         seasonNumber: undefined,
@@ -64,7 +70,7 @@ test("browse fixtures decode with the production decoders", () => {
 
 test("unknown media and library kinds decode as unknown; wrong shapes fail without echoing values", () => {
     const sections = decodeHomeSections({
-        sections: [{ id: "books", title: "Books", items: [{ content_id: "ebook:1", type: "ebook", title: "Dune" }] }],
+        sections: [{ id: "books", section_type: "recommendations", title: "Books", items: [{ content_id: "ebook:1", type: "ebook", title: "Dune" }] }],
     });
     assert.equal(sections[0]?.items[0]?.type, "unknown");
     assert.equal(decodeUserLibraries({ items: [{ id: "3", name: "Audio", type: "audiobooks", sort_order: 1 }] })[0]?.type, "unknown");

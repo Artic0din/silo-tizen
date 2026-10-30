@@ -72,6 +72,12 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
         active.signal.addEventListener("abort", stopContent, { once: true });
         const content = mountBrowse(root, {
             server,
+            profileName: active.profile.name,
+            ...(options.core.publicStorage === undefined ? {} : { publicStorage: options.core.publicStorage }),
+            onSignOut: () => {
+                stopContent();
+                profiles?.signOut();
+            },
             onChooseProfile: () => {
                 stopContent();
                 profiles?.switchProfile();

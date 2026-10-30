@@ -1,4 +1,5 @@
 import { boot } from "./bootstrap.ts";
+import "./theme.css";
 import "./app.css";
 import "./ui/signIn.css";
 import "./ui/browse.css";

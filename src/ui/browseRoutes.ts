@@ -9,7 +9,9 @@ import type { DetailsState } from "./detailsState.ts";
 import { SessionError } from "../session/session.ts";
 import type { FocusTarget, View } from "./browseFocus.ts";
 import { itemView, personView, seasonView, type Synopsis } from "./browseDetails.ts";
-import type { PlayRequest } from "./browseModel.ts";
+import type { PlayRequest, SeriesContext } from "./browseModel.ts";
+import type { CalendarState } from "./calendarState.ts";
+import { calendarView, type CalendarHandlers } from "./calendarView.ts";
 import { actionButton, homeView, lines, pagedGrid, type SearchResults, searchView, statusView, type ViewContext, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
 import { discoveryState, type DiscoveryState, type LibraryMode, type LibrarySource } from "./libraryDiscovery.ts";
@@ -27,6 +29,7 @@ export interface Pages {
 }
 
 export type RouteData =
+    | { readonly kind: "calendar"; readonly calendar: CalendarState }
     | { readonly kind: "personal"; readonly source: PersonalSource; filter: PersonalFilter; capability: PersonalListCapability | undefined; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "home"; data: { libraries: UserLibrary[]; sections: HomeSection[] } | undefined }
     | { readonly kind: "homeSection"; readonly id: string; readonly title: string; readonly continuing: boolean; pages: Pages; pendingIndex: number | undefined }
@@ -35,9 +38,9 @@ export type RouteData =
     | { readonly kind: "libraryResults"; readonly library: UserLibrary; readonly title: string; readonly source: LibrarySource; pages: Pages; descending: boolean }
     /** `resultsFor`: the query the shown page answers, which typing can move ahead of. */
     | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope }
-    | { readonly kind: "item"; readonly id: string; readonly title: string; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState } | undefined }
+    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState } | undefined }
     | { readonly kind: "person"; readonly id: string; readonly title: string; data: { person: Person; titles: CatalogPage } | undefined }
-    | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string; data: { episodes: Episode[]; detail: ItemDetail | undefined; details?: DetailsState } | undefined };
+    | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string; readonly episodeId?: string; data: { episodes: Episode[]; detail: ItemDetail | undefined; details?: DetailsState } | undefined };
 
 export type Route = RouteData & {
     /** Where focus was when another route covered this one. */
@@ -58,6 +61,8 @@ export function newPages(): Pages {
 
 export function hasData(current: Route): boolean {
     switch (current.kind) {
+        case "calendar":
+            return current.calendar.data !== undefined;
         case "resume":
             return false;
         case "personal":
@@ -75,6 +80,7 @@ export function hasData(current: Route): boolean {
 }
 
 export interface RouteHandlers {
+    readonly calendar: (route: Extract<Route, { kind: "calendar" }>) => CalendarHandlers;
     readonly personalFilter: (route: Extract<Route, { kind: "personal" }>, filter: PersonalFilter) => void;
     readonly synopsis: Synopsis;
     readonly context: ViewContext;
@@ -98,6 +104,7 @@ export interface RouteHandlers {
 
 export function routeView(current: Route, handlers: RouteHandlers): View {
     const { context, pop } = handlers;
+    if (current.kind === "calendar") return calendarView(current.calendar, handlers.calendar(current));
     const back = current.kind === "home" ? undefined : pop;
     const escape = back === undefined ? actionButton("profiles", "Profiles", handlers.chooseProfile) : actionButton("back", "Back", back);
     if (current.kind === "personal") return personalView(current, handlers);
@@ -144,7 +151,11 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
             break;
         case "item":
             if (current.data !== undefined) {
-                return withNote(itemView(current.data.details?.detail ?? current.data.detail, current.data.seasons, context, handlers.play, pop, handlers.synopsis, current.data.details), current.failure);
+                const episodeId = current.seriesContext?.episodeId;
+                const view = itemView(current.data.details?.detail ?? current.data.detail, current.data.seasons, {
+                    ...context, open: destination => context.open(destination.kind === "season" && episodeId !== undefined ? { ...destination, episodeId } : destination),
+                }, handlers.play, pop, handlers.synopsis, current.data.details);
+                return withNote(view, current.failure);
             }
             break;
         case "person":
@@ -209,6 +220,7 @@ export function failureText(error: unknown, current: Route): string | undefined 
         return "Could not reach the server. Check the connection and try again.";
     }
     if (error.status === 404) {
+        if (current.kind === "calendar") return "Could not load Calendar. Try again.";
         return current.kind === "library"
             ? "This library is no longer available."
             : current.kind === "season"

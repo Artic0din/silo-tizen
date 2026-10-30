@@ -27,6 +27,9 @@ import { discoveryState, genreGroups, libraryScope, readDiscovery, type LibraryM
 import { availableModes } from "./libraryDiscoveryViews.ts";
 import { personalListCapability, readPersonalPage, type PersonalFilter } from "./personalLists.ts";
 import { mountSettings, type SettingsScreen } from "./settings.ts";
+import { getCalendar } from "../api/calendarOperations.ts";
+import { calendarEventKeys, calendarState, calendarWeek, CalendarTimezoneError, deviceTimezone, localDateKey, shiftDay } from "./calendarState.ts";
+import type { CalendarHandlers } from "./calendarView.ts";
 
 export type { PlayRequest } from "./browseModel.ts";
 
@@ -81,10 +84,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let loading: AbortController | undefined;
     let cancelSlow: () => void = () => undefined;
     let cancelSearch: () => void = () => undefined;
+    let cancelCalendarDay: () => void = () => undefined;
     let playing = false;
     let torn = false;
     let detailWork: DetailsState | undefined;
     let settingsScreen: SettingsScreen | undefined;
+    let calendarLibrariesStale = false;
     const synopsis = new Synopsis(container, () => render({ zone: "actions", key: "synopsis" }));
     const stopDetails = (): void => { synopsis.destroy(); detailWork?.stop(); detailWork = undefined; };
     let inputRevision = 0;
@@ -106,9 +111,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         loading?.abort();
         cancelSlow();
         cancelSearch();
+        cancelCalendarDay();
         document.removeEventListener("keydown", recordInput, true);
         document.removeEventListener("pointerdown", recordInput, true);
         stack = [];
+        roots.clear();
         shell.destroy();
         host.destroy();
         if (container.parentNode === root) {
@@ -146,7 +153,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 const focus = apply(value);
                 if (top() === current) {
                     const enterContent = enterResults && inputRevision === entryRevision;
-                    const nextFocus = (current.kind === "library" || (current.kind === "personal" && !quiet)) && !enterContent ? host.focused() : focus;
+                    const lateCalendarContext = (current.kind === "item" && current.seriesContext !== undefined) || (current.kind === "season" && current.episodeId !== undefined);
+                    const nextFocus = lateCalendarContext && inputRevision !== entryRevision ? host.focused() : (current.kind === "library" || (current.kind === "personal" && !quiet)) && !enterContent ? host.focused() : focus;
                     render(nextFocus === undefined ? undefined : nextFocus);
                     if (enterContent) host.focusDefault();
                 }
@@ -167,7 +175,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                         current.discovery.letter = undefined;
                     }
                 }
-                const text = failureText(error, current);
+                const text = error instanceof CalendarTimezoneError ? error.message : failureText(error, current);
                 if (text === undefined) {
                     // A defect, not a server answer: offer a retry, and surface it as uncaught.
                     clock.schedule(() => {
@@ -184,7 +192,16 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const read = <T>(spec: RequestSpec<T>, signal: AbortSignal): Promise<T> => session.call({ ...spec, profileScoped: true, signal });
 
+    const invalidateCalendar = (): void => {
+        const calendar = roots.get("calendar");
+        if (calendar !== undefined) calendar.stale = true;
+    };
+
     const detailsChanged = (current: Route): void => {
+        if (current.kind === "item" || current.kind === "season") {
+            const changes = current.data?.details?.changes;
+            if (changes !== undefined && [...changes.values()].some(change => change.pending)) invalidateCalendar();
+        }
         if ((current.kind === "item" || current.kind === "season") && current.data?.details?.changes.get("watched")?.pending) {
             invalidateWatched(current, current.data.details.detail);
         }
@@ -197,7 +214,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const seriesId = detail.type === "series" ? detail.id : detail.seriesId;
         for (const entry of stack) {
             if (entry === current) continue;
-            if (entry.kind === "home" || entry.kind === "homeSection") entry.stale = true;
+            if (entry.kind === "home" || entry.kind === "homeSection" || entry.kind === "calendar") entry.stale = true;
             if (entry.kind === "season" && entry.seriesId === seriesId && (detail.type !== "season" || entry.seasonNumber === detail.seasonNumber)) entry.stale = true;
             if (entry.kind === "item") {
                 const covered = entry.data?.detail;
@@ -220,6 +237,55 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const loadRoute = (current: Route, quiet = false): void => {
         switch (current.kind) {
+            case "calendar": {
+                const state = current.calendar;
+                const focus = host.focused();
+                const oldShelf = state.data?.days.find(day => day.date === focus?.zone);
+                const oldIndex = calendarEventKeys(oldShelf?.items ?? []).indexOf(focus?.key ?? "");
+                load(current, async signal => {
+                    prepareCalendar(current);
+                    const start = state.start, timezone = state.timezone;
+                    if (start === undefined || timezone === undefined) throw new CalendarTimezoneError("Could not read this TV’s timezone. Try again.");
+                    const query = { start, end: shiftDay(start, 6), timezone, filter: state.filter };
+                    const [days, libraries] = await Promise.all([
+                        read(getCalendar(query), signal),
+                        calendarLibrariesStale ? Promise.all([read(operations.listUserLibraries(), signal), read(operations.hiddenLibraries(), signal)]) : undefined,
+                    ]);
+                    // Exercise all date/time formatting before publishing the snapshot.
+                    for (const day of days) for (const event of day.items) if (event.airAt !== undefined) {
+                        try { new Intl.DateTimeFormat(undefined, { timeZone: timezone, hour: "2-digit", minute: "2-digit" }).format(new Date(event.airAt)); }
+                        catch { throw new CalendarTimezoneError("Could not format this TV’s timezone. Try again."); }
+                    }
+                    return { query, days, libraries, deviceZone: deviceTimezone() };
+                }, data => {
+                    if (data.deviceZone !== data.query.timezone) {
+                        state.timezone = data.deviceZone;
+                        state.data = undefined;
+                        loadRoute(current, true);
+                        return host.focused();
+                    }
+                    const active = host.focused();
+                    state.data = { query: data.query, days: data.days };
+                    if (data.libraries !== undefined) {
+                        const libraries = visibleLibraries(data.libraries[0], data.libraries[1]);
+                        shell.update(libraries);
+                        if (home.kind === "home" && home.data !== undefined) home.data.libraries = libraries;
+                        calendarLibrariesStale = false;
+                    }
+                    if (active?.zone === focus?.zone && active?.key === focus?.key && oldIndex >= 0) {
+                        const day = data.days.find(day => day.date === focus?.zone);
+                        const keys = calendarEventKeys(day?.items ?? []);
+                        if (keys.includes(active?.key ?? "")) return active;
+                        const nearby = keys[Math.min(oldIndex, keys.length - 1)];
+                        if (day !== undefined && nearby !== undefined) return { zone: day.date, key: nearby };
+                        const next = data.days.find(day => day.date > (focus?.zone ?? "") && day.items.length > 0) ?? [...data.days].reverse().find(day => day.items.length > 0);
+                        const key = calendarEventKeys(next?.items ?? [])[0];
+                        if (next !== undefined && key !== undefined) return { zone: next.date, key };
+                    }
+                    return active;
+                }, quiet);
+                return;
+            }
             case "resume":
                 load(current, async signal => {
                     const detail = await read(operations.getCatalogItem(current.id), signal);
@@ -293,13 +359,18 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 load(current, async (signal) => {
                     const detail = await read(operations.getCatalogItem(current.id), signal);
                     const seasons = detail.type === "series" ? await read(operations.listSeriesSeasons(detail.id), signal) : [];
-                    return { detail, seasons };
+                    const episodeId = current.seriesContext?.episodeId;
+                    const episode = detail.type === "series" && current.seriesContext?.seasonNumber === undefined && episodeId !== undefined
+                        ? await read(operations.getCatalogItem(episodeId), signal).catch((error: unknown) => { if (error instanceof ApiError && error.status === 404) return undefined; throw error; }) : undefined;
+                    return { detail, seasons, contextSeason: current.seriesContext?.seasonNumber ?? (episode?.seriesId === detail.id ? episode.seasonNumber : undefined) };
                 }, (data) => {
                     const details = new DetailsState(data.detail, session, () => detailsChanged(current), (detail, signal) => refreshWatched(current, detail, signal));
                     details.selectedFileId = current.data?.details?.selectedFileId;
                     current.data = { ...data, details };
                     detailWork = details;
                     details.start();
+                    const season = data.contextSeason;
+                    if (current.focus === undefined && season !== undefined && data.seasons.some(item => item.seasonNumber === season)) return { zone: "seasons", key: `season:${season}` };
                 }, quiet);
                 return;
             case "person":
@@ -326,6 +397,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                         detailWork = details;
                         details.start();
                     }
+                    if (current.focus === undefined && current.episodeId !== undefined && data.episodes.some(episode => episode.id === current.episodeId)) return { zone: "episodes", key: current.episodeId };
                 }, quiet);
         }
     };
@@ -472,8 +544,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         stack.pop();
         const current = top();
         if (current !== undefined) {
-            if (current.kind === "personal") {
-                current.pendingIndex = undefined;
+            if (current.kind === "personal" || current.kind === "calendar") {
+                if (current.kind === "personal") current.pendingIndex = undefined;
                 current.stale = true;
             }
             showRoute(current, current.focus);
@@ -495,6 +567,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     const showRoute = (current: Route, focus: FocusTarget | undefined): void => {
+        if (current.kind === "calendar") {
+            try { prepareCalendar(current); }
+            catch (error) { current.failure = error instanceof Error ? error.message : "Could not read this TV’s timezone. Try again."; }
+        }
         if (current.kind === "search") {
             input.value = current.query;
         }
@@ -506,14 +582,15 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const queryChanged = current.kind === "search" && current.query !== current.resultsFor;
         if (!hasData(current) || current.stale || current.failure !== undefined || queryChanged) {
             loadRoute(current, hasData(current) && !queryChanged);
+            if (current.kind === "calendar") render(focus);
         }
     };
 
     const open = (destination: Destination): void => {
         push(destination.kind === "item"
-            ? newRoute({ kind: "item", id: destination.id, title: destination.title, data: undefined })
+            ? newRoute({ kind: "item", id: destination.id, title: destination.title, ...(destination.seriesContext === undefined ? {} : { seriesContext: destination.seriesContext }), data: undefined })
             : destination.kind === "person" ? newRoute({ kind: "person", id: destination.id, title: destination.title, data: undefined })
-            : newRoute({ kind: "season", ...(destination.id === undefined ? {} : { id: destination.id }), seriesId: destination.seriesId, seasonNumber: destination.seasonNumber, title: destination.title, data: undefined }));
+            : newRoute({ kind: "season", ...(destination.id === undefined ? {} : { id: destination.id }), ...(destination.episodeId === undefined ? {} : { episodeId: destination.episodeId }), seriesId: destination.seriesId, seasonNumber: destination.seasonNumber, title: destination.title, data: undefined }));
     };
 
     const play = (request: PlayRequest): void => {
@@ -524,6 +601,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         current.focus = host.focused();
         stopDetails();
         playing = true;
+        cancelCalendarDay();
         shell.hide();
         host.stop();
         container.hidden = true;
@@ -536,14 +614,20 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     const render = (focus?: FocusTarget): void => {
+        cancelCalendarDay();
         const current = top();
         if (current === undefined || torn || playing || synopsis.active || settingsScreen !== undefined) {
             return;
         }
+        if (current.kind === "calendar") {
+            const midnight = new Date(clock.now());
+            midnight.setHours(24, 0, 0, 0);
+            cancelCalendarDay = clock.schedule(() => render(host.focused()), midnight.getTime() - clock.now());
+        }
         if (current.kind === "library") shell.setLibraryModes(availableModes(current.discovery?.data?.capabilities ?? current.discovery?.capabilities));
-        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter };
+        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, calendar: calendarHandlers };
         const view = routeView(current, handlers);
-        const rootRoute = current.kind === "home" || current.kind === "library" || current.kind === "search" || current.kind === "personal";
+        const rootRoute = current.kind === "home" || current.kind === "library" || current.kind === "search" || current.kind === "personal" || current.kind === "calendar";
         if (rootRoute) {
             const selected = current.kind === "library" ? (current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? "profiles" : current.kind;
             const preview = current.kind === "home" || (current.kind === "library" && (current.discovery?.mode ?? "Browse") === "Browse");
@@ -560,6 +644,37 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         render();
         loadRoute(current);
     };
+    const prepareCalendar = (current: Extract<Route, { kind: "calendar" }>): void => {
+        const state = current.calendar;
+        let zone: string;
+        try { zone = deviceTimezone(); }
+        catch (error) { state.start = undefined; state.timezone = undefined; state.data = undefined; throw error; }
+        if (zone !== state.timezone) {
+            state.timezone = zone;
+            state.start ??= calendarWeek(new Date(clock.now()))[0];
+            state.selectedDay ??= localDateKey(new Date(clock.now()));
+            state.data = undefined;
+            current.stale = true;
+        }
+    };
+    const calendarHandlers = (current: Extract<Route, { kind: "calendar" }>): CalendarHandlers => ({
+        now: clock.now(), busy: loading !== undefined, failure: current.failure, context,
+        focus: target => render(target), retry: () => retry(current), back: pop,
+        change: value => {
+            try { prepareCalendar(current); }
+            catch (error) { current.failure = error instanceof Error ? error.message : "Could not read this TV’s timezone."; render(); return; }
+            const state = current.calendar;
+            if (typeof value === "string") { if (state.filter === value) return; state.filter = value; }
+            else {
+                state.start = value === 0 ? calendarWeek(new Date(clock.now()))[0] : shiftDay(state.start ?? localDateKey(new Date(clock.now())), value * 7);
+                state.selectedDay = value === 0 ? localDateKey(new Date(clock.now())) : state.start;
+            }
+            state.data = undefined;
+            current.failure = undefined;
+            loadRoute(current, true);
+            render();
+        },
+    });
     const personalFilter = (current: Extract<Route, { kind: "personal" }>, filter: PersonalFilter): void => {
         if (current.filter === filter) return;
         current.filter = filter;
@@ -634,7 +749,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         let route = roots.get(key);
         if (route === undefined) {
             route = typeof target === "string"
-                ? newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
+                ? target === "calendar" ? newRoute({ kind: "calendar", calendar: calendarState() }) : newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
                 : newRoute({ kind: "library", library: target, pages: newPages() });
             roots.set(key, route);
         }
@@ -652,6 +767,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         name: options.profileName ?? "Profiles",
         settings: () => {
             stopDetails();
+            cancelCalendarDay();
             loading?.abort();
             loading = undefined;
             cancelSlow();
@@ -664,10 +780,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (torn) return;
                 container.hidden = false;
                 if (hiddenChanged) {
+                    const calendar = stack.find(entry => entry.kind === "calendar");
                     home.stale = true;
                     roots.clear();
                     roots.set("home", home);
-                    stack = [home];
+                    if (calendar !== undefined) { calendar.stale = true; calendarLibrariesStale = true; roots.set("calendar", calendar); }
+                    stack = calendar === undefined ? [home] : [home, calendar];
                 }
                 host.listen();
                 const current = top();
@@ -700,6 +818,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             for (const entry of stack) {
                 entry.stale = true;
             }
+            invalidateCalendar();
             host.listen();
             const current = top();
             if (current !== undefined) {

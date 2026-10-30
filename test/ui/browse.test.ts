@@ -1035,7 +1035,7 @@ browseTest("discovery uses nonzero letter positions and cancels an obsolete quer
 }, { multipleLibraries: true });
 
 browseTest("Skyline keeps bounded type tabs and a passive debounced marquee", async (tv) => {
-    assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["home", "movies", "series", "search", "profiles"]);
+    assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["home", "movies", "series", "search", "profiles", "calendar"]);
     assert.equal(await tv.page.locator(".skyline-marquee h1").textContent(), "Movie 0001");
     const reads = tv.fake.requests.length;
     await press(tv, "ArrowRight");
@@ -1224,7 +1224,7 @@ browseTest("reduced motion snaps scrolling and the real Browse flyout preserves 
 
 browseTest("Home lists visible video libraries and supported rows, and every row is reachable by remote", async (tv) => {
     const nav = await cardIds(tv, ".browse-nav .browse-button");
-    assert.deepEqual(nav, ["home", "movies", "series", "search", "profiles"], "bounded video types only");
+    assert.deepEqual(nav, ["home", "movies", "series", "search", "profiles", "calendar"], "bounded video types and Calendar only");
     const rows = await tv.page.evaluate(() => Array.from(document.querySelectorAll("[data-section]")).map((node) => node.getAttribute("data-section")));
     assert.deepEqual(rows, ["continue_watching", "recently_added"], "a row of only books is left out");
     assert.equal((await cardIds(tv)).indexOf("ebook:atlas"), -1, "the book card in a mixed row is left out");
@@ -1709,7 +1709,7 @@ browseTest("an authority change removes only browse, aborts its reads, and the n
     assert.equal(await tv.page.evaluate(() => window.browseHarness.selectProfile("p-kid", "2468")), "verified");
     await tv.page.evaluate(() => window.browseHarness.mount());
     await showing(tv, "home");
-    assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["home", "movies", "search", "profiles"]);
+    assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["home", "movies", "search", "profiles", "calendar"]);
     const kidReads = browseReads(tv).filter((read) => read.headers["x-profile-id"] === "p-kid");
     assert.ok(kidReads.length >= 3 && kidReads.every((read) => read.headers["x-profile-token"]?.startsWith("pvt-")));
 
@@ -1720,7 +1720,7 @@ browseTest("an authority change removes only browse, aborts its reads, and the n
     await tv.remote(BACK);
     await showing(tv, "home");
 
-    await press(tv, "ArrowUp", "ArrowRight", "ArrowRight", "ArrowRight", "Enter");
+    await press(tv, "ArrowRight", "Enter");
     await press(tv, "ArrowDown", "Enter");
     assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.chooseProfileCalls), [false], "browse was gone before onChooseProfile ran");
     assert.equal(await tv.page.locator(".browse").count(), 0);

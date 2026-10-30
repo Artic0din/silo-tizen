@@ -10,12 +10,17 @@
 //
 // Authority: every request carries the authority signal from when the attempt began, so a
 // sign-out or profile switch aborts it and nothing more is sent for the old profile.
+//
+// Tracks (#11): a choice is a server track_change replan naming the server's own identity: a
+// subtitle inventory track_id, or `file:{effective file}:audio:{n}` for the version's nth
+// audio_tracks entry. The server packages the route; AVPlay track indices are never used. A
+// refused change leaves the current plan playing.
 
 import { type Clock, sleep } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
 import { abortedError } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
-import type { PlaybackDecision, PlaybackPlan, ReplanOperation } from "../contracts/v2/playback.ts";
+import type { AudioTrackInfo, FileVersionTracks, PlaybackDecision, PlaybackPlan, ReplanOperation, SelectedTracks, SubtitleTrack } from "../contracts/v2/playback.ts";
 import type { RandomBytes } from "../session/deviceIdentity.ts";
 import type { NativeSession } from "../session/session.ts";
 import type { AVPlay, AVPlayListener } from "./avplay.ts";
@@ -54,6 +59,31 @@ export interface PlaybackExits {
     onError(error: PlaybackError): void;
 }
 
+export interface TrackChoice {
+    readonly id: string;
+    readonly label: string;
+}
+
+export type AudioTracks = { readonly state: "loading" } | { readonly state: "failed" } | { readonly state: "ready"; readonly choices: readonly TrackChoice[] };
+
+export type TrackChange =
+    | { readonly state: "idle" }
+    | { readonly state: "changing" }
+    /** The server refused the choice; the current plan keeps playing. */
+    | { readonly state: "refused"; readonly message: string }
+    | { readonly state: "failed" };
+
+export interface TrackView {
+    readonly audio: AudioTracks;
+    readonly selectedAudioId: string | undefined;
+    readonly subtitles: readonly TrackChoice[];
+    /** Undefined: subtitles off. */
+    readonly selectedSubtitleId: string | undefined;
+    readonly subtitleMode: string;
+    readonly change: TrackChange;
+    readonly notices: readonly string[];
+}
+
 export type PlaybackView =
     | { readonly phase: "loading"; readonly title: string }
     | {
@@ -63,6 +93,7 @@ export type PlaybackView =
           readonly positionSeconds: number;
           readonly durationSeconds: number | undefined;
           readonly buffering: boolean;
+          readonly tracks: TrackView;
       }
     | { readonly phase: "error"; readonly title: string; readonly error: PlaybackError }
     | { readonly phase: "closed" };
@@ -75,6 +106,10 @@ export interface PlayerControls {
     seekBy(seconds: number): void;
     back(): void;
     dismissError(): void;
+    selectAudio(trackId: string): void;
+    /** Undefined turns subtitles off. */
+    selectSubtitle(trackId: string | undefined): void;
+    retryTrackInfo(): void;
 }
 
 export interface PlaybackDeps {
@@ -98,6 +133,15 @@ const QUALITY_PREFERENCE = "auto";
 /** AVPlay's display coordinates are in the app's 1920x1080 space. */
 const SCREEN = { width: 1920, height: 1080 };
 
+type TrackInfo = { readonly state: "loading" | "failed" } | { readonly state: "ready"; readonly versions: readonly FileVersionTracks[] };
+
+/** Plain-text notices for the plan's degradation warnings a viewer can notice (protocol v3 §7.2). */
+const WARNING_NOTICES: Readonly<Record<string, string>> = {
+    subtitle_burn_in: "Subtitles are burned into the video.",
+    audio_track_unavailable: "The chosen audio track isn't in this version, so its default track is playing.",
+    subtitle_track_unavailable: "The chosen subtitles aren't available in this version, so subtitles are off.",
+};
+
 interface Attempt {
     readonly request: PlayRequest;
     readonly playbackAttemptId: string;
@@ -116,8 +160,14 @@ interface Attempt {
     /** The current transport is playing or paused. */
     started: boolean;
     buffering: boolean;
-    /** A seek or replan is in flight. */
+    /** A seek or replan (including a track change) is in flight. */
     busy: boolean;
+    /** The item's versions, read once per attempt for the audio menu. */
+    tracks: TrackInfo | undefined;
+    trackRead: number;
+    change: TrackChange;
+    /** A failed route reported while a track change was pending; recovered once it settles. */
+    changeFailure: string | undefined;
     progress: Promise<void> | undefined;
     cancelTimer: (() => void) | undefined;
 }
@@ -184,6 +234,10 @@ export class PlaybackController implements PlayerControls {
             started: false,
             buffering: false,
             busy: false,
+            tracks: undefined,
+            trackRead: 0,
+            change: { state: "idle" },
+            changeFailure: undefined,
             progress: undefined,
             cancelTimer: undefined,
         };
@@ -277,6 +331,40 @@ export class PlaybackController implements PlayerControls {
         this.deps.exits.onBack();
     }
 
+    selectAudio(trackId: string): void {
+        const attempt = this.changeable();
+        const plan = attempt?.plan;
+        if (attempt === undefined || plan === undefined || trackId === plan.selectedTracks.audio?.id) {
+            return;
+        }
+        if (!audioChoices(attempt, plan).some((choice) => choice.id === trackId)) {
+            return;
+        }
+        // Omitting a subtitle from a track_change turns it off, so the shown one is named again.
+        const subtitle = plan.subtitle.mode === "off" ? undefined : plan.selectedTracks.subtitle;
+        this.changeTracks(attempt, plan, { audio: { id: trackId }, ...(subtitle === undefined ? {} : { subtitle }) });
+    }
+
+    selectSubtitle(trackId: string | undefined): void {
+        const attempt = this.changeable();
+        const plan = attempt?.plan;
+        if (attempt === undefined || plan === undefined || trackId === selectedSubtitle(plan)) {
+            return;
+        }
+        if (trackId !== undefined && !plan.subtitle.inventory.some((entry) => entry.trackId === trackId)) {
+            return;
+        }
+        const audio = plan.selectedTracks.audio;
+        this.changeTracks(attempt, plan, { ...(audio === undefined ? {} : { audio }), ...(trackId === undefined ? {} : { subtitle: { id: trackId } }) });
+    }
+
+    retryTrackInfo(): void {
+        const attempt = this.active();
+        if (attempt !== undefined && attempt.tracks?.state === "failed") {
+            this.readTracks(attempt);
+        }
+    }
+
     dismissError(): void {
         const error = this.shownError;
         if (error === undefined) {
@@ -364,6 +452,7 @@ export class PlaybackController implements PlayerControls {
         operation: ReplanOperation,
         positionSeconds: number,
         classification: string | undefined,
+        selected: SelectedTracks = plan.selectedTracks,
     ): Promise<void> {
         const sessionId = attempt.sessionId;
         const installationId = attempt.installationId;
@@ -384,7 +473,7 @@ export class PlaybackController implements PlayerControls {
             attempt_count: Math.max(1, attempt.recoveries),
             quality_preference: QUALITY_PREFERENCE,
             position_seconds: positionSeconds,
-            selected_tracks: plan.selectedTracks,
+            selected_tracks: selected,
             ...(classification === undefined ? {} : { failure: { classification } }),
             client_capabilities: CLIENT_CAPABILITIES,
             client_playback_context: playbackContext(this.deps.device.model, this.deps.device.appVersion),
@@ -393,12 +482,22 @@ export class PlaybackController implements PlayerControls {
         try {
             decision = await this.resend(attempt, () => this.deps.session.call({ ...replan, profileScoped: true, signal: attempt.signal }));
         } catch (error) {
-            if (attempt.live) {
-                this.sessionFailure(attempt, error);
+            if (!attempt.live) {
+                return;
             }
+            if (operation === "track_change" && !sessionGone(error)) {
+                this.changeSettled(attempt, { state: "failed" });
+                return;
+            }
+            this.sessionFailure(attempt, error);
             return;
         }
         if (!attempt.live) {
+            return;
+        }
+        if (operation === "track_change" && decision.outcome !== "playable") {
+            // The server rolled the change back; the current plan and transport keep playing.
+            this.changeSettled(attempt, decision.outcome === "adaptation_unavailable" ? { state: "refused", message: decision.terminal.message } : { state: "failed" });
             return;
         }
         attempt.busy = false;
@@ -412,7 +511,13 @@ export class PlaybackController implements PlayerControls {
     /** A codec or route failure on this TV: the server picks the next route, a bounded number of times. */
     private routeFailed(attempt: Attempt, classification: string): void {
         const plan = attempt.plan;
-        if (!attempt.live || attempt.busy || plan === undefined) {
+        if (!attempt.live || plan === undefined) {
+            return;
+        }
+        if (attempt.busy) {
+            if (attempt.change.state === "changing") {
+                attempt.changeFailure = attempt.changeFailure ?? classification;
+            }
             return;
         }
         this.closeTransport();
@@ -429,10 +534,61 @@ export class PlaybackController implements PlayerControls {
         void this.replan(attempt, plan, "failure_recovery", attempt.sourceSeconds, classification);
     }
 
+    // --- tracks ---
+
+    /** The attempt, when nothing else is in flight: a pending seek or change makes a choice wait. */
+    private changeable(): Attempt | undefined {
+        const attempt = this.active();
+        return attempt !== undefined && attempt.started && !attempt.busy ? attempt : undefined;
+    }
+
+    private changeTracks(attempt: Attempt, plan: PlaybackPlan, selected: SelectedTracks): void {
+        attempt.busy = true;
+        attempt.change = { state: "changing" };
+        this.showPlayback(attempt);
+        void this.replan(attempt, plan, "track_change", attempt.sourceSeconds, undefined, selected);
+    }
+
+    private changeSettled(attempt: Attempt, change: TrackChange): void {
+        attempt.busy = false;
+        attempt.change = change;
+        this.showPlayback(attempt);
+        const failure = attempt.changeFailure;
+        attempt.changeFailure = undefined;
+        if (failure !== undefined) {
+            this.routeFailed(attempt, failure);
+        }
+    }
+
+    private readTracks(attempt: Attempt): void {
+        const read = ++attempt.trackRead;
+        attempt.tracks = { state: "loading" };
+        const spec = operations.catalogItemVersions(attempt.request.contentId);
+        this.deps.session.call({ ...spec, profileScoped: true, signal: attempt.signal }).then(
+            (versions) => {
+                if (attempt.trackRead === read) {
+                    attempt.tracks = { state: "ready", versions };
+                    this.showPlayback(attempt);
+                }
+            },
+            () => {
+                if (attempt.trackRead === read) {
+                    attempt.tracks = { state: "failed" };
+                    this.showPlayback(attempt);
+                }
+            },
+        );
+    }
+
     // --- transport ---
 
     private adopt(attempt: Attempt, plan: PlaybackPlan): void {
         attempt.plan = plan;
+        attempt.change = { state: "idle" };
+        attempt.changeFailure = undefined;
+        if (attempt.tracks === undefined) {
+            this.readTracks(attempt);
+        }
         attempt.planAttemptId = this.newId();
         attempt.sourceSeconds = plan.timeline.sourceStartSeconds;
         attempt.started = false;
@@ -770,15 +926,17 @@ export class PlaybackController implements PlayerControls {
     }
 
     private showPlayback(attempt: Attempt): void {
-        if (this.attempt !== attempt || !attempt.live || !attempt.started) {
+        const plan = attempt.plan;
+        if (this.attempt !== attempt || !attempt.live || !attempt.started || plan === undefined) {
             return;
         }
         this.show({
             phase: attempt.paused ? "paused" : "playing",
             title: attempt.request.title,
             positionSeconds: attempt.sourceSeconds,
-            durationSeconds: attempt.plan?.durationSeconds,
+            durationSeconds: plan.durationSeconds,
             buffering: attempt.buffering,
+            tracks: trackView(attempt, plan),
         });
     }
 
@@ -801,6 +959,75 @@ export class PlaybackController implements PlayerControls {
         });
         return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
     }
+}
+
+function trackView(attempt: Attempt, plan: PlaybackPlan): TrackView {
+    const tracks = attempt.tracks;
+    const notices: string[] = [];
+    for (const warning of plan.warnings) {
+        const notice = WARNING_NOTICES[warning.code];
+        if (notice !== undefined && notices.indexOf(notice) === -1) {
+            notices.push(notice);
+        }
+    }
+    if (plan.subtitle.mode === "render" || plan.subtitle.mode === "convert") {
+        // This client declares no subtitle rendering, so it cannot draw a sidecar it was given.
+        notices.push("This TV can't show these subtitles.");
+    }
+    return {
+        audio: tracks === undefined || tracks.state !== "ready" ? { state: tracks?.state ?? "loading" } : { state: "ready", choices: audioChoices(attempt, plan) },
+        selectedAudioId: plan.selectedTracks.audio?.id,
+        subtitles: plan.subtitle.inventory.map((entry) => ({ id: entry.trackId, label: subtitleLabel(entry) })),
+        selectedSubtitleId: selectedSubtitle(plan),
+        subtitleMode: plan.subtitle.mode,
+        change: attempt.change,
+        notices,
+    };
+}
+
+/** The effective edition's audio tracks; empty until the versions read answers. */
+function audioChoices(attempt: Attempt, plan: PlaybackPlan): TrackChoice[] {
+    const tracks = attempt.tracks;
+    const fileId = plan.effectiveMediaFileId;
+    const version = tracks?.state === "ready" ? tracks.versions.find((candidate) => candidate.fileId === fileId) : undefined;
+    return (version?.audio ?? []).map((track, ordinal) => ({ id: `file:${fileId}:audio:${ordinal}`, label: audioLabel(track, ordinal) }));
+}
+
+/** The shown subtitle; `off` means none even when the plan still names a track. */
+function selectedSubtitle(plan: PlaybackPlan): string | undefined {
+    return plan.subtitle.mode === "off" ? undefined : plan.subtitle.trackId;
+}
+
+function languageText(language: string | undefined): string | undefined {
+    return language === undefined || language === "" || language === "und" ? undefined : language.toUpperCase();
+}
+
+function audioLabel(track: AudioTrackInfo, ordinal: number): string {
+    const parts = [track.title ?? languageText(track.language) ?? `Track ${ordinal + 1}`];
+    const channels = track.channels;
+    if (channels !== undefined && channels > 0) {
+        parts.push(channels === 1 ? "Mono" : channels === 2 ? "Stereo" : channels === 6 ? "5.1" : channels === 8 ? "7.1" : `${channels} channels`);
+    }
+    if (track.codec !== undefined && track.codec !== "") {
+        parts.push(track.codec.toUpperCase());
+    }
+    return parts.join(" · ");
+}
+
+function subtitleLabel(entry: SubtitleTrack): string {
+    const parts = [entry.label ?? languageText(entry.language) ?? `Subtitles ${entry.combinedIndex + 1}`];
+    if (entry.forced) {
+        parts.push("Forced");
+    }
+    if (entry.hearingImpaired) {
+        parts.push("SDH");
+    }
+    return parts.join(" · ");
+}
+
+/** The session itself is gone or the request was abandoned: not a track change the viewer can retry. */
+function sessionGone(error: unknown): boolean {
+    return error instanceof ApiError && (error.aborted || error.status === 404 || error.status === 410 || error.problemId === "installation_changed");
 }
 
 function decisionFailure(decision: PlaybackDecision): PlaybackError {

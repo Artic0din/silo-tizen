@@ -11,6 +11,7 @@ All notable changes to this project are documented in this file.
 - Added native sign-in screens for server address entry and device-code sign-in with a QR code, remote-key focus and recovery for each failure. The app does not show them yet.
 - Added native household profile screens for choosing and switching profiles, PIN entry with lockout handling, and sign-out. The app does not show them yet.
 - Added a native player that plays one file through the server's playback plan with AVPlay, with resume, pause, seeking, progress reporting and a final stop, and recovers from a failed route by asking the server for another one. The app does not show it yet, and media playback on a TV is not yet proven.
+- Added an audio and subtitles menu to the native player: the server switches the audio track, burns in embedded subtitles or turns them off at the current position, and says plainly when a choice isn't available on this TV. Audible audio changes and visible subtitles are not yet proven on a TV.
 - Added a CI workflow that runs the type checks, the build and all tests.
 
 ### Changed
@@ -18,6 +19,8 @@ All notable changes to this project are documented in this file.
 - Set the minimum app platform to Tizen 6.0.
 
 ### Fixed
+
+- Kept long audio and subtitle lists inside the staged player's menu with the focused choice and track status visible.
 
 - Kept playback teardown safe during pending seeks, preserved pause after server re-anchoring, and honored server retry delays in the staged native player.
 - Preserved remote focus when a PIN check finished unsuccessfully.

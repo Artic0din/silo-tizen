@@ -17,11 +17,18 @@ response enum values decode to `"unknown"`, so additive server changes keep work
 | `refreshSession` | `domain_identity` | Never resent; 401/400/422 end the session, others keep the tokens |
 | `verifyProfilePIN` | `non_retryable` | Never resent, not even after a token refresh |
 | `getPlaybackCapabilities` | read | One transport retry; read before every play for `installation_id` |
+| `listCatalogItemVersions` | read (`profile_scoped`) | One transport retry; read once per play for each version's `audio_tracks`; a failure only disables audio choices |
 | `startPlayback`, `replanPlayback`, `stopPlayback` | `domain_identity` | The player resends only the identical body (same `playback_attempt_id`, `replan_request_id` or `stop_id`) after no answer or a transient failure |
 | `updatePlaybackProgress` | `domain_identity` | Never resent; the next sample has a higher `sequence` |
 
 Playback bodies live in `playback.ts`, following `docs/playback-api.md` and `docs/architecture/playback-protocol-v3.md` at the same commit.
 The vendored `playback_start_opaque_ids` plan is a direct plan at offset 0; the test server builds offset timelines, terminal decisions and problems without a fixture from the OpenAPI schemas.
+Its subtitle inventory (external, embedded, burn-in-only and downloaded tracks) is the authoritative combined ordinal space; the player echoes an entry's `track_id` and never counts.
+`effective_media_file_id` is an opaque string in `openapi.json` (the v3 design schema shows an integer); track identities belong to that file.
+
+The audio identity `file:{effective file}:audio:{n}` is built from the nth `audio_tracks` entry of that file's version (`list_catalog_item_versions_ok` carries none; the test server adds them from the `AudioTrack` schema).
+At the commit in `SOURCE` that position is the server's own ordinal: `internal/catalog/detail.go` copies the file's stored `AudioTracks` in order into each version, `internal/apiv2/catalog_items.go` passes them through unchanged, and `resolveV3AudioIndex` in `internal/api/handlers/playback_v3.go` reads the ordinal as an index into the same `AudioTracks`.
+Re-check those three places when `SOURCE` moves.
 
 ## Updating
 

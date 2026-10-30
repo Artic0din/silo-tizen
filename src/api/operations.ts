@@ -13,6 +13,7 @@ import {
     decodeSystemInfo,
 } from "../contracts/v2/wire.ts";
 import {
+    decodeFileVersionTracks,
     decodePlaybackCapabilities,
     decodePlaybackDecision,
     decodePlaybackMutation,
@@ -104,6 +105,13 @@ export const operations = {
         retry: "never",
         body: { pin },
         decode: decodeProfileVerification,
+    }),
+    /** listCatalogItemVersions: profile_scoped read; only each version's file_id and audio_tracks are decoded. */
+    catalogItemVersions: (contentId: string): Spec<ReturnType<typeof decodeFileVersionTracks>> => ({
+        method: "GET",
+        path: `/catalog/items/${encodeURIComponent(contentId)}/versions`,
+        retry: "safe",
+        decode: decodeFileVersionTracks,
     }),
     /** getPlaybackCapabilities: read; carries installation_id for every playback mutation. */
     playbackCapabilities: (): Spec<ReturnType<typeof decodePlaybackCapabilities>> => ({

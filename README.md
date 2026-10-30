@@ -17,6 +17,7 @@ Silo client for Samsung Tizen TVs from model year 2021 (Tizen 6.0).
   The entry point does not use them yet, so the packaged app still runs the legacy screens only.
 - `src/player/` holds the native playback planner, AVPlay controller and player screen.
   `startPlayback` takes the connected server and chosen file, then reports Back, natural completion or a playback error to its caller.
+  Its audio and subtitles menu asks the server to change tracks; the TV declares no subtitle rendering, so embedded subtitles are burned in and external or downloaded ones are reported as unavailable.
   The entry point does not use it yet, and real authenticated media playback on a TV remains unproven.
 - A signed foreground app on a 2023 TV running Tizen 9 has read native discovery and authenticated responses over normally validated HTTPS ([#6](https://github.com/Artic0din/silo-tizen/issues/6)).
   2021 hardware, store signing, PIN profiles and media delivery are still unproven there.
@@ -52,5 +53,5 @@ The script runs `npm run build`, packages `dist/wgt/` and writes `dist/Silo.wgt`
 ## Test
 
 See [test/README.md](test/README.md).
-`npm test` builds, then runs the native session and playback tests, the sign-in, profile and player screen tests, the adapter tests and the browse focus tests.
+`npm test` builds, then runs the native session, playback and track tests, the sign-in, profile and player screen tests, the adapter tests and the browse focus tests.
 The native tests run the TypeScript sources directly with Node.js; CI and the type definitions use Node.js 26, the supported version.

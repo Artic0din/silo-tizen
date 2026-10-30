@@ -4,13 +4,73 @@
 // replan idempotency on replan_request_id, stale-plan refusal and 410 for an administrator's end.
 // Bodies start from the vendored fixtures; plans the fixtures do not cover (offset timelines,
 // terminals, problems without a fixture) are built from the OpenAPI schemas.
+//
+// Tracks follow the pinned server: ids are `file:{effective file}:{audio|subtitle}:{ordinal}`
+// (internal/playback/tracks_v3.go), the audio ordinal indexes the file's audio_tracks
+// (resolveV3AudioIndex), and with every subtitle capability false an embedded track is burned in
+// while an external or downloaded one is refused (subtitle_policy_v3.go). A refused track_change
+// keeps the session's current plan, as the server's terminal replan does.
 
 import { fixture, type FakeSilo, problem, type Reply } from "./fakeSilo.ts";
 
 const PROBLEM_JSON = { "Content-Type": "application/problem+json" };
 
+/** One media file as the server knows it: AudioTrack bodies and its subtitle inventory. */
+export interface FakeMediaFile {
+    readonly id: string;
+    readonly audio: readonly Record<string, unknown>[];
+    readonly inventory: readonly Record<string, unknown>[];
+}
+
+const TRACK_ID = /^file:([1-9][0-9]*):(audio|subtitle):(0|[1-9][0-9]*)$/;
+
+function inventoryFor(fileId: string, ordinals: readonly number[]): Record<string, unknown>[] {
+    const plan = toRecord(fixture("playback_start_opaque_ids").playback_plan);
+    const all = toRecord(plan.subtitle).inventory;
+    if (!Array.isArray(all)) {
+        throw new Error("fixture inventory");
+    }
+    return ordinals.map((ordinal, index) => {
+        const entry = toRecord(all[ordinal]);
+        return { ...entry, track_id: `file:${fileId}:subtitle:${index}`, combined_index: index };
+    });
+}
+
+/** The fixture's file 42 and an alternate edition 43 of the same item, `movie-1`. */
+export function defaultFiles(): Map<string, FakeMediaFile> {
+    return new Map([
+        [
+            "42",
+            {
+                id: "42",
+                audio: [
+                    { default: true, language: "en", codec: "eac3", channels: 6, layout: "5.1", title: "English" },
+                    { default: false, language: "ja", codec: "aac", channels: 2, layout: "stereo", title: "Japanese" },
+                    { default: false, language: "en", codec: "aac", channels: 2, layout: "stereo", title: "Commentary" },
+                ],
+                inventory: inventoryFor("42", [0, 1, 2, 3, 4]),
+            },
+        ],
+        [
+            "43",
+            {
+                id: "43",
+                audio: [
+                    { default: true, language: "ja", codec: "aac", channels: 2, layout: "stereo" },
+                    { default: false, language: "en", codec: "eac3", channels: 6, layout: "5.1", embedded_title: "English Dub" },
+                ],
+                inventory: inventoryFor("43", [0, 2]),
+            },
+        ],
+    ]);
+}
+
 export interface PlanShape {
     readonly delivery?: string;
+    /** The edition the server plays; defaults to the session's current one (the requested file at start). */
+    readonly effectiveFileId?: string;
+    /** A subtitle ordinal the plan burns in. */
+    readonly subtitle?: number;
     readonly timeline?: Record<string, unknown>;
     /** Replaces the default `/api/v2/stream/<session>?st=<signed>` URL. */
     readonly url?: (sessionId: string) => string;
@@ -23,6 +83,10 @@ interface Session {
     readonly id: string;
     readonly profileId: string;
     readonly attemptId: string;
+    effectiveFileId: string;
+    audioIndex: number;
+    subtitle: number | undefined;
+    warnings: { code: string; message: string }[];
     planId: string;
     planKey: string;
     lastSequence: number;
@@ -38,6 +102,9 @@ export class FakePlayback {
     /** Decisions for the next starts and replans, first in first out; default: a direct plan. */
     readonly next: NextDecision[] = [];
     readonly sessions = new Map<string, Session>();
+    readonly files = defaultFiles();
+    /** Catalog item id to its files, in version order. */
+    readonly items = new Map<string, string[]>([["movie-1", ["42", "43"]]]);
     private readonly attempts = new Map<string, { digest: string; reply: Reply; sessionId: string | undefined }>();
     private serial = 0;
     private readonly fake: FakeSilo;
@@ -46,6 +113,39 @@ export class FakePlayback {
         this.fake = fake;
         this.installationId = String(fixture("playback_capability_available").installation_id);
         fake.extraRoutes.push((method, path, headers, body) => this.route(method, path, headers, body));
+        fake.extraRoutes.push((method, path, headers) => this.versions(method, path, headers));
+    }
+
+    /** listCatalogItemVersions: the item's files with their audio_tracks, from the vendored version template. */
+    private versions(method: string, path: string, headers: Record<string, string>): Reply | undefined {
+        const match = /^\/catalog\/items\/([^/?]+)\/versions$/.exec(path);
+        if (method !== "GET" || match?.[1] === undefined) {
+            return undefined;
+        }
+        if (this.fake.authenticate(headers) === undefined) {
+            return problem(401, "authentication_required", "Authentication required");
+        }
+        if (headers["x-profile-id"] === undefined) {
+            return problem(422, "validation_failed", "X-Profile-Id is required");
+        }
+        const files = this.items.get(decodeURIComponent(match[1]));
+        if (files === undefined) {
+            return problem(404, "not_found", "Not found");
+        }
+        const collection = fixture("list_catalog_item_versions_ok");
+        const template = Array.isArray(collection.items) ? toRecord(collection.items[0]) : {};
+        return {
+            status: 200,
+            body: { ...collection, items: files.map((id) => ({ ...template, file_id: id, audio_tracks: this.file(id).audio })) },
+        };
+    }
+
+    file(id: string): FakeMediaFile {
+        const file = this.files.get(id);
+        if (file === undefined) {
+            throw new Error(`no media file ${id}`);
+        }
+        return file;
     }
 
     session(id: string): Session {
@@ -137,6 +237,10 @@ export class FakePlayback {
             id,
             profileId,
             attemptId,
+            effectiveFileId: String(body.file_id),
+            audioIndex: 0,
+            subtitle: undefined,
+            warnings: [],
             planId: "",
             planKey: "",
             lastSequence: 0,
@@ -189,13 +293,73 @@ export class FakePlayback {
         if (body.playback_attempt_id !== session.attemptId || body.failed_plan_id !== session.planId || body.plan_attempt_key !== session.planKey) {
             return problem(409, "stale_playback_plan", "Stale plan");
         }
-        const decision = this.next.shift() ?? {};
-        const reply = "terminal" in decision ? this.terminal(decision.terminal, decision.retryable ?? false, 200) : this.playable(session, decision, 200);
-        session.replans.set(requestId, { digest, reply });
+        const queued = this.next.shift();
+        const reply =
+            queued === undefined && body.operation === "track_change"
+                ? this.trackChange(session, body)
+                : queued !== undefined && "terminal" in queued
+                  ? this.terminal(queued.terminal, queued.retryable ?? false, 200)
+                  : this.playable(session, queued ?? {}, 200);
+        if (reply.status !== 400) {
+            session.replans.set(requestId, { digest, reply });
+        }
         return reply;
     }
 
+    /** The viewer's new tracks, applied only when a plan can play them. */
+    private trackChange(session: Session, body: Record<string, unknown>): Reply {
+        const selected = body.selected_tracks === undefined ? {} : toRecord(body.selected_tracks);
+        const file = this.file(session.effectiveFileId);
+        const audio = selected.audio === undefined ? session.audioIndex : this.ordinal(selected.audio, "audio", file.id);
+        const subtitle = selected.subtitle === undefined ? undefined : this.ordinal(selected.subtitle, "subtitle", file.id);
+        if (audio === undefined || (selected.subtitle !== undefined && subtitle === undefined)) {
+            return problem(400, "bad_request", "Invalid track identity");
+        }
+        const warnings: { code: string; message: string }[] = [];
+        let audioIndex = audio;
+        if (audioIndex >= file.audio.length) {
+            audioIndex = 0;
+            warnings.push({ code: "audio_track_unavailable", message: "The selected audio track is not on this file; its default track plays." });
+        }
+        let burn: number | undefined;
+        if (subtitle !== undefined) {
+            const entry = file.inventory[subtitle];
+            if (entry === undefined) {
+                warnings.push({ code: "subtitle_track_unavailable", message: "The selected subtitle is not on this file." });
+            } else if (entry.source !== "embedded") {
+                return this.terminal("subtitle_burn_in_source_unsupported", false, 200, "The selected subtitle source cannot be burned in by the installed transport.");
+            } else {
+                burn = subtitle;
+            }
+        }
+        session.audioIndex = audioIndex;
+        session.subtitle = burn;
+        session.warnings = warnings;
+        return this.playable(session, burn === undefined ? {} : { delivery: "server_transcode_hls" }, 200);
+    }
+
+    /** A canonical identity of this kind on this file; index, when sent, must agree. */
+    private ordinal(value: unknown, kind: string, fileId: string): number | undefined {
+        const track = toRecord(value);
+        const match = TRACK_ID.exec(String(track.id));
+        if (match === null || match[1] !== fileId || match[2] !== kind) {
+            return undefined;
+        }
+        const ordinal = Number(match[3]);
+        return track.index === undefined || track.index === ordinal ? ordinal : undefined;
+    }
+
     private playable(session: Session, shape: PlanShape, status: number): Reply {
+        if (shape.effectiveFileId !== undefined) {
+            session.effectiveFileId = shape.effectiveFileId;
+        }
+        if (shape.subtitle !== undefined) {
+            session.subtitle = shape.subtitle;
+        }
+        const file = this.file(session.effectiveFileId);
+        const subtitleId = session.subtitle === undefined ? undefined : `file:${file.id}:subtitle:${session.subtitle}`;
+        const warnings = session.subtitle === undefined ? session.warnings : [...session.warnings, { code: "subtitle_burn_in", message: "Subtitles rendered into the video" }];
+        session.warnings = [];
         const n = ++this.serial;
         session.planId = `plan:${String(n).padStart(32, "0")}`;
         session.planKey = `v3:${String(n).padStart(16, "0")}`;
@@ -217,12 +381,23 @@ export class FakePlayback {
                     stream: { ...stream, url: shape.url === undefined ? `/api/v2/stream/${session.id}?st=signed-${n}` : shape.url(session.id) },
                     timeline: { ...toRecord(plan.timeline), ...shape.timeline },
                     source: { ...source, duration_seconds: shape.durationSeconds ?? source.duration_seconds },
+                    effective_media_file_id: file.id,
+                    selected_tracks: {
+                        audio: { id: `file:${file.id}:audio:${session.audioIndex}`, index: session.audioIndex },
+                        ...(subtitleId === undefined ? {} : { subtitle: { id: subtitleId, index: session.subtitle } }),
+                    },
+                    subtitle: {
+                        mode: subtitleId === undefined ? "off" : "burn_in",
+                        ...(subtitleId === undefined ? {} : { track_id: subtitleId }),
+                        inventory: file.inventory,
+                    },
+                    degradation_warnings: warnings,
                 },
             },
         };
     }
 
-    private terminal(reason: string, retryable: boolean, status: number): Reply {
+    private terminal(reason: string, retryable: boolean, status: number, message = `Cannot play: ${reason}`): Reply {
         const base = fixture("playback_start_opaque_ids");
         return {
             status,
@@ -230,7 +405,7 @@ export class FakePlayback {
                 protocol_version: 3,
                 server_features: base.server_features,
                 outcome: "adaptation_unavailable",
-                terminal: { reason, message: `Cannot play: ${reason}`, retryable },
+                terminal: { reason, message, retryable },
             },
         };
     }

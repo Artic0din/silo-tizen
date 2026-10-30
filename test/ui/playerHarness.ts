@@ -39,6 +39,9 @@ const controls: PlayerControls = {
     seekBy: (seconds) => commands.push(`seekBy ${seconds}`),
     back: () => commands.push("back"),
     dismissError: () => commands.push("dismissError"),
+    selectAudio: (id) => commands.push(`selectAudio ${id}`),
+    selectSubtitle: (id) => commands.push(`selectSubtitle ${id ?? "off"}`),
+    retryTrackInfo: () => commands.push("retryTrackInfo"),
 };
 const screen: PlayerScreen = mountPlayerScreen(root, controls);
 

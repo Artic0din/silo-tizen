@@ -16,7 +16,13 @@ response enum values decode to `"unknown"`, so additive server changes keep work
 | `cancelDeviceLogin`, `logout` | `natural_idempotent` | One transport retry |
 | `refreshSession` | `domain_identity` | Never resent; 401/400/422 end the session, others keep the tokens |
 | `verifyProfilePIN` | `non_retryable` | Never resent, not even after a token refresh |
+| `getPlaybackCapabilities` | read | One transport retry; read before every play for `installation_id` |
+| `startPlayback`, `replanPlayback`, `stopPlayback` | `domain_identity` | The player resends only the identical body (same `playback_attempt_id`, `replan_request_id` or `stop_id`) after no answer or a transient failure |
+| `updatePlaybackProgress` | `domain_identity` | Never resent; the next sample has a higher `sequence` |
 | `listUserLibraries`, `listEffectiveSettings` (`ui.disabled_library_ids` only), `listHomeSections`, `listCatalogItems`, `getCatalogItem`, `listSeriesSeasons`, `listSeasonEpisodes` | read (`profile_scoped`) | One transport retry; sent with the active profile's headers |
+
+Playback bodies live in `playback.ts`, following `docs/playback-api.md` and `docs/architecture/playback-protocol-v3.md` at the same commit.
+The vendored `playback_start_opaque_ids` plan is a direct plan at offset 0; the test server builds offset timelines, terminal decisions and problems without a fixture from the OpenAPI schemas.
 
 `catalog.ts` holds the browse decoders. They are handwritten from `openapi.json` at the commit in `SOURCE`, not generated.
 The browse fixtures (`user_libraries`, `list_effective_settings_ok`, `list_home_sections_ok`, `list_catalog_items_ok`, `get_catalog_item_ok`, `list_series_seasons_ok`, `list_series_seasons_without_artwork`, `list_season_episodes_ok`) are copied unchanged from the same commit.

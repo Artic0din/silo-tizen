@@ -19,6 +19,30 @@ function probeProfiles(h: Harness): (string | undefined)[] {
     return h.fake.requests.filter((request) => request.path === "/catalog/probe").map((request) => request.headers["x-profile-id"]);
 }
 
+test("clearing a profile immediately after call prevents any dispatch under the cleared authority", async () => {
+    const h = await connected();
+    await signIn(h);
+    h.core.profiles.select(owner);
+    const pending = h.core.session.call(probe);
+    h.core.profiles.clear();
+    await assert.rejects(pending, isAborted);
+    assert.deepEqual(probeProfiles(h), []);
+});
+
+test("mediaToken rejects if its signal or authority changes during credential acquisition", async () => {
+    const h = await connected();
+    await signIn(h);
+    const controller = new AbortController();
+    const canceled = h.core.session.mediaToken(controller.signal);
+    controller.abort();
+    await assert.rejects(canceled, isAborted);
+
+    h.core.profiles.select(owner);
+    const stale = h.core.session.mediaToken();
+    h.core.profiles.clear();
+    await assert.rejects(stale, isAborted);
+});
+
 test("concurrent 401s share one refresh, and each request is replayed once with the new token", async () => {
     const h = await connected();
     await signIn(h);
@@ -359,4 +383,23 @@ test("signing out while a new sign-in waits to remove the replaced account's rec
     assert.equal(keyManager.items.size, 0, "nothing stored after the sign-out");
     const restarted = await connected({ clock: h.clock, fake: h.fake, keyManager, storage: h.storage });
     assert.equal(restarted.core.restore, "signed_out");
+});
+
+test("a media token is refreshed through the shared refresh when about to expire, and ends with the authority", async () => {
+    const h = await connected();
+    await signIn(h);
+    const before = await h.core.session.mediaToken();
+    assert.equal(h.fake.paths().filter((path) => path === "POST /auth/refresh").length, 0);
+    await h.clock.advance(3600000 - 29000);
+    const [first, second] = await Promise.all([h.core.session.mediaToken(), h.core.session.mediaToken()]);
+    assert.equal(h.fake.paths().filter((path) => path === "POST /auth/refresh").length, 1, "one refresh for both");
+    assert.notEqual(first, before);
+    assert.equal(second, first);
+    const owner = (await h.core.profiles.list()).find((profile) => profile.id === "p-owner");
+    assert.ok(owner !== undefined);
+    h.core.profiles.select(owner);
+    const signal = h.core.session.authoritySignal;
+    h.core.profiles.clear();
+    await h.core.session.mediaToken();
+    await assert.rejects(h.core.session.mediaToken(signal), (error: unknown) => error instanceof ApiError && error.aborted);
 });

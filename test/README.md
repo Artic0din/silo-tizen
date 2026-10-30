@@ -1,11 +1,11 @@
 # Tests
 
-`npm test` runs the build, the native session and browse contract tests, the native sign-in, profile and browse screen tests, the adapter tests and the legacy browse focus and layout tests.
+`npm test` runs the build, the native session, browse contract and playback tests, the native sign-in, profile, browse and player screen tests, the adapter tests and the legacy browse focus and layout tests.
 It needs Node.js 26 or later, the version CI tests.
 The browse Playwright tests serve the staged package in `dist/wgt/`, so run `npm run build` before running them directly.
 Desktop Chromium is not Chromium 76; these runs do not prove 2021 TV rendering.
 
-## Native session core (Node only)
+## Native core and player (Node only)
 
 ```bash
 npm run test:native
@@ -37,6 +37,19 @@ The harness signs in through the real device-code flow and selects a profile thr
 `test/native/support/fakeCatalog.ts` adds a household to the fake Silo: an owner and a PIN-locked child profile whose library access the fake applies server-side, synthetic titles, cursor paging and search.
 The fake serves synthetic SVG artwork from `/art/`; other image hosts fail, which exercises the placeholders.
 
+## Native player
+
+`test/native/playback.test.ts` runs the playback controller against the fake Silo's playback operations (`support/fakePlayback.ts`) and a fake AVPlay (`support/fakeAVPlay.ts`) that enforces the documented call states and retains uncancellable callbacks.
+The fake rejects AVPlay calls during a pending seek; teardown and replacement wait for its callback before closing or opening a transport.
+Tests also cover pause preservation after a server re-anchor, Retry-After delays, authority changes before dispatch and HTTPS-only media URLs.
+Codec failures received during a seek are handled after its callback, unless the attempt has ended.
+Backgrounding ends the attempt, stops progress and shows a restart notice; authenticated suspend/restore is deferred to issue #13.
+`test/ui/player.test.ts` drives the player screen in Chromium over stub controls.
+Set `PLAYER_CAPTURE_DIR` to a folder outside the repository to save its screenshots.
+Neither proves AVPlay media authentication or playback on a TV.
+
+The Gitleaks configuration keeps the default rules and excludes only the exact synthetic subtitle-path hash in the pinned public playback fixture.
+The same value in another file, or another value in that fixture, remains subject to scanning.
 ## Backend adapter (Node only)
 
 ```bash

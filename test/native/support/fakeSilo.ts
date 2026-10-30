@@ -75,6 +75,8 @@ export class FakeSilo {
     private readonly holds: Hold[] = [];
     /** Paths whose next request is processed but whose answer is lost on the way back. */
     private readonly dropped: string[] = [];
+    /** Further operations, e.g. playback; answered before the 404 fallback. */
+    readonly extraRoutes: ((method: string, path: string, headers: Record<string, string>, body: Record<string, unknown> | undefined) => Reply | undefined)[] = [];
     /** Browse reads (test/native/support/fakeCatalog.ts); unset, they answer 404. */
     catalog: CatalogRoutes | undefined;
     /** The household GET /profiles returns: the fixture's owner and a PIN-locked child. */
@@ -251,6 +253,12 @@ export class FakeSilo {
                 return reply;
             }
         }
+        for (const extra of this.extraRoutes) {
+            const reply = extra(method, path, headers, body);
+            if (reply !== undefined) {
+                return reply;
+            }
+        }
         return problem(404, "not_found", "Not found");
     }
 
@@ -318,7 +326,7 @@ export class FakeSilo {
         return { status: 200, body: this.mintSession(session) };
     }
 
-    private authenticate(headers: Record<string, string>): number | undefined {
+    authenticate(headers: Record<string, string>): number | undefined {
         const match = /^Bearer (.+)$/.exec(headers.authorization ?? "");
         const session = match?.[1] === undefined ? undefined : this.accessTokens.get(match[1]);
         return session === undefined || this.revokedSessions.has(session) ? undefined : session;

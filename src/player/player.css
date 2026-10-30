@@ -1,0 +1,100 @@
+/* Native player, 1920x1080. Chrome 76: no flex gap, inset, aspect-ratio or :focus-visible. */
+
+.player {
+    position: relative;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    background: transparent;
+    color: #f2f2f7;
+    font-family: "Samsung Sharp Sans", "Segoe UI", sans-serif;
+}
+
+.player-video {
+    /* AVPlay draws video separately; this object's browser placeholder must not cover it. */
+    visibility: hidden;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1920px;
+    height: 1080px;
+}
+
+.player-overlay,
+.player-error {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    box-sizing: border-box;
+    padding: 64px 120px 80px;
+    background: rgba(10, 10, 16, 0.82);
+    outline: none;
+}
+
+.player-overlay-hidden {
+    opacity: 0;
+}
+
+.player-error {
+    top: 0;
+    padding-top: 320px;
+    background: #12121a;
+}
+
+.player-title {
+    margin: 0 0 24px;
+    font-size: 64px;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.player-status {
+    min-height: 52px;
+    margin: 0 0 24px;
+    font-size: 44px;
+    color: #f2d58a;
+}
+
+.player-bar {
+    height: 12px;
+    margin: 0 0 20px;
+    border-radius: 6px;
+    background: #4a4d63;
+}
+
+.player-bar-fill {
+    height: 12px;
+    border-radius: 6px;
+    background: #f2f2f7;
+}
+
+.player-time {
+    margin: 0;
+    font-size: 40px;
+    color: #c8cad8;
+}
+
+.player-error-text {
+    max-width: 1300px;
+    margin: 0 0 48px;
+    font-size: 44px;
+    line-height: 1.35;
+    color: #ffb4b4;
+}
+
+.player-button {
+    min-width: 320px;
+    padding: 24px 48px;
+    border: 4px solid #4a4d63;
+    border-radius: 12px;
+    background: #24263a;
+    color: #f2f2f7;
+    font: inherit;
+    font-size: 40px;
+}
+
+.player-button:focus {
+    border-color: #f2f2f7;
+    outline: none;
+}

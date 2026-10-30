@@ -243,6 +243,9 @@ export class PlaybackController implements PlayerControls {
         attempt.busy = true;
         if (!local) {
             // An open or partial window has no bytes there yet: the server re-anchors the timeline.
+            this.closeTransport();
+            attempt.started = false;
+            this.show({ phase: "loading", title: attempt.request.title });
             void this.replan(attempt, plan, "seek_reanchor", target, undefined);
             return;
         }

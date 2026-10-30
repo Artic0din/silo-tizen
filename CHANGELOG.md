@@ -19,6 +19,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Prevented an old stream from ending playback while a backward seek waited for a replacement plan in the staged native player.
 - Stopped the staged native player when Silo was backgrounded and preserved codec failures received during a seek.
 - Kept playback teardown safe during pending seeks, preserved pause after server re-anchoring, and honored server retry delays in the staged native player.
 - Preserved remote focus when a PIN check finished unsuccessfully.

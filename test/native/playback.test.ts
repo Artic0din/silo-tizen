@@ -459,6 +459,41 @@ test("an offset timeline reports source time and reanchors seeks through the ser
     assert.equal(r.avplay.calls[r.avplay.calls.length - 1], "seekTo 600000");
 });
 
+test("an old stream completing during a held seek reanchor cannot end the replacement", async () => {
+    const r = await rig();
+    r.server.next.push({ timeline: { can_seek_anywhere: false } });
+    const id = await playMovie(r);
+    r.avplay.tick(7190000);
+    const oldListener = r.avplay.listener;
+    assert.ok(oldListener !== undefined);
+    const hold = r.h.fake.hold(`/playback/${id}/replan`);
+    r.controller.seekBy(-10);
+    await r.h.clock.advance(0);
+    assert.equal(only(bodies(r.h, "/replan")).position_seconds, 7180);
+
+    oldListener.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.deepEqual(r.exits, [], "the superseded stream must not complete the playback attempt");
+    assert.equal(r.server.session(id).receipt, undefined);
+    assert.equal(r.avplay.state, "NONE", "close the superseded transport while waiting for the plan");
+    assert.equal(last(r.views).phase, "loading");
+
+    hold.release();
+    await r.h.clock.advance(0);
+    assert.equal(r.avplay.urls.length, 2);
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    assert.equal(r.avplay.state, "PLAYING");
+    oldListener.onstreamcompleted();
+    assert.deepEqual(r.exits, []);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.deepEqual(r.exits, ["end:completed"]);
+    assert.notEqual(r.server.session(id).receipt, undefined);
+});
+
 test("a seek on a direct plan stays local, at source time minus the offset", async () => {
     const r = await rig();
     await playMovie(r);

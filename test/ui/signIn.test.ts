@@ -161,7 +161,7 @@ tvTest("the code screen shows the grouped code, its address and a QR code of the
     const deviceCode = await codeScreen(tv);
     await shows(tv, "4821 7730");
     await shows(tv, "https://silo.example.test/activate");
-    await shows(tv, "Waiting for you to approve the code.");
+    await shows(tv, "Waiting for approval");
     await shows(tv, "Code expires in 15:00");
     assert.equal(await tv.focused(), "change");
 
@@ -188,7 +188,7 @@ tvTest("an opened code says so and its deadline moves later; the code is never r
     await shows(tv, "Code expires in 3:00");
     tv.fake.open(code);
     await tv.jump(5000);
-    await shows(tv, "Code opened. Finish signing in on your phone or computer.");
+    await shows(tv, "Code opened");
     await shows(tv, "Code expires in 4:55");
     assert.equal(tv.fake.devices.size, 1);
     assert.equal(await tv.page.locator(".signin-code").textContent(), displayedCode);
@@ -202,7 +202,7 @@ tvTest("a link too large for a QR code still shows manual sign-in and keeps poll
     await connectTo(tv);
     await tv.page.locator('[data-screen="code"]').waitFor();
     await shows(tv, "4821 7730");
-    await shows(tv, "QR code unavailable. Use the address and code instead.");
+    await shows(tv, "QR code unavailable.");
     assert.equal(await tv.focused(), "change");
     assert.equal(await tv.page.locator("svg").count(), 0);
     await tv.jump(5000);
@@ -314,7 +314,7 @@ tvTest("declined, expired, server-canceled and lost approvals explain themselves
     tv.fake.approve(fourth);
     tv.fake.dropNextAnswer("/auth/device/poll");
     await tv.jump(5000);
-    await shows(tv, "Lost contact with the server. Still trying.");
+    await shows(tv, "Server unreachable. Retrying.");
     await tv.jump(5000);
     await shows(tv, "Sign-in not received");
     await tv.page.keyboard.press("ArrowRight");
@@ -329,12 +329,12 @@ tvTest("rate limits slow polling without ending sign-in, and a refused start say
     await codeScreen(tv);
     tv.fake.script("/auth/device/poll", rateLimited(20));
     await tv.jump(5000);
-    await shows(tv, "The server asked this TV to check less often. Still waiting.");
+    await shows(tv, "Waiting to retry.");
     const limited = polls(tv);
     await tv.jump(5000);
     assert.equal(polls(tv), limited, "the next poll waits for Retry-After");
     await tv.jump(15000);
-    await shows(tv, "Waiting for you to approve the code.");
+    await shows(tv, "Waiting for approval");
 
     await tv.remote(BACK);
     tv.fake.script("/auth/device/start", rateLimited(30));

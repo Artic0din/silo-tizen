@@ -2,53 +2,57 @@
 
 Silo client for Samsung Tizen TVs from model year 2021 (Tizen 6.0).
 
+## Native app
+
+The packaged app uses Silo's native `/api/v2`: server entry, device-code sign-in, household profiles and PINs, Movies and Series browsing, and AVPlay playback with audio and subtitle selection.
+The earlier Jellyfin-compatible client is retired.
+Sign-in now uses an eight-digit device code approved on Silo's web page instead of entering an account password on the TV.
+The server address is remembered publicly; credentials use Tizen KeyManager or the explicit session-only mode when protected storage is unavailable.
+
+`src/main.ts` boots the app through `src/bootstrap.ts` and `src/platform.ts`.
+`src/app.ts` composes the screen controllers without owning their network or credential logic.
+The profile controller remains active while browsing and playback use its profile authority.
+When that authority ends, the app removes the old content before the profile controller takes the screen back.
+Player Back, completion and dismissed errors return to the same browse view and focus.
+Root Back opens an Exit/Cancel dialog; modal keys do not reach the screen underneath.
+
 ## Layout
 
-- `app/` holds static package files: `config.xml`, `index.html`, CSS and the icon.
-- `src/main.ts` is the bundle entry.
-- `src/legacy/` holds the earlier plain-JavaScript screens and Jellyfin-compatible adapter.
-  The entry bundles them unchanged so the app keeps working while typed modules replace them.
-  tsc does not check them, and they are not the final architecture.
-- `src/api/`, `src/session/` and `src/contracts/v2/` hold the native `/api/v2` session core: device login, profiles and credential storage.
-- `src/ui/` holds the native sign-in screens built on that core: server address entry, then the eight-digit code with a QR code.
-  `mountSignIn` takes a root element and the core's dependencies and calls `onSignedIn` with the connected server.
-  `mountProfiles` takes that server, shows the household profiles and PIN entry, and calls `onSelected` with the chosen profile and the signal that ends when it stops acting; app composition comes in later work.
-  Their stylesheet is `src/ui/signIn.css`, written for Chromium 76.
-  The entry point does not use them yet, so the packaged app still runs the legacy screens only.
-- `src/player/` holds the native playback planner, AVPlay controller and player screen.
-  `startPlayback` takes the connected server and chosen file, then reports Back, natural completion or a playback error to its caller.
-  Its audio and subtitles menu asks the server to change tracks; the TV declares no subtitle rendering, so embedded subtitles are burned in and external or downloaded ones are reported as unavailable.
-  The entry point does not use it yet.
-  A signed diagnostic on the S95C running Tizen 9 played authenticated direct media with picture and dialogue, resumed at 60 seconds, sought forward and reported progress.
-  Gate C remains open for remux, transcode and backward seeking; this direct-play observation does not establish those paths.
-  As an interim safety boundary, backgrounding ends playback and requires selecting the title again.
-  Authenticated suspend/restore remains in [#13](https://github.com/Artic0din/silo-tizen/issues/13).
-- `src/ui/browse.ts` holds the native Movies and Series browsing for the selected profile ([#9](https://github.com/Artic0din/silo-tizen/issues/9)): Home, libraries, search and item pages.
-  `mountBrowse(root, { server, onPlay, onChooseProfile })` draws inside its own container in `root`, removes only that container when the account or profile changes, and calls `onPlay` with the content id, file id and resume point.
-  Its stylesheet is `src/ui/browse.css`, written for Chromium 76.
-  The entry point does not use it yet; app composition remains separate.
-- A signed foreground app on a 2023 TV running Tizen 9 has read native discovery and authenticated responses over normally validated HTTPS ([#6](https://github.com/Artic0din/silo-tizen/issues/6)).
-  2021 hardware, store signing, PIN profiles, remux and transcode delivery are still unproven there.
-  Keep the entry point on the legacy client until the native journey from sign-in through profiles and browsing is complete.
-- `scripts/build.mjs` stages `app/` into `dist/wgt/` and bundles `src/main.ts` into `dist/wgt/js/main.js`.
+- `app/` holds the package manifest, HTML entry and icon.
+- `src/api/`, `src/session/` and `src/contracts/v2/` own native transport, sessions, profile authority and contract decoders.
+- `src/ui/` owns sign-in, profile/PIN and browse screens and remote focus.
+- `src/player/` owns the server playback plan, AVPlay transport, progress, final stop and track changes.
+- `scripts/build.mjs` stages `app/` into `dist/wgt/` and emits `js/main.js` and `js/main.css`.
+  The bundle's app version comes from `app/config.xml`.
 
-## Build
+## Validation limits
+
+The composed app is covered in desktop Chromium with fake Silo and AVPlay implementations, including the actual production bootstrap.
+This is not TV playback or IME proof.
+Earlier signed diagnostics on the S95C running Tizen 9 proved normal-HTTPS discovery/authenticated reads and direct playback with picture, dialogue, a 60-second resume, forward seek and progress.
+The composed debug-signed app was then checked on the same S95C: device-code approval, real profile and catalog reads, account restoration after a full exit/relaunch, AVPlay start/pause/forward and backward seeking, an audio-track replan, return to the title, and sign-out with server revocation.
+AVPlay state and server responses were observed; picture, dialogue and audible track differences were not independently confirmed during that composed-app run.
+The TV keyboard, 2021 hardware, store builds, full remux/transcode acceptance and audible/visible track acceptance remain open.
+
+The client declares no subtitle renderer.
+The server can burn embedded subtitles into video when transcoding is allowed; external and downloaded subtitles receive an explicit unsupported result.
+Backgrounding stops playback safely and requires selecting the title again.
+Authenticated suspend/restore remains in [#13](https://github.com/Artic0din/silo-tizen/issues/13).
+
+## Build and package
 
 The 2021 TVs run Chromium 76 ([Samsung web engine specifications](https://developer.samsung.com/smarttv/develop/specifications/web-engine-specifications.html)).
-TypeScript checks with ES2019 and DOM libraries in strict mode.
-`tsconfig.json` checks `src/` without Node types; `tsconfig.test.json` adds Node types and checks `src/`, `test/native/` and `test/ui/`.
-esbuild emits one classic-script IIFE with target `chrome76`.
-Neither step adds missing browser APIs or CSS support.
+TypeScript checks ES2019 and DOM code in strict mode; tests additionally load Node types.
+esbuild emits a classic script targeting `chrome76`.
+Neither step supplies missing browser APIs or CSS support.
+Node.js 26 or later is required.
 
 ```bash
 npm ci
-npm run typecheck   # tsc for src/, then for src/ with test/native/ and test/ui/
-npm run build       # typecheck, then stage dist/wgt
+npm run build
 ```
 
-## Package
-
-Packaging needs the Tizen Studio Web CLI on `PATH` and a Certificate Manager security profile.
+Packaging needs the Tizen Studio Web CLI and a Certificate Manager security profile.
 Never commit certificates, profile XML or passwords.
 
 ```bash
@@ -56,10 +60,9 @@ export TIZEN_SECURITY_PROFILE="YourProfileName"
 ./scripts/build-wgt.sh
 ```
 
-The script runs `npm run build`, packages `dist/wgt/` and writes `dist/Silo.wgt`.
+The script builds the package staging directory and writes `dist/Silo.wgt`.
 
 ## Test
 
-See [test/README.md](test/README.md).
-`npm test` builds, then runs the native session, catalog, playback and track tests, the sign-in, profile, browse and player screen tests, the adapter tests and the browse focus and layout tests.
-The native tests run the TypeScript sources directly with Node.js; CI and the type definitions use Node.js 26, the supported version.
+`npm test` runs both strict type checks, the production build, native contract/session/player tests and Playwright screen/composition tests.
+See [test/README.md](test/README.md) for the test boundaries.

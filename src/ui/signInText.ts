@@ -74,12 +74,12 @@ export function signedOutNotice(result: LogoutResult): string[] {
 
 export function waitingStatus(state: Extract<DeviceLoginState, { readonly phase: "waiting" }>): string {
     if (state.retrying === "unreachable") {
-        return "Lost contact with the server. Still trying.";
+        return "Server unreachable. Retrying.";
     }
     if (state.retrying === "rate_limited") {
-        return "The server asked this TV to check less often. Still waiting.";
+        return "Waiting to retry.";
     }
-    return state.opened ? "Code opened. Finish signing in on your phone or computer." : "Waiting for you to approve the code.";
+    return state.opened ? "Code opened" : "Waiting for approval";
 }
 
 export function remaining(ms: number): string {

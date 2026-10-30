@@ -1,4 +1,11 @@
-// Transition plumbing: the legacy plain-JS screens run unchanged until typed
-// modules replace them. They are bundled, not type-checked.
-import "./legacy/backend.js";
-import "./legacy/app.js";
+import { boot } from "./bootstrap.ts";
+import "./app.css";
+import "./ui/signIn.css";
+import "./ui/browse.css";
+import "./player/player.css";
+
+const root = document.getElementById("screen");
+if (root === null) {
+    throw new Error("Silo's screen is missing");
+}
+export const app = boot(root, APP_VERSION);

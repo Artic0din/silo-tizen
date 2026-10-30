@@ -138,7 +138,7 @@
     display: inline-block;
     vertical-align: top;
     width: 256px;
-    /* Same height with or without the PIN line, so rows stay aligned. */
+    /* Locked and unlocked profiles keep the same row height. */
     height: 296px;
     margin: 0 32px 32px 0;
     padding: 28px 16px;
@@ -180,7 +180,21 @@
 
 .profile-lock {
     display: block;
-    margin-top: 12px;
-    font-size: 28px;
-    color: #c8cad8;
+    position: relative;
+    width: 22px;
+    height: 18px;
+    margin: 20px auto 0;
+    border-radius: 3px;
+    background: #c8cad8;
+}
+
+.profile-lock::before {
+    content: "";
+    position: absolute;
+    width: 16px;
+    height: 14px;
+    left: 3px;
+    top: -10px;
+    border: 3px solid #c8cad8;
+    border-radius: 8px 8px 0 0;
 }

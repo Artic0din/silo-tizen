@@ -31,10 +31,8 @@ function detailHeader(detail: ItemDetail, context: ViewContext): HTMLElement[] {
     if (meta !== "") {
         nodes.push(el("p", "browse-meta", meta));
     }
-    for (const text of [detail.tagline, detail.overview]) {
-        if (text !== undefined && text !== "") {
-            nodes.push(el("p", "browse-text browse-overview", text));
-        }
+    if (detail.overview !== undefined && detail.overview !== "") {
+        nodes.push(el("p", "browse-text browse-overview", detail.overview));
     }
     const layout = el("div", "browse-detail");
     layout.appendChild(artwork("browse-art browse-detail-art", detail.posterUrl, context.baseUrl, detail.title));

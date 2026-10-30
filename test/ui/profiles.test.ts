@@ -148,7 +148,7 @@ tvTest("a large household wraps into rows that Up and Down move between", async 
 tvTest("wrong PINs are reported, never kept or resent, and the right PIN unlocks the profile", async (tv) => {
     await picker(tv);
     await openKid(tv);
-    await shows(tv, "Enter the PIN for Kid");
+    await tv.page.getByRole("heading", { name: "Kid", exact: true }).waitFor();
     await tv.remote(IME_DONE);
     await tv.page.keyboard.press("Enter");
     await shows(tv, "Enter the PIN.");

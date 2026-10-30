@@ -29,7 +29,7 @@ export function pinScreen(profile: ProfileSummary, notes: readonly Note[], onUnl
     return {
         screen: {
             name: "pin",
-            content: [el("h1", "signin-title", `Enter the PIN for ${profile.name}`), ...noteNodes(notes), label, input, status, actions([unlock, other])],
+            content: [el("h1", "signin-title", profile.name), ...noteNodes(notes), label, input, status, actions([unlock, other])],
             controls: [{ key: "pin", element: input }, unlock, other],
             focus: "pin",
             back: onBack,

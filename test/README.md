@@ -1,100 +1,49 @@
 # Tests
 
-`npm test` runs the build, the native session, browse contract, playback and track tests, the native sign-in, profile, browse and player screen tests, the adapter tests and the legacy browse focus and layout tests.
-It needs Node.js 26 or later, the version CI tests.
-The browse Playwright tests serve the staged package in `dist/wgt/`, so run `npm run build` before running them directly.
-Desktop Chromium is not Chromium 76; these runs do not prove 2021 TV rendering.
-
-## Native core and player (Node only)
-
-```bash
-npm run test:native
-```
-
-Node runs `test/native/*.test.ts` directly by stripping types; there is no compile step.
-The tests use a fake Silo server and a fake KeyManager, so they need no network, TV or account.
-The script hides Node's `MODULE_TYPELESS_PACKAGE_JSON` warning: the package stays CommonJS for the legacy runners, so Node detects the test files as ES modules.
-`npm run typecheck` checks these tests with `tsconfig.test.json`.
-
-## Native sign-in and profile screens (Playwright)
+`npm test` runs both strict type checks, the production build, `test/native/*.test.ts` and `test/ui/*.test.ts`.
+Node.js 26 or later is required.
+The package uses ES modules; Node runs TypeScript tests directly by stripping their types.
 
 ```bash
 npm ci
 npx playwright install chromium
-npm run test:ui
+npm test
 ```
 
-`test/ui/harness.ts` mounts the real sign-in screens and session core in a test page, bundled with the TV build's esbuild settings.
-With `?flow=profiles` it continues into the real profile screens and a stand-in for the browse screens.
-Playwright routes the page's `/api/v2` requests to the fake Silo the native tests use and serves the page from the fake server's origin, so no CORS is involved.
-The page stores credentials in the native tests' fake KeyManager.
-Other hosts fail as unreachable.
-Playwright's fake clock and the fake server's clock move together, so polling, expiry and retry waits need no real waiting.
-The tests press remote keys and check what the screen shows and where focus is.
+## Native contracts, sessions and playback
 
-`test/ui/browse.test.ts` does the same for the native browse screens with `test/ui/browseHarness.ts`.
-The harness signs in through the real device-code flow and selects a profile through the real `Profiles`.
-`test/native/support/fakeCatalog.ts` adds a household to the fake Silo: an owner and a PIN-locked child profile whose library access the fake applies server-side, synthetic titles, cursor paging and search.
-The fake serves synthetic SVG artwork from `/art/`; other image hosts fail, which exercises the placeholders.
+`npm run test:native` uses the real core and controller with fake Silo, KeyManager and AVPlay ports.
+The tests require no TV, account or network service.
+They cover authentication, refresh/cleanup races, profile authority and PIN proofs, catalog decoding and profile restrictions, playback identities, progress/stop ordering, retries, offset timelines, seek/close sequencing and track changes.
+AVPlay's fake enforces its documented states and retains uncancellable callbacks after teardown.
+Lost track-change replies cannot leave an obsolete local plan playing; definitive refusals preserve the current transport.
 
-## Native player
+## Screens and composed app
 
-`test/native/playback.test.ts` runs the playback controller against the fake Silo's playback operations (`support/fakePlayback.ts`) and a fake AVPlay (`support/fakeAVPlay.ts`) that enforces the documented call states and retains uncancellable callbacks.
-The fake rejects AVPlay calls during a pending seek; teardown and replacement wait for its callback before closing or opening a transport.
-Tests also cover pause preservation after a server re-anchor, Retry-After delays, authority changes before dispatch and HTTPS-only media URLs.
-`test/native/tracks.test.ts` covers audio and subtitle choices: every choice is a `track_change` replan with the server's identity, at the current source position and pause state; a refused change keeps the current plan playing; one change at a time; late answers after Back or a profile change are dropped.
-The fake server applies the pinned server's track rules: canonical identities on the effective file, burn-in for embedded subtitles, refusal for external and downloaded ones, and the default audio track with a warning for a track the file lacks.
-`test/ui/player.test.ts` drives the player screen in Chromium over stub controls, including the audio and subtitles menu's remote keys and focus.
-Codec failures received during a seek are handled after its callback, unless the attempt has ended.
-Backgrounding ends the attempt, stops progress and shows a restart notice; authenticated suspend/restore is deferred to issue #13.
-Set `PLAYER_CAPTURE_DIR` to a folder outside the repository to save its screenshots.
-Neither proves AVPlay media authentication or playback on a TV.
+`npm run test:ui` bundles the real TypeScript screens for Chrome 76 and runs them in desktop Chromium.
+Playwright routes native API requests to the same fake Silo and serves synthetic SVG artwork.
+The fake server and browser clocks move together; polling and retry tests do not sleep.
+Unexpected page logs and errors fail the screen tests.
 
-The Gitleaks configuration keeps the default rules and excludes only the exact synthetic subtitle-path hash in the pinned public playback fixture.
-The same value in another file, or another value in that fixture, remains subject to scanning.
-## Backend adapter (Node only)
+`test/ui/app.test.ts` composes real sign-in, profiles, browse and playback over FakeCatalog, FakePlayback and FakeAVPlay.
+It covers the approved device-code journey, returning from playback, PIN-proof revocation during playback, sign-out/relaunch, protected-account restore, exit modal focus/key isolation, unavailable AVPlay and startup failure recovery.
+Its production case imports the actual `src/main.ts`, supplies the Tizen platform ports and exercises the same journey through that entry.
+The focused sign-in, profile, browse and player suites retain their failure/loading/empty-state, navigation, paging and track-menu checks.
 
-```bash
-node test/run-backend-tests.js
-```
+The retired Jellyfin adapter and its legacy browser/layout fixtures are no longer part of the app or test gate.
+Native transport tests cover headers, timeouts, HTTPS and logout, while native browse and composed-app tests cover the current focus and return behavior.
+Desktop Chromium and fake AVPlay do not prove real video/audio, TV keyboard behavior or Chromium 76 rendering.
+The signed-TV app journey and the remaining hardware matrix must be checked separately.
 
-Uses a local mock HTTP server and loads `src/legacy/backend.js` directly; no npm install required.
+## Captures and security
 
-## Headless UI screenshots (Playwright)
-
-```bash
-npm ci
-npx playwright install chromium
-npm run build
-node test/run-ui-screenshots.js
-```
-
-Screenshots are written to `SCREENSHOT_DIR`, or `os.tmpdir()/silo-screenshots` when unset.
-
-## Browse focus and layout (Playwright)
-
-```bash
-npm ci
-npx playwright install chromium
-npm run build
-node test/run-focus-tests.js
-```
-
-The run serves `app.css` without the CSS that Chromium 76 drops or ignores: `aspect-ratio`, `inset`, and `gap` in flex containers.
-It also makes `inset` and `aspectRatio` assignments through `element.style` do nothing, and removes inline flex `gap` from the exit dialog after it opens.
-It then checks form and tile spacing and 2:3 posters on the sign-in, home, details and library screens, and that the exit dialog covers the screen with its buttons 32px apart.
-This simulates only those three features in desktop Chromium; it is not a Chromium 76 run and does not check other CSS or JavaScript support.
-
-## Static checks
+Set `PLAYER_CAPTURE_DIR` to a folder outside the repository to capture the player screen tests.
+PR images and recordings belong outside Git and must use inspected synthetic data.
+The Gitleaks configuration retains default rules and excludes only the exact synthetic subtitle-path hash at its pinned fixture path.
 
 ```bash
 npm run typecheck
-node --check src/legacy/backend.js
-node --check src/legacy/app.js
 node --check scripts/build.mjs
-node --check test/run-backend-tests.js
-node --check test/mock-jellyfin-server.js
-node --check test/run-ui-screenshots.js
-node --check test/run-focus-tests.js
 xmllint --noout app/config.xml
+git diff --check
 ```

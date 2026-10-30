@@ -1,6 +1,7 @@
 {
   "name": "silo-tizen",
   "private": true,
+  "type": "module",
   "description": "Silo client for Samsung Tizen TVs",
   "license": "AGPL-3.0-or-later",
   "engines": {
@@ -9,9 +10,9 @@
   "scripts": {
     "typecheck": "tsc -p . && tsc -p tsconfig.test.json",
     "build": "npm run typecheck && node scripts/build.mjs",
-    "test:native": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --test-timeout=15000 \"test/native/*.test.ts\"",
-    "test": "npm run build && npm run test:native && npm run test:ui && node test/run-backend-tests.js && node test/run-focus-tests.js",
-    "test:ui": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --test-timeout=60000 \"test/ui/*.test.ts\""
+    "test:native": "node --test --test-timeout=15000 \"test/native/*.test.ts\"",
+    "test": "npm run build && npm run test:native && npm run test:ui",
+    "test:ui": "node --test --test-timeout=60000 \"test/ui/*.test.ts\""
   },
   "devDependencies": {
     "@types/node": "26.6.6",

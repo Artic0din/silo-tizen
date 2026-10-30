@@ -57,7 +57,7 @@ export class Skyline {
     private immediatePreview = true;
     private readonly container: HTMLElement;
     private readonly clock: Clock;
-    private readonly activate: (target: "home" | "search" | UserLibrary, mode?: LibraryMode) => void;
+    private readonly activate: (target: "home" | "search" | "calendar" | UserLibrary, mode?: LibraryMode) => void;
     private readonly profiles: ProfileMenu;
     private readonly refresh: () => void;
     private readonly storage: PublicStorage | undefined;
@@ -67,7 +67,7 @@ export class Skyline {
     constructor(
         container: HTMLElement,
         clock: Clock,
-        activate: (target: "home" | "search" | UserLibrary, mode?: LibraryMode) => void,
+        activate: (target: "home" | "search" | "calendar" | UserLibrary, mode?: LibraryMode) => void,
         profiles: ProfileMenu,
         refresh: () => void,
         storage: PublicStorage | undefined,
@@ -98,7 +98,7 @@ export class Skyline {
 
     update(libraries: readonly UserLibrary[]): void {
         this.libraries = libraries;
-        const keys = ["home", ...(["movies", "series"] as const).filter((type) => this.forType(type).length > 0), "search", "profiles"];
+        const keys = ["home", ...(["movies", "series"] as const).filter((type) => this.forType(type).length > 0), "search", "profiles", "calendar"];
         if (this.items.map((item) => item.key).join(":") === keys.join(":")) return;
         this.items = [actionButton("home", "Home", () => this.commit("home"))];
         for (const type of ["movies", "series"] as const) {
@@ -110,7 +110,7 @@ export class Skyline {
             item.element.setAttribute("aria-haspopup", "menu");
             this.items.push(item);
         }
-        this.items.push(actionButton("search", "", () => this.commit("search")), actionButton("profiles", this.profiles.name.slice(0, 1).toUpperCase(), () => this.openProfile()));
+        this.items.push(actionButton("search", "", () => this.commit("search")), actionButton("profiles", this.profiles.name.slice(0, 1).toUpperCase(), () => this.openProfile()), actionButton("calendar", "Calendar", () => this.commit("calendar")));
         const search = this.items.find((item) => item.key === "search");
         search?.element.setAttribute("aria-label", "Search");
         search?.element.classList.add("skyline-search");
@@ -118,9 +118,9 @@ export class Skyline {
         profiles?.element.setAttribute("aria-label", "Profiles");
         profiles?.element.classList.add("skyline-profile");
         profiles?.element.setAttribute("aria-haspopup", "menu");
-        for (const item of this.items.slice(0, -2)) item.element.setAttribute("role", "tab");
-        replaceNodes(this.tabs, this.items.slice(0, -2).map((item) => item.element));
-        replaceNodes(this.tools, this.items.slice(-2).map((item) => item.element));
+        for (const item of this.items.slice(0, -3)) item.element.setAttribute("role", "tab");
+        replaceNodes(this.tabs, this.items.slice(0, -3).map((item) => item.element));
+        replaceNodes(this.tools, this.items.slice(-3).map((item) => item.element));
     }
 
     private forType(type: VideoTab): readonly UserLibrary[] {
@@ -137,7 +137,7 @@ export class Skyline {
 
     setLibraryModes(modes: readonly LibraryMode[]): void { this.libraryModes = modes; }
 
-    private commit(target: "home" | "search" | UserLibrary, mode?: LibraryMode): void {
+    private commit(target: "home" | "search" | "calendar" | UserLibrary, mode?: LibraryMode): void {
         if (typeof target !== "string") {
             const type = this.panelTab ?? (target.type === "series" ? "series" : "movies");
             this.scopes.set(type, target.id);

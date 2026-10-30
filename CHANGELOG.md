@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Updated Calendar's Today state at local midnight and refreshed retained weeks after watched, favorites, watchlist and playback changes.
 - Preserved the expanded Home row's page and card after playback interrupted a pending page turn.
 - Restored playback focus after a media button cancelled a seek preview so the controls could hide again.
 - Preserved navigation during slow personal-list loads and refreshed covered personal lists after membership changes in another list.
@@ -14,6 +15,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a weekly catalog Calendar with Following, Trending and All filters, release and episode shelves, and context-preserving Details navigation.
 - Added separate profile-saved video rewind and fast-forward intervals across player buttons, seek previews and dedicated remote keys.
 - Added Home row expansion with bounded pages and direct Continue Watching resume, while omitting featured rows and folding existing recommendations after Continue Watching.
 - Added server-provided JPEG thumbnails during seek previews, with timestamp seeking retained when previews are unavailable.

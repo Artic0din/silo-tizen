@@ -1,6 +1,6 @@
 # Tests
 
-`npm test` runs the build, the native session and playback tests, the sign-in, profile and player screen tests, the adapter tests and the browse focus tests.
+`npm test` runs the build, the native session, browse contract and playback tests, the native sign-in, profile, browse and player screen tests, the adapter tests and the legacy browse focus and layout tests.
 It needs Node.js 26 or later, the version CI tests.
 The browse Playwright tests serve the staged package in `dist/wgt/`, so run `npm run build` before running them directly.
 Desktop Chromium is not Chromium 76; these runs do not prove 2021 TV rendering.
@@ -32,6 +32,11 @@ Other hosts fail as unreachable.
 Playwright's fake clock and the fake server's clock move together, so polling, expiry and retry waits need no real waiting.
 The tests press remote keys and check what the screen shows and where focus is.
 
+`test/ui/browse.test.ts` does the same for the native browse screens with `test/ui/browseHarness.ts`.
+The harness signs in through the real device-code flow and selects a profile through the real `Profiles`.
+`test/native/support/fakeCatalog.ts` adds a household to the fake Silo: an owner and a PIN-locked child profile whose library access the fake applies server-side, synthetic titles, cursor paging and search.
+The fake serves synthetic SVG artwork from `/art/`; other image hosts fail, which exercises the placeholders.
+
 ## Native player
 
 `test/native/playback.test.ts` runs the playback controller against the fake Silo's playback operations (`support/fakePlayback.ts`) and a fake AVPlay (`support/fakeAVPlay.ts`) that enforces the documented call states and retains uncancellable callbacks.
@@ -45,7 +50,6 @@ Neither proves AVPlay media authentication or playback on a TV.
 
 The Gitleaks configuration keeps the default rules and excludes only the exact synthetic subtitle-path hash in the pinned public playback fixture.
 The same value in another file, or another value in that fixture, remains subject to scanning.
-
 ## Backend adapter (Node only)
 
 ```bash
@@ -65,7 +69,7 @@ node test/run-ui-screenshots.js
 
 Screenshots are written to `SCREENSHOT_DIR`, or `os.tmpdir()/silo-screenshots` when unset.
 
-## Browse focus navigation (Playwright)
+## Browse focus and layout (Playwright)
 
 ```bash
 npm ci
@@ -73,6 +77,11 @@ npx playwright install chromium
 npm run build
 node test/run-focus-tests.js
 ```
+
+The run serves `app.css` without the CSS that Chromium 76 drops or ignores: `aspect-ratio`, `inset`, and `gap` in flex containers.
+It also makes `inset` and `aspectRatio` assignments through `element.style` do nothing, and removes inline flex `gap` from the exit dialog after it opens.
+It then checks form and tile spacing and 2:3 posters on the sign-in, home, details and library screens, and that the exit dialog covers the screen with its buttons 32px apart.
+This simulates only those three features in desktop Chromium; it is not a Chromium 76 run and does not check other CSS or JavaScript support.
 
 ## Static checks
 

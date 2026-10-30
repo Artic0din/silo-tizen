@@ -1021,7 +1021,11 @@
         overlay.setAttribute("aria-modal", "true");
         overlay.setAttribute("aria-labelledby", "exit-dialog-title");
         overlay.style.position = "fixed";
-        overlay.style.inset = "0";
+        // Chromium 76 (2021 TVs) has no `inset`.
+        overlay.style.top = "0";
+        overlay.style.right = "0";
+        overlay.style.bottom = "0";
+        overlay.style.left = "0";
         overlay.style.zIndex = "10";
         overlay.style.display = "flex";
         overlay.style.alignItems = "center";
@@ -1053,13 +1057,14 @@
 
         var actions = document.createElement("div");
         actions.style.display = "flex";
-        actions.style.gap = "32px";
         actions.style.justifyContent = "center";
 
         var yesButton = makeButton("exit-dialog-yes", "Yes");
         var noButton = makeButton("exit-dialog-no", "No");
         styleFocusableButton(yesButton);
         styleFocusableButton(noButton);
+        // Margin instead of flex gap, which Chromium 76 ignores.
+        noButton.style.marginLeft = "32px";
 
         yesButton.addEventListener("click", exitApp);
         noButton.addEventListener("click", closeExitDialog);

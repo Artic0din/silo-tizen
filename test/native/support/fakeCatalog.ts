@@ -92,13 +92,17 @@ export class FakeCatalog implements CatalogRoutes {
         this.failures.set(pathname, [...(this.failures.get(pathname) ?? []), ...replies]);
     }
 
-    route(method: string, path: string, profileId: string | undefined): Reply | undefined {
+    route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): Reply | undefined {
         const url = new URL(path, "https://fake.invalid");
         const failure = this.failures.get(url.pathname)?.shift();
         if (failure !== undefined) {
             return failure;
         }
         const household = profileId === undefined ? undefined : this.households.get(profileId);
+        if (household !== undefined) {
+            const discovery = this.discoveryRoute(household, method, url, body);
+            if (discovery !== undefined) return discovery;
+        }
         if (method !== "GET" || household === undefined) {
             return household === undefined ? problem(400, "profile_header_required", "Profile header required") : undefined;
         }
@@ -124,6 +128,41 @@ export class FakeCatalog implements CatalogRoutes {
             return this.page(household, params);
         }
         return this.detailRoutes(household, pathname);
+    }
+
+    private discoveryRoute(household: Household, method: string, url: URL, body: Record<string, unknown> | undefined): Reply | undefined {
+        if (url.pathname === "/catalog/search/capabilities") return { status: 200, body: fixture("get_catalog_search_capabilities_ok") };
+        if (url.pathname === "/catalog/filters") return { status: 200, body: { ...fixture("get_catalog_filters_ok"), genres: ["Drama", "Comedy"] } };
+        const library = /^\/library\/([^/]+)\/(sections|collections)(?:\/([^/]+)\/items)?$/.exec(url.pathname);
+        const id = library?.[1] ?? (typeof body?.library_id === "string" ? body.library_id : undefined);
+        if (id === undefined) return undefined;
+        if (!household.libraries.some(item => item.id === id)) return problem(404, "not_found", "Not found");
+        const titles = [...this.titles.values()].filter(title => title.libraryId === id && this.visible(household, title.id) && (title.type === "movie" || title.type === "series"));
+        if (library?.[2] === "sections" && method === "GET") {
+            const section = { id: "library-picks", section_type: "recently_added", title: "Library Picks", total_count: titles.length, items: titles.slice(0, 24).map(title => this.card(title.id)) };
+            return { status: 200, body: library[3] === undefined ? { sections: titles.length === 0 ? [] : [section] } : section };
+        }
+        if (library?.[2] === "collections" && library[3] === undefined) {
+            if (titles.length === 0) return { status: 200, body: { library_id: id, collections: [], groups: [], ungrouped: { sort_order: 1, collections: [] } } };
+            const collection = { id: "highlights", library_id: id, library_ids: [id], group_id: "curated", title: "Library Highlights", poster_url: "", item_count: titles.length, poster_is_collage: false };
+            return { status: 200, body: { library_id: id, collections: [collection], groups: [{ id: "curated", name: "Curated", kind: "admin", sort_mode: "name_asc", sort_order: 0, collections: [collection] }], ungrouped: { sort_order: 1, collections: [] } } };
+        }
+        if (url.pathname === "/catalog/letters") {
+            const sorted = [...titles].sort((a, b) => a.title.localeCompare(b.title));
+            const letters = [...new Set(sorted.map(title => title.title[0] ?? "#"))].map(letter => ({ letter, count: sorted.filter(title => title.title.startsWith(letter)).length, position: sorted.findIndex(title => title.title.startsWith(letter)) }));
+            return { status: 200, body: { total: titles.length, letters, runs: letters.map(({ letter, position }) => ({ letter, position })) } };
+        }
+        if (url.pathname !== "/catalog/query" && library?.[3] === undefined) return undefined;
+        const descending = body?.order === "desc";
+        const ordered = [...titles].sort((a, b) => a.title.localeCompare(b.title));
+        if (descending) ordered.reverse();
+        const groups = body?.groups;
+        const filtered = Array.isArray(groups) && JSON.stringify(groups).includes('"Comedy"') ? [] : ordered;
+        const cursor = body?.cursor ?? url.searchParams.get("cursor");
+        const offset = typeof body?.seek === "number" ? body.seek : typeof cursor === "string" && cursor.startsWith("cursor-") ? Number(cursor.slice(7)) : 0;
+        const limit = typeof body?.limit === "number" ? body.limit : Number(url.searchParams.get("limit") ?? 24);
+        const more = offset + limit < filtered.length;
+        return { status: 200, body: { window_cursor: "window", effective_sort: { field: body?.sort ?? "title", order: body?.order ?? "asc" }, items: filtered.slice(offset, offset + limit).map(title => this.card(title.id)), total: filtered.length, total_exact: true, page: more ? { has_more: true, next_cursor: `cursor-${offset + limit}` } : { has_more: false } } };
     }
 
     private detailRoutes(household: Household, pathname: string): Reply | undefined {

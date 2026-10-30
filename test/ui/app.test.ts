@@ -235,7 +235,7 @@ appTest("library scope survives a full app remount for the same server and profi
     await tv.page.locator('[data-view="home"]').waitFor();
     await tv.page.locator('[data-focus="movies"]').click();
     await tv.page.locator('[data-view="library:15"]').waitFor();
-    assert.equal(await tv.page.locator('.skyline-scope').innerText(), "Archive");
+    assert.equal(await tv.page.locator('.browse .skyline-scope').innerText(), "Archive");
 });
 
 appTest("the profile menu opens without changing content, stays dismissed after Back and signs out through its owner", async (tv) => {

@@ -7,8 +7,10 @@ import { SessionError } from "../session/session.ts";
 import type { FocusTarget, View } from "./browseFocus.ts";
 import { itemView, seasonView } from "./browseDetails.ts";
 import type { PlayRequest } from "./browseModel.ts";
-import { actionButton, homeView, libraryView, pagedGrid, type SearchResults, searchView, statusView, type ViewContext } from "./browseViews.ts";
+import { actionButton, homeView, pagedGrid, type SearchResults, searchView, statusView, type ViewContext } from "./browseViews.ts";
 import { el } from "./screen.ts";
+import { discoveryState, type DiscoveryState, type LibraryMode, type LibrarySource } from "./libraryDiscovery.ts";
+import { discoveryView, resultsView } from "./libraryDiscoveryViews.ts";
 
 /** Cards per catalog page: four grid rows. Only the shown page is kept. */
 export const PAGE_SIZE = 24;
@@ -22,7 +24,8 @@ export interface Pages {
 
 export type RouteData =
     | { readonly kind: "home"; data: { libraries: UserLibrary[]; sections: HomeSection[] } | undefined }
-    | { readonly kind: "library"; readonly library: UserLibrary; readonly pages: Pages }
+    | { readonly kind: "library"; readonly library: UserLibrary; pages: Pages; discovery?: DiscoveryState }
+    | { readonly kind: "libraryResults"; readonly library: UserLibrary; readonly title: string; readonly source: LibrarySource; pages: Pages; descending: boolean }
     /** `resultsFor`: the query the shown page answers, which typing can move ahead of. */
     | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string }
     | { readonly kind: "item"; readonly id: string; readonly title: string; data: { detail: ItemDetail; seasons: Season[] } | undefined }
@@ -48,6 +51,8 @@ export function newPages(): Pages {
 export function hasData(current: Route): boolean {
     switch (current.kind) {
         case "library":
+            return current.discovery?.data !== undefined && (!(current.discovery.mode === "A–Z" || current.discovery.mode === "Recently Added" || current.discovery.genre !== undefined) || current.pages.page !== undefined);
+        case "libraryResults":
             return current.pages.page !== undefined;
         case "search":
             return current.pages?.page !== undefined;
@@ -70,12 +75,20 @@ export interface RouteHandlers {
     readonly chooseProfile: () => void;
     readonly retry: (route: Route) => void;
     readonly turn: (route: Route, pages: Pages, step: -1 | 1) => void;
+    readonly mode: (route: Extract<Route, { kind: "library" }>, mode: LibraryMode) => void;
+    readonly jump: (route: Extract<Route, { kind: "library" }>, letter: string, position: number) => void;
+    readonly sort: (route: Extract<Route, { kind: "libraryResults" | "library" }>) => void;
+    readonly genre: (route: Extract<Route, { kind: "library" }>, name: string | undefined) => void;
 }
 
 export function routeView(current: Route, handlers: RouteHandlers): View {
     const { context, pop } = handlers;
     const back = current.kind === "home" ? undefined : pop;
     const escape = back === undefined ? actionButton("profiles", "Profiles", handlers.chooseProfile) : actionButton("back", "Back", back);
+    if (current.kind === "library") {
+        current.discovery ??= discoveryState();
+        return discoveryView(current, current.discovery, handlers);
+    }
     if (current.kind === "search") {
         return searchView(handlers.searchHead, handlers.input, searchResults(current, handlers), pop);
     }
@@ -92,9 +105,9 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
                 });
             }
             break;
-        case "library":
+        case "libraryResults":
             if (current.pages.page !== undefined) {
-                return withNote(libraryView(current.library, grid(current, current.pages, current.pages.page, handlers), pop, handlers.focusDefault), current.failure);
+                return resultsView(current, grid(current, current.pages, current.pages.page, handlers), handlers);
             }
             break;
         case "item":

@@ -522,6 +522,9 @@ export class PlaybackController implements PlayerControls {
             return;
         }
         attempt.hidden = false;
+        if (this.shownError !== undefined) {
+            return;
+        }
         attempt.restoring = true;
         this.showLoading(attempt, "restoring");
         const generation = attempt.resumeGeneration + 1;
@@ -1530,11 +1533,12 @@ export class PlaybackController implements PlayerControls {
         }
         const generation = recovery.generation;
         const sessionId = attempt.sessionId;
+        const step = recovery.step;
         const current = (): boolean => this.attempt === attempt && attempt.live && recovery.active && recovery.generation === generation && attempt.sessionId === sessionId;
         attempt.recoveryPending = true;
         recovery.beginAttempt();
         try {
-            if (recovery.step === "start") {
+            if (step === "start") {
                 await this.recoveryStart(attempt, current);
                 return;
             }
@@ -1565,7 +1569,7 @@ export class PlaybackController implements PlayerControls {
                 return;
             }
             if (!unanswered(error)) attempt.recoverySpec = undefined;
-            const verdict = recoveryVerdict(error, recovery.step);
+            const verdict = recoveryVerdict(error, step);
             if (verdict.kind === "start_new_session") {
                 attempt.retirePredecessor = !(error instanceof ApiError && error.status === 404);
             }
@@ -1755,7 +1759,7 @@ export class PlaybackController implements PlayerControls {
         if (attempt.installationId === undefined) return;
         const current = (): boolean => attempt.live && attempt.resumeGeneration === generation && this.attempt === attempt;
         const gate = await this.revalidate(attempt);
-        if (!current()) {
+        if (!current() || this.shownError !== undefined) {
             return;
         }
         attempt.hidden = false;

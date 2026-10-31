@@ -175,6 +175,66 @@ for (const replacement of [false, true]) test(`server cooldown delays recovery $
     r.controller.destroy();
 });
 
+for (const restoring of [false, true]) test(`foreground return preserves recovery exhaustion ${restoring ? "during validation" : "while hidden"} until explicit Retry`, async () => {
+    const r = await rig();
+    const id = await play(r);
+    const path = `/playback/${id}/replan`;
+    r.h.fake.script(path, ...Array.from({ length: 12 }, () => ({ status: 503 })));
+    r.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
+    const delays = [1000, 2000, 4000, 8000, ...Array<number>(8).fill(15000)];
+    for (const delay of delays.slice(0, -1)) await r.h.clock.advance(delay);
+    const held = r.h.fake.hold(path, true);
+    await r.h.clock.advance(15000);
+    assert.equal(replans(r.h).length, 12);
+    r.controller.suspend();
+    const validation = restoring ? r.h.fake.hold("/playback/capabilities", true) : undefined;
+    if (restoring) {
+        r.controller.restore();
+        await r.h.clock.advance(0);
+    }
+    held.release();
+    await r.h.clock.advance(0);
+    assert.equal(last(r.views).phase, "error");
+    validation?.release();
+    r.controller.restore();
+    await r.h.clock.advance(60000);
+    const view = last(r.views);
+    assert.equal(view.phase, "error", "show must retain the exhausted error");
+    assert.equal(view.phase === "error" && view.retryable, true);
+    assert.equal(replans(r.h).length, 12, "show cannot reset the exhausted budget");
+    r.controller.retryCompletion();
+    await resumePlan(r);
+    assert.equal(replans(r.h).length, 13);
+    assert.equal(r.avplay.state, "PLAYING");
+    r.controller.destroy();
+});
+
+test("a pending replan 404 keeps its operation when progress also reports a missing session", async () => {
+    const r = await rig();
+    const old = await play(r);
+    const progress = r.h.fake.hold(`/playback/${old}/progress`, true);
+    r.h.fake.script(`/playback/${old}/progress`, { status: 404 });
+    r.avplay.tick(32000);
+    await r.h.clock.advance(10000);
+    r.server.sessions.delete(old);
+    const replan = r.h.fake.hold(`/playback/${old}/replan`, true);
+    r.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
+    await r.h.clock.advance(1000);
+    assert.equal(replans(r.h).length, 1);
+    progress.release();
+    await r.h.clock.advance(0);
+    replan.release();
+    await r.h.clock.advance(0);
+    assert.equal(starts(r.h), 2, "the replan 404 must start one replacement");
+    await resumePlan(r);
+    assert.equal(r.avplay.state, "PLAYING");
+    const successor = [...r.server.sessions.keys()].pop();
+    assert.ok(successor !== undefined && successor !== old);
+    r.controller.back();
+    await r.h.clock.advance(0);
+    assert.notEqual(r.server.session(successor).receipt, undefined);
+});
+
 test("manual retry retains the last server cooldown after automatic exhaustion", async () => {
     const r = await rig();
     const id = await play(r);

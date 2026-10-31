@@ -88,6 +88,7 @@ Contracts were checked against [server cc85149](https://github.com/Silo-Server/s
 Visibility hide suspends the active AVPlay pipeline and cancels its timers.
 Show rechecks capabilities, installation, profile authority and media authorization before restoring playback.
 Preparing transports cannot play while that foreground check is pending; obsolete restore callbacks cannot bypass a newer check.
+Play and pause during that check keep the latest intent and do not call AVPlay or show transport controls until restoration finishes.
 Visibility changes keep an in-flight recovery request serialized; its accepted plan waits for foreground validation before opening a transport.
 An initial capability read establishes authority before foreground restoration compares installation identities.
 Hiding during a local seek defers native suspension until that seek settles, retaining its actual resulting position.

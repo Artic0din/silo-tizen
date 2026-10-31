@@ -652,6 +652,29 @@ test("returning during an outage resumes the bounded reconnect timer", async () 
     r.controller.destroy();
 });
 
+test("play during foreground restoration waits for the suspended pipeline", async () => {
+    const r = await rig();
+    await play(r);
+    r.controller.setPaused(true);
+    r.controller.suspend();
+    const plays = r.avplay.calls.filter((call) => call === "play").length;
+    const gate = r.h.fake.hold("/playback/capabilities", true);
+    r.controller.restore();
+    await r.h.clock.advance(0);
+    assert.equal(last(r.views).phase, "loading");
+    r.controller.setPaused(false);
+    assert.equal(r.avplay.calls.filter((call) => call === "play").length, plays, "play must not resume the suspended pipeline");
+    assert.equal(last(r.views).phase, "loading", "transport controls stay hidden until restoration finishes");
+    assert.equal(r.avplay.calls.filter((call) => call.startsWith("restoreAsync")).length, 0);
+    gate.release();
+    await r.h.clock.advance(0);
+    r.avplay.finishRestore();
+    await r.h.clock.advance(0);
+    assert.equal(r.avplay.state, "PLAYING");
+    assert.equal(last(r.views).phase, "playing");
+    r.controller.destroy();
+});
+
 test("a second hide fences a pending foreground capability check", async () => {
     const r = await rig();
     await play(r);

@@ -368,6 +368,10 @@ export class PlaybackController implements PlayerControls {
         if (attempt === undefined || !attempt.started || (attempt.busy && !(attempt.change.state === "changing" && attempt.change.kind === "quality")) || attempt.paused === paused) {
             return;
         }
+        if (attempt.hidden || attempt.restoring) {
+            attempt.paused = paused;
+            return;
+        }
         try {
             if (paused) {
                 this.deps.avplay.pause();

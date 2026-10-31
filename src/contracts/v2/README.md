@@ -107,6 +107,13 @@ Playback capability `features` is retained for the independent `trickplay_v1` ga
 Signed JPEG URLs bypass the authenticated API transport and remain unchanged.
 See [seek thumbnails](../../../docs/seek-thumbnails.md) for lifecycle and browser proof limits.
 
+## Person hero
+
+`decodePerson` reads optional `photo_thumbhash` from the pinned Person schema.
+A present non-string fails the person read. Absence stays absent, and an empty string is preserved for the portrait to ignore.
+Birth and death dates stay calendar strings. The hero formats valid `YYYY-MM-DD` values and leaves any other text unchanged.
+See [person hero](../../../docs/person-hero.md).
+
 ## Updating the pinned contract
 
 1. Pick the new server commit and copy the same fixture names from its `contracts/api/v2/fixtures/`.

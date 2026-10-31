@@ -34,6 +34,6 @@ Shared additions are the `person` query source, optional `person_id`, `personFil
 No new fetch, router, cache, auth or player owner is introduced.
 
 This bounded journey does not complete Person parity or issue 28.
-Metadata enrichment dispatch/polling, age, initials and thumbhash parity remain separate work.
+Age, initials, and the photo thumbhash are the separate [person hero](person-hero.md). Metadata enrichment dispatch and polling remain separate work.
 No explicit RefreshPerson POST is sent automatically.
 Synthetic desktop tests and captures do not prove a live backend, Chromium 76 runtime, AVPlay, signed WGT, emulator or real TV.

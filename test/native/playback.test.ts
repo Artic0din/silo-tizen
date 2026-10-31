@@ -15,6 +15,28 @@ import { operations } from "../../src/api/operations.ts";
 import { connected, type Harness, signIn } from "./support/harness.ts";
 
 const MOVIE: PlayRequest = { contentId: "movie-1", fileId: "42", title: "Movie", startSeconds: 12.5 };
+
+test("sidecar subtitles apply profile appearance and timing without blocking playback on failure", async () => {
+    for (const fail of [false, true]) {
+        const r = await rig();
+        r.server.next.push({ subtitle: 0, subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/captions?token=synthetic`, format: "vtt", timing_origin_seconds: 0 } });
+        r.h.fake.script("/captions?token=synthetic", fail ? { status: 404 } : { status: 200, text: "WEBVTT\n\n00:12.000 --> 00:14.000\nHello" });
+        r.h.fake.script("/settings/subtitle-appearance/effective", { status: 200, body: { profile_id: "p-owner", effective_value: JSON.stringify({ fontSize: "xxlarge", position: "top" }) } });
+        r.h.fake.script("/settings/values/effective?keys=player.subtitle_sync_ms", { status: 200, body: { items: [{ key: "player.subtitle_sync_ms", value: 1000 }] } });
+        await playMovie(r);
+        r.avplay.tick(12500);
+        let view = last(r.views);
+        assert.ok(view.phase === "playing");
+        assert.equal(view.captions?.text, "");
+        r.avplay.tick(13500);
+        view = last(r.views);
+        assert.ok(view.phase === "playing");
+        assert.equal(view.captions?.text, fail ? "" : "Hello");
+        if (!fail) assert.equal(view.captions?.appearance.fontSize, "xxlarge");
+        else assert.ok(view.tracks.notices.some(notice => notice.includes("Could not load")));
+        r.controller.destroy();
+    }
+});
 const BOUNDED_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -914,6 +936,28 @@ test("autoplay stops at the series end and never starts after failed resolution"
         assert.equal(completion(r).countdown, undefined);
         assert.equal(completion(r).state, mode === "end" ? "ready" : "failed");
         assert.equal(bodies(r.h, "/start").length, 1);
+        r.controller.destroy();
+    }
+});
+
+test("series subtitle choice persists the server index or explicit Off without interrupting playback", async () => {
+    for (const off of [true, false]) {
+        const r = await episodeRig();
+        if (!off) r.server.next.push({ subtitle: 4 });
+        r.h.fake.script("/subtitle-prefs/series%3As1", { status: 204 });
+        await playMovie(r, EPISODE);
+        r.controller.saveSeriesSubtitle();
+        r.controller.saveSeriesSubtitle();
+        await r.h.clock.advance(0);
+        const writes = r.h.fake.requests.filter(request => request.path.startsWith("/subtitle-prefs/"));
+        assert.equal(writes.length, 1);
+        assert.equal(writes[0]?.headers["x-profile-id"], "p-owner");
+        assert.equal(writes[0]?.body?.subtitle_track_index, off ? -1 : 4);
+        assert.equal(writes[0]?.body?.subtitle_mode, off ? "off" : "always");
+        if (off) assert.equal(writes[0]?.body?.show_forced_subtitles, false);
+        const view = last(r.views);
+        assert.ok(view.phase === "playing");
+        assert.equal(view.tracks.seriesSubtitle?.message, "Subtitle choice saved for this series.");
         r.controller.destroy();
     }
 });

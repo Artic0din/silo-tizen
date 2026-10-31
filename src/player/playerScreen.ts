@@ -15,6 +15,7 @@ import { el } from "../ui/screen.ts";
 import type { AVPlay } from "./avplay.ts";
 import { type PlaybackError, type PlaybackExits, PlaybackController, type PlaybackView, type PlayerControls, type PlayRequest, type TrackView } from "./controller.ts";
 import { mountSeekThumbnail } from "./seekThumbnailView.ts";
+import { mountSubtitles } from "./subtitleView.ts";
 
 /** While playing, the overlay hides this long after the last key. */
 const OVERLAY_MS = 5000;
@@ -65,6 +66,7 @@ function loadingText(detail: "reconnecting" | "restoring" | undefined): string {
 }
 
 const OFF = "subtitles-off";
+const SERIES_SUBTITLE = "series-subtitles";
 const RETRY = "audio-retry";
 
 function changeText(tracks: TrackView): string {
@@ -115,6 +117,11 @@ function fillSubtitles(list: HTMLElement, tracks: TrackView): void {
     for (const track of tracks.subtitles) {
         list.appendChild(choice(track.id, track.label, track.id === tracks.selectedSubtitleId));
     }
+    if (tracks.seriesSubtitle !== undefined) {
+        const save = choice(SERIES_SUBTITLE, tracks.selectedSubtitleId === undefined ? "Keep subtitles off for this series" : "Use this subtitle choice for this series", false);
+        save.setAttribute("aria-disabled", String(tracks.seriesSubtitle.busy));
+        list.appendChild(save);
+    }
 }
 
 function fillQuality(list: HTMLElement, tracks: TrackView): void {
@@ -139,6 +146,7 @@ export function clockText(seconds: number): string {
 
 export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, clock: Clock = systemClock): PlayerScreen {
     const section = el("section", "player");
+    const renderSubtitles = mountSubtitles(section);
     section.setAttribute("data-screen", "player");
     const surface = document.createElement("object");
     surface.type = "application/avplayer";
@@ -276,7 +284,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                     button.setAttribute("aria-disabled", String(tracks.change.state === "changing"));
                 }
             }
-            menuStatus.textContent = changeText(tracks);
+            menuStatus.textContent = [changeText(tracks), tracks.seriesSubtitle?.message].filter(Boolean).join(" ");
             const same = keep === null ? undefined : buttons(column).find((button) => button.getAttribute("data-focus") === keep);
             if (same !== undefined) {
                 same.focus();
@@ -292,6 +300,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     };
 
     const render = (): void => {
+        renderSubtitles(view);
         const active = view.phase === "playing" || view.phase === "paused";
         if (!active) seekPreview = undefined;
         const marker = view.phase === "playing" || view.phase === "paused" ? view.skipMarker : undefined;
@@ -399,6 +408,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                 controls.retryTrackInfo();
             } else if (id === OFF) {
                 controls.selectSubtitle(undefined);
+            } else if (id === SERIES_SUBTITLE) {
+                controls.saveSeriesSubtitle();
             } else if (id !== null) {
                 if (column === 0) {
                     controls.selectAudio(id);

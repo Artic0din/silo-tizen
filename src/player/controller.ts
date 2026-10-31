@@ -30,6 +30,7 @@ import { AUTO_NEXT_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KE
 import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
 import { markerAt, type SkipMarker } from "../contracts/v2/markers.ts";
 import { nextEpisode } from "./nextEpisode.ts";
+import { DEFAULT_APPEARANCE, decodeCues, type SubtitleAppearance, type SubtitleCue } from "../contracts/v2/subtitles.ts";
 import { PlaybackRecovery, recoveryVerdict, type RecoveryStep, type RecoveryVerdict, unanswered } from "./playbackRecovery.ts";
 
 /** What browse hands over: one file of one catalog item. */
@@ -86,6 +87,7 @@ export type TrackChange =
     | { readonly state: "failed" };
 
 export interface TrackView {
+    readonly seriesSubtitle?: { readonly busy: boolean; readonly message: string } | undefined;
     readonly quality?: { readonly choices: readonly TrackChoice[]; readonly selectedId: string | undefined };
     readonly audio: AudioTracks;
     readonly selectedAudioId: string | undefined;
@@ -110,6 +112,7 @@ export type PlaybackView =
           readonly tracks: TrackView;
           readonly seekIntervals: { readonly backward: number; readonly forward: number };
           readonly previewKey?: string | undefined;
+          readonly captions?: { readonly text: string; readonly appearance: SubtitleAppearance } | undefined;
           readonly skipMarker?: SkipMarker | undefined;
       }
     | { readonly phase: "error"; readonly title: string; readonly error: PlaybackError; readonly retryable?: boolean }
@@ -140,6 +143,7 @@ export interface PlayerControls {
     retryCompletion(): void;
     playNext(): void;
     cancelAutoplay(): void;
+    saveSeriesSubtitle(): void;
     seekThumbnail(seconds: number, signal: AbortSignal, loadSheet: ThumbnailSheetLoader): Promise<SeekThumbnail | undefined>;
 }
 
@@ -174,6 +178,13 @@ const WARNING_NOTICES: Readonly<Record<string, string>> = {
 
 interface Attempt {
     autoNext: boolean;
+    appearance: SubtitleAppearance;
+    subtitleSync: number;
+    cues: readonly SubtitleCue[];
+    captionAbort: AbortController | undefined;
+    captionNotice: string;
+    captionPreferenceNotice: string;
+    seriesSubtitle: { readonly busy: boolean; readonly message: string } | undefined;
     readonly request: PlayRequest;
     playbackAttemptId: string;
     /** The session's authority signal when the attempt began. */
@@ -294,6 +305,7 @@ export class PlaybackController implements PlayerControls {
         this.shownError = undefined;
         const attempt: Attempt = {
             autoNext: false,
+            appearance: DEFAULT_APPEARANCE, subtitleSync: 0, cues: [], captionAbort: undefined, captionNotice: "", captionPreferenceNotice: "", seriesSubtitle: request.episode ? { busy: false, message: "" } : undefined,
             request,
             playbackAttemptId: this.newId(),
             signal: this.deps.session.authoritySignal,
@@ -586,6 +598,28 @@ export class PlaybackController implements PlayerControls {
         }
         const audio = plan.selectedTracks.audio;
         this.changeTracks(attempt, plan, { ...(audio === undefined ? {} : { audio }), ...(trackId === undefined ? {} : { subtitle: { id: trackId } }) });
+    }
+
+    saveSeriesSubtitle(): void {
+        const attempt = this.changeable();
+        const plan = attempt?.plan;
+        if (attempt === undefined || plan === undefined || attempt.seriesSubtitle === undefined || attempt.seriesSubtitle.busy) return;
+        const track = plan.subtitle.inventory.find(track => track.trackId === selectedSubtitle(plan));
+        const current = (): boolean => attempt.live && this.attempt === attempt && !attempt.signal.aborted;
+        attempt.seriesSubtitle = { busy: true, message: "Saving series subtitles…" };
+        this.showPlayback(attempt);
+        void (async () => {
+            try {
+                const detail = await this.deps.session.call({ ...operations.watchDetail(attempt.request.contentId), profileScoped: true, signal: attempt.signal });
+                if (!current()) return;
+                if (detail.id !== attempt.request.contentId || detail.seriesId === undefined) throw new Error("Series unavailable");
+                await this.deps.session.call({ ...operations.saveSeriesSubtitle(detail.seriesId, track), profileScoped: true, signal: attempt.signal });
+                if (current()) attempt.seriesSubtitle = { busy: false, message: "Subtitle choice saved for this series." };
+            } catch {
+                if (current()) attempt.seriesSubtitle = { busy: false, message: "Could not confirm the series subtitle choice. Check the saved preference before trying again." };
+            }
+            if (current()) this.showPlayback(attempt);
+        })();
     }
 
     retryTrackInfo(): void {
@@ -938,6 +972,7 @@ export class PlaybackController implements PlayerControls {
 
     private adopt(attempt: Attempt, plan: PlaybackPlan, serverFeatures: readonly string[]): void {
         this.clearThumbnails(attempt);
+        this.readCaptions(attempt, plan);
         attempt.plan = plan;
         this.readMarkers(attempt, plan.effectiveMediaFileId);
         attempt.serverFeatures = serverFeatures;
@@ -956,6 +991,53 @@ export class PlaybackController implements PlayerControls {
         attempt.started = false;
         this.showLoading(attempt, attempt.resuming ? "reconnecting" : undefined);
         void this.open(attempt, plan);
+    }
+
+    private readCaptions(attempt: Attempt, plan: PlaybackPlan): void {
+        attempt.captionAbort?.abort();
+        const abort = new AbortController();
+        attempt.captionAbort = abort;
+        const cancel = (): void => abort.abort();
+        attempt.signal.addEventListener("abort", cancel, { once: true });
+        abort.signal.addEventListener("abort", () => attempt.signal.removeEventListener("abort", cancel), { once: true });
+        attempt.cues = [];
+        attempt.captionNotice = "";
+        attempt.captionPreferenceNotice = "";
+        attempt.appearance = DEFAULT_APPEARANCE;
+        attempt.subtitleSync = 0;
+        const artifact = plan.subtitle.artifact;
+        if ((plan.subtitle.mode !== "render" && plan.subtitle.mode !== "convert") || artifact === undefined) return;
+        attempt.captionNotice = "Loading subtitles…";
+        const current = (): boolean => attempt.live && !abort.signal.aborted && attempt.captionAbort === abort;
+        void (async () => {
+            try {
+                const base = this.deps.session.http.base;
+                const url = new URL(artifact.url.startsWith("/") ? base.baseUrl + artifact.url : artifact.url);
+                if (url.origin === base.origin && !url.searchParams.has("token")) url.searchParams.set("token", await this.deps.session.mediaToken(abort.signal));
+                const preferencesFailed = (): void => {
+                    if (!current()) return;
+                    attempt.captionPreferenceNotice = "Some subtitle preferences could not be loaded; using defaults.";
+                    this.showPlayback(attempt);
+                };
+                void this.deps.session.call({ ...operations.subtitleAppearance(attempt.profileId ?? ""), profileScoped: true, signal: abort.signal }).then(appearance => {
+                    if (!current()) return;
+                    attempt.appearance = appearance;
+                    this.showPlayback(attempt);
+                }, preferencesFailed);
+                void this.deps.session.call({ ...operations.subtitleSync(), profileScoped: true, signal: abort.signal }).then(sync => {
+                    if (!current()) return;
+                    attempt.subtitleSync = sync;
+                    this.showPlayback(attempt);
+                }, preferencesFailed);
+                const text = await this.deps.session.http.subtitleText(url.href, abort.signal);
+                if (!current()) return;
+                attempt.cues = decodeCues(text, artifact.format, artifact.origin);
+                attempt.captionNotice = "";
+            } catch {
+                if (current()) attempt.captionNotice = "Could not load these subtitles. Choose another track or turn subtitles off.";
+            }
+            if (current()) this.showPlayback(attempt);
+        })();
     }
 
     private async open(attempt: Attempt, plan: PlaybackPlan): Promise<void> {
@@ -1368,6 +1450,7 @@ export class PlaybackController implements PlayerControls {
 
     /** Leaves an attempt: no callback of it acts again. `stop` also ends its server session. */
     private leave(attempt: Attempt, how: "stop" | "abandon"): void {
+        attempt.captionAbort?.abort();
         if (!attempt.live) {
             return;
         }
@@ -2073,6 +2156,7 @@ export class PlaybackController implements PlayerControls {
             tracks: trackView(attempt, plan),
             seekIntervals: attempt.seekIntervals,
             previewKey: attempt.busy ? undefined : attempt.planAttemptId,
+            captions: attempt.hidden || attempt.restoring || attempt.busy ? undefined : { text: attempt.cues.filter(cue => attempt.sourceSeconds - attempt.subtitleSync / 1000 >= cue.start && attempt.sourceSeconds - attempt.subtitleSync / 1000 < cue.end).map(cue => cue.text).join("\n"), appearance: attempt.appearance },
             skipMarker: attempt.busy ? undefined : markerAt(attempt.markers?.segments ?? [], attempt.sourceSeconds),
         });
     }
@@ -2123,10 +2207,11 @@ function trackView(attempt: Attempt, plan: PlaybackPlan): TrackView {
         }
     }
     if (plan.subtitle.mode === "render" || plan.subtitle.mode === "convert") {
-        // This client declares no subtitle rendering, so it cannot draw a sidecar it was given.
-        notices.push("This TV can't show these subtitles.");
+        if (attempt.captionNotice) notices.push(attempt.captionNotice);
+        if (attempt.captionPreferenceNotice) notices.push(attempt.captionPreferenceNotice);
     }
     return {
+        seriesSubtitle: attempt.seriesSubtitle,
         quality: {
             choices: qualityChoices(plan),
             selectedId: attempt.qualityPreference === "auto" ? "auto" : attempt.serverFeatures.includes("plan_active_quality_v1")

@@ -53,6 +53,25 @@ const MAX_RETRY_AFTER_SECONDS = 5;
 const RETRYABLE_STATUSES = [502, 503, 504];
 
 export class NativeHttp {
+    async subtitleText(url: string, signal: AbortSignal): Promise<string> {
+        const address = new URL(url);
+        if (address.protocol !== "https:" || address.username || address.password) throw new Error("Invalid subtitle URL");
+        const abort = new AbortController();
+        const cancel = (): void => abort.abort();
+        signal.addEventListener("abort", cancel, { once: true });
+        if (signal.aborted) cancel();
+        const timeout = this.clock.schedule(cancel, DEFAULT_TIMEOUT_MS);
+        try {
+            const response = await this.fetch(address.href, { signal: abort.signal, credentials: "omit", redirect: "error" });
+            if (!response.ok || Number(response.headers.get("Content-Length")) > 4 * 1024 * 1024) throw new Error("Subtitle download failed");
+            const text = await response.text();
+            if (text.length > 4 * 1024 * 1024) throw new Error("Subtitle file too large");
+            return text;
+        } finally {
+            timeout();
+            signal.removeEventListener("abort", cancel);
+        }
+    }
     readonly base: ServerBase;
     get deviceId(): string { return this.device.id; }
     private readonly device: DeviceHeaders;

@@ -39,7 +39,7 @@ interface Hold {
     readonly released: Promise<void>;
 }
 
-export type Reply = { status: number; body?: unknown; headers?: Record<string, string> };
+export type Reply = { status: number; body?: unknown; text?: string; headers?: Record<string, string> };
 
 /** Answers the browse reads once the caller's bearer and profile proof are checked. */
 export interface CatalogRoutes {
@@ -200,7 +200,7 @@ export class FakeSilo {
         if (reply.body !== undefined && !responseHeaders.has("Content-Type")) {
             responseHeaders.set("Content-Type", "application/json");
         }
-        return new Response(reply.body === undefined ? null : JSON.stringify(reply.body), { status: reply.status, headers: responseHeaders });
+        return new Response(reply.text ?? (reply.body === undefined ? null : JSON.stringify(reply.body)), { status: reply.status, headers: responseHeaders });
     };
 
     private route(method: string, path: string, headers: Record<string, string>, body: Record<string, unknown> | undefined): Reply {

@@ -57,7 +57,7 @@ export interface LogoutResult {
 
 export interface ActiveProfile {
     readonly id: string;
-    /** X-Profile-Token for a PIN-locked profile; held in memory only. */
+    /** X-Profile-Token for a PIN-locked profile; persisted only after explicit device remembrance. */
     readonly token: string | undefined;
 }
 

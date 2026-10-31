@@ -6,6 +6,7 @@ import { type Clock, systemClock } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
 import type { ProfileSummary } from "../contracts/v2/wire.ts";
 import type { ConnectedServer } from "../session/core.ts";
+import type { ProfileLaunch } from "../session/profileLaunch.ts";
 import { type AuthorityChange, type LogoutResult, SessionError } from "../session/session.ts";
 import { pinProblem, pinScreen } from "./pinScreen.ts";
 import { actions, button, type Control, el, type Note, type Screen, ScreenHost } from "./screen.ts";
@@ -26,6 +27,7 @@ export interface ProfileHandoff {
 export interface ProfileOptions {
     readonly server: ConnectedServer;
     readonly clock?: Clock;
+    readonly launch?: ProfileLaunch;
     /** A profile acts. The profile screens are gone; the caller owns the root until `signal` aborts. */
     readonly onSelected: (active: ProfileHandoff) => void;
     /** The account is signed out on this TV. The profile screens are gone; show sign-in, with the notice when given. */
@@ -54,6 +56,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
     let current: ProfileSummary | undefined;
     let leaving = false;
     let destroyed = false;
+    let restoring = false;
 
     const show = (screen: Screen): void => {
         if (host === undefined) {
@@ -73,6 +76,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
 
     /** Starts a new view: the previous one's request is abandoned and its answer ignored. */
     const begin = (): number => {
+        restoring = false;
         pending?.abort();
         pending = undefined;
         return ++view;
@@ -204,10 +208,32 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
 
     const choose = (profile: ProfileSummary): void => {
         if (server.profiles.select(profile).status === "selected") {
-            handOff(profile);
+            selected(profile);
         } else {
             askPin(profile, []);
         }
+    };
+
+    const selected = (profile: ProfileSummary): void => {
+        const launch = options.launch;
+        if (launch === undefined || (!launch.needsOffer && !launch.remembered)) { handOff(profile); return; }
+        const offer = (error = false): void => {
+            begin();
+            message("remember-profile", `Remember ${profile.name} on this TV?`, error ? ["Could not save the launch choice. Try again or choose Ask who's watching."] : [], [
+                button("remember", error ? "Retry remember profile" : "Remember this profile", () => save(true)),
+                button("ask-every-launch", "Ask who's watching at launch", () => save(false)),
+                ...(error ? [button("continue-session", "Continue without saving", () => { launch.continueWithoutSaving(); handOff(profile); })] : []),
+            ], () => showList(profile.id), error ? "error" : "info");
+        };
+        const save = (remember: boolean): void => {
+            const token = begin();
+            const controller = new AbortController();
+            pending = controller;
+            message("remember-saving", "Saving launch choice", [], [button("back", "Back", () => showList(profile.id))], () => showList(profile.id));
+            launch.setRemember(remember, controller.signal).then(() => { if (token === view) handOff(profile); }, () => { if (token === view) offer(true); });
+        };
+        if (launch.needsOffer) offer();
+        else save(true);
     };
 
     const askPin = (profile: ProfileSummary, notes: readonly Note[]): void => {
@@ -234,7 +260,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
                 checking = false;
                 pending = undefined;
                 if (result.status === "verified") {
-                    handOff(profile);
+                    selected(profile);
                 } else if (result.status === "signed_out" && !session.signedIn) {
                     expired();
                 } else {
@@ -300,7 +326,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
                 }
                 return;
             case "profile_proof_revoked":
-                proofEnded();
+                if (!restoring) proofEnded();
                 return;
             case "signed_in":
                 current = undefined;
@@ -324,7 +350,27 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         release();
     };
 
-    showList();
+    const launch = (): void => load(list => {
+        const token = view;
+        const controller = new AbortController();
+        pending = controller;
+        restoring = true;
+        options.launch?.restore(list, controller.signal).then(profile => {
+            if (token !== view) return;
+            restoring = false;
+            pending = undefined;
+            if (profile === undefined) picker(list);
+            else handOff(profile);
+        }, error => {
+            if (token !== view) return;
+            restoring = false;
+            pending = undefined;
+            if (error instanceof SessionError && error.reason !== "unavailable") { expired(); return; }
+            message("profile-launch-error", "Remembered profile didn't open", ["Could not verify the remembered profile. Try again or choose who's watching."], [button("retry", "Retry", launch), button("back", "Choose profile", () => picker(list)), signOutButton()], () => picker(list), "error");
+        });
+    });
+    if (options.launch === undefined) showList();
+    else launch();
     return {
         signOut,
         switchProfile() {

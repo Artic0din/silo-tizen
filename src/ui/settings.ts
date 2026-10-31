@@ -5,6 +5,7 @@ import { actionButton, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
 import { remoteKey } from "./keys.ts";
 import { SettingsState } from "./settingsState.ts";
+import type { ProfileLaunch } from "../session/profileLaunch.ts";
 
 type Category = "general" | "playback";
 type Picker = "hidden" | "audio" | "quality" | "bitrate" | "seek-back" | "seek-forward";
@@ -12,7 +13,7 @@ const PICKER_KEYS = { hidden: HIDDEN_KEY, audio: AUDIO_KEY, quality: QUALITY_KEY
 const PICKER_LABELS = { hidden: "Hidden libraries", audio: "Preferred audio", quality: "Preferred quality", bitrate: "Maximum bitrate", "seek-back": "Video rewind interval", "seek-forward": "Video fast-forward interval" } as const;
 export interface SettingsScreen { destroy(): void }
 
-export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void): SettingsScreen {
+export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void, launch?: ProfileLaunch): SettingsScreen {
     const container = el("section", "browse settings");
     container.setAttribute("aria-label", "Settings");
     root.appendChild(container);
@@ -23,10 +24,32 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     let bitrateDraft = "";
     let bitrateError: string | undefined;
     let torn = false;
+    let launchPending = false;
+    let launchError = false;
+    let launchTarget = false;
+    const launchController = new AbortController();
+    const saveLaunch = (remember: boolean): void => {
+        if (launchPending || launch === undefined) return;
+        launchTarget = remember;
+        launchPending = true;
+        launchError = false;
+        render();
+        launch.setRemember(remember, launchController.signal).then(() => {
+            if (torn) return;
+            launchPending = false;
+            render();
+        }, () => {
+            if (torn) return;
+            launchPending = false;
+            launchError = true;
+            render();
+        });
+    };
     const state = new SettingsState(session, () => render());
     const destroy = (): void => {
         if (torn) return;
         torn = true;
+        launchController.abort();
         stopAuthority();
         state.stop();
         container.removeEventListener("keydown", onKey, true);
@@ -207,6 +230,19 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             const item = button(id, `${PICKER_LABELS[id]} · ${profileValue(key)}`, () => openPicker(id));
             rows.push(item);
             body.append(item.element, note(key));
+        }
+        if (category === "general" && launch !== undefined) {
+            const item = actionButton("remember-profile", launchPending ? "Saving launch choice…" : launch.remembered ? "Launch profile: Remember this profile" : "Launch profile: Ask who's watching", () => saveLaunch(!launch.remembered));
+            item.element.setAttribute("aria-disabled", String(launchPending));
+            rows.push(item);
+            body.appendChild(item.element);
+            if (launchError) {
+                const error = el("p", "browse-text browse-error", "Could not save the launch choice.");
+                error.setAttribute("role", "alert");
+                body.appendChild(error);
+                const retry = actionButton("retry-launch", "Retry launch choice", () => saveLaunch(launchTarget));
+                rows.push(retry); body.appendChild(retry.element);
+            }
         }
         if (state.loaded && rows.length === 0) body.appendChild(el("p", "browse-text", "No supported settings in this category."));
         const settingRows = rows.length;

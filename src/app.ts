@@ -51,6 +51,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
                 signIn = undefined;
                 profiles = mountProfiles(root, {
                     server,
+                    launch: server.profileLaunch,
                     onSelected: (active) => showBrowse(server, active),
                     onSignedOut: (result) => {
                         profiles = undefined;

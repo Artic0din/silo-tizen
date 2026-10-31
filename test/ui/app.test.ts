@@ -40,6 +40,7 @@ async function signIn(tv: Tv): Promise<void> {
     await tv.jump(5000);
     await tv.page.locator('[data-screen="profiles"]').waitFor();
     await tv.page.locator('[data-focus="profile:p-owner"]').click();
+    await tv.page.locator('[data-focus="ask-every-launch"]').click();
     await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
 }
 
@@ -624,6 +625,7 @@ appTest("profile loading cannot remove the exit dialog or steal its focus", asyn
     assert.equal(await tv.page.getByRole("dialog").count(), 0);
     assert.equal(await tv.focused(), "profile:p-owner");
     await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="ask-every-launch"]').click();
     await tv.page.locator('[data-view="home"]').waitFor();
     assert.equal(await tv.page.evaluate(() => window.appHarness.exits), 0);
 });

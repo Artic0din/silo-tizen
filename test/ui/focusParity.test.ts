@@ -275,9 +275,10 @@ test("library modes keep separate scroll and focus visits", async () => {
     } finally { await tv.page.context().close(); }
 });
 
-test("pointer-selected shelf cards are fully revealed on Back", async () => {
+for (const reducedMotion of ["no-preference", "reduce"] as const) test(`pointer-selected shelf cards are fully revealed on Back ${reducedMotion}`, async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
+        await tv.page.emulateMedia({ reducedMotion });
         await signedIn(tv);
         await openLibrary(tv);
         await tv.jump(300);
@@ -306,6 +307,57 @@ test("pointer-selected shelf cards are fully revealed on Back", async () => {
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
+
+for (const reducedMotion of ["no-preference", "reduce"] as const) {
+    test(`returning from Home enters library content ${reducedMotion}`, async () => {
+        const tv = await openTv(browser, { app: "browse" });
+        try {
+            await tv.page.emulateMedia({ reducedMotion });
+            await signedIn(tv);
+            await openLibrary(tv);
+            await tv.page.locator('[data-focus="home"]').focus();
+            await tv.page.keyboard.press("Enter");
+            await showing(tv, "home");
+            await tv.page.locator('[data-focus="movies"]').focus();
+            await tv.page.keyboard.press("Enter");
+            await showing(tv, "library:12");
+            assert.equal(await tv.focused(), "movie:m0001", "default entry targets content, not the departing Home control");
+            await tv.remote(ENTER);
+            await showing(tv, "item:movie:m0001");
+        } finally { await tv.page.context().close(); }
+    });
+
+    test(`an offscreen grid card remains revealed after Back ${reducedMotion}`, async () => {
+        const tv = await openTv(browser, { app: "browse" });
+        try {
+            await tv.page.emulateMedia({ reducedMotion });
+            await signedIn(tv);
+            await openLibrary(tv);
+            await activate(tv, "mode:Recently Added");
+            const card = tv.page.locator(".browse-grid .browse-card[data-focus]").last();
+            await card.waitFor();
+            await tv.jump(300);
+            const key = await card.evaluate(node => {
+                if (!(node instanceof HTMLElement)) throw new Error("missing grid card");
+                const viewport = node.closest<HTMLElement>(".skyline-content");
+                if (viewport === null) throw new Error("missing grid viewport");
+                viewport.scrollTop = 0;
+                node.focus({ preventScroll: true });
+                return node.getAttribute("data-focus");
+            });
+            assert.ok(key);
+            assert.equal(await visibleFocus(tv), false, "setup leaves the selected grid card offscreen");
+            await tv.remote(ENTER);
+            await showing(tv, `item:${key}`);
+            await tv.remote(BACK);
+            await showing(tv, "library:12");
+            await tv.jump(300);
+            await settleFocusMotion(tv);
+            assert.equal(await tv.focused(), key);
+            assert.equal((await focusClip(tv)).inside, true, "return does not undo the grid reveal");
+        } finally { await tv.page.context().close(); }
+    });
+}
 
 for (const destination of ["mode", "settings"] as const) test(`pending library restoration survives leaving for ${destination}`, async () => {
     const tv = await openTv(browser, { app: "browse" });

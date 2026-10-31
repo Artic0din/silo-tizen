@@ -90,7 +90,7 @@ export class FocusHost {
     focusDefault(): void {
         const view = this.view;
         const visit = view === undefined || !/^library:[^:]+$/.test(view.name) ? undefined : this.visits.get(visitKey(view));
-        const zone = view?.zones.find(candidate => candidate.id === visit?.lastZone);
+        const zone = view?.zones.find(candidate => candidate.id === visit?.lastZone && !["nav", "selector", "flyout", "pills"].includes(candidate.id));
         const item = zone?.items.find(candidate => candidate.key === visit?.memory.get(zone.id));
         if (view?.ready !== false && visit !== undefined && zone !== undefined && item !== undefined) {
             this.applyVisit(visit);
@@ -180,11 +180,10 @@ export class FocusHost {
         const target = focus ?? (restoring ? this.memoryTarget() : undefined);
         const item = target === undefined ? undefined : view.zones.find(zone => zone.id === target.zone)?.items.find(candidate => candidate.key === target.key);
         const offscreenShelf = restoring && item?.element.closest(".browse-row") != null && !this.intersects(item.element);
+        const returnSnap = restoring && !offscreenShelf && item !== undefined && this.intersects(item.element) && this.insideRow(item.element);
         this.focusFirst(offscreenShelf ? [view.focus] : [focus, nearby === undefined ? kept : { zone: previous?.zone.id ?? "", key: nearby.key }, restoring ? this.memoryTarget() : undefined, view.focus]);
         const focused = this.focused();
-        const element = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
         const sameIdentity = unchanged !== undefined && focused?.zone === unchanged.zone && focused.key === unchanged.key;
-        const returnSnap = restoring && !offscreenShelf && element !== undefined && this.intersects(element) && this.insideRow(element);
         if ((sameIdentity || returnSnap) && visit !== undefined) {
             // Repainting the same identity (including a dismissed modal) must keep its viewport.
             this.scroll.stop();

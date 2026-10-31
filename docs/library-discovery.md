@@ -23,6 +23,8 @@ Back from Details, playback or Settings keeps the saved position when its card s
 A partly clipped shelf card is revealed, while a missing or offscreen shelf card uses the visible fallback.
 Grid cards retain their identity and are revealed when offscreen.
 Reduced motion leaves focused cards at their resting size.
+Return visibility is measured before reveal, including when reduced motion applies scrolling immediately.
+Entering library content from navigation does not restore a saved navigation or selector control as the default card.
 
 The approved Skyline guide was read from the historical export in `issue-27-browse-shell-20261030/skyline-design-guide.md` because this iMac has no sibling `silo-apple` checkout.
 The source and seven API fixtures are pinned to server commit `cc8514943289045e7b9f7ac8d36d4968bfe93926`.

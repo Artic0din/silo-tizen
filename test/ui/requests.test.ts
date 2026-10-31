@@ -183,3 +183,60 @@ test("reopened detail reconciles after a background write settles", async () => 
         assert.equal(tv.fake.paths().filter(path => path === "POST /requests").length, 1);
     } finally { await tv.page.context().close(); }
 });
+
+test("typing in Requests search keeps the field attached and focused", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv); await button(tv, "requests").click(); await button(tv, "search").click(); await view(tv, "search");
+        const input = tv.page.getByRole("searchbox", { name: "Search requests" });
+        await input.focus();
+        await tv.page.evaluate(() => {
+            const field = document.activeElement as HTMLInputElement & { blurs?: number };
+            field.blurs = 0; field.addEventListener("blur", () => { field.blurs = (field.blurs ?? 0) + 1; });
+        });
+        const blurs = () => tv.page.evaluate(() => (document.querySelector('[aria-label="Search requests"]') as HTMLInputElement & { blurs?: number }).blurs);
+        await input.pressSequentially("Hea");
+        assert.equal(await blurs(), 0, "editing never detaches the field");
+        await input.press("Enter"); await button(tv, "movie:949").waitFor();
+        await input.pressSequentially("t");
+        assert.equal(await input.inputValue(), "Heat");
+        assert.equal(await blurs(), 0, "results and edits never detach the field");
+        assert.equal(await input.evaluate(field => field === document.activeElement), true);
+    } finally { await tv.page.context().close(); }
+});
+
+test("a late Requests read keeps focus the person moved meanwhile", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv); await button(tv, "requests").click(); await view(tv, "hub"); await button(tv, "movie:949").waitFor();
+        const reads = tv.fake.paths().filter(path => path === "GET /requests/discover").length;
+        const held = tv.fake.hold("/requests/discover");
+        await button(tv, "refresh").click();
+        await tv.eventually(async () => tv.fake.paths().filter(path => path === "GET /requests/discover").length > reads, "held refresh");
+        await tv.remote(39);
+        const moved = await tv.focused();
+        assert.notEqual(moved, "refresh");
+        held.release();
+        await tv.page.getByText("Loading requests…").waitFor({ state: "detached" });
+        assert.equal(await tv.focused(), moved);
+    } finally { await tv.page.context().close(); }
+});
+
+test("a settled write refreshes the retained Requests hub", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = await start(tv);
+        await button(tv, "requests").click(); await button(tv, "movie:949").click(); await button(tv, "create").waitFor();
+        const held = tv.fake.hold("/requests", true);
+        await button(tv, "create").click();
+        await tv.eventually(async () => fake.created, "write processed");
+        fake.created = false; await tv.remote(10009); await view(tv, "hub");
+        await tv.page.getByRole("button", { name: "Heat · Not requested" }).waitFor();
+        await button(tv, "home").click(); await tv.page.locator('.browse[data-view="home"]').waitFor();
+        fake.created = true;
+        const answered = tv.page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/requests"));
+        held.release(); await answered; await tv.jump(1);
+        await button(tv, "requests").click(); await view(tv, "hub");
+        await tv.page.getByRole("button", { name: "Heat · pending" }).waitFor();
+    } finally { await tv.page.context().close(); }
+});

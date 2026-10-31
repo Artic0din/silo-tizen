@@ -13,7 +13,8 @@ export type RequestsSource =
 export interface RequestsState {
     readonly source: RequestsSource;
     data: readonly RequestSection[] | RequestPage | MyRequests | RequestTitle | MediaRequest | undefined;
-    input?: HTMLInputElement;
+    /** The search title and field row, kept across renders so the focused field is never detached. */
+    search?: { readonly head: readonly HTMLElement[]; readonly items: readonly FocusItem[] };
     writing: boolean;
     uncertain: boolean;
 }
@@ -33,7 +34,7 @@ export interface RequestsHandlers {
 }
 export function requestsView(state: RequestsState, h: RequestsHandlers): View {
     const source = state.source, data = state.data;
-    const content: HTMLElement[] = [el("h1", "browse-title", source.kind === "mine" ? "My Requests" : "Requests")];
+    const content: HTMLElement[] = [];
     const zones: Zone[] = [];
     const add = (id: string, items: FocusItem[], grid = false): void => {
         if (items.length === 0) return;
@@ -44,15 +45,17 @@ export function requestsView(state: RequestsState, h: RequestsHandlers): View {
     const titleItems = (titles: readonly RequestTitle[]): FocusItem[] => titles.filter(title => title.mediaType === "movie" || title.mediaType === "series").map(title => actionButton(`${title.mediaType}:${title.tmdbId}`, `${title.title} · ${title.availability === "available" ? "Available" : title.request.state ?? "Not requested"}`, () => h.open({ kind: "media", title })));
     if (source.kind === "hub") add("tools", [actionButton("search", "Search requests", () => h.open({ kind: "search", query: "", page: 1 })), actionButton("mine", "My Requests", () => h.open({ kind: "mine", cursor: undefined }))]);
     if (source.kind === "search") {
-        if (state.input === undefined) {
+        if (state.search === undefined) {
             const input = el("input", "browse-input") as HTMLInputElement;
             input.type = "search"; input.setAttribute("aria-label", "Search requests"); input.value = source.query;
             input.addEventListener("input", () => { source.query = input.value; h.edit(); });
             input.addEventListener("keydown", event => { if (event.key === "Enter" || event.keyCode === 65376) { event.preventDefault(); event.stopPropagation(); h.search(); } });
-            state.input = input;
+            const items = [{ key: "query", element: input }, actionButton("submit", "Search", () => h.search())];
+            state.search = { head: [el("h1", "browse-title", "Requests"), zoneNode("browse-actions", items)], items };
         }
-        add("search", [{ key: "query", element: state.input }, actionButton("submit", "Search", h.search)]);
-    }
+        content.push(...state.search.head);
+        zones.push({ id: "search", layout: "row", items: [...state.search.items] });
+    } else content.push(el("h1", "browse-title", source.kind === "mine" ? "My Requests" : "Requests"));
     if (h.failure !== undefined) content.push(...lines([h.failure], "error"));
     if (h.busy || state.writing) content.push(...lines([state.writing ? "Saving request…" : "Loading requests…"], "info"));
     if (data !== undefined) {

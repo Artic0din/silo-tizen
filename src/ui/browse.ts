@@ -304,6 +304,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             case "requests": {
                 const state = current.requests, source = state.source;
                 const capabilityOrdinal = ++probeOrdinal;
+                const entryRevision = inputRevision;
                 load(current, async signal => {
                     const capability = await read(requestOperations.status(), signal);
                     if (!capability.enabled) return { capability, data: undefined };
@@ -322,7 +323,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     if (!requestsCapability.enabled) { roots.delete("requests"); stack = [home]; showRoute(home, { zone: "nav", key: "home" }); return; }
                     state.data = result.data;
                     state.uncertain = false;
-                    return current.focus;
+                    // Focus the person moved while the read was out stays where it is.
+                    return inputRevision === entryRevision ? current.focus : host.focused();
                 }, quiet);
                 render(current.focus);
                 return;
@@ -777,6 +779,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         render();
         loadRoute(current);
     };
+    // Retained roots must reread too: a settled or uncertain write may have changed them.
+    const markRequestsStale = (): void => { for (const route of new Set([...roots.values(), ...stack])) if (route.kind === "requests") route.stale = true; };
     const openRequests = (source: RequestsSource): void => { if (requestsCapability.enabled) push(newRoute({ kind: "requests", requests: requestsState(source) })); };
     const requestsHandlers = (current: Extract<Route, { kind: "requests" }>): RequestsHandlers => ({
         capability: requestsCapability, busy: loading !== undefined || requestWritePending, failure: current.failure,
@@ -810,7 +814,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             session.call({ ...spec, profileScoped: true, replayAfterRefresh: false }).then(() => {
                 requestWritePending = false; state.writing = false;
                 if (torn) return;
-                for (const route of stack) if (route.kind === "requests") route.stale = true;
+                markRequestsStale();
                 const visible = top();
                 if (visible?.kind === "requests") { visible.requests.uncertain = true; loadRoute(visible, true); }
                 else render(host.focused());
@@ -819,7 +823,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (torn) return;
                 state.uncertain = true;
                 current.failure = "Could not confirm the change. Refresh before trying again.";
-                for (const route of stack) if (route.kind === "requests") route.stale = true;
+                markRequestsStale();
                 if (error instanceof ApiError && ["capability_disabled", "capability_not_configured", "capability_unsupported", "permission_denied"].includes(error.problemId ?? "")) void probeRequests();
                 const visible = top();
                 if (visible === current) render(current.focus);

@@ -184,6 +184,9 @@ interface Attempt {
     captionAbort: AbortController | undefined;
     captionNotice: string;
     captionPreferenceNotice: string;
+    /** The artifact the cues came from; a replan naming the same one keeps them. */
+    captionKey: string | undefined;
+    captionPreferencesRead: boolean;
     seriesSubtitle: { readonly busy: boolean; readonly message: string } | undefined;
     readonly request: PlayRequest;
     playbackAttemptId: string;
@@ -305,7 +308,7 @@ export class PlaybackController implements PlayerControls {
         this.shownError = undefined;
         const attempt: Attempt = {
             autoNext: false,
-            appearance: DEFAULT_APPEARANCE, subtitleSync: 0, cues: [], captionAbort: undefined, captionNotice: "", captionPreferenceNotice: "", seriesSubtitle: request.episode ? { busy: false, message: "" } : undefined,
+            appearance: DEFAULT_APPEARANCE, subtitleSync: 0, cues: [], captionAbort: undefined, captionNotice: "", captionPreferenceNotice: "", captionKey: undefined, captionPreferencesRead: false, seriesSubtitle: request.episode ? { busy: false, message: "" } : undefined,
             request,
             playbackAttemptId: this.newId(),
             signal: this.deps.session.authoritySignal,
@@ -604,8 +607,16 @@ export class PlaybackController implements PlayerControls {
         const attempt = this.changeable();
         const plan = attempt?.plan;
         if (attempt === undefined || plan === undefined || attempt.seriesSubtitle === undefined || attempt.seriesSubtitle.busy) return;
-        const track = plan.subtitle.inventory.find(track => track.trackId === selectedSubtitle(plan));
+        const shown = selectedSubtitle(plan);
+        const track = plan.subtitle.inventory.find(track => track.trackId === shown);
         const current = (): boolean => attempt.live && this.attempt === attempt && !attempt.signal.aborted;
+        const failed = "Could not confirm the series subtitle choice. Check the saved preference before trying again.";
+        // Saving `undefined` means Off, so a shown track missing from the inventory must not be saved.
+        if (shown !== undefined && track === undefined) {
+            attempt.seriesSubtitle = { busy: false, message: failed };
+            this.showPlayback(attempt);
+            return;
+        }
         attempt.seriesSubtitle = { busy: true, message: "Saving series subtitles…" };
         this.showPlayback(attempt);
         void (async () => {
@@ -613,10 +624,10 @@ export class PlaybackController implements PlayerControls {
                 const detail = await this.deps.session.call({ ...operations.watchDetail(attempt.request.contentId), profileScoped: true, signal: attempt.signal });
                 if (!current()) return;
                 if (detail.id !== attempt.request.contentId || detail.seriesId === undefined) throw new Error("Series unavailable");
-                await this.deps.session.call({ ...operations.saveSeriesSubtitle(detail.seriesId, track), profileScoped: true, signal: attempt.signal });
+                await this.deps.session.call({ ...operations.saveSeriesSubtitle(detail.seriesId, track), profileScoped: true, replayAfterRefresh: false, signal: attempt.signal });
                 if (current()) attempt.seriesSubtitle = { busy: false, message: "Subtitle choice saved for this series." };
             } catch {
-                if (current()) attempt.seriesSubtitle = { busy: false, message: "Could not confirm the series subtitle choice. Check the saved preference before trying again." };
+                if (current()) attempt.seriesSubtitle = { busy: false, message: failed };
             }
             if (current()) this.showPlayback(attempt);
         })();
@@ -994,6 +1005,10 @@ export class PlaybackController implements PlayerControls {
     }
 
     private readCaptions(attempt: Attempt, plan: PlaybackPlan): void {
+        const artifact = plan.subtitle.mode === "render" || plan.subtitle.mode === "convert" ? plan.subtitle.artifact : undefined;
+        const key = artifact === undefined ? undefined : `${artifact.format} ${artifact.origin} ${artifact.url}`;
+        if (key !== undefined && key === attempt.captionKey) return;
+        attempt.captionKey = key;
         attempt.captionAbort?.abort();
         const abort = new AbortController();
         attempt.captionAbort = abort;
@@ -1002,11 +1017,7 @@ export class PlaybackController implements PlayerControls {
         abort.signal.addEventListener("abort", () => attempt.signal.removeEventListener("abort", cancel), { once: true });
         attempt.cues = [];
         attempt.captionNotice = "";
-        attempt.captionPreferenceNotice = "";
-        attempt.appearance = DEFAULT_APPEARANCE;
-        attempt.subtitleSync = 0;
-        const artifact = plan.subtitle.artifact;
-        if ((plan.subtitle.mode !== "render" && plan.subtitle.mode !== "convert") || artifact === undefined) return;
+        if (artifact === undefined) return;
         attempt.captionNotice = "Loading subtitles…";
         const current = (): boolean => attempt.live && !abort.signal.aborted && attempt.captionAbort === abort;
         void (async () => {
@@ -1014,30 +1025,39 @@ export class PlaybackController implements PlayerControls {
                 const base = this.deps.session.http.base;
                 const url = new URL(artifact.url.startsWith("/") ? base.baseUrl + artifact.url : artifact.url);
                 if (url.origin === base.origin && !url.searchParams.has("token")) url.searchParams.set("token", await this.deps.session.mediaToken(abort.signal));
-                const preferencesFailed = (): void => {
-                    if (!current()) return;
-                    attempt.captionPreferenceNotice = "Some subtitle preferences could not be loaded; using defaults.";
-                    this.showPlayback(attempt);
-                };
-                void this.deps.session.call({ ...operations.subtitleAppearance(attempt.profileId ?? ""), profileScoped: true, signal: abort.signal }).then(appearance => {
-                    if (!current()) return;
-                    attempt.appearance = appearance;
-                    this.showPlayback(attempt);
-                }, preferencesFailed);
-                void this.deps.session.call({ ...operations.subtitleSync(), profileScoped: true, signal: abort.signal }).then(sync => {
-                    if (!current()) return;
-                    attempt.subtitleSync = sync;
-                    this.showPlayback(attempt);
-                }, preferencesFailed);
+                if (!attempt.captionPreferencesRead) this.readCaptionPreferences(attempt);
                 const text = await this.deps.session.http.subtitleText(url.href, abort.signal);
                 if (!current()) return;
                 attempt.cues = decodeCues(text, artifact.format, artifact.origin);
                 attempt.captionNotice = "";
             } catch {
-                if (current()) attempt.captionNotice = "Could not load these subtitles. Choose another track or turn subtitles off.";
+                if (!current()) return;
+                attempt.captionKey = undefined;
+                attempt.captionNotice = "Could not load these subtitles. Choose another track or turn subtitles off.";
             }
             if (current()) this.showPlayback(attempt);
         })();
+    }
+
+    /** Read once per attempt, so replans and track changes keep the profile's style and timing. */
+    private readCaptionPreferences(attempt: Attempt): void {
+        attempt.captionPreferencesRead = true;
+        const current = (): boolean => attempt.live && !attempt.signal.aborted;
+        const preferencesFailed = (): void => {
+            if (!current()) return;
+            attempt.captionPreferenceNotice = "Some subtitle preferences could not be loaded; using defaults.";
+            this.showPlayback(attempt);
+        };
+        void this.deps.session.call({ ...operations.subtitleAppearance(attempt.profileId ?? ""), profileScoped: true, signal: attempt.signal }).then(appearance => {
+            if (!current()) return;
+            attempt.appearance = appearance;
+            this.showPlayback(attempt);
+        }, preferencesFailed);
+        void this.deps.session.call({ ...operations.subtitleSync(), profileScoped: true, signal: attempt.signal }).then(sync => {
+            if (!current()) return;
+            attempt.subtitleSync = sync;
+            this.showPlayback(attempt);
+        }, preferencesFailed);
     }
 
     private async open(attempt: Attempt, plan: PlaybackPlan): Promise<void> {

@@ -126,6 +126,32 @@ test("captions apply profile styles, stay safe text and clear during recovery", 
     } finally { await page.close(); }
 });
 
+test("captions paint above the overlay gradient but below its controls and the menu", async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), captions: { text: "Hello", appearance: DEFAULT_APPEARANCE } });
+        // Hit-testing skips pointer-events: none, so the layer opts in for this probe only.
+        const stack = (): Promise<string[]> => page.evaluate(() => {
+            const layer = document.querySelector<HTMLElement>(".player-captions");
+            if (layer === null) throw new Error("no caption layer");
+            layer.style.pointerEvents = "auto";
+            const box = layer.querySelector("span")?.getBoundingClientRect();
+            if (box === undefined) throw new Error("no caption text");
+            const hits = document.elementsFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+            layer.style.pointerEvents = "";
+            return hits.map(element => element.className);
+        });
+        const order = await stack();
+        const at = (name: string): number => order.findIndex(className => className.split(" ").includes(name));
+        assert.ok(at("player-overlay") !== -1 && at("player-captions") < at("player-overlay"), order.join(" > "));
+        assert.ok(at("player-transport") !== -1 && at("player-transport") < at("player-captions"), order.join(" > "));
+        await remote(page, DOWN);
+        await remote(page, RIGHT);
+        const menu = await stack();
+        assert.ok(menu.indexOf("player-menu") !== -1 && menu.indexOf("player-menu") < menu.findIndex(className => className === "player-captions"), menu.join(" > "));
+    } finally { await page.close(); }
+});
+
 test("series subtitle save stays focused while its write is pending", async () => {
     const { page } = await open();
     try {

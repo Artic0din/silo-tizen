@@ -37,7 +37,31 @@ test("sidecar subtitles apply profile appearance and timing without blocking pla
         r.controller.destroy();
     }
 });
-const BOUNDED_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
+
+test("an audio replan with the same subtitle artifact keeps cues and preferences without refetching", async () => {
+    const r = await rig();
+    const artifact = { url: `${r.h.fake.origin}/api/v2/captions?token=synthetic`, format: "vtt", timing_origin_seconds: 0 };
+    r.server.next.push({ subtitle: 0, subtitleArtifact: artifact }, { subtitle: 0, subtitleArtifact: artifact });
+    r.h.fake.script("/captions?token=synthetic", { status: 200, text: "WEBVTT\n\n00:12.000 --> 00:30.000\nHello" });
+    r.h.fake.script("/settings/subtitle-appearance/effective", { status: 200, body: { profile_id: "p-owner", effective_value: JSON.stringify({ fontSize: "xxlarge" }) } });
+    await playMovie(r);
+    r.controller.selectAudio("file:42:audio:1");
+    await r.h.clock.advance(0);
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    if (r.avplay.calls[r.avplay.calls.length - 1]?.startsWith("seekTo") === true) r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    assert.equal(r.h.fake.requests.filter(request => request.path.includes("/replan")).length, 1);
+    r.avplay.tick(13000);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.captions?.text, "Hello");
+    assert.equal(view.captions?.appearance.fontSize, "xxlarge");
+    assert.equal(r.h.fake.requests.filter(request => request.path.startsWith("/captions")).length, 1);
+    assert.equal(r.h.fake.requests.filter(request => request.path.startsWith("/settings/subtitle-appearance")).length, 1);
+    r.controller.destroy();
+});
+const BOUNDED_IDENTIFIER =/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 interface Rig {
@@ -960,6 +984,35 @@ test("series subtitle choice persists the server index or explicit Off without i
         assert.equal(view.tracks.seriesSubtitle?.message, "Subtitle choice saved for this series.");
         r.controller.destroy();
     }
+});
+
+test("series subtitle write is not resent after a 401 and token refresh", async () => {
+    const r = await episodeRig();
+    r.server.next.push({ subtitle: 4 });
+    r.h.fake.script("/subtitle-prefs/series%3As1", problem(401, "authentication_required", "Authentication required"), { status: 204 });
+    await playMovie(r, EPISODE);
+    r.controller.saveSeriesSubtitle();
+    await r.h.clock.advance(0);
+    assert.ok(r.h.fake.paths().includes("POST /auth/refresh"));
+    assert.equal(r.h.fake.requests.filter(request => request.path.startsWith("/subtitle-prefs/")).length, 1);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.match(view.tracks.seriesSubtitle?.message ?? "", /Could not confirm/);
+    r.controller.destroy();
+});
+
+test("series subtitle save refuses when the shown track is missing from the inventory instead of saving Off", async () => {
+    const r = await episodeRig();
+    r.server.next.push({ subtitle: 9 });
+    r.h.fake.script("/subtitle-prefs/series%3As1", { status: 204 });
+    await playMovie(r, EPISODE);
+    r.controller.saveSeriesSubtitle();
+    await r.h.clock.advance(0);
+    assert.equal(r.h.fake.requests.filter(request => request.path.startsWith("/subtitle-prefs/")).length, 0);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.match(view.tracks.seriesSubtitle?.message ?? "", /Could not confirm/);
+    r.controller.destroy();
 });
 
 test("episode EOF orders held progress, final STOP, fresh watch and exactly one manual successor START", async () => {

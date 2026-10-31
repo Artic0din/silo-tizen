@@ -191,6 +191,17 @@ test("AI language, quota and result actions stay remote-reachable without stoppi
         assert.deepEqual(await commands(page), ["startSubtitleAI translate fr", "selectAIResult opaque-result"]);
     } finally { await page.close(); }
 });
+
+test("translate-only AI shows no transcription quota line", async () => {
+    const { page } = await open();
+    const ai = { available: { translate: true, transcribe: false }, languages: ["fr"], quota: undefined, busy: false, message: "", results: [] };
+    try {
+        await show(page, playing({ ...TRACKS, ai, aiTranslate: true }));
+        await remote(page, DOWN);
+        await remote(page, RIGHT);
+        assert.doesNotMatch(await page.locator(".player-menu-status").innerText(), /Transcription quota/);
+    } finally { await page.close(); }
+});
 const text = (page: Page, selector: string): Promise<string> => page.locator(selector).innerText();
 
 test("Skip counts down, activates with Enter or Play, and returns focus without taking manual seeks", async () => {

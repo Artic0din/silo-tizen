@@ -302,7 +302,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                 }
             }
             const quota = tracks.ai?.quota;
-            const quotaText = tracks.ai === undefined ? "" : quota === undefined ? "Transcription quota unavailable." : quota.limited ? `Transcription quota: ${Math.max(0, quota.remaining)} remaining (${quota.period}).${quota.remaining <= 0 ? " Quota exhausted." : ""}` : "Transcription quota: unlimited.";
+            const quotaText = tracks.ai?.available.transcribe !== true ? "" : quota === undefined ? "Transcription quota unavailable." : quota.limited ? `Transcription quota: ${Math.max(0, quota.remaining)} remaining (${quota.period}).${quota.remaining <= 0 ? " Quota exhausted." : ""}` : "Transcription quota: unlimited.";
             menuStatus.textContent = [changeText(tracks), tracks.seriesSubtitle?.message, quotaText, tracks.ai?.message].filter(Boolean).join(" ");
             const same = keep === null ? undefined : buttons(column).find((button) => button.getAttribute("data-focus") === keep);
             if (same !== undefined) {

@@ -99,7 +99,8 @@ export class SubtitleAI {
         } catch (error) {
             if (this.abort.signal.aborted) return;
             this.busy = false;
-            this.uncertain = !(error instanceof ApiError && error.problemId !== undefined && !error.transient);
+            // A problem body is the server's answer; 429 (e.g. quota_exceeded) refuses, unlike 408/5xx whose outcome is unknown.
+            this.uncertain = !(error instanceof ApiError && error.problemId !== undefined && (!error.transient || error.status === 429));
             this.notice(error instanceof ApiError && error.problemId ? `AI subtitles could not start: ${error.problemId}. Playback continues.` : "Could not confirm the AI request. It may still finish on the server; it was not sent again.");
             void this.refreshQuota();
         }

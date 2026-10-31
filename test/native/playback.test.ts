@@ -16,6 +16,22 @@ import { connected, type Harness, signIn } from "./support/harness.ts";
 
 const MOVIE: PlayRequest = { contentId: "movie-1", fileId: "42", title: "Movie", startSeconds: 12.5 };
 
+test("transcription refuses with a notice when the plan omits the audio track's server index", async () => {
+    const r = await rig();
+    r.h.fake.script("/subtitles/ai/status", { status: 200, body: { state: "available", allowed: true, enabled: true, transcribe_enabled: true } });
+    r.h.fake.script("/subtitles/ai/quota", ...Array.from({ length: 3 }, () => ({ status: 200, body: { limited: true, remaining: 2, period: "month" } })));
+    r.h.fake.script("/settings/contract", { status: 200, body: { option_sets: { playback_subtitle_languages: { options: [{ value: "fr" }] } } } });
+    r.server.next.push({ omitAudioIndex: true });
+    await playMovie(r);
+    r.controller.startSubtitleAI("transcribe");
+    await r.h.clock.advance(0);
+    assert.equal(r.h.fake.requests.some(request => request.method === "POST" && request.path.startsWith("/subtitles/ai/")), false);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.match(view.tracks.ai?.message ?? "", /audio track/);
+    r.controller.destroy();
+});
+
 test("completed AI subtitles resolve through fresh sync identities before selecting the returned track", async () => {
     const r = await rig();
     r.h.fake.script("/subtitles/ai/status", { status: 200, body: { state: "available", allowed: true, enabled: true, transcribe_enabled: true } });

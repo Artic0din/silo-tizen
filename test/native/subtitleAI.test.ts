@@ -114,3 +114,21 @@ test("lost polling or an unknown accepted status cannot create another quota-spe
         ai.destroy();
     }
 });
+
+test("a 429 quota refusal is definite, so a later start is allowed while 5xx stays uncertain", async () => {
+    const { h, ai } = await setup();
+    h.fake.script("/subtitles/ai/translate", problem(429, "quota_exceeded", "Quota exhausted"), { status: 202, body: job("completed") });
+    await ai.start(request);
+    assert.equal(ai.view?.busy, false);
+    await ai.start(request);
+    assert.equal(h.fake.requests.filter(row => row.path === "/subtitles/ai/translate").length, 2);
+    assert.equal(ai.view?.results.length, 1);
+    ai.destroy();
+    const failed = await setup();
+    failed.h.fake.script("/subtitles/ai/translate", problem(503, "unavailable", "Try later"), { status: 202, body: job("completed") });
+    await failed.ai.start(request);
+    await failed.ai.start(request);
+    assert.equal(failed.h.fake.requests.filter(row => row.path === "/subtitles/ai/translate").length, 1);
+    assert.equal(failed.ai.view?.busy, true);
+    failed.ai.destroy();
+});

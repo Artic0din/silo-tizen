@@ -653,7 +653,9 @@ export class PlaybackController implements PlayerControls {
         const plan = attempt?.plan;
         if (attempt === undefined || plan === undefined || attempt.hidden || attempt.restoring) return;
         const subtitle = plan.subtitle.inventory.find(track => track.trackId === selectedSubtitle(plan));
-        const sourceIndex = kind === "translate" ? subtitle?.combinedIndex : plan.selectedTracks.audio?.index ?? audioChoices(attempt, plan).findIndex(choice => choice.id === plan.selectedTracks.audio?.id);
+        // The server's index, never a list position: a guess could transcribe the wrong audio and spend quota.
+        const sourceIndex = kind === "translate" ? subtitle?.combinedIndex : plan.selectedTracks.audio?.index;
+        if (kind === "transcribe" && sourceIndex === undefined) { attempt.ai?.notice("Could not identify the audio track to transcribe. Playback continues."); return; }
         if (sourceIndex === undefined || sourceIndex < 0 || (kind === "translate" && !textSubtitle(subtitle?.codec))) return;
         void attempt.ai?.start({ media_file_id: plan.effectiveMediaFileId, kind, source_index: sourceIndex, source_language: kind === "translate" ? subtitle?.language ?? "" : "", target_language: language, start_position: attempt.sourceSeconds });
     }

@@ -8,10 +8,13 @@
 import { remoteKey } from "./keys.ts";
 import { SkylineScroll } from "./skylineScroll.ts";
 
+const SELECT_HOLD_MS = 650;
+
 export interface FocusItem {
     /** Stable within its zone, e.g. a content id; restores focus across re-renders. */
     readonly key: string;
     readonly element: HTMLElement;
+    readonly quickAction?: () => void;
 }
 
 export interface Zone {
@@ -57,6 +60,10 @@ export class FocusHost {
     private outgoing: HTMLElement | undefined;
     private incoming: HTMLElement[] = [];
     private transitionTimer: number | undefined;
+    private press: { item: FocusItem; started: number; timer: number | undefined; cancelled: boolean } | undefined;
+    private readonly detach = new MutationObserver(() => {
+        if (this.press !== undefined && !this.press.item.element.isConnected) this.cancelPress();
+    });
 
     constructor(container: HTMLElement) {
         this.container = container;
@@ -76,6 +83,7 @@ export class FocusHost {
      * remains (the focused item disappeared), else the first item anywhere.
      */
     show(view: View, focus?: FocusTarget): void {
+        this.cancelPress();
         const changed = (this.view?.transition?.key ?? this.view?.name) !== (view.transition?.key ?? view.name);
         const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
         const animate = changed && this.view !== undefined && this.container.classList.contains("skyline-root") && !reduced;
@@ -110,7 +118,12 @@ export class FocusHost {
             this.outgoing = outgoing;
             this.transitionTimer = window.setTimeout(() => this.clearTransition(), 200);
         }
-        const kept = this.view?.name === view.name ? this.focused() : undefined;
+        const previous = this.view?.name === view.name ? this.locate(document.activeElement) : undefined;
+        const kept = previous === undefined ? undefined : { zone: previous.zone.id, key: previous.item.key };
+        const unchanged = this.view?.name === view.name ? kept ?? focus ?? this.memoryTarget() : undefined;
+        const previousZone = view.zones.find(zone => zone.id === previous?.zone.id);
+        const nearby = previous === undefined || previous.item.quickAction === undefined || previousZone?.items.some(item => item.key === previous.item.key)
+            ? undefined : previousZone?.items[Math.min(previous.index, previousZone.items.length - 1)];
         if (this.view !== undefined) {
             this.visits.set(this.view.name, { memory: new Map(this.memory), lastZone: this.lastZone, top: this.viewport().scrollTop, rows: new Map(Array.from(this.container.querySelectorAll<HTMLElement>(".browse-row")).map((row, index) => [this.rowKey(row, index), row.scrollLeft])) });
         }
@@ -126,7 +139,14 @@ export class FocusHost {
         place(this.container, view.content);
         this.viewport().scrollTop = visit?.top ?? 0;
         this.container.querySelectorAll<HTMLElement>(".browse-row").forEach((row, index) => { row.scrollLeft = visit?.rows.get(this.rowKey(row, index)) ?? 0; });
-        this.focusFirst([focus, kept, view.focus]);
+        this.focusFirst([focus, nearby === undefined ? kept : { zone: previous?.zone.id ?? "", key: nearby.key }, view.focus]);
+        const focused = this.focused();
+        if (unchanged !== undefined && focused?.zone === unchanged.zone && focused.key === unchanged.key && visit !== undefined) {
+            // Repainting the same identity (including a dismissed modal) must keep its viewport.
+            this.scroll.stop();
+            this.viewport().scrollTop = visit.top;
+            this.container.querySelectorAll<HTMLElement>(".browse-row").forEach((row, index) => { row.scrollLeft = visit.rows.get(this.rowKey(row, index)) ?? 0; });
+        }
         if (animate) {
             this.incoming = Array.from(this.container.querySelectorAll<HTMLElement>(".skyline-content > :not(.skyline-pills), .skyline-marquee"));
             for (const node of this.incoming) node.classList.add(drift && !node.classList.contains("skyline-marquee") ? "skyline-content-drift" : "skyline-content-enter");
@@ -148,10 +168,18 @@ export class FocusHost {
 
     /** Stops handling keys, e.g. while the player owns the screen; `listen` resumes. */
     stop(): void {
+        this.cancelPress();
+        this.detach.disconnect();
         this.clearTransition();
         this.scroll.stop();
         if (this.listening) {
             document.removeEventListener("keydown", this.onKey);
+            document.removeEventListener("keydown", this.onPress, true);
+            document.removeEventListener("keyup", this.onRelease, true);
+            document.removeEventListener("focusout", this.cancelPress);
+            document.removeEventListener("visibilitychange", this.cancelPress);
+            window.removeEventListener("blur", this.cancelPress);
+            this.press = undefined;
             this.listening = false;
         }
     }
@@ -167,7 +195,13 @@ export class FocusHost {
 
     listen(): void {
         if (!this.listening) {
+            this.detach.observe(this.container, { childList: true, subtree: true });
             document.addEventListener("keydown", this.onKey);
+            document.addEventListener("keydown", this.onPress, true);
+            document.addEventListener("keyup", this.onRelease, true);
+            document.addEventListener("focusout", this.cancelPress);
+            document.addEventListener("visibilitychange", this.cancelPress);
+            window.addEventListener("blur", this.cancelPress);
             this.listening = true;
         }
     }
@@ -248,6 +282,48 @@ export class FocusHost {
         const key = zone === undefined ? undefined : this.memory.get(zone);
         return zone === undefined || key === undefined ? undefined : { zone, key };
     }
+
+    private readonly cancelPress = (): void => {
+        if (this.press === undefined) return;
+        if (this.press.timer !== undefined) window.clearTimeout(this.press.timer);
+        this.press.timer = undefined;
+        this.press.cancelled = true;
+    };
+
+    private readonly onPress = (event: KeyboardEvent): void => {
+        const key = remoteKey(event);
+        if (key !== "enter") { if (key !== undefined) this.cancelPress(); return; }
+        if (this.press !== undefined) { event.preventDefault(); event.stopImmediatePropagation(); return; }
+        if (event.defaultPrevented) return;
+        const item = this.locate(document.activeElement)?.item;
+        if (item?.quickAction === undefined) return;
+        // Enter's default click runs on keydown, before a hold can be distinguished.
+        event.preventDefault();
+        const press = { item, started: performance.now(), timer: undefined as number | undefined, cancelled: false };
+        this.press = press;
+        // A fixed 650 ms separates deliberate holds from ordinary Select presses; tune on TV.
+        press.timer = window.setTimeout(() => {
+            press.timer = undefined;
+            if (!press.cancelled && item.element.isConnected && document.activeElement === item.element && !document.hidden) {
+                press.cancelled = true;
+                item.quickAction?.();
+            }
+        }, SELECT_HOLD_MS);
+    };
+
+    private readonly onRelease = (event: KeyboardEvent): void => {
+        if (remoteKey(event) !== "enter" || this.press === undefined) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const press = this.press;
+        const activate = !press.cancelled;
+        this.cancelPress();
+        this.press = undefined;
+        if (activate && press.item.element.isConnected && document.activeElement === press.item.element && !document.hidden) {
+            if (performance.now() - press.started >= SELECT_HOLD_MS) press.item.quickAction?.();
+            else press.item.element.click();
+        }
+    };
 
     private readonly onKey = (event: KeyboardEvent): void => {
         if (event.defaultPrevented) return;

@@ -14,6 +14,7 @@ import { operations } from "../api/operations.ts";
 import { detailOperations } from "../api/detailOperations.ts";
 import type { ItemDetail } from "../contracts/v2/catalog.ts";
 import { DetailsState } from "./detailsState.ts";
+import { CardActions } from "./cardActions.ts";
 import { Synopsis } from "./browseDetails.ts";
 import type { ConnectedServer } from "../session/core.ts";
 import type { PublicStorage } from "../session/deviceIdentity.ts";
@@ -70,6 +71,15 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const host = new FocusHost(container);
     const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, open: (destination) => open(destination), preview: (card, row) => shell.preview(card, row), resume: (id, title) => {
         if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title }));
+    }, quickActions: card => {
+        const current = top();
+        if (current === undefined || torn || playing || cardActions.active) return;
+        loading?.abort();
+        loading = undefined;
+        cancelSlow();
+        if (current.kind === "homeSection" || current.kind === "personFilmography" || current.kind === "personal") current.pendingIndex = undefined;
+        menuOrigin = { route: current, focus: host.focused() };
+        cardActions.open(card);
     } };
     const input = el("input", "browse-input");
     input.id = "browse-search";
@@ -92,6 +102,21 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let detailWork: DetailsState | undefined;
     let settingsScreen: SettingsScreen | undefined;
     let calendarLibrariesStale = false;
+    let menuOrigin: { route: Route; focus: FocusTarget | undefined } | undefined;
+    const personalPending = (): boolean => detailWork?.pending === true || cardActions.pending;
+    const cardActions = new CardActions(container, session, state => {
+        if (state.changes.size === 0) return;
+        // Delivery may be uncertain; retained roots must reread even after a dismissed write.
+        for (const entry of new Set([...roots.values(), ...stack])) entry.stale = true;
+    }, () => {
+        const origin = menuOrigin;
+        menuOrigin = undefined;
+        if (!torn && origin !== undefined && top() === origin.route) {
+            origin.route.focus = origin.focus;
+            showRoute(origin.route, origin.focus);
+            render(origin.focus);
+        }
+    }, personalPending);
     const synopsis = new Synopsis(container, () => render({ zone: "actions", key: "synopsis" }));
     const stopDetails = (): void => { synopsis.destroy(); detailWork?.stop(); detailWork = undefined; };
     let inputRevision = 0;
@@ -106,6 +131,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             return;
         }
         torn = true;
+        cardActions.destroy();
+        menuOrigin = undefined;
         stopDetails();
         settingsScreen?.destroy();
         settingsScreen = undefined;
@@ -207,14 +234,17 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if ((current.kind === "item" || current.kind === "season") && current.data?.details?.changes.get("watched")?.pending) {
             invalidateWatched(current, current.data.details.detail);
         }
-        if (top() === current) render();
+        if (top() === current) {
+            if (cardActions.active) cardActions.render();
+            else render();
+        }
     };
 
     const invalidateWatched = (current: Route, detail: ItemDetail): void => {
         // Even a lost or cancelled answer may have committed; reread covered routes on return.
         current.stale = true;
         const seriesId = detail.type === "series" ? detail.id : detail.seriesId;
-        for (const entry of stack) {
+        for (const entry of new Set([...roots.values(), ...stack])) {
             if (entry === current) continue;
             if (entry.kind === "home" || entry.kind === "homeSection" || entry.kind === "calendar") entry.stale = true;
             if (entry.kind === "season" && entry.seriesId === seriesId && (detail.type !== "season" || entry.seasonNumber === detail.seasonNumber)) entry.stale = true;
@@ -367,11 +397,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                         ? await read(operations.getCatalogItem(episodeId), signal).catch((error: unknown) => { if (error instanceof ApiError && error.status === 404) return undefined; throw error; }) : undefined;
                     return { detail, seasons, contextSeason: current.seriesContext?.seasonNumber ?? (episode?.seriesId === detail.id ? episode.seasonNumber : undefined) };
                 }, (data) => {
-                    const details = new DetailsState(data.detail, session, () => detailsChanged(current), (detail, signal) => refreshWatched(current, detail, signal));
-                    details.selectedFileId = current.data?.details?.selectedFileId;
+                    const previous = current.data?.details;
+                    const details = new DetailsState(data.detail, session, () => detailsChanged(current), (detail, signal) => refreshWatched(current, detail, signal), personalPending);
+                    details.selectedFileId = previous?.selectedFileId;
+                    details.related = quiet ? previous?.related : undefined;
                     current.data = { ...data, details };
                     detailWork = details;
                     details.start();
+                    if (details.related !== undefined) details.loadRelated();
                     const season = data.contextSeason;
                     if (current.focus === undefined && season !== undefined && data.seasons.some(item => item.seasonNumber === season)) return { zone: "seasons", key: `season:${season}` };
                 }, quiet);
@@ -395,7 +428,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }, (data) => {
                     current.data = data;
                     if (data.detail !== undefined) {
-                        const details = new DetailsState(data.detail, session, () => detailsChanged(current), (detail, signal) => refreshWatched(current, detail, signal));
+                        const details = new DetailsState(data.detail, session, () => detailsChanged(current), (detail, signal) => refreshWatched(current, detail, signal), personalPending);
                         current.data.details = details;
                         detailWork = details;
                         details.start();
@@ -640,7 +673,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const render = (focus?: FocusTarget): void => {
         cancelCalendarDay();
         const current = top();
-        if (current === undefined || torn || playing || synopsis.active || settingsScreen !== undefined) {
+        if (current === undefined || torn || playing || synopsis.active || cardActions.active || settingsScreen !== undefined) {
             return;
         }
         if (current.kind === "calendar") {

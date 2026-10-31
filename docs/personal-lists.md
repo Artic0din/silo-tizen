@@ -10,6 +10,10 @@ All lists preserve native source ordering.
 Moving focus never fetches data.
 
 Cards open the existing Details route and its playback handoff.
+Holding Select opens the shared [card actions](skyline-browse-shell.md) without pushing Details.
+After a confirmed or uncertain personal change, closing that panel rereads the committed list continuation and restores nearby focus if membership removed the origin.
+Closing and reopening an uncertain action retains its target and requires readback before an explicit retry can resend it.
+Active Details and card-menu updates share one pending-action check, and menu controls become available when the other update settles.
 Returning from Details shows cached cards while re-reading the current page's opaque continuation in the existing fenced window.
 Focus returns by item identity when that item remains visible; a removed item falls back to the next visible card at its old position, or the last card when it was at the end.
 An empty page retains navigation through the existing focus host.

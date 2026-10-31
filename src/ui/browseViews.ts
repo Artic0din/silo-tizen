@@ -17,6 +17,15 @@ export interface ViewContext {
     readonly preview?: (card: Card, row: string) => void;
     readonly continueWatching?: boolean;
     readonly resume?: (id: string, title: string) => void;
+    readonly quickActions?: (card: Pick<Card, "id" | "title" | "type">) => void;
+}
+
+/** Only catalog media receives hold/right-click actions; navigation tiles keep their clicks. */
+export function mediaItem(item: FocusItem, card: Pick<Card, "id" | "title" | "type">, context: ViewContext): FocusItem {
+    if (context.quickActions === undefined || !["movie", "series", "episode", "season"].includes(card.type)) return item;
+    const quickAction = (): void => context.quickActions?.(card);
+    item.element.addEventListener("contextmenu", event => { event.preventDefault(); item.element.focus({ preventScroll: true }); quickAction(); });
+    return { ...item, quickAction };
 }
 
 export function actionButton(key: string, label: string, onPress: () => void): FocusItem {
@@ -93,7 +102,7 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
         else context.open(destination);
     });
     element.addEventListener("focus", () => context.preview?.(card, "Browse"));
-    return { key: card.id, element };
+    return mediaItem({ key: card.id, element }, card, context);
 }
 
 function cardItems(cards: readonly Card[], context: ViewContext): FocusItem[] {

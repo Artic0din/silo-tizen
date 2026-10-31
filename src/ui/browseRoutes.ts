@@ -19,6 +19,8 @@ import { discoveryView, resultsView } from "./libraryDiscoveryViews.ts";
 import { personalView, type PersonalFilter, type PersonalSource, type PersonalListCapability } from "./personalLists.ts";
 import type { MediaScope } from "../contracts/v2/discovery.ts";
 import { personFilmographyView } from "./personFilmography.ts";
+import { requestsHasData, type RequestsScreen } from "./requestsState.ts";
+import { requestsView, type RequestsHandlers } from "./requestsView.ts";
 
 /** Cards per catalog page: four grid rows. Only the shown page is kept. */
 export const PAGE_SIZE = 24;
@@ -33,6 +35,7 @@ export interface Pages {
 export type RouteData =
     | { readonly kind: "personFilmography"; readonly id: string; readonly title: string; filter: MediaScope; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "calendar"; readonly calendar: CalendarState }
+    | { readonly kind: "requests"; readonly requests: RequestsScreen }
     | { readonly kind: "personal"; readonly source: PersonalSource; filter: PersonalFilter; capability: PersonalListCapability | undefined; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "home"; data: { libraries: UserLibrary[]; sections: HomeSection[] } | undefined }
     | { readonly kind: "homeSection"; readonly id: string; readonly title: string; readonly continuing: boolean; pages: Pages; pendingIndex: number | undefined }
@@ -66,6 +69,8 @@ export function hasData(current: Route): boolean {
     switch (current.kind) {
         case "calendar":
             return current.calendar.data !== undefined;
+        case "requests":
+            return requestsHasData(current.requests);
         case "resume":
             return false;
         case "personal":
@@ -86,6 +91,7 @@ export function hasData(current: Route): boolean {
 export interface RouteHandlers {
     readonly personFilter: (route: Extract<Route, { kind: "personFilmography" }>, filter: MediaScope) => void;
     readonly calendar: (route: Extract<Route, { kind: "calendar" }>) => CalendarHandlers;
+    readonly requests: (route: Extract<Route, { kind: "requests" }>) => RequestsHandlers;
     readonly personalFilter: (route: Extract<Route, { kind: "personal" }>, filter: PersonalFilter) => void;
     readonly synopsis: Synopsis;
     readonly context: ViewContext;
@@ -110,6 +116,7 @@ export interface RouteHandlers {
 export function routeView(current: Route, handlers: RouteHandlers): View {
     const { context, pop } = handlers;
     if (current.kind === "calendar") return calendarView(current.calendar, handlers.calendar(current));
+    if (current.kind === "requests") return requestsView(current.requests, handlers.requests(current));
     const back = current.kind === "home" ? undefined : pop;
     const escape = back === undefined ? actionButton("profiles", "Profiles", handlers.chooseProfile) : actionButton("back", "Back", back);
     if (current.kind === "personal") return personalView(current, handlers);
@@ -231,6 +238,7 @@ export function failureText(error: unknown, current: Route): string | undefined 
     }
     if (error.status === 404) {
         if (current.kind === "calendar") return "Could not load Calendar. Try again.";
+        if (current.kind === "requests" && current.requests.screen !== "detail") return "This list is no longer available.";
         return current.kind === "library"
             ? "This library is no longer available."
             : current.kind === "season"

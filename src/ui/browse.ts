@@ -33,6 +33,10 @@ import { mountSettings, type SettingsScreen } from "./settings.ts";
 import { getCalendar } from "../api/calendarOperations.ts";
 import { calendarEventKeys, calendarState, calendarWeek, CalendarTimezoneError, deviceTimezone, localDateKey, shiftDay } from "./calendarState.ts";
 import type { CalendarHandlers } from "./calendarView.ts";
+import { requestsOperations } from "../api/requestsOperations.ts";
+import { requestsAvailable, type RequestStatus } from "../contracts/v2/requests.ts";
+import { actionDone, actionFailure, applyRequests, providerPages, type RequestAction, readRequests, requestCardKey, requestsHub, RequestsUnavailable, requestsUnsettled, sendRequestAction, turnProviderPage, unavailableAnswer } from "./requestsState.ts";
+import { type RequestsHandlers, requestsSearchInput } from "./requestsView.ts";
 
 export type { PlayRequest } from "./browseModel.ts";
 
@@ -91,6 +95,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     searchLabel.htmlFor = input.id;
     // Kept across renders so the field, and the TV keyboard open on it, are never detached.
     const searchHead = [el("h1", "browse-title", "Search"), searchLabel, input];
+    const requestInput = requestsSearchInput();
+    /** The last status this profile read; the root shows only while it allows Requests. */
+    let requestStatus: RequestStatus | undefined;
+    /** Writes awaiting an answer, by title: a reopened detail cannot send another. */
+    const requestWrites = new Map<string, RequestAction>();
 
     let stack: Route[] = [];
     let loading: AbortController | undefined;
@@ -318,6 +327,24 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }, quiet);
                 return;
             }
+            case "requests": {
+                const screen = current.requests;
+                load(current, signal => readRequests(screen, spec => read(spec, signal), status => { requestStatus = status; }).catch((error: unknown) => {
+                    if (error instanceof RequestsUnavailable) return undefined;
+                    throw error;
+                }), answer => {
+                    if (answer === undefined) { closeRequests(); return; }
+                    const turned = (screen.screen === "results" || screen.screen === "search") && screen.pages.want !== undefined || screen.screen === "mine" && screen.pendingIndex !== undefined;
+                    applyRequests(screen, answer);
+                    // A new page starts at its first card; a refresh keeps focus where it is.
+                    if (!turned) return;
+                    const first = screen.screen === "mine" ? screen.data?.items[0] : undefined;
+                    if (first !== undefined) return { zone: "grid", key: `request:${first.id}` };
+                    const result = (screen.screen === "results" || screen.screen === "search") ? screen.pages.data?.results.find(item => item.mediaType !== "unknown") : undefined;
+                    return result === undefined ? { zone: "pager", key: "previous" } : { zone: "grid", key: requestCardKey(result.mediaType, result.tmdbId) };
+                }, quiet);
+                return;
+            }
             case "resume":
                 load(current, async signal => {
                     const detail = await read(operations.getCatalogItem(current.id), signal);
@@ -350,10 +377,17 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                         throw error;
                     }),
                     read(operations.listHomeSections(), signal),
-                ]), ([libraries, hidden, sections]) => {
+                    // Requests are optional: an unreadable status keeps what was known.
+                    read(requestsOperations.requestStatus(), signal).catch((error: unknown) => {
+                        if (error instanceof ApiError && !error.aborted) return requestStatus;
+                        throw error;
+                    }),
+                ]), ([libraries, hidden, sections, status]) => {
                     const focus = host.focused();
                     current.data = { libraries: visibleLibraries(libraries, hidden), sections };
-                    shell.update(current.data.libraries);
+                    requestStatus = status;
+                    if (status !== undefined && !requestsAvailable(status)) closeRequests();
+                    shell.update(current.data.libraries, status !== undefined && requestsAvailable(status));
                     // Changed tabs replace the nav nodes, including the still-present avatar.
                     return focus?.zone === "nav" ? focus : undefined;
                 }, quiet);
@@ -631,13 +665,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (current.kind === "search") {
             input.value = current.query;
         }
+        if (current.kind === "requests" && current.requests.screen === "search") requestInput.value = current.requests.submitted ?? "";
         render(focus);
         if ((current.kind === "item" || current.kind === "season") && current.data?.details !== undefined && !current.stale) {
             detailWork = current.data.details;
             detailWork.start();
         }
         const queryChanged = current.kind === "search" && current.query !== current.resultsFor;
-        if (!hasData(current) || current.stale || current.failure !== undefined || queryChanged) {
+        if (!hasData(current) || current.stale || current.failure !== undefined || queryChanged || current.kind === "requests" && requestsUnsettled(current.requests)) {
             loadRoute(current, hasData(current) && !queryChanged);
             if (current.kind === "calendar") render(focus);
         }
@@ -699,9 +734,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             cancelCalendarDay = clock.schedule(() => render(host.focused()), midnight.getTime() - clock.now());
         }
         if (current.kind === "library") shell.setLibraryModes(availableModes(current.discovery?.data?.capabilities ?? current.discovery?.capabilities));
-        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, personFilter, calendar: calendarHandlers };
+        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, personFilter, calendar: calendarHandlers, requests: requestsHandlers };
         const view = routeView(current, handlers);
-        const rootRoute = current.kind === "home" || current.kind === "library" || current.kind === "search" || current.kind === "personal" || current.kind === "calendar";
+        const rootRoute = current.kind === "home" || current.kind === "library" || current.kind === "search" || current.kind === "personal" || current.kind === "calendar" || (current.kind === "requests" && current.requests.screen === "hub");
         if (rootRoute) {
             const selected = current.kind === "library" ? (current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? "profiles" : current.kind;
             const preview = current.kind === "home" || (current.kind === "library" && (current.discovery?.mode ?? "Browse") === "Browse");
@@ -749,6 +784,93 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             loadRoute(current, true);
             render();
         },
+    });
+    const requestsHandlers = (current: Extract<Route, { kind: "requests" }>): RequestsHandlers => {
+        const shown = current.requests;
+        if (shown.screen === "detail") shown.pending ??= requestWrites.get(requestCardKey(shown.mediaType, shown.tmdbId));
+        return {
+        status: requestStatus, busy: loading !== undefined, slow: current.slow, failure: current.failure, baseUrl: context.baseUrl, input: requestInput,
+        open: screen => push(newRoute({ kind: "requests", requests: screen })),
+        openItem: (id, title) => open({ kind: "item", id, title }),
+        retry: () => retry(current),
+        back: current.requests.screen === "hub" ? undefined : pop,
+        turn: step => {
+            const screen = current.requests;
+            if (loading !== undefined) return;
+            if (screen.screen === "results" || screen.screen === "search") {
+                if (!turnProviderPage(screen.pages, step)) return;
+            } else if (screen.screen === "mine") {
+                const index = screen.index + step;
+                if (index < 0 || index >= screen.cursors.length || screen.cursors[index] === undefined && index > 0) return;
+                screen.pendingIndex = index;
+            } else return;
+            current.failure = undefined;
+            loadRoute(current);
+            render();
+        },
+        mediaType: type => {
+            const screen = current.requests;
+            if (screen.screen !== "brands" || screen.mediaType === type) return;
+            screen.mediaType = type;
+            render({ zone: "filters", key: `type:${type}` });
+        },
+        act: action => requestAction(current, action),
+        };
+    };
+    /** One explicit write per press, never resent; the detail is reread to show what happened. */
+    const requestAction = (current: Extract<Route, { kind: "requests" }>, action: RequestAction): void => {
+        const screen = current.requests;
+        if (torn || screen.screen !== "detail" || screen.data === undefined || screen.pending !== undefined) return;
+        const title = requestCardKey(screen.mediaType, screen.tmdbId);
+        if (requestWrites.has(title)) return;
+        if (top() === current) { loading?.abort(); loading = undefined; cancelSlow(); }
+        requestWrites.set(title, action);
+        screen.pending = action;
+        screen.notice = undefined;
+        render({ zone: "actions", key: action });
+        const finish = (text: string, tone: "info" | "error"): void => {
+            requestWrites.delete(title);
+            // `pending` stays set until the reread lands, so the old state cannot be pressed again.
+            screen.notice = { text, tone };
+            // Even an unconfirmed write may have landed: every Requests screen rereads when shown.
+            for (const entry of new Set([...roots.values(), ...stack])) if (entry.kind === "requests") entry.stale = true;
+            const shown = top();
+            if (shown?.kind === "requests" && (shown === current || loading === undefined)) { loadRoute(shown, true); render(); }
+        };
+        sendRequestAction(action, screen.data, spec => session.call({ ...spec, profileScoped: true, replayAfterRefresh: false })).then(() => {
+            if (!torn) finish(actionDone(action), "info");
+        }, (error: unknown) => {
+            if (torn) return;
+            if (unavailableAnswer(error)) { requestWrites.delete(title); screen.pending = undefined; closeRequests(); return; }
+            finish(actionFailure(error), "error");
+        });
+    };
+    /** The server no longer offers Requests to this profile: close its routes and hide the root. */
+    const closeRequests = (): void => {
+        roots.delete("requests");
+        shell.update(home.kind === "home" ? home.data?.libraries ?? [] : [], false);
+        if (!stack.some(entry => entry.kind === "requests")) return;
+        const covered = top()?.kind === "requests";
+        stack = stack.filter(entry => entry.kind !== "requests");
+        if (!covered) return;
+        stopDetails();
+        loading?.abort();
+        loading = undefined;
+        cancelSlow();
+        const current = top();
+        if (current !== undefined) showRoute(current, current.focus);
+    };
+    requestInput.addEventListener("keydown", (event) => {
+        const current = top();
+        if (current?.kind !== "requests" || current.requests.screen !== "search") return;
+        // The TV keyboard's Done key, or Enter: one search per submission, never while typing.
+        if ((event.keyCode === 65376 || event.key === "Enter") && requestInput.value.trim() !== "") {
+            current.requests.submitted = requestInput.value.trim();
+            current.requests.pages = providerPages();
+            current.failure = undefined;
+            loadRoute(current);
+            render();
+        }
     });
     const personalFilter = (current: Extract<Route, { kind: "personal" }>, filter: PersonalFilter): void => {
         if (current.filter === filter) return;
@@ -834,7 +956,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         let route = roots.get(key);
         if (route === undefined) {
             route = typeof target === "string"
-                ? target === "calendar" ? newRoute({ kind: "calendar", calendar: calendarState() }) : newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
+                ? target === "calendar" ? newRoute({ kind: "calendar", calendar: calendarState() }) : target === "requests" ? newRoute({ kind: "requests", requests: requestsHub() }) : newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
                 : newRoute({ kind: "library", library: target, pages: newPages() });
             roots.set(key, route);
         }

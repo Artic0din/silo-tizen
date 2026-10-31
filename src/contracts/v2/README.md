@@ -114,6 +114,21 @@ A present non-string fails the person read. Absence stays absent, and an empty s
 Birth and death dates stay calendar strings. The hero formats valid `YYYY-MM-DD` values and leaves any other text unchanged.
 See [person hero](../../../docs/person-hero.md).
 
+## Requests
+
+`requests.ts` decodes the consumed members of the Requests operations at `SOURCE`; `api/requestsOperations.ts` supplies the factories.
+`request_status_ok`, `list_my_requests_ok`, `create_request_ok` and `cancel_request_ok` are byte-identical copies from `contracts/api/v2/fixtures/`.
+`SOURCE` has no fixtures for Discover, search, brand browse, title detail or follow; the test server builds those bodies from the `DiscoverSectionCollection`, `DiscoverSection`, `RequestMediaPage`, `DiscoverBrowsePage`, `DiscoverBrandCollection`, `RequestMediaDetail` and `RequestMediaState` schemas.
+
+| Operation | Retry class (`x-silo-retry-safety`) | Client behavior |
+| --- | --- | --- |
+| `getRequestStatus`, `listDiscoverSections`, `getDiscoverSection`, `getDiscoverRow`, `listDiscover{Genres,Networks,Studios}`, `browseDiscover{Genre,Network,Studio}`, `searchRequestMedia`, `getRequestMediaDetail`, `listMyRequests` | read (`profile_scoped`) | One transport retry |
+| `createRequest`, `cancelRequest` | `non_retryable` | Never resent, not even after a token refresh; the detail is reread instead |
+| `followRequestMedia`, `unfollowRequestMedia` | `natural_idempotent` | Sent once per press like the other writes; the detail is reread instead |
+
+Feature `state`, request `state`/`status`, download `phase` and row `type` are open sets: unknown feature states are unavailable, unknown row types are skipped and unknown media types are not opened.
+`has_more` must agree with `next_cursor`; download `percent` must be 0–100.
+
 ## Updating the pinned contract
 
 1. Pick the new server commit and copy the same fixture names from its `contracts/api/v2/fixtures/`.

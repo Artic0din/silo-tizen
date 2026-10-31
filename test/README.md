@@ -35,6 +35,7 @@ The focused sign-in, profile, browse and player suites retain their failure/load
 Preplay tests use the production entry in normal and reduced motion, checking per-file audio, nonzero server Auto preference, explicit version pins, numeric start-over, fresh Resume, duplicate activation, Retry, cancellation and initiating focus.
 Native tests check the three-second boundary, late replies, profile/sign-out fences and exact whole start bodies and headers, including saved quality/cap and identical lost-answer resends.
 The Details fake lists different audio inventories for files 42 and 43; the playback fake validates initial audio IDs and resolves Auto separately.
+Requests tests cover capability gating and closure, hub rows, brand and provider paging, search, My Requests, loading/failure/Retry/Back, focus return, late answers and single-send create, cancel, follow and unfollow, including lost answers and refreshed tokens.
 Skyline regressions cover full profile names, the contrast of an unfocused empty server field, and Samsung media-key registration and dispatch.
 Player tests cover explicit Play/Pause idempotency, visible transport focus, seek preview/commit/cancel and preservation of the preview during live progress updates.
 Profile seek tests save 15/45 through Settings and consume them through the real controller and screen, including numeric enum boundaries, independent DELETE resets, unbatched reads, unsupported servers, malformed responses, Retry and authority replacement.

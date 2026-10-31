@@ -194,3 +194,23 @@ Library IDs stay opaque strings until the validated positive JSON-integer write 
 Each toggle rereads the profile list and preserves IDs absent from the editable library list.
 Returning after a hidden-list mutation refreshes Home and root navigation and drops cached library roots.
 The whole-array API remains last-write-wins across clients; rereading does not make concurrent edits atomic.
+
+## Requests
+
+The Requests root appears in Skyline only while `GET /api/v2/requests/status` reports `state: available`, `allowed` and `requests_enabled` for the active profile.
+Home reads that status with its other reads; an unreadable status keeps what was last known, so Home never fails because of Requests.
+The hub rereads status before `listDiscoverSections`.
+A disabled status, or a `409 capability_disabled`/`capability_not_configured` or `501` answer from any Requests operation, removes every Requests route, hides the root and returns to Home.
+
+The hub shows title rows in `row_order`, skips row types it does not know, and gathers studio, network and genre rows into one Browse by zone.
+Built-in rows page through `getDiscoverSection`; an admin's rows offer See all only when `discover_rows_supported` is true.
+Provider pages follow `next_page`, end at `total_pages` or TMDB's page 500, and Previous returns through the pages actually shown.
+Search sends one query per Enter or keyboard Done, never while typing.
+Posters are TMDB paths drawn from `image.tmdb.org` at `w342`, as the server's web client does; any other value shows the title placeholder.
+
+Title details offer Open in library, Request, Cancel request, Follow and Unfollow from the viewer's request state and `follow_supported`; the server repeats every check.
+Each write is sent once per press with no transport retry and no replay after a token refresh, and further presses are ignored until it settles.
+The result or an unconfirmed outcome is shown, and the detail is reread so the screen shows what the server holds.
+After a write, every retained Requests screen rereads when it is shown again.
+Series requests omit `seasons`, which asks for every aired season; season choice is not offered.
+Late answers for a covered route are dropped, Back restores focus by zone and key, and a profile or sign-out change tears browse down as it does for other routes.

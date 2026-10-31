@@ -324,6 +324,7 @@ export function decodePlaybackDecision(value: unknown): PlaybackDecision {
 const MUTATION_OUTCOMES = ["applied", "stale_sample", "replayed", "stopped"] as const;
 
 export interface PlaybackMutation {
+    readonly stopId?: string;
     readonly outcome: (typeof MUTATION_OUTCOMES)[number] | "unknown";
     /** The latest committed sample. */
     readonly acceptedSequence: number | undefined;
@@ -333,7 +334,13 @@ export function decodePlaybackMutation(value: unknown): PlaybackMutation {
     const path = "playback_mutation";
     const obj = object(value, path);
     const accepted = obj.accepted === undefined ? undefined : object(obj.accepted, `${path}.accepted`);
+    if (accepted !== undefined) {
+        const position = number(accepted, "position", `${path}.accepted`);
+        if (position < 0 || integer(accepted, "sequence", `${path}.accepted`) < 1) throw new WireError(`${path}.accepted`, "a positive sequence and nonnegative position");
+        boolean(accepted, "is_paused", `${path}.accepted`);
+    }
     return {
+        ...(obj.stop_id === undefined ? {} : { stopId: nonEmptyString(obj, "stop_id", path) }),
         outcome: oneOf(string(obj, "outcome", path), MUTATION_OUTCOMES),
         acceptedSequence: accepted === undefined ? undefined : integer(accepted, "sequence", `${path}.accepted`),
     };

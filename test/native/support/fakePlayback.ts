@@ -83,6 +83,7 @@ export interface PlanShape {
 export type NextDecision = PlanShape | { readonly terminal: string; readonly retryable?: boolean };
 
 interface Session {
+    readonly requestedFileId: string;
     readonly id: string;
     readonly profileId: string;
     readonly attemptId: string;
@@ -242,6 +243,7 @@ export class FakePlayback {
         }
         const id = `5e55${String(++this.serial).padStart(4, "0")}-0000-4000-8000-000000000000`;
         const session: Session = {
+            requestedFileId: String(body.file_id),
             id,
             profileId,
             attemptId,
@@ -288,6 +290,7 @@ export class FakePlayback {
             session.lastSample = { position: body.position, isPaused: body.is_paused };
         }
         session.receipt = { stop_id: body.stop_id, accepted: this.accepted(session) };
+        this.fake.catalog?.playbackStopped?.(session.requestedFileId, session.effectiveFileId, Number(session.lastSample?.position ?? 0));
         return { status: 200, body: { ...fixture("playback_stop_completed"), ...session.receipt } };
     }
 

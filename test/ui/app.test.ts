@@ -61,6 +61,141 @@ async function prepare(tv: Tv): Promise<void> {
     await tv.eventually(() => tv.page.evaluate(() => window.appHarness.avplay.state === "PLAYING"), "playback");
 }
 
+appTest("natural episode EOF offers manual Play next instead of returning to Browse", async (tv, playback, catalog) => {
+    for (const id of ["episode:s1e12", "episode:s1e13"]) {
+        catalog.fileIds.set(id, "42");
+        playback.items.set(id, ["42"]);
+    }
+    await signIn(tv);
+    await tv.page.locator('.skyline-continue[data-focus="episode:s1e12"]').click();
+    await prepare(tv);
+    await tv.page.evaluate(() => { window.appHarness.avplay.tick(5399000); window.appHarness.avplay.listener?.onstreamcompleted(); });
+    await tv.page.getByRole("button", { name: "Play next", exact: true }).waitFor();
+    assert.equal(await tv.page.getByText("Harbor Lights chapter 1.3", { exact: true }).count(), 1);
+    assert.equal(tv.fake.requests.filter(r => r.path === "/playback/start").length, 1);
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="home"]').waitFor();
+    assert.equal(await tv.focused(), "episode:s1e12");
+}, true);
+
+async function startEpisode(tv: Tv, playback: FakePlayback, catalog: FakeCatalog, id = "episode:s1e12"): Promise<void> {
+    catalog.fileIds.set(id, "42");
+    catalog.fileIds.set("episode:s1e13", "43");
+    playback.items.set(id, ["42"]);
+    playback.items.set("episode:s1e13", ["43"]);
+    const household = catalog.households.get("p-owner");
+    assert.ok(household !== undefined);
+    household.sections[0]?.items.push(id);
+    await signIn(tv);
+    await tv.page.locator(`.skyline-continue[data-focus="${id}"]`).first().click();
+    await prepare(tv);
+}
+
+for (const reduced of [false, true]) {
+    appTest(`EOF remote journey preserves focus, one START and origin in ${reduced ? "reduced" : "normal"} motion`, async (tv, playback, catalog) => {
+        await tv.page.emulateMedia({ reducedMotion: reduced ? "reduce" : "no-preference" });
+        catalog.persistStops = false;
+        await startEpisode(tv, playback, catalog);
+        const id = [...playback.sessions.keys()][0];
+        assert.ok(id !== undefined);
+        const stop = tv.fake.hold(`/playback/${id}`);
+        await tv.page.evaluate(() => { window.appHarness.avplay.tick(5399000); window.appHarness.avplay.listener?.onstreamcompleted(); });
+        await tv.page.getByText("Ending playback…", { exact: true }).waitFor();
+        assert.equal(await tv.focused(), "back");
+        assert.equal(tv.fake.requests.some(r => r.path.startsWith("/watch/")), false);
+        stop.release();
+        await tv.page.getByRole("button", { name: "Play next", exact: true }).waitFor();
+        assert.equal(await tv.focused(), "back", "adding a next action must not move surviving focus");
+        const requests = tv.fake.requests.length;
+        await tv.remote(38);
+        assert.equal(await tv.focused(), "play-next");
+        await tv.remote(40);
+        await tv.remote(38);
+        assert.equal(tv.fake.requests.length, requests, "focus movement must never fetch");
+        assert.equal(await tv.page.getByText(/saved|completed/i).count(), 0);
+        await tv.remote(13);
+        await tv.remote(13);
+        await prepare(tv);
+        const starts = tv.fake.requests.filter(r => r.path === "/playback/start");
+        assert.equal(starts.length, 2);
+        assert.equal(starts[1]?.body?.file_id, "43");
+        assert.equal(starts[1]?.body?.start_position, 0);
+        await tv.remote(10009);
+        await tv.page.locator('[data-view="home"]').waitFor();
+        assert.equal(await tv.focused(), "episode:s1e12");
+        assert.equal(tv.fake.requests.filter(r => r.path === "/playback/start").length, 2);
+    }, true);
+}
+
+appTest("Back during EOF STOP restores Browse and late answers cannot show continuation", async (tv, playback, catalog) => {
+    await startEpisode(tv, playback, catalog);
+    const id = [...playback.sessions.keys()][0];
+    assert.ok(id !== undefined);
+    const stop = tv.fake.hold(`/playback/${id}`, true);
+    await tv.page.evaluate(() => window.appHarness.avplay.listener?.onstreamcompleted());
+    await tv.page.getByText("Ending playback…", { exact: true }).waitFor();
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="home"]').waitFor();
+    stop.release();
+    await tv.jump(0);
+    assert.equal(await tv.focused(), "episode:s1e12");
+    assert.equal(await tv.page.getByRole("button", { name: "Play next", exact: true }).count(), 0);
+    assert.equal(tv.fake.requests.some(r => r.path.startsWith("/watch/")), false);
+}, true);
+
+for (const reduced of [false, true]) {
+    appTest(`expired progress at EOF offers only Back in ${reduced ? "reduced" : "normal"} motion`, async (tv, playback, catalog) => {
+        await tv.page.emulateMedia({ reducedMotion: reduced ? "reduce" : "no-preference" });
+        await startEpisode(tv, playback, catalog);
+        const id = [...playback.sessions.keys()][0];
+        assert.ok(id !== undefined);
+        const progress = tv.fake.hold(`/playback/${id}/progress`);
+        playback.sessions.delete(id);
+        await tv.jump(10000);
+        await tv.page.evaluate(() => window.appHarness.avplay.listener?.onstreamcompleted());
+        await tv.page.getByText("Ending playback…", { exact: true }).waitFor();
+        progress.release();
+        await tv.page.getByText("Could not confirm playback or load the next episode.", { exact: true }).waitFor();
+        assert.equal(await tv.page.getByRole("button", { name: "Retry", exact: true }).count(), 0);
+        assert.equal(await tv.page.getByRole("button", { name: "Play next", exact: true }).count(), 0);
+        assert.equal(await tv.focused(), "back");
+        assert.equal(tv.fake.requests.filter(request => request.method === "DELETE").length, 0);
+        assert.equal(tv.fake.requests.filter(request => request.path === "/playback/start").length, 1);
+        await tv.remote(13);
+        await tv.page.locator('[data-view="home"]').waitFor();
+        assert.equal(await tv.focused(), "episode:s1e12");
+    }, true);
+}
+
+appTest("EOF read failure has remote Retry and Back without a second STOP", async (tv, playback, catalog) => {
+    await startEpisode(tv, playback, catalog);
+    catalog.watchOverrides.set("episode:s1e12", { versions: "malformed" });
+    await tv.page.evaluate(() => window.appHarness.avplay.listener?.onstreamcompleted());
+    await tv.page.getByRole("button", { name: "Retry", exact: true }).waitFor();
+    assert.equal(await tv.page.getByRole("button", { name: "Play next", exact: true }).count(), 0);
+    catalog.watchOverrides.delete("episode:s1e12");
+    await tv.remote(38);
+    assert.equal(await tv.focused(), "settings-retry");
+    await tv.remote(13);
+    await tv.page.getByRole("button", { name: "Play next", exact: true }).waitFor();
+    assert.equal(tv.fake.requests.filter(r => r.method === "DELETE" && r.path.startsWith("/playback/")).length, 1);
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="home"]').waitFor();
+    assert.equal(await tv.focused(), "episode:s1e12");
+}, true);
+
+appTest("the final episode has a focusable Back action and no cross-title start", async (tv, playback, catalog) => {
+    await startEpisode(tv, playback, catalog, "episode:s1e23");
+    await tv.page.evaluate(() => window.appHarness.avplay.listener?.onstreamcompleted());
+    await tv.page.getByText("No more playable episodes.", { exact: true }).waitFor();
+    assert.equal(await tv.focused(), "back");
+    assert.equal(await tv.page.getByRole("button", { name: "Play next", exact: true }).count(), 0);
+    await tv.remote(13);
+    await tv.page.locator('[data-view="home"]').waitFor();
+    assert.equal(await tv.focused(), "episode:s1e23");
+    assert.equal(tv.fake.requests.filter(r => r.path === "/playback/start").length, 1);
+}, true);
+
 appTest("profile Settings 15/45 reaches the composed controller and every remote seek surface", async (tv, playback) => {
     const settings = new FakeSettings(tv.fake);
     await signIn(tv);

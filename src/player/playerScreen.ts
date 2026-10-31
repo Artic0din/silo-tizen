@@ -182,13 +182,18 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const back = el("button", "player-button", "Back");
     back.type = "button";
     back.setAttribute("data-focus", "back");
-    back.addEventListener("click", () => controls.dismissError());
+    back.addEventListener("click", () => view.phase === "completion" ? controls.back() : controls.dismissError());
     const retry = el("button", "player-button", "Retry");
     retry.type = "button";
     retry.setAttribute("data-focus", "settings-retry");
-    retry.addEventListener("click", () => controls.retrySettings());
+    retry.addEventListener("click", () => view.phase === "completion" || (view.phase === "error" && view.retryable) ? controls.retryCompletion() : controls.retrySettings());
+    const next = el("button", "player-button", "Play next");
+    next.type = "button";
+    next.setAttribute("data-focus", "play-next");
+    next.addEventListener("click", () => controls.playNext());
     failure.appendChild(failureTitle);
     failure.appendChild(failureText);
+    failure.appendChild(next);
     failure.appendChild(retry);
     failure.appendChild(back);
     section.appendChild(surface);
@@ -258,7 +263,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         if (seekPreview === undefined) thumbnail.clear();
         transport.hidden = !active;
         bar.setAttribute("aria-disabled", String(!active));
-        const showing = view.phase === "error" ? "error" : "overlay";
+        const showing = view.phase === "error" || view.phase === "completion" ? "error" : "overlay";
         failure.style.display = showing === "error" ? "block" : "none";
         overlay.style.display = showing === "overlay" ? "block" : "none";
         if (menuOpen && view.phase !== "playing" && view.phase !== "paused") {
@@ -266,8 +271,19 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }
         menu.style.display = menuOpen ? "block" : "none";
         tracksButton.setAttribute("aria-expanded", String(menuOpen));
+        next.hidden = true;
+        if (view.phase === "completion") {
+            next.hidden = view.state !== "ready" || view.next === undefined;
+            retry.hidden = view.state !== "failed" || !view.retryable;
+            failureTitle.textContent = view.title;
+            failureText.textContent = view.state === "finalizing" ? "Ending playback…" : view.state === "resolving" ? "Finding the next episode…" : view.state === "failed" ? "Could not confirm playback or load the next episode." : view.next?.title ?? "No more playable episodes.";
+            if (![back, retry.hidden ? undefined : retry, next.hidden ? undefined : next].includes(document.activeElement as HTMLButtonElement)) {
+                (!next.hidden ? next : !retry.hidden ? retry : back).focus();
+            }
+            return;
+        }
         if (view.phase === "error") {
-            retry.hidden = view.error.kind !== "settings";
+            retry.hidden = view.error.kind !== "settings" && !view.retryable;
             failureTitle.textContent = view.title;
             failureText.textContent = errorText(view.error);
             if (document.activeElement !== back && document.activeElement !== retry) {
@@ -392,11 +408,20 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             return;
         }
         event.preventDefault();
+        if (view.phase === "completion") {
+            const buttons = [next, retry, back].filter(button => !button.hidden);
+            const index = buttons.findIndex(button => button === document.activeElement);
+            if (key === "back" || key === "stop") controls.back();
+            else if (key === "enter") (buttons[index] ?? buttons[0])?.click();
+            else if (key === "up" || key === "left") buttons[Math.max(0, index - 1)]?.focus();
+            else if (key === "down" || key === "right") buttons[Math.min(buttons.length - 1, index + 1)]?.focus();
+            return;
+        }
         if (view.phase === "error") {
-            if (view.error.kind === "settings" && (key === "up" || key === "down" || key === "left" || key === "right")) {
+            if (!retry.hidden && (key === "up" || key === "down" || key === "left" || key === "right")) {
                 (document.activeElement === retry ? back : retry).focus();
-            } else if (view.error.kind === "settings" && key === "enter" && document.activeElement === retry) {
-                controls.retrySettings();
+            } else if (!retry.hidden && key === "enter" && document.activeElement === retry) {
+                retry.click();
             } else if (key === "enter" || key === "back") {
                 controls.dismissError();
             }

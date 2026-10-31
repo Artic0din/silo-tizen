@@ -9,6 +9,7 @@ import { FakeAVPlay } from "./support/fakeAVPlay.ts";
 import { FakePlayback } from "./support/fakePlayback.ts";
 import { fixture, problem, type RecordedRequest } from "./support/fakeSilo.ts";
 import { FakeSettings } from "./support/fakeSettings.ts";
+import { FakeCatalog } from "./support/fakeCatalog.ts";
 import { SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS } from "../../src/contracts/v2/settings.ts";
 import { operations } from "../../src/api/operations.ts";
 import { connected, type Harness, signIn } from "./support/harness.ts";
@@ -27,12 +28,13 @@ interface Rig {
     readonly views: PlaybackView[];
 }
 
-async function rig(): Promise<Rig> {
+async function rig(profileId = "p-owner"): Promise<Rig> {
     const h = await connected();
     await signIn(h);
-    const owner = (await h.core.profiles.list()).find((profile) => profile.id === "p-owner");
+    const owner = (await h.core.profiles.list()).find((profile) => profile.id === profileId);
     assert.ok(owner !== undefined);
     h.core.profiles.select(owner);
+    if (owner.hasPin) assert.deepEqual(await h.core.profiles.verifyPin(owner.id, "2468"), { status: "verified" });
     const server = new FakePlayback(h.fake);
     const avplay = new FakeAVPlay();
     const exits: string[] = [];
@@ -738,6 +740,357 @@ test("only the natural-completion callback completes playback, after a final sto
     assert.equal(stop.position, 7199);
     assert.deepEqual(r.exits, ["end:completed"]);
     assert.equal(r.avplay.state, "NONE");
+});
+
+test("EOF holds the handoff until pending progress and the exact final STOP receipt settle", async () => {
+    const r = await rig();
+    const id = await playMovie(r);
+    const progress = r.h.fake.hold(`/playback/${id}/progress`);
+    r.avplay.tick(7000000);
+    await r.h.clock.advance(10000);
+    const stop = r.h.fake.hold(`/playback/${id}`);
+    r.avplay.tick(7199000);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.deepEqual(r.exits, [], "EOF must not hand off while progress is unresolved");
+    assert.equal(bodies(r.h, `/playback/${id}`).length, 0);
+    progress.release();
+    await r.h.clock.advance(0);
+    assert.deepEqual(r.exits, [], "EOF must not hand off while STOP is unresolved");
+    const final = only(bodies(r.h, `/playback/${id}`));
+    assert.equal(final.sequence, 2);
+    assert.equal(final.position, 7199);
+    assert.equal(final.is_paused, false);
+    assert.equal(final.installation_id, r.server.installationId);
+    assert.match(String(final.stop_id), UUID);
+    stop.release();
+    await r.h.clock.advance(0);
+    assert.deepEqual(r.exits, ["end:completed"]);
+    r.controller.destroy();
+});
+
+const EPISODE: PlayRequest = { contentId: "episode:s1e12", fileId: "42", title: "Harbor Lights chapter 1.2", startSeconds: 0, episode: true };
+
+async function episodeRig(): Promise<Rig & { catalog: FakeCatalog }> {
+    const r = await rig();
+    const catalog = new FakeCatalog();
+    catalog.fileIds.set(EPISODE.contentId, "42");
+    catalog.fileIds.set("episode:s1e13", "43");
+    r.h.fake.catalog = catalog;
+    r.server.items.set(EPISODE.contentId, ["42"]);
+    r.server.items.set("episode:s1e13", ["43"]);
+    return { ...r, catalog };
+}
+
+function completion(r: Rig): Extract<PlaybackView, { phase: "completion" }> {
+    const view = last(r.views);
+    assert.equal(view.phase, "completion");
+    assert.ok(view.phase === "completion");
+    return view;
+}
+
+test("episode EOF orders held progress, final STOP, fresh watch and exactly one manual successor START", async () => {
+    const r = await episodeRig();
+    const id = await playMovie(r, EPISODE);
+    const listener = r.avplay.listener;
+    const progress = r.h.fake.hold(`/playback/${id}/progress`);
+    r.avplay.tick(5000000);
+    await r.h.clock.advance(10000);
+    const stop = r.h.fake.hold(`/playback/${id}`);
+    const watch = r.h.fake.hold(`/watch/${encodeURIComponent(EPISODE.contentId)}`);
+    r.avplay.tick(5399000);
+    listener?.onstreamcompleted();
+    listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    r.controller.playNext();
+    assert.equal(completion(r).state, "finalizing");
+    assert.equal(bodies(r.h, "/start").length, 1);
+    assert.equal(r.h.fake.requests.filter(q => q.path.startsWith("/watch/")).length, 0);
+    progress.release();
+    await r.h.clock.advance(0);
+    const body = only(bodies(r.h, `/playback/${id}`));
+    assert.equal(body.sequence, 2);
+    assert.equal(body.position, 5399);
+    assert.equal(body.is_paused, false);
+    assert.equal(body.installation_id, r.server.installationId);
+    stop.release();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).state, "resolving");
+    r.controller.playNext();
+    assert.equal(bodies(r.h, "/start").length, 1);
+    watch.release();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).state, "ready");
+    assert.equal(r.catalog.playbackWatched.has(EPISODE.contentId), true, "the fake STOP must update subsequent watch reads");
+    r.controller.playNext();
+    r.controller.playNext();
+    listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    const starts = bodies(r.h, "/start");
+    assert.equal(starts.length, 2);
+    assert.equal(starts[1]?.file_id, "43");
+    assert.equal(starts[1]?.start_position, 0);
+    assert.notEqual(starts[0]?.playback_attempt_id, starts[1]?.playback_attempt_id);
+    assert.equal(starts[1]?.selected_tracks, undefined);
+    assert.equal(r.h.fake.requests.filter(q => q.method === "DELETE").length, 1);
+    assert.deepEqual(r.exits, []);
+    r.controller.destroy();
+    await r.h.clock.advance(0);
+});
+
+test("a lost EOF STOP answer retries the identical body and identity before resolving", async () => {
+    const r = await episodeRig();
+    const id = await playMovie(r, EPISODE);
+    r.h.fake.dropNextAnswer(`/playback/${id}`);
+    r.avplay.tick(5399000);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).state, "finalizing");
+    assert.equal(r.h.fake.requests.filter(q => q.path.startsWith("/watch/")).length, 0);
+    await r.h.clock.advance(1000);
+    const stops = bodies(r.h, `/playback/${id}`);
+    assert.equal(stops.length, 2);
+    assert.deepEqual(stops[0], stops[1]);
+    assert.equal(stops[0]?.sequence, 1);
+    assert.equal(stops[0]?.position, 5399);
+    assert.equal(completion(r).state, "ready");
+    assert.equal(r.server.session(id).receipt?.stop_id, stops[0]?.stop_id);
+    r.controller.destroy();
+});
+
+test("EOF STOP failures retain the same body on explicit Retry and honor Retry-After", async () => {
+    const r = await episodeRig();
+    const id = await playMovie(r, EPISODE);
+    r.h.fake.script(`/playback/${id}`, ...[1, 2, 3].map(() => ({ status: 503, headers: { "Retry-After": "4" }, body: {} })));
+    r.avplay.tick(111250);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(8000);
+    assert.equal(completion(r).state, "failed");
+    assert.equal(completion(r).retryable, true);
+    r.controller.retryCompletion();
+    r.controller.retryCompletion();
+    await r.h.clock.advance(3999);
+    assert.equal(bodies(r.h, `/playback/${id}`).length, 3);
+    assert.equal(bodies(r.h, "/start").length, 1);
+    await r.h.clock.advance(1);
+    const stops = bodies(r.h, `/playback/${id}`);
+    assert.equal(stops.length, 4);
+    assert.ok(stops.every(stop => JSON.stringify(stop) === JSON.stringify(stops[0])));
+    assert.equal(stops[0]?.position, 111.25);
+    assert.equal(completion(r).state, "ready");
+    r.controller.destroy();
+});
+
+test("Back, background, teardown and profile loss cancel EOF resolution despite late answers", async () => {
+    for (const action of ["back", "background", "destroy", "profile"] as const) {
+        const r = await episodeRig();
+        await playMovie(r, EPISODE);
+        const hold = r.h.fake.hold(`/watch/${encodeURIComponent(EPISODE.contentId)}`, true);
+        r.avplay.listener?.onstreamcompleted();
+        await r.h.clock.advance(0);
+        assert.equal(completion(r).state, "resolving");
+        if (action === "profile") r.h.core.profiles.clear();
+        else r.controller[action]();
+        const count = r.views.length;
+        hold.release();
+        await r.h.clock.advance(0);
+        r.controller.playNext();
+        assert.equal(bodies(r.h, "/start").length, 1, action);
+        assert.equal(r.views.length, count, action);
+        if (action === "profile") assert.deepEqual(r.exits, ["end:authority_changed"]);
+        r.controller.destroy();
+    }
+});
+
+test("Back during held EOF STOP never resurrects continuation but still retires the old session", async () => {
+    const r = await episodeRig();
+    const id = await playMovie(r, EPISODE);
+    const hold = r.h.fake.hold(`/playback/${id}`, true);
+    const listener = r.avplay.listener;
+    listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    r.controller.back();
+    hold.release();
+    listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.deepEqual(r.exits, ["back"]);
+    assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/")), false);
+    assert.equal(bodies(r.h, `/playback/${id}`).length, 1);
+    assert.ok(r.server.session(id).receipt !== undefined);
+    r.controller.destroy();
+});
+
+test("fresh unchanged played:false is authoritative and still permits a neutral next offer", async () => {
+    const r = await episodeRig();
+    r.catalog.persistStops = false;
+    await playMovie(r, EPISODE);
+    r.avplay.tick(5399000);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).state, "ready");
+    assert.equal(completion(r).title, "Playback ended");
+    assert.equal(r.catalog.playbackWatched.has(EPISODE.contentId), false);
+    assert.equal(r.catalog.progress.has(EPISODE.contentId), false);
+    r.controller.destroy();
+});
+
+test("an expired pending progress answer at EOF offers Back without an impossible Retry", async () => {
+    const r = await episodeRig();
+    const id = await playMovie(r, EPISODE);
+    const progress = r.h.fake.hold(`/playback/${id}/progress`);
+    r.server.sessions.delete(id);
+    await r.h.clock.advance(10000);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).state, "finalizing");
+    progress.release();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).state, "failed");
+    assert.equal(completion(r).retryable, false);
+    assert.equal(completion(r).next, undefined);
+    r.controller.playNext();
+    assert.equal(r.h.fake.requests.filter(request => request.method === "DELETE").length, 0);
+    assert.equal(r.h.fake.requests.some(request => request.path.startsWith("/watch/")), false);
+    assert.equal(bodies(r.h, "/start").length, 1);
+    r.controller.back();
+    assert.deepEqual(r.exits, ["back"]);
+    r.controller.destroy();
+});
+
+test("fresh watch failure offers Retry without resending confirmed STOP or leaking a next title", async () => {
+    const r = await episodeRig();
+    const id = await playMovie(r, EPISODE);
+    r.catalog.removed.add(EPISODE.contentId);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).state, "failed");
+    assert.equal(completion(r).next, undefined);
+    assert.equal(completion(r).retryable, true);
+    r.catalog.removed.delete(EPISODE.contentId);
+    r.controller.retryCompletion();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).state, "ready");
+    assert.equal(bodies(r.h, `/playback/${id}`).length, 1);
+    r.controller.destroy();
+});
+
+test("STOP authorization, installation, administrator and malformed receipt refusals never offer a successor", async () => {
+    for (const refusal of [problem(403, "forbidden", "Forbidden"), problem(410, "playback_session_ended", "Ended"), problem(409, "installation_changed", "Changed"), { status: 200, body: { outcome: "applied" } }, { status: 200, body: { outcome: "replayed", stop_id: "administrator-stop" } }, { status: 200, body: { outcome: "stopped", accepted: { sequence: 1, position: "bad", is_paused: false } } }]) {
+        const r = await episodeRig();
+        const id = await playMovie(r, EPISODE);
+        r.h.fake.script(`/playback/${id}`, refusal);
+        r.avplay.listener?.onstreamcompleted();
+        await r.h.clock.advance(0);
+        assert.equal(completion(r).state, "failed");
+        r.controller.playNext();
+        assert.equal(bodies(r.h, "/start").length, 1);
+        assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/")), false);
+        r.controller.destroy();
+    }
+});
+
+test("unknown and different effective durations and premature EOF preserve the actual source sample", async () => {
+    for (const duration of [0, 3600, 10000]) {
+        const r = await episodeRig();
+        r.server.next.push({ effectiveFileId: "43", durationSeconds: duration, timeline: { source_start_seconds: 100, player_start_seconds: 0, timeline_offset_seconds: 100 } });
+        r.catalog.watchOverrides.set(EPISODE.contentId, { versions: [{ file_id: "42", duration_seconds: 5400 }, { file_id: "43", duration_seconds: duration, multi_episode_start: 2, multi_episode_end: 2 }] });
+        const id = await playMovie(r, EPISODE);
+        r.avplay.tick(11250);
+        r.avplay.listener?.onstreamcompleted();
+        await r.h.clock.advance(0);
+        assert.equal(only(bodies(r.h, `/playback/${id}`)).position, 111.25);
+        assert.equal(completion(r).state, "ready");
+        assert.equal(r.catalog.playbackWatched.has(EPISODE.contentId), false);
+        r.controller.destroy();
+    }
+});
+
+test("a failed successor START retries through the existing planner with one fresh attempt", async () => {
+    const r = await episodeRig();
+    await playMovie(r, EPISODE);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    r.server.next.push({ terminal: "temporarily_unavailable", retryable: true });
+    r.controller.playNext();
+    await r.h.clock.advance(0);
+    const error = last(r.views);
+    assert.equal(error.phase, "error");
+    assert.equal(error.phase === "error" && error.retryable, true);
+    r.controller.retryCompletion();
+    r.controller.retryCompletion();
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, "/start").length, 3);
+    assert.equal(new Set(bodies(r.h, "/start").map(body => body.playback_attempt_id)).size, 3);
+    assert.equal(last(r.views).phase, "loading");
+    r.controller.destroy();
+    await r.h.clock.advance(0);
+});
+
+test("EOF arriving during a pending backward seek cannot become episode continuation", async () => {
+    const r = await episodeRig();
+    await playMovie(r, EPISODE);
+    r.avplay.tick(5399000);
+    r.controller.seekBy(-45);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(last(r.views).phase, "playing");
+    assert.equal(r.h.fake.requests.some(q => q.method === "DELETE"), false);
+    r.avplay.finishSeek();
+    assert.equal(last(r.views).phase, "playing");
+    r.controller.destroy();
+    await r.h.clock.advance(0);
+});
+
+test("authority loss while STOP awaits retry prevents old-scope resends and next starts", async () => {
+    for (const action of ["profile", "account"]) {
+        const r = await episodeRig();
+        const id = await playMovie(r, EPISODE);
+        r.h.fake.dropNextAnswer(`/playback/${id}`);
+        r.avplay.listener?.onstreamcompleted();
+        await r.h.clock.advance(0);
+        if (action === "profile") r.h.core.profiles.clear();
+        else await r.h.core.session.logout();
+        await r.h.clock.advance(10000);
+        r.controller.retryCompletion();
+        r.controller.playNext();
+        assert.equal(bodies(r.h, `/playback/${id}`).length, 1);
+        assert.equal(bodies(r.h, "/start").length, 1);
+        assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/")), false);
+        r.controller.destroy();
+    }
+});
+
+test("a pending progress administrator refusal wins over a later EOF", async () => {
+    const r = await episodeRig();
+    const id = await playMovie(r, EPISODE);
+    const hold = r.h.fake.hold(`/playback/${id}/progress`);
+    r.server.endByAdmin(id);
+    await r.h.clock.advance(10000);
+    r.avplay.listener?.onstreamcompleted();
+    hold.release();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).state, "failed");
+    assert.equal(completion(r).retryable, false);
+    assert.equal(bodies(r.h, `/playback/${id}`).length, 0);
+    assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/")), false);
+    r.controller.destroy();
+});
+
+test("revoked PIN proof during EOF finalization removes the old authority and cannot offer next", async () => {
+    const r = await rig("p-kid");
+    r.h.fake.catalog = new FakeCatalog();
+    r.server.items.set(EPISODE.contentId, ["42"]);
+    const id = await playMovie(r, EPISODE);
+    r.h.fake.changePin("p-kid", "1357");
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.deepEqual(r.exits, ["end:authority_changed"]);
+    assert.equal(r.h.core.session.activeProfile, undefined);
+    assert.equal(bodies(r.h, `/playback/${id}`).length, 1);
+    assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/")), false);
+    r.controller.playNext();
+    assert.equal(bodies(r.h, "/start").length, 1);
+    r.controller.destroy();
 });
 
 test("refusals before playing: not configured, installation changed, terminal start", async () => {

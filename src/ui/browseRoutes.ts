@@ -2,6 +2,7 @@
 // failed, or its data (with a note when a refresh or page turn failed). Loading lives in browse.ts.
 
 import { ApiError } from "../api/errors.ts";
+import { requestsView, type RequestsHandlers, type RequestsState } from "./requests.ts";
 import type { TextSearchScope } from "../api/operations.ts";
 import type { CatalogPage, Episode, HomeSection, ItemDetail, Season, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { Person } from "../contracts/v2/details.ts";
@@ -31,6 +32,7 @@ export interface Pages {
 }
 
 export type RouteData =
+    | { readonly kind: "requests"; readonly requests: RequestsState }
     | { readonly kind: "personFilmography"; readonly id: string; readonly title: string; filter: MediaScope; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "calendar"; readonly calendar: CalendarState }
     | { readonly kind: "personal"; readonly source: PersonalSource; filter: PersonalFilter; capability: PersonalListCapability | undefined; pages: Pages; pendingIndex: number | undefined }
@@ -64,6 +66,7 @@ export function newPages(): Pages {
 
 export function hasData(current: Route): boolean {
     switch (current.kind) {
+        case "requests": return current.requests.data !== undefined;
         case "calendar":
             return current.calendar.data !== undefined;
         case "resume":
@@ -84,6 +87,7 @@ export function hasData(current: Route): boolean {
 }
 
 export interface RouteHandlers {
+    readonly requests: (route: Extract<Route, { kind: "requests" }>) => RequestsHandlers;
     readonly personFilter: (route: Extract<Route, { kind: "personFilmography" }>, filter: MediaScope) => void;
     readonly calendar: (route: Extract<Route, { kind: "calendar" }>) => CalendarHandlers;
     readonly personalFilter: (route: Extract<Route, { kind: "personal" }>, filter: PersonalFilter) => void;
@@ -108,6 +112,7 @@ export interface RouteHandlers {
 }
 
 export function routeView(current: Route, handlers: RouteHandlers): View {
+    if (current.kind === "requests") return requestsView(current.requests, handlers.requests(current));
     const { context, pop } = handlers;
     if (current.kind === "calendar") return calendarView(current.calendar, handlers.calendar(current));
     const back = current.kind === "home" ? undefined : pop;

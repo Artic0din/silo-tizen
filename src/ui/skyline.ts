@@ -27,6 +27,12 @@ function replaceNodes(container: HTMLElement, nodes: readonly HTMLElement[]): vo
 
 /** Root chrome owns no requests. Only explicit activation changes the route or library. */
 export class Skyline {
+    private requestsEnabled = false;
+    setRequestsEnabled(enabled: boolean): void {
+        this.requestsEnabled = enabled;
+        this.update(this.libraries);
+    }
+
     private routeBack: (() => void) | undefined;
     private readonly nav = el("nav", "browse-nav");
     private readonly tabs = el("div", "skyline-tabs");
@@ -57,7 +63,7 @@ export class Skyline {
     private immediatePreview = true;
     private readonly container: HTMLElement;
     private readonly clock: Clock;
-    private readonly activate: (target: "home" | "search" | "calendar" | UserLibrary, mode?: LibraryMode) => void;
+    private readonly activate: (target: "home" | "search" | "calendar" | "requests" | UserLibrary, mode?: LibraryMode) => void;
     private readonly profiles: ProfileMenu;
     private readonly refresh: () => void;
     private readonly storage: PublicStorage | undefined;
@@ -67,7 +73,7 @@ export class Skyline {
     constructor(
         container: HTMLElement,
         clock: Clock,
-        activate: (target: "home" | "search" | "calendar" | UserLibrary, mode?: LibraryMode) => void,
+        activate: (target: "home" | "search" | "calendar" | "requests" | UserLibrary, mode?: LibraryMode) => void,
         profiles: ProfileMenu,
         refresh: () => void,
         storage: PublicStorage | undefined,
@@ -98,7 +104,7 @@ export class Skyline {
 
     update(libraries: readonly UserLibrary[]): void {
         this.libraries = libraries;
-        const keys = ["home", ...(["movies", "series"] as const).filter((type) => this.forType(type).length > 0), "search", "profiles", "calendar"];
+        const keys = ["home", ...(["movies", "series"] as const).filter((type) => this.forType(type).length > 0), ...(this.requestsEnabled ? ["requests"] : []), "search", "profiles", "calendar"];
         if (this.items.map((item) => item.key).join(":") === keys.join(":")) return;
         this.items = [actionButton("home", "Home", () => this.commit("home"))];
         for (const type of ["movies", "series"] as const) {
@@ -110,6 +116,7 @@ export class Skyline {
             item.element.setAttribute("aria-haspopup", "menu");
             this.items.push(item);
         }
+        if (this.requestsEnabled) this.items.push(actionButton("requests", "Requests", () => this.commit("requests")));
         this.items.push(actionButton("search", "", () => this.commit("search")), actionButton("profiles", this.profiles.name.slice(0, 1).toUpperCase(), () => this.openProfile()), actionButton("calendar", "Calendar", () => this.commit("calendar")));
         const search = this.items.find((item) => item.key === "search");
         search?.element.setAttribute("aria-label", "Search");
@@ -150,7 +157,7 @@ export class Skyline {
         if (focused !== undefined) (this.panel.find(item => item.key === focused.key) ?? this.panel[0])?.element.focus({ preventScroll: true });
     }
 
-    private commit(target: "home" | "search" | "calendar" | UserLibrary, mode?: LibraryMode): void {
+    private commit(target: "home" | "search" | "calendar" | "requests" | UserLibrary, mode?: LibraryMode): void {
         if (typeof target !== "string") {
             const type = this.panelTab ?? (target.type === "series" ? "series" : "movies");
             this.scopes.set(type, target.id);

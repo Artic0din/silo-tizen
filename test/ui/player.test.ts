@@ -60,8 +60,9 @@ after(async () => {
     await browser.close();
 });
 
-async function open(hidden = false): Promise<{ page: Page; logs: string[] }> {
-    const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+async function open(hidden = false, videoDir?: string): Promise<{ page: Page; logs: string[] }> {
+    const context = videoDir === undefined ? undefined : await browser.newContext({ viewport: { width: 1920, height: 1080 }, recordVideo: { dir: videoDir, size: { width: 1920, height: 1080 } } });
+    const page = context === undefined ? await browser.newPage({ viewport: { width: 1920, height: 1080 } }) : await context.newPage();
     const logs: string[] = [];
     page.on("console", (message) => logs.push(message.text()));
     page.on("pageerror", (error) => logs.push(`pageerror: ${error.message}`));
@@ -507,40 +508,70 @@ test("an update keeps focus on the same track; leaving playback closes the menu"
     }
 });
 
-test("backgrounding stops the attempt, shows a restart notice and removes its visibility listener on teardown", async () => {
-    const { page, logs } = await open();
+test("hiding suspends playback and showing restores it, without a restart notice", async () => {
+    const videoDir = process.env.PLAYER_VIDEO_DIR;
+    const { page, logs } = await open(false, videoDir);
+    const hold = async (): Promise<void> => {
+        if (videoDir !== undefined) {
+            await new Promise((resolve) => setTimeout(resolve, 700));
+        }
+    };
     try {
         await show(page, { phase: "playing", title: "The Movie", positionSeconds: 30, durationSeconds: 7200, buffering: false, seekIntervals: { backward: 10, forward: 10 }, tracks: NO_TRACKS });
+        await hold();
+        await capture(page, "player-before-hide");
         await page.evaluate(() => {
             Object.defineProperty(document, "hidden", { configurable: true, value: true });
             document.dispatchEvent(new Event("visibilitychange"));
         });
-        assert.deepEqual(await commands(page), ["background"]);
-        assert.equal(await text(page, ".player-error-text"), "Playback stopped when you left Silo. Go back and select the title to play again.");
-        await capture(page, "player-backgrounded");
+        assert.deepEqual(await commands(page), ["suspend"]);
+        assert.equal(await page.locator(".player-error").isVisible(), false);
         await page.evaluate(() => {
             Object.defineProperty(document, "hidden", { configurable: true, value: false });
             document.dispatchEvent(new Event("visibilitychange"));
         });
-        assert.deepEqual(await commands(page), ["background"], "returning never silently starts another attempt");
-        assert.equal(await focused(page), "back");
+        assert.deepEqual(await commands(page), ["suspend", "restore"]);
+        assert.equal(await focused(page), "player");
+        await show(page, { phase: "loading", title: "The Movie", detail: "restoring" });
+        assert.equal(await text(page, ".player-status"), "Restoring");
+        await hold();
+        await capture(page, "player-restoring");
+        await show(page, { phase: "loading", title: "The Movie", detail: "reconnecting" });
+        assert.equal(await text(page, ".player-status"), "Reconnecting");
+        await hold();
+        await capture(page, "player-reconnecting");
+        await show(page, { phase: "error", title: "The Movie", error: { kind: "network" }, retryable: true });
+        assert.equal(await text(page, ".player-error-text"), "Can't reach the server. Check the TV's connection, then try again.");
+        assert.equal(await page.getByRole("button", { name: "Retry", exact: true }).isVisible(), true);
+        await hold();
+        await capture(page, "player-connection-lost");
         await page.evaluate(() => {
             window.player.destroy();
             Object.defineProperty(document, "hidden", { configurable: true, value: true });
             document.dispatchEvent(new Event("visibilitychange"));
         });
-        assert.deepEqual(await commands(page), ["background"], "retired screen ignores visibility");
+        assert.deepEqual(await commands(page), ["suspend", "restore"], "retired screen ignores visibility");
         assert.deepEqual(logs, []);
     } finally {
+        const video = page.video();
         await page.close();
+        if (video !== null && videoDir !== undefined) {
+            await video.saveAs(`${videoDir}/player-recovery.webm`);
+        }
     }
 });
 
-test("a screen mounted while hidden stops its loading attempt before normal controls are shown", async () => {
+test("a screen mounted while hidden suspends its loading attempt and restores when shown", async () => {
     const { page, logs } = await open(true);
     try {
-        assert.deepEqual(await commands(page), ["background"]);
-        assert.equal(await text(page, ".player-error-text"), "Playback stopped when you left Silo. Go back and select the title to play again.");
+        assert.deepEqual(await commands(page), ["suspend"]);
+        assert.equal(await text(page, ".player-status"), "Loading");
+        assert.equal(await page.locator(".player-error").isVisible(), false);
+        await page.evaluate(() => {
+            Object.defineProperty(document, "hidden", { configurable: true, value: false });
+            document.dispatchEvent(new Event("visibilitychange"));
+        });
+        assert.deepEqual(await commands(page), ["suspend", "restore"]);
         assert.deepEqual(logs, []);
     } finally {
         await page.close();

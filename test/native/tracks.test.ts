@@ -415,7 +415,7 @@ for (const ending of ["back", "background"]) {
     });
 }
 
-test("three lost track-change answers end the attempt instead of continuing with an obsolete plan", async () => {
+test("three lost track-change answers reconcile before continuing with a fresh plan", async () => {
     const r = await rig();
     const id = await playMovie(r);
     const path = `/playback/${id}/replan`;
@@ -434,13 +434,21 @@ test("three lost track-change answers end the attempt instead of continuing with
     assert.deepEqual(sent[1], sent[0]);
     assert.deepEqual(sent[2], sent[0]);
     const view = last(r.views);
-    assert.deepEqual(view.phase === "error" ? view.error : undefined, { kind: "network" });
+    assert.equal(view.phase, "loading");
+    assert.equal(view.phase === "loading" && view.detail, "reconnecting");
     assert.equal(r.avplay.state, "NONE");
-    assert.ok(r.server.session(id).receipt !== undefined, "the ambiguous server session is stopped");
+    assert.equal(r.server.session(id).receipt, undefined, "the uncertain change joins recovery before teardown");
     r.controller.selectAudio("file:42:audio:2");
     r.avplay.listener?.onerror("PLAYER_ERROR_NOT_SUPPORTED_FORMAT");
     await settle(r);
     assert.equal(replans(r.h).length, 3, "no new request can use the obsolete local plan");
+    await r.h.clock.advance(1000);
+    await settle(r);
+    assert.equal(replans(r.h)[3]?.operation, "track_change", "reconciliation starts with a no-op replan");
+    await playReplacement(r);
+    assert.ok(r.server.session(id).receipt !== undefined, "a stale predecessor is stopped after the fresh session is accepted");
+    assert.equal(r.avplay.state, "PLAYING");
+    r.controller.destroy();
 });
 
 test("a second choice while one is pending is refused as busy, and a seek waits too", async () => {
@@ -774,7 +782,7 @@ test("a confirmed quality refusal alone keeps the predecessor and requested pref
     assert.equal(replans(r.h)[1]?.quality_preference, "auto");
 });
 
-test("quality retries are identical and exhaustion stops the uncertain attempt", async () => {
+test("quality retries remain identical before exhaustion joins connection recovery", async () => {
     const r = await rig();
     r.server.next.push({ availableQualities: QUALITIES });
     const id = await playMovie(r);
@@ -793,9 +801,19 @@ test("quality retries are identical and exhaustion stops the uncertain attempt",
     assert.deepEqual(sent[1], sent[0]);
     assert.deepEqual(sent[2], sent[0]);
     assert.equal(r.avplay.state, "NONE");
-    assert.equal(last(r.views).phase, "error");
+    assert.equal(last(r.views).phase, "loading");
     assert.equal(r.avplay.urls.length, 1);
-    assert.ok(r.server.session(id).receipt);
+    assert.equal(r.server.session(id).receipt, undefined);
+    await r.h.clock.advance(1000);
+    await settle(r);
+    assert.equal(replans(r.h)[3]?.operation, "track_change");
+    const starts = requests(r.h, "/start");
+    const replacement = starts[starts.length - 1];
+    assert.equal(replacement?.body?.start_position, 50);
+    await playReplacement(r);
+    assert.ok(r.server.session(id).receipt, "replacement retires the uncertain predecessor session");
+    assert.equal(r.avplay.state, "PLAYING");
+    r.controller.destroy();
 });
 
 test("generic conflict and unusable quality successes tear down without reopening the predecessor", async () => {

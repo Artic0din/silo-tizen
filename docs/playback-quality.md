@@ -74,13 +74,56 @@ A quality change uses the existing serialized replan path with operation `qualit
 It clears route failure exclusions, keeps the playback attempt ID and gives the logical change one request ID, reused with an identical body on bounded retries.
 Subtitle Off stays omitted and returned effective-file selections are adopted without remapping ordinals.
 The latest local pause intent during the pending request is applied to replacement playback.
-The existing physical seek barrier, progress reporting, background stop and authority cancellation still own transport lifetime.
+The existing physical seek barrier, progress reporting, visibility suspension and authority cancellation still own transport lifetime.
 
 Only a confirmed `adaptation_unavailable` keeps the predecessor transport and preference.
-Uncertain exhausted responses, invalid successes and generic quality-replan 409 conflicts end the attempt.
+Unanswered transient quality or track changes join bounded connection recovery after their identical-request retries are exhausted.
+Invalid successes and generic quality-replan 409 conflicts still end the attempt.
 A playable replacement retires the predecessor on the server; load failure recovers against the replacement identity or ends playback, never reopening the predecessor.
 
 Contracts were checked against [server cc85149](https://github.com/Silo-Server/silo-server/tree/cc8514943289045e7b9f7ac8d36d4968bfe93926) and [canonical Apple quality rules](https://github.com/Silo-Server/silo-apple/blob/148d5d70f8b8ce982a827fead2b16f8de40f0f57/iosApp/iosApp/Screens/Player/ApplePlaybackQuality.swift).
+
+### Lifecycle and connection recovery
+
+Visibility hide suspends the active AVPlay pipeline and cancels its timers.
+Show rechecks capabilities, installation, profile authority and media authorization before restoring playback.
+Preparing transports cannot play while that foreground check is pending; obsolete restore callbacks cannot bypass a newer check.
+Play and pause during that check keep the latest intent and do not call AVPlay or show transport controls until restoration finishes.
+Visibility changes keep an in-flight recovery request serialized; its accepted plan waits for foreground validation before opening a transport.
+An initial capability read establishes authority before foreground restoration compares installation identities.
+Hiding during a local seek defers native suspension until that seek settles, retaining its actual resulting position.
+Retiring a pipeline clears its suspension state; a deferred replacement opens with a new listener, and old native restore callbacks cannot mark it started.
+Hidden startup and reconnect deadlines are rearmed from the clock instead of relying on background timers.
+An already prepared READY pipeline resumes with play or pause, because AVPlay restoreAsync is not valid in READY.
+The explicit controller background() action remains a terminal stop; visibility events use suspend/restore instead.
+A cold launch has no in-memory pipeline and uses the normal fresh server resume path.
+
+After an established transport loses its connection, the controller keeps source position, current tracks and playing or paused intent.
+Recovery sends a no-op track_change rather than reporting a failed route.
+An unanswered recovery replan retains its request identity and identical body until a definitive answer, allowing the server to replay an accepted decision.
+Temporary login-refresh unavailability remains inside the recovery budget and does not force re-login.
+The twelve waits are 1, 2, 4, 8 and then eight 15-second waits: 135 seconds of waiting, excluding request time.
+Longer server Retry-After cooldowns extend those waits and remain in force across visibility changes and manual Retry.
+A loss within 30 seconds of replacement playback carries the existing budget; an API response alone does not establish stable playback.
+A replacement that fails before playing follows ordinary route recovery; if that recovery cannot reach the server, it rejoins the same reconnect budget.
+Exhaustion exposes Retry and Back instead of starting another automatic cycle.
+An app return preserves that exhausted error until explicit Retry, including exhaustion during foreground validation.
+
+A missing session may create one replacement START at the saved position and tracks.
+Its unanswered retries retain the same body and attempt identity.
+When a stale plan requires a fresh session, accepting its replacement also sends a sequenced STOP for the possibly live predecessor.
+A 404 proves the predecessor is already gone and needs no cleanup STOP.
+A missing session during an active reconnect schedules one replacement when no recovery request is still in flight.
+Recovery classifies each answer by its dispatched operation, even when a concurrent progress answer changes the pending recovery step.
+Progress answers belong to their dispatched session and cannot end or restart a successor; predecessor teardown still waits for its own pending progress.
+User replan answers are also fenced to their dispatched transport and session, and adopting a replacement clears interrupted seek state.
+If its playable answer arrives after Back or teardown, cleanup stops that new session with its own sequence and STOP identity.
+An admin-ended session, changed installation or revoked authority is terminal and does not silently create a replacement.
+Back, teardown, another playback and authority loss fence late recovery work.
+Hiding during next-episode resolution still cancels continuation; recovery does not autoplay a successor.
+
+Native fake-server and desktop tests establish the state, identity, timing and cancellation rules above.
+Actual Samsung suspend/restore, audible recovery, decoded frames, live-server restart behavior and the cross-device acceptance matrix remain unverified.
 The existing Skyline tokens and Chrome 76-compatible list layout are reused.
 
 ## Saved profile defaults

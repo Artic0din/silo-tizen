@@ -499,7 +499,7 @@ test("a terminal replan decision ends playback with the server's reason", async 
     });
 });
 
-test("a network failure is not a failed route: no replan, the session is stopped", async () => {
+test("a network failure before the first frame is not a failed route: no replan, the session is stopped", async () => {
     const r = await rig();
     r.controller.play(MOVIE);
     await r.h.clock.advance(0);
@@ -509,13 +509,6 @@ test("a network failure is not a failed route: no replan, the session is stopped
     const view = last(r.views);
     assert.deepEqual(view.phase === "error" ? view.error : undefined, { kind: "network" });
     assert.equal(ops(r.h)[ops(r.h).length - 1], "DELETE /playback/S1");
-
-    const playing = await rig();
-    await playMovie(playing);
-    playing.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
-    await playing.h.clock.advance(0);
-    assert.equal(bodies(playing.h, "/replan").length, 0);
-    assert.equal(last(playing.views).phase, "error");
 });
 
 test("progress is sequenced source time every 10 s; stop waits for the sample in flight and goes last", async () => {
@@ -698,15 +691,18 @@ test("410 playback_session_ended leaves playback without a new session or stop",
     assert.equal(ops(r.h).filter((op) => op.startsWith("DELETE")).length, 0);
 });
 
-test("404 for the session is an expired session, distinct from an administrator's end", async () => {
+test("404 for a session that already played starts one replacement and is distinct from an administrator's end", async () => {
     const r = await rig();
     const id = await playMovie(r);
+    r.avplay.tick(20000);
     r.server.sessions.delete(id);
     await r.h.clock.advance(10000);
-    const view = last(r.views);
-    assert.deepEqual(view.phase === "error" ? view.error : undefined, { kind: "session_expired" });
-    assert.equal(r.avplay.state, "NONE");
-    assert.equal(ops(r.h).filter((op) => op === "POST /playback/start").length, 1);
+    await r.h.clock.advance(0);
+    assert.equal(ops(r.h).filter((op) => op === "POST /playback/start").length, 2);
+    assert.equal(ops(r.h).filter((op) => op.startsWith("DELETE")).length, 0);
+    assert.equal(bodies(r.h, "/start")[1]?.start_position, 20);
+    const replaced = last(r.views);
+    assert.notEqual(replaced.phase === "error" ? replaced.error.kind : undefined, "session_expired");
 });
 
 test("a profile change tears playback down at once and acts no further for the old profile", async () => {

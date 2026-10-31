@@ -61,6 +61,72 @@ async function prepare(tv: Tv): Promise<void> {
     await tv.eventually(() => tv.page.evaluate(() => window.appHarness.avplay.state === "PLAYING"), "playback");
 }
 
+async function visibility(tv: Tv, hidden: boolean): Promise<void> {
+    await tv.page.evaluate((hidden) => {
+        Object.defineProperty(document, "hidden", { configurable: true, value: hidden });
+        document.dispatchEvent(new Event("visibilitychange"));
+    }, hidden);
+}
+
+for (const reduced of [false, true]) {
+    appTest(`foreground validation fences a second hide in ${reduced ? "reduced" : "normal"} motion`, async (tv, playback) => {
+        await tv.page.emulateMedia({ reducedMotion: reduced ? "reduce" : "no-preference" });
+        await signIn(tv);
+        await startMovie(tv);
+        await tv.page.evaluate(() => window.appHarness.avplay.tick(32000));
+        await tv.remote(19);
+        await visibility(tv, true);
+        const gate = tv.fake.hold("/playback/capabilities");
+        const reads = tv.fake.requests.filter(r => r.path === "/playback/capabilities").length;
+        await visibility(tv, false);
+        await tv.eventually(async () => tv.fake.requests.filter(r => r.path === "/playback/capabilities").length === reads + 1, "foreground validation");
+        assert.equal(await tv.page.getByText("Restoring", { exact: true }).count(), 1, "foreground validation has a loading state");
+        await visibility(tv, true);
+        gate.release();
+        for (let i = 0; i < 5; i++) await tv.jump(0);
+        assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.calls.filter(c => c.startsWith("restoreAsync")).length), 0);
+        assert.equal(tv.fake.requests.filter(r => r.method === "DELETE" && r.path.startsWith("/playback/")).length, 0);
+        await visibility(tv, false);
+        await tv.eventually(() => tv.page.evaluate(() => window.appHarness.avplay.calls.some(c => c.startsWith("restoreAsync"))), "authorized restore");
+        await tv.page.evaluate(() => window.appHarness.avplay.finishRestore());
+        await tv.eventually(() => tv.page.evaluate(() => window.appHarness.avplay.state === "PAUSED"), "retained pause intent");
+        assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.positionMs), 32000);
+        assert.equal(tv.fake.requests.filter(r => r.path === "/playback/start").length, 1);
+        await tv.remote(10009);
+        await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
+        await tv.eventually(async () => [...playback.sessions.values()].every(s => s.receipt !== undefined), "warm session stopped on Back");
+    }, true);
+
+    appTest(`connection recovery resumes the same session in ${reduced ? "reduced" : "normal"} motion`, async (tv, playback) => {
+        await tv.page.emulateMedia({ reducedMotion: reduced ? "reduce" : "no-preference" });
+        await signIn(tv);
+        await startMovie(tv);
+        const id = [...playback.sessions.keys()][0];
+        assert.ok(id !== undefined);
+        const path = `/playback/${id}/replan`;
+        tv.fake.script(path, { status: 503 });
+        playback.next.push({ timeline: { source_start_seconds: 32, player_start_seconds: 32, timeline_offset_seconds: 0 } });
+        await tv.page.evaluate(() => {
+            window.appHarness.avplay.tick(32000);
+            window.appHarness.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
+        });
+        await tv.page.getByText("Reconnecting", { exact: true }).waitFor();
+        await tv.jump(1000);
+        await tv.eventually(async () => tv.fake.requests.filter(r => r.path === path).length === 1, "first reconnect");
+        await tv.jump(2000);
+        await prepare(tv);
+        const replans = tv.fake.requests.filter(r => r.path === path);
+        assert.equal(replans.length, 2);
+        assert.ok(replans.every(r => r.body?.operation === "track_change" && r.body.position_seconds === 32 && !("failure" in r.body)));
+        assert.equal(tv.fake.requests.filter(r => r.path === "/playback/start").length, 1);
+        assert.equal(playback.session(id).receipt, undefined);
+        assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.positionMs), 32000);
+        await tv.remote(10009);
+        await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
+        await tv.eventually(async () => playback.session(id).receipt !== undefined, "recovered session stopped on Back");
+    }, true);
+}
+
 appTest("natural episode EOF offers manual Play next instead of returning to Browse", async (tv, playback, catalog) => {
     for (const id of ["episode:s1e12", "episode:s1e13"]) {
         catalog.fileIds.set(id, "42");

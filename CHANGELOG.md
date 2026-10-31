@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Restored interrupted playback after connection loss and app return while preserving position, track choices, pause intent and profile authority.
+
 - Kept each library mode's scroll and focus through Details, playback, Settings and interrupted loads, revealed clipped shelf cards on return, and stopped focused cards from growing with reduced motion.
 
 - Preserved episode completion after refused player changes and removed an unusable Retry action when the session expired before completion.

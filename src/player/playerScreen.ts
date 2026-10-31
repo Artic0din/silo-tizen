@@ -40,10 +40,27 @@ export function errorText(error: PlaybackError): string {
             return "The server ended playback. Try again.";
         case "installation_changed":
             return "The server was reset or replaced. Try again.";
+        case "revoked":
+            return "This profile no longer has access. Sign in again.";
         case "backgrounded":
             return "Playback stopped when you left Silo. Go back and select the title to play again.";
         case "server":
             return "The server couldn't start playback. Try again.";
+    }
+}
+
+function loadingText(detail: "reconnecting" | "restoring" | undefined): string {
+    switch (detail) {
+        case undefined:
+            return "Loading";
+        case "reconnecting":
+            return "Reconnecting";
+        case "restoring":
+            return "Restoring";
+        default: {
+            const never: never = detail;
+            return never;
+        }
     }
 }
 
@@ -296,7 +313,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }
         title.textContent = view.title;
         if (view.phase === "loading") {
-            status.textContent = "Loading";
+            status.textContent = loadingText(view.detail);
             time.textContent = "";
             tracksButton.hidden = true;
             fill.style.width = "0";
@@ -501,9 +518,10 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             cancelHide?.();
             cancelHide = undefined;
             if (view.phase !== "closed" && view.phase !== "error") {
-                controls.background();
+                controls.suspend();
             }
         } else {
+            controls.restore();
             render();
         }
     };
@@ -519,7 +537,6 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         view = next;
         if (document.hidden && next.phase !== "closed" && next.phase !== "error") {
             onVisibility();
-            return;
         }
         if (starting) {
             reveal();

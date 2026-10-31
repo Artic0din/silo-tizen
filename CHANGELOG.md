@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Continued series episodes automatically with a cancellable countdown when the server-synced autoplay preference was enabled.
+
 ### Fixed
 
 - Restored interrupted playback after connection loss and app return while preserving position, track choices, pause intent and profile authority.

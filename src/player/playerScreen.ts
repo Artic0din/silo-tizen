@@ -219,9 +219,14 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     next.type = "button";
     next.setAttribute("data-focus", "play-next");
     next.addEventListener("click", () => controls.playNext());
+    const cancelAutoplay = el("button", "player-button", "Cancel autoplay");
+    cancelAutoplay.type = "button";
+    cancelAutoplay.setAttribute("data-focus", "cancel-autoplay");
+    cancelAutoplay.addEventListener("click", () => controls.cancelAutoplay());
     failure.appendChild(failureTitle);
     failure.appendChild(failureText);
     failure.appendChild(next);
+    failure.appendChild(cancelAutoplay);
     failure.appendChild(retry);
     failure.appendChild(back);
     section.appendChild(surface);
@@ -307,12 +312,14 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         menu.style.display = menuOpen ? "block" : "none";
         tracksButton.setAttribute("aria-expanded", String(menuOpen));
         next.hidden = true;
+        cancelAutoplay.hidden = view.phase !== "completion" || view.countdown === undefined;
         if (view.phase === "completion") {
             next.hidden = view.state !== "ready" || view.next === undefined;
+            next.textContent = view.countdown === undefined ? "Play next" : `Play next (${view.countdown}s)`;
             retry.hidden = view.state !== "failed" || !view.retryable;
             failureTitle.textContent = view.title;
             failureText.textContent = view.state === "finalizing" ? "Ending playback…" : view.state === "resolving" ? "Finding the next episode…" : view.state === "failed" ? "Could not confirm playback or load the next episode." : view.next?.title ?? "No more playable episodes.";
-            if (![back, retry.hidden ? undefined : retry, next.hidden ? undefined : next].includes(document.activeElement as HTMLButtonElement)) {
+            if (![back, retry.hidden ? undefined : retry, next.hidden ? undefined : next, cancelAutoplay.hidden ? undefined : cancelAutoplay].includes(document.activeElement as HTMLButtonElement)) {
                 (!next.hidden ? next : !retry.hidden ? retry : back).focus();
             }
             return;
@@ -444,7 +451,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }
         event.preventDefault();
         if (view.phase === "completion") {
-            const buttons = [next, retry, back].filter(button => !button.hidden);
+            const buttons = [next, cancelAutoplay, retry, back].filter(button => !button.hidden);
             const index = buttons.findIndex(button => button === document.activeElement);
             if (key === "back" || key === "stop") controls.back();
             else if (key === "enter") (buttons[index] ?? buttons[0])?.click();

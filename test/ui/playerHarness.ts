@@ -54,6 +54,7 @@ const controls: PlayerControls = {
     retrySettings: () => commands.push("retrySettings"),
     retryCompletion: () => commands.push("retryCompletion"),
     playNext: () => commands.push("playNext"),
+    cancelAutoplay: () => commands.push("cancelAutoplay"),
     seekThumbnail: async () => undefined,
 };
 const screen: PlayerScreen = mountPlayerScreen(root, controls);

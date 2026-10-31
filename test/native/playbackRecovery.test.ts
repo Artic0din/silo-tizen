@@ -98,6 +98,74 @@ async function resumePlan(r: Rig): Promise<void> {
     }
 }
 
+test("hide during pending media authorization defers native open until show", async () => {
+    const r = await rig();
+    const read = r.h.core.session.mediaToken.bind(r.h.core.session);
+    let release = (): void => undefined;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    let entered = false;
+    r.h.core.session.mediaToken = async signal => {
+        entered = true;
+        await held;
+        return read(signal);
+    };
+    r.controller.play(MOVIE);
+    await r.h.clock.advance(0);
+    assert.equal(entered, true);
+    r.controller.suspend();
+    release();
+    await r.h.clock.advance(0);
+    assert.equal(r.avplay.pendingPrepares, 0, "authorization completion cannot prepare a hidden pipeline");
+    await r.h.clock.advance(60000);
+    r.controller.restore();
+    await resumePlan(r);
+    assert.equal(r.avplay.state, "PLAYING");
+    assert.equal(starts(r.h), 1);
+    r.controller.destroy();
+});
+
+for (const replacement of [false, true]) test(`server cooldown delays recovery ${replacement ? "START" : "replan"} without spending more attempts`, async () => {
+    const r = await rig();
+    const id = await play(r);
+    if (replacement) r.server.sessions.delete(id);
+    const path = replacement ? "/playback/start" : `/playback/${id}/replan`;
+    r.h.fake.script(path, { status: 429, headers: { "Retry-After": "300" } });
+    r.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
+    await r.h.clock.advance(1000);
+    const sent = (): typeof r.h.fake.requests => r.h.fake.requests.filter(q => q.path === path);
+    const before = sent().length;
+    r.controller.suspend();
+    r.controller.restore();
+    await r.h.clock.advance(0);
+    await r.h.clock.advance(299999);
+    assert.equal(sent().length, before, "the server's five-minute cooldown overrides local backoff");
+    assert.equal(last(r.views).phase, "loading");
+    await r.h.clock.advance(1);
+    assert.equal(sent().length, before + 1);
+    const requests = sent();
+    assert.deepEqual(requests[requests.length - 1]?.body, requests[requests.length - 2]?.body);
+    await resumePlan(r);
+    assert.equal(r.avplay.state, "PLAYING");
+    r.controller.destroy();
+});
+
+test("manual retry retains the last server cooldown after automatic exhaustion", async () => {
+    const r = await rig();
+    const id = await play(r);
+    r.h.fake.script(`/playback/${id}/replan`, ...Array.from({ length: 20 }, () => ({ status: 429, headers: { "Retry-After": "300" } })));
+    r.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
+    await r.h.clock.advance(1000);
+    for (let i = 1; i < 12; i++) await r.h.clock.advance(300000);
+    assert.equal(replans(r.h).length, 12);
+    assert.equal(last(r.views).phase, "error");
+    r.controller.retryCompletion();
+    await r.h.clock.advance(299999);
+    assert.equal(replans(r.h).length, 12, "manual Retry cannot bypass the final server cooldown");
+    await r.h.clock.advance(1);
+    assert.equal(replans(r.h).length, 13);
+    r.controller.destroy();
+});
+
 for (const change of ["audio", "quality"] as const) test(`a hidden ${change} replacement opens a fresh pipeline on show`, async () => {
     const r = await rig();
     r.server.next.push({ availableQualities: [{ label: "original", preserves_source: true }, { label: "1080p-medium", height: 1080, bitrate_kbps: 6000, preserves_source: false }] });

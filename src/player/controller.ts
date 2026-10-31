@@ -210,6 +210,7 @@ interface Attempt {
     recovery: PlaybackRecovery | undefined;
     recoveryPending: boolean;
     recoverySpec: ReturnType<typeof operations.replanPlayback> | undefined;
+    recoveryRetryAt: number;
     cancelRecovery: (() => void) | undefined;
     /** Identical body for an unanswered replacement start. */
     replacementBody: StartPlaybackBody | undefined;
@@ -320,6 +321,7 @@ export class PlaybackController implements PlayerControls {
             recovery: undefined,
             recoveryPending: false,
             recoverySpec: undefined,
+            recoveryRetryAt: 0,
             cancelRecovery: undefined,
             replacementBody: undefined,
             retirePredecessor: false,
@@ -918,6 +920,7 @@ export class PlaybackController implements PlayerControls {
         attempt.suspendedReady = false;
         attempt.deferredOpen = false;
         attempt.recoverySpec = undefined;
+        attempt.recoveryRetryAt = 0;
         attempt.change = { state: "idle" };
         attempt.busy = false;
         attempt.seekFailure = undefined;
@@ -975,6 +978,10 @@ export class PlaybackController implements PlayerControls {
                 return;
             }
             url = `${published}${published.indexOf("?") === -1 ? "?" : "&"}token=${encodeURIComponent(token)}`;
+        }
+        if (attempt.hidden || attempt.restoring) {
+            attempt.deferredOpen = true;
+            return;
         }
         const avplay = this.deps.avplay;
         try {
@@ -1501,7 +1508,7 @@ export class PlaybackController implements PlayerControls {
         if (recovery === undefined) {
             return;
         }
-        const due = this.deps.clock.now() + delayMs;
+        const due = Math.max(this.deps.clock.now() + delayMs, attempt.recoveryRetryAt);
         recovery.dueAt = due;
         attempt.cancelRecovery?.();
         attempt.cancelRecovery = undefined;
@@ -1513,7 +1520,7 @@ export class PlaybackController implements PlayerControls {
             if (recovery.generation === generation && attempt.live && !attempt.hidden) {
                 void this.runRecovery(attempt);
             }
-        }, delayMs);
+        }, Math.max(0, due - this.deps.clock.now()));
     }
 
     private async runRecovery(attempt: Attempt): Promise<void> {
@@ -1683,6 +1690,7 @@ export class PlaybackController implements PlayerControls {
                 if (recovery === undefined) {
                     return;
                 }
+                if (verdict.retryAfterMs !== undefined) attempt.recoveryRetryAt = Math.max(attempt.recoveryRetryAt, this.deps.clock.now() + verdict.retryAfterMs);
                 const action = recovery.retryLater(this.deps.clock.now());
                 if (action.kind === "give_up") {
                     this.giveUp(attempt);

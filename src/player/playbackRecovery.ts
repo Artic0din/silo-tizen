@@ -33,7 +33,7 @@ export type RecoveryAction =
     | { readonly kind: "join" };
 
 export type RecoveryVerdict =
-    | { readonly kind: "retry" }
+    | { readonly kind: "retry"; readonly retryAfterMs?: number }
     | { readonly kind: "start_new_session" }
     | { readonly kind: "give_up" }
     | { readonly kind: "installation_changed" }
@@ -52,7 +52,7 @@ export function unanswered(error: unknown): boolean {
 }
 
 export function recoveryVerdict(error: unknown, step: RecoveryStep): RecoveryVerdict {
-    if (error instanceof SessionError && error.reason === "unavailable") return { kind: "retry" };
+    if (error instanceof SessionError && error.reason === "unavailable") return retryVerdict(error);
     if (!(error instanceof ApiError)) {
         return { kind: "give_up" };
     }
@@ -69,7 +69,7 @@ export function recoveryVerdict(error: unknown, step: RecoveryStep): RecoveryVer
         return { kind: "installation_changed" };
     }
     if (unanswered(error)) {
-        return { kind: "retry" };
+        return retryVerdict(error);
     }
     switch (step) {
         case "replan":
@@ -81,6 +81,10 @@ export function recoveryVerdict(error: unknown, step: RecoveryStep): RecoveryVer
             return never;
         }
     }
+}
+
+function retryVerdict(error: ApiError | SessionError): RecoveryVerdict {
+    return error.retryAfterSeconds === undefined ? { kind: "retry" } : { kind: "retry", retryAfterMs: error.retryAfterSeconds * 1000 };
 }
 
 /** Budget for one reconnect cycle. No clock of its own; the controller schedules. */

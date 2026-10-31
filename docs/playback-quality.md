@@ -102,6 +102,7 @@ Recovery sends a no-op track_change rather than reporting a failed route.
 An unanswered recovery replan retains its request identity and identical body until a definitive answer, allowing the server to replay an accepted decision.
 Temporary login-refresh unavailability remains inside the recovery budget and does not force re-login.
 The twelve waits are 1, 2, 4, 8 and then eight 15-second waits: 135 seconds of waiting, excluding request time.
+Longer server Retry-After cooldowns extend those waits and remain in force across visibility changes and manual Retry.
 A loss within 30 seconds of replacement playback carries the existing budget; an API response alone does not establish stable playback.
 A replacement that fails before playing follows ordinary route recovery; if that recovery cannot reach the server, it rejoins the same reconnect budget.
 Exhaustion exposes Retry and Back instead of starting another automatic cycle.

@@ -91,6 +91,25 @@ const remote = (page: Page, keyCode: number): Promise<void> =>
 const show = (page: Page, view: PlaybackView): Promise<void> => page.evaluate((next) => window.player.show(next), view);
 const commands = (page: Page): Promise<string[]> => page.evaluate(() => window.player.commands.slice());
 const focused = (page: Page): Promise<string | null> => page.evaluate(() => document.activeElement?.getAttribute("data-focus") ?? null);
+
+test("autoplay countdown and Cancel are remote-operable without losing manual Play next", async () => {
+    const { page } = await open();
+    const view: PlaybackView = { phase: "completion", title: "Playback ended", state: "ready", retryable: false, next: { contentId: "next", fileId: "43", title: "Next episode", startSeconds: 0, episode: true }, countdown: 10 };
+    try {
+        await show(page, view);
+        assert.equal(await page.locator('[data-focus="play-next"]').innerText(), "Play next (10s)");
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "cancel-autoplay");
+        await show(page, { ...view, countdown: 9 });
+        assert.equal(await focused(page), "cancel-autoplay");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["cancelAutoplay"]);
+        await show(page, { ...view, countdown: undefined });
+        assert.equal(await focused(page), "play-next");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["cancelAutoplay", "playNext"]);
+    } finally { await page.close(); }
+});
 const text = (page: Page, selector: string): Promise<string> => page.locator(selector).innerText();
 
 test("Skip counts down, activates with Enter or Play, and returns focus without taking manual seeks", async () => {

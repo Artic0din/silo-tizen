@@ -59,7 +59,7 @@ export class FakeSettings {
             return { status: 200, body: { items, revision: this.revision } };
         }
         const key = pathname.slice("/settings/values/".length) as SettingsKey;
-        if (!SETTINGS_KEYS.includes(key) && key !== TITLE) return problem(422, "validation_failed", "Unknown setting");
+        if (!SETTINGS_KEYS.some(known => known === key) && key !== TITLE) return problem(422, "validation_failed", "Unknown setting");
         if (scope !== "profile" && !(key === TITLE && scope === "profile_device" && device)) return problem(422, "validation_failed", "Invalid scope");
         if (method === "DELETE") {
             if (!rows.delete(key)) return problem(404, "not_found", "Unset");

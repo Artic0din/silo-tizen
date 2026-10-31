@@ -10,8 +10,9 @@ export const SEEK_BACK_KEY = "player.video_skip_back_seconds";
 export const SEEK_FORWARD_KEY = "player.video_skip_forward_seconds";
 export const SEEK_KEYS = [SEEK_BACK_KEY, SEEK_FORWARD_KEY] as const;
 const SEEK_SECONDS = [5, 10, 15, 30, 45, 60, 90];
+export const AUTO_NEXT_KEY = "playback.auto_play_next";
 export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY, QUALITY_KEY, BITRATE_KEY, ...SEEK_KEYS, TITLE_ART_KEY] as const;
-export type SettingsKey = (typeof SETTINGS_KEYS)[number];
+export type SettingsKey = (typeof SETTINGS_KEYS)[number] | typeof AUTO_NEXT_KEY;
 export type SettingValue = null | boolean | string | number | readonly number[];
 export type SettingsScope = "profile" | "profile_device";
 export interface SettingsIdentity { readonly profileId: string; readonly deviceId: string; readonly manifestRevision?: number }
@@ -77,7 +78,7 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
     let titleArtSeen = false;
     for (const raw of array(obj.definitions, "settings_contract.definitions")) {
         const def = object(raw, "setting_definition");
-        const key = SETTINGS_KEYS.find(key => def.key === key);
+        const key = ([...SETTINGS_KEYS, AUTO_NEXT_KEY] as const).find(key => def.key === key);
         if (key === undefined) continue;
         if (key === TITLE_ART_KEY) {
             if (titleArtSeen) throw new WireError("setting_definition.key", "each title-art key once");
@@ -86,6 +87,7 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
         const schema = object(def.value_schema, "setting_definition.value_schema");
         const seek = key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY;
         const titleArt = key === TITLE_ART_KEY;
+        if (key === AUTO_NEXT_KEY && (def.persistence !== "remote" || schema.type !== "boolean" || schema.nullable === true || def.default_value !== true || def.introduced_in !== 1 || JSON.stringify(def.allowed_scopes) !== JSON.stringify(["profile", "profile_device"]) || JSON.stringify(def.resolution_order) !== JSON.stringify(["profile_device", "profile", "default"]))) continue;
         if (titleArt && (def.persistence !== "remote" || schema.type !== "boolean" || (schema.nullable !== undefined && schema.nullable !== false) || def.default_value !== true || def.introduced_in !== 16 || def.recommended_control !== "switch")) continue;
         if (seek && (def.persistence !== "remote" || schema.type !== "enum" || schema.nullable === true || def.default_value !== (key === SEEK_BACK_KEY ? 10 : 30) || def.unit !== "seconds" || def.recommended_control !== "select" || def.introduced_in !== 9)) continue;
         if ((key === QUALITY_KEY || key === BITRATE_KEY) && def.persistence !== "remote") continue;
@@ -148,6 +150,10 @@ export function numericLibraryId(id: string): number {
 }
 
 export function decodeSettingValue(key: SettingsKey, value: unknown): SettingValue {
+    if (key === AUTO_NEXT_KEY) {
+        if (typeof value !== "boolean") throw new WireError("auto_play_next.value", "a JSON boolean");
+        return value;
+    }
     if (key === TITLE_ART_KEY) {
         if (typeof value !== "boolean") throw new WireError("title_art.value", "a JSON boolean");
         return value;

@@ -831,6 +831,93 @@ function completion(r: Rig): Extract<PlaybackView, { phase: "completion" }> {
     return view;
 }
 
+async function autoplayRig(enabled: boolean): Promise<Rig & { catalog: FakeCatalog }> {
+    const r = await episodeRig();
+    const settings = new FakeSettings(r.h.fake);
+    settings.overrides.set("playback.auto_play_next", enabled);
+    const contract = fixture("settings_contract_ok");
+    assert.ok(Array.isArray(contract.definitions));
+    contract.definitions.push({ key: "playback.auto_play_next", introduced_in: 1, persistence: "remote", allowed_scopes: ["profile", "profile_device"], resolution_order: ["profile_device", "profile", "default"], value_schema: { type: "boolean" }, default_value: true });
+    r.h.fake.script("/settings/contract", { status: 200, body: contract });
+    return r;
+}
+
+test("older settings manifests keep playback available when optional autoplay discovery fails", async () => {
+    const r = await episodeRig();
+    const settings = new FakeSettings(r.h.fake);
+    settings.revision = 8;
+    r.h.fake.script("/settings/contract", problem(400, "validation_failed", "Contract unavailable"));
+    await playMovie(r, EPISODE);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(15000);
+    assert.equal(completion(r).countdown, undefined);
+    assert.equal(bodies(r.h, "/start").length, 1);
+    r.controller.destroy();
+});
+
+test("autoplay waits for confirmed stop and authorized successor, then starts exactly once", async () => {
+    const r = await autoplayRig(true);
+    const id = await playMovie(r, EPISODE);
+    const stop = r.h.fake.hold(`/playback/${id}`);
+    const listener = r.avplay.listener;
+    r.avplay.tick(5399000);
+    listener?.onstreamcompleted();
+    await r.h.clock.advance(2000);
+    assert.equal(completion(r).countdown, undefined);
+    assert.equal(bodies(r.h, "/start").length, 1);
+    stop.release();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).countdown, 10);
+    await r.h.clock.advance(9000);
+    assert.equal(completion(r).countdown, 1);
+    assert.equal(bodies(r.h, "/start").length, 1);
+    await r.h.clock.advance(1000);
+    listener?.onstreamcompleted();
+    r.controller.playNext();
+    assert.equal(bodies(r.h, "/start").length, 2);
+    assert.equal(bodies(r.h, "/start")[1]?.file_id, "43");
+    r.controller.destroy();
+});
+
+test("autoplay cancellation, disabled preference, suspension and authority changes prevent timed starts", async () => {
+    for (const action of ["cancel", "disabled", "suspend", "authority", "back", "destroy"] as const) {
+        const r = await autoplayRig(action !== "disabled");
+        await playMovie(r, EPISODE);
+        r.avplay.listener?.onstreamcompleted();
+        await r.h.clock.advance(0);
+        if (action === "cancel") r.controller.cancelAutoplay();
+        if (action === "suspend") r.controller.suspend();
+        if (action === "authority") r.h.core.profiles.clear();
+        if (action === "back") r.controller.back();
+        if (action === "destroy") r.controller.destroy();
+        await r.h.clock.advance(15000);
+        assert.equal(bodies(r.h, "/start").length, 1, action);
+        if (action === "cancel" || action === "disabled") {
+            assert.equal(completion(r).countdown, undefined);
+            r.controller.playNext();
+            await r.h.clock.advance(0);
+            assert.equal(bodies(r.h, "/start").length, 2, "manual continuation remains available");
+        }
+        r.controller.destroy();
+    }
+});
+
+test("autoplay stops at the series end and never starts after failed resolution", async () => {
+    for (const mode of ["end", "failure"] as const) {
+        const r = await autoplayRig(true);
+        if (mode === "end") for (const id of ["episode:s1e13", "episode:s1e21", "episode:s1e22", "episode:s1e23"]) r.catalog.removed.add(id);
+        await playMovie(r, EPISODE);
+        if (mode === "failure") r.catalog.removed.add(EPISODE.contentId);
+        r.avplay.listener?.onstreamcompleted();
+        await r.h.clock.advance(15000);
+        assert.equal(completion(r).next, undefined);
+        assert.equal(completion(r).countdown, undefined);
+        assert.equal(completion(r).state, mode === "end" ? "ready" : "failed");
+        assert.equal(bodies(r.h, "/start").length, 1);
+        r.controller.destroy();
+    }
+});
+
 test("episode EOF orders held progress, final STOP, fresh watch and exactly one manual successor START", async () => {
     const r = await episodeRig();
     const id = await playMovie(r, EPISODE);

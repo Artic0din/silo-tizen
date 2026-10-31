@@ -26,7 +26,7 @@ import type { NativeSession } from "../session/session.ts";
 import type { AVPlay, AVPlayListener } from "./avplay.ts";
 import { CLIENT_CAPABILITIES, CLIENT_FEATURES, playbackContext } from "./capabilities.ts";
 import { SeekThumbnails, type ThumbnailSheetLoader } from "./seekThumbnails.ts";
-import { QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS, profileSettings } from "../contracts/v2/settings.ts";
+import { AUTO_NEXT_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS, profileSettings } from "../contracts/v2/settings.ts";
 import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
 import { markerAt, type SkipMarker } from "../contracts/v2/markers.ts";
 import { nextEpisode } from "./nextEpisode.ts";
@@ -98,7 +98,7 @@ export interface TrackView {
 }
 
 export type PlaybackView =
-    | { readonly phase: "completion"; readonly title: string; readonly state: "finalizing" | "resolving" | "ready" | "failed"; readonly next: PlayRequest | undefined; readonly retryable: boolean }
+    | { readonly phase: "completion"; readonly title: string; readonly state: "finalizing" | "resolving" | "ready" | "failed"; readonly next: PlayRequest | undefined; readonly retryable: boolean; readonly countdown?: number | undefined }
     | { readonly phase: "loading"; readonly title: string; readonly detail?: "reconnecting" | "restoring" }
     | {
           readonly phase: "playing" | "paused";
@@ -139,6 +139,7 @@ export interface PlayerControls {
     retrySettings(): void;
     retryCompletion(): void;
     playNext(): void;
+    cancelAutoplay(): void;
     seekThumbnail(seconds: number, signal: AbortSignal, loadSheet: ThumbnailSheetLoader): Promise<SeekThumbnail | undefined>;
 }
 
@@ -172,6 +173,7 @@ const WARNING_NOTICES: Readonly<Record<string, string>> = {
 };
 
 interface Attempt {
+    autoNext: boolean;
     readonly request: PlayRequest;
     playbackAttemptId: string;
     /** The session's authority signal when the attempt began. */
@@ -261,6 +263,7 @@ export class PlaybackController implements PlayerControls {
     private readonly stopAuthority: () => void;
     private startupDue: number | undefined;
     private completion: { readonly attempt: Attempt; readonly abort: AbortController; pending: boolean } | undefined;
+    private cancelAutoplayTimer: (() => void) | undefined;
     private nextStart: PlayRequest | undefined;
 
     constructor(deps: PlaybackDeps) {
@@ -290,6 +293,7 @@ export class PlaybackController implements PlayerControls {
         }
         this.shownError = undefined;
         const attempt: Attempt = {
+            autoNext: false,
             request,
             playbackAttemptId: this.newId(),
             signal: this.deps.session.authoritySignal,
@@ -643,6 +647,7 @@ export class PlaybackController implements PlayerControls {
 
     private async readSeekIntervals(attempt: Attempt): Promise<boolean> {
         const call = <T>(spec: RequestSpec<T>): Promise<T> => this.deps.session.call({ ...spec, profileScoped: true, signal: attempt.signal });
+        let optionalOnly = false;
         try {
             let capability;
             try {
@@ -653,11 +658,18 @@ export class PlaybackController implements PlayerControls {
             }
             if (!attempt.live) return false;
             attempt.batchedSettings = capability.supportsBatchedEffective;
-            if (capability.apiVersion !== 1 || capability.state !== "available" || !capability.allowed || !capability.scopes.includes("profile") || capability.manifestRevision < 9) return true;
+            if (capability.apiVersion !== 1 || capability.state !== "available" || !capability.allowed || !capability.scopes.includes("profile")) return true;
+            optionalOnly = capability.manifestRevision < 9;
             const contract = await call(operations.settingsContract());
             if (!attempt.live) return false;
             if (contract.apiVersion !== 1 || contract.revision < capability.manifestRevision) throw new Error("Settings contract changed");
             const definitions = profileSettings(contract, capability);
+            if (definitions.some(def => def.key === AUTO_NEXT_KEY)) {
+                try {
+                    const values = await call(operations.effectiveSettings([AUTO_NEXT_KEY]));
+                    if (attempt.live) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
+                } catch { /* Unavailable autoplay preferences leave Play next manual. */ }
+            }
             if (!SEEK_KEYS.every(key => definitions.some(def => def.key === key))) return true;
             const values = await Promise.all((capability.supportsBatchedEffective ? [SEEK_KEYS] : SEEK_KEYS.map(key => [key])).map(keys => call(operations.effectiveSettings(keys))));
             if (!attempt.live) return false;
@@ -668,6 +680,7 @@ export class PlaybackController implements PlayerControls {
             attempt.seekIntervals = { backward, forward };
             return true;
         } catch {
+            if (optionalOnly) return attempt.live;
             if (attempt.live) this.fail(attempt, { kind: "settings" }, false);
             return false;
         }
@@ -1292,8 +1305,28 @@ export class PlaybackController implements PlayerControls {
     }
 
     private cancelCompletion(): void {
+        this.cancelAutoplay();
         this.completion?.abort.abort();
         this.completion = undefined;
+    }
+
+    cancelAutoplay(): void {
+        this.cancelAutoplayTimer?.();
+        this.cancelAutoplayTimer = undefined;
+        if (this.current.phase === "completion" && this.current.countdown !== undefined) this.show({ ...this.current, countdown: undefined });
+    }
+
+    private startAutoplay(completion: NonNullable<PlaybackController["completion"]>): void {
+        const deadline = this.deps.clock.now() + 10000;
+        const tick = (): void => {
+            const view = this.current;
+            if (this.completion !== completion || completion.abort.signal.aborted || completion.attempt.signal.aborted || completion.attempt.signal !== this.deps.session.authoritySignal || !completion.attempt.stopped || view.phase !== "completion" || view.state !== "ready" || view.next === undefined) return;
+            const remaining = Math.max(0, Math.ceil((deadline - this.deps.clock.now()) / 1000));
+            if (remaining === 0) { this.playNext(); return; }
+            this.show({ ...view, countdown: remaining });
+            this.cancelAutoplayTimer = this.deps.clock.schedule(tick, 1000);
+        };
+        tick();
     }
 
     private async finishCompletion(completion: NonNullable<PlaybackController["completion"]>): Promise<void> {
@@ -1321,6 +1354,7 @@ export class PlaybackController implements PlayerControls {
                 return this.deps.session.call({ ...spec, profileScoped: true, signal: abort.signal });
             }, attempt.request.contentId, fileId);
             show("ready", next);
+            if (current() && next !== undefined && attempt.autoNext) this.startAutoplay(completion);
         } catch (error) {
             const missingSession = error instanceof ApiError && error.status === 404 && !attempt.stopped;
             const forbidden = missingSession || (error instanceof ApiError && (error.status === 401 || error.status === 403 || error.status === 410 || error.problemId === "installation_changed"));

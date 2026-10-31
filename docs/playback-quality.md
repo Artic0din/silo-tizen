@@ -113,6 +113,7 @@ A missing session may create one replacement START at the saved position and tra
 Its unanswered retries retain the same body and attempt identity.
 When a stale plan requires a fresh session, accepting its replacement also sends a sequenced STOP for the possibly live predecessor.
 A 404 proves the predecessor is already gone and needs no cleanup STOP.
+A missing session during an active reconnect schedules one replacement when no recovery request is still in flight.
 Recovery classifies each answer by its dispatched operation, even when a concurrent progress answer changes the pending recovery step.
 Progress answers belong to their dispatched session and cannot end or restart a successor; predecessor teardown still waits for its own pending progress.
 User replan answers are also fenced to their dispatched transport and session, and adopting a replacement clears interrupted seek state.

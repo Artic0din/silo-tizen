@@ -539,6 +539,24 @@ test("an unreachable reopened transport rejoins the same reconnect budget", asyn
     r.controller.destroy();
 });
 
+test("a prepared replacement that loses its session starts one replacement", async () => {
+    const r = await rig();
+    const id = await play(r);
+    r.avplay.tick(32000);
+    r.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
+    await r.h.clock.advance(1000);
+    assert.equal(replans(r.h).length, 1, "the reconnect replan is adopted");
+    r.server.sessions.delete(id);
+    r.avplay.finishPrepare("InvalidAccessError");
+    await r.h.clock.advance(0);
+    assert.equal(replans(r.h).filter((body) => body.operation === "failure_recovery").length, 1);
+    assert.equal(starts(r.h), 2, "a settled 404 must start the replacement");
+    await resumePlan(r);
+    assert.equal(r.avplay.state, "PLAYING");
+    assert.equal(last(r.views).phase, "playing");
+    r.controller.destroy();
+});
+
 test("the stable reconnect window starts when the replacement plays", async () => {
     const r = await rig();
     await play(r);

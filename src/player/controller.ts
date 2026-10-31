@@ -1479,6 +1479,11 @@ export class PlaybackController implements PlayerControls {
         const recovery = attempt.recovery;
         if (recovery?.active === true) {
             recovery.step = "start";
+            if (attempt.recoveryPending) {
+                return;
+            }
+            this.showLoading(attempt, "reconnecting");
+            this.scheduleRecovery(attempt, 0);
             return;
         }
         this.capturePosition(attempt);

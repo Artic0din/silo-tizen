@@ -124,6 +124,32 @@ test("hide during pending media authorization defers native open until show", as
     r.controller.destroy();
 });
 
+test("a hidden progress 404 retires warm state before replacement recovery", async () => {
+    const r = await rig();
+    const old = await play(r);
+    const held = r.h.fake.hold(`/playback/${old}/progress`, true);
+    r.h.fake.script(`/playback/${old}/progress`, { status: 404 });
+    r.avplay.tick(32000);
+    await r.h.clock.advance(10000);
+    r.controller.suspend();
+    r.server.sessions.delete(old);
+    held.release();
+    await r.h.clock.advance(0);
+    r.controller.restore();
+    await r.h.clock.advance(0);
+    assert.equal(r.avplay.calls.filter(c => c.startsWith("restoreAsync")).length, 0, "a retired predecessor cannot warm restore");
+    await resumePlan(r);
+    assert.equal(starts(r.h), 2);
+    r.avplay.tick(33000);
+    const view = last(r.views);
+    assert.equal(view.phase === "playing" && view.positionSeconds, 33);
+    const successor = [...r.server.sessions.keys()].pop();
+    assert.ok(successor !== undefined && successor !== old);
+    r.controller.back();
+    await r.h.clock.advance(0);
+    assert.notEqual(r.server.session(successor).receipt, undefined);
+});
+
 for (const replacement of [false, true]) test(`server cooldown delays recovery ${replacement ? "START" : "replan"} without spending more attempts`, async () => {
     const r = await rig();
     const id = await play(r);

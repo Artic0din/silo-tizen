@@ -916,9 +916,6 @@ export class PlaybackController implements PlayerControls {
         this.clearThumbnails(attempt);
         attempt.plan = plan;
         attempt.serverFeatures = serverFeatures;
-        attempt.suspended = false;
-        attempt.suspendedReady = false;
-        attempt.deferredOpen = false;
         attempt.recoverySpec = undefined;
         attempt.recoveryRetryAt = 0;
         attempt.change = { state: "idle" };
@@ -1120,6 +1117,11 @@ export class PlaybackController implements PlayerControls {
 
     private closeTransport(): void {
         this.transport++;
+        if (this.attempt !== undefined) {
+            this.attempt.suspended = false;
+            this.attempt.suspendedReady = false;
+            this.attempt.deferredOpen = false;
+        }
         this.startupDue = undefined;
         this.cancelStartup?.();
         this.cancelStartup = undefined;
@@ -1426,8 +1428,6 @@ export class PlaybackController implements PlayerControls {
         attempt.cancelTimer = undefined;
         this.closeTransport();
         attempt.started = false;
-        attempt.suspended = false;
-        attempt.suspendedReady = false;
         attempt.busy = false;
         attempt.buffering = false;
         attempt.resuming = true;
@@ -1767,9 +1767,6 @@ export class PlaybackController implements PlayerControls {
                 if (attempt.recovery?.active === true) {
                     this.closeTransport();
                     attempt.started = false;
-                    attempt.suspended = false;
-                    attempt.suspendedReady = false;
-                    attempt.deferredOpen = false;
                     const due = attempt.recovery.dueAt ?? this.deps.clock.now();
                     this.scheduleRecovery(attempt, Math.max(0, due - this.deps.clock.now()));
                     this.showLoading(attempt, "reconnecting");

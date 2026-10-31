@@ -11,6 +11,11 @@ response enum values decode to `"unknown"`, so additive server changes keep work
 
 ## Operations used
 
+`requests.ts` consumes the Requests status, discovery rows, search, media detail, request detail and My Requests contracts at `SOURCE`.
+Create and cancel use POST; follow uses PUT and unfollow uses DELETE.
+All four writes use `retry: never` and `replayAfterRefresh: false`, including naturally idempotent follows, so an uncertain write requires an explicit read before another attempt.
+See [Requests](../../../docs/requests.md) for capability and navigation behavior.
+
 `calendar.ts` consumes `getCalendar` from the pinned OpenAPI schema without converting events to catalog cards.
 The weekly query includes the device IANA timezone and an inclusive seven-day window.
 Server day groups, event order, release metadata and all returned events are retained; there is no Calendar pagination or local access filtering.

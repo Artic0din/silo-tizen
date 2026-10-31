@@ -9,6 +9,9 @@
 
 import { type Clock, systemClock } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
+import { requestOperations } from "../api/requestOperations.ts";
+import type { RequestsCapability } from "../contracts/v2/requests.ts";
+import { requestsState, type RequestsHandlers, type RequestsSource } from "./requests.ts";
 import type { RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import { detailOperations } from "../api/detailOperations.ts";
@@ -125,12 +128,40 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     document.addEventListener("pointerdown", recordInput, true);
 
     const top = (): Route | undefined => stack[stack.length - 1];
+    let requestsCapability: RequestsCapability = { enabled: false, follow: false };
+    let probeOrdinal = 0;
+    let requestWritePending = false;
+    const requestsController = new AbortController();
+    const probeRequests = async (): Promise<void> => {
+        const ordinal = ++probeOrdinal;
+        try {
+            const capability = await session.call({ ...requestOperations.status(), profileScoped: true, signal: requestsController.signal });
+            if (torn || ordinal !== probeOrdinal) return;
+            requestsCapability = capability;
+            const focus = host.focused();
+            shell.setRequestsEnabled(capability.enabled);
+            if (!capability.enabled) {
+                roots.delete("requests");
+                if (stack.some(route => route.kind === "requests")) {
+                    loading?.abort(); loading = undefined;
+                    stack = [home];
+                    showRoute(home, { zone: "nav", key: "home" });
+                    return;
+                }
+            }
+            render(focus?.key === "requests" && !capability.enabled ? { zone: "nav", key: "home" } : focus);
+        } catch { /* A transient probe failure keeps the last confirmed capability. */ }
+    };
+    const requestsVisibility = (): void => { if (!document.hidden) void probeRequests(); };
+    document.addEventListener("visibilitychange", requestsVisibility);
 
     const teardown = (): void => {
         if (torn) {
             return;
         }
         torn = true;
+        requestsController.abort();
+        document.removeEventListener("visibilitychange", requestsVisibility);
         cardActions.destroy();
         menuOrigin = undefined;
         stopDetails();
@@ -212,6 +243,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     }, 0);
                 }
                 current.failure = text ?? "Something went wrong. Try again.";
+                if (current.kind === "requests" && error instanceof ApiError && ["capability_disabled", "capability_not_configured", "capability_unsupported", "permission_denied"].includes(error.problemId ?? "")) void probeRequests();
                 if (top() === current) {
                     render();
                 }
@@ -269,6 +301,32 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const loadRoute = (current: Route, quiet = false): void => {
         switch (current.kind) {
+            case "requests": {
+                const state = current.requests, source = state.source;
+                const capabilityOrdinal = ++probeOrdinal;
+                load(current, async signal => {
+                    const capability = await read(requestOperations.status(), signal);
+                    if (!capability.enabled) return { capability, data: undefined };
+                    const data = source.kind === "hub" ? await read(requestOperations.discover(), signal)
+                        : source.kind === "mine" ? await read(requestOperations.mine(source.cursor), signal)
+                        : source.kind === "media" ? await read(requestOperations.detail(source.title), signal)
+                        : source.kind === "request" ? await read(requestOperations.request(source.id), signal)
+                        : source.kind === "row" ? await read(requestOperations.row(source.key, source.page), signal)
+                        : source.query.trim() === "" ? undefined : await read(requestOperations.search(source.query.trim(), source.page), signal);
+                    return { capability, data };
+                }, result => {
+                    if (capabilityOrdinal === probeOrdinal) {
+                        requestsCapability = result.capability;
+                        shell.setRequestsEnabled(result.capability.enabled);
+                    }
+                    if (!requestsCapability.enabled) { roots.delete("requests"); stack = [home]; showRoute(home, { zone: "nav", key: "home" }); return; }
+                    state.data = result.data;
+                    state.uncertain = false;
+                    return current.focus;
+                }, quiet);
+                render(current.focus);
+                return;
+            }
             case "calendar": {
                 const state = current.calendar;
                 const focus = host.focused();
@@ -601,8 +659,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         stack.pop();
         const current = top();
         if (current !== undefined) {
-            if (current.kind === "personal" || current.kind === "personFilmography" || current.kind === "calendar") {
-                if (current.kind !== "calendar") current.pendingIndex = undefined;
+            if (current.kind === "personal" || current.kind === "personFilmography" || current.kind === "calendar" || current.kind === "requests") {
+                if (current.kind === "personal" || current.kind === "personFilmography") current.pendingIndex = undefined;
                 current.stale = true;
             }
             showRoute(current, current.focus);
@@ -699,9 +757,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             cancelCalendarDay = clock.schedule(() => render(host.focused()), midnight.getTime() - clock.now());
         }
         if (current.kind === "library") shell.setLibraryModes(availableModes(current.discovery?.data?.capabilities ?? current.discovery?.capabilities));
-        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, personFilter, calendar: calendarHandlers };
+        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, personFilter, calendar: calendarHandlers, requests: requestsHandlers };
         const view = routeView(current, handlers);
-        const rootRoute = current.kind === "home" || current.kind === "library" || current.kind === "search" || current.kind === "personal" || current.kind === "calendar";
+        const rootRoute = current.kind === "home" || current.kind === "library" || current.kind === "search" || current.kind === "personal" || current.kind === "calendar" || (current.kind === "requests" && current.requests.source.kind === "hub");
         if (rootRoute) {
             const selected = current.kind === "library" ? (current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? "profiles" : current.kind;
             const preview = current.kind === "home" || (current.kind === "library" && (current.discovery?.mode ?? "Browse") === "Browse");
@@ -719,6 +777,57 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         render();
         loadRoute(current);
     };
+    const openRequests = (source: RequestsSource): void => { if (requestsCapability.enabled) push(newRoute({ kind: "requests", requests: requestsState(source) })); };
+    const requestsHandlers = (current: Extract<Route, { kind: "requests" }>): RequestsHandlers => ({
+        capability: requestsCapability, busy: loading !== undefined || requestWritePending, failure: current.failure,
+        profileId: session.activeProfile?.id ?? "", back: pop, retry: () => { current.focus = host.focused(); retry(current); }, open: openRequests,
+        edit: () => {
+            if (top() !== current) return;
+            loading?.abort(); loading = undefined; cancelSlow();
+            current.requests.data = undefined; current.failure = undefined;
+            render({ zone: "search", key: "query" });
+        },
+        search: () => {
+            if (top() !== current || current.requests.source.kind !== "search") return;
+            current.requests.source.page = 1; current.requests.data = undefined; current.focus = { zone: "search", key: "query" }; retry(current);
+        },
+        next: value => {
+            const source = current.requests.source;
+            if (source.kind === "mine" && typeof value === "string") source.cursor = value;
+            else if ((source.kind === "row" || source.kind === "search") && typeof value === "number") source.page = value;
+            else return;
+            current.requests.data = undefined; current.focus = undefined; retry(current);
+        },
+        write: action => {
+            const state = current.requests, data = state.data;
+            if (top() !== current || torn || requestWritePending || state.writing || state.uncertain || loading !== undefined || data === undefined || !requestsCapability.enabled) return;
+            const spec = action === "cancel" && "id" in data ? requestOperations.cancel(data.id)
+                : "request" in data ? action === "create" ? requestOperations.create(data) : requestOperations.follow(data, action === "follow") : undefined;
+            if (spec === undefined) return;
+            requestWritePending = true; state.writing = true; state.uncertain = true; current.failure = undefined;
+            current.focus = { zone: "actions", key: "refresh" }; render(current.focus);
+            // A write belongs to session authority, not route lifetime. Leaving never replays it.
+            session.call({ ...spec, profileScoped: true, replayAfterRefresh: false }).then(() => {
+                requestWritePending = false; state.writing = false;
+                if (torn) return;
+                for (const route of stack) if (route.kind === "requests") route.stale = true;
+                const visible = top();
+                if (visible?.kind === "requests") { visible.requests.uncertain = true; loadRoute(visible, true); }
+                else render(host.focused());
+            }, (error: unknown) => {
+                requestWritePending = false; state.writing = false;
+                if (torn) return;
+                state.uncertain = true;
+                current.failure = "Could not confirm the change. Refresh before trying again.";
+                for (const route of stack) if (route.kind === "requests") route.stale = true;
+                if (error instanceof ApiError && ["capability_disabled", "capability_not_configured", "capability_unsupported", "permission_denied"].includes(error.problemId ?? "")) void probeRequests();
+                const visible = top();
+                if (visible === current) render(current.focus);
+                else if (visible?.kind === "requests") { visible.requests.uncertain = true; loadRoute(visible, true); }
+                else render(host.focused());
+            });
+        },
+    });
     const prepareCalendar = (current: Extract<Route, { kind: "calendar" }>): void => {
         const state = current.calendar;
         let zone: string;
@@ -834,7 +943,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         let route = roots.get(key);
         if (route === undefined) {
             route = typeof target === "string"
-                ? target === "calendar" ? newRoute({ kind: "calendar", calendar: calendarState() }) : newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
+                ? target === "requests" ? newRoute({ kind: "requests", requests: requestsState({ kind: "hub" }) }) : target === "calendar" ? newRoute({ kind: "calendar", calendar: calendarState() }) : newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
                 : newRoute({ kind: "library", library: target, pages: newPages() });
             roots.set(key, route);
         }
@@ -887,6 +996,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
     }, () => render(), options.publicStorage, `silo.skyline.scope:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`, context.baseUrl);
     shell.update([]);
+    void probeRequests();
     stack = [home];
     host.listen();
     const first = top();

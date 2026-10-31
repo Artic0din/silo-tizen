@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Refreshed confirmed card-menu values after reopening an unresolved action and preserved Select presses during Details updates.
 - Kept preplay audio focus visible, reset changed track selections and rejected incomplete resume responses.
 - Corrected the profile PIN regression test to distinguish an unchanged public device ID from retained PIN material while continuing to check all stored values for profile proofs.
 - Kept the opening Select hold from activating card actions, prevented concurrent personal updates across Details and card menus, and retained related-card focus during refresh.

@@ -83,6 +83,8 @@ export class FocusHost {
      * remains (the focused item disappeared), else the first item anywhere.
      */
     show(view: View, focus?: FocusTarget): void {
+        const press = this.press?.cancelled === false && this.view?.name === view.name ? this.press : undefined;
+        const pressed = press === undefined ? undefined : this.focused();
         this.cancelPress();
         const changed = (this.view?.transition?.key ?? this.view?.name) !== (view.transition?.key ?? view.name);
         const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -150,6 +152,12 @@ export class FocusHost {
         if (animate) {
             this.incoming = Array.from(this.container.querySelectorAll<HTMLElement>(".skyline-content > :not(.skyline-pills), .skyline-marquee"));
             for (const node of this.incoming) node.classList.add(drift && !node.classList.contains("skyline-marquee") ? "skyline-content-drift" : "skyline-content-enter");
+        }
+        const current = this.locate(document.activeElement);
+        if (press !== undefined && this.press === press && !changed && !document.hidden && current?.zone.id === pressed?.zone && current?.item.key === pressed?.key && current?.item.quickAction !== undefined) {
+            press.item = current.item;
+            press.cancelled = false;
+            this.armPress(press);
         }
     }
 
@@ -301,15 +309,19 @@ export class FocusHost {
         event.preventDefault();
         const press = { item, started: performance.now(), timer: undefined as number | undefined, cancelled: false };
         this.press = press;
+        this.armPress(press);
+    };
+
+    private armPress(press: NonNullable<FocusHost["press"]>): void {
         // A fixed 650 ms separates deliberate holds from ordinary Select presses; tune on TV.
         press.timer = window.setTimeout(() => {
             press.timer = undefined;
-            if (!press.cancelled && item.element.isConnected && document.activeElement === item.element && !document.hidden) {
+            if (!press.cancelled && press.item.element.isConnected && document.activeElement === press.item.element && !document.hidden) {
                 press.cancelled = true;
-                item.quickAction?.();
+                press.item.quickAction?.();
             }
-        }, SELECT_HOLD_MS);
-    };
+        }, Math.max(0, SELECT_HOLD_MS - (performance.now() - press.started)));
+    }
 
     private readonly onRelease = (event: KeyboardEvent): void => {
         if (remoteKey(event) !== "enter" || this.press === undefined) return;

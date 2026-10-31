@@ -221,6 +221,72 @@ test("card actions failed writes keep explicit read-first Retry and Close", asyn
     } finally { await tv.page.context().close(); }
 });
 
+for (const reducedMotion of ["no-preference", "reduce"] as const) for (const outcome of ["failed", "pending"] as const) {
+    test(`retained card actions refresh unrelated confirmed values after ${outcome} writes in ${reducedMotion}`, async () => {
+        const tv = await openTv(browser, { app: "browse" });
+        try {
+            await tv.page.emulateMedia({ reducedMotion });
+            const catalog = await start(tv);
+            await hold(tv);
+            await menu(tv).getByRole("button", { name: "Add favorite", exact: true }).waitFor();
+            const pending = outcome === "pending" ? tv.fake.hold("/favorites/movie%3Am0001", true) : undefined;
+            if (outcome === "failed") catalog.mutationFailure = problem(400, "validation_failed", "Not applied");
+            await menu(tv).getByRole("button", { name: "Add favorite", exact: true }).click();
+            if (outcome === "failed") await menu(tv).getByRole("button", { name: "Retry favorites", exact: true }).waitFor();
+            await tv.remote(10009);
+            pending?.release();
+            await origin(tv).click();
+            await tv.page.locator('.browse[data-view="item:movie:m0001"]').waitFor();
+            await tv.page.getByRole("button", { name: "Mark watched", exact: true }).click();
+            await tv.page.getByRole("button", { name: "Mark unwatched", exact: true }).waitFor();
+            await tv.page.getByRole("button", { name: "Add to watchlist", exact: true }).click();
+            await tv.page.getByRole("button", { name: "Remove from watchlist", exact: true }).waitFor();
+            await tv.remote(10009);
+            await origin(tv).waitFor();
+            const favoriteWrites = tv.fake.requests.filter(r => r.method === "PUT" && r.path === "/favorites/movie%3Am0001").length;
+            const fresh = tv.fake.hold("/catalog/items/movie%3Am0001");
+            await hold(tv);
+            assert.equal(await menu(tv).locator('[data-focus="watched"]').count(), 0, "reopening must wait for fresh confirmed values");
+            fresh.release();
+            await menu(tv).getByRole("button", { name: "Retry favorites", exact: true }).waitFor();
+            assert.equal(await menu(tv).getByRole("button", { name: "Mark unwatched", exact: true }).count(), 1);
+            assert.equal(await menu(tv).getByRole("button", { name: "Remove from watchlist", exact: true }).count(), 1);
+            assert.equal(tv.fake.requests.filter(r => r.method === "PUT" && r.path === "/favorites/movie%3Am0001").length, favoriteWrites, "reopening cannot replay an unresolved write");
+            await menu(tv).getByRole("button", { name: "Retry favorites", exact: true }).click();
+            await menu(tv).getByRole("button", { name: "Remove favorite", exact: true }).waitFor();
+            assert.equal(tv.fake.requests.filter(r => r.method === "PUT" && r.path === "/favorites/movie%3Am0001").length, favoriteWrites + (outcome === "failed" ? 1 : 0));
+            assert.equal(tv.fake.requests.filter(r => r.method === "POST" && r.path === "/watched/movie%3Am0001").length, 1);
+            assert.deepEqual(tv.console, []);
+        } finally { await tv.page.context().close(); }
+    });
+}
+
+for (const reducedMotion of ["no-preference", "reduce"] as const) {
+    test(`a same-view read preserves the original Select hold deadline in ${reducedMotion}`, async () => {
+        const tv = await openTv(browser, { app: "browse" });
+        try {
+            await tv.page.emulateMedia({ reducedMotion });
+            await start(tv);
+            const personal = tv.fake.hold("/favorites/series%3As1/membership");
+            await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').click();
+            await tv.page.locator('[data-focus="season:1"]').focus();
+            await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
+            await tv.down(13);
+            await tv.jump(400);
+            personal.release();
+            await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
+            await tv.jump(249);
+            assert.equal(await menu(tv).count(), 0);
+            await tv.jump(1);
+            await menu(tv).waitFor();
+            await tv.up(13);
+            assert.equal(await menu(tv).count(), 1);
+            assert.equal(await tv.page.locator('.browse').getAttribute("data-view"), "item:series:s1");
+            assert.deepEqual(tv.console, []);
+        } finally { await tv.page.context().close(); }
+    });
+}
+
 test("card actions pending close/reopen retains target, suppresses repeat-false updates, and reads first", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

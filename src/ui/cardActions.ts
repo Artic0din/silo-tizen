@@ -53,12 +53,6 @@ export class CardActions {
         this.controller = controller;
         this.failed = false;
         const retained = this.retained.get(card.id);
-        if (retained !== undefined) {
-            this.state = retained;
-            retained.start("personal");
-            this.render();
-            return;
-        }
         this.render();
         this.session.call({ ...operations.getCatalogItem(card.id), profileScoped: true, signal: controller.signal }).then(detail => {
             if (controller.signal.aborted || this.controller !== controller) return;
@@ -67,6 +61,7 @@ export class CardActions {
                 this.changed(state);
                 if (this.state === state) this.render();
             }, async () => this.changed(state), this.pendingElsewhere);
+            for (const [kind, change] of retained?.changes ?? []) state.changes.set(kind, change);
             this.state = state;
             state.start("personal");
             this.render();

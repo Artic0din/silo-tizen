@@ -99,6 +99,7 @@ Holding Select for 650 ms opens card actions; a shorter down/up invokes the card
 The threshold is a client choice, not a Samsung or Skyline specification.
 Repeated keydowns, including those reporting `repeat: false`, belong to the same press until release.
 Arrows, Back, blur, hidden document, replaced cards and teardown cancel the hold and its short activation.
+A repaint of the same view preserves the press and its original deadline when the same card remains focused in the same zone.
 Pointer context menus use the same panel; ordinary left clicks retain their existing action.
 The modal captures input before Skyline Back handling, keeps Close reachable while busy and consumes the opening Select release.
 Samsung system Exit is not intercepted.

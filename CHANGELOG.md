@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Synchronized Calendar formatting-recovery tests with the pending weekly response before retrying.
 - Refreshed confirmed card-menu values after reopening an unresolved action and preserved Select presses during Details updates.
 - Kept preplay audio focus visible, reset changed track selections and rejected incomplete resume responses.
 - Corrected the profile PIN regression test to distinguish an unchanged public device ID from retained PIN material while continuing to check all stored values for profile proofs.

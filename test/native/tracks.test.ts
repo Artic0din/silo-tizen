@@ -111,6 +111,57 @@ async function playReplacement(r: Rig): Promise<void> {
     }
 }
 
+test("preplay sends only the requested start deltas; Auto adopts a nonzero server preference", async () => {
+    const baseline = await rig();
+    baseline.h.fake.script(QUALITY_SETTINGS, { status: 200, body: { items: [{ key: "playback.preferred_quality", value: "1080p" }, { key: "playback.max_bitrate_kbps", value: 6000 }] } });
+    await playMovie(baseline);
+    const original = only(requests(baseline.h, "/playback/start"));
+    baseline.controller.destroy();
+    const cases = [
+        { request: { ...MOVIE, startSeconds: 1200.5, audioTrackId: "file:42:audio:1" }, delta: { start_position: 1200.5, audio_track_id: "file:42:audio:1" }, selected: "file:42:audio:1" },
+        { request: { ...MOVIE, startSeconds: 0, audioTrackId: "file:42:audio:1", allowAlternateVersions: false as const }, delta: { start_position: 0, audio_track_id: "file:42:audio:1", allow_alternate_versions: false }, selected: "file:42:audio:1" },
+        { request: { ...MOVIE, startSeconds: 0 }, delta: { start_position: 0 }, selected: "file:42:audio:2" },
+        { request: { ...MOVIE, fileId: "43", startSeconds: 0, audioTrackId: "file:43:audio:1", allowAlternateVersions: false as const }, delta: { file_id: "43", start_position: 0, audio_track_id: "file:43:audio:1", allow_alternate_versions: false }, selected: "file:43:audio:1" },
+    ];
+    for (const value of cases) {
+        const r = await rig();
+        r.server.automaticAudioIndex = 2;
+        r.h.fake.script(QUALITY_SETTINGS, { status: 200, body: { items: [{ key: "playback.preferred_quality", value: "1080p" }, { key: "playback.max_bitrate_kbps", value: 6000 }] } });
+        try {
+            await playMovie(r, value.request);
+            const actual = only(requests(r.h, "/playback/start"));
+            assert.deepEqual(actual.body, { ...original.body, ...value.delta });
+            assert.deepEqual(actual.headers, original.headers);
+            assert.equal(tracks(r).selectedAudioId, value.selected);
+            assert.equal("audio_track_index" in (actual.body ?? {}), false);
+            assert.equal("subtitle_track_id" in (actual.body ?? {}), false);
+            assert.equal("subtitle_track_index" in (actual.body ?? {}), false);
+            assert.equal(r.h.fake.requests.some(req => req.path.startsWith("/audio-prefs/")), false);
+        } finally { r.controller.destroy(); }
+    }
+});
+
+test("preplay pin and captured selection survive an identical lost-answer resend and later replan", async () => {
+    const r = await rig();
+    r.h.fake.dropNextAnswer("/playback/start");
+    r.controller.play({ ...MOVIE, startSeconds: 1200.5, audioTrackId: "file:42:audio:1", allowAlternateVersions: false });
+    await r.h.clock.advance(3000);
+    const starts = requests(r.h, "/playback/start");
+    assert.equal(starts.length, 2);
+    assert.deepEqual(starts[0]?.body, starts[1]?.body);
+    assert.deepEqual(starts[0]?.headers, starts[1]?.headers);
+    assert.equal(r.server.sessions.size, 1);
+    r.avplay.finishPrepare();
+    await settle(r);
+    r.avplay.finishSeek();
+    await settle(r);
+    r.server.next.push({ effectiveFileId: "43" });
+    r.controller.selectAudio("file:42:audio:2");
+    await settle(r);
+    assert.equal([...r.server.sessions.values()][0]?.effectiveFileId, "42");
+    r.controller.destroy();
+});
+
 test("the plan decoder reads the subtitle decision, its inventory and the effective edition", () => {
     const decision = decodePlaybackDecision(fixture("playback_start_opaque_ids"));
     assert.equal(decision.outcome, "playable");

@@ -5,6 +5,7 @@
 
 import { boolean, integer, object, optionalString, string, WireError } from "./wire.ts";
 import { decodeDetailExtras, type DetailExtras } from "./details.ts";
+import { decodeAudioTracks, type AudioTrackInfo } from "./playback.ts";
 
 type WireObject = ReturnType<typeof object>;
 
@@ -199,6 +200,9 @@ export function decodeCatalogPage(value: unknown): CatalogPage {
 // --- getCatalogItem ---
 
 export interface PlayableFile {
+    readonly audio?: readonly AudioTrackInfo[];
+    /** Metadata omitted from labels must still invalidate an ordinal picked from an older inventory. */
+    readonly audioMetadata?: string;
     readonly label?: string;
     readonly fileId: string;
     /** Seconds; 0 when the server does not know. */
@@ -276,10 +280,25 @@ export function decodeItemDetail(value: unknown): ItemDetail {
             const versionPath = `${path}.versions[${index}]`;
             const version = object(entry, versionPath);
             const label = [optionalString(version, "edition_raw", versionPath), optionalString(version, "resolution", versionPath), optionalString(version, "codec_video", versionPath), version.hdr === undefined ? undefined : boolean(version, "hdr", versionPath) ? "HDR" : undefined, optionalString(version, "codec_audio", versionPath)].filter((part) => part !== undefined && part !== "").join(" · ");
-            return { fileId: string(version, "file_id", versionPath), durationSeconds: integer(version, "duration", versionPath), ...(label === "" ? {} : { label }) };
+            return { fileId: string(version, "file_id", versionPath), durationSeconds: integer(version, "duration", versionPath), audio: decodeAudioTracks(version, versionPath), ...(version.audio_tracks === undefined ? {} : { audioMetadata: JSON.stringify(version.audio_tracks) }), ...(label === "" ? {} : { label }) };
         }),
         watch,
     };
+}
+
+/** A fresh watch answer must name the captured item and file before it can replace cached progress. */
+export function decodeResumePosition(value: unknown, contentId: string, fileId: string): { position: number | undefined; duration: number } {
+    const path = "watch";
+    const obj = object(value, path);
+    if (string(obj, "content_id", path) !== contentId || !["movie", "episode"].includes(string(obj, "type", path))) throw new WireError(path, "the requested movie or episode");
+    const versions = array(obj, "versions", path).map((entry) => object(entry, `${path}.versions`));
+    const file = versions.find((entry) => string(entry, "file_id", `${path}.versions`) === fileId);
+    if (file === undefined) throw new WireError(`${path}.versions`, "the requested file");
+    const watch = decodeWatch(obj.user_data, `${path}.user_data`);
+    const position = watch?.positionSeconds;
+    const duration = integer(file, "duration_seconds", `${path}.versions`);
+    if ((position !== undefined && (position < 0 || position > 31536000)) || duration < 0) throw new WireError(path, "nonnegative source seconds");
+    return { position, duration };
 }
 
 // --- listSeriesSeasons ---

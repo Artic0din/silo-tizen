@@ -2,6 +2,7 @@ import { FakeCatalog, type FakeTitle } from "./fakeCatalog.ts";
 import { fixture, problem, type Reply } from "./fakeSilo.ts";
 import assert from "node:assert/strict";
 import { object, string } from "../../../src/contracts/v2/wire.ts";
+import { defaultFiles } from "./fakePlayback.ts";
 
 /** Detail-only synthetic extension; leaves library discovery fixtures untouched. */
 export class FakeDetails extends FakeCatalog {
@@ -13,6 +14,7 @@ export class FakeDetails extends FakeCatalog {
     readonly mutations: string[] = [];
     mutationFailure: Reply | undefined;
     readonly neverPlayed = new Set<string>();
+    readonly audioFiles = defaultFiles();
     readonly personCredits = new Map<string, string[]>([["7", [...this.titles.keys(), "movie:m0001"]]]);
     readonly personLibraryIds = new Map<string, string[]>();
     readonly matureTitles = new Set<string>();
@@ -22,6 +24,15 @@ export class FakeDetails extends FakeCatalog {
 
     override route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): Reply | undefined {
         const url = new URL(path, "https://example.test");
+        if (method === "GET" && url.pathname.startsWith("/watch/")) {
+            const reply = this.route("GET", `/catalog/items/${url.pathname.slice(7)}`, profileId);
+            if (reply?.status !== 200) return reply;
+            const detail = object(reply.body, "detail");
+            return { status: 200, body: { ...detail, versions: Array.isArray(detail.versions) ? detail.versions.map((value: unknown) => {
+                const file = object(value, "version");
+                return { ...file, duration_seconds: file.duration };
+            }) : [] } };
+        }
         const personQuery = url.pathname === "/catalog/query" && body?.source === "person";
         if (personQuery || (url.pathname === "/catalog" && url.searchParams.get("source") === "person")) {
             return this.personPage(method, url, profileId, body);
@@ -76,7 +87,13 @@ export class FakeDetails extends FakeCatalog {
             const id = string(body, "content_id", "detail");
             const title = this.titles.get(id);
             const played = title?.type === "series" ? this.episodesPlayed(id) : title?.type === "episode" ? this.watchedEpisodes.has(id) : this.watched;
-            reply.body = { ...body, user_state: { played }, user_data: this.neverPlayed.has(id) && !played ? undefined : { ...object(body.user_data, "user_data"), played } };
+            reply.body = { ...body,
+                ...(Array.isArray(body.versions) ? { versions: body.versions.map((value: unknown) => {
+                    const file = object(value, "version");
+                    const audio = this.audioFiles.get(string(file, "file_id", "version"))?.audio;
+                    return { ...file, ...(audio === undefined ? {} : { audio_tracks: audio }) };
+                }) } : {}),
+                user_state: { played }, user_data: this.neverPlayed.has(id) && !played ? undefined : { ...object(body.user_data, "user_data"), played } };
         }
         if (url.pathname === "/catalog/items/movie%3Am0001" && reply?.status === 200 && typeof reply.body === "object" && reply.body !== null) {
             return { status: 200, body: { ...reply.body,
@@ -85,8 +102,8 @@ export class FakeDetails extends FakeCatalog {
                 cast: [{ person_id: "7", name: "River Vale", character: "Alex", order: 0, photo_url: "/art/river.svg" }, { name: "Morgan Lane", character: "Sam", order: 1 }],
                 crew: [{ person_id: "7", name: "River Vale", job: "Director", photo_url: "/art/river.svg" }],
                 ratings: [{ source: "imdb", name: "IMDb", score: 81, display: "8.1" }], studios: ["North Studio"], countries: ["AU"], original_language: "en",
-                versions: [{ file_id: "long", duration: 5400, resolution: "2160p", codec_video: "hevc", codec_audio: "aac", hdr: true, edition_raw: "Original" }, { file_id: "short", duration: 1200, resolution: "1080p", codec_video: "h264", codec_audio: "aac", hdr: false, edition_raw: "Short cut" }],
-                user_data: this.neverPlayed.has("movie:m0001") && !this.watched ? undefined : { played: this.watched, position_seconds: this.progress.get("movie:m0001"), last_file_id: "long" },
+                versions: [{ file_id: "42", duration: 5400, resolution: "2160p", codec_video: "hevc", codec_audio: "aac", hdr: true, edition_raw: "Original", audio_tracks: this.audioFiles.get("42")?.audio }, { file_id: "43", duration: 1200, resolution: "1080p", codec_video: "h264", codec_audio: "aac", hdr: false, edition_raw: "Short cut", audio_tracks: this.audioFiles.get("43")?.audio }],
+                user_data: this.neverPlayed.has("movie:m0001") && !this.watched ? undefined : { played: this.watched, position_seconds: this.progress.get("movie:m0001"), last_file_id: "42" },
             } };
         }
         return reply;

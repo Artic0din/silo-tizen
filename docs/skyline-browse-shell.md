@@ -6,6 +6,42 @@ Only visible video library types appear, and mixed libraries can be scoped to ei
 Detail, season and playback routes remove the root chrome.
 Library destinations follow the available discovery capabilities: Browse, Collections, Genres, A–Z and Recently Added.
 
+## Preplay audio and resume
+
+Movie and episode Details offer Auto plus the displayed file's listed audio tracks in an anchored, remote-operable picker.
+Closing the picker restores its Audio trigger.
+An omitted audio array lists only Auto; malformed audio metadata fails the existing Details read and retains Retry.
+The shared decoder preserves the server's per-file audio order.
+Explicit IDs use `file:{fileId}:audio:{ordinal}`, where ordinal indexes that file's audio array, never a container or AVPlay stream index.
+Auto omits both audio fields, allowing server preferences to select a nonzero track.
+An audio-only choice does not invent an explicit version pin.
+Selecting a version sends `allow_alternate_versions:false`, and changing file clears the explicit audio choice.
+An identical quiet Details refresh preserves valid choices; changed audio metadata or a missing file resets audio to Auto.
+
+Resume captures file, audio, explicit version pin and initiating focus at the press, before a fresh profile-scoped `GET /api/v2/watch/{id}?file_id=…`.
+A Play press cancels an obsolete quiet Details refresh so the visible controls remain usable while returning from playback.
+Fresh progress replaces cached progress, including on a rewatched title; a valid answer without progress starts at zero.
+The selected file's duration retains the existing five-second end margin.
+Network failure, timeout, or HTTP 501/503 uses the confirmed cached position after at most three seconds.
+Other refusals and malformed answers show an explicit Try again action and send no start.
+Back, route teardown, profile change and sign-out cancel resolution; late results cannot hand off.
+Repeated activation during resolution is ignored, and the existing app/player owner receives one captured request.
+Playback return restores the initiating Details action, or its existing fallback when that action disappeared.
+Play from start sends `start_position:0` without a watch read, even when the server has saved progress.
+Home Continue Watching keeps its existing direct-resolution journey.
+
+Audio choices last only in the current Details visit and playback attempt; no per-content audio preference PUT or DELETE is sent.
+This differs from Apple's persisted per-title/series audio override, which is deferred.
+There is no preplay subtitle selector, subtitle Auto resolution or new subtitle renderer claim.
+Both subtitle start fields stay absent; the existing in-player subtitle contract is unchanged.
+The server's returned effective file, tracks, warnings and source/player timeline remain authoritative.
+The controller retains protocol 3, saved quality/cap settings, capability gates and bounded identical-body start resends with the same attempt identity.
+
+The contract is pinned to [server cc851494](https://github.com/Silo-Server/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/internal/apiv2/playback.go), with [Apple's fresh resume state at f334794](https://github.com/Silo-Server/silo-apple/blob/f33479404712737499b22365430db1885cf6c6ab/iosApp/iosApp/Screens/Detail/DetailResumeState.swift) as the interaction reference.
+Production-entry desktop Chromium tests use synthetic Silo, KeyManager and AVPlay ports in normal and reduced motion.
+They establish request, cancellation and focus behavior, not audible selection, decoded media, subtitles, a signed package, real Chromium 76 or 2021-plus TV acceptance.
+Those device and subtitle gates remain open under issue #11; this slice does not complete issues #28 or #29.
+
 ## Text Search
 
 Non-empty text Search reads `getCatalogSearchCapabilities` through the existing profile-scoped session before its first query.

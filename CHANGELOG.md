@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept preplay audio focus visible, reset changed track selections and rejected incomplete resume responses.
 - Corrected the profile PIN regression test to distinguish an unchanged public device ID from retained PIN material while continuing to check all stored values for profile proofs.
 - Updated Calendar's Today state at local midnight and refreshed retained weeks after watched, favorites, watchlist and playback changes.
 - Preserved the expanded Home row's page and card after playback interrupted a pending page turn.
@@ -16,6 +17,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added attempt-only preplay audio selection with explicit version binding, fresh Resume and reliable Play from start.
 - Added full person filmography with server-filtered All, Movies and Series pages, explicit paging, and restored Details and person focus.
 - Added a weekly catalog Calendar with Following, Trending and All filters, release and episode shelves, and context-preserving Details navigation.
 - Added Show Title Art and Apply to All Devices in General Settings, with server-confirmed title and season artwork choices and text retained during settings recovery.

@@ -183,7 +183,8 @@ journey("interrupted Next cannot advance after visible-card Details, one resume 
     await tv.eventually(async () => queries(tv).length === before + 1, "held Next");
     await tv.page.locator('.browse-grid [data-focus="movie:m0001"]').click();
     await tv.page.locator('[data-focus="resume"]').click();
-    assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays), [{ contentId: "movie:m0001", fileId: "long", title: "The Last Signal", startSeconds: 1200 }]);
+    await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "fresh Resume handoff");
+    assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays), [{ contentId: "movie:m0001", fileId: "42", title: "The Last Signal", startSeconds: 1200 }]);
     await tv.page.evaluate(() => window.browseHarness.resume());
     await tv.page.locator('[data-focus="resume"]').waitFor();
     await tv.remote(BACK);

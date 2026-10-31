@@ -810,13 +810,16 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (spec === undefined) return;
             requestWritePending = true; state.writing = true; state.uncertain = true; current.failure = undefined;
             current.focus = { zone: "actions", key: "refresh" }; render(current.focus);
+            const writeRevision = inputRevision;
+            // Focus the person moved while the write was out stays where it is.
+            const keepMovedFocus = (route: Route): void => { if (inputRevision !== writeRevision) route.focus = host.focused() ?? route.focus; };
             // A write belongs to session authority, not route lifetime. Leaving never replays it.
             session.call({ ...spec, profileScoped: true, replayAfterRefresh: false }).then(() => {
                 requestWritePending = false; state.writing = false;
                 if (torn) return;
                 markRequestsStale();
                 const visible = top();
-                if (visible?.kind === "requests") { visible.requests.uncertain = true; loadRoute(visible, true); }
+                if (visible?.kind === "requests") { keepMovedFocus(visible); visible.requests.uncertain = true; loadRoute(visible, true); }
                 else render(host.focused());
             }, (error: unknown) => {
                 requestWritePending = false; state.writing = false;
@@ -826,6 +829,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 markRequestsStale();
                 if (error instanceof ApiError && ["capability_disabled", "capability_not_configured", "capability_unsupported", "permission_denied"].includes(error.problemId ?? "")) void probeRequests();
                 const visible = top();
+                if (visible?.kind === "requests") keepMovedFocus(visible);
                 if (visible === current) render(current.focus);
                 else if (visible?.kind === "requests") { visible.requests.uncertain = true; loadRoute(visible, true); }
                 else render(host.focused());

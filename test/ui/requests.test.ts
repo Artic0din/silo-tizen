@@ -240,3 +240,30 @@ test("a settled write refreshes the retained Requests hub", async () => {
         await tv.page.getByRole("button", { name: "Heat · pending" }).waitFor();
     } finally { await tv.page.context().close(); }
 });
+
+test("a settling write keeps focus the person moved meanwhile", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = await start(tv);
+        await button(tv, "requests").click(); await button(tv, "movie:949").click(); await button(tv, "create").waitFor();
+        let held = tv.fake.hold("/requests", true);
+        fake.requestFailure = problem(400, "validation_failed", "Unavailable");
+        await button(tv, "create").click();
+        await tv.eventually(async () => tv.fake.paths().includes("POST /requests"), "failing write held");
+        assert.equal(await tv.focused(), "refresh");
+        await tv.remote(39); assert.equal(await tv.focused(), "back");
+        held.release();
+        await tv.page.getByText("Could not confirm the change. Refresh before trying again.").waitFor();
+        assert.equal(await tv.focused(), "back", "an uncertain write keeps moved focus");
+        fake.requestFailure = undefined; await button(tv, "refresh").click();
+        await tv.eventually(async () => !await button(tv, "create").isDisabled(), "refreshed");
+        held = tv.fake.hold("/requests", true);
+        await button(tv, "create").click();
+        await tv.eventually(async () => fake.created, "write held");
+        assert.equal(await tv.focused(), "refresh");
+        await tv.remote(39); assert.equal(await tv.focused(), "back");
+        held.release();
+        await tv.eventually(async () => await button(tv, "create").count() === 0, "write settled");
+        assert.equal(await tv.focused(), "back", "a settled write keeps moved focus");
+    } finally { await tv.page.context().close(); }
+});

@@ -481,6 +481,21 @@ export class PlaybackController implements PlayerControls {
         attempt.hidden = true;
         this.capturePosition(attempt);
         this.holdTimers(attempt);
+        const seek = this.pending.seek;
+        if (seek !== undefined) {
+            const transport = this.transport;
+            void seek.then(() => {
+                if (this.attempt === attempt && attempt.live && transport === this.transport && (attempt.hidden || attempt.restoring)) {
+                    this.capturePosition(attempt);
+                    if (!attempt.suspended && !attempt.suspendedReady) this.suspendTransport(attempt);
+                }
+            });
+            return;
+        }
+        this.suspendTransport(attempt);
+    }
+
+    private suspendTransport(attempt: Attempt): void {
         const state = this.deps.avplay.getState();
         if ((state === "PLAYING" || state === "PAUSED" || state === "READY") && this.deps.avplay.suspend !== undefined) {
             try {
@@ -732,6 +747,8 @@ export class PlaybackController implements PlayerControls {
         if (sessionId === undefined || installationId === undefined) {
             return;
         }
+        const transport = this.transport;
+        const current = (): boolean => attempt.live && attempt.sessionId === sessionId && this.transport === transport;
         const replan = operations.replanPlayback(sessionId, {
             installation_id: installationId,
             protocol_version: 3,
@@ -754,9 +771,12 @@ export class PlaybackController implements PlayerControls {
         });
         let decision: PlaybackDecision;
         try {
-            decision = await this.resend(attempt, () => this.deps.session.call({ ...replan, profileScoped: true, signal: attempt.signal }));
+            decision = await this.resend(attempt, () => {
+                if (!current()) throw abortedError();
+                return this.deps.session.call({ ...replan, profileScoped: true, signal: attempt.signal });
+            });
         } catch (error) {
-            if (!attempt.live) {
+            if (!current()) {
                 return;
             }
             if ((operation === "track_change" || operation === "quality_change") && unanswered(error) && attempt.presented
@@ -780,7 +800,7 @@ export class PlaybackController implements PlayerControls {
             this.sessionFailure(attempt, error);
             return;
         }
-        if (!attempt.live) {
+        if (!current()) {
             return;
         }
         if ((operation === "track_change" || operation === "quality_change") && decision.outcome === "adaptation_unavailable") {
@@ -893,6 +913,8 @@ export class PlaybackController implements PlayerControls {
         attempt.plan = plan;
         attempt.serverFeatures = serverFeatures;
         attempt.change = { state: "idle" };
+        attempt.busy = false;
+        attempt.seekFailure = undefined;
         attempt.changeFailure = undefined;
         attempt.endedDuringChange = false;
         if (attempt.tracks === undefined) {
@@ -1713,6 +1735,7 @@ export class PlaybackController implements PlayerControls {
 
     private async resumeVisible(attempt: Attempt): Promise<void> {
         const generation = ++attempt.resumeGeneration;
+        if (attempt.installationId === undefined) return;
         const current = (): boolean => attempt.live && attempt.resumeGeneration === generation && this.attempt === attempt;
         const gate = await this.revalidate(attempt);
         if (!current()) {

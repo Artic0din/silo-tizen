@@ -98,6 +98,93 @@ async function resumePlan(r: Rig): Promise<void> {
     }
 }
 
+for (const change of ["audio", "quality"] as const) test(`late user ${change} response cannot reopen the retired session`, async () => {
+    const r = await rig();
+    r.server.next.push({ availableQualities: [{ label: "original", preserves_source: true }, { label: "1080p-medium", height: 1080, bitrate_kbps: 6000, preserves_source: false }] });
+    const old = await play(r);
+    const held = r.h.fake.hold(`/playback/${old}/replan`, true);
+    if (change === "audio") r.controller.selectAudio("file:42:audio:1");
+    else r.controller.selectQuality("1080p-medium");
+    await r.h.clock.advance(0);
+    r.server.sessions.delete(old);
+    r.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
+    await r.h.clock.advance(1000);
+    await resumePlan(r);
+    assert.equal(starts(r.h), 2);
+    const successor = [...r.server.sessions.keys()].pop();
+    assert.ok(successor !== undefined && successor !== old);
+    const urls = r.avplay.urls.length;
+    held.release();
+    await r.h.clock.advance(0);
+    assert.equal(r.avplay.urls.length, urls, "late user change cannot open its predecessor");
+    assert.equal(r.avplay.state, "PLAYING");
+    assert.deepEqual(r.exits, []);
+    r.controller.back();
+    await r.h.clock.advance(0);
+    assert.notEqual(r.server.session(successor).receipt, undefined);
+});
+
+test("show before the initial capability answer waits for initialization", async () => {
+    const r = await rig();
+    const held = r.h.fake.hold("/playback/capabilities", true);
+    r.controller.play(MOVIE);
+    await r.h.clock.advance(0);
+    r.controller.suspend();
+    r.controller.restore();
+    await r.h.clock.advance(0);
+    assert.notEqual(last(r.views).phase, "error", "an unset installation is not a changed installation");
+    assert.equal(r.h.fake.requests.filter(q => q.path === "/playback/capabilities").length, 1);
+    held.release();
+    await resumePlan(r);
+    assert.equal(r.avplay.state, "PLAYING");
+    assert.equal(starts(r.h), 1);
+    r.controller.destroy();
+});
+
+for (const failed of [false, true]) test(`hide during local seek suspends after ${failed ? "failure" : "success"}`, async () => {
+    const r = await rig();
+    await play(r);
+    r.controller.seekToSeconds(90);
+    r.controller.suspend();
+    r.avplay.finishSeek(failed ? "UnknownError" : undefined);
+    await r.h.clock.advance(0);
+    assert.equal(r.avplay.calls.filter(c => c === "suspend").length, 1, "seek settlement must suspend the hidden pipeline");
+    r.controller.restore();
+    await r.h.clock.advance(0);
+    assert.equal(r.avplay.calls.filter(c => c.startsWith("restoreAsync")).length, 1);
+    r.avplay.finishRestore();
+    await r.h.clock.advance(0);
+    assert.equal(r.avplay.state, "PLAYING");
+    assert.equal(r.avplay.positionMs, failed ? 12500 : 90000);
+    r.controller.destroy();
+});
+
+test("missing progress during a local seek leaves successor controls usable", async () => {
+    const r = await rig();
+    const old = await play(r);
+    const held = r.h.fake.hold(`/playback/${old}/progress`, true);
+    r.h.fake.script(`/playback/${old}/progress`, { status: 404 });
+    await r.h.clock.advance(10000);
+    r.controller.seekToSeconds(90);
+    r.server.sessions.delete(old);
+    held.release();
+    await r.h.clock.advance(0);
+    r.avplay.finishSeek();
+    for (let i = 0; i < 10 && r.avplay.pendingPrepares === 0; i++) await r.h.clock.advance(0);
+    assert.ok(r.avplay.pendingPrepares > 0, "replacement preparation is dispatched after seek settles");
+    await resumePlan(r);
+    r.controller.seekToSeconds(60);
+    assert.equal(r.avplay.calls[r.avplay.calls.length - 1], "seekTo 60000", "replacement must accept a new seek");
+    r.avplay.finishSeek();
+    r.controller.selectAudio("file:42:audio:1");
+    await r.h.clock.advance(0);
+    assert.equal(replans(r.h).length, 1, "replacement must accept audio selection");
+    await resumePlan(r);
+    r.controller.back();
+    await r.h.clock.advance(0);
+    assert.deepEqual(r.exits, ["back"]);
+});
+
 test("hide and show keep one held recovery request until its answer is adopted", async () => {
     const r = await rig();
     const id = await play(r);

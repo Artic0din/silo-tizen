@@ -89,6 +89,8 @@ Visibility hide suspends the active AVPlay pipeline and cancels its timers.
 Show rechecks capabilities, installation, profile authority and media authorization before restoring playback.
 Preparing transports cannot play while that foreground check is pending; obsolete restore callbacks cannot bypass a newer check.
 Visibility changes keep an in-flight recovery request serialized; its accepted plan waits for foreground validation before opening a transport.
+An initial capability read establishes authority before foreground restoration compares installation identities.
+Hiding during a local seek defers native suspension until that seek settles, retaining its actual resulting position.
 Hidden startup and reconnect deadlines are rearmed from the clock instead of relying on background timers.
 An already prepared READY pipeline resumes with play or pause, because AVPlay restoreAsync is not valid in READY.
 The explicit controller background() action remains a terminal stop; visibility events use suspend/restore instead.
@@ -106,6 +108,7 @@ Its unanswered retries retain the same body and attempt identity.
 When a stale plan requires a fresh session, accepting its replacement also sends a sequenced STOP for the possibly live predecessor.
 A 404 proves the predecessor is already gone and needs no cleanup STOP.
 Progress answers belong to their dispatched session and cannot end or restart a successor; predecessor teardown still waits for its own pending progress.
+User replan answers are also fenced to their dispatched transport and session, and adopting a replacement clears interrupted seek state.
 If its playable answer arrives after Back or teardown, cleanup stops that new session with its own sequence and STOP identity.
 An admin-ended session, changed installation or revoked authority is terminal and does not silently create a replacement.
 Back, teardown, another playback and authority loss fence late recovery work.

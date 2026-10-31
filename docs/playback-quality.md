@@ -7,6 +7,9 @@ PlaybackController retires the transport and waits for an in-flight progress req
 The adopted plan's effective file and source timeline identify the completed edition; unknown or different durations and early EOF never manufacture a full-duration sample.
 Uncertain STOP answers retry the identical installation ID, stop ID, sequence, position and body, preserving Retry-After.
 An explicit Retry after exhausted transient retries retains that same request.
+An expired session during final progress or STOP reporting offers Back without an unusable Retry.
+Fresh watch-read failures remain retryable after STOP is confirmed.
+EOF during a pending track or quality change is retained when a refusal keeps the original transport; adopting a replacement discards that predecessor's EOF.
 Authorization, installation and administrator refusals cannot create a successor session.
 
 A valid STOP receipt is a teardown barrier, not proof that progress or watch-history side effects succeeded.

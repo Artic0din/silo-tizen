@@ -957,6 +957,80 @@ test("an expired pending progress answer at EOF offers Back without an impossibl
     r.controller.destroy();
 });
 
+test("a missing session during EOF STOP offers Back without a retry that can never succeed", async () => {
+    const r = await episodeRig();
+    const id = await playMovie(r, EPISODE);
+    r.server.sessions.delete(id);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).state, "failed");
+    assert.equal(completion(r).retryable, false);
+    assert.equal(bodies(r.h, `/playback/${id}`).length, 1);
+    r.controller.retryCompletion();
+    r.controller.playNext();
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, `/playback/${id}`).length, 1);
+    assert.equal(bodies(r.h, "/start").length, 1);
+    assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/")), false);
+    r.controller.back();
+    assert.deepEqual(r.exits, ["back"]);
+    r.controller.destroy();
+});
+
+for (const kind of ["audio", "quality"] as const) for (const result of ["refused", "accepted"] as const) {
+    test(`EOF during a pending ${kind} change ${result === "refused" ? "completes the retained transport after refusal" : "does not complete its replacement"}`, async () => {
+        const r = await episodeRig();
+        r.server.next.push({ availableQualities: [{ label: "1080p-medium", height: 1080, bitrate_kbps: 6000, preserves_source: false }] });
+        const id = await playMovie(r, EPISODE);
+        const predecessor = r.avplay.listener;
+        const response = r.h.fake.hold(`/playback/${id}/replan`);
+        if (result === "refused") r.server.next.push({ terminal: "adaptation_unavailable" });
+        if (kind === "audio") r.controller.selectAudio("file:42:audio:1");
+        else r.controller.selectQuality("1080p-medium");
+        await r.h.clock.advance(0);
+        assert.equal(bodies(r.h, "/replan").length, 1);
+        r.avplay.tick(5399000);
+        predecessor?.onstreamcompleted();
+        assert.equal(bodies(r.h, `/playback/${id}`).length, 0);
+        response.release();
+        await r.h.clock.advance(0);
+        if (result === "refused") {
+            assert.equal(completion(r).state, "ready");
+            assert.equal(only(bodies(r.h, `/playback/${id}`)).position, 5399);
+        } else {
+            predecessor?.onstreamcompleted();
+            assert.equal(bodies(r.h, `/playback/${id}`).length, 0);
+            r.avplay.finishPrepare();
+            await r.h.clock.advance(0);
+            if (r.avplay.calls[r.avplay.calls.length - 1]?.startsWith("seekTo") === true) r.avplay.finishSeek();
+            await r.h.clock.advance(0);
+            assert.equal(last(r.views).phase, "playing");
+            r.avplay.listener?.onstreamcompleted();
+            await r.h.clock.advance(0);
+            assert.equal(completion(r).state, "ready");
+        }
+        assert.equal(bodies(r.h, `/playback/${id}`).length, 1);
+        assert.equal(bodies(r.h, "/start").length, 1);
+        r.controller.destroy();
+    });
+}
+
+test("EOF during a definitively failed track request still completes the retained transport", async () => {
+    const r = await episodeRig();
+    const id = await playMovie(r, EPISODE);
+    const response = r.h.fake.hold(`/playback/${id}/replan`);
+    r.h.fake.script(`/playback/${id}/replan`, problem(400, "validation_failed", "Track change refused"));
+    r.controller.selectSubtitle("file:42:subtitle:0");
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, "/replan").length, 1);
+    r.avplay.listener?.onstreamcompleted();
+    response.release();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).state, "ready");
+    assert.equal(bodies(r.h, `/playback/${id}`).length, 1);
+    r.controller.destroy();
+});
+
 test("fresh watch failure offers Retry without resending confirmed STOP or leaking a next title", async () => {
     const r = await episodeRig();
     const id = await playMovie(r, EPISODE);

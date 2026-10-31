@@ -167,6 +167,40 @@ for (const reduced of [false, true]) {
     }, true);
 }
 
+for (const reduced of [false, true]) {
+    appTest(`EOF STOP on an expired session offers only Back in ${reduced ? "reduced" : "normal"} motion`, async (tv, playback, catalog) => {
+        await tv.page.emulateMedia({ reducedMotion: reduced ? "reduce" : "no-preference" });
+        await startEpisode(tv, playback, catalog);
+        const id = [...playback.sessions.keys()][0];
+        assert.ok(id !== undefined);
+        playback.sessions.delete(id);
+        await tv.page.evaluate(() => window.appHarness.avplay.listener?.onstreamcompleted());
+        await tv.page.getByText("Could not confirm playback or load the next episode.", { exact: true }).waitFor();
+        assert.equal(await tv.page.getByRole("button", { name: "Retry", exact: true }).count(), 0);
+        assert.equal(await tv.page.getByRole("button", { name: "Play next", exact: true }).count(), 0);
+        assert.equal(await tv.focused(), "back");
+        assert.equal(tv.fake.requests.filter(r => r.method === "DELETE").length, 1);
+        await tv.remote(13);
+        await tv.page.locator('[data-view="home"]').waitFor();
+    }, true);
+}
+
+appTest("EOF during a refused subtitle change still offers manual continuation", async (tv, playback, catalog) => {
+    await startEpisode(tv, playback, catalog);
+    const id = [...playback.sessions.keys()][0];
+    assert.ok(id !== undefined);
+    playback.next.push({ terminal: "adaptation_unavailable" });
+    const response = tv.fake.hold(`/playback/${id}/replan`);
+    await tv.remote(40);
+    await tv.page.locator('.player-menu [data-focus="file:42:subtitle:0"]').click();
+    await tv.page.evaluate(() => window.appHarness.avplay.listener?.onstreamcompleted());
+    assert.equal(tv.fake.requests.filter(r => r.method === "DELETE").length, 0);
+    response.release();
+    await tv.page.getByRole("button", { name: "Play next", exact: true }).waitFor();
+    assert.equal(tv.fake.requests.filter(r => r.method === "DELETE").length, 1);
+    assert.equal(tv.fake.requests.filter(r => r.path === "/playback/start").length, 1);
+}, true);
+
 appTest("EOF read failure has remote Retry and Back without a second STOP", async (tv, playback, catalog) => {
     await startEpisode(tv, playback, catalog);
     catalog.watchOverrides.set("episode:s1e12", { versions: "malformed" });

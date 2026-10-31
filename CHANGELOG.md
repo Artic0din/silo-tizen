@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserved episode completion after refused player changes and removed an unusable Retry action when the session expired before completion.
 - Removed an unusable Retry action when an episode's playback session expired during final progress reporting, while keeping Back available.
 - Refreshed confirmed card-menu values after reopening an unresolved action and preserved Select presses during Details updates.
 - Kept preplay audio focus visible, reset changed track selections and rejected incomplete resume responses.

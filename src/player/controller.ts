@@ -198,6 +198,7 @@ interface Attempt {
     change: TrackChange;
     /** A failed route reported while a track change was pending; recovered once it settles. */
     changeFailure: string | undefined;
+    endedDuringChange: boolean;
     seekFailure: string | undefined;
     progress: Promise<void> | undefined;
     cancelTimer: (() => void) | undefined;
@@ -286,6 +287,7 @@ export class PlaybackController implements PlayerControls {
             trackRead: 0,
             change: { state: "idle" },
             changeFailure: undefined,
+            endedDuringChange: false,
             seekFailure: undefined,
             progress: undefined,
             cancelTimer: undefined,
@@ -747,6 +749,10 @@ export class PlaybackController implements PlayerControls {
     private changeSettled(attempt: Attempt, change: TrackChange): void {
         attempt.busy = false;
         attempt.change = change;
+        if (attempt.endedDuringChange) {
+            this.beginCompletion(attempt);
+            return;
+        }
         this.showPlayback(attempt);
         const failure = attempt.changeFailure;
         attempt.changeFailure = undefined;
@@ -783,6 +789,7 @@ export class PlaybackController implements PlayerControls {
         attempt.serverFeatures = serverFeatures;
         attempt.change = { state: "idle" };
         attempt.changeFailure = undefined;
+        attempt.endedDuringChange = false;
         if (attempt.tracks === undefined) {
             this.readTracks(attempt);
         }
@@ -923,12 +930,12 @@ export class PlaybackController implements PlayerControls {
                 }
             },
             onstreamcompleted: () => {
-                if (current() && attempt.started && !attempt.busy) {
-                    this.leave(attempt, "abandon");
-                    this.nextStart = undefined;
-                    this.completion = { attempt, abort: new AbortController(), pending: false };
-                    this.retryCompletion();
+                if (!current() || !attempt.started) return;
+                if (attempt.busy) {
+                    if (attempt.change.state === "changing") attempt.endedDuringChange = true;
+                    return;
                 }
+                this.beginCompletion(attempt);
             },
             onevent: () => undefined,
             onerror: (eventType) => {
@@ -943,6 +950,14 @@ export class PlaybackController implements PlayerControls {
                 }
             },
         };
+    }
+
+    private beginCompletion(attempt: Attempt): void {
+        attempt.endedDuringChange = false;
+        this.leave(attempt, "abandon");
+        this.nextStart = undefined;
+        this.completion = { attempt, abort: new AbortController(), pending: false };
+        this.retryCompletion();
     }
 
     private closeTransport(): void {
@@ -1071,6 +1086,8 @@ export class PlaybackController implements PlayerControls {
             if (this.nextStart !== undefined && this.shownError !== undefined && retryableStart(this.shownError)) this.play(this.nextStart);
             return;
         }
+        const view = this.current;
+        if (view.phase === "completion" && view.state === "failed" && !view.retryable) return;
         if (completion.pending || completion.abort.signal.aborted || completion.attempt.signal.aborted) return;
         completion.pending = true;
         void this.finishCompletion(completion);
@@ -1116,8 +1133,8 @@ export class PlaybackController implements PlayerControls {
             }, attempt.request.contentId, fileId);
             show("ready", next);
         } catch (error) {
-            const expiredProgress = error === attempt.progressRefusal && error instanceof ApiError && error.status === 404;
-            const forbidden = expiredProgress || (error instanceof ApiError && (error.status === 401 || error.status === 403 || error.status === 410 || error.problemId === "installation_changed"));
+            const missingSession = error instanceof ApiError && error.status === 404 && !attempt.stopped;
+            const forbidden = missingSession || (error instanceof ApiError && (error.status === 401 || error.status === 403 || error.status === 410 || error.problemId === "installation_changed"));
             show("failed", undefined, !forbidden);
         } finally {
             completion.pending = false;

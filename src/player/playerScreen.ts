@@ -147,6 +147,17 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const overlay = el("div", "player-overlay");
     overlay.setAttribute("data-focus", "player");
     overlay.tabIndex = -1;
+    const skip = el("button", "player-button player-skip");
+    skip.type = "button";
+    skip.tabIndex = -1;
+    skip.setAttribute("data-focus", "skip");
+    skip.addEventListener("click", () => {
+        if ((view.phase !== "playing" && view.phase !== "paused") || view.skipMarker === undefined || seekPreview !== undefined || menuOpen) return;
+        controls.seekToSeconds(view.skipMarker.endSeconds);
+        overlay.focus();
+        reveal();
+        render();
+    });
     const thumbnail = mountSeekThumbnail(overlay, controls, clock);
     const title = el("h1", "player-title");
     const status = el("p", "player-status");
@@ -215,6 +226,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     failure.appendChild(back);
     section.appendChild(surface);
     section.appendChild(overlay);
+    section.appendChild(skip);
     section.appendChild(failure);
     section.appendChild(menu);
     root.appendChild(section);
@@ -277,6 +289,12 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const render = (): void => {
         const active = view.phase === "playing" || view.phase === "paused";
         if (!active) seekPreview = undefined;
+        const marker = view.phase === "playing" || view.phase === "paused" ? view.skipMarker : undefined;
+        skip.hidden = marker === undefined || seekPreview !== undefined || menuOpen;
+        if (marker !== undefined && (view.phase === "playing" || view.phase === "paused")) {
+            skip.textContent = `Skip ${marker.kind} · ${Math.ceil(marker.endSeconds - view.positionSeconds)} seconds`;
+        }
+        if (skip.hidden && document.activeElement === skip) overlay.focus();
         if (seekPreview === undefined) thumbnail.clear();
         transport.hidden = !active;
         bar.setAttribute("aria-disabled", String(!active));
@@ -338,7 +356,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         overlay.className = hidden ? "player-overlay player-overlay-hidden" : "player-overlay";
         if (menuOpen && view.phase !== "loading") {
             drawMenu(view.tracks);
-        } else if (!overlay.contains(document.activeElement) || (view.phase === "loading" && document.activeElement !== overlay)) {
+        } else if ((!overlay.contains(document.activeElement) && document.activeElement !== skip) || (view.phase === "loading" && document.activeElement !== overlay)) {
             overlay.focus();
         }
     };
@@ -444,6 +462,10 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             }
             return;
         }
+        if (!skip.hidden && document.activeElement === skip && (key === "enter" || key === "play")) {
+            skip.click();
+            return;
+        }
         if (key === "play_pause" || key === "play" || key === "pause" || key === "stop" || key === "rewind" || key === "fast_forward") {
             if (seekPreview !== undefined) overlay.focus();
             seekPreview = undefined;
@@ -476,13 +498,18 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             return;
         }
         const at = transportButtons.findIndex(button => button === document.activeElement);
+        if (document.activeElement === skip && (key === "down" || key === "back")) {
+            pause.focus();
+            render();
+            return;
+        }
         if (at >= 0 && (key === "left" || key === "right")) {
             transportButtons[Math.max(0, Math.min(transportButtons.length - 1, at + (key === "left" ? -1 : 1)))]?.focus();
             render();
             return;
         }
         if (key === "up" && (view.phase === "playing" || view.phase === "paused")) {
-            pause.focus();
+            (skip.hidden ? pause : skip).focus();
             render();
             return;
         }

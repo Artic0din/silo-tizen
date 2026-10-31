@@ -45,6 +45,7 @@ import type { RequestSpec } from "./http.ts";
 import { discoveryOperations } from "./discoveryOperations.ts";
 import { settingsOperations } from "./settingsOperations.ts";
 import { trickplayOperations } from "./trickplayOperations.ts";
+import { markerOperations } from "./markerOperations.ts";
 
 type Spec<T> = RequestSpec<T>;
 
@@ -86,6 +87,7 @@ export const operations = {
     ...discoveryOperations,
     ...settingsOperations,
     ...trickplayOperations,
+    ...markerOperations,
     /** getSystemInfo: public, read. */
     systemInfo: (): Spec<ReturnType<typeof decodeSystemInfo>> => ({
         method: "GET",

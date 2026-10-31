@@ -28,6 +28,7 @@ import { CLIENT_CAPABILITIES, CLIENT_FEATURES, playbackContext } from "./capabil
 import { SeekThumbnails, type ThumbnailSheetLoader } from "./seekThumbnails.ts";
 import { QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS, profileSettings } from "../contracts/v2/settings.ts";
 import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
+import { markerAt, type SkipMarker } from "../contracts/v2/markers.ts";
 import { nextEpisode } from "./nextEpisode.ts";
 import { PlaybackRecovery, recoveryVerdict, type RecoveryStep, type RecoveryVerdict, unanswered } from "./playbackRecovery.ts";
 
@@ -109,6 +110,7 @@ export type PlaybackView =
           readonly tracks: TrackView;
           readonly seekIntervals: { readonly backward: number; readonly forward: number };
           readonly previewKey?: string | undefined;
+          readonly skipMarker?: SkipMarker | undefined;
       }
     | { readonly phase: "error"; readonly title: string; readonly error: PlaybackError; readonly retryable?: boolean }
     | { readonly phase: "closed" };
@@ -194,6 +196,7 @@ interface Attempt {
     serverFeatures: readonly string[];
     trickplayEnabled: boolean;
     thumbnails: SeekThumbnails | undefined;
+    markers: { readonly fileId: string; segments: readonly SkipMarker[] } | undefined;
     /** The current transport is playing or paused. */
     started: boolean;
     /** A transport of this attempt has shown a frame. Stays true across reconnects. */
@@ -310,6 +313,7 @@ export class PlaybackController implements PlayerControls {
             serverFeatures: [],
             trickplayEnabled: false,
             thumbnails: undefined,
+            markers: undefined,
             started: false,
             presented: false,
             hidden: false,
@@ -922,6 +926,7 @@ export class PlaybackController implements PlayerControls {
     private adopt(attempt: Attempt, plan: PlaybackPlan, serverFeatures: readonly string[]): void {
         this.clearThumbnails(attempt);
         attempt.plan = plan;
+        this.readMarkers(attempt, plan.effectiveMediaFileId);
         attempt.serverFeatures = serverFeatures;
         attempt.recoverySpec = undefined;
         attempt.recoveryRetryAt = 0;
@@ -1986,6 +1991,20 @@ export class PlaybackController implements PlayerControls {
 
     // --- helpers ---
 
+    private readMarkers(attempt: Attempt, fileId: string): void {
+        if (attempt.markers?.fileId === fileId) return;
+        const markers = { fileId, segments: [] as readonly SkipMarker[] };
+        attempt.markers = markers;
+        void this.deps.session.call({ ...operations.fileMarkers(fileId), profileScoped: true, signal: attempt.signal }).then(
+            segments => {
+                if (!attempt.live || attempt.markers !== markers) return;
+                markers.segments = segments;
+                this.showPlayback(attempt);
+            },
+            () => { /* Optional markers never interrupt playback. */ },
+        );
+    }
+
     /** Resends the identical request after no answer or a transient refusal; the contract replays it. */
     private async resend<T>(attempt: Attempt, send: () => Promise<T>): Promise<T> {
         for (let index = 0; ; index++) {
@@ -2020,6 +2039,7 @@ export class PlaybackController implements PlayerControls {
             tracks: trackView(attempt, plan),
             seekIntervals: attempt.seekIntervals,
             previewKey: attempt.busy ? undefined : attempt.planAttemptId,
+            skipMarker: attempt.busy ? undefined : markerAt(attempt.markers?.segments ?? [], attempt.sourceSeconds),
         });
     }
 

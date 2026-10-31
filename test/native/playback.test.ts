@@ -117,6 +117,52 @@ async function playMovie(r: Rig, request: PlayRequest = MOVIE): Promise<string> 
     return id;
 }
 
+test("effective file markers follow source time and cannot replace an in-flight manual seek", async () => {
+    const r = await rig();
+    r.h.fake.scripted.set("/markers/files/42", [{ status: 200, body: {
+        file_id: "42", marker_segments: [
+            { kind: "recap", start_seconds: 0, end_seconds: 15 },
+            { kind: "intro", start_seconds: 20, end_seconds: 60 },
+            { kind: "credits", start_seconds: 90, end_seconds: 100 },
+        ],
+    } }]);
+    await playMovie(r);
+    for (const [seconds, kind] of [[12.5, "recap"], [15, undefined], [20, "intro"], [60, undefined], [90, "credits"], [100, undefined]] as const) {
+        r.avplay.tick(seconds * 1000);
+        const view = last(r.views);
+        assert.ok(view.phase === "playing");
+        assert.equal(view.skipMarker?.kind, kind);
+    }
+    r.avplay.tick(25000);
+    r.controller.seekToSeconds(80);
+    r.controller.seekToSeconds(60);
+    assert.equal(r.avplay.calls[r.avplay.calls.length - 1], "seekTo 80000");
+    r.avplay.finishSeek();
+    assert.equal(r.avplay.positionMs, 80000);
+    assert.equal(r.h.fake.requests.filter(request => request.path.startsWith("/markers/")).length, 1);
+    r.controller.destroy();
+});
+
+test("failed markers are optional and a late response cannot escape a closed attempt", async () => {
+    for (const late of [false, true]) {
+        const r = await rig();
+        r.h.fake.scripted.set("/markers/files/42", [{ status: late ? 200 : 404, body: late ? {
+            file_id: "42", marker_segments: [{ kind: "intro", start_seconds: 0, end_seconds: 60 }],
+        } : {} }]);
+        const hold = late ? r.h.fake.hold("/markers/files/42", true) : undefined;
+        await playMovie(r);
+        const view = last(r.views);
+        assert.ok(view.phase === "playing");
+        assert.equal(view.skipMarker, undefined);
+        assert.deepEqual(r.errors, []);
+        r.controller.destroy();
+        const count = r.views.length;
+        hold?.release();
+        await r.h.clock.advance(0);
+        assert.equal(r.views.length, count);
+    }
+});
+
 test("supported seek defaults are 10/30 and unbatched discovery uses legal single reads", async () => {
     for (const batched of [true, false]) {
         const r = await rig();

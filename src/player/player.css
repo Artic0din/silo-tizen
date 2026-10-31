@@ -1,5 +1,38 @@
 /* Native player, 1920x1080. Chrome 76: no flex gap, inset, aspect-ratio or :focus-visible. */
 
+.player-captions {
+    position: absolute;
+    left: 8%;
+    right: 8%;
+    text-align: center;
+    white-space: pre-line;
+    pointer-events: none;
+    line-height: 1.35;
+    z-index: 1;
+}
+
+/* Captions sit above the overlay's gradient but below its controls, Skip and the menu. */
+.player-overlay > *,
+.player-skip,
+.player-menu,
+.player-error {
+    z-index: 2;
+}
+
+.player-title,
+.player-status,
+.player-bar,
+.player-time,
+.player-transport {
+    position: relative;
+}
+
+.player-captions span {
+    padding: 4px 12px;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+}
+
 .player {
     position: relative;
     width: 1920px;

@@ -7,6 +7,7 @@ import { after, before, test } from "node:test";
 import { build } from "esbuild";
 import { type Browser, chromium, type Page } from "playwright";
 import type { PlaybackView, TrackView } from "../../src/player/controller.ts";
+import { DEFAULT_APPEARANCE } from "../../src/contracts/v2/subtitles.ts";
 
 const ORIGIN = "https://tv.example.test";
 const CSS = ["theme.css", "player/player.css"].map((name) => readFileSync(new URL(`../../src/${name}`, import.meta.url), "utf8")).join("\n");
@@ -108,6 +109,61 @@ test("autoplay countdown and Cancel are remote-operable without losing manual Pl
         assert.equal(await focused(page), "play-next");
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), ["cancelAutoplay", "playNext"]);
+    } finally { await page.close(); }
+});
+
+test("captions apply profile styles, stay safe text and clear during recovery", async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), captions: { text: '<img src=x onerror="alert(1)">', appearance: { ...DEFAULT_APPEARANCE, fontSize: "xxlarge", fontColor: "#00ff00", position: "top", backgroundOpacity: 50 } } });
+        const layer = page.locator(".player-captions");
+        assert.equal(await layer.innerText(), '<img src=x onerror="alert(1)">');
+        assert.equal(await layer.locator("img").count(), 0);
+        assert.equal(await layer.locator("span").evaluate(element => getComputedStyle(element).fontSize), "64px");
+        assert.equal(await layer.locator("span").evaluate(element => getComputedStyle(element).color), "rgb(0, 255, 0)");
+        await show(page, { phase: "loading", title: "Movie", detail: "reconnecting" });
+        assert.equal(await layer.isVisible(), false);
+    } finally { await page.close(); }
+});
+
+test("captions paint above the overlay gradient but below its controls and the menu", async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), captions: { text: "Hello", appearance: DEFAULT_APPEARANCE } });
+        // Hit-testing skips pointer-events: none, so the layer opts in for this probe only.
+        const stack = (): Promise<string[]> => page.evaluate(() => {
+            const layer = document.querySelector<HTMLElement>(".player-captions");
+            if (layer === null) throw new Error("no caption layer");
+            layer.style.pointerEvents = "auto";
+            const box = layer.querySelector("span")?.getBoundingClientRect();
+            if (box === undefined) throw new Error("no caption text");
+            const hits = document.elementsFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+            layer.style.pointerEvents = "";
+            return hits.map(element => element.className);
+        });
+        const order = await stack();
+        const at = (name: string): number => order.findIndex(className => className.split(" ").includes(name));
+        assert.ok(at("player-overlay") !== -1 && at("player-captions") < at("player-overlay"), order.join(" > "));
+        assert.ok(at("player-transport") !== -1 && at("player-transport") < at("player-captions"), order.join(" > "));
+        await remote(page, DOWN);
+        await remote(page, RIGHT);
+        const menu = await stack();
+        assert.ok(menu.indexOf("player-menu") !== -1 && menu.indexOf("player-menu") < menu.findIndex(className => className === "player-captions"), menu.join(" > "));
+    } finally { await page.close(); }
+});
+
+test("series subtitle save stays focused while its write is pending", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing({ ...TRACKS, seriesSubtitle: { busy: false, message: "" } }));
+        await remote(page, DOWN);
+        await remote(page, RIGHT);
+        for (let index = 0; index < TRACKS.subtitles.length + 1; index++) await remote(page, DOWN);
+        assert.equal(await focused(page), "series-subtitles");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["saveSeriesSubtitle"]);
+        await show(page, playing({ ...TRACKS, seriesSubtitle: { busy: true, message: "Saving…" } }));
+        assert.equal(await focused(page), "series-subtitles");
     } finally { await page.close(); }
 });
 const text = (page: Page, selector: string): Promise<string> => page.locator(selector).innerText();

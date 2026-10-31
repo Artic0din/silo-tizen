@@ -5,7 +5,7 @@
 // H.264 and HEVC (MP4, MKV and TS), AAC, AC3, E-AC3 and MP3, and no DTS. Tizen offers no decoder
 // enumeration, so the evidence tier is `declared`, capped at 1080p SDR because panel size and
 // HDR output are not probed. Audio passthrough is never claimed. Every subtitle capability
-// stays false until a TV proves a renderer (#11), so the server burns embedded subtitles in.
+// uses the app's plain-text sidecar renderer; bitmap and native embedded rendering stay disabled.
 // The progressive class is omitted (no proof AVPlay plays a forward-only chunked remux).
 
 import type { ClientCapabilities, ClientPlaybackContext, DeliveryCapability } from "../contracts/v2/playback.ts";
@@ -15,7 +15,7 @@ const AUDIO_CODECS = ["aac", "ac3", "eac3", "mp3"];
 
 const NO_SUBTITLES = {
     embedded_text: false,
-    sidecar_text: false,
+    sidecar_text: true,
     ass_styling: false,
     embedded_bitmap: false,
     sidecar_bitmap: false,

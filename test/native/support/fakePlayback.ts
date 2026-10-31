@@ -74,6 +74,7 @@ export interface PlanShape {
     readonly effectiveFileId?: string;
     /** A subtitle ordinal the plan burns in. */
     readonly subtitle?: number;
+    readonly subtitleArtifact?: { readonly url: string; readonly format: string; readonly timing_origin_seconds: number };
     readonly timeline?: Record<string, unknown>;
     /** Replaces the default `/api/v2/stream/<session>?st=<signed>` URL. */
     readonly url?: (sessionId: string) => string;
@@ -411,7 +412,8 @@ export class FakePlayback {
                         ...(subtitleId === undefined ? {} : { subtitle: { id: subtitleId, index: session.subtitle } }),
                     },
                     subtitle: {
-                        mode: subtitleId === undefined ? "off" : "burn_in",
+                        mode: shape.subtitleArtifact !== undefined ? "render" : subtitleId === undefined ? "off" : "burn_in",
+                        ...(shape.subtitleArtifact === undefined ? {} : { artifact: shape.subtitleArtifact }),
                         ...(subtitleId === undefined ? {} : { track_id: subtitleId }),
                         inventory: file.inventory,
                     },

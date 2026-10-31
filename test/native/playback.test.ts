@@ -15,7 +15,53 @@ import { operations } from "../../src/api/operations.ts";
 import { connected, type Harness, signIn } from "./support/harness.ts";
 
 const MOVIE: PlayRequest = { contentId: "movie-1", fileId: "42", title: "Movie", startSeconds: 12.5 };
-const BOUNDED_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
+
+test("sidecar subtitles apply profile appearance and timing without blocking playback on failure", async () => {
+    for (const fail of [false, true]) {
+        const r = await rig();
+        r.server.next.push({ subtitle: 0, subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/captions?token=synthetic`, format: "vtt", timing_origin_seconds: 0 } });
+        r.h.fake.script("/captions?token=synthetic", fail ? { status: 404 } : { status: 200, text: "WEBVTT\n\n00:12.000 --> 00:14.000\nHello" });
+        r.h.fake.script("/settings/subtitle-appearance/effective", { status: 200, body: { profile_id: "p-owner", effective_value: JSON.stringify({ fontSize: "xxlarge", position: "top" }) } });
+        r.h.fake.script("/settings/values/effective?keys=player.subtitle_sync_ms", { status: 200, body: { items: [{ key: "player.subtitle_sync_ms", value: 1000 }] } });
+        await playMovie(r);
+        r.avplay.tick(12500);
+        let view = last(r.views);
+        assert.ok(view.phase === "playing");
+        assert.equal(view.captions?.text, "");
+        r.avplay.tick(13500);
+        view = last(r.views);
+        assert.ok(view.phase === "playing");
+        assert.equal(view.captions?.text, fail ? "" : "Hello");
+        if (!fail) assert.equal(view.captions?.appearance.fontSize, "xxlarge");
+        else assert.ok(view.tracks.notices.some(notice => notice.includes("Could not load")));
+        r.controller.destroy();
+    }
+});
+
+test("an audio replan with the same subtitle artifact keeps cues and preferences without refetching", async () => {
+    const r = await rig();
+    const artifact = { url: `${r.h.fake.origin}/api/v2/captions?token=synthetic`, format: "vtt", timing_origin_seconds: 0 };
+    r.server.next.push({ subtitle: 0, subtitleArtifact: artifact }, { subtitle: 0, subtitleArtifact: artifact });
+    r.h.fake.script("/captions?token=synthetic", { status: 200, text: "WEBVTT\n\n00:12.000 --> 00:30.000\nHello" });
+    r.h.fake.script("/settings/subtitle-appearance/effective", { status: 200, body: { profile_id: "p-owner", effective_value: JSON.stringify({ fontSize: "xxlarge" }) } });
+    await playMovie(r);
+    r.controller.selectAudio("file:42:audio:1");
+    await r.h.clock.advance(0);
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    if (r.avplay.calls[r.avplay.calls.length - 1]?.startsWith("seekTo") === true) r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    assert.equal(r.h.fake.requests.filter(request => request.path.includes("/replan")).length, 1);
+    r.avplay.tick(13000);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.captions?.text, "Hello");
+    assert.equal(view.captions?.appearance.fontSize, "xxlarge");
+    assert.equal(r.h.fake.requests.filter(request => request.path.startsWith("/captions")).length, 1);
+    assert.equal(r.h.fake.requests.filter(request => request.path.startsWith("/settings/subtitle-appearance")).length, 1);
+    r.controller.destroy();
+});
+const BOUNDED_IDENTIFIER =/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 interface Rig {
@@ -916,6 +962,57 @@ test("autoplay stops at the series end and never starts after failed resolution"
         assert.equal(bodies(r.h, "/start").length, 1);
         r.controller.destroy();
     }
+});
+
+test("series subtitle choice persists the server index or explicit Off without interrupting playback", async () => {
+    for (const off of [true, false]) {
+        const r = await episodeRig();
+        if (!off) r.server.next.push({ subtitle: 4 });
+        r.h.fake.script("/subtitle-prefs/series%3As1", { status: 204 });
+        await playMovie(r, EPISODE);
+        r.controller.saveSeriesSubtitle();
+        r.controller.saveSeriesSubtitle();
+        await r.h.clock.advance(0);
+        const writes = r.h.fake.requests.filter(request => request.path.startsWith("/subtitle-prefs/"));
+        assert.equal(writes.length, 1);
+        assert.equal(writes[0]?.headers["x-profile-id"], "p-owner");
+        assert.equal(writes[0]?.body?.subtitle_track_index, off ? -1 : 4);
+        assert.equal(writes[0]?.body?.subtitle_mode, off ? "off" : "always");
+        if (off) assert.equal(writes[0]?.body?.show_forced_subtitles, false);
+        const view = last(r.views);
+        assert.ok(view.phase === "playing");
+        assert.equal(view.tracks.seriesSubtitle?.message, "Subtitle choice saved for this series.");
+        r.controller.destroy();
+    }
+});
+
+test("series subtitle write is not resent after a 401 and token refresh", async () => {
+    const r = await episodeRig();
+    r.server.next.push({ subtitle: 4 });
+    r.h.fake.script("/subtitle-prefs/series%3As1", problem(401, "authentication_required", "Authentication required"), { status: 204 });
+    await playMovie(r, EPISODE);
+    r.controller.saveSeriesSubtitle();
+    await r.h.clock.advance(0);
+    assert.ok(r.h.fake.paths().includes("POST /auth/refresh"));
+    assert.equal(r.h.fake.requests.filter(request => request.path.startsWith("/subtitle-prefs/")).length, 1);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.match(view.tracks.seriesSubtitle?.message ?? "", /Could not confirm/);
+    r.controller.destroy();
+});
+
+test("series subtitle save refuses when the shown track is missing from the inventory instead of saving Off", async () => {
+    const r = await episodeRig();
+    r.server.next.push({ subtitle: 9 });
+    r.h.fake.script("/subtitle-prefs/series%3As1", { status: 204 });
+    await playMovie(r, EPISODE);
+    r.controller.saveSeriesSubtitle();
+    await r.h.clock.advance(0);
+    assert.equal(r.h.fake.requests.filter(request => request.path.startsWith("/subtitle-prefs/")).length, 0);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.match(view.tracks.seriesSubtitle?.message ?? "", /Could not confirm/);
+    r.controller.destroy();
 });
 
 test("episode EOF orders held progress, final STOP, fresh watch and exactly one manual successor START", async () => {

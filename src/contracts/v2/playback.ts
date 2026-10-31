@@ -117,6 +117,7 @@ export interface PlanTimeline {
  * Its track_id is echoed to select it; urls are not decoded because this client fetches none.
  */
 export interface SubtitleTrack {
+    readonly codec?: string | undefined;
     readonly trackId: string;
     readonly combinedIndex: number;
     readonly source: "external" | "embedded" | "downloaded" | "unknown";
@@ -129,6 +130,7 @@ export interface SubtitleTrack {
 
 /** The current plan's subtitle decision; `off` carries no trackId even when the inventory lists tracks. */
 export interface PlanSubtitle {
+    readonly artifact?: { readonly url: string; readonly format: string; readonly origin: number } | undefined;
     readonly mode: "off" | "render" | "convert" | "burn_in" | "unknown";
     readonly trackId: string | undefined;
     readonly inventory: readonly SubtitleTrack[];
@@ -242,6 +244,7 @@ function decodeTimeline(value: unknown, path: string): PlanTimeline {
 function decodeSubtitleTrack(value: unknown, path: string): SubtitleTrack {
     const obj = object(value, path);
     return {
+        codec: optionalString(obj, "codec", path),
         trackId: nonEmptyString(obj, "track_id", path),
         combinedIndex: integer(obj, "combined_index", path),
         source: oneOf(string(obj, "source", path), SUBTITLE_SOURCES),
@@ -255,7 +258,9 @@ function decodeSubtitleTrack(value: unknown, path: string): SubtitleTrack {
 
 function decodeSubtitle(value: unknown, path: string): PlanSubtitle {
     const obj = object(value, path);
+    const artifact = obj.artifact === undefined ? undefined : object(obj.artifact, `${path}.artifact`);
     return {
+        artifact: artifact === undefined ? undefined : { url: string(artifact, "url", path), format: string(artifact, "format", path), origin: number(artifact, "timing_origin_seconds", path) },
         mode: oneOf(string(obj, "mode", path), SUBTITLE_MODES),
         trackId: optionalString(obj, "track_id", path),
         inventory: list(obj, "inventory", path).map((entry, index) => decodeSubtitleTrack(entry, `${path}.inventory[${index}]`)),

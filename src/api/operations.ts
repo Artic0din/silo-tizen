@@ -45,6 +45,7 @@ import type { RequestSpec } from "./http.ts";
 import { discoveryOperations } from "./discoveryOperations.ts";
 import { settingsOperations } from "./settingsOperations.ts";
 import { trickplayOperations } from "./trickplayOperations.ts";
+import { subtitleOperations } from "./subtitleOperations.ts";
 import { markerOperations } from "./markerOperations.ts";
 
 type Spec<T> = RequestSpec<T>;
@@ -81,6 +82,7 @@ export type CatalogPageRequest = {
     | { readonly libraryId?: never; readonly q: string; readonly type: "video_with_episodes" });
 
 export const operations = {
+    ...subtitleOperations,
     watchDetail: (contentId: string): Spec<ReturnType<typeof decodeWatchDetail>> => ({
         method: "GET", path: `/watch/${encodeURIComponent(contentId)}`, retry: "safe", decode: decodeWatchDetail,
     }),

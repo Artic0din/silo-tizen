@@ -56,6 +56,8 @@ const controls: PlayerControls = {
     playNext: () => commands.push("playNext"),
     cancelAutoplay: () => commands.push("cancelAutoplay"),
     saveSeriesSubtitle: () => commands.push("saveSeriesSubtitle"),
+    startSubtitleAI: (kind, language) => commands.push(`startSubtitleAI ${kind} ${language ?? ""}`),
+    selectAIResult: id => commands.push(`selectAIResult ${id}`),
     seekThumbnail: async () => undefined,
 };
 const screen: PlayerScreen = mountPlayerScreen(root, controls);

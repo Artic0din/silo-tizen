@@ -166,6 +166,42 @@ test("series subtitle save stays focused while its write is pending", async () =
         assert.equal(await focused(page), "series-subtitles");
     } finally { await page.close(); }
 });
+
+test("AI language, quota and result actions stay remote-reachable without stopping playback", async () => {
+    const { page } = await open();
+    const ai = { available: { translate: true, transcribe: true }, languages: ["fr"], quota: { limited: true, remaining: 0, period: "month" }, busy: false, message: "AI subtitles are ready to select.", results: [{ id: "opaque-result", label: "AI-translated · FR" }] };
+    try {
+        await show(page, playing({ ...TRACKS, ai, aiTranslate: true }));
+        await remote(page, DOWN);
+        await remote(page, RIGHT);
+        for (let index = 0; index < TRACKS.subtitles.length + 1; index++) await remote(page, DOWN);
+        assert.equal(await focused(page), "ai-translate");
+        await remote(page, ENTER);
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "ai-language:fr");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["startSubtitleAI translate fr"]);
+        for (let index = 0; index < TRACKS.subtitles.length + 2; index++) await remote(page, DOWN);
+        assert.equal(await focused(page), "ai-transcribe");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["startSubtitleAI translate fr"], "exhausted quota does not dispatch transcription");
+        assert.match(await page.locator(".player-menu-status").innerText(), /Quota exhausted/);
+        await remote(page, DOWN);
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["startSubtitleAI translate fr", "selectAIResult opaque-result"]);
+    } finally { await page.close(); }
+});
+
+test("translate-only AI shows no transcription quota line", async () => {
+    const { page } = await open();
+    const ai = { available: { translate: true, transcribe: false }, languages: ["fr"], quota: undefined, busy: false, message: "", results: [] };
+    try {
+        await show(page, playing({ ...TRACKS, ai, aiTranslate: true }));
+        await remote(page, DOWN);
+        await remote(page, RIGHT);
+        assert.doesNotMatch(await page.locator(".player-menu-status").innerText(), /Transcription quota/);
+    } finally { await page.close(); }
+});
 const text = (page: Page, selector: string): Promise<string> => page.locator(selector).innerText();
 
 test("Skip counts down, activates with Enter or Play, and returns focus without taking manual seeks", async () => {

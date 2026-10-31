@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added capability-gated subtitle translation and audio transcription with quota status, job failures and selectable AI-labeled results.
 - Continued series episodes automatically with a cancellable countdown when the server-synced autoplay preference was enabled.
 - Added the server-enabled Requests hub, discovery and search, title requests, My Requests, cancellation and follow controls with safe profile changes and return focus.
 - Applied profile subtitle appearance and timing to text subtitles and added persistent series subtitle choices, including Off.

@@ -876,7 +876,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 host.listen();
                 const current = top();
                 if (current !== undefined) showRoute(current, { zone: "nav", key: "profiles" });
-            });
+            }, server.profileLaunch);
         },
         personal: source => {
             const origin = top();

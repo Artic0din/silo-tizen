@@ -18,6 +18,7 @@ async function details(tv: Tv): Promise<void> {
     tv.fake.approve(code);
     await tv.jump(5000);
     await tv.page.locator('[data-focus="profile:p-owner"]').click();
+    await tv.page.locator('[data-focus="ask-every-launch"]').click();
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     await tv.page.locator('[data-focus="resume"]').waitFor();
 }

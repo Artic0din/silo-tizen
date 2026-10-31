@@ -280,8 +280,9 @@ test("quality controls remain absent for unsupported manifests and empty Playbac
         tv.fake.script("/settings/contract", { status: 200, body: contract });
         await tv.page.locator('[data-focus="profiles"]').click();
         await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
-        await tv.page.getByText("No supported settings in this category.", { exact: true }).waitFor();
+        await tv.page.locator('[data-focus="remember-profile"]').waitFor();
         await tv.page.locator('[data-focus="playback"]').click();
+        await tv.page.getByText("No supported settings in this category.", { exact: true }).waitFor();
         assert.equal(await tv.page.locator('[data-focus="quality"], [data-focus="bitrate"]').count(), 0);
         assert.equal(tv.fake.requests.slice(requests).filter(r => r.path.startsWith("/settings/values")).length, 0);
         await tv.page.keyboard.press("Enter");

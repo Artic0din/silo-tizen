@@ -9,6 +9,7 @@ import { CredentialVault, type VaultClear } from "./credentialVault.ts";
 import { DeviceLogin } from "./deviceLogin.ts";
 import { deviceHeaders, loadDeviceId, type PublicStorage, type RandomBytes } from "./deviceIdentity.ts";
 import { Profiles } from "./profiles.ts";
+import { ProfileLaunch } from "./profileLaunch.ts";
 import { openSecretStore, type TizenKeyManager } from "./secretStore.ts";
 import { NativeSession, type RestoreResult } from "./session.ts";
 
@@ -30,6 +31,7 @@ export interface ConnectedServer {
     readonly server: ServerConnection;
     readonly session: NativeSession;
     readonly profiles: Profiles;
+    readonly profileLaunch: ProfileLaunch;
     readonly restore: RestoreResult;
     /** A fresh sign-in flow; call `start()` to show a code. */
     createDeviceLogin(): DeviceLogin;
@@ -53,6 +55,7 @@ export async function connect(serverAddress: string, deps: SessionCoreDeps, sign
         server,
         session,
         profiles: new Profiles(session, clock),
+        profileLaunch: new ProfileLaunch(session, deps.publicStorage, openSecretStore(deps.keyManager), deps.randomBytes, server.serverId),
         restore,
         createDeviceLogin: () => new DeviceLogin(session, clock, device.name, device.platform),
     };

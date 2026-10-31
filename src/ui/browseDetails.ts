@@ -208,8 +208,14 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
                 item.element.setAttribute("aria-disabled", String(state.busy || rating.loading || rating.value === undefined));
                 return item;
             });
-            items.push(actionButton("rating:clear", "Clear rating", () => rating.save(null)));
-            if (rating.failed) items.push(actionButton("rating:retry", "Retry rating", () => rating.failedTarget === undefined ? rating.load() : rating.save(rating.failedTarget, true)));
+            const clear = actionButton("rating:clear", "Clear rating", () => rating.save(null));
+            clear.element.setAttribute("aria-disabled", String(state.busy || rating.loading || rating.value === undefined));
+            items.push(clear);
+            if (rating.failed) {
+                const retry = actionButton("rating:retry", "Retry rating", () => rating.failedTarget === undefined ? rating.load() : rating.save(rating.failedTarget, true));
+                retry.element.setAttribute("aria-disabled", String(state.busy || rating.loading || rating.pending));
+                items.push(retry);
+            }
             const status = rating.failed ? "Could not confirm rating." : rating.pending ? "Saving rating…" : rating.loading ? "Loading rating…" : rating.value == null ? "Your rating: Not rated" : `Your rating: ${rating.value} of 5 stars`;
             const note = el("p", "browse-text", status);
             note.setAttribute("role", rating.failed ? "alert" : "status");

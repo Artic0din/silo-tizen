@@ -19,6 +19,8 @@ export class FakeDetails extends FakeCatalog {
     mutationFailure: Reply | undefined;
     readonly ratings = new Map<string, number>();
     ratingFailure: Reply | undefined;
+    /** The next write answers 204 without storing, or stores and then answers 500 (lost response). */
+    ratingFault: "unstored" | "applied-then-error" | undefined;
     readonly neverPlayed = new Set<string>();
     readonly audioFiles = defaultFiles();
     readonly personCredits = new Map<string, string[]>([["7", [...this.titles.keys(), "movie:m0001"]]]);
@@ -53,9 +55,12 @@ export class FakeDetails extends FakeCatalog {
             }
             this.mutations.push(`${method} ${path}`);
             if (this.ratingFailure !== undefined) { const reply = this.ratingFailure; this.ratingFailure = undefined; return reply; }
+            const fault = this.ratingFault;
+            this.ratingFault = undefined;
+            if (fault === "unstored") return { status: 204 };
             if (method === "DELETE") this.ratings.delete(key);
             else { assert.ok(typeof body?.rating === "number" && Number.isInteger(body.rating) && body.rating >= 1 && body.rating <= 5); this.ratings.set(key, body.rating); }
-            return { status: 204 };
+            return fault === "applied-then-error" ? problem(500, "lost", "Response lost") : { status: 204 };
         }
         const url = new URL(path, "https://example.test");
         if (method === "GET" && url.pathname.startsWith("/watch/")) {

@@ -8,6 +8,7 @@ All notable changes to this project are documented in this file.
 
 - Preserved episode completion after refused player changes and removed an unusable Retry action when the session expired before completion.
 - Removed an unusable Retry action when an episode's playback session expired during final progress reporting, while keeping Back available.
+- Synchronized Calendar formatting-recovery tests with the pending weekly response before retrying.
 - Refreshed confirmed card-menu values after reopening an unresolved action and preserved Select presses during Details updates.
 - Kept preplay audio focus visible, reset changed track selections and rejected incomplete resume responses.
 - Corrected the profile PIN regression test to distinguish an unchanged public device ID from retained PIN material while continuing to check all stored values for profile proofs.

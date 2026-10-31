@@ -21,6 +21,7 @@
     "typescript": "7.0.2"
   },
   "dependencies": {
+    "unicode-segmenter": "0.17.3",
     "uqr": "0.1.3"
   }
 }

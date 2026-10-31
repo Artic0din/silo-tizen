@@ -7,6 +7,7 @@ import type { DetailsState } from "./detailsState.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { artworkUrl, clockTime, episodeLabel, playChoices, type PlayRequest } from "./browseModel.ts";
 import { actionButton, artwork, cardItem, heading, lines, mediaItem, type ViewContext, zoneNode } from "./browseViews.ts";
+import { personMetadataBadges, personPortrait } from "./personHero.ts";
 import { el } from "./screen.ts";
 import { SkylineScroll } from "./skylineScroll.ts";
 import { remoteKey } from "./keys.ts";
@@ -315,10 +316,15 @@ export function personView(person: Person, cards: readonly Card[], context: View
     actions.push(actionButton("see-all", "See all", seeAll));
     if (bio) actions.push(actionButton("synopsis", "Read synopsis", () => synopsis.show(bio)));
     const hero = el("div", "browse-detail details-person-hero");
-    hero.appendChild(artwork("browse-art browse-detail-art", person.photoUrl, context.baseUrl, person.name));
+    hero.appendChild(personPortrait(person, context.baseUrl));
     const info = el("div", "browse-detail-info");
     info.appendChild(heading(person.name));
-    for (const text of [person.birthDate ? `Born ${person.birthDate}` : undefined, person.birthplace, person.deathDate ? `Died ${person.deathDate}` : undefined]) if (text) info.appendChild(el("p", "browse-meta", text));
+    const facts = personMetadataBadges(person, new Date());
+    if (facts.length > 0) {
+        const row = el("div", "person-facts");
+        for (const fact of facts) row.appendChild(el("span", "person-fact", fact));
+        info.appendChild(row);
+    }
     if (person.bio) info.appendChild(el("p", "browse-text browse-overview", person.bio));
     info.appendChild(zoneNode("browse-actions", actions));
     hero.appendChild(info);

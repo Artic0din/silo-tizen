@@ -56,6 +56,7 @@ export interface Person {
     readonly name: string;
     readonly bio: string | undefined;
     readonly photoUrl: string | undefined;
+    readonly photoThumbhash: string | undefined;
     readonly birthDate: string | undefined;
     readonly deathDate: string | undefined;
     readonly birthplace: string | undefined;
@@ -63,7 +64,7 @@ export interface Person {
 
 export function decodePerson(value: unknown): Person {
     const obj = object(value, "person");
-    return { id: string(obj, "id", "person"), name: string(obj, "name", "person"), bio: optionalString(obj, "bio", "person"), photoUrl: optionalString(obj, "photo_url", "person"), birthDate: optionalString(obj, "birth_date", "person"), deathDate: optionalString(obj, "death_date", "person"), birthplace: optionalString(obj, "birthplace", "person") };
+    return { id: string(obj, "id", "person"), name: string(obj, "name", "person"), bio: optionalString(obj, "bio", "person"), photoUrl: optionalString(obj, "photo_url", "person"), photoThumbhash: optionalString(obj, "photo_thumbhash", "person"), birthDate: optionalString(obj, "birth_date", "person"), deathDate: optionalString(obj, "death_date", "person"), birthplace: optionalString(obj, "birthplace", "person") };
 }
 
 export function decodePersonalCapability(value: unknown): boolean {

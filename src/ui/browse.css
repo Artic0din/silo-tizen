@@ -56,7 +56,21 @@
 .details-facts { padding: 24px; margin: 32px 0 48px; }
 .details-facts .browse-text { padding: 12px; font-size: 24px; border: 2px solid transparent; border-radius: 12px; }
 .details-facts .browse-text:focus { outline: none; border-color: #fff; }
-.details-person-hero .browse-detail-art { width: 260px; height: 390px; }
+/* tvOS person portrait is 300×450, not the 260×390 poster. siloSmall capsules, 12px radius. */
+.details-person-hero .person-portrait { width: 300px; height: 450px; margin-right: 48px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.10); background: var(--silo-elevated); }
+.details-person-hero .browse-title { max-width: 1100px; margin-bottom: 22px; font-size: 72px; line-height: 1.05; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.details-person-hero .browse-detail-info { padding-top: 10px; }
+.details-person-hero .browse-overview { max-width: 920px; max-height: none; margin-bottom: 22px; font-size: 26px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 7; -webkit-box-orient: vertical; overflow: hidden; }
+.person-facts { margin: 0 0 10px; }
+.person-fact { display: inline-block; margin: 0 12px 12px 0; padding: 8px 16px; border-radius: 999px; background: #0e0f12; color: var(--silo-text); font-size: 20px; font-weight: 400; line-height: 1.2; }
+.person-portrait[data-person-portrait="loading"],
+.person-portrait[data-person-portrait="error"] { background: #0e0f12; }
+.person-portrait-thumbhash,
+.person-portrait-photo { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+.person-portrait-photo { opacity: 0; }
+.person-portrait[data-person-portrait="loaded"] .person-portrait-photo { opacity: 1; transition: opacity var(--silo-fast) ease-out; }
+.person-portrait-initials { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: flex; align-items: center; justify-content: center; font-size: 84px; font-weight: 600; color: var(--silo-secondary); }
+.person-portrait-missing { position: absolute; left: 50%; top: 50%; width: 72px; height: 56px; margin: -28px 0 0 -36px; border: 4px solid rgba(237, 237, 237, 0.3); border-radius: 8px; }
 
 .browse,
 .skyline-route-outgoing {

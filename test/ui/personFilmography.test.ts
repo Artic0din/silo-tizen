@@ -93,8 +93,9 @@ journey("person full journey reaches third page, server filters whole population
     const capture = process.env.PERSON_CAPTURE_DIR;
     if (capture !== undefined) {
         await mkdir(capture, { recursive: true });
-        await tv.jump(300);
-        await tv.page.screenshot({ path: `${capture}/person.png` });
+        const portrait = tv.page.locator(".details-person-hero .person-portrait");
+        await tv.eventually(async () => await portrait.getAttribute("data-person-portrait") === "loaded" && await portrait.locator("img").evaluate(node => getComputedStyle(node).opacity) === "1", "settled person portrait");
+        await tv.page.screenshot({ path: `${capture}/person.png`, animations: "disabled" });
     }
     if (process.env.PERSON_CAPTURE_BEFORE === "1") return;
     await all(tv);

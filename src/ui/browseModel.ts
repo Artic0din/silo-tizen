@@ -10,7 +10,9 @@ export interface PlayRequest {
     /** startPlayback's file_id. */
     readonly fileId: string;
     readonly title: string;
-    /** start_position in seconds; undefined starts from the beginning. */
+    readonly audioTrackId?: string;
+    readonly allowAlternateVersions?: false;
+    /** Source seconds; zero starts over, omission lets the server resume. */
     readonly startSeconds: number | undefined;
 }
 
@@ -108,11 +110,17 @@ export function playChoices(detail: ItemDetail, selectedFileId?: string): PlayCh
         return undefined;
     }
     const duration = file.durationSeconds > 0 ? file.durationSeconds : detail.durationSeconds;
-    const base = { contentId: detail.id, fileId: file.fileId, title: detail.title, ...(detail.type === "episode" ? { episode: true as const } : {}) };
+    const base = {
+        contentId: detail.id,
+        fileId: file.fileId,
+        title: detail.title,
+        ...(detail.type === "episode" ? { episode: true as const } : {}),
+        ...(selectedFileId === undefined ? {} : { allowAlternateVersions: false as const }),
+    };
     const start = resumeSeconds(detail.watch?.positionSeconds, duration);
     return {
         resume: start === undefined ? undefined : { ...base, startSeconds: start },
-        fromStart: { ...base, startSeconds: undefined },
+        fromStart: { ...base, startSeconds: 0 },
     };
 }
 

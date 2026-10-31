@@ -32,6 +32,9 @@ Unexpected page logs and errors fail the screen tests.
 It covers the approved device-code journey, returning from playback, PIN-proof revocation during playback, sign-out/relaunch, protected-account restore, exit modal focus/key isolation, unavailable AVPlay and startup failure recovery.
 Its production case imports the actual `src/main.ts`, supplies the Tizen platform ports and exercises the same journey through that entry.
 The focused sign-in, profile, browse and player suites retain their failure/loading/empty-state, navigation, paging and track-menu checks.
+Preplay tests use the production entry in normal and reduced motion, checking per-file audio, nonzero server Auto preference, explicit version pins, numeric start-over, fresh Resume, duplicate activation, Retry, cancellation and initiating focus.
+Native tests check the three-second boundary, late replies, profile/sign-out fences and exact whole start bodies and headers, including saved quality/cap and identical lost-answer resends.
+The Details fake lists different audio inventories for files 42 and 43; the playback fake validates initial audio IDs and resolves Auto separately.
 Skyline regressions cover full profile names, the contrast of an unfocused empty server field, and Samsung media-key registration and dispatch.
 Player tests cover explicit Play/Pause idempotency, visible transport focus, seek preview/commit/cancel and preservation of the preview during live progress updates.
 Profile seek tests save 15/45 through Settings and consume them through the real controller and screen, including numeric enum boundaries, independent DELETE resets, unbatched reads, unsupported servers, malformed responses, Retry and authority replacement.

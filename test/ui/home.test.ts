@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeHome } from "../native/support/fakeHome.ts";
+import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
@@ -39,6 +40,32 @@ journey("Home folds existing recommendations after Continue, ignores featured an
     await tv.page.keyboard.press("ArrowDown");
     assert.equal(tv.fake.requests.length, count, "no focus reads");
     assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/recommendations")).length, 0, "no duplicate recommendations feed");
+});
+
+journey("card quick-actions abandon a pending Home turn and refresh the committed page with nearby focus", async (tv, catalog) => {
+    const details = new FakeDetails();
+    const route = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => /^\/(watched|favorites|watchlist|capabilities\/personal-lists|catalog\/items)/.test(path)
+        ? details.route(method, path, profile, body) : route(method, path, profile, body);
+    await tv.page.locator('[data-focus="expand:recent/12"]').click();
+    await tv.page.locator('.browse .browse-grid .browse-card').first().waitFor();
+    await tv.page.locator('[data-focus="next"]').click();
+    await tv.page.getByText("Page 2 of 3", { exact: true }).waitFor();
+    const pending = tv.fake.hold("/catalog/query", true);
+    await tv.page.locator('[data-focus="next"]').click();
+    await tv.eventually(async () => catalog.queries.length === 3, "pending third page");
+    await tv.page.locator('.browse [data-focus="movie:m0030"]').focus();
+    await tv.down(13); await tv.jump(650); await tv.up(13);
+    const panel = tv.page.getByRole("dialog", { name: "Card actions" });
+    await panel.getByRole("button", { name: "Mark watched", exact: true }).click();
+    await panel.getByRole("button", { name: "Mark unwatched", exact: true }).waitFor();
+    catalog.removed.add("movie:m0030");
+    await tv.remote(10009);
+    await tv.eventually(async () => await tv.focused() === "movie:m0031", "nearby Home page focus");
+    assert.equal(catalog.queries.slice(-1)[0]?.cursor, "opaque:/+second==");
+    pending.release(); await tv.jump(0);
+    assert.equal(await tv.focused(), "movie:m0031");
+    await tv.page.getByText("Page 2 of 3", { exact: true }).waitFor();
 });
 
 journey("Home See All pages 24 cards, keeps opaque cursors and restores origin focus and scroll", async (tv, catalog) => {
@@ -138,7 +165,7 @@ for (const [id, activation, position] of [["movie:m0001", "Enter", 321.5], ["epi
         assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0);
         held.release();
         await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "one player handoff");
-        assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays[0]), { contentId: id, fileId: "chosen", title: id === "movie:m0001" ? "Movie 0001" : "Harbor Lights chapter 1.2", startSeconds: position === 1195 ? undefined : position, ...(id === "episode:s1e12" ? { episode: true } : {}) });
+        assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays[0]), { contentId: id, fileId: "chosen", title: id === "movie:m0001" ? "Movie 0001" : "Harbor Lights chapter 1.2", startSeconds: position === 1195 ? 0 : position, ...(id === "episode:s1e12" ? { episode: true } : {}) });
         await tv.page.keyboard.press("Enter");
         await tv.jump(30000);
         assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 1);

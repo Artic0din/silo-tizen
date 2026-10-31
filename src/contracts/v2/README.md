@@ -84,6 +84,20 @@ See [Text Search](../../../docs/skyline-browse-shell.md#text-search) for route o
 Unknown members are ignored and response enums are additive; malformed consumed fields fail without echoing values.
 These factories do not implement the library UI or complete issue 28.
 
+## Preplay audio and resume
+
+Catalog versions decode optional `audio_tracks` using the same ordered audio decoder as the in-player version read.
+Missing arrays become empty; malformed consumed metadata fails the read.
+`detailOperations.resumePosition` reads the existing profile-scoped `getWatchState` with the captured `file_id`, verifies the item/file identity, and decodes finite nonnegative source seconds.
+The Details owner bounds that safe read to three seconds and keeps cached fallback limited to network/timeout or HTTP 501/503.
+Other refusals and invalid data require explicit Retry without starting playback.
+`startPlayback` adds only optional `audio_track_id` and `allow_alternate_versions:false` to the existing typed body.
+Auto omits audio fields; explicit audio IDs use the selected file's audio-array ordinal.
+Zero explicitly starts over, while an omitted `start_position` retains server resume semantics for callers that need them.
+Start still declares `retry:"never"`; only the controller resends its identical body and identity through its existing bounded domain retry.
+No per-content preference writes, subtitle start fields or renderer claims are added.
+See [preplay behavior](../../../docs/skyline-browse-shell.md#preplay-audio-and-resume).
+
 ## Seek preview reads
 
 `trickplay.ts` decodes consumed watch availability and seek-thumbnail manifest members from the same `SOURCE`.

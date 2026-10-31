@@ -29,8 +29,8 @@ export class SkylineScroll {
     }
 
     reveal(element: HTMLElement, container: HTMLElement): void {
-        if (element.closest(".browse-nav, .skyline-selector") !== null) return;
-        const viewport = element.closest<HTMLElement>(".skyline-content") ?? container;
+        if (element.closest(".browse-nav, .skyline-selector:not(.details-audio-picker)") !== null) return;
+        const viewport = element.closest<HTMLElement>(".details-audio-picker, .skyline-content") ?? container;
         const row = element.closest<HTMLElement>(".browse-row");
         if (row !== null) {
             const bounds = row.getBoundingClientRect();
@@ -43,7 +43,9 @@ export class SkylineScroll {
         const topEdge = bounds.top + 12;
         const bottomEdge = bounds.bottom - 32;
         const delta = rect.top < topEdge ? rect.top - topEdge : rect.bottom > bottomEdge ? rect.bottom - bottomEdge : 0;
-        this.move(viewport, 0, Math.max(0, viewport.scrollTop + delta));
+        // Opening selectors scale their rectangles, while scrollTop stays in unscaled CSS pixels.
+        const scale = bounds.height / viewport.offsetHeight;
+        this.move(viewport, 0, Math.max(0, viewport.scrollTop + delta / scale));
     }
 
     stop(): void {

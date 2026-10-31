@@ -6,6 +6,42 @@ Only visible video library types appear, and mixed libraries can be scoped to ei
 Detail, season and playback routes remove the root chrome.
 Library destinations follow the available discovery capabilities: Browse, Collections, Genres, A–Z and Recently Added.
 
+## Preplay audio and resume
+
+Movie and episode Details offer Auto plus the displayed file's listed audio tracks in an anchored, remote-operable picker.
+Closing the picker restores its Audio trigger.
+An omitted audio array lists only Auto; malformed audio metadata fails the existing Details read and retains Retry.
+The shared decoder preserves the server's per-file audio order.
+Explicit IDs use `file:{fileId}:audio:{ordinal}`, where ordinal indexes that file's audio array, never a container or AVPlay stream index.
+Auto omits both audio fields, allowing server preferences to select a nonzero track.
+An audio-only choice does not invent an explicit version pin.
+Selecting a version sends `allow_alternate_versions:false`, and changing file clears the explicit audio choice.
+An identical quiet Details refresh preserves valid choices; changed audio metadata or a missing file resets audio to Auto.
+
+Resume captures file, audio, explicit version pin and initiating focus at the press, before a fresh profile-scoped `GET /api/v2/watch/{id}?file_id=…`.
+A Play press cancels an obsolete quiet Details refresh so the visible controls remain usable while returning from playback.
+Fresh progress replaces cached progress, including on a rewatched title; a valid answer without progress starts at zero.
+The selected file's duration retains the existing five-second end margin.
+Network failure, timeout, or HTTP 501/503 uses the confirmed cached position after at most three seconds.
+Other refusals and malformed answers show an explicit Try again action and send no start.
+Back, route teardown, profile change and sign-out cancel resolution; late results cannot hand off.
+Repeated activation during resolution is ignored, and the existing app/player owner receives one captured request.
+Playback return restores the initiating Details action, or its existing fallback when that action disappeared.
+Play from start sends `start_position:0` without a watch read, even when the server has saved progress.
+Home Continue Watching keeps its existing direct-resolution journey.
+
+Audio choices last only in the current Details visit and playback attempt; no per-content audio preference PUT or DELETE is sent.
+This differs from Apple's persisted per-title/series audio override, which is deferred.
+There is no preplay subtitle selector, subtitle Auto resolution or new subtitle renderer claim.
+Both subtitle start fields stay absent; the existing in-player subtitle contract is unchanged.
+The server's returned effective file, tracks, warnings and source/player timeline remain authoritative.
+The controller retains protocol 3, saved quality/cap settings, capability gates and bounded identical-body start resends with the same attempt identity.
+
+The contract is pinned to [server cc851494](https://github.com/Silo-Server/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/internal/apiv2/playback.go), with [Apple's fresh resume state at f334794](https://github.com/Silo-Server/silo-apple/blob/f33479404712737499b22365430db1885cf6c6ab/iosApp/iosApp/Screens/Detail/DetailResumeState.swift) as the interaction reference.
+Production-entry desktop Chromium tests use synthetic Silo, KeyManager and AVPlay ports in normal and reduced motion.
+They establish request, cancellation and focus behavior, not audible selection, decoded media, subtitles, a signed package, real Chromium 76 or 2021-plus TV acceptance.
+Those device and subtitle gates remain open under issue #11; this slice does not complete issues #28 or #29.
+
 ## Text Search
 
 Non-empty text Search reads `getCatalogSearchCapabilities` through the existing profile-scoped session before its first query.
@@ -58,6 +94,31 @@ Each row retains at most 24 cards and a remote-reachable See All action.
 See All uses the existing catalog query with `source=section`, `scope=home` and the opaque `section_id`, without overriding media type, sorting or filters.
 This preserves server-resolved membership, preferences, episode cards and cursor order.
 Expanded rows keep one page of at most 24 cards, explicit paging and Retry/Back controls, and restore the originating Home row focus and scroll on Back.
+
+Holding Select for 650 ms opens card actions; a shorter down/up invokes the card's existing Details or Continue Watching activation once.
+The threshold is a client choice, not a Samsung or Skyline specification.
+Repeated keydowns, including those reporting `repeat: false`, belong to the same press until release.
+Arrows, Back, blur, hidden document, replaced cards and teardown cancel the hold and its short activation.
+A repaint of the same view preserves the press and its original deadline when the same card remains focused in the same zone.
+Pointer context menus use the same panel; ordinary left clicks retain their existing action.
+The modal captures input before Skyline Back handling, keeps Close reachable while busy and consumes the opening Select release.
+Samsung system Exit is not intercepted.
+
+Movie, series, episode and season cards share this registration across Home, expanded rows, library shelves/grids, collection contents, Search, personal pages, Person previews, related titles and full Filmography.
+Season buttons and episode rows are included; people, collection fan cards, See All and Search input are excluded.
+Calendar uses the event's own content ID for actions, including episode and season-premiere IDs, independently of its series navigation destination.
+Opening the panel explicitly reads catalog detail and supported list memberships; focus movement never reads them.
+Seasons expose confirmed watched state only; movie, series and episode list actions require capability and membership confirmation.
+Unknown states remain unavailable and failed reads retain Retry and Close.
+
+The panel reuses the Details mutation/readback owner in personal-only mode, skipping title-art and related-title requests.
+Any pending mutation blocks all mutation actions.
+Uncertain targets survive dismissal for the current browse authority; explicit Retry reads first and never automatically replays a write.
+Mutations mark the origin and retained routes stale, including Calendar Following for all three actions.
+Closing refreshes the actual committed origin page without clearing staleness early; an abandoned page turn cannot replace that origin.
+Focus and scroll return to the origin identity, with the next surviving card at its old position when removed and existing navigation for empty results.
+Late replies preserve subsequent navigation.
+The desktop keyboard/release tests do not establish physical Samsung Select repeat or release delivery; real-TV validation remains required.
 An invalid cursor clears that row's continuation; only explicit Retry restarts it.
 Continue Watching activation resolves the profile-authorized item and reuses `playChoices` for its last available file, source resume position and file-duration end margin.
 It hands off once through the existing app/player owner without showing Details.

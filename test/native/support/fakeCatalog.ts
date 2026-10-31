@@ -198,11 +198,29 @@ export class FakeCatalog implements CatalogRoutes {
             const id = decodeURIComponent(watch[1]);
             if (!this.visible(household, id)) return problem(404, "not_found", "Not found");
             const title = this.mustTitle(id);
+            const detail = this.detail(id);
+            const override = this.watchOverrides.get(id);
+            const versions = override?.versions ?? detail.versions;
             return { status: 200, body: {
-                content_id: id, type: title.type, title: title.title, series_id: title.seriesId, season_number: title.season, episode_number: title.episode,
-                versions: [{ file_id: this.fileIds.get(id) ?? `f-${id}`, duration_seconds: title.duration ?? 5400 }], subtitles: [],
-                user_data: { played: this.playbackWatched.has(id), position_seconds: this.progress.get(id), last_file_id: this.fileIds.get(id) ?? `f-${id}` },
-                ...this.watchOverrides.get(id),
+                ...detail,
+                content_id: id,
+                type: title.type,
+                title: title.title,
+                series_id: title.seriesId,
+                season_number: title.season,
+                episode_number: title.episode,
+                ...(Array.isArray(versions) ? {
+                    versions: versions.map(value => {
+                        const file = toRecord(value);
+                        return { ...file, duration_seconds: file.duration_seconds ?? file.duration ?? title.duration ?? 5400 };
+                    }),
+                } : { versions }),
+                user_data: {
+                    played: this.playbackWatched.has(id),
+                    position_seconds: this.progress.get(id),
+                    last_file_id: this.fileIds.get(id) ?? `f-${id}`,
+                },
+                ...override,
             } };
         }
         const item = /^\/catalog\/items\/([^/]+)$/.exec(pathname);

@@ -84,6 +84,7 @@ export type NextDecision = PlanShape | { readonly terminal: string; readonly ret
 
 interface Session {
     readonly requestedFileId: string;
+    readonly pinnedFileId: string | undefined;
     readonly id: string;
     readonly profileId: string;
     readonly attemptId: string;
@@ -103,6 +104,7 @@ interface Session {
 export class FakePlayback {
     readonly installationId: string;
     configured = true;
+    automaticAudioIndex = 0;
     /** Decisions for the next starts and replans, first in first out; default: a direct plan. */
     readonly next: NextDecision[] = [];
     readonly sessions = new Map<string, Session>();
@@ -235,6 +237,12 @@ export class FakePlayback {
             const ended = known.sessionId !== undefined && this.sessions.get(known.sessionId)?.receipt !== undefined;
             return ended ? this.terminal("session_expired", true, 201) : known.reply;
         }
+        const file = this.file(String(body.file_id));
+        const index = body.audio_track_index;
+        const audio = body.audio_track_id === undefined ? index ?? this.automaticAudioIndex
+            : this.ordinal({ id: body.audio_track_id, ...(index === undefined ? {} : { index }) }, "audio", file.id);
+        if (typeof audio !== "number" || !Number.isInteger(audio) || audio < 0 || audio > 10000) return problem(422, "validation_failed", "Invalid audio selection");
+        if (body.start_position !== undefined && (typeof body.start_position !== "number" || !Number.isFinite(body.start_position) || body.start_position < 0 || body.start_position > 31536000)) return problem(422, "validation_failed", "Invalid start position");
         const decision = this.next.shift() ?? {};
         if ("terminal" in decision) {
             const reply = this.terminal(decision.terminal, decision.retryable ?? false, 201);
@@ -247,8 +255,9 @@ export class FakePlayback {
             id,
             profileId,
             attemptId,
+            pinnedFileId: body.allow_alternate_versions === false ? file.id : undefined,
             effectiveFileId: String(body.file_id),
-            audioIndex: 0,
+            audioIndex: audio < file.audio.length ? audio : 0,
             subtitle: undefined,
             warnings: [],
             planId: "",
@@ -260,7 +269,8 @@ export class FakePlayback {
             replans: new Map(),
         };
         this.sessions.set(id, session);
-        const reply = this.playable(session, decision, 201);
+        const sourceStart = typeof body.start_position === "number" ? body.start_position : 0;
+        const reply = this.playable(session, { ...decision, ...(body.allow_alternate_versions === false ? { effectiveFileId: file.id } : {}), timeline: { source_start_seconds: sourceStart, player_start_seconds: sourceStart, timeline_offset_seconds: 0, ...decision.timeline } }, 201);
         this.attempts.set(attemptId, { digest, reply, sessionId: id });
         return reply;
     }
@@ -362,7 +372,7 @@ export class FakePlayback {
 
     private playable(session: Session, shape: PlanShape, status: number): Reply {
         if (shape.effectiveFileId !== undefined) {
-            session.effectiveFileId = shape.effectiveFileId;
+            session.effectiveFileId = session.pinnedFileId ?? shape.effectiveFileId;
         }
         if (shape.subtitle !== undefined) {
             session.subtitle = shape.subtitle;

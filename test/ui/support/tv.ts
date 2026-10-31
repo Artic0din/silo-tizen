@@ -83,6 +83,8 @@ export interface Tv {
     jump(ms: number): Promise<void>;
     /** Sends a key code the way the TV remote does (Back is 10009). */
     remote(keyCode: number): Promise<void>;
+    down(keyCode: number, repeat?: boolean): Promise<boolean>;
+    up(keyCode: number): Promise<boolean>;
     screen(): Promise<string | null>;
     focused(): Promise<string | null>;
     /** Resolves once `check` holds; checks after each pending fake request and page task. */
@@ -94,7 +96,7 @@ export async function openTv(browser: Browser, options: { sessionOnly?: boolean;
     const script = await harnessBundle(app);
     const context = await browser.newContext({
         viewport: { width: 1920, height: 1080 },
-        ...(options.video === undefined ? {} : { recordVideo: { dir: options.video, size: { width: 1280, height: 720 } } }),
+        ...(options.video === undefined ? {} : { recordVideo: { dir: options.video, size: { width: 1920, height: 1080 } } }),
     });
     const page = await context.newPage();
     const clock = new ManualClock();
@@ -119,9 +121,19 @@ export async function openTv(browser: Browser, options: { sessionOnly?: boolean;
             await page.clock.fastForward(ms);
         },
         async remote(keyCode) {
-            await page.evaluate((code) => {
+            await tv.down(keyCode);
+            await tv.up(keyCode);
+        },
+        async down(keyCode, repeat = false) {
+            return page.evaluate(({ code, repeat }) => {
                 const target = document.activeElement ?? document.body;
-                target.dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, bubbles: true, cancelable: true }));
+                return !target.dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, repeat, bubbles: true, cancelable: true }));
+            }, { code: keyCode, repeat });
+        },
+        async up(keyCode) {
+            return page.evaluate(code => {
+                const target = document.activeElement ?? document.body;
+                return !target.dispatchEvent(new KeyboardEvent("keyup", { keyCode: code, bubbles: true, cancelable: true }));
             }, keyCode);
         },
         screen: () => page.evaluate(() => document.querySelector("[data-screen]")?.getAttribute("data-screen") ?? null),

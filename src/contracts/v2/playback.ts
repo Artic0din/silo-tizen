@@ -419,6 +419,8 @@ export type StartPlaybackBody = {
     readonly subtitle_fidelity_preference: "preserve" | "compatible";
     /** Omitted: the server resumes from the profile's saved position. */
     readonly start_position?: number;
+    readonly audio_track_id?: string;
+    readonly allow_alternate_versions?: false;
     readonly client_capabilities: ClientCapabilities;
     readonly client_playback_context: ClientPlaybackContext;
 };
@@ -491,16 +493,21 @@ function decodeAudioTrack(value: unknown, path: string): AudioTrackInfo {
     };
 }
 
+export function decodeAudioTracks(value: unknown, path: string): readonly AudioTrackInfo[] {
+    const obj = object(value, path);
+    return (obj.audio_tracks === undefined ? [] : list(obj, "audio_tracks", path))
+        .map((track, index) => decodeAudioTrack(track, `${path}.audio_tracks[${index}]`));
+}
+
 export function decodeFileVersionTracks(value: unknown): FileVersionTracks[] {
     const path = "file_versions";
     const obj = object(value, path);
     return list(obj, "items", path).map((entry, index) => {
         const itemPath = `${path}.items[${index}]`;
         const item = object(entry, itemPath);
-        const audio = item.audio_tracks === undefined ? [] : list(item, "audio_tracks", itemPath);
         return {
             fileId: nonEmptyString(item, "file_id", itemPath),
-            audio: audio.map((track, trackIndex) => decodeAudioTrack(track, `${itemPath}.audio_tracks[${trackIndex}]`)),
+            audio: decodeAudioTracks(item, itemPath),
         };
     });
 }

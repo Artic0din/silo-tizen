@@ -2,26 +2,56 @@ import { FakeCatalog, type FakeTitle } from "./fakeCatalog.ts";
 import { fixture, problem, type Reply } from "./fakeSilo.ts";
 import assert from "node:assert/strict";
 import { object, string } from "../../../src/contracts/v2/wire.ts";
+import { defaultFiles } from "./fakePlayback.ts";
 
 /** Detail-only synthetic extension; leaves library discovery fixtures untouched. */
 export class FakeDetails extends FakeCatalog {
-    favorite = false;
-    watchlist = false;
-    watched = false;
+    private readonly personalByProfile = new Map<string, Set<string>>();
+    get favorite(): boolean { return this.personalMembers("p-owner", "favorites").has("movie:m0001"); }
+    set favorite(value: boolean) { this.setMember("p-owner", "favorites", "movie:m0001", value); }
+    get watchlist(): boolean { return this.personalMembers("p-owner", "watchlist").has("movie:m0001"); }
+    set watchlist(value: boolean) { this.setMember("p-owner", "watchlist", "movie:m0001", value); }
+    get watched(): boolean { return this.personalMembers("p-owner", "watched").has("movie:m0001"); }
+    set watched(value: boolean) { this.setMember("p-owner", "watched", "movie:m0001", value); }
     capability = true;
     empty = false;
     readonly mutations: string[] = [];
     mutationFailure: Reply | undefined;
     readonly neverPlayed = new Set<string>();
+    readonly audioFiles = defaultFiles();
     readonly personCredits = new Map<string, string[]>([["7", [...this.titles.keys(), "movie:m0001"]]]);
     readonly personLibraryIds = new Map<string, string[]>();
     readonly matureTitles = new Set<string>();
     readonly personReplies: Reply[] = [];
     private readonly personCursors = new Map<string, { scope: string; offset: number }>();
-    readonly watchedEpisodes = new Set([...this.titles.values()].filter((title) => title.type === "episode" && title.season === 1).map((title) => title.id));
+    get watchedEpisodes(): Set<string> { return this.personalMembers("p-owner", "episodes"); }
+
+    private personalMembers(profile: string | undefined, kind: string): Set<string> {
+        const key = JSON.stringify([profile, kind]);
+        let values = this.personalByProfile.get(key);
+        if (values === undefined) {
+            values = new Set(kind === "episodes" ? [...this.titles.values()].filter(title => title.type === "episode" && title.season === 1).map(title => title.id) : []);
+            this.personalByProfile.set(key, values);
+        }
+        return values;
+    }
+
+    private setMember(profile: string | undefined, kind: string, id: string, value: boolean): void {
+        if (value) this.personalMembers(profile, kind).add(id);
+        else this.personalMembers(profile, kind).delete(id);
+    }
 
     override route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): Reply | undefined {
         const url = new URL(path, "https://example.test");
+        if (method === "GET" && url.pathname.startsWith("/watch/")) {
+            const reply = this.route("GET", `/catalog/items/${url.pathname.slice(7)}`, profileId);
+            if (reply?.status !== 200) return reply;
+            const detail = object(reply.body, "detail");
+            return { status: 200, body: { ...detail, versions: Array.isArray(detail.versions) ? detail.versions.map((value: unknown) => {
+                const file = object(value, "version");
+                return { ...file, duration_seconds: file.duration };
+            }) : [] } };
+        }
         const personQuery = url.pathname === "/catalog/query" && body?.source === "person";
         if (personQuery || (url.pathname === "/catalog" && url.searchParams.get("source") === "person")) {
             return this.personPage(method, url, profileId, body);
@@ -31,7 +61,7 @@ export class FakeDetails extends FakeCatalog {
             if (method !== "GET" || !this.visibleCredits(id, profileId).length) return problem(404, "not_found", "Not found");
             return { status: 200, body: { id, name: "River Vale", bio: "A synthetic performer whose work spans film and television.", birth_date: "1980-04-12", birthplace: "Melbourne", photo_url: "/art/river.svg" } };
         }
-        if (url.pathname === "/catalog/items/series%3As1-S1") return { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "series:s1-S1", type: "season", series_id: "series:s1", season_number: 1, title: "Harbor Lights · Season 1", overview: "The first season follows the night shift at a coastal observatory.", backdrop_url: "/art/harbor.svg", play_content_id: "episode:s1e11", versions: [], user_state: { played: this.episodesPlayed("series:s1", 1) }, user_data: { played: this.episodesPlayed("series:s1", 1) } } };
+        if (url.pathname === "/catalog/items/series%3As1-S1") return { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "series:s1-S1", type: "season", series_id: "series:s1", season_number: 1, title: "Harbor Lights · Season 1", overview: "The first season follows the night shift at a coastal observatory.", backdrop_url: "/art/harbor.svg", play_content_id: "episode:s1e11", versions: [], user_state: { played: this.episodesPlayed("series:s1", profileId, 1) }, user_data: { played: this.episodesPlayed("series:s1", profileId, 1) } } };
         if (profileId !== "p-owner" && !url.pathname.startsWith("/user/") && (url.pathname.startsWith("/catalog/people/") || url.pathname.startsWith("/recommendations/") || url.pathname.startsWith("/capabilities/"))) return problem(404, "not_found", "Not found");
         if (url.pathname === "/capabilities/personal-lists") return { status: 200, body: { state: this.capability ? "available" : "unsupported", allowed: this.capability, membership_supported: this.capability, revision: "synthetic" } };
         if (url.pathname.startsWith("/recommendations/similar/")) {
@@ -42,19 +72,18 @@ export class FakeDetails extends FakeCatalog {
         if (personal !== null) {
             const kind = personal[1];
             if (personal[2] === "series%3As1-S1" && kind !== "watched") return problem(404, "not_found", "Not found");
-            if (method === "GET") return { status: 200, body: { item_id: decodeURIComponent(personal[2] ?? ""), is_member: kind === "favorites" ? this.favorite : this.watchlist } };
+            const id = decodeURIComponent(personal[2] ?? "");
+            if (method === "GET") return { status: 200, body: { item_id: id, is_member: this.personalMembers(profileId, kind ?? "").has(id) } };
             this.mutations.push(`${method} ${url.pathname}`);
             if (this.mutationFailure !== undefined) { const failure = this.mutationFailure; this.mutationFailure = undefined; return failure; }
-            if (kind === "favorites") this.favorite = method === "PUT";
-            if (kind === "watchlist") this.watchlist = method === "PUT";
+            if (kind === "favorites" || kind === "watchlist") this.setMember(profileId, kind, id, method === "PUT");
             if (kind === "watched") {
                 const id = decodeURIComponent(personal[2] ?? "");
                 const played = method === "POST";
-                if (id === "movie:m0001") this.watched = played;
+                this.setMember(profileId, "watched", id, played);
                 for (const title of this.titles.values()) {
                     if (title.type === "episode" && (title.id === id || title.seriesId === id || `${title.seriesId}-S${title.season}` === id)) {
-                        if (played) this.watchedEpisodes.add(title.id);
-                        else this.watchedEpisodes.delete(title.id);
+                        this.setMember(profileId, "episodes", title.id, played);
                         this.progress.delete(title.id);
                     }
                 }
@@ -68,15 +97,21 @@ export class FakeDetails extends FakeCatalog {
             assert.ok(Array.isArray(body.items));
             return { ...reply, body: { ...body, items: body.items.map((value: unknown) => {
                 const episode = object(value, "episode");
-                return { ...episode, user_data: { played: this.watchedEpisodes.has(string(episode, "content_id", "episode")) } };
+                return { ...episode, user_data: { played: this.personalMembers(profileId, "episodes").has(string(episode, "content_id", "episode")) } };
             }) } };
         }
         if (reply?.status === 200 && url.pathname.startsWith("/catalog/items/")) {
             const body = object(reply.body, "detail");
             const id = string(body, "content_id", "detail");
             const title = this.titles.get(id);
-            const played = title?.type === "series" ? this.episodesPlayed(id) : title?.type === "episode" ? this.watchedEpisodes.has(id) : this.watched;
-            reply.body = { ...body, user_state: { played }, user_data: this.neverPlayed.has(id) && !played ? undefined : { ...object(body.user_data, "user_data"), played } };
+            const played = title?.type === "series" ? this.episodesPlayed(id, profileId) : title?.type === "episode" ? this.personalMembers(profileId, "episodes").has(id) : this.personalMembers(profileId, "watched").has(id);
+            reply.body = { ...body,
+                ...(Array.isArray(body.versions) ? { versions: body.versions.map((value: unknown) => {
+                    const file = object(value, "version");
+                    const audio = this.audioFiles.get(string(file, "file_id", "version"))?.audio;
+                    return { ...file, ...(audio === undefined ? {} : { audio_tracks: audio }) };
+                }) } : {}),
+                user_state: { played }, user_data: this.neverPlayed.has(id) && !played ? undefined : { ...object(body.user_data, "user_data"), played } };
         }
         if (url.pathname === "/catalog/items/movie%3Am0001" && reply?.status === 200 && typeof reply.body === "object" && reply.body !== null) {
             return { status: 200, body: { ...reply.body,
@@ -85,16 +120,16 @@ export class FakeDetails extends FakeCatalog {
                 cast: [{ person_id: "7", name: "River Vale", character: "Alex", order: 0, photo_url: "/art/river.svg" }, { name: "Morgan Lane", character: "Sam", order: 1 }],
                 crew: [{ person_id: "7", name: "River Vale", job: "Director", photo_url: "/art/river.svg" }],
                 ratings: [{ source: "imdb", name: "IMDb", score: 81, display: "8.1" }], studios: ["North Studio"], countries: ["AU"], original_language: "en",
-                versions: [{ file_id: "long", duration: 5400, resolution: "2160p", codec_video: "hevc", codec_audio: "aac", hdr: true, edition_raw: "Original" }, { file_id: "short", duration: 1200, resolution: "1080p", codec_video: "h264", codec_audio: "aac", hdr: false, edition_raw: "Short cut" }],
-                user_data: this.neverPlayed.has("movie:m0001") && !this.watched ? undefined : { played: this.watched, position_seconds: this.progress.get("movie:m0001"), last_file_id: "long" },
+                versions: [{ file_id: "42", duration: 5400, resolution: "2160p", codec_video: "hevc", codec_audio: "aac", hdr: true, edition_raw: "Original", audio_tracks: this.audioFiles.get("42")?.audio }, { file_id: "43", duration: 1200, resolution: "1080p", codec_video: "h264", codec_audio: "aac", hdr: false, edition_raw: "Short cut", audio_tracks: this.audioFiles.get("43")?.audio }],
+                user_data: this.neverPlayed.has("movie:m0001") && !this.personalMembers(profileId, "watched").has("movie:m0001") ? undefined : { played: this.personalMembers(profileId, "watched").has("movie:m0001"), position_seconds: this.progress.get("movie:m0001"), last_file_id: "42" },
             } };
         }
         return reply;
     }
 
-    private episodesPlayed(seriesId: string, season?: number): boolean {
+    private episodesPlayed(seriesId: string, profile: string | undefined, season?: number): boolean {
         const episodes = [...this.titles.values()].filter((title) => title.type === "episode" && title.seriesId === seriesId && (season === undefined || title.season === season));
-        return episodes.length > 0 && episodes.every((episode) => this.watchedEpisodes.has(episode.id));
+        return episodes.length > 0 && episodes.every((episode) => this.personalMembers(profile, "episodes").has(episode.id));
     }
 
     private visibleCredits(id: string, profileId: string | undefined): string[] {

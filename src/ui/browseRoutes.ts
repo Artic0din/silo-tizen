@@ -127,12 +127,15 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
     switch (current.kind) {
         case "home":
             if (current.data !== undefined) {
-                return homeView(current.data.libraries, current.data.sections, context, {
+                const view = homeView(current.data.libraries, current.data.sections, context, {
                     expand: section => handlers.push(newRoute({ kind: "homeSection", id: section.id, title: section.title, continuing: section.sectionType === "continue_watching", pages: newPages(), pendingIndex: undefined })),
                     search: () => handlers.push(newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })),
                     library: (library) => handlers.push(newRoute({ kind: "library", library, pages: newPages() })),
                     chooseProfile: handlers.chooseProfile,
                 });
+                if (current.failure === undefined && !handlers.busy) return view;
+                const retry = current.failure === undefined ? [] : [actionButton("retry", "Try again", () => handlers.retry(current))];
+                return { ...view, content: [...view.content, ...lines([current.failure ?? "Refreshing titles."], current.failure === undefined ? "info" : "error"), zoneNode("browse-actions", retry)], zones: [...view.zones, { id: "status", layout: "row", items: retry }] };
             }
             break;
         case "homeSection":

@@ -110,12 +110,12 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
         await tv.page.screenshot({ path: `${process.env.DETAILS_CAPTURE_DIR}/details.png` });
     }
     await shows(tv, "IMDb 8.1");
-    await tv.page.locator('[data-focus="version:short"]').focus();
+    await tv.page.locator('[data-focus="version:43"]').focus();
     await press(tv, "Enter");
     await tv.page.locator('[data-focus="play"]').focus();
     await press(tv, "Enter");
-    assert.equal((await tv.page.evaluate(() => window.browseHarness.plays))[0]?.fileId, "short");
-    assert.equal((await tv.page.evaluate(() => window.browseHarness.plays))[0]?.startSeconds, undefined);
+    assert.equal((await tv.page.evaluate(() => window.browseHarness.plays))[0]?.fileId, "43");
+    assert.equal((await tv.page.evaluate(() => window.browseHarness.plays))[0]?.startSeconds, 0);
     const personal = tv.fake.hold("/capabilities/personal-lists");
     await tv.page.evaluate(() => window.browseHarness.resume());
     await shows(tv, "Loading personal actions.");
@@ -548,9 +548,14 @@ browseTest("a lost watched answer is reconciled on Retry without repeating the n
 }, { catalog: new FakeDetails() });
 
 browseTest("season Details keeps episodes first, exposes real facts and restores the episode identity", async (tv) => {
+    const personal = tv.fake.hold("/favorites/series%3As1/membership");
     await press(tv, "ArrowDown", "Enter");
     await showing(tv, "item:series:s1");
-    await press(tv, "ArrowDown", "Enter");
+    await press(tv, "ArrowDown");
+    await tv.page.keyboard.down("Enter");
+    personal.release();
+    await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
+    await tv.page.keyboard.up("Enter");
     await showing(tv, "season:series:s1:1");
     await shows(tv, "The first season follows the night shift at a coastal observatory.");
     assert.equal(await tv.focused(), "episode:s1e11");
@@ -1319,6 +1324,7 @@ browseTest("details hand the player the file and resume point; returning restore
     assert.equal(await tv.focused(), "resume");
     await shows(tv, "Resume from 20:00");
     await press(tv, "Enter");
+    await tv.eventually(async () => (await tv.page.evaluate(() => window.browseHarness.plays.length)) === 1, "fresh Resume handoff");
     assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays), [
         { contentId: "movie:m0001", fileId: "f-movie:m0001", title: "Movie 0001", startSeconds: 1200 },
     ]);
@@ -1335,7 +1341,7 @@ browseTest("details hand the player the file and resume point; returning restore
     await press(tv, "ArrowRight", "Enter");
     const fromStart = (await tv.page.evaluate(() => window.browseHarness.plays))[1];
     assert.equal(fromStart?.fileId, "f-movie:m0001");
-    assert.equal(fromStart?.startSeconds, undefined, "Play from start");
+    assert.equal(fromStart?.startSeconds, 0, "Play from start");
     await tv.page.evaluate(() => window.browseHarness.resume());
 
     await tv.remote(BACK);
@@ -1363,7 +1369,7 @@ browseTest("series open seasons, seasons list episodes, and Back retraces each s
         episode: true,
         fileId: "f-episode:s1e22",
         title: "Harbor Lights chapter 2.2",
-        startSeconds: undefined,
+        startSeconds: 0,
     });
     await tv.page.evaluate(() => window.browseHarness.resume());
     await tv.remote(BACK);
@@ -1398,6 +1404,7 @@ browseTest("episode-aware text Search returns an episode-only match and preserve
     await press(tv, "Enter");
     await showing(tv, "item:episode:s1e12");
     await tv.page.getByRole("button", { name: /^Resume/ }).click();
+    await tv.eventually(async () => (await tv.page.evaluate(() => window.browseHarness.plays.length)) === 1, "fresh episode Resume handoff");
     assert.deepEqual((await tv.page.evaluate(() => window.browseHarness.plays))[0], {
         contentId: "episode:s1e12", fileId: "f-episode:s1e12", title: "Harbor Lights chapter 1.2", startSeconds: 420, episode: true,
     });

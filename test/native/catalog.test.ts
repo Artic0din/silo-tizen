@@ -53,7 +53,7 @@ test("browse fixtures decode with the production decoders", () => {
     const detail = decodeItemDetail(fixture("get_catalog_item_ok"));
     assert.equal(detail.type, "movie");
     assert.equal(detail.tagline, "A Los Angeles crime saga");
-    assert.deepEqual(detail.versions, [{ fileId: "120", durationSeconds: 0, label: "2160p" }]);
+    assert.deepEqual(detail.versions, [{ fileId: "120", durationSeconds: 0, audio: [], label: "2160p" }]);
     assert.deepEqual(detail.watch, { played: true, positionSeconds: undefined, lastFileId: "120" });
 
     assert.deepEqual(decodeSeasons(fixture("list_series_seasons_ok")), [
@@ -180,7 +180,7 @@ function movie(overrides: Partial<ItemDetail>): ItemDetail {
 test("play: the last-played version when still listed, else the first; resume point from the watch state", () => {
     assert.deepEqual(playChoices(movie({ watch: { played: false, positionSeconds: 600, lastFileId: "121" }, durationSeconds: 7200, versions: [{ fileId: "120", durationSeconds: 0 }, { fileId: "121", durationSeconds: 0 }] })), {
         resume: { contentId: "movie:heat-1995", fileId: "121", title: "Heat", startSeconds: 600 },
-        fromStart: { contentId: "movie:heat-1995", fileId: "121", title: "Heat", startSeconds: undefined },
+        fromStart: { contentId: "movie:heat-1995", fileId: "121", title: "Heat", startSeconds: 0 },
     });
     const gone = playChoices(movie({ watch: { played: false, positionSeconds: 7198, lastFileId: "999" }, durationSeconds: undefined, versions: [{ fileId: "120", durationSeconds: 7200 }] }));
     assert.equal(gone?.fromStart.fileId, "120");

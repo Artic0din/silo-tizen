@@ -52,6 +52,10 @@ AVPlay state and server responses were observed; picture, dialogue and audible t
 The TV keyboard, 2021 hardware, store builds, full remux/transcode acceptance and audible/visible track acceptance remain open.
 
 The client declares no subtitle renderer.
+Movie and episode Details offer Audio Auto or an explicit track from the displayed file, for this attempt only.
+Changing version clears that track choice; explicitly choosing a version pins its source through playback.
+Resume checks fresh profile progress for up to three seconds; Play from start sends source position zero.
+See [preplay behavior](docs/skyline-browse-shell.md#preplay-audio-and-resume) for fallback, cancellation and persistence limits.
 The server can burn embedded subtitles into video when transcoding is allowed; external and downloaded subtitles receive an explicit unsupported result.
 Backgrounding stops playback safely and requires selecting the title again.
 Authenticated suspend/restore remains in [#13](https://github.com/Artic0din/silo-tizen/issues/13).

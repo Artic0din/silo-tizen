@@ -68,6 +68,27 @@ function journey(name: string, body: (tv: Tv, catalog: FakeDetails) => Promise<v
     });
 }
 
+journey("card quick-actions refresh full Filmography's committed page and retain nearby identity", async (tv, catalog) => {
+    await all(tv);
+    await next(tv, 2);
+    const cards = await grid(tv).evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus")));
+    const id = cards[5];
+    const nearby = cards[6];
+    assert.ok(id); assert.ok(nearby);
+    const cursor = lastQuery(tv)?.body?.cursor;
+    await grid(tv).nth(5).focus();
+    await tv.down(13); await tv.jump(650); await tv.up(13);
+    const panel = tv.page.getByRole("dialog", { name: "Card actions" });
+    await panel.getByRole("button", { name: "Add favorite", exact: true }).click();
+    await panel.getByRole("button", { name: "Remove favorite", exact: true }).waitFor();
+    catalog.removed.add(id);
+    await tv.remote(BACK);
+    await tv.eventually(async () => await tv.focused() === nearby, "nearby Filmography focus");
+    assert.equal(lastQuery(tv)?.body?.cursor, cursor);
+    assert.equal(lastQuery(tv)?.body?.person_id, "7");
+    await tv.page.getByText("Page 2 of 3", { exact: true }).waitFor();
+});
+
 journey("person full journey reaches third page, server filters whole population, restores Details/Person/origin", async tv => {
     const capture = process.env.PERSON_CAPTURE_DIR;
     if (capture !== undefined) {
@@ -183,7 +204,8 @@ journey("interrupted Next cannot advance after visible-card Details, one resume 
     await tv.eventually(async () => queries(tv).length === before + 1, "held Next");
     await tv.page.locator('.browse-grid [data-focus="movie:m0001"]').click();
     await tv.page.locator('[data-focus="resume"]').click();
-    assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays), [{ contentId: "movie:m0001", fileId: "long", title: "The Last Signal", startSeconds: 1200 }]);
+    await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "fresh Resume handoff");
+    assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays), [{ contentId: "movie:m0001", fileId: "42", title: "The Last Signal", startSeconds: 1200 }]);
     await tv.page.evaluate(() => window.browseHarness.resume());
     await tv.page.locator('[data-focus="resume"]').waitFor();
     await tv.remote(BACK);

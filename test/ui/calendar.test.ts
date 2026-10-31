@@ -275,8 +275,15 @@ calendarTest("Calendar timezone discovery and formatting failures are recoverabl
             return new original(locale, options);
         } });
     });
+    const before = reads(tv).length;
+    const response = tv.fake.hold("/calendar");
     await activate(tv, "filter:trending");
     await tv.page.getByText("Could not format this TV’s dates. Try again.").waitFor();
+    await tv.eventually(async () => reads(tv).length === before + 1, "pending weekly read");
+    const retry = await tv.page.locator('[data-focus="retry"]').elementHandle();
+    assert.ok(retry);
+    response.release();
+    await tv.eventually(() => retry.evaluate(node => !node.isConnected), "weekly response repaint");
     await tv.jump(0);
     assert.equal(await tv.page.locator('[data-focus="retry"]').count(), 1);
     await tv.page.evaluate(() => { const restore = Reflect.get(window, "restoreCalendarIntl") as () => void; restore(); });

@@ -6,8 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Refreshed confirmed card-menu values after reopening an unresolved action and preserved Select presses during Details updates.
 - Kept preplay audio focus visible, reset changed track selections and rejected incomplete resume responses.
 - Corrected the profile PIN regression test to distinguish an unchanged public device ID from retained PIN material while continuing to check all stored values for profile proofs.
+- Kept the opening Select hold from activating card actions, prevented concurrent personal updates across Details and card menus, and retained related-card focus during refresh.
 - Updated Calendar's Today state at local midnight and refreshed retained weeks after watched, favorites, watchlist and playback changes.
 - Preserved the expanded Home row's page and card after playback interrupted a pending page turn.
 - Restored playback focus after a media button cancelled a seek preview so the controls could hide again.
@@ -17,6 +19,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added Select-hold card actions for watched, favorites and watchlist, with confirmed state, safe explicit retries and restored page focus.
 - Added attempt-only preplay audio selection with explicit version binding, fresh Resume and reliable Play from start.
 - Added full person filmography with server-filtered All, Movies and Series pages, explicit paging, and restored Details and person focus.
 - Added a weekly catalog Calendar with Following, Trending and All filters, release and episode shelves, and context-preserving Details navigation.

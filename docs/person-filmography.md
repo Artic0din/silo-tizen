@@ -15,6 +15,8 @@ A continuation repeating this route's earlier page cursors is a recoverable prot
 An `invalid_cursor` discards only the current route's paging state; explicit Try again starts page one without an automatic loop.
 
 Cards use the existing title Details, seasons, episodes and file/resume handoff.
+The preview and full grid also share the bounded [card actions](skyline-browse-shell.md).
+Closing after a personal change refreshes the committed Filmography page with the same person, filter and continuation, retaining identity or nearby focus.
 Opening Details abandons an in-flight page target.
 Back refreshes the committed page while retaining cached cards, restoring focus by content ID with a nearby fallback if that ID disappeared.
 Person metadata survives filters, paging and playback refresh; Back restores See all and then the originating credit.

@@ -548,9 +548,14 @@ browseTest("a lost watched answer is reconciled on Retry without repeating the n
 }, { catalog: new FakeDetails() });
 
 browseTest("season Details keeps episodes first, exposes real facts and restores the episode identity", async (tv) => {
+    const personal = tv.fake.hold("/favorites/series%3As1/membership");
     await press(tv, "ArrowDown", "Enter");
     await showing(tv, "item:series:s1");
-    await press(tv, "ArrowDown", "Enter");
+    await press(tv, "ArrowDown");
+    await tv.page.keyboard.down("Enter");
+    personal.release();
+    await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
+    await tv.page.keyboard.up("Enter");
     await showing(tv, "season:series:s1:1");
     await shows(tv, "The first season follows the night shift at a coastal observatory.");
     assert.equal(await tv.focused(), "episode:s1e11");

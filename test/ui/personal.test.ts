@@ -99,6 +99,31 @@ async function openList(tv: Tv, source: string): Promise<void> {
     await tv.page.locator(`[data-focus="${source}"]`).click({ timeout: 2000 });
     await tv.page.locator(`[data-view="personal:${source}"] .browse-card`).first().waitFor();
 }
+
+for (const source of ["watchlist", "favorites"]) test(`card quick-actions remove from ${source} on the committed third page with nearby focus`, async () => {
+    const { tv } = await setup();
+    try {
+        await openList(tv, source);
+        for (let page = 2; page <= 3; page++) {
+            await tv.page.locator('[data-focus="next"]').click();
+            await tv.page.getByText(`Page ${page} of 3`, { exact: true }).waitFor();
+        }
+        const card = tv.page.locator('[data-focus="movie:m0050"]');
+        await card.focus();
+        await tv.down(13); await tv.jump(650); await tv.up(13);
+        const panel = tv.page.getByRole("dialog", { name: "Card actions" });
+        const remove = source === "watchlist" ? "Remove from watchlist" : "Remove favorite";
+        await panel.getByRole("button", { name: remove, exact: true }).click();
+        await panel.getByRole("button", { name: source === "watchlist" ? "Add to watchlist" : "Add favorite", exact: true }).waitFor();
+        await tv.remote(10009);
+        await tv.eventually(async () => await card.count() === 0 && await tv.focused() === "movie:m0051", "nearby removal focus");
+        await tv.page.getByText("Page 3 of 3", { exact: true }).waitFor();
+        const last = tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).slice(-1)[0];
+        assert.equal(last?.body?.cursor, `p-owner:${source}:${source === "watchlist" ? "video" : "movie"}:48`);
+        assert.equal(last?.body?.source, source);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
 for (const destination of ["unchanged", "navigation", "profile menu"]) test(`initial personal-list completion preserves ${destination} focus`, async () => {
     const { tv } = await setup();
     try {

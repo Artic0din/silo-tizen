@@ -1,6 +1,6 @@
 import type { CalendarEvent, CalendarFilter } from "../contracts/v2/calendar.ts";
 import type { FocusItem, FocusTarget, View, Zone } from "./browseFocus.ts";
-import { actionButton, artwork, lines, zoneNode, type ViewContext } from "./browseViews.ts";
+import { actionButton, artwork, lines, mediaItem, zoneNode, type ViewContext } from "./browseViews.ts";
 import { calendarDateLabel, calendarDestination, calendarEventKeys, calendarWeek, CalendarTimezoneError, eventTime, localDateKey, shiftDay, type CalendarState } from "./calendarState.ts";
 import { el } from "./screen.ts";
 
@@ -28,7 +28,8 @@ function eventCard(event: CalendarEvent, key: string, timezone: string, context:
     item.element.appendChild(el("span", "browse-card-subtitle", metadata.join(" · ")));
     if (destination === undefined) item.element.setAttribute("aria-disabled", "true");
     item.element.setAttribute("data-content-id", event.contentId);
-    return item;
+    const type = event.type === "season_premiere" ? "season" : event.type === "movie" || event.type === "episode" ? event.type : "unknown";
+    return mediaItem(item, { id: event.contentId, title: event.title, type }, context);
 }
 
 export function calendarView(state: CalendarState, handlers: CalendarHandlers): View {

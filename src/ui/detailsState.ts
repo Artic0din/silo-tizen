@@ -35,20 +35,25 @@ export class DetailsState {
     private readonly session: NativeSession;
     private readonly changed: (audioClosed?: boolean) => void;
     private readonly watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>;
+    private readonly pendingElsewhere: () => boolean;
 
-    constructor(detail: ItemDetail, session: NativeSession, changed: (audioClosed?: boolean) => void, watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>) {
+    constructor(detail: ItemDetail, session: NativeSession, changed: (audioClosed?: boolean) => void, watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>, pendingElsewhere: () => boolean = () => false) {
         this.detail = detail;
         this.session = session;
         this.changed = changed;
         this.watchedChanged = watchedChanged;
+        this.pendingElsewhere = pendingElsewhere;
         if (detail.played !== undefined && ["movie", "episode", "series", "season"].includes(detail.type)) this.values.set("watched", detail.played);
     }
 
-    start(): void {
+    get pending(): boolean { return [...this.changes.values()].some(change => change.pending); }
+    get busy(): boolean { return this.pending || this.pendingElsewhere(); }
+
+    start(mode: "full" | "personal" = "full"): void {
         if (this.controller !== undefined) return;
         this.controller = new AbortController();
         this.stopAuthority = this.session.onAuthorityChange(() => { this.stop(); this.changed(); });
-        this.loadTitleArt();
+        if (mode === "full") this.loadTitleArt();
         let interrupted = false;
         for (const [kind, change] of this.changes) {
             if (change.pending) {
@@ -57,7 +62,7 @@ export class DetailsState {
             }
         }
         if (interrupted) this.changed();
-        if (this.related === undefined) this.loadRelated();
+        if (mode === "full" && this.related === undefined) this.loadRelated();
         if (this.personalSupported === undefined) this.loadPersonal();
     }
 
@@ -219,6 +224,11 @@ export class DetailsState {
     loadPersonal(): void {
         const controller = this.controller;
         if (controller === undefined) return;
+        if (!["movie", "series", "episode"].includes(this.detail.type)) {
+            this.personalSupported = false;
+            this.changed();
+            return;
+        }
         this.personalFailed = false;
         this.changed();
         const read = async (): Promise<void> => {
@@ -248,7 +258,7 @@ export class DetailsState {
     /** A failed write is reconciled by a read before an explicit retry can send it again. */
     change(kind: PersonalAction, target: boolean, reconcile = false): void {
         const controller = this.controller;
-        if (controller === undefined || this.changes.get(kind)?.pending || !this.values.has(kind)) return;
+        if (controller === undefined || this.busy || !this.values.has(kind)) return;
         this.changes.set(kind, { target, pending: true, failed: false });
         this.changed();
         const run = async (): Promise<void> => {

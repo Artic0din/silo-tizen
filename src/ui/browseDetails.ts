@@ -200,6 +200,28 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         const personal = personalControls(state);
         content.push(...personal.notes, zoneNode("browse-actions", personal.items));
         zones.push({ id: "personal", layout: "row", items: personal.items });
+        if (["movie", "series"].includes(detail.type)) {
+            const rating = state.rating;
+            const items = [1, 2, 3, 4, 5].map(stars => {
+                const item = actionButton(`rating:${stars}`, `${stars} ${stars === 1 ? "star" : "stars"}`, () => rating.save(stars));
+                item.element.setAttribute("aria-pressed", String(rating.value === stars));
+                item.element.setAttribute("aria-disabled", String(state.busy || rating.loading || rating.value === undefined));
+                return item;
+            });
+            const clear = actionButton("rating:clear", "Clear rating", () => rating.save(null));
+            clear.element.setAttribute("aria-disabled", String(state.busy || rating.loading || rating.value === undefined));
+            items.push(clear);
+            if (rating.failed) {
+                const retry = actionButton("rating:retry", "Retry rating", () => rating.failedTarget === undefined ? rating.load() : rating.save(rating.failedTarget, true));
+                retry.element.setAttribute("aria-disabled", String(state.busy || rating.loading || rating.pending));
+                items.push(retry);
+            }
+            const status = rating.failed ? "Could not confirm rating." : rating.pending ? "Saving rating…" : rating.loading ? "Loading rating…" : rating.value == null ? "Your rating: Not rated" : `Your rating: ${rating.value} of 5 stars`;
+            const note = el("p", "browse-text", status);
+            note.setAttribute("role", rating.failed ? "alert" : "status");
+            content.push(note, zoneNode("browse-actions", items));
+            zones.push({ id: "rating", layout: "row", items });
+        }
     }
     const credits: Credit[] = [];
     for (const credit of [...detail.extra?.cast ?? [], ...detail.extra?.crew ?? []]) {

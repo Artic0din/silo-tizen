@@ -17,6 +17,10 @@ export class FakeDetails extends FakeCatalog {
     empty = false;
     readonly mutations: string[] = [];
     mutationFailure: Reply | undefined;
+    readonly ratings = new Map<string, number>();
+    ratingFailure: Reply | undefined;
+    /** The next write answers 204 without storing, or stores and then answers 500 (lost response). */
+    ratingFault: "unstored" | "applied-then-error" | undefined;
     readonly neverPlayed = new Set<string>();
     readonly audioFiles = defaultFiles();
     readonly personCredits = new Map<string, string[]>([["7", [...this.titles.keys(), "movie:m0001"]]]);
@@ -42,6 +46,22 @@ export class FakeDetails extends FakeCatalog {
     }
 
     override route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): Reply | undefined {
+        if (path.startsWith("/ratings/")) {
+            const id = decodeURIComponent(path.slice("/ratings/".length));
+            const key = JSON.stringify([profileId, id]);
+            if (method === "GET") {
+                const rating = this.ratings.get(key);
+                return rating === undefined ? problem(404, "not_found", "Not rated") : { status: 200, body: { item_id: id, rating, rated_at: "2026-01-02T03:04:05.000Z" } };
+            }
+            this.mutations.push(`${method} ${path}`);
+            if (this.ratingFailure !== undefined) { const reply = this.ratingFailure; this.ratingFailure = undefined; return reply; }
+            const fault = this.ratingFault;
+            this.ratingFault = undefined;
+            if (fault === "unstored") return { status: 204 };
+            if (method === "DELETE") this.ratings.delete(key);
+            else { assert.ok(typeof body?.rating === "number" && Number.isInteger(body.rating) && body.rating >= 1 && body.rating <= 5); this.ratings.set(key, body.rating); }
+            return fault === "applied-then-error" ? problem(500, "lost", "Response lost") : { status: 204 };
+        }
         const url = new URL(path, "https://example.test");
         if (method === "GET" && url.pathname.startsWith("/watch/")) {
             const reply = this.route("GET", `/catalog/items/${url.pathname.slice(7)}`, profileId);

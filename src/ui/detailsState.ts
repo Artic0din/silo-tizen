@@ -8,6 +8,7 @@ import { playChoices, resumeSeconds, type PlayRequest } from "./browseModel.ts";
 import type { Clock } from "../api/clock.ts";
 import type { NativeSession } from "../session/session.ts";
 import { TITLE_ART_KEY, profileSettings } from "../contracts/v2/settings.ts";
+import { RatingState } from "./ratingState.ts";
 
 export interface PersonalChange {
     readonly target: boolean;
@@ -16,6 +17,7 @@ export interface PersonalChange {
 }
 
 export class DetailsState {
+    readonly rating: RatingState;
     detail: ItemDetail;
     selectedFileId: string | undefined;
     audioOpen = false;
@@ -43,15 +45,17 @@ export class DetailsState {
         this.changed = changed;
         this.watchedChanged = watchedChanged;
         this.pendingElsewhere = pendingElsewhere;
+        this.rating = new RatingState(session, detail.id, () => this.changed(), () => this.pending || this.pendingElsewhere());
         if (detail.played !== undefined && ["movie", "episode", "series", "season"].includes(detail.type)) this.values.set("watched", detail.played);
     }
 
     get pending(): boolean { return [...this.changes.values()].some(change => change.pending); }
-    get busy(): boolean { return this.pending || this.pendingElsewhere(); }
+    get busy(): boolean { return this.pending || this.rating.pending || this.pendingElsewhere(); }
 
     start(mode: "full" | "personal" = "full"): void {
         if (this.controller !== undefined) return;
         this.controller = new AbortController();
+        if (mode === "full" && ["movie", "series"].includes(this.detail.type)) this.rating.start();
         this.stopAuthority = this.session.onAuthorityChange(() => { this.stop(); this.changed(); });
         if (mode === "full") this.loadTitleArt();
         let interrupted = false;
@@ -67,6 +71,7 @@ export class DetailsState {
     }
 
     stop(): void {
+        this.rating.stop();
         this.controller?.abort();
         this.controller = undefined;
         this.stopAuthority?.();

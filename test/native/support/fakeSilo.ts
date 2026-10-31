@@ -43,6 +43,7 @@ export type Reply = { status: number; body?: unknown; headers?: Record<string, s
 
 /** Answers the browse reads once the caller's bearer and profile proof are checked. */
 export interface CatalogRoutes {
+    playbackStopped?(requestedFileId: string, effectiveFileId: string, position: number): void;
     route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>, headers?: Readonly<Record<string, string>>): Reply | undefined;
 }
 

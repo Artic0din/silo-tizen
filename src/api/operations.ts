@@ -33,6 +33,7 @@ import {
     decodeItemDetail,
     decodeSeasons,
     decodeUserLibraries,
+    decodeWatchDetail,
     type Episode,
     HIDDEN_LIBRARIES_KEY,
     type HomeSection,
@@ -79,6 +80,9 @@ export type CatalogPageRequest = {
     | { readonly libraryId?: never; readonly q: string; readonly type: "video_with_episodes" });
 
 export const operations = {
+    watchDetail: (contentId: string): Spec<ReturnType<typeof decodeWatchDetail>> => ({
+        method: "GET", path: `/watch/${encodeURIComponent(contentId)}`, retry: "safe", decode: decodeWatchDetail,
+    }),
     ...discoveryOperations,
     ...settingsOperations,
     ...trickplayOperations,

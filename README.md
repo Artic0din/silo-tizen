@@ -13,7 +13,9 @@ The server address is remembered publicly; credentials use Tizen KeyManager or t
 `src/app.ts` composes the screen controllers without owning their network or credential logic.
 The profile controller remains active while browsing and playback use its profile authority.
 When that authority ends, the app removes the old content before the profile controller takes the screen back.
-Player Back, completion and dismissed errors return to the same browse view and focus.
+Player Back, movie completion and dismissed errors return to the same browse view and focus.
+Natural episode completion waits for the final STOP receipt and fresh authorized watch data, then offers manual Play next or Back.
+See [playback completion](docs/playback-quality.md#manual-episode-completion) for ordering and validation limits.
 Back from Home or library content returns to the navigation bar, then selects Home, then opens an Exit/Cancel dialog.
 Modal keys do not reach the screen underneath.
 

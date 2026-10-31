@@ -5,6 +5,7 @@ import type { Card, ItemDetail, UserLibrary } from "../contracts/v2/catalog.ts";
 
 /** What the player needs to call startPlayback: the item, one file and where to start. */
 export interface PlayRequest {
+    readonly episode?: true;
     readonly contentId: string;
     /** startPlayback's file_id. */
     readonly fileId: string;
@@ -109,7 +110,13 @@ export function playChoices(detail: ItemDetail, selectedFileId?: string): PlayCh
         return undefined;
     }
     const duration = file.durationSeconds > 0 ? file.durationSeconds : detail.durationSeconds;
-    const base = { contentId: detail.id, fileId: file.fileId, title: detail.title, ...(selectedFileId === undefined ? {} : { allowAlternateVersions: false as const }) };
+    const base = {
+        contentId: detail.id,
+        fileId: file.fileId,
+        title: detail.title,
+        ...(detail.type === "episode" ? { episode: true as const } : {}),
+        ...(selectedFileId === undefined ? {} : { allowAlternateVersions: false as const }),
+    };
     const start = resumeSeconds(detail.watch?.positionSeconds, duration);
     return {
         resume: start === undefined ? undefined : { ...base, startSeconds: start },

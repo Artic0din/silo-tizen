@@ -20,7 +20,7 @@ import { type Clock, sleep } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
 import { abortedError, type RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
-import type { AudioTrackInfo, FileVersionTracks, PlaybackDecision, PlaybackDefaults, PlaybackPlan, ReplanOperation, SelectedTracks, SubtitleTrack } from "../contracts/v2/playback.ts";
+import type { AudioTrackInfo, FileVersionTracks, PlaybackDecision, PlaybackDefaults, PlaybackMutation, PlaybackPlan, ReplanOperation, SelectedTracks, SubtitleTrack } from "../contracts/v2/playback.ts";
 import type { RandomBytes } from "../session/deviceIdentity.ts";
 import type { NativeSession } from "../session/session.ts";
 import type { AVPlay, AVPlayListener } from "./avplay.ts";
@@ -28,9 +28,11 @@ import { CLIENT_CAPABILITIES, CLIENT_FEATURES, playbackContext } from "./capabil
 import { SeekThumbnails, type ThumbnailSheetLoader } from "./seekThumbnails.ts";
 import { QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS, profileSettings } from "../contracts/v2/settings.ts";
 import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
+import { nextEpisode } from "./nextEpisode.ts";
 
 /** What browse hands over: one file of one catalog item. */
 export interface PlayRequest {
+    readonly episode?: true;
     readonly audioTrackId?: string;
     readonly allowAlternateVersions?: false;
     readonly contentId: string;
@@ -93,6 +95,7 @@ export interface TrackView {
 }
 
 export type PlaybackView =
+    | { readonly phase: "completion"; readonly title: string; readonly state: "finalizing" | "resolving" | "ready" | "failed"; readonly next: PlayRequest | undefined; readonly retryable: boolean }
     | { readonly phase: "loading"; readonly title: string }
     | {
           readonly phase: "playing" | "paused";
@@ -105,7 +108,7 @@ export type PlaybackView =
           readonly seekIntervals: { readonly backward: number; readonly forward: number };
           readonly previewKey?: string | undefined;
       }
-    | { readonly phase: "error"; readonly title: string; readonly error: PlaybackError }
+    | { readonly phase: "error"; readonly title: string; readonly error: PlaybackError; readonly retryable?: boolean }
     | { readonly phase: "closed" };
 
 /** What the player screen drives. */
@@ -126,6 +129,8 @@ export interface PlayerControls {
     selectQuality(preference: string): void;
     retryTrackInfo(): void;
     retrySettings(): void;
+    retryCompletion(): void;
+    playNext(): void;
     seekThumbnail(seconds: number, signal: AbortSignal, loadSheet: ThumbnailSheetLoader): Promise<SeekThumbnail | undefined>;
 }
 
@@ -193,9 +198,14 @@ interface Attempt {
     change: TrackChange;
     /** A failed route reported while a track change was pending; recovered once it settles. */
     changeFailure: string | undefined;
+    endedDuringChange: boolean;
     seekFailure: string | undefined;
     progress: Promise<void> | undefined;
     cancelTimer: (() => void) | undefined;
+    stopSpec: RequestSpec<PlaybackMutation> | undefined;
+    stopped: boolean;
+    stopRetryAt: number;
+    progressRefusal: unknown;
 }
 
 interface PendingTransport {
@@ -218,6 +228,8 @@ export class PlaybackController implements PlayerControls {
     private current: PlaybackView = { phase: "closed" };
     private readonly listeners: ((view: PlaybackView) => void)[] = [];
     private readonly stopAuthority: () => void;
+    private completion: { readonly attempt: Attempt; readonly abort: AbortController; pending: boolean } | undefined;
+    private nextStart: PlayRequest | undefined;
 
     constructor(deps: PlaybackDeps) {
         this.deps = deps;
@@ -226,9 +238,10 @@ export class PlaybackController implements PlayerControls {
         this.pending = pending;
         this.stopAuthority = deps.session.onAuthorityChange(() => {
             const attempt = this.attempt;
-            if (attempt === undefined || !attempt.live) {
+            if (attempt === undefined || (!attempt.live && this.completion === undefined)) {
                 return;
             }
+            this.cancelCompletion();
             this.leave(attempt, "abandon");
             this.attempt = undefined;
             this.show({ phase: "closed" });
@@ -238,6 +251,7 @@ export class PlaybackController implements PlayerControls {
 
     /** Starts a new attempt; one already running is stopped and never plays. */
     play(request: PlayRequest): void {
+        if (this.completion !== undefined) return;
         const previous = this.attempt;
         if (previous !== undefined) {
             this.leave(previous, "stop");
@@ -273,9 +287,14 @@ export class PlaybackController implements PlayerControls {
             trackRead: 0,
             change: { state: "idle" },
             changeFailure: undefined,
+            endedDuringChange: false,
             seekFailure: undefined,
             progress: undefined,
             cancelTimer: undefined,
+            stopSpec: undefined,
+            stopped: false,
+            stopRetryAt: 0,
+            progressRefusal: undefined,
         };
         this.attempt = attempt;
         this.show({ phase: "loading", title: request.title });
@@ -394,6 +413,11 @@ export class PlaybackController implements PlayerControls {
     }
 
     background(): void {
+        if (this.completion !== undefined) {
+            this.cancelCompletion();
+            this.back();
+            return;
+        }
         const attempt = this.active();
         if (attempt !== undefined) {
             this.fail(attempt, { kind: "backgrounded" }, true);
@@ -401,6 +425,8 @@ export class PlaybackController implements PlayerControls {
     }
 
     back(): void {
+        this.cancelCompletion();
+        this.nextStart = undefined;
         if (this.shownError !== undefined) {
             this.dismissError();
             return;
@@ -482,6 +508,7 @@ export class PlaybackController implements PlayerControls {
 
     /** Stops playback without an exit callback, for a parent that is tearing the screen down. */
     destroy(): void {
+        this.cancelCompletion();
         const attempt = this.attempt;
         if (attempt !== undefined) {
             this.leave(attempt, "stop");
@@ -592,7 +619,7 @@ export class PlaybackController implements PlayerControls {
         }
         attempt.sessionId = decision.sessionId;
         if (!attempt.live) {
-            void this.stopSession(attempt);
+            void this.stopSession(attempt).catch(() => undefined);
             return;
         }
         this.scheduleProgress(attempt);
@@ -722,6 +749,10 @@ export class PlaybackController implements PlayerControls {
     private changeSettled(attempt: Attempt, change: TrackChange): void {
         attempt.busy = false;
         attempt.change = change;
+        if (attempt.endedDuringChange) {
+            this.beginCompletion(attempt);
+            return;
+        }
         this.showPlayback(attempt);
         const failure = attempt.changeFailure;
         attempt.changeFailure = undefined;
@@ -758,6 +789,7 @@ export class PlaybackController implements PlayerControls {
         attempt.serverFeatures = serverFeatures;
         attempt.change = { state: "idle" };
         attempt.changeFailure = undefined;
+        attempt.endedDuringChange = false;
         if (attempt.tracks === undefined) {
             this.readTracks(attempt);
         }
@@ -898,12 +930,12 @@ export class PlaybackController implements PlayerControls {
                 }
             },
             onstreamcompleted: () => {
-                if (current() && attempt.started) {
-                    this.leave(attempt, "stop");
-                    this.attempt = undefined;
-                    this.show({ phase: "closed" });
-                    this.deps.exits.onEnd("completed");
+                if (!current() || !attempt.started) return;
+                if (attempt.busy) {
+                    if (attempt.change.state === "changing") attempt.endedDuringChange = true;
+                    return;
                 }
+                this.beginCompletion(attempt);
             },
             onevent: () => undefined,
             onerror: (eventType) => {
@@ -918,6 +950,14 @@ export class PlaybackController implements PlayerControls {
                 }
             },
         };
+    }
+
+    private beginCompletion(attempt: Attempt): void {
+        attempt.endedDuringChange = false;
+        this.leave(attempt, "abandon");
+        this.nextStart = undefined;
+        this.completion = { attempt, abort: new AbortController(), pending: false };
+        this.retryCompletion();
     }
 
     private closeTransport(): void {
@@ -994,6 +1034,7 @@ export class PlaybackController implements PlayerControls {
             },
             (error: unknown) => {
                 attempt.progress = undefined;
+                if (error instanceof ApiError && (error.status === 401 || error.status === 403 || error.status === 404 || error.status === 410 || error.problemId === "installation_changed")) attempt.progressRefusal = error;
                 if (!attempt.live || !(error instanceof ApiError)) {
                     return;
                 }
@@ -1007,6 +1048,7 @@ export class PlaybackController implements PlayerControls {
     }
 
     private async stopSession(attempt: Attempt): Promise<void> {
+        if (attempt.stopped) return;
         const sessionId = attempt.sessionId;
         const installationId = attempt.installationId;
         if (sessionId === undefined || installationId === undefined) {
@@ -1014,17 +1056,88 @@ export class PlaybackController implements PlayerControls {
         }
         // Stop is the last word: it waits for the sample in flight and carries the next sequence.
         await attempt.progress;
-        const spec = operations.stopPlayback(sessionId, {
+        if (attempt.progressRefusal !== undefined) throw attempt.progressRefusal;
+        const spec = attempt.stopSpec ?? operations.stopPlayback(sessionId, {
             installation_id: installationId,
             stop_id: this.newId(),
             sequence: ++attempt.sequence,
             position: attempt.sourceSeconds,
             is_paused: attempt.paused || !attempt.started,
         });
+        attempt.stopSpec = spec;
+        if (attempt.stopRetryAt > this.deps.clock.now()) await sleep(this.deps.clock, attempt.stopRetryAt - this.deps.clock.now(), attempt.signal, abortedError);
+        const receipt = await this.resend(attempt, async () => {
+            try {
+                return await this.deps.session.call({ ...spec, profileScoped: true, signal: attempt.signal });
+            } catch (error) {
+                if (error instanceof ApiError) attempt.stopRetryAt = this.deps.clock.now() + (error.retryAfterSeconds ?? 0) * 1000;
+                throw error;
+            }
+        });
+        if ((receipt.outcome !== "stopped" && receipt.outcome !== "replayed") || (receipt.stopId !== undefined && receipt.stopId !== spec.body?.stop_id)) {
+            throw new ApiError({ kind: "invalid_response", path: "playback_stop.receipt" });
+        }
+        attempt.stopped = true;
+    }
+
+    retryCompletion(): void {
+        const completion = this.completion;
+        if (completion === undefined) {
+            if (this.nextStart !== undefined && this.shownError !== undefined && retryableStart(this.shownError)) this.play(this.nextStart);
+            return;
+        }
+        const view = this.current;
+        if (view.phase === "completion" && view.state === "failed" && !view.retryable) return;
+        if (completion.pending || completion.abort.signal.aborted || completion.attempt.signal.aborted) return;
+        completion.pending = true;
+        void this.finishCompletion(completion);
+    }
+
+    playNext(): void {
+        const view = this.current;
+        if (view.phase !== "completion" || view.state !== "ready" || view.next === undefined || this.completion?.attempt.stopped !== true) return;
+        const request = view.next;
+        this.cancelCompletion();
+        this.nextStart = request;
+        this.play(request);
+    }
+
+    private cancelCompletion(): void {
+        this.completion?.abort.abort();
+        this.completion = undefined;
+    }
+
+    private async finishCompletion(completion: NonNullable<PlaybackController["completion"]>): Promise<void> {
+        const { attempt, abort } = completion;
+        const current = (): boolean => this.completion === completion && this.attempt === attempt && !abort.signal.aborted && !attempt.signal.aborted && attempt.signal === this.deps.session.authoritySignal;
+        const show = (state: "finalizing" | "resolving" | "ready" | "failed", next?: PlayRequest, retryable = false): void => {
+            if (current()) this.show({ phase: "completion", title: "Playback ended", state, next, retryable });
+        };
+        show("finalizing");
         try {
-            await this.resend(attempt, () => this.deps.session.call({ ...spec, profileScoped: true, signal: attempt.signal }));
-        } catch {
-            // Ended already (404, 410) or unreachable: the server ends an idle session itself.
+            await this.stopSession(attempt);
+            if (!current()) return;
+            if (attempt.request.episode !== true) {
+                this.cancelCompletion();
+                this.attempt = undefined;
+                this.show({ phase: "closed" });
+                this.deps.exits.onEnd("completed");
+                return;
+            }
+            show("resolving");
+            const fileId = attempt.plan?.effectiveMediaFileId;
+            if (fileId === undefined) throw new ApiError({ kind: "invalid_response", path: "playback_plan.effective_media_file_id" });
+            const next = await nextEpisode(spec => {
+                if (!current()) throw abortedError();
+                return this.deps.session.call({ ...spec, profileScoped: true, signal: abort.signal });
+            }, attempt.request.contentId, fileId);
+            show("ready", next);
+        } catch (error) {
+            const missingSession = error instanceof ApiError && error.status === 404 && !attempt.stopped;
+            const forbidden = missingSession || (error instanceof ApiError && (error.status === 401 || error.status === 403 || error.status === 410 || error.problemId === "installation_changed"));
+            show("failed", undefined, !forbidden);
+        } finally {
+            completion.pending = false;
         }
     }
 
@@ -1042,7 +1155,7 @@ export class PlaybackController implements PlayerControls {
             this.closeTransport();
         }
         if (how === "stop") {
-            void this.stopSession(attempt);
+            void this.stopSession(attempt).catch(() => undefined);
         }
     }
 
@@ -1052,7 +1165,7 @@ export class PlaybackController implements PlayerControls {
             return;
         }
         this.shownError = error;
-        this.show({ phase: "error", title: attempt.request.title, error });
+        this.show({ phase: "error", title: attempt.request.title, error, retryable: this.nextStart !== undefined && !attempt.started && retryableStart(error) });
     }
 
     /** A failed progress or replan for the session. */
@@ -1134,6 +1247,10 @@ export class PlaybackController implements PlayerControls {
         });
         return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
     }
+}
+
+function retryableStart(error: PlaybackError): boolean {
+    return error.kind === "network" || error.kind === "server" || error.kind === "settings" || (error.kind === "terminal" && error.retryable);
 }
 
 function trackView(attempt: Attempt, plan: PlaybackPlan): TrackView {

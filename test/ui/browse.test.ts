@@ -1366,6 +1366,7 @@ browseTest("series open seasons, seasons list episodes, and Back retraces each s
     await press(tv, "Enter");
     assert.deepEqual((await tv.page.evaluate(() => window.browseHarness.plays))[0], {
         contentId: "episode:s1e22",
+        episode: true,
         fileId: "f-episode:s1e22",
         title: "Harbor Lights chapter 2.2",
         startSeconds: 0,
@@ -1405,7 +1406,7 @@ browseTest("episode-aware text Search returns an episode-only match and preserve
     await tv.page.getByRole("button", { name: /^Resume/ }).click();
     await tv.eventually(async () => (await tv.page.evaluate(() => window.browseHarness.plays.length)) === 1, "fresh episode Resume handoff");
     assert.deepEqual((await tv.page.evaluate(() => window.browseHarness.plays))[0], {
-        contentId: "episode:s1e12", fileId: "f-episode:s1e12", title: "Harbor Lights chapter 1.2", startSeconds: 420,
+        contentId: "episode:s1e12", fileId: "f-episode:s1e12", title: "Harbor Lights chapter 1.2", startSeconds: 420, episode: true,
     });
     await tv.page.evaluate(() => window.browseHarness.resume());
     await showing(tv, "item:episode:s1e12");

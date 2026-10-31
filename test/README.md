@@ -15,6 +15,9 @@ npm test
 `npm run test:native` uses the real core and controller with fake Silo, KeyManager and AVPlay ports.
 The tests require no TV, account or network service.
 They cover authentication, refresh/cleanup races, profile authority and PIN proofs, catalog decoding and profile restrictions, playback identities, progress/stop ordering, retries, offset timelines, seek/close sequencing and track changes.
+EOF tests hold progress, STOP and fresh watch separately before permitting one manual successor START.
+They check identical STOP retries, unchanged watch state, explicit-zero starts, numeric season ordering, unreadable media, specials, multi-episode ranges, unknown durations, cancellation and late authority answers.
+The fake catalog applies a declared synthetic completion threshold on STOP, while a disabled persistence mode covers successful receipts without watch side effects.
 AVPlay's fake enforces its documented states and retains uncancellable callbacks after teardown.
 Lost track-change replies cannot leave an obsolete local plan playing; definitive refusals preserve the current transport.
 

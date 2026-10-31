@@ -3,7 +3,7 @@
 // Handwritten from openapi.json at the commit in ./SOURCE; not generated. Unknown members are
 // ignored and unknown item or library types decode to "unknown", so additive changes keep working.
 
-import { boolean, integer, object, optionalString, string, WireError } from "./wire.ts";
+import { boolean, integer, nonEmptyString, object, optionalString, string, WireError } from "./wire.ts";
 import { decodeDetailExtras, type DetailExtras } from "./details.ts";
 import { decodeAudioTracks, type AudioTrackInfo } from "./playback.ts";
 
@@ -304,6 +304,7 @@ export function decodeResumePosition(value: unknown, contentId: string, fileId: 
 // --- listSeriesSeasons ---
 
 export interface Season {
+    readonly isSpecials?: boolean;
     readonly id: string;
     readonly seasonNumber: number;
     readonly title: string;
@@ -315,6 +316,7 @@ export function decodeSeasons(value: unknown): Season[] {
     return items(value, "seasons", (entry, path) => {
         const obj = object(entry, path);
         return {
+            isSpecials: obj.is_specials === undefined ? false : boolean(obj, "is_specials", path),
             id: string(obj, "content_id", path),
             seasonNumber: integer(obj, "season_number", path),
             title: string(obj, "title", path),
@@ -327,6 +329,7 @@ export function decodeSeasons(value: unknown): Season[] {
 // --- listSeasonEpisodes ---
 
 export interface Episode {
+    readonly files?: readonly { readonly fileId: string; readonly unreadable: boolean }[];
     readonly id: string;
     readonly seasonNumber: number;
     readonly episodeNumber: number;
@@ -340,6 +343,11 @@ export function decodeEpisodes(value: unknown): Episode[] {
     return items(value, "episodes", (entry, path) => {
         const obj = object(entry, path);
         return {
+            files: (obj.files === undefined ? [] : array(obj, "files", path)).map((entry, index) => {
+                const filePath = `${path}.files[${index}]`;
+                const file = object(entry, filePath);
+                return { fileId: nonEmptyString(file, "file_id", filePath), unreadable: file.unreadable === undefined ? false : boolean(file, "unreadable", filePath) };
+            }),
             id: string(obj, "content_id", path),
             seasonNumber: integer(obj, "season_number", path),
             episodeNumber: integer(obj, "episode_number", path),
@@ -349,4 +357,46 @@ export function decodeEpisodes(value: unknown): Episode[] {
             played: decodeWatch(obj.user_data, `${path}.user_data`)?.played ?? false,
         };
     });
+}
+
+/** The watch endpoint uses seconds, unlike catalog version `duration` and episode runtime. */
+export interface WatchDetail {
+    readonly id: string;
+    readonly type: string;
+    readonly title: string;
+    readonly seriesId: string | undefined;
+    readonly seasonNumber: number | undefined;
+    readonly episodeNumber: number | undefined;
+    readonly watch: WatchState | undefined;
+    readonly versions: readonly {
+        readonly fileId: string;
+        readonly durationSeconds: number;
+        readonly multiEpisodeStart: number | undefined;
+        readonly multiEpisodeEnd: number | undefined;
+    }[];
+}
+
+export function decodeWatchDetail(value: unknown): WatchDetail {
+    const path = "watch_detail";
+    const obj = object(value, path);
+    return {
+        id: nonEmptyString(obj, "content_id", path),
+        type: string(obj, "type", path),
+        title: string(obj, "title", path),
+        seriesId: optionalString(obj, "series_id", path),
+        seasonNumber: optionalInteger(obj, "season_number", path),
+        episodeNumber: optionalInteger(obj, "episode_number", path),
+        watch: decodeWatch(obj.user_data, `${path}.user_data`),
+        versions: array(obj, "versions", path).map((entry, index) => {
+            const versionPath = `${path}.versions[${index}]`;
+            const version = object(entry, versionPath);
+            const start = optionalInteger(version, "multi_episode_start", versionPath);
+            const end = optionalInteger(version, "multi_episode_end", versionPath);
+            const duration = integer(version, "duration_seconds", versionPath);
+            if ((start === undefined) !== (end === undefined) || (start !== undefined && end !== undefined && (start < 1 || end < start)) || duration < 0) {
+                throw new WireError(versionPath, "a nonnegative duration and a complete ordered episode range");
+            }
+            return { fileId: nonEmptyString(version, "file_id", versionPath), durationSeconds: duration, multiEpisodeStart: start, multiEpisodeEnd: end };
+        }),
+    };
 }

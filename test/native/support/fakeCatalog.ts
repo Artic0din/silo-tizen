@@ -39,6 +39,9 @@ export class FakeCatalog implements CatalogRoutes {
     readonly progress = new Map<string, number>();
     readonly fileIds = new Map<string, string>();
     readonly removed = new Set<string>();
+    readonly playbackWatched = new Set<string>();
+    readonly watchOverrides = new Map<string, Record<string, unknown>>();
+    persistStops = true;
     private readonly failures = new Map<string, Reply[]>();
     private readonly searchContinuations = new Map<string, { q: string; type: string | null; household: Household; offset: number }>();
 
@@ -87,6 +90,20 @@ export class FakeCatalog implements CatalogRoutes {
 
     add(title: FakeTitle): void {
         this.titles.set(title.id, title);
+    }
+
+    /** Synthetic accounting uses a declared 90% threshold and the requested edition's duration. */
+    playbackStopped(requestedFileId: string, effectiveFileId: string, position: number): void {
+        if (!this.persistStops) return;
+        for (const title of this.titles.values()) {
+            if ((this.fileIds.get(title.id) ?? `f-${title.id}`) !== requestedFileId) continue;
+            this.progress.set(title.id, position);
+            if (position >= (title.duration ?? 5400) * 0.9) this.playbackWatched.add(title.id);
+            const override = this.watchOverrides.get(title.id);
+            if (override !== undefined) this.watchOverrides.set(title.id, { ...override, user_data: { played: this.playbackWatched.has(title.id), position_seconds: position, last_file_id: requestedFileId } });
+        }
+        // The effective file may differ; it does not change the server's requested-file accounting.
+        void effectiveFileId;
     }
 
     /** The next requests for `pathname` get these replies, first in first out. */
@@ -180,11 +197,31 @@ export class FakeCatalog implements CatalogRoutes {
         if (watch?.[1] !== undefined) {
             const id = decodeURIComponent(watch[1]);
             if (!this.visible(household, id)) return problem(404, "not_found", "Not found");
+            const title = this.mustTitle(id);
             const detail = this.detail(id);
-            return { status: 200, body: { ...detail, versions: arrayOf(detail.versions).map(value => {
-                const file = toRecord(value);
-                return { ...file, duration_seconds: file.duration };
-            }) } };
+            const override = this.watchOverrides.get(id);
+            const versions = override?.versions ?? detail.versions;
+            return { status: 200, body: {
+                ...detail,
+                content_id: id,
+                type: title.type,
+                title: title.title,
+                series_id: title.seriesId,
+                season_number: title.season,
+                episode_number: title.episode,
+                ...(Array.isArray(versions) ? {
+                    versions: versions.map(value => {
+                        const file = toRecord(value);
+                        return { ...file, duration_seconds: file.duration_seconds ?? file.duration ?? title.duration ?? 5400 };
+                    }),
+                } : { versions }),
+                user_data: {
+                    played: this.playbackWatched.has(id),
+                    position_seconds: this.progress.get(id),
+                    last_file_id: this.fileIds.get(id) ?? `f-${id}`,
+                },
+                ...override,
+            } };
         }
         const item = /^\/catalog\/items\/([^/]+)$/.exec(pathname);
         if (item?.[1] !== undefined) {
@@ -218,7 +255,7 @@ export class FakeCatalog implements CatalogRoutes {
                         episode_number: episode.episode,
                         title: episode.title,
                         user_data: { ...toRecord(template.user_data), played: episode.episode === 1 },
-                        files: [{ file_id: `f-${episode.id}`, resolution: "1080p", hdr: false, file_size: 1 }],
+                        files: [{ file_id: this.fileIds.get(episode.id) ?? `f-${episode.id}`, resolution: "1080p", hdr: false, file_size: 1 }],
                     })),
                 },
             };

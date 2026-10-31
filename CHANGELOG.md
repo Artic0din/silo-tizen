@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserved episode completion after refused player changes and removed an unusable Retry action when the session expired before completion.
+- Removed an unusable Retry action when an episode's playback session expired during final progress reporting, while keeping Back available.
 - Synchronized Calendar formatting-recovery tests with the pending weekly response before retrying.
 - Refreshed confirmed card-menu values after reopening an unresolved action and preserved Select presses during Details updates.
 - Kept preplay audio focus visible, reset changed track selections and rejected incomplete resume responses.
@@ -20,6 +22,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added manual Play next after natural episode completion, with confirmed session teardown, authorized episode resolution, Retry and Back.
 - Added Select-hold card actions for watched, favorites and watchlist, with confirmed state, safe explicit retries and restored page focus.
 - Added attempt-only preplay audio selection with explicit version binding, fresh Resume and reliable Play from start.
 - Added full person filmography with server-filtered All, Movies and Series pages, explicit paging, and restored Details and person focus.

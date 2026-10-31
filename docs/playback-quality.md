@@ -1,5 +1,42 @@
 # In-player quality
 
+## Manual episode completion
+
+Issue #12's bounded first slice offers Play next and Back only after a natural episode EOF.
+PlaybackController retires the transport and waits for an in-flight progress request before sending STOP with a newer sequence and the last observed source position.
+The adopted plan's effective file and source timeline identify the completed edition; unknown or different durations and early EOF never manufacture a full-duration sample.
+Uncertain STOP answers retry the identical installation ID, stop ID, sequence, position and body, preserving Retry-After.
+An explicit Retry after exhausted transient retries retains that same request.
+An expired session during final progress or STOP reporting offers Back without an unusable Retry.
+Fresh watch-read failures remain retryable after STOP is confirmed.
+EOF during a pending track or quality change is retained when a refusal keeps the original transport; adopting a replacement discards that predecessor's EOF.
+Authorization, installation and administrator refusals cannot create a successor session.
+
+A valid STOP receipt is a teardown barrier, not proof that progress or watch-history side effects succeeded.
+Fresh watch reads follow the receipt and precede any next offer.
+The panel says Playback ended even when fresh played state remains false or the contract's optional progress is absent.
+No separate mark-watched write is sent.
+Failed or malformed reads show Retry and Back rather than reporting exhaustion or a saved state.
+
+The resolver checks current identity and the effective version's explicit multi-episode range, then sorts returned numeric season and episode fields.
+Successful empty or unreadable permitted media are skipped; failed requests are errors.
+Regular sequences skip specials, while explicitly playing specials continues only within that season.
+The next title needs both an authorized episode row and a fresh permitted readable version.
+Watched episodes are still eligible; confirmed partial progress may resume, otherwise START receives explicit numeric zero.
+Play next uses the existing planner with a fresh attempt and no previous file's audio or edition selection.
+Movies return to Browse after confirmed teardown; exhausted episode sequences retain a focusable Back action.
+
+Back, backgrounding, teardown and authority changes cancel continuation and fence late answers.
+Remote focus stays reachable during finalization, resolution, failure and exhaustion; focus movement sends no reads.
+There is no autoplay, pre-EOF prompt, countdown, saved autoplay editor, credits policy, queue or cross-title fallback in this slice.
+Apple autoplay parity remains open.
+
+The source contracts are pinned to [server cc85149](https://github.com/Artic0din/silo-server/tree/cc8514943289045e7b9f7ac8d36d4968bfe93926), including WatchDetail, WatchFileVersion, Season, Episode and PlaybackMutation in OpenAPI and the stop finalization handler.
+Behavioral tests use synthetic server data and fake AVPlay.
+This source candidate does not close issue #12: signed packaging, real-TV movie EOF and cross-episode playback, AVPlay teardown/start recording, 2021 hardware and store acceptance remain parent-owned validation gates.
+
+## Quality and seek controls
+
 Playback Settings also offers separate video rewind and fast-forward intervals.
 The profile-only remote keys are `player.video_skip_back_seconds` and `player.video_skip_forward_seconds`, introduced in settings manifest revision 9.
 Their numeric choices are 5, 10, 15, 30, 45, 60 and 90 seconds, with inherited defaults of 10 and 30 seconds.

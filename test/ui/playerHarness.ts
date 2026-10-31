@@ -50,6 +50,8 @@ const controls: PlayerControls = {
     selectQuality: (id) => commands.push(`selectQuality ${id}`),
     retryTrackInfo: () => commands.push("retryTrackInfo"),
     retrySettings: () => commands.push("retrySettings"),
+    retryCompletion: () => commands.push("retryCompletion"),
+    playNext: () => commands.push("playNext"),
     seekThumbnail: async () => undefined,
 };
 const screen: PlayerScreen = mountPlayerScreen(root, controls);

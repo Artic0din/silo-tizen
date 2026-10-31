@@ -98,6 +98,88 @@ async function resumePlan(r: Rig): Promise<void> {
     }
 }
 
+for (const change of ["audio", "quality"] as const) test(`a hidden ${change} replacement opens a fresh pipeline on show`, async () => {
+    const r = await rig();
+    r.server.next.push({ availableQualities: [{ label: "original", preserves_source: true }, { label: "1080p-medium", height: 1080, bitrate_kbps: 6000, preserves_source: false }] });
+    const id = await play(r);
+    const held = r.h.fake.hold(`/playback/${id}/replan`, true);
+    if (change === "audio") r.controller.selectAudio("file:42:audio:1");
+    else r.controller.selectQuality("1080p-medium");
+    await r.h.clock.advance(0);
+    r.controller.suspend();
+    held.release();
+    await r.h.clock.advance(0);
+    r.controller.restore();
+    await r.h.clock.advance(0);
+    assert.equal(r.avplay.calls.filter(c => c.startsWith("restoreAsync")).length, 0, "closed pipelines must not warm restore");
+    await resumePlan(r);
+    r.avplay.tick(123000);
+    const view = last(r.views);
+    assert.equal(view.phase === "playing" && view.positionSeconds, 123, "fresh listener receives time updates");
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.deepEqual(r.exits, ["end:completed"]);
+});
+
+test("retired restore cannot mark a preparing user replacement started", async () => {
+    const r = await rig();
+    const id = await play(r);
+    const held = r.h.fake.hold(`/playback/${id}/replan`, true);
+    r.controller.selectAudio("file:42:audio:1");
+    await r.h.clock.advance(0);
+    r.controller.suspend();
+    r.controller.restore();
+    await r.h.clock.advance(0);
+    assert.equal(r.avplay.calls.filter(c => c.startsWith("restoreAsync")).length, 1);
+    held.release();
+    await r.h.clock.advance(0);
+    assert.equal(r.avplay.state, "IDLE");
+    r.avplay.finishRestore();
+    await r.h.clock.advance(0);
+    assert.equal(last(r.views).phase, "loading", "retired native callback cannot mark new preparation playing");
+    await r.h.clock.advance(60000);
+    assert.equal(replans(r.h).length, 2, "replacement startup watchdog remains armed");
+    r.controller.destroy();
+});
+
+for (const foreground of [false, true]) test(`transient login refresh during ${foreground ? "foreground" : "reconnect"} keeps recovery retryable`, async () => {
+    const r = await rig();
+    await play(r);
+    if (foreground) {
+        r.controller.suspend();
+        await r.h.clock.advance(3600000);
+    }
+    r.h.fake.expireAccessTokens();
+    r.h.fake.script("/auth/refresh", { status: 503 });
+    if (foreground) r.controller.restore();
+    else r.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
+    await r.h.clock.advance(foreground ? 0 : 1000);
+    assert.equal(last(r.views).phase, "loading", "refresh outage must retain the automatic retry cycle");
+    await r.h.clock.advance(foreground ? 1000 : 2000);
+    await resumePlan(r);
+    assert.equal(r.avplay.state, "PLAYING");
+    assert.equal(starts(r.h), 1);
+    assert.deepEqual(r.exits, []);
+    r.controller.destroy();
+});
+
+test("an unanswered recovery replan reuses its request identity and body", async () => {
+    const r = await rig();
+    const id = await play(r);
+    r.h.fake.dropNextAnswer(`/playback/${id}/replan`);
+    r.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
+    await r.h.clock.advance(1000);
+    await r.h.clock.advance(2000);
+    const requests = replans(r.h);
+    assert.equal(requests.length, 2);
+    assert.deepEqual(requests[1], requests[0], "lost answers replay the same logical recovery request");
+    assert.equal(starts(r.h), 1);
+    assert.equal(stops(r.h), 0);
+    await resumePlan(r);
+    assert.equal(r.avplay.state, "PLAYING");
+    r.controller.destroy();
+});
+
 for (const change of ["audio", "quality"] as const) test(`late user ${change} response cannot reopen the retired session`, async () => {
     const r = await rig();
     r.server.next.push({ availableQualities: [{ label: "original", preserves_source: true }, { label: "1080p-medium", height: 1080, bitrate_kbps: 6000, preserves_source: false }] });

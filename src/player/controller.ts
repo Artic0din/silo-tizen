@@ -209,6 +209,7 @@ interface Attempt {
     resuming: boolean;
     recovery: PlaybackRecovery | undefined;
     recoveryPending: boolean;
+    recoverySpec: ReturnType<typeof operations.replanPlayback> | undefined;
     cancelRecovery: (() => void) | undefined;
     /** Identical body for an unanswered replacement start. */
     replacementBody: StartPlaybackBody | undefined;
@@ -318,6 +319,7 @@ export class PlaybackController implements PlayerControls {
             resuming: false,
             recovery: undefined,
             recoveryPending: false,
+            recoverySpec: undefined,
             cancelRecovery: undefined,
             replacementBody: undefined,
             retirePredecessor: false,
@@ -912,6 +914,10 @@ export class PlaybackController implements PlayerControls {
         this.clearThumbnails(attempt);
         attempt.plan = plan;
         attempt.serverFeatures = serverFeatures;
+        attempt.suspended = false;
+        attempt.suspendedReady = false;
+        attempt.deferredOpen = false;
+        attempt.recoverySpec = undefined;
         attempt.change = { state: "idle" };
         attempt.busy = false;
         attempt.seekFailure = undefined;
@@ -1526,6 +1532,7 @@ export class PlaybackController implements PlayerControls {
                 return;
             }
             const decision = await this.recoveryReplan(attempt);
+            attempt.recoverySpec = undefined;
             if (!current()) {
                 return;
             }
@@ -1550,6 +1557,7 @@ export class PlaybackController implements PlayerControls {
             if (error instanceof ApiError && error.aborted) {
                 return;
             }
+            if (!unanswered(error)) attempt.recoverySpec = undefined;
             const verdict = recoveryVerdict(error, recovery.step);
             if (verdict.kind === "start_new_session") {
                 attempt.retirePredecessor = !(error instanceof ApiError && error.status === 404);
@@ -1567,7 +1575,7 @@ export class PlaybackController implements PlayerControls {
         if (plan === undefined || sessionId === undefined || installationId === undefined) {
             return Promise.reject(new ApiError({ kind: "invalid_response", path: "playback_recovery" }));
         }
-        const replan = operations.replanPlayback(sessionId, {
+        const replan = attempt.recoverySpec ?? operations.replanPlayback(sessionId, {
             installation_id: installationId,
             protocol_version: 3,
             client_features: CLIENT_FEATURES,
@@ -1586,6 +1594,7 @@ export class PlaybackController implements PlayerControls {
             client_capabilities: CLIENT_CAPABILITIES,
             client_playback_context: playbackContext(this.deps.device.model, this.deps.device.appVersion),
         });
+        attempt.recoverySpec = replan;
         return this.deps.session.call({ ...replan, profileScoped: true, signal: attempt.signal });
     }
 
@@ -1771,8 +1780,9 @@ export class PlaybackController implements PlayerControls {
             return;
         }
         if (attempt.suspended && attempt.plan !== undefined) {
+            const transport = this.transport;
             const restored = await this.warmRestore(attempt, gate.token);
-            if (!current()) {
+            if (!current() || transport !== this.transport) {
                 return;
             }
             if (restored) {
@@ -1867,10 +1877,15 @@ export class PlaybackController implements PlayerControls {
         }
         const resumeMs = Math.max(0, Math.round((attempt.sourceSeconds - plan.timeline.timelineOffsetSeconds) * 1000));
         const generation = attempt.resumeGeneration;
+        const transport = this.transport;
         this.showLoading(attempt, "restoring");
         return new Promise((resolve) => {
             try {
                 restore.call(this.deps.avplay, url, resumeMs, false, () => {
+                    if (transport !== this.transport) {
+                        resolve(false);
+                        return;
+                    }
                     if (!attempt.live || this.attempt !== attempt || attempt.hidden || attempt.resumeGeneration !== generation) {
                         if (attempt.live && this.attempt === attempt && (attempt.hidden || attempt.restoring)) {
                             try {

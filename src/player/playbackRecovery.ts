@@ -19,6 +19,7 @@
 // from the clock, so a timer that did not run while hidden is not required.
 
 import { ApiError } from "../api/errors.ts";
+import { SessionError } from "../session/session.ts";
 
 export const RECONNECT_MAX_ATTEMPTS = 12;
 export const RECONNECT_MAX_DELAY_MS = 15000;
@@ -46,10 +47,12 @@ export function reconnectDelayMs(attemptsAlreadyMade: number): number {
 }
 
 export function unanswered(error: unknown): boolean {
-    return error instanceof ApiError && (error.transient || error.problemId === "replan_in_progress");
+    return (error instanceof ApiError && (error.transient || error.problemId === "replan_in_progress"))
+        || (error instanceof SessionError && error.reason === "unavailable");
 }
 
 export function recoveryVerdict(error: unknown, step: RecoveryStep): RecoveryVerdict {
+    if (error instanceof SessionError && error.reason === "unavailable") return { kind: "retry" };
     if (!(error instanceof ApiError)) {
         return { kind: "give_up" };
     }

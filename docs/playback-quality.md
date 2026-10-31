@@ -91,6 +91,7 @@ Preparing transports cannot play while that foreground check is pending; obsolet
 Visibility changes keep an in-flight recovery request serialized; its accepted plan waits for foreground validation before opening a transport.
 An initial capability read establishes authority before foreground restoration compares installation identities.
 Hiding during a local seek defers native suspension until that seek settles, retaining its actual resulting position.
+Retiring a pipeline clears its suspension state; a deferred replacement opens with a new listener, and old native restore callbacks cannot mark it started.
 Hidden startup and reconnect deadlines are rearmed from the clock instead of relying on background timers.
 An already prepared READY pipeline resumes with play or pause, because AVPlay restoreAsync is not valid in READY.
 The explicit controller background() action remains a terminal stop; visibility events use suspend/restore instead.
@@ -98,6 +99,8 @@ A cold launch has no in-memory pipeline and uses the normal fresh server resume 
 
 After an established transport loses its connection, the controller keeps source position, current tracks and playing or paused intent.
 Recovery sends a no-op track_change rather than reporting a failed route.
+An unanswered recovery replan retains its request identity and identical body until a definitive answer, allowing the server to replay an accepted decision.
+Temporary login-refresh unavailability remains inside the recovery budget and does not force re-login.
 The twelve waits are 1, 2, 4, 8 and then eight 15-second waits: 135 seconds of waiting, excluding request time.
 A loss within 30 seconds of replacement playback carries the existing budget; an API response alone does not establish stable playback.
 A replacement that fails before playing follows ordinary route recovery; if that recovery cannot reach the server, it rejoins the same reconnect budget.

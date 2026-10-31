@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept each library mode's scroll and focus through Details, playback, Settings and interrupted loads, revealed clipped shelf cards on return, and stopped focused cards from growing with reduced motion.
+
 - Preserved episode completion after refused player changes and removed an unusable Retry action when the session expired before completion.
 - Removed an unusable Retry action when an episode's playback session expired during final progress reporting, while keeping Back available.
 - Synchronized Calendar formatting-recovery tests with the pending weekly response before retrying.

@@ -4,6 +4,8 @@ import type { RequestSpec } from "../api/http.ts";
 import { detailOperations, type PersonalAction } from "../api/detailOperations.ts";
 import { operations } from "../api/operations.ts";
 import type { Card, ItemDetail } from "../contracts/v2/catalog.ts";
+import { playChoices, resumeSeconds, type PlayRequest } from "./browseModel.ts";
+import type { Clock } from "../api/clock.ts";
 import type { NativeSession } from "../session/session.ts";
 import { TITLE_ART_KEY, profileSettings } from "../contracts/v2/settings.ts";
 
@@ -16,6 +18,10 @@ export interface PersonalChange {
 export class DetailsState {
     detail: ItemDetail;
     selectedFileId: string | undefined;
+    audioOpen = false;
+    preparingPlay = false;
+    failedPlay: PlayRequest | undefined;
+    private audioPick: { fileId: string; ordinal: number; inventory: string } | undefined;
     related: readonly Card[] | undefined;
     relatedFailed = false;
     personalSupported: boolean | undefined;
@@ -27,11 +33,11 @@ export class DetailsState {
     private controller: AbortController | undefined;
     private stopAuthority: (() => void) | undefined;
     private readonly session: NativeSession;
-    private readonly changed: () => void;
+    private readonly changed: (audioClosed?: boolean) => void;
     private readonly watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>;
     private readonly pendingElsewhere: () => boolean;
 
-    constructor(detail: ItemDetail, session: NativeSession, changed: () => void, watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>, pendingElsewhere: () => boolean = () => false) {
+    constructor(detail: ItemDetail, session: NativeSession, changed: (audioClosed?: boolean) => void, watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>, pendingElsewhere: () => boolean = () => false) {
         this.detail = detail;
         this.session = session;
         this.changed = changed;
@@ -67,6 +73,8 @@ export class DetailsState {
         this.stopAuthority = undefined;
         this.titleArt = undefined;
         this.titleArtPolicy = "pending";
+        this.audioOpen = false;
+        this.preparingPlay = false;
     }
 
     /** Capture the route generation as well as the confirmed policy for late image events. */
@@ -115,8 +123,78 @@ export class DetailsState {
 
     select(fileId: string): void {
         if (!this.detail.versions.some((file) => file.fileId === fileId)) return;
+        if (fileId !== playChoices(this.detail, this.selectedFileId)?.fromStart.fileId) this.audioPick = undefined;
         this.selectedFileId = fileId;
         this.changed();
+    }
+
+    restore(previous: DetailsState | undefined): void {
+        if (previous === undefined) return;
+        if (this.detail.versions.some(file => file.fileId === previous.selectedFileId)) this.selectedFileId = previous.selectedFileId;
+        this.audioPick = previous.audioPick;
+        this.audioTrackId();
+    }
+
+    audioTrackId(): string | undefined {
+        const fileId = playChoices(this.detail, this.selectedFileId)?.fromStart.fileId;
+        const file = this.detail.versions.find(file => file.fileId === fileId);
+        const pick = this.audioPick;
+        if (pick === undefined) return undefined;
+        if (pick.fileId !== fileId || file?.audio?.[pick.ordinal] === undefined || pick.inventory !== JSON.stringify([file.audio, file.audioMetadata])) {
+            this.audioPick = undefined;
+            return undefined;
+        }
+        return `file:${pick.fileId}:audio:${pick.ordinal}`;
+    }
+
+    showAudio(): void { this.audioOpen = true; this.changed(); }
+    closeAudio(): void { this.audioOpen = false; this.changed(true); }
+
+    selectAudio(ordinal: number | undefined): void {
+        const fileId = playChoices(this.detail, this.selectedFileId)?.fromStart.fileId;
+        const file = this.detail.versions.find(file => file.fileId === fileId);
+        if (file === undefined || (ordinal !== undefined && file.audio?.[ordinal] === undefined)) return;
+        this.audioPick = ordinal === undefined ? undefined : { fileId: file.fileId, ordinal, inventory: JSON.stringify([file.audio, file.audioMetadata]) };
+        this.closeAudio();
+    }
+
+    preparePlay(request: PlayRequest, clock: Clock, handoff: (request: PlayRequest) => void): void {
+        const controller = this.controller;
+        if (controller === undefined || this.preparingPlay) return;
+        this.failedPlay = undefined;
+        if (request.startSeconds === 0) { handoff(request); return; }
+        this.preparingPlay = true;
+        this.changed();
+        this.freshPosition(request, clock, controller.signal).then(position => {
+            if (!this.current(controller)) return;
+            this.preparingPlay = false;
+            handoff({ ...request, startSeconds: position });
+        }, () => {
+            if (!this.current(controller)) return;
+            this.preparingPlay = false;
+            this.failedPlay = request;
+            this.changed();
+        });
+    }
+
+    private async freshPosition(request: PlayRequest, clock: Clock, signal: AbortSignal): Promise<number> {
+        const controller = new AbortController();
+        const abort = (): void => controller.abort();
+        signal.addEventListener("abort", abort, { once: true });
+        let cancel = (): void => undefined;
+        try {
+            const timeout = new Promise<never>((_resolve, reject) => {
+                cancel = clock.schedule(() => { reject(new ApiError({ kind: "timeout" })); controller.abort(); }, 3000);
+            });
+            const fresh = await Promise.race([this.read(detailOperations.resumePosition(request.contentId, request.fileId), controller), timeout]);
+            return resumeSeconds(fresh.position, fresh.duration) ?? 0;
+        } catch (error) {
+            if (!signal.aborted && error instanceof ApiError && (error.failure.kind === "network" || error.failure.kind === "timeout" || error.status === 501 || error.status === 503)) return request.startSeconds ?? 0;
+            throw error;
+        } finally {
+            cancel();
+            signal.removeEventListener("abort", abort);
+        }
     }
 
     private read<T>(spec: RequestSpec<T>, controller: AbortController): Promise<T> {

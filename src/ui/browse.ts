@@ -226,7 +226,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (calendar !== undefined) calendar.stale = true;
     };
 
-    const detailsChanged = (current: Route): void => {
+    const detailsChanged = (current: Route, audioClosed = false): void => {
         if (current.kind === "item" || current.kind === "season") {
             const changes = current.data?.details?.changes;
             if (changes !== undefined && [...changes.values()].some(change => change.pending)) invalidateCalendar();
@@ -236,7 +236,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
         if (top() === current) {
             if (cardActions.active) cardActions.render();
-            else render();
+            else render(audioClosed ? { zone: "actions", key: "audio" } : undefined);
         }
     };
 
@@ -398,8 +398,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     return { detail, seasons, contextSeason: current.seriesContext?.seasonNumber ?? (episode?.seriesId === detail.id ? episode.seasonNumber : undefined) };
                 }, (data) => {
                     const previous = current.data?.details;
-                    const details = new DetailsState(data.detail, session, () => detailsChanged(current), (detail, signal) => refreshWatched(current, detail, signal), personalPending);
-                    details.selectedFileId = previous?.selectedFileId;
+                    const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending);
+                    details.restore(previous);
                     details.related = quiet ? previous?.related : undefined;
                     current.data = { ...data, details };
                     detailWork = details;
@@ -428,7 +428,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }, (data) => {
                     current.data = data;
                     if (data.detail !== undefined) {
-                        const details = new DetailsState(data.detail, session, () => detailsChanged(current), (detail, signal) => refreshWatched(current, detail, signal), personalPending);
+                        const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending);
                         current.data.details = details;
                         detailWork = details;
                         details.start();
@@ -652,10 +652,26 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const play = (request: PlayRequest): void => {
         const current = top();
+        if (current === undefined || torn || playing) return;
+        const details = current.kind === "item" ? current.data?.details : undefined;
+        const focus = host.focused();
+        if (details === undefined) handoff(request);
+        else {
+            loading?.abort();
+            loading = undefined;
+            cancelSlow();
+            detailWork = details;
+            details.start();
+            details.preparePlay(request, clock, resolved => handoff(resolved, focus));
+        }
+    };
+
+    const handoff = (request: PlayRequest, focus?: FocusTarget): void => {
+        const current = top();
         if (current === undefined || torn || playing) {
             return;
         }
-        current.focus = host.focused();
+        current.focus = focus ?? host.focused();
         stopDetails();
         playing = true;
         cancelCalendarDay();

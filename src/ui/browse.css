@@ -415,6 +415,10 @@
     .browse *, .browse *::before, .browse *::after { animation: none !important; transition: none !important; }
     .skyline-route-outgoing { display: none; animation: none; }
 }
+/* Keep the file-bound picker over Details, using Skyline's existing glass and focus grammar. */
+.details-audio-picker { position: fixed; left: 88px; top: 420px; width: 620px; max-height: 560px; overflow-y: auto; z-index: 12; }
+.details-audio-options { display: flex; flex-direction: column; gap: 12px; }
+.details-audio-options .browse-button { width: 100%; text-align: left; }
 /* Calendar events keep their own metadata and are never paged or capped. */
 .calendar-strip { display: flex; margin: 24px 0 32px; }
 .calendar-day { flex: 1; margin-right: 12px; min-height: 84px; }

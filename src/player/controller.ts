@@ -31,6 +31,8 @@ import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
 
 /** What browse hands over: one file of one catalog item. */
 export interface PlayRequest {
+    readonly audioTrackId?: string;
+    readonly allowAlternateVersions?: false;
     readonly contentId: string;
     readonly fileId: string;
     readonly title: string;
@@ -569,6 +571,8 @@ export class PlaybackController implements PlayerControls {
                 ...(attempt.bandwidthCapKbps === undefined ? {} : { bandwidth_cap_kbps: attempt.bandwidthCapKbps }),
                 subtitle_fidelity_preference: "compatible",
                 ...(attempt.request.startSeconds === undefined ? {} : { start_position: attempt.request.startSeconds }),
+                ...(attempt.request.audioTrackId === undefined ? {} : { audio_track_id: attempt.request.audioTrackId }),
+                ...(attempt.request.allowAlternateVersions === undefined ? {} : { allow_alternate_versions: attempt.request.allowAlternateVersions }),
                 client_capabilities: CLIENT_CAPABILITIES,
                 client_playback_context: playbackContext(this.deps.device.model, this.deps.device.appVersion),
             });

@@ -300,9 +300,10 @@ function titleCards(cards: readonly Card[], context: ViewContext): FocusItem[] {
     return items;
 }
 
-export function personView(person: Person, cards: readonly Card[], context: ViewContext, back: () => void, synopsis: Synopsis): View {
+export function personView(person: Person, cards: readonly Card[], context: ViewContext, back: () => void, synopsis: Synopsis, seeAll: () => void): View {
     const actions = [actionButton("back", "Back", back)];
     const bio = person.bio;
+    actions.push(actionButton("see-all", "See all", seeAll));
     if (bio) actions.push(actionButton("synopsis", "Read synopsis", () => synopsis.show(bio)));
     const hero = el("div", "browse-detail details-person-hero");
     hero.appendChild(artwork("browse-art browse-detail-art", person.photoUrl, context.baseUrl, person.name));

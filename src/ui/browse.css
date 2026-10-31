@@ -354,6 +354,7 @@
 .skyline-library .skyline-marquee { top: 246px; }
 .skyline-library .skyline-title { font-size: 66px; max-height: 136px; }
 .skyline-pills { position: fixed; top: 150px; left: 88px; width: 1744px; z-index: 4; }
+.skyline-pills.person-filmography-filters { position: static; width: auto; margin-bottom: 24px; }
 .skyline-pills .browse-button { font-size: 19px; padding: 9px 22px; border-radius: 30px; background: rgba(255,255,255,.07); color: #ededed; border-color: rgba(255,255,255,.09); }
 .skyline-pills .browse-button[aria-pressed="true"] { background: #fff; color: #000; }
 .discovery-facets, .discovery-letters { display: flex; flex-wrap: wrap; }
@@ -418,3 +419,15 @@
 .details-audio-picker { position: fixed; left: 88px; top: 420px; width: 620px; max-height: 560px; overflow-y: auto; z-index: 12; }
 .details-audio-options { display: flex; flex-direction: column; gap: 12px; }
 .details-audio-options .browse-button { width: 100%; text-align: left; }
+/* Calendar events keep their own metadata and are never paged or capped. */
+.calendar-strip { display: flex; margin: 24px 0 32px; }
+.calendar-day { flex: 1; margin-right: 12px; min-height: 84px; }
+.calendar-day[aria-pressed="true"] { background: var(--silo-selected); }
+.calendar-day[aria-current="date"] { border-bottom: 4px solid currentColor; }
+.calendar-shelf { margin-bottom: 32px; }
+.calendar-event .browse-card-subtitle { white-space: normal; max-height: none; }
+/* A refresh must not move shelves above the restored event. */
+.calendar-status { height: 48px; }
+.calendar-status .browse-text { margin: 0; max-width: none; font-size: 24px; }
+.calendar-filters .browse-button[aria-pressed="true"] { background: #fff; color: #000; }
+.calendar-week { margin-bottom: 20px; }

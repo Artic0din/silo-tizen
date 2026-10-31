@@ -18,8 +18,13 @@ export interface PlayRequest {
 /** A place a card or row opens. Items open their detail page; seasons open their episode list. */
 export type Destination =
     | { readonly kind: "person"; readonly id: string; readonly title: string }
-    | { readonly kind: "item"; readonly id: string; readonly title: string }
-    | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string };
+    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext }
+    | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string; readonly episodeId?: string };
+
+export interface SeriesContext {
+    readonly seasonNumber: number | undefined;
+    readonly episodeId: string | undefined;
+}
 
 /** Within this many seconds of the end, a stored position is treated as finished. */
 export const RESUME_END_MARGIN_SECONDS = 5;

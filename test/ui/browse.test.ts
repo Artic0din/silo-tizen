@@ -122,16 +122,16 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
     personal.release();
     await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "refreshed related titles");
-    await tv.page.locator('[data-focus="person:river"]').first().focus();
+    await tv.page.locator('[data-focus="person:7"]').first().focus();
     const reads = tv.fake.requests.length;
     await press(tv, "ArrowRight", "ArrowLeft");
     assert.equal(tv.fake.requests.length, reads, "focus performs no reads");
     await press(tv, "Enter");
-    await showing(tv, "person:river");
+    await showing(tv, "person:7");
     assert.equal(await tv.page.locator(".browse-card").count(), 24);
     await tv.remote(BACK);
     await showing(tv, "item:movie:m0001");
-    assert.equal(await tv.focused(), "person:river");
+    assert.equal(await tv.focused(), "person:7");
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "the bounded related rail");
     assert.equal(await tv.page.getByRole("button", { name: /trailer/i }).count(), 0);
 }, { catalog: new FakeDetails() });
@@ -362,7 +362,7 @@ browseTest("Details portraits keep their circular geometry and combine one perso
         const art = node.querySelector(".details-backdrop");
         return art !== null && art.getBoundingClientRect().bottom <= node.getBoundingClientRect().bottom;
     }), true, "hero artwork cannot paint over later rails");
-    assert.equal(await tv.page.locator('[data-focus="person:river"]').count(), 1);
+    assert.equal(await tv.page.locator('[data-focus="person:7"]').count(), 1);
     await shows(tv, "Alex · Director");
 }, { catalog: new FakeDetails() });
 
@@ -432,9 +432,9 @@ browseTest("optional Details reads load independently, fail, retry and report em
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await shows(tv, "No related titles available.");
-    await tv.page.locator('[data-focus="person:river"]').focus();
+    await tv.page.locator('[data-focus="person:7"]').focus();
     await press(tv, "Enter");
-    await showing(tv, "person:river");
+    await showing(tv, "person:7");
     await shows(tv, "No available titles for this person.");
     await tv.remote(BACK);
     await showing(tv, "item:movie:m0001");
@@ -466,8 +466,8 @@ browseTest("person, related and personal reads recover with explicit retries", a
     await tv.page.getByRole("button", { name: "Retry personal actions", exact: true }).click();
     await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "related retry");
-    const person = tv.fake.hold("/catalog/people/river", true);
-    await tv.page.locator('[data-focus="person:river"]').focus();
+    const person = tv.fake.hold("/catalog/people/7", true);
+    await tv.page.locator('[data-focus="person:7"]').focus();
     await press(tv, "Enter");
     await showing(tv, "person:loading");
     await tv.page.evaluate(() => window.browseHarness.clearProfile());
@@ -516,9 +516,9 @@ for (const kind of ["favorites", "watchlist"]) {
         const held = tv.fake.hold(path, true);
         await tv.page.getByRole("button", { name: kind === "favorites" ? "Add favorite" : "Add to watchlist", exact: true }).click();
         await tv.eventually(async () => catalog.mutations.length === 1, "personal mutation committed");
-        await tv.page.locator('[data-focus="person:river"]').first().focus();
+        await tv.page.locator('[data-focus="person:7"]').first().focus();
         await press(tv, "Enter");
-        await showing(tv, "person:river");
+        await showing(tv, "person:7");
         await tv.remote(BACK);
         held.release();
         await showing(tv, "item:movie:m0001");
@@ -1035,7 +1035,7 @@ browseTest("discovery uses nonzero letter positions and cancels an obsolete quer
 }, { multipleLibraries: true });
 
 browseTest("Skyline keeps bounded type tabs and a passive debounced marquee", async (tv) => {
-    assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["home", "movies", "series", "search", "profiles"]);
+    assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["home", "movies", "series", "search", "profiles", "calendar"]);
     assert.equal(await tv.page.locator(".skyline-marquee h1").textContent(), "Movie 0001");
     const reads = tv.fake.requests.length;
     await press(tv, "ArrowRight");
@@ -1224,7 +1224,7 @@ browseTest("reduced motion snaps scrolling and the real Browse flyout preserves 
 
 browseTest("Home lists visible video libraries and supported rows, and every row is reachable by remote", async (tv) => {
     const nav = await cardIds(tv, ".browse-nav .browse-button");
-    assert.deepEqual(nav, ["home", "movies", "series", "search", "profiles"], "bounded video types only");
+    assert.deepEqual(nav, ["home", "movies", "series", "search", "profiles", "calendar"], "bounded video types and Calendar only");
     const rows = await tv.page.evaluate(() => Array.from(document.querySelectorAll("[data-section]")).map((node) => node.getAttribute("data-section")));
     assert.deepEqual(rows, ["continue_watching", "recently_added"], "a row of only books is left out");
     assert.equal((await cardIds(tv)).indexOf("ebook:atlas"), -1, "the book card in a mixed row is left out");
@@ -1711,7 +1711,7 @@ browseTest("an authority change removes only browse, aborts its reads, and the n
     assert.equal(await tv.page.evaluate(() => window.browseHarness.selectProfile("p-kid", "2468")), "verified");
     await tv.page.evaluate(() => window.browseHarness.mount());
     await showing(tv, "home");
-    assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["home", "movies", "search", "profiles"]);
+    assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["home", "movies", "search", "profiles", "calendar"]);
     const kidReads = browseReads(tv).filter((read) => read.headers["x-profile-id"] === "p-kid");
     assert.ok(kidReads.length >= 3 && kidReads.every((read) => read.headers["x-profile-token"]?.startsWith("pvt-")));
 
@@ -1722,7 +1722,7 @@ browseTest("an authority change removes only browse, aborts its reads, and the n
     await tv.remote(BACK);
     await showing(tv, "home");
 
-    await press(tv, "ArrowUp", "ArrowRight", "ArrowRight", "ArrowRight", "Enter");
+    await press(tv, "ArrowRight", "Enter");
     await press(tv, "ArrowDown", "Enter");
     assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.chooseProfileCalls), [false], "browse was gone before onChooseProfile ran");
     assert.equal(await tv.page.locator(".browse").count(), 0);

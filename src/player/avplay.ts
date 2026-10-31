@@ -31,6 +31,17 @@ export interface AVPlay {
     play(): void;
     pause(): void;
     seekTo(milliseconds: number, success: () => void, error: (error: AVPlayAsyncError) => void): void;
+    /**
+     * App hide. Valid in READY, PLAYING and PAUSED (AVPlay API). Not pause/play:
+     * Samsung's multitasking FAQ says those are the wrong calls for visibility.
+     */
+    suspend?(): void;
+    /**
+     * App show. Valid in NONE, PLAYING and PAUSED, not READY. Preferred over the
+     * blocking `restore`. `prepare` false lets the platform resume without `prepare()`,
+     * which would block the thread and hold a black picture.
+     */
+    restoreAsync?(url: string | null, resumeTime: number | null, prepare: boolean, success: () => void, error: (error: AVPlayAsyncError) => void): void;
     stop(): void;
     getState(): string;
     getCurrentTime(): number;

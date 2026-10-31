@@ -33,6 +33,7 @@ export class FakeAVPlay implements AVPlay {
     private stream = 0;
     private readonly prepares: Pending[] = [];
     private readonly seeks: (Pending & { readonly ms: number })[] = [];
+    private readonly restores: (Pending & { readonly ms: number })[] = [];
 
     get listener(): AVPlayListener | undefined {
         return this.listeners[this.listeners.length - 1];
@@ -85,6 +86,22 @@ export class FakeAVPlay implements AVPlay {
         this.seeks.push({ success, error, stream: this.stream, ms: milliseconds });
     }
 
+    suspend(): void {
+        this.require("suspend", ["READY", "PLAYING", "PAUSED"]);
+        this.calls.push("suspend");
+    }
+
+    restoreAsync(url: string | null, resumeTime: number | null, prepare: boolean, success: () => void, error: (error: AVPlayAsyncError) => void): void {
+        this.require("restoreAsync", ["NONE", "PLAYING", "PAUSED"]);
+        const ms = resumeTime ?? 0;
+        const published = url ?? "";
+        this.calls.push(`restoreAsync ${ms} prepare=${prepare} ${published}`);
+        if (published !== "") {
+            this.urls.push(published);
+        }
+        this.restores.push({ success, error, stream: this.stream, ms });
+    }
+
     stop(): void {
         this.calls.push("stop");
         if (this.state !== "NONE") {
@@ -133,6 +150,22 @@ export class FakeAVPlay implements AVPlay {
             return;
         }
         if (pending.stream === this.stream) {
+            this.positionMs = pending.ms;
+        }
+        pending.success();
+    }
+
+    /** Fires the oldest pending restoreAsync callback. */
+    finishRestore(errorName?: string): void {
+        const pending = this.restores.shift();
+        if (pending === undefined) {
+            throw new Error("no restoreAsync pending");
+        }
+        if (errorName !== undefined) {
+            pending.error({ name: errorName });
+            return;
+        }
+        if (pending.ms > 0) {
             this.positionMs = pending.ms;
         }
         pending.success();

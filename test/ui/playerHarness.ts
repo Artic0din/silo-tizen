@@ -44,6 +44,8 @@ const controls: PlayerControls = {
         commands.push("background");
         listener?.({ phase: "error", title: "The Movie", error: { kind: "backgrounded" } });
     },
+    suspend: () => commands.push("suspend"),
+    restore: () => commands.push("restore"),
     dismissError: () => commands.push("dismissError"),
     selectAudio: (id) => commands.push(`selectAudio ${id}`),
     selectSubtitle: (id) => commands.push(`selectSubtitle ${id ?? "off"}`),

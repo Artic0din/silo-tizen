@@ -420,6 +420,8 @@ export type StartPlaybackBody = {
     /** Omitted: the server resumes from the profile's saved position. */
     readonly start_position?: number;
     readonly audio_track_id?: string;
+    /** Omitted when subtitles are off, so a replacement start does not turn them on. */
+    readonly subtitle_track_id?: string;
     readonly allow_alternate_versions?: false;
     readonly client_capabilities: ClientCapabilities;
     readonly client_playback_context: ClientPlaybackContext;

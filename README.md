@@ -57,8 +57,10 @@ Changing version clears that track choice; explicitly choosing a version pins it
 Resume checks fresh profile progress for up to three seconds; Play from start sends source position zero.
 See [preplay behavior](docs/skyline-browse-shell.md#preplay-audio-and-resume) for fallback, cancellation and persistence limits.
 The server can burn embedded subtitles into video when transcoding is allowed; external and downloaded subtitles receive an explicit unsupported result.
-Backgrounding stops playback safely and requires selecting the title again.
-Authenticated suspend/restore remains in [#13](https://github.com/Artic0din/silo-tizen/issues/13).
+Visibility changes suspend the active pipeline and revalidate authority and media authorization before restoring it.
+Mid-stream connection loss pauses playback and retries at the saved source position with bounded backoff, preserving playing or paused intent.
+Cold launches use the normal server resume flow; they do not restore an in-memory pipeline.
+See [playback recovery](docs/playback-quality.md#lifecycle-and-connection-recovery) for cancellation, terminal errors and remaining hardware acceptance under [#13](https://github.com/Artic0din/silo-tizen/issues/13).
 
 ## Build and package
 

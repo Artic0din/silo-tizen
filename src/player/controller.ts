@@ -20,7 +20,7 @@ import { type Clock, sleep } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
 import { abortedError, type RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
-import type { AudioTrackInfo, FileVersionTracks, PlaybackDecision, PlaybackDefaults, PlaybackMutation, PlaybackPlan, ReplanOperation, SelectedTracks, SubtitleTrack } from "../contracts/v2/playback.ts";
+import type { AudioTrackInfo, FileVersionTracks, PlaybackDecision, PlaybackDefaults, PlaybackMutation, PlaybackPlan, ReplanOperation, SelectedTracks, StartPlaybackBody, SubtitleTrack } from "../contracts/v2/playback.ts";
 import type { RandomBytes } from "../session/deviceIdentity.ts";
 import type { NativeSession } from "../session/session.ts";
 import type { AVPlay, AVPlayListener } from "./avplay.ts";
@@ -29,6 +29,7 @@ import { SeekThumbnails, type ThumbnailSheetLoader } from "./seekThumbnails.ts";
 import { QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS, profileSettings } from "../contracts/v2/settings.ts";
 import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
 import { nextEpisode } from "./nextEpisode.ts";
+import { PlaybackRecovery, recoveryVerdict, type RecoveryStep, type RecoveryVerdict, unanswered } from "./playbackRecovery.ts";
 
 /** What browse hands over: one file of one catalog item. */
 export interface PlayRequest {
@@ -57,6 +58,7 @@ export type PlaybackError =
     /** The server no longer knows the session (expired or restarted). Recovery belongs to #13. */
     | { readonly kind: "session_expired" }
     | { readonly kind: "installation_changed" }
+    | { readonly kind: "revoked" }
     | { readonly kind: "backgrounded" }
     | { readonly kind: "server" };
 
@@ -96,7 +98,7 @@ export interface TrackView {
 
 export type PlaybackView =
     | { readonly phase: "completion"; readonly title: string; readonly state: "finalizing" | "resolving" | "ready" | "failed"; readonly next: PlayRequest | undefined; readonly retryable: boolean }
-    | { readonly phase: "loading"; readonly title: string }
+    | { readonly phase: "loading"; readonly title: string; readonly detail?: "reconnecting" | "restoring" }
     | {
           readonly phase: "playing" | "paused";
           readonly title: string;
@@ -120,8 +122,12 @@ export interface PlayerControls {
     seekBy(seconds: number): void;
     seekToSeconds(seconds: number): void;
     back(): void;
-    /** Ends the attempt safely; authenticated suspension/restore belongs to recovery. */
+    /** Ends the attempt. Visibility uses suspend/restore instead. */
     background(): void;
+    /** App hide: suspend AVPlay, keep the session, and do not rely on timers firing. */
+    suspend(): void;
+    /** App show: revalidate authority, then restore the pipeline or reconnect. */
+    restore(): void;
     dismissError(): void;
     selectAudio(trackId: string): void;
     /** Undefined turns subtitles off. */
@@ -165,11 +171,12 @@ const WARNING_NOTICES: Readonly<Record<string, string>> = {
 
 interface Attempt {
     readonly request: PlayRequest;
-    readonly playbackAttemptId: string;
+    playbackAttemptId: string;
     /** The session's authority signal when the attempt began. */
     readonly signal: AbortSignal;
     live: boolean;
     installationId: string | undefined;
+    profileId: string | undefined;
     sessionId: string | undefined;
     plan: PlaybackPlan | undefined;
     planAttemptId: string;
@@ -189,6 +196,25 @@ interface Attempt {
     thumbnails: SeekThumbnails | undefined;
     /** The current transport is playing or paused. */
     started: boolean;
+    /** A transport of this attempt has shown a frame. Stays true across reconnects. */
+    presented: boolean;
+    hidden: boolean;
+    /** suspend() succeeded from PLAYING or PAUSED, so restoreAsync is valid. */
+    suspended: boolean;
+    /** suspend() succeeded from READY, where restoreAsync is not valid. */
+    suspendedReady: boolean;
+    deferredOpen: boolean;
+    restoring: boolean;
+    /** The next open is a reconnect handoff and should say so. */
+    resuming: boolean;
+    recovery: PlaybackRecovery | undefined;
+    recoveryPending: boolean;
+    cancelRecovery: (() => void) | undefined;
+    /** Identical body for an unanswered replacement start. */
+    replacementBody: StartPlaybackBody | undefined;
+    retirePredecessor: boolean;
+    resumeGeneration: number;
+    progressDue: number | undefined;
     buffering: boolean;
     /** A seek or replan (including a track change) is in flight. */
     busy: boolean;
@@ -228,6 +254,7 @@ export class PlaybackController implements PlayerControls {
     private current: PlaybackView = { phase: "closed" };
     private readonly listeners: ((view: PlaybackView) => void)[] = [];
     private readonly stopAuthority: () => void;
+    private startupDue: number | undefined;
     private completion: { readonly attempt: Attempt; readonly abort: AbortController; pending: boolean } | undefined;
     private nextStart: PlayRequest | undefined;
 
@@ -263,6 +290,7 @@ export class PlaybackController implements PlayerControls {
             signal: this.deps.session.authoritySignal,
             live: true,
             installationId: undefined,
+            profileId: undefined,
             sessionId: undefined,
             plan: undefined,
             planAttemptId: this.newId(),
@@ -281,6 +309,20 @@ export class PlaybackController implements PlayerControls {
             trickplayEnabled: false,
             thumbnails: undefined,
             started: false,
+            presented: false,
+            hidden: false,
+            suspended: false,
+            suspendedReady: false,
+            deferredOpen: false,
+            restoring: false,
+            resuming: false,
+            recovery: undefined,
+            recoveryPending: false,
+            cancelRecovery: undefined,
+            replacementBody: undefined,
+            retirePredecessor: false,
+            resumeGeneration: 0,
+            progressDue: undefined,
             buffering: false,
             busy: false,
             tracks: undefined,
@@ -424,6 +466,51 @@ export class PlaybackController implements PlayerControls {
         }
     }
 
+    suspend(): void {
+        if (this.completion !== undefined) {
+            this.cancelCompletion();
+            this.back();
+            return;
+        }
+        const attempt = this.active();
+        if (attempt === undefined || attempt.hidden) {
+            return;
+        }
+        attempt.resumeGeneration += 1;
+        attempt.restoring = false;
+        attempt.hidden = true;
+        this.capturePosition(attempt);
+        this.holdTimers(attempt);
+        const state = this.deps.avplay.getState();
+        if ((state === "PLAYING" || state === "PAUSED" || state === "READY") && this.deps.avplay.suspend !== undefined) {
+            try {
+                this.deps.avplay.suspend();
+                if (state === "READY") {
+                    attempt.suspendedReady = true;
+                } else {
+                    attempt.suspended = true;
+                }
+            } catch {
+                attempt.suspended = false;
+                attempt.suspendedReady = false;
+            }
+        }
+    }
+
+    restore(): void {
+        const attempt = this.attempt;
+        if (attempt === undefined || !attempt.live || !attempt.hidden || attempt.restoring) {
+            return;
+        }
+        attempt.hidden = false;
+        attempt.restoring = true;
+        this.showLoading(attempt, "restoring");
+        const generation = attempt.resumeGeneration + 1;
+        void this.resumeVisible(attempt).finally(() => {
+            if (attempt.resumeGeneration === generation) attempt.restoring = false;
+        });
+    }
+
     back(): void {
         this.cancelCompletion();
         this.nextStart = undefined;
@@ -500,7 +587,11 @@ export class PlaybackController implements PlayerControls {
         if (error === undefined) {
             return;
         }
+        const attempt = this.attempt;
         this.shownError = undefined;
+        if (attempt !== undefined && attempt.live) {
+            this.leave(attempt, "stop");
+        }
         this.attempt = undefined;
         this.show({ phase: "closed" });
         this.deps.exits.onError(error);
@@ -573,6 +664,7 @@ export class PlaybackController implements PlayerControls {
                 return;
             }
             attempt.installationId = installationId;
+            attempt.profileId = profile.id;
             attempt.trickplayEnabled = capabilities.features.includes("trickplay_v1");
             if (!await this.readSeekIntervals(attempt)) return;
             const defaults = attempt.batchedSettings
@@ -667,9 +759,22 @@ export class PlaybackController implements PlayerControls {
             if (!attempt.live) {
                 return;
             }
+            if ((operation === "track_change" || operation === "quality_change") && unanswered(error) && attempt.presented
+                && (attempt.recovery?.active === true || (error instanceof ApiError && error.transient))) {
+                attempt.change = { state: "failed" };
+                attempt.busy = false;
+                this.recoverConnection(attempt);
+                return;
+            }
             // A missing or unusable answer cannot prove that the server rolled the change back.
             if (operation === "track_change" && error instanceof ApiError && !error.transient && error.failure.kind !== "invalid_response" && !sessionGone(error)) {
                 this.changeSettled(attempt, { state: "failed" });
+                return;
+            }
+            if (operation === "failure_recovery" && unanswered(error) && attempt.presented && this.shownError === undefined) {
+                this.releaseFailedRoute(attempt);
+                if (attempt.recovery?.active === true) this.noteTransportUnanswered(attempt);
+                else this.recoverConnection(attempt);
                 return;
             }
             this.sessionFailure(attempt, error);
@@ -796,7 +901,7 @@ export class PlaybackController implements PlayerControls {
         attempt.planAttemptId = this.newId();
         attempt.sourceSeconds = plan.timeline.sourceStartSeconds;
         attempt.started = false;
-        this.show({ phase: "loading", title: attempt.request.title });
+        this.showLoading(attempt, attempt.resuming ? "reconnecting" : undefined);
         void this.open(attempt, plan);
     }
 
@@ -805,6 +910,10 @@ export class PlaybackController implements PlayerControls {
         const transport = this.transport;
         await this.pending.closing;
         if (transport !== this.transport || !attempt.live) {
+            return;
+        }
+        if (attempt.hidden || attempt.restoring) {
+            attempt.deferredOpen = true;
             return;
         }
         const base = this.deps.session.http.base;
@@ -844,11 +953,7 @@ export class PlaybackController implements PlayerControls {
             avplay.open(url);
             avplay.setListener(this.listen(attempt, transport));
             avplay.setDisplayRect(0, 0, SCREEN.width, SCREEN.height);
-            this.cancelStartup = this.deps.clock.schedule(() => {
-                if (transport === this.transport && !attempt.started) {
-                    this.routeFailed(attempt, "avplay_startup_timeout");
-                }
-            }, STARTUP_TIMEOUT_MS);
+            this.armStartup(attempt, transport);
             avplay.prepareAsync(
                 () => {
                     if (transport === this.transport && attempt.live) {
@@ -860,8 +965,9 @@ export class PlaybackController implements PlayerControls {
                         return;
                     }
                     if (error.name === "InvalidAccessError") {
-                        // The URL is valid but unreachable: a network or authorization failure, not the codec route.
-                        this.fail(attempt, { kind: "network" }, true);
+                        // An unplayed replacement may be unreachable even when the previous transport played.
+                        if (attempt.presented) this.routeFailed(attempt, "avplay_prepare_failed");
+                        else this.fail(attempt, { kind: "network" }, true);
                     } else {
                         this.routeFailed(attempt, "avplay_prepare_failed");
                     }
@@ -878,6 +984,17 @@ export class PlaybackController implements PlayerControls {
                 return;
             }
             this.cancelStartup?.();
+            this.cancelStartup = undefined;
+            this.startupDue = undefined;
+            if (attempt.hidden || attempt.restoring) {
+                try {
+                    this.deps.avplay.suspend?.();
+                    attempt.suspendedReady = true;
+                } catch {
+                    attempt.suspendedReady = false;
+                }
+                return;
+            }
             try {
                 this.deps.avplay.play();
                 if (attempt.paused) {
@@ -888,6 +1005,12 @@ export class PlaybackController implements PlayerControls {
                 return;
             }
             attempt.started = true;
+            attempt.presented = true;
+            attempt.resuming = false;
+            if (attempt.recovery?.active === true) attempt.recovery.recovered(this.deps.clock.now());
+            if (attempt.cancelTimer === undefined) {
+                this.scheduleProgress(attempt);
+            }
             this.showPlayback(attempt);
         };
         const startMs = Math.round(plan.timeline.playerStartSeconds * 1000);
@@ -944,7 +1067,7 @@ export class PlaybackController implements PlayerControls {
                     return;
                 }
                 if (eventType === "PLAYER_ERROR_CONNECTION_FAILED") {
-                    this.fail(attempt, { kind: "network" }, true);
+                    this.recoverConnection(attempt);
                 } else {
                     this.routeFailed(attempt, "avplay_playback_error");
                 }
@@ -962,6 +1085,7 @@ export class PlaybackController implements PlayerControls {
 
     private closeTransport(): void {
         this.transport++;
+        this.startupDue = undefined;
         this.cancelStartup?.();
         this.cancelStartup = undefined;
         const seek = this.pending.seek;
@@ -1007,8 +1131,13 @@ export class PlaybackController implements PlayerControls {
     // --- progress and stop ---
 
     private scheduleProgress(attempt: Attempt): void {
+        attempt.cancelTimer?.();
+        const due = this.deps.clock.now() + PROGRESS_INTERVAL_MS;
+        attempt.progressDue = due;
         attempt.cancelTimer = this.deps.clock.schedule(() => {
-            if (!attempt.live) {
+            attempt.cancelTimer = undefined;
+            attempt.progressDue = undefined;
+            if (!attempt.live || attempt.hidden || attempt.recovery?.active === true) {
                 return;
             }
             this.sendProgress(attempt);
@@ -1026,13 +1155,15 @@ export class PlaybackController implements PlayerControls {
             installation_id: installationId,
             sequence: ++attempt.sequence,
             position: attempt.sourceSeconds,
-            is_paused: attempt.paused || !attempt.started,
+            is_paused: samplePaused(attempt),
         });
         attempt.progress = this.deps.session.call({ ...spec, profileScoped: true, signal: attempt.signal }).then(
             () => {
+                if (attempt.sessionId !== sessionId) return;
                 attempt.progress = undefined;
             },
             (error: unknown) => {
+                if (attempt.sessionId !== sessionId) return;
                 attempt.progress = undefined;
                 if (error instanceof ApiError && (error.status === 401 || error.status === 403 || error.status === 404 || error.status === 410 || error.problemId === "installation_changed")) attempt.progressRefusal = error;
                 if (!attempt.live || !(error instanceof ApiError)) {
@@ -1062,7 +1193,7 @@ export class PlaybackController implements PlayerControls {
             stop_id: this.newId(),
             sequence: ++attempt.sequence,
             position: attempt.sourceSeconds,
-            is_paused: attempt.paused || !attempt.started,
+            is_paused: samplePaused(attempt),
         });
         attempt.stopSpec = spec;
         if (attempt.stopRetryAt > this.deps.clock.now()) await sleep(this.deps.clock, attempt.stopRetryAt - this.deps.clock.now(), attempt.signal, abortedError);
@@ -1083,6 +1214,15 @@ export class PlaybackController implements PlayerControls {
     retryCompletion(): void {
         const completion = this.completion;
         if (completion === undefined) {
+            const attempt = this.attempt;
+            if (attempt?.live === true && attempt.presented && this.shownError?.kind === "network") {
+                this.shownError = undefined;
+                const step = attempt.recovery?.step ?? "replan";
+                attempt.resuming = true;
+                this.showLoading(attempt, "reconnecting");
+                this.arm(attempt, true, step);
+                return;
+            }
             if (this.nextStart !== undefined && this.shownError !== undefined && retryableStart(this.shownError)) this.play(this.nextStart);
             return;
         }
@@ -1151,6 +1291,10 @@ export class PlaybackController implements PlayerControls {
         attempt.live = false;
         this.clearThumbnails(attempt);
         attempt.cancelTimer?.();
+        attempt.cancelTimer = undefined;
+        attempt.cancelRecovery?.();
+        attempt.cancelRecovery = undefined;
+        attempt.recovery?.end(false, this.deps.clock.now());
         if (this.attempt === attempt) {
             this.closeTransport();
         }
@@ -1182,11 +1326,606 @@ export class PlaybackController implements PlayerControls {
             return;
         }
         if (error instanceof ApiError && error.status === 404) {
+            if (attempt.presented && attempt.live && this.shownError === undefined) {
+                this.sessionMissing(attempt);
+                return;
+            }
             this.fail(attempt, { kind: "session_expired" }, false);
             return;
         }
         const failure = startFailure(error);
         this.fail(attempt, failure, failure.kind !== "installation_changed");
+    }
+
+    // --- reconnect and visibility ---
+
+    private capturePosition(attempt: Attempt): void {
+        const plan = attempt.plan;
+        if (plan === undefined || !attempt.started || attempt.busy) {
+            return;
+        }
+        try {
+            const ms = this.deps.avplay.getCurrentTime();
+            if (Number.isFinite(ms) && ms >= 0) {
+                attempt.sourceSeconds = ms / 1000 + plan.timeline.timelineOffsetSeconds;
+            }
+        } catch {
+            // Keep the last position the stream reported.
+        }
+    }
+
+    private holdTimers(attempt: Attempt): void {
+        attempt.cancelTimer?.();
+        attempt.cancelTimer = undefined;
+        attempt.cancelRecovery?.();
+        attempt.cancelRecovery = undefined;
+        this.cancelStartup?.();
+        this.cancelStartup = undefined;
+    }
+
+    private armStartup(attempt: Attempt, transport: number, deadline = this.deps.clock.now() + STARTUP_TIMEOUT_MS): void {
+        this.startupDue = deadline;
+        this.cancelStartup?.();
+        this.cancelStartup = this.deps.clock.schedule(() => {
+            this.startupDue = undefined;
+            if (transport === this.transport && !attempt.started && !attempt.hidden && attempt.live) {
+                this.routeFailed(attempt, "avplay_startup_timeout");
+            }
+        }, Math.max(0, deadline - this.deps.clock.now()));
+    }
+
+    private showLoading(attempt: Attempt, detail: "reconnecting" | "restoring" | undefined): void {
+        this.show({ phase: "loading", title: attempt.request.title, ...(detail === undefined ? {} : { detail }) });
+    }
+
+    private recoverConnection(attempt: Attempt): void {
+        if (!attempt.live || !attempt.presented) {
+            this.fail(attempt, { kind: "network" }, true);
+            return;
+        }
+        if (attempt.recovery?.active === true) {
+            return;
+        }
+        this.capturePosition(attempt);
+        attempt.cancelTimer?.();
+        attempt.cancelTimer = undefined;
+        this.closeTransport();
+        attempt.started = false;
+        attempt.suspended = false;
+        attempt.suspendedReady = false;
+        attempt.busy = false;
+        attempt.buffering = false;
+        attempt.resuming = true;
+        this.showLoading(attempt, "reconnecting");
+        this.arm(attempt, false, attempt.replacementBody === undefined ? "replan" : "start");
+    }
+
+    private releaseFailedRoute(attempt: Attempt): void {
+        const plan = attempt.plan;
+        if (plan !== undefined && attempt.attemptedKeys[attempt.attemptedKeys.length - 1] === plan.planAttemptKey) {
+            attempt.attemptedKeys.pop();
+        }
+        if (attempt.recoveries > 0) {
+            attempt.recoveries -= 1;
+        }
+        attempt.busy = false;
+    }
+
+    private noteTransportUnanswered(attempt: Attempt): void {
+        const recovery = attempt.recovery;
+        if (recovery === undefined || !recovery.active || !attempt.live) {
+            this.fail(attempt, { kind: "network" }, true);
+            return;
+        }
+        this.closeTransport();
+        attempt.started = false;
+        const action = recovery.retryLater(this.deps.clock.now());
+        if (action.kind === "give_up") {
+            this.giveUp(attempt);
+            return;
+        }
+        if (action.kind === "wait") {
+            this.scheduleRecovery(attempt, action.delayMs);
+        }
+        this.showLoading(attempt, "reconnecting");
+    }
+
+    private sessionMissing(attempt: Attempt): void {
+        if (!attempt.live) {
+            return;
+        }
+        const recovery = attempt.recovery;
+        if (recovery?.active === true) {
+            recovery.step = "start";
+            return;
+        }
+        this.capturePosition(attempt);
+        attempt.cancelTimer?.();
+        attempt.cancelTimer = undefined;
+        this.closeTransport();
+        attempt.started = false;
+        attempt.resuming = true;
+        this.showLoading(attempt, "reconnecting");
+        this.arm(attempt, false, "start", true);
+    }
+
+    private arm(attempt: Attempt, fresh: boolean, step: RecoveryStep, immediate = false): void {
+        const recovery = attempt.recovery ?? (attempt.recovery = new PlaybackRecovery());
+        const action = recovery.begin(this.deps.clock.now(), fresh, step);
+        switch (action.kind) {
+            case "join":
+                return;
+            case "give_up":
+                this.giveUp(attempt);
+                return;
+            case "wait":
+                this.scheduleRecovery(attempt, immediate ? 0 : action.delayMs);
+                return;
+            default: {
+                const unreachable: never = action;
+                return unreachable;
+            }
+        }
+    }
+
+    private scheduleRecovery(attempt: Attempt, delayMs: number): void {
+        const recovery = attempt.recovery;
+        if (recovery === undefined) {
+            return;
+        }
+        const due = this.deps.clock.now() + delayMs;
+        recovery.dueAt = due;
+        attempt.cancelRecovery?.();
+        attempt.cancelRecovery = undefined;
+        if (attempt.hidden) {
+            return;
+        }
+        const generation = recovery.generation;
+        attempt.cancelRecovery = this.deps.clock.schedule(() => {
+            if (recovery.generation === generation && attempt.live && !attempt.hidden) {
+                void this.runRecovery(attempt);
+            }
+        }, delayMs);
+    }
+
+    private async runRecovery(attempt: Attempt): Promise<void> {
+        const recovery = attempt.recovery;
+        if (recovery === undefined || !recovery.active || !attempt.live || attempt.hidden || attempt.restoring || attempt.recoveryPending) {
+            return;
+        }
+        const generation = recovery.generation;
+        const sessionId = attempt.sessionId;
+        const current = (): boolean => this.attempt === attempt && attempt.live && recovery.active && recovery.generation === generation && attempt.sessionId === sessionId;
+        attempt.recoveryPending = true;
+        recovery.beginAttempt();
+        try {
+            if (recovery.step === "start") {
+                await this.recoveryStart(attempt, current);
+                return;
+            }
+            const decision = await this.recoveryReplan(attempt);
+            if (!current()) {
+                return;
+            }
+            if (decision.outcome === "playable") {
+                if (decision.sessionId !== attempt.sessionId) {
+                    recovery.end(false, this.deps.clock.now());
+                    this.fail(attempt, { kind: "server" }, true);
+                    return;
+                }
+                attempt.busy = false;
+                attempt.resuming = true;
+                this.adopt(attempt, decision.plan, decision.serverFeatures);
+                return;
+            }
+            attempt.retirePredecessor = true;
+            recovery.step = "start";
+            await this.applyVerdict(attempt, { kind: "start_new_session" });
+        } catch (error) {
+            if (!current()) {
+                return;
+            }
+            if (error instanceof ApiError && error.aborted) {
+                return;
+            }
+            const verdict = recoveryVerdict(error, recovery.step);
+            if (verdict.kind === "start_new_session") {
+                attempt.retirePredecessor = !(error instanceof ApiError && error.status === 404);
+            }
+            await this.applyVerdict(attempt, verdict);
+        } finally {
+            attempt.recoveryPending = false;
+        }
+    }
+
+    private recoveryReplan(attempt: Attempt): Promise<PlaybackDecision> {
+        const plan = attempt.plan;
+        const sessionId = attempt.sessionId;
+        const installationId = attempt.installationId;
+        if (plan === undefined || sessionId === undefined || installationId === undefined) {
+            return Promise.reject(new ApiError({ kind: "invalid_response", path: "playback_recovery" }));
+        }
+        const replan = operations.replanPlayback(sessionId, {
+            installation_id: installationId,
+            protocol_version: 3,
+            client_features: CLIENT_FEATURES,
+            operation: "track_change",
+            playback_attempt_id: attempt.playbackAttemptId,
+            replan_request_id: this.newId(),
+            failed_plan_id: plan.planId,
+            plan_attempt_id: attempt.planAttemptId,
+            plan_attempt_key: plan.planAttemptKey,
+            attempted_plan_keys: attempt.attemptedKeys.slice(),
+            attempt_count: Math.max(1, attempt.recoveries),
+            quality_preference: attempt.qualityPreference,
+            ...(attempt.bandwidthCapKbps === undefined ? {} : { bandwidth_cap_kbps: attempt.bandwidthCapKbps }),
+            position_seconds: attempt.sourceSeconds,
+            selected_tracks: keptTracks(plan),
+            client_capabilities: CLIENT_CAPABILITIES,
+            client_playback_context: playbackContext(this.deps.device.model, this.deps.device.appVersion),
+        });
+        return this.deps.session.call({ ...replan, profileScoped: true, signal: attempt.signal });
+    }
+
+    private replacementBody(attempt: Attempt): StartPlaybackBody {
+        const plan = attempt.plan;
+        const profile = this.deps.session.activeProfile;
+        const installationId = attempt.installationId;
+        if (plan === undefined || profile === undefined || installationId === undefined) {
+            throw new ApiError({ kind: "invalid_response", path: "playback_recovery.start" });
+        }
+        const audio = plan.selectedTracks.audio?.id;
+        const subtitle = plan.subtitle.mode === "off" ? undefined : plan.subtitle.trackId ?? plan.selectedTracks.subtitle?.id;
+        return {
+            installation_id: installationId,
+            protocol_version: 3,
+            client_features: CLIENT_FEATURES,
+            file_id: plan.effectiveMediaFileId,
+            profile_id: profile.id,
+            playback_attempt_id: this.newId(),
+            quality_preference: attempt.qualityPreference,
+            ...(attempt.bandwidthCapKbps === undefined ? {} : { bandwidth_cap_kbps: attempt.bandwidthCapKbps }),
+            subtitle_fidelity_preference: "compatible",
+            start_position: attempt.sourceSeconds,
+            ...(audio === undefined ? {} : { audio_track_id: audio }),
+            ...(subtitle === undefined ? {} : { subtitle_track_id: subtitle }),
+            ...(attempt.request.allowAlternateVersions === undefined ? {} : { allow_alternate_versions: attempt.request.allowAlternateVersions }),
+            client_capabilities: CLIENT_CAPABILITIES,
+            client_playback_context: playbackContext(this.deps.device.model, this.deps.device.appVersion),
+        };
+    }
+
+    private async recoveryStart(attempt: Attempt, current: () => boolean): Promise<void> {
+        const recovery = attempt.recovery;
+        if (recovery === undefined) {
+            return;
+        }
+        try {
+            const body = attempt.replacementBody ?? this.replacementBody(attempt);
+            attempt.replacementBody = body;
+            const decision = await this.deps.session.call({ ...operations.startPlayback(body), profileScoped: true, signal: attempt.signal });
+            if (!attempt.live && decision.outcome === "playable") {
+                // A late replacement owns a separate session and cannot reuse the retired STOP.
+                const retired: Attempt = { ...attempt, playbackAttemptId: body.playback_attempt_id, sessionId: decision.sessionId, sequence: 0, stopped: false, stopSpec: undefined, stopRetryAt: 0, progress: undefined, progressRefusal: undefined };
+                void this.stopSession(retired).catch(() => undefined);
+                return;
+            }
+            if (!current()) {
+                return;
+            }
+            if (decision.outcome !== "playable") {
+                recovery.end(false, this.deps.clock.now());
+                attempt.replacementBody = undefined;
+                this.fail(attempt, decisionFailure(decision), attempt.retirePredecessor);
+                return;
+            }
+            if (attempt.retirePredecessor) {
+                // A stale plan does not prove the predecessor session has ended.
+                void this.stopSession({ ...attempt }).catch(() => undefined);
+                attempt.retirePredecessor = false;
+            }
+            attempt.playbackAttemptId = body.playback_attempt_id;
+            attempt.sessionId = decision.sessionId;
+            attempt.sequence = 0;
+            attempt.stopped = false;
+            attempt.stopSpec = undefined;
+            attempt.progress = undefined;
+            attempt.progressRefusal = undefined;
+            attempt.replacementBody = undefined;
+            attempt.resuming = true;
+            this.adopt(attempt, decision.plan, decision.serverFeatures);
+        } catch (error) {
+            if (!current()) {
+                return;
+            }
+            if (error instanceof ApiError && error.aborted) {
+                return;
+            }
+            await this.applyVerdict(attempt, recoveryVerdict(error, "start"));
+        }
+    }
+
+    private async applyVerdict(attempt: Attempt, verdict: RecoveryVerdict): Promise<void> {
+        const recovery = attempt.recovery;
+        switch (verdict.kind) {
+            case "retry": {
+                if (recovery === undefined) {
+                    return;
+                }
+                const action = recovery.retryLater(this.deps.clock.now());
+                if (action.kind === "give_up") {
+                    this.giveUp(attempt);
+                } else if (action.kind === "wait") {
+                    this.scheduleRecovery(attempt, action.delayMs);
+                }
+                return;
+            }
+            case "start_new_session":
+                if (recovery !== undefined) {
+                    const generation = recovery.generation;
+                    recovery.step = "start";
+                    if (attempt.hidden || attempt.restoring) {
+                        this.scheduleRecovery(attempt, 0);
+                    } else {
+                        const sessionId = attempt.sessionId;
+                        await this.recoveryStart(attempt, () => this.attempt === attempt && attempt.live && recovery.active && recovery.generation === generation && attempt.sessionId === sessionId);
+                    }
+                }
+                return;
+            case "give_up":
+                this.giveUp(attempt);
+                return;
+            case "installation_changed":
+                recovery?.end(false, this.deps.clock.now());
+                this.fail(attempt, { kind: "installation_changed" }, false);
+                return;
+            case "ended":
+                recovery?.end(false, this.deps.clock.now());
+                this.leave(attempt, "abandon");
+                if (this.attempt !== attempt) {
+                    return;
+                }
+                this.attempt = undefined;
+                this.show({ phase: "closed" });
+                this.deps.exits.onEnd("ended_by_server");
+                return;
+            case "revoked":
+                recovery?.end(false, this.deps.clock.now());
+                this.fail(attempt, { kind: "revoked" }, false);
+                return;
+            default: {
+                const unreachable: never = verdict;
+                return unreachable;
+            }
+        }
+    }
+
+    private giveUp(attempt: Attempt): void {
+        attempt.recovery?.end(false, this.deps.clock.now());
+        attempt.resuming = false;
+        if (this.attempt !== attempt || !attempt.live) {
+            return;
+        }
+        const error: PlaybackError = { kind: "network" };
+        this.shownError = error;
+        this.show({ phase: "error", title: attempt.request.title, error, retryable: true });
+    }
+
+    private async resumeVisible(attempt: Attempt): Promise<void> {
+        const generation = ++attempt.resumeGeneration;
+        const current = (): boolean => attempt.live && attempt.resumeGeneration === generation && this.attempt === attempt;
+        const gate = await this.revalidate(attempt);
+        if (!current()) {
+            return;
+        }
+        attempt.hidden = false;
+        if (!gate.ok) {
+            if ("ignored" in gate) {
+                return;
+            }
+            if (gate.error.kind === "network" && attempt.presented) {
+                if (attempt.recovery?.active === true) {
+                    this.closeTransport();
+                    attempt.started = false;
+                    attempt.suspended = false;
+                    attempt.suspendedReady = false;
+                    attempt.deferredOpen = false;
+                    const due = attempt.recovery.dueAt ?? this.deps.clock.now();
+                    this.scheduleRecovery(attempt, Math.max(0, due - this.deps.clock.now()));
+                    this.showLoading(attempt, "reconnecting");
+                } else {
+                    this.recoverConnection(attempt);
+                }
+                return;
+            }
+            const stop = gate.error.kind !== "installation_changed" && gate.error.kind !== "revoked" && gate.error.kind !== "unavailable";
+            this.fail(attempt, gate.error, stop);
+            return;
+        }
+        attempt.restoring = false;
+        if (!attempt.started && this.startupDue !== undefined) {
+            this.armStartup(attempt, this.transport, this.startupDue);
+            return;
+        }
+        if (attempt.suspended && attempt.plan !== undefined) {
+            const restored = await this.warmRestore(attempt, gate.token);
+            if (!current()) {
+                return;
+            }
+            if (restored) {
+                this.restartProgress(attempt);
+                return;
+            }
+            this.recoverConnection(attempt);
+            return;
+        }
+        if (attempt.suspendedReady) {
+            attempt.suspendedReady = false;
+            try {
+                this.deps.avplay.play();
+                if (attempt.paused) {
+                    this.deps.avplay.pause();
+                }
+                attempt.started = true;
+                attempt.presented = true;
+                attempt.resuming = false;
+                if (attempt.recovery?.active === true) attempt.recovery.recovered(this.deps.clock.now());
+                this.showPlayback(attempt);
+            } catch {
+                this.recoverConnection(attempt);
+                return;
+            }
+            this.restartProgress(attempt);
+            return;
+        }
+        if (attempt.deferredOpen && attempt.plan !== undefined) {
+            attempt.deferredOpen = false;
+            await this.open(attempt, attempt.plan);
+            return;
+        }
+        if (attempt.recovery?.active === true) {
+            if (attempt.recoveryPending) return;
+            const due = attempt.recovery.dueAt ?? this.deps.clock.now();
+            this.scheduleRecovery(attempt, Math.max(0, due - this.deps.clock.now()));
+            this.showLoading(attempt, "reconnecting");
+            return;
+        }
+        this.restartProgress(attempt);
+    }
+
+    private async revalidate(attempt: Attempt): Promise<{ ok: true; token: string } | { ok: false; ignored: true } | { ok: false; error: PlaybackError }> {
+        try {
+            const capabilities = await this.deps.session.call({ ...operations.playbackCapabilities(), profileScoped: true, signal: attempt.signal });
+            if (!attempt.live || attempt.signal.aborted) {
+                return { ok: false, ignored: true };
+            }
+            const profile = this.deps.session.activeProfile;
+            const installationId = capabilities.installationId;
+            if (capabilities.state !== "available" || !capabilities.allowed || capabilities.protocolVersions.indexOf(3) === -1 || installationId === undefined || profile === undefined) {
+                return { ok: false, error: { kind: "unavailable" } };
+            }
+            if (installationId !== attempt.installationId) {
+                return { ok: false, error: { kind: "installation_changed" } };
+            }
+            if (profile.id !== attempt.profileId) {
+                return { ok: false, error: { kind: "revoked" } };
+            }
+            const token = await this.deps.session.mediaToken(attempt.signal);
+            if (!attempt.live) {
+                return { ok: false, ignored: true };
+            }
+            return { ok: true, token };
+        } catch (error) {
+            if (error instanceof ApiError && error.aborted) {
+                return { ok: false, ignored: true };
+            }
+            if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+                return { ok: false, error: { kind: "revoked" } };
+            }
+            if (error instanceof ApiError && error.problemId === "installation_changed") {
+                return { ok: false, error: { kind: "installation_changed" } };
+            }
+            if (unanswered(error)) {
+                return { ok: false, error: { kind: "network" } };
+            }
+            return { ok: false, error: startFailure(error) };
+        }
+    }
+
+    private warmRestore(attempt: Attempt, token: string): Promise<boolean> {
+        const plan = attempt.plan;
+        const restore = this.deps.avplay.restoreAsync;
+        if (plan === undefined || restore === undefined) {
+            return Promise.resolve(false);
+        }
+        const url = this.urlWithToken(plan, token);
+        if (url === undefined) {
+            return Promise.resolve(false);
+        }
+        const resumeMs = Math.max(0, Math.round((attempt.sourceSeconds - plan.timeline.timelineOffsetSeconds) * 1000));
+        const generation = attempt.resumeGeneration;
+        this.showLoading(attempt, "restoring");
+        return new Promise((resolve) => {
+            try {
+                restore.call(this.deps.avplay, url, resumeMs, false, () => {
+                    if (!attempt.live || this.attempt !== attempt || attempt.hidden || attempt.resumeGeneration !== generation) {
+                        if (attempt.live && this.attempt === attempt && (attempt.hidden || attempt.restoring)) {
+                            try {
+                                this.deps.avplay.suspend?.();
+                            } catch {
+                                this.closeTransport();
+                                attempt.suspended = false;
+                            }
+                        }
+                        resolve(false);
+                        return;
+                    }
+                    attempt.suspended = false;
+                    attempt.started = true;
+                    attempt.presented = true;
+                    attempt.resuming = false;
+                    try {
+                        if (attempt.paused) {
+                            if (this.deps.avplay.getState() === "PLAYING") {
+                                this.deps.avplay.pause();
+                            }
+                        } else if (this.deps.avplay.getState() === "PAUSED") {
+                            this.deps.avplay.play();
+                        }
+                    } catch {
+                        // The next key tries again.
+                    }
+                    this.showPlayback(attempt);
+                    resolve(true);
+                }, () => resolve(false));
+            } catch {
+                resolve(false);
+            }
+        });
+    }
+
+    private urlWithToken(plan: PlaybackPlan, token: string): string | undefined {
+        const base = this.deps.session.http.base;
+        const published = plan.streamUrl.charAt(0) === "/" ? base.baseUrl + plan.streamUrl : plan.streamUrl;
+        let media: URL;
+        try {
+            media = new URL(published);
+        } catch {
+            return undefined;
+        }
+        if (media.protocol !== "https:") {
+            return undefined;
+        }
+        if (media.origin !== base.origin) {
+            return published;
+        }
+        return `${published}${published.indexOf("?") === -1 ? "?" : "&"}token=${encodeURIComponent(token)}`;
+    }
+
+    private restartProgress(attempt: Attempt): void {
+        if (!attempt.live || attempt.hidden || attempt.recovery?.active === true || !attempt.presented || !attempt.started) {
+            return;
+        }
+        if (attempt.cancelTimer !== undefined) {
+            return;
+        }
+        const remaining = attempt.progressDue === undefined ? PROGRESS_INTERVAL_MS : Math.max(0, attempt.progressDue - this.deps.clock.now());
+        if (remaining === 0) {
+            attempt.progressDue = undefined;
+            this.sendProgress(attempt);
+            this.scheduleProgress(attempt);
+            return;
+        }
+        attempt.progressDue = this.deps.clock.now() + remaining;
+        attempt.cancelTimer = this.deps.clock.schedule(() => {
+            attempt.cancelTimer = undefined;
+            attempt.progressDue = undefined;
+            if (!attempt.live || attempt.hidden || attempt.recovery?.active === true) {
+                return;
+            }
+            this.sendProgress(attempt);
+            this.scheduleProgress(attempt);
+        }, remaining);
     }
 
     // --- helpers ---
@@ -1247,6 +1986,17 @@ export class PlaybackController implements PlayerControls {
         });
         return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
     }
+}
+
+function samplePaused(attempt: Attempt): boolean {
+    return attempt.presented ? attempt.paused : true;
+}
+
+/** The tracks a no-op reconnect keeps. Omitting a subtitle means subtitles stay off. */
+function keptTracks(plan: PlaybackPlan): SelectedTracks {
+    const audio = plan.selectedTracks.audio;
+    const subtitle = plan.subtitle.mode === "off" ? undefined : plan.selectedTracks.subtitle;
+    return { ...(audio === undefined ? {} : { audio }), ...(subtitle === undefined ? {} : { subtitle }) };
 }
 
 function retryableStart(error: PlaybackError): boolean {

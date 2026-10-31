@@ -117,6 +117,7 @@ export interface PlanTimeline {
  * Its track_id is echoed to select it; urls are not decoded because this client fetches none.
  */
 export interface SubtitleTrack {
+    readonly syncKey?: string | undefined;
     readonly codec?: string | undefined;
     readonly trackId: string;
     readonly combinedIndex: number;
@@ -244,6 +245,7 @@ function decodeTimeline(value: unknown, path: string): PlanTimeline {
 function decodeSubtitleTrack(value: unknown, path: string): SubtitleTrack {
     const obj = object(value, path);
     return {
+        syncKey: optionalString(obj, "sync_key", path),
         codec: optionalString(obj, "codec", path),
         trackId: nonEmptyString(obj, "track_id", path),
         combinedIndex: integer(obj, "combined_index", path),

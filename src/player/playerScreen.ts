@@ -111,8 +111,14 @@ function fillAudio(list: HTMLElement, tracks: TrackView): void {
     }
 }
 
-function fillSubtitles(list: HTMLElement, tracks: TrackView): void {
+function fillSubtitles(list: HTMLElement, tracks: TrackView, languages = false): void {
     list.appendChild(el("h2", "player-menu-heading", "Subtitles"));
+    const ai = tracks.ai;
+    if (languages && ai !== undefined) {
+        list.appendChild(choice("ai-language-back", "Back to subtitles", false));
+        for (const language of ai.languages) list.appendChild(choice(`ai-language:${language}`, `Translate to ${language.toUpperCase()}`, false));
+        return;
+    }
     list.appendChild(choice(OFF, "Off", tracks.selectedSubtitleId === undefined));
     for (const track of tracks.subtitles) {
         list.appendChild(choice(track.id, track.label, track.id === tracks.selectedSubtitleId));
@@ -121,6 +127,11 @@ function fillSubtitles(list: HTMLElement, tracks: TrackView): void {
         const save = choice(SERIES_SUBTITLE, tracks.selectedSubtitleId === undefined ? "Keep subtitles off for this series" : "Use this subtitle choice for this series", false);
         save.setAttribute("aria-disabled", String(tracks.seriesSubtitle.busy));
         list.appendChild(save);
+    }
+    if (ai !== undefined) {
+        if (ai.available.translate && tracks.aiTranslate && ai.languages.length > 0) list.appendChild(choice("ai-translate", "Translate current subtitles", false));
+        if (ai.available.transcribe) list.appendChild(choice("ai-transcribe", "Transcribe current audio", false));
+        for (const result of ai.results) list.appendChild(choice(`ai-result:${result.id}`, result.label, false));
     }
 }
 
@@ -251,6 +262,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     /** The list (0 audio, 1 subtitles, 2 quality) that holds the menu's focus. */
     let column = 0;
     let drawn: string | undefined;
+    let aiLanguages = false;
 
     const buttons = (index: number): HTMLElement[] => Array.from(lists[index]?.querySelectorAll<HTMLElement>("[data-focus]") ?? []);
     const focusedId = (): string | null => (menu.contains(document.activeElement) ? (document.activeElement?.getAttribute("data-focus") ?? null) : null);
@@ -270,7 +282,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     };
 
     const drawMenu = (tracks: TrackView): void => {
-        const key = JSON.stringify(tracks);
+        const key = JSON.stringify([tracks, aiLanguages]);
         if (key !== drawn) {
             drawn = key;
             const keep = focusedId();
@@ -279,12 +291,19 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             for (const [index, list] of lists.entries()) {
                 list.textContent = "";
                 list.style.display = index === 2 && !hasQuality ? "none" : "";
-                (index === 0 ? fillAudio : index === 1 ? fillSubtitles : fillQuality)(list, tracks);
+                if (index === 1) fillSubtitles(list, tracks, aiLanguages);
+                else (index === 0 ? fillAudio : fillQuality)(list, tracks);
                 for (const button of buttons(index)) {
-                    button.setAttribute("aria-disabled", String(tracks.change.state === "changing"));
+                    const id = button.getAttribute("data-focus") ?? "";
+                    const aiAction = id === "ai-translate" || id === "ai-transcribe" || id.startsWith("ai-language:");
+                    const quota = tracks.ai?.quota;
+                    const blocked = tracks.change.state === "changing" || (id === SERIES_SUBTITLE && tracks.seriesSubtitle?.busy === true) || (aiAction && tracks.ai?.busy === true) || (id === "ai-transcribe" && (quota === undefined || (quota.limited && quota.remaining <= 0)));
+                    button.setAttribute("aria-disabled", String(blocked));
                 }
             }
-            menuStatus.textContent = [changeText(tracks), tracks.seriesSubtitle?.message].filter(Boolean).join(" ");
+            const quota = tracks.ai?.quota;
+            const quotaText = tracks.ai === undefined ? "" : quota === undefined ? "Transcription quota unavailable." : quota.limited ? `Transcription quota: ${Math.max(0, quota.remaining)} remaining (${quota.period}).${quota.remaining <= 0 ? " Quota exhausted." : ""}` : "Transcription quota: unlimited.";
+            menuStatus.textContent = [changeText(tracks), tracks.seriesSubtitle?.message, quotaText, tracks.ai?.message].filter(Boolean).join(" ");
             const same = keep === null ? undefined : buttons(column).find((button) => button.getAttribute("data-focus") === keep);
             if (same !== undefined) {
                 same.focus();
@@ -295,6 +314,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     };
 
     const closeMenu = (): void => {
+        aiLanguages = false;
         menuOpen = false;
         drawn = undefined;
     };
@@ -389,6 +409,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
 
     const menuKey = (key: string): void => {
         if (key === "back") {
+            if (aiLanguages) { aiLanguages = false; return; }
             closeMenu();
             reveal();
             return;
@@ -400,6 +421,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         } else if (key === "left" || key === "right") {
             focusList(Math.max(0, Math.min(lists.length - 1, column + (key === "left" ? -1 : 1))));
         } else if (key === "enter") {
+            if (document.activeElement?.getAttribute("aria-disabled") === "true") return;
             if ((view.phase === "playing" || view.phase === "paused") && view.tracks.change.state === "changing") {
                 return;
             }
@@ -410,6 +432,17 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                 controls.selectSubtitle(undefined);
             } else if (id === SERIES_SUBTITLE) {
                 controls.saveSeriesSubtitle();
+            } else if (id === "ai-translate") {
+                aiLanguages = true;
+            } else if (id === "ai-language-back") {
+                aiLanguages = false;
+            } else if (id === "ai-transcribe") {
+                controls.startSubtitleAI("transcribe");
+            } else if (id?.startsWith("ai-language:")) {
+                controls.startSubtitleAI("translate", id.slice("ai-language:".length));
+                aiLanguages = false;
+            } else if (id?.startsWith("ai-result:")) {
+                controls.selectAIResult(id.slice("ai-result:".length));
             } else if (id !== null) {
                 if (column === 0) {
                     controls.selectAudio(id);

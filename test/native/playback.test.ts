@@ -16,6 +16,45 @@ import { connected, type Harness, signIn } from "./support/harness.ts";
 
 const MOVIE: PlayRequest = { contentId: "movie-1", fileId: "42", title: "Movie", startSeconds: 12.5 };
 
+test("completed AI subtitles resolve through fresh sync identities before selecting the returned track", async () => {
+    const r = await rig();
+    r.h.fake.script("/subtitles/ai/status", { status: 200, body: { state: "available", allowed: true, enabled: true, transcribe_enabled: true } });
+    r.h.fake.script("/subtitles/ai/quota", ...Array.from({ length: 3 }, () => ({ status: 200, body: { limited: true, remaining: 2, period: "month" } })));
+    r.h.fake.script("/settings/contract", { status: 200, body: { option_sets: { playback_subtitle_languages: { options: [{ value: "fr" }] } } } });
+    r.h.fake.script("/subtitles/ai/translate", { status: 202, body: { job: { id: "opaque-job", media_file_id: "42", kind: "transcribe", source_index: 0, target_language: "", status: "completed", result_subtitle_id: "opaque-result" } } });
+    await playMovie(r);
+    r.controller.startSubtitleAI("transcribe");
+    await r.h.clock.advance(0);
+    let view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.tracks.ai?.results[0]?.label, "AI-transcribed");
+    assert.equal(bodies(r.h, "/replan").length, 0, "job completion does not interrupt playback");
+    const file = r.server.files.get("42");
+    assert.ok(file);
+    r.server.files.set("42", { ...file, inventory: file.inventory.map((track, index) => index === 4 ? { ...track, sync_key: "stored-opaque-result" } : track) });
+    r.server.next.push({}, { subtitle: 4, subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/captions?token=synthetic`, format: "vtt", timing_origin_seconds: 0 } });
+    r.h.fake.script("/captions?token=synthetic", { status: 200, text: "WEBVTT\n\n00:12.000 --> 00:14.000\nAI text" });
+    r.controller.selectAIResult("opaque-result");
+    await r.h.clock.advance(0);
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, "/replan").length, 2, "refresh then select server-returned identity");
+    const selected = bodies(r.h, "/replan")[1]?.selected_tracks;
+    assert.equal(typeof selected, "object");
+    assert.deepEqual((selected as { subtitle: unknown }).subtitle, { id: "file:42:subtitle:4" });
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.tracks.selectedSubtitleId, "file:42:subtitle:4");
+    assert.equal(view.tracks.subtitles.find(track => track.id === "file:42:subtitle:4")?.label, "AI-transcribed");
+    r.controller.destroy();
+});
+
 test("sidecar subtitles apply profile appearance and timing without blocking playback on failure", async () => {
     for (const fail of [false, true]) {
         const r = await rig();

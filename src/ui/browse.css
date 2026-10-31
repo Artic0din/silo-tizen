@@ -426,6 +426,7 @@
 .browse-card-title { font-size: 20px; }
 @keyframes skyline-appear { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
+  .browse-card:focus { transform: none; }
     .browse *, .browse *::before, .browse *::after { animation: none !important; transition: none !important; }
     .skyline-route-outgoing { display: none; animation: none; }
 }

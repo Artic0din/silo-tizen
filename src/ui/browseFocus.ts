@@ -10,6 +10,17 @@ import { SkylineScroll } from "./skylineScroll.ts";
 
 const SELECT_HOLD_MS = 650;
 
+interface VisitSnapshot {
+    memory: Map<string, string>;
+    lastZone: string | undefined;
+    top: number;
+    rows: Map<string, number>;
+}
+
+function visitKey(view: View): string {
+    return /^library:[^:]+$/.test(view.name) ? view.transition?.key ?? view.name : view.name;
+}
+
 export interface FocusItem {
     /** Stable within its zone, e.g. a content id; restores focus across re-renders. */
     readonly key: string;
@@ -36,6 +47,8 @@ export interface FocusTarget {
 
 export interface View {
     readonly prepare?: () => void;
+    /** False while a library view has no committed data to remember. */
+    readonly ready?: boolean;
     /** Stable through loading/data renders; a same-group change drifts incoming content. */
     readonly transition?: { readonly key: string; readonly group: string };
     /** Identifies the view; re-showing the same name keeps each zone's last focused item. */
@@ -56,7 +69,8 @@ export class FocusHost {
     private lastZone: string | undefined;
     private listening = false;
     private readonly scroll = new SkylineScroll();
-    private readonly visits = new Map<string, { memory: Map<string, string>; lastZone: string | undefined; top: number; rows: Map<string, number> }>();
+    private readonly visits = new Map<string, VisitSnapshot>();
+    private visitHeld = false;
     private outgoing: HTMLElement | undefined;
     private incoming: HTMLElement[] = [];
     private transitionTimer: number | undefined;
@@ -74,7 +88,28 @@ export class FocusHost {
     }
 
     focusDefault(): void {
+        const view = this.view;
+        const visit = view === undefined || !/^library:[^:]+$/.test(view.name) ? undefined : this.visits.get(visitKey(view));
+        const zone = view?.zones.find(candidate => candidate.id === visit?.lastZone && !["nav", "selector", "flyout", "pills"].includes(candidate.id));
+        const item = zone?.items.find(candidate => candidate.key === visit?.memory.get(zone.id));
+        if (view?.ready !== false && visit !== undefined && zone !== undefined && item !== undefined) {
+            this.applyVisit(visit);
+            const intersects = this.intersects(item.element);
+            if (intersects || item.element.closest(".browse-row") === null) {
+                const snap = intersects && this.insideRow(item.element);
+                this.focusItem(zone, item);
+                if (snap) { this.scroll.stop(); this.applyVisit(visit); }
+                return;
+            }
+        }
         this.focusFirst([this.view?.focus]);
+    }
+
+    /** Save before hiding library chrome can resize and clamp the viewport. */
+    holdVisit(): void {
+        if (this.view === undefined || this.view.ready === false) return;
+        this.remember(visitKey(this.view));
+        this.visitHeld = true;
     }
 
     /**
@@ -83,7 +118,9 @@ export class FocusHost {
      * remains (the focused item disappeared), else the first item anywhere.
      */
     show(view: View, focus?: FocusTarget): void {
-        const press = this.press?.cancelled === false && this.view?.name === view.name ? this.press : undefined;
+        const previousView = this.view;
+        const sameVisit = previousView !== undefined && visitKey(previousView) === visitKey(view);
+        const press = this.press?.cancelled === false && sameVisit ? this.press : undefined;
         const pressed = press === undefined ? undefined : this.focused();
         this.cancelPress();
         const changed = (this.view?.transition?.key ?? this.view?.name) !== (view.transition?.key ?? view.name);
@@ -120,17 +157,16 @@ export class FocusHost {
             this.outgoing = outgoing;
             this.transitionTimer = window.setTimeout(() => this.clearTransition(), 200);
         }
-        const previous = this.view?.name === view.name ? this.locate(document.activeElement) : undefined;
+        const previous = sameVisit ? this.locate(document.activeElement) : undefined;
         const kept = previous === undefined ? undefined : { zone: previous.zone.id, key: previous.item.key };
-        const unchanged = this.view?.name === view.name ? kept ?? focus ?? this.memoryTarget() : undefined;
+        const unchanged = sameVisit ? kept ?? focus ?? this.memoryTarget() : undefined;
         const previousZone = view.zones.find(zone => zone.id === previous?.zone.id);
         const nearby = previous === undefined || previous.item.quickAction === undefined || previousZone?.items.some(item => item.key === previous.item.key)
             ? undefined : previousZone?.items[Math.min(previous.index, previousZone.items.length - 1)];
-        if (this.view !== undefined) {
-            this.visits.set(this.view.name, { memory: new Map(this.memory), lastZone: this.lastZone, top: this.viewport().scrollTop, rows: new Map(Array.from(this.container.querySelectorAll<HTMLElement>(".browse-row")).map((row, index) => [this.rowKey(row, index), row.scrollLeft])) });
-        }
-        const visit = this.visits.get(view.name);
-        if (this.view?.name !== view.name) {
+        if (!this.visitHeld && previousView !== undefined && previousView.ready !== false) this.remember(visitKey(previousView));
+        this.visitHeld = false;
+        const visit = this.visits.get(visitKey(view));
+        if (!sameVisit) {
             this.scroll.stop();
             this.memory = new Map(visit?.memory);
             this.lastZone = visit?.lastZone;
@@ -139,15 +175,19 @@ export class FocusHost {
         this.container.setAttribute("data-view", view.name);
         view.prepare?.();
         place(this.container, view.content);
-        this.viewport().scrollTop = visit?.top ?? 0;
-        this.container.querySelectorAll<HTMLElement>(".browse-row").forEach((row, index) => { row.scrollLeft = visit?.rows.get(this.rowKey(row, index)) ?? 0; });
-        this.focusFirst([focus, nearby === undefined ? kept : { zone: previous?.zone.id ?? "", key: nearby.key }, view.focus]);
+        this.applyVisit(visit);
+        const restoring = !sameVisit && visit !== undefined;
+        const target = focus ?? (restoring ? this.memoryTarget() : undefined);
+        const item = target === undefined ? undefined : view.zones.find(zone => zone.id === target.zone)?.items.find(candidate => candidate.key === target.key);
+        const offscreenShelf = restoring && item?.element.closest(".browse-row") != null && !this.intersects(item.element);
+        const returnSnap = restoring && !offscreenShelf && item !== undefined && this.intersects(item.element) && this.insideRow(item.element);
+        this.focusFirst(offscreenShelf ? [view.focus] : [focus, nearby === undefined ? kept : { zone: previous?.zone.id ?? "", key: nearby.key }, restoring ? this.memoryTarget() : undefined, view.focus]);
         const focused = this.focused();
-        if (unchanged !== undefined && focused?.zone === unchanged.zone && focused.key === unchanged.key && visit !== undefined) {
+        const sameIdentity = unchanged !== undefined && focused?.zone === unchanged.zone && focused.key === unchanged.key;
+        if ((sameIdentity || returnSnap) && visit !== undefined) {
             // Repainting the same identity (including a dismissed modal) must keep its viewport.
             this.scroll.stop();
-            this.viewport().scrollTop = visit.top;
-            this.container.querySelectorAll<HTMLElement>(".browse-row").forEach((row, index) => { row.scrollLeft = visit.rows.get(this.rowKey(row, index)) ?? 0; });
+            this.applyVisit(visit);
         }
         if (animate) {
             this.incoming = Array.from(this.container.querySelectorAll<HTMLElement>(".skyline-content > :not(.skyline-pills), .skyline-marquee"));
@@ -168,6 +208,36 @@ export class FocusHost {
 
     private viewport(): HTMLElement {
         return this.container.querySelector<HTMLElement>(".skyline-content") ?? this.container;
+    }
+
+    private remember(key: string): void {
+        const focused = this.locate(document.activeElement);
+        if (focused !== undefined) {
+            this.memory.set(focused.zone.id, focused.item.key);
+            this.lastZone = focused.zone.id;
+        }
+        this.visits.set(key, { memory: new Map(this.memory), lastZone: this.lastZone, top: this.viewport().scrollTop, rows: new Map(Array.from(this.container.querySelectorAll<HTMLElement>(".browse-row")).map((row, index) => [this.rowKey(row, index), row.scrollLeft])) });
+    }
+
+    private applyVisit(visit: VisitSnapshot | undefined): void {
+        this.viewport().scrollTop = visit?.top ?? 0;
+        this.container.querySelectorAll<HTMLElement>(".browse-row").forEach((row, index) => { row.scrollLeft = visit?.rows.get(this.rowKey(row, index)) ?? 0; });
+    }
+
+    private intersects(element: HTMLElement): boolean {
+        const viewport = element.closest<HTMLElement>(".details-audio-picker, .skyline-content") ?? this.container;
+        const rect = element.getBoundingClientRect();
+        const bounds = viewport.getBoundingClientRect();
+        const row = element.closest<HTMLElement>(".browse-row")?.getBoundingClientRect() ?? bounds;
+        return rect.width > 0 && rect.height > 0 && rect.bottom > bounds.top && rect.top < bounds.bottom && rect.right > row.left && rect.left < row.right;
+    }
+
+    private insideRow(element: HTMLElement): boolean {
+        const row = element.closest<HTMLElement>(".browse-row");
+        if (row === null) return true;
+        const rect = element.getBoundingClientRect();
+        const bounds = row.getBoundingClientRect();
+        return rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1;
     }
 
     private rowKey(row: HTMLElement, index: number): string {
@@ -219,6 +289,7 @@ export class FocusHost {
         this.view = undefined;
         this.memory = new Map();
         this.visits.clear();
+        this.visitHeld = false;
         this.lastZone = undefined;
         while (this.container.firstChild !== null) {
             this.container.removeChild(this.container.firstChild);

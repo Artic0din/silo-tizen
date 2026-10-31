@@ -184,11 +184,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const read = <T>(spec: RequestSpec<T>, signal: AbortSignal): Promise<T> => session.call({ ...spec, profileScoped: true, signal });
 
-    const detailsChanged = (current: Route): void => {
+    const detailsChanged = (current: Route, audioClosed = false): void => {
         if ((current.kind === "item" || current.kind === "season") && current.data?.details?.changes.get("watched")?.pending) {
             invalidateWatched(current, current.data.details.detail);
         }
-        if (top() === current) render();
+        if (top() === current) render(audioClosed ? { zone: "actions", key: "audio" } : undefined);
     };
 
     const invalidateWatched = (current: Route, detail: ItemDetail): void => {
@@ -295,8 +295,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     const seasons = detail.type === "series" ? await read(operations.listSeriesSeasons(detail.id), signal) : [];
                     return { detail, seasons };
                 }, (data) => {
-                    const details = new DetailsState(data.detail, session, () => detailsChanged(current), (detail, signal) => refreshWatched(current, detail, signal));
-                    details.selectedFileId = current.data?.details?.selectedFileId;
+                    const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal));
+                    details.restore(current.data?.details);
                     current.data = { ...data, details };
                     detailWork = details;
                     details.start();
@@ -518,10 +518,26 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const play = (request: PlayRequest): void => {
         const current = top();
+        if (current === undefined || torn || playing) return;
+        const details = current.kind === "item" ? current.data?.details : undefined;
+        const focus = host.focused();
+        if (details === undefined) handoff(request);
+        else {
+            loading?.abort();
+            loading = undefined;
+            cancelSlow();
+            detailWork = details;
+            details.start();
+            details.preparePlay(request, clock, resolved => handoff(resolved, focus));
+        }
+    };
+
+    const handoff = (request: PlayRequest, focus?: FocusTarget): void => {
+        const current = top();
         if (current === undefined || torn || playing) {
             return;
         }
-        current.focus = host.focused();
+        current.focus = focus ?? host.focused();
         stopDetails();
         playing = true;
         shell.hide();

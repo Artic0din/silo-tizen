@@ -94,7 +94,7 @@ export async function openTv(browser: Browser, options: { sessionOnly?: boolean;
     const script = await harnessBundle(app);
     const context = await browser.newContext({
         viewport: { width: 1920, height: 1080 },
-        ...(options.video === undefined ? {} : { recordVideo: { dir: options.video, size: { width: 1280, height: 720 } } }),
+        ...(options.video === undefined ? {} : { recordVideo: { dir: options.video, size: { width: 1920, height: 1080 } } }),
     });
     const page = await context.newPage();
     const clock = new ManualClock();

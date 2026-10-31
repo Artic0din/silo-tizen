@@ -176,6 +176,16 @@ export class FakeCatalog implements CatalogRoutes {
     }
 
     private detailRoutes(household: Household, pathname: string): Reply | undefined {
+        const watch = /^\/watch\/([^/]+)$/.exec(pathname);
+        if (watch?.[1] !== undefined) {
+            const id = decodeURIComponent(watch[1]);
+            if (!this.visible(household, id)) return problem(404, "not_found", "Not found");
+            const detail = this.detail(id);
+            return { status: 200, body: { ...detail, versions: arrayOf(detail.versions).map(value => {
+                const file = toRecord(value);
+                return { ...file, duration_seconds: file.duration };
+            }) } };
+        }
         const item = /^\/catalog\/items\/([^/]+)$/.exec(pathname);
         if (item?.[1] !== undefined) {
             const id = decodeURIComponent(item[1]);

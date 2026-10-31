@@ -110,12 +110,12 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
         await tv.page.screenshot({ path: `${process.env.DETAILS_CAPTURE_DIR}/details.png` });
     }
     await shows(tv, "IMDb 8.1");
-    await tv.page.locator('[data-focus="version:short"]').focus();
+    await tv.page.locator('[data-focus="version:43"]').focus();
     await press(tv, "Enter");
     await tv.page.locator('[data-focus="play"]').focus();
     await press(tv, "Enter");
-    assert.equal((await tv.page.evaluate(() => window.browseHarness.plays))[0]?.fileId, "short");
-    assert.equal((await tv.page.evaluate(() => window.browseHarness.plays))[0]?.startSeconds, undefined);
+    assert.equal((await tv.page.evaluate(() => window.browseHarness.plays))[0]?.fileId, "43");
+    assert.equal((await tv.page.evaluate(() => window.browseHarness.plays))[0]?.startSeconds, 0);
     const personal = tv.fake.hold("/capabilities/personal-lists");
     await tv.page.evaluate(() => window.browseHarness.resume());
     await shows(tv, "Loading personal actions.");
@@ -1319,6 +1319,7 @@ browseTest("details hand the player the file and resume point; returning restore
     assert.equal(await tv.focused(), "resume");
     await shows(tv, "Resume from 20:00");
     await press(tv, "Enter");
+    await tv.eventually(async () => (await tv.page.evaluate(() => window.browseHarness.plays.length)) === 1, "fresh Resume handoff");
     assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays), [
         { contentId: "movie:m0001", fileId: "f-movie:m0001", title: "Movie 0001", startSeconds: 1200 },
     ]);
@@ -1335,7 +1336,7 @@ browseTest("details hand the player the file and resume point; returning restore
     await press(tv, "ArrowRight", "Enter");
     const fromStart = (await tv.page.evaluate(() => window.browseHarness.plays))[1];
     assert.equal(fromStart?.fileId, "f-movie:m0001");
-    assert.equal(fromStart?.startSeconds, undefined, "Play from start");
+    assert.equal(fromStart?.startSeconds, 0, "Play from start");
     await tv.page.evaluate(() => window.browseHarness.resume());
 
     await tv.remote(BACK);
@@ -1362,7 +1363,7 @@ browseTest("series open seasons, seasons list episodes, and Back retraces each s
         contentId: "episode:s1e22",
         fileId: "f-episode:s1e22",
         title: "Harbor Lights chapter 2.2",
-        startSeconds: undefined,
+        startSeconds: 0,
     });
     await tv.page.evaluate(() => window.browseHarness.resume());
     await tv.remote(BACK);
@@ -1397,6 +1398,7 @@ browseTest("episode-aware text Search returns an episode-only match and preserve
     await press(tv, "Enter");
     await showing(tv, "item:episode:s1e12");
     await tv.page.getByRole("button", { name: /^Resume/ }).click();
+    await tv.eventually(async () => (await tv.page.evaluate(() => window.browseHarness.plays.length)) === 1, "fresh episode Resume handoff");
     assert.deepEqual((await tv.page.evaluate(() => window.browseHarness.plays))[0], {
         contentId: "episode:s1e12", fileId: "f-episode:s1e12", title: "Harbor Lights chapter 1.2", startSeconds: 420,
     });

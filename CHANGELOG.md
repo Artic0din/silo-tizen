@@ -28,6 +28,7 @@ All notable changes to this project are documented in this file.
 
 - Added a timed Skip control for intro, recap and credits during video playback.
 - Added a first-selection Remember this profile choice and a device-local launch preference in General Settings, with protected proof restoration and PIN checks for other profiles.
+- Added per-profile movie and series star ratings with remote controls, server-confirmed saves and explicit retries.
 - Added a person hero that shows a living person's age, initials when there is no photo, and a thumbhash preview while the photo loads.
 - Added manual Play next after natural episode completion, with confirmed session teardown, authorized episode resolution, Retry and Back.
 - Added Select-hold card actions for watched, favorites and watchlist, with confirmed state, safe explicit retries and restored page focus.

@@ -93,6 +93,47 @@ const commands = (page: Page): Promise<string[]> => page.evaluate(() => window.p
 const focused = (page: Page): Promise<string | null> => page.evaluate(() => document.activeElement?.getAttribute("data-focus") ?? null);
 const text = (page: Page, selector: string): Promise<string> => page.locator(selector).innerText();
 
+test("Skip counts down, activates with Enter or Play, and returns focus without taking manual seeks", async () => {
+    const { page, logs } = await open();
+    const view = { ...playing(TRACKS), positionSeconds: 25, skipMarker: { kind: "intro" as const, startSeconds: 20, endSeconds: 60 } };
+    try {
+        await show(page, view);
+        assert.equal(await focused(page), "player");
+        assert.equal(await text(page, ".player-skip"), "Skip intro · 35 seconds");
+        await page.clock.runFor(6000);
+        assert.equal(await page.locator(".player-skip").isVisible(), true);
+        await remote(page, UP);
+        assert.equal(await focused(page), "skip");
+        await show(page, { ...view, positionSeconds: 26.5 });
+        assert.equal(await text(page, ".player-skip"), "Skip intro · 34 seconds");
+        assert.equal(await focused(page), "skip");
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "pause");
+        await remote(page, UP);
+        await remote(page, BACK);
+        assert.equal(await focused(page), "pause");
+        assert.deepEqual(await commands(page), []);
+        await remote(page, UP);
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["seekToSeconds 60"]);
+        await remote(page, UP);
+        await remote(page, 415);
+        assert.deepEqual(await commands(page), ["seekToSeconds 60", "seekToSeconds 60"]);
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "position");
+        assert.equal(await page.locator(".player-skip").isVisible(), false);
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["seekToSeconds 60", "seekToSeconds 60", "seekToSeconds 36.5"]);
+        await remote(page, UP);
+        await show(page, { ...playing(TRACKS), positionSeconds: 60 });
+        assert.equal(await page.locator(".player-skip").isVisible(), false);
+        assert.equal(await focused(page), "player");
+        await remote(page, UP);
+        assert.equal(await focused(page), "pause");
+        assert.deepEqual(logs, []);
+    } finally { await page.close(); }
+});
+
 test("saved 15/45 drives transport labels, repeated preview, dedicated keys and clamping", async () => {
     const { page, logs } = await open();
     const view = { ...playing(TRACKS), positionSeconds: 100, durationSeconds: 200, seekIntervals: { backward: 15, forward: 45 } };

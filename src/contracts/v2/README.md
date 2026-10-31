@@ -114,6 +114,17 @@ A present non-string fails the person read. Absence stays absent, and an empty s
 Birth and death dates stay calendar strings. The hero formats valid `YYYY-MM-DD` values and leaves any other text unchanged.
 See [person hero](../../../docs/person-hero.md).
 
+## Playback markers
+
+The pinned OpenAPI publishes profile-scoped `GET /api/v2/markers/items/{item_id}` and `GET /api/v2/markers/files/{file_id}`, both returning `FileMarkers`.
+Playback reads the effective file route once per file in an attempt, using the existing authenticated session and authority signal.
+Only `file_id` and `marker_segments` occurrences (`kind`, `start_seconds`, `end_seconds`) are consumed.
+The server resolves detections; the client shows intro, recap and credits in the half-open source-time window `[start_seconds, end_seconds)` and ignores preview occurrences.
+Missing, failed, malformed or mismatched-file responses leave playback and manual seeking available without a Skip control.
+Up reaches Skip when available; Down or Back from Skip returns to transport, and Enter or Play seeks to the segment end.
+The countdown is informational and never automatically seeks.
+Desktop tests do not prove Samsung hardware rendering or live server CORS.
+
 ## Updating the pinned contract
 
 1. Pick the new server commit and copy the same fixture names from its `contracts/api/v2/fixtures/`.

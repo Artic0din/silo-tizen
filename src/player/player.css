@@ -37,6 +37,12 @@
     opacity: 0;
 }
 
+.player-skip {
+    position: absolute;
+    right: 88px;
+    bottom: 340px;
+}
+
 .player-error {
     top: 0;
     padding-top: 320px;

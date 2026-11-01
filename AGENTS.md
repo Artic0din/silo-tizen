@@ -17,43 +17,36 @@ First-party Samsung Tizen TV client for [Silo Server](https://github.com/Silo-Se
 
 ## Domain rules (Tizen + Silo)
 
-### Backend: Jellyfin layer first, `/api/v2` later
+### Backend: native `/api/v2`
 
-- **Now:** talk to Silo’s **Jellyfin-compatible layer** (default port **8096**). It sends `Access-Control-Allow-Origin: *`, so a packaged Tizen web app can read its responses.
-- **Later:** move to Silo’s native **`/api/v2`** once upstream Silo allows browser origins.
-- **Why v2 is deferred:** `/api/v2` currently sends no CORS headers and answers `OPTIONS` preflights with `405` ([`api-contract.md` — “Browser origins”](https://github.com/Silo-Server/silo-server/blob/main/docs/architecture/api-contract.md)), so a web app cannot use it yet.
+- The packaged app uses Silo’s native **`/api/v2`** through `src/api/`, `src/contracts/v2/` and the session owners.
+- The earlier Jellyfin-compatible client is retired; do not reintroduce its endpoints or authorization header.
+- Server CORS behavior and platform origin restrictions must be checked on the runtime being claimed.
+  The Samsung NW.js web simulator ships with `--disable-web-security`, so a successful simulator request does **not** establish ordinary-browser CORS or physical-TV acceptance.
+  See [simulator evidence](docs/simulator-evidence.md) for launch, capture and proof boundaries.
 
-### Backend adapter (keep it v2-shaped)
+### Backend operations
 
-- All server calls go through **one thin adapter module** whose interface is shaped like Silo v2, so the backend can be swapped without touching UI code:
-  - `signIn` (password now; device-code once on v2), `signOut`
-  - `browse` (home sections, library items, item details)
-  - `playbackStart`, `playbackProgress`, `playbackStop`
-  - `resumePosition` (seconds)
-- The current implementation maps these onto Jellyfin endpoints. UI and player code must **never** call Jellyfin URLs directly.
+- Keep server operations and response decoding in the existing API and contract modules.
+  UI and player controllers use the existing session transport and active profile authority rather than assembling separate authorization paths.
 - Model behavior on the official clients where it fits:
   - [silo-apple — `Networking/APIv2`](https://github.com/Silo-Server/silo-apple/tree/main/Networking/APIv2)
   - [silo-android — `AuthInterceptorImpl.kt`, `PlaybackV2Api.kt`, `SequencedPlayback.kt`](https://github.com/Silo-Server/silo-android)
 - Copying code from silo-apple and silo-android is **allowed** (same AGPL licence); keep ports minimal and idiomatic for plain JS on Tizen.
 - Do **not** copy from jellyfin-web or jellyfin-tizen.
 
-**Auth header on every Jellyfin-layer request** (omit `Token` before sign-in):
-
-```
-Authorization: MediaBrowser Client="Silo", Device="<device name>", DeviceId="<stable device id>", Version="<app version>", Token="<access token>"
-```
-
 - `DeviceId` is generated once per install and stored locally; never derived from a server URL or account.
-- Store the access token **per server** on the device (never in git).
+- Use the existing credential vault and explicit session-only fallback; never put credentials in public storage or git.
 
 ### Auth
 
-- **Primary:** username + password (`POST /Users/AuthenticateByName`).
-- **Quick Connect:** add only once it is confirmed that Silo's Jellyfin layer supports it.
+- The current sign-in flow uses native device-code approval, followed by household profile selection and PIN verification when required.
+- Add another sign-in method only against the native server contract; do not use Jellyfin Quick Connect or password endpoints.
 
 ### Discovery
 
-- **None in MVP.** Manual server URL entry, validated with `GET /System/Info/Public`.
+- Manual HTTPS server entry uses the native discovery and capability flow.
+- Do not treat the web simulator as evidence that LAN discovery or pinned local certificates work on a TV.
 
 ### Playback
 

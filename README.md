@@ -91,3 +91,4 @@ The script builds the package staging directory and writes `dist/Silo.wgt`.
 
 `npm test` runs both strict type checks, the production build, native contract/session/player tests and Playwright screen/composition tests.
 See [test/README.md](test/README.md) for the test boundaries.
+See [Samsung simulator evidence](docs/simulator-evidence.md) for the macOS launch recipe, signed-package identity checks and Apple TV comparison requirements.

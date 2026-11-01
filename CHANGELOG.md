@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Documented signed-package simulator evidence and Apple TV comparisons, and corrected the retired backend guidance.
+
 ### Added
 
 - Added capability-gated subtitle translation and audio transcription with quota status, job failures and selectable AI-labeled results.

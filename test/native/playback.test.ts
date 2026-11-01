@@ -7,7 +7,8 @@ import { test } from "node:test";
 import { type PlaybackError, PlaybackController, type PlaybackView, type PlayRequest } from "../../src/player/controller.ts";
 import { FakeAVPlay } from "./support/fakeAVPlay.ts";
 import { FakePlayback } from "./support/fakePlayback.ts";
-import { fixture, problem, type RecordedRequest } from "./support/fakeSilo.ts";
+import { FakeSilo, fixture, problem, type RecordedRequest } from "./support/fakeSilo.ts";
+import { ManualClock } from "./support/clock.ts";
 import { FakeSettings } from "./support/fakeSettings.ts";
 import { FakeCatalog } from "./support/fakeCatalog.ts";
 import { SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS } from "../../src/contracts/v2/settings.ts";
@@ -129,8 +130,9 @@ interface Rig {
     readonly views: PlaybackView[];
 }
 
-async function rig(profileId = "p-owner"): Promise<Rig> {
-    const h = await connected();
+async function rig(profileId = "p-owner", origin?: string): Promise<Rig> {
+    const clock = new ManualClock();
+    const h = await connected({ clock, fake: new FakeSilo(clock, undefined, origin) });
     await signIn(h);
     const owner = (await h.core.profiles.list()).find((profile) => profile.id === profileId);
     assert.ok(owner !== undefined);
@@ -473,6 +475,16 @@ test("a start sends the v3 body under the active profile and plays the server's 
     assert.equal(view.phase, "playing");
     assert.equal(view.phase === "playing" ? view.positionSeconds : -1, 12.5);
     assert.equal(view.phase === "playing" ? view.durationSeconds : -1, 7200);
+    assert.deepEqual(r.exits, []);
+});
+
+test("a plain-HTTP server's own stream plays with its token, as on the Apple TV app", async () => {
+    const r = await rig("p-owner", "http://192.168.1.20:8091");
+    r.controller.play(MOVIE);
+    await r.h.clock.advance(0);
+    const id = only(sessionIds(r.server));
+    assert.equal(r.avplay.urls.length, 1);
+    assert.match(r.avplay.urls[0] ?? "", new RegExp(`^http://192\\.168\\.1\\.20:8091/api/v2/stream/${id}\\?st=signed-\\d+&token=`));
     assert.deepEqual(r.exits, []);
 });
 

@@ -8,10 +8,12 @@
 // - No answer, 408, 429 and 5xx back off and poll again: a poll is a new request, not a replay.
 //   If a lost answer had collected the tokens, the next poll reads `consumed`, which ends the
 //   attempt: the tokens are handed over once and are never requested again.
-// - Start is never resent after a failure; the person asks for a new code.
+// - Start is never resent after a failure; the sign-in screen decides when to ask again.
+// - While the screen is hidden nothing is polled (a poll already sent finishes); back on screen
+//   the code is polled at once, but never before a Retry-After the server asked for.
 
 import { ApiError } from "../api/errors.ts";
-import { sleep, type Clock } from "../api/clock.ts";
+import type { Clock } from "../api/clock.ts";
 import { abortedError } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import type { DeviceLoginPoll, DeviceLoginStart } from "../contracts/v2/wire.ts";
@@ -46,6 +48,10 @@ export type DeviceLoginState =
           /** An approver has the code open: keep it on screen and say to continue on the phone. */
           readonly opened: boolean;
           readonly retrying: "none" | "rate_limited" | "unreachable";
+          /** Local time the current streak's first failing poll was sent; screens wait out a grace from it. */
+          readonly failingSince: number | undefined;
+          /** The same for the current run of 429 answers; another failure ends that run. */
+          readonly rateLimitedSince: number | undefined;
       }
     | {
           readonly phase: "signed_in";
@@ -74,7 +80,8 @@ interface Attempt {
     stopListening: () => void;
 }
 
-const MAX_BACKOFF_SECONDS = 60;
+/** The Apple TV app's cap (QRLoginViewModel.Timing.maxBackoff). */
+const MAX_BACKOFF_SECONDS = 30;
 
 function displayCode(userCode: string): string {
     return /^\d{4}-\d{4}$/.test(userCode) ? userCode.replace("-", " ") : userCode;
@@ -88,6 +95,9 @@ export class DeviceLogin {
     private state: DeviceLoginState = { phase: "idle" };
     private attempt: Attempt | undefined;
     private readonly listeners: DeviceLoginListener[] = [];
+    private active = true;
+    /** Waits woken early by a visibility change. */
+    private readonly wakers = new Set<() => void>();
 
     constructor(session: NativeSession, clock: Clock, deviceName: string, devicePlatform: string) {
         this.session = session;
@@ -108,6 +118,73 @@ export class DeviceLogin {
                 this.listeners.splice(index, 1);
             }
         };
+    }
+
+    /** QRLoginViewModel.setActive: false pauses polling after the request in flight; true polls at once. */
+    setActive(active: boolean): void {
+        if (active === this.active) {
+            return;
+        }
+        this.active = active;
+        for (const wake of [...this.wakers]) {
+            wake();
+        }
+    }
+
+    /**
+     * Waits `ms`, and for as long as the screen is hidden. A return to the screen ends the wait at
+     * once, but not before `floor` (local time): a Retry-After the server asked for still holds.
+     * The timer ends a visible wait; the clock is only read for the floor.
+     */
+    private async nap(signal: AbortSignal, ms: number, floor: number): Promise<void> {
+        let wait: number | undefined = ms;
+        for (;;) {
+            const woken = await this.sleepOrWake(signal, this.active ? wait : undefined);
+            if (!woken) {
+                return;
+            }
+            if (!this.active) {
+                wait = undefined;
+                continue;
+            }
+            const left = floor - this.clock.now();
+            if (left <= 0) {
+                return;
+            }
+            wait = left;
+        }
+    }
+
+    /** True when a visibility change ended the wait; `ms` undefined waits for one only. */
+    private sleepOrWake(signal: AbortSignal, ms: number | undefined): Promise<boolean> {
+        return new Promise<boolean>((resolve, reject) => {
+            if (signal.aborted) {
+                reject(abortedError());
+                return;
+            }
+            let cancelTimer: () => void = () => undefined;
+            const settle = (): void => {
+                cancelTimer();
+                this.wakers.delete(wake);
+                signal.removeEventListener("abort", abort);
+            };
+            const wake = (): void => {
+                settle();
+                resolve(true);
+            };
+            const abort = (): void => {
+                settle();
+                reject(abortedError());
+            };
+            if (ms !== undefined) {
+                cancelTimer = this.clock.schedule(() => {
+                    settle();
+                    resolve(false);
+                }, ms);
+            }
+            this.wakers.add(wake);
+            signal.addEventListener("abort", abort, { once: true });
+        });
     }
 
     /** Requests a new code, withdrawing any code shown before. */
@@ -229,6 +306,7 @@ export class DeviceLogin {
 
         let started: DeviceLoginStart;
         try {
+            if (!this.active) await this.nap(signal, 0, 0);
             const capability = await http.send({ ...operations.deviceLoginCapability(), signal });
             if (!this.isCurrent(attempt)) {
                 return;
@@ -238,6 +316,7 @@ export class DeviceLogin {
                 return;
             }
             attempt.cancelSupported = capability.cancel;
+            if (!this.active) await this.nap(signal, 0, 0);
             started = await http.send({ ...operations.startDeviceLogin(this.deviceName, this.devicePlatform), signal });
         } catch (error) {
             if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
@@ -269,16 +348,22 @@ export class DeviceLogin {
         });
         let opened = false;
         let waitSeconds = interval;
+        /** A server's Retry-After, as a local time no poll goes before. */
+        let notBefore = 0;
         let backoffSeconds = 0;
-        this.set(attempt, { phase: "waiting", code: code(), opened, retrying: "none" });
+        let failingSince: number | undefined;
+        let rateLimitedSince: number | undefined;
+        this.set(attempt, { phase: "waiting", code: code(), opened, retrying: "none", failingSince, rateLimitedSince });
 
         for (;;) {
             try {
-                await sleep(this.clock, waitSeconds * 1000, signal, abortedError);
+                await this.nap(signal, waitSeconds * 1000, notBefore);
             } catch {
                 return;
             }
             const lastChance = this.clock.now() >= deadline;
+            // A request that hangs until its timeout counts from when it was sent.
+            const sentAt = this.clock.now();
             let answer: DeviceLoginPoll;
             try {
                 answer = await http.send({ ...operations.pollDeviceLogin(started.deviceCode), signal });
@@ -294,7 +379,9 @@ export class DeviceLogin {
                     this.finish(attempt, { phase: "expired" }, true);
                     return;
                 }
-                if (!error.transient) {
+                // pollDeviceLogin's 400, 406, 413, 415 and 422 refuse the request itself, so it can
+                // never pass; Apple's other failures, an unreadable answer included, are retried.
+                if (!error.transient && error.failure.kind !== "invalid_response") {
                     this.fail(attempt, error);
                     return;
                 }
@@ -306,7 +393,10 @@ export class DeviceLogin {
                 const rateLimited = error.status === 429;
                 const retryAfter = error.retryAfterSeconds;
                 waitSeconds = rateLimited && retryAfter !== undefined ? Math.max(interval, retryAfter) : backoffSeconds;
-                this.set(attempt, { phase: "waiting", code: code(), opened, retrying: rateLimited ? "rate_limited" : "unreachable" });
+                notBefore = rateLimited && retryAfter !== undefined ? this.clock.now() + retryAfter * 1000 : 0;
+                failingSince = failingSince ?? sentAt;
+                rateLimitedSince = rateLimited ? rateLimitedSince ?? sentAt : undefined;
+                this.set(attempt, { phase: "waiting", code: code(), opened, retrying: rateLimited ? "rate_limited" : "unreachable", failingSince, rateLimitedSince });
                 continue;
             }
 
@@ -317,7 +407,19 @@ export class DeviceLogin {
                 }
                 return;
             }
+            notBefore = 0;
+            if (answer.status === "unknown") {
+                // A status this app doesn't know yet: Apple keeps polling it as a failure.
+                backoffSeconds = backoffSeconds === 0 ? interval : Math.min(MAX_BACKOFF_SECONDS, backoffSeconds * 2);
+                waitSeconds = backoffSeconds;
+                failingSince = failingSince ?? sentAt;
+                rateLimitedSince = undefined;
+                this.set(attempt, { phase: "waiting", code: code(), opened, retrying: "unreachable", failingSince, rateLimitedSince });
+                continue;
+            }
             backoffSeconds = 0;
+            failingSince = undefined;
+            rateLimitedSince = undefined;
 
             switch (answer.status) {
                 case "pending":
@@ -333,7 +435,7 @@ export class DeviceLogin {
                         }
                         waitSeconds = 0;
                     }
-                    this.set(attempt, { phase: "waiting", code: code(), opened, retrying: "none" });
+                    this.set(attempt, { phase: "waiting", code: code(), opened, retrying: "none", failingSince, rateLimitedSince });
                     continue;
                 case "approved": {
                     attempt.settled = true;
@@ -359,9 +461,6 @@ export class DeviceLogin {
                 case "canceled":
                 case "consumed":
                     this.finish(attempt, { phase: answer.status }, true);
-                    return;
-                case "unknown":
-                    this.finish(attempt, { phase: "failed", reason: "unexpected_response", retryAfterSeconds: undefined }, false);
                     return;
             }
         }

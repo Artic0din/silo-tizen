@@ -227,6 +227,40 @@ function decodeTokens(obj: WireObject, path: string): IssuedTokens {
     };
 }
 
+/** TokenPair: what login and an approved device sign-in hand over. */
+export interface TokenPair {
+    readonly tokens: IssuedTokens;
+    readonly account: AccountSummary;
+}
+
+export function decodeTokenPair(value: unknown, path = "token_pair"): TokenPair {
+    const obj = object(value, path);
+    return { tokens: decodeTokens(obj, path), account: decodeAccount(obj.user, `${path}.user`) };
+}
+
+/** listAuthProviders: whether a password is accepted, and the browser (OAuth) providers' names. */
+export interface AuthProviders {
+    readonly passwordLogin: boolean;
+    readonly oauthProviders: readonly string[];
+}
+
+export function decodeAuthProviders(value: unknown): AuthProviders {
+    const path = "auth_providers";
+    const obj = object(value, path);
+    const items = obj.items;
+    if (!Array.isArray(items)) {
+        throw new WireError(`${path}.items`, "an array");
+    }
+    const oauthProviders: string[] = [];
+    items.forEach((entry: unknown, index) => {
+        const item = object(entry, `${path}.items[${index}]`);
+        if (string(item, "mode", `${path}.items[${index}]`) === "oauth") {
+            oauthProviders.push(string(item, "display_name", `${path}.items[${index}]`));
+        }
+    });
+    return { passwordLogin: boolean(obj, "password_login", path), oauthProviders };
+}
+
 const POLL_STATUSES = ["pending", "approved", "denied", "consumed", "canceled", "expired"] as const;
 
 export type DeviceLoginPoll =
@@ -258,13 +292,7 @@ export function decodeDeviceLoginPoll(value: unknown): DeviceLoginPoll {
         };
     }
     if (status === "approved") {
-        const tokens = object(obj.tokens, `${path}.tokens`);
-        return {
-            status,
-            tokens: decodeTokens(tokens, `${path}.tokens`),
-            account: decodeAccount(tokens.user, `${path}.tokens.user`),
-            temporary: boolean(obj, "temporary", path),
-        };
+        return { status, ...decodeTokenPair(obj.tokens, `${path}.tokens`), temporary: boolean(obj, "temporary", path) };
     }
     return { status };
 }

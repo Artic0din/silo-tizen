@@ -160,6 +160,9 @@ test("artwork: references resolve against the server; only HTTPS is drawn; nothi
     assert.equal(artworkUrl("javascript:alert(1)", base), undefined);
     assert.equal(artworkUrl("", base), undefined);
     assert.equal(artworkUrl(undefined, base), undefined);
+    const plain = "http://192.168.1.20:8091";
+    assert.equal(artworkUrl("/api/v2/artwork/p.webp?sig=abc", plain), "http://192.168.1.20:8091/api/v2/artwork/p.webp?sig=abc", "a plain-HTTP server's own artwork is drawn");
+    assert.equal(artworkUrl("javascript:alert(1)", plain), undefined);
 });
 
 test("resume: positive positions resume unless within 5 seconds of the end", () => {

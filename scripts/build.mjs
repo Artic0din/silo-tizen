@@ -22,6 +22,8 @@ await build({
     bundle: true,
     format: "iife",
     target: "chrome76",
+    // app/fonts is copied beside js/; the stylesheet's relative URL must stay as written.
+    external: ["../fonts/*"],
     define: { APP_VERSION: JSON.stringify(version) },
     logLevel: "info"
 });

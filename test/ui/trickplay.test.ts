@@ -103,6 +103,7 @@ async function open(timelineOffset = 0, intervals?: { backward: number; forward:
             return;
         }
         if (url.origin !== ORIGIN) { await route.abort(); return; }
+        if (url.pathname === "/fonts/InterVariable.woff2") { await route.fulfill({ contentType: "font/woff2", body: readFileSync(new URL("../../app/fonts/InterVariable.woff2", import.meta.url)) }); return; }
         const body = url.pathname === "/tv/index.html" ? HTML : url.pathname === "/tv/app.css" ? CSS : url.pathname === "/tv/harness.js" ? script : undefined;
         if (body !== undefined) { await route.fulfill({ contentType: url.pathname.endsWith(".css") ? "text/css" : url.pathname.endsWith(".js") ? "application/javascript" : "text/html", body }); return; }
         if (request.method() === "OPTIONS") { await route.fulfill({ status: 405 }); return; }

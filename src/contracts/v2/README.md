@@ -26,6 +26,8 @@ Server day groups, event order, release metadata and all returned events are ret
 | `startDeviceLogin` | `non_retryable` | Never resent; the person asks for a new code |
 | `pollDeviceLogin` | `non_retryable` | Never resent; the next scheduled poll is a new request (`poll_after`) |
 | `cancelDeviceLogin`, `logout` | `natural_idempotent` | One transport retry |
+| `login` | `non_retryable` | Never resent; each press of Sign in is one request. No `provider`, so the server's default signs in. The `TokenPair` is installed like a device approval's; a late answer is revoked |
+| `listAuthProviders` | read | One transport retry; `password_login: false` hides the password button, OAuth `display_name`s name the phone hint; 404 or failure keeps the password route |
 | `refreshSession` | `domain_identity` | Never resent; 401/400/422 end the session, others keep the tokens |
 | `verifyProfilePIN` | `non_retryable` | Never resent, not even after a token refresh |
 | `getPlaybackCapabilities` | read | One transport retry; read before every play for `installation_id` |
@@ -129,6 +131,13 @@ Missing, failed, malformed or mismatched-file responses leave playback and manua
 Up reaches Skip when available; Down or Back from Skip returns to transport, and Enter or Play seeks to the segment end.
 The countdown is informational and never automatically seeks.
 Desktop tests do not prove Samsung hardware rendering or live server CORS.
+
+## Password sign-in
+
+`login_ok`, `login_invalid_credentials`, `login_account_required`, `login_password_required` and `list_auth_providers_ok` are byte-identical copies from `SOURCE`.
+`decodeTokenPair` reads `access_token`, `refresh_token`, `expires_in` and `user` (`id`, `username`, `password_change_required`), shared with the device poll's `tokens`.
+Refusals follow `internal/apiv2/auth.go` at `SOURCE`: 401 `invalid_token` for a wrong password or unknown name alike, 403 `local_login_disabled`, `not_permitted`, `password_expired`, `account_required`, 409 `email_in_use`, `identity_linked_elsewhere`, 429 `rate_limited`, and 503 `dependency_unavailable` when the server is too busy to check a password.
+The copy for each follows the Apple TV app's `LoginViewModel.message`.
 
 ## Updating the pinned contract
 

@@ -1,3 +1,13 @@
+/* Inter 4.1 (SIL Open Font License 1.1, app/fonts/Inter-LICENSE.txt), shipped in the package: the
+   app's one UI face. Apple's SF Pro may not be embedded; Inter is a substitution, not a match. */
+@font-face {
+    font-family: "Inter";
+    src: url("../fonts/InterVariable.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: block;
+}
+
 :root {
     --silo-background: #000000;
     --silo-surface: #0a0a0a;
@@ -9,7 +19,7 @@
     --silo-hairline: rgba(255, 255, 255, 0.12);
     --silo-selected: rgba(255, 255, 255, 0.14);
     --silo-error: #ffb4ab;
-    --silo-font: system-ui, sans-serif;
+    --silo-font: "Inter", system-ui, sans-serif;
     --silo-fast: 120ms;
     --silo-page: 200ms;
 }

@@ -169,7 +169,7 @@ export class NativeSession {
     }
 
     /**
-     * Takes the tokens a device sign-in collected. Undefined when a sign-out or another sign-in
+     * Takes the tokens a device or password sign-in collected. Undefined when a sign-out or another sign-in
      * replaced this account while it was being stored.
      */
     async installDeviceLogin(tokens: IssuedTokens, account: AccountSummary): Promise<InstallResult | undefined> {

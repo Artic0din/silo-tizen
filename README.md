@@ -4,11 +4,12 @@ Silo client for Samsung Tizen TVs from model year 2021 (Tizen 6.0).
 
 ## Native app
 
-The packaged app uses Silo's native `/api/v2`: server entry, device-code sign-in, household profiles and PINs, Movies and Series browsing, and AVPlay playback with audio and subtitle selection.
+The packaged app uses Silo's native `/api/v2`: server entry, device-code sign-in with a password fallback, household profiles and PINs, Movies and Series browsing, and AVPlay playback with audio and subtitle selection.
 
 The [Requests journeys](docs/requests.md) appear when the server enables Requests for the active viewer.
 The earlier Jellyfin-compatible client is retired.
-Sign-in now uses an eight-digit device code approved on Silo's web page instead of entering an account password on the TV.
+Sign-in uses an eight-digit device code approved on Silo's web page, with "Sign in with a password" one press away as on the Apple TV app.
+The password is sent only in the body of `login` and is never stored; only the issued tokens are kept.
 The server address is remembered publicly; credentials use Tizen KeyManager or the explicit session-only mode when protected storage is unavailable.
 
 `src/main.ts` boots the app through `src/bootstrap.ts` and `src/platform.ts`.

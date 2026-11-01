@@ -535,3 +535,162 @@ test("a sign-in while KeyManager refuses deletes still stores the new account, a
     await restarted.core.session.call(probe);
     assert.equal(keyManager.items.size, 1, "the replaced account's leftover is removed");
 });
+
+test("a failing poll streak is dated from its first failing send, backs off to 30 seconds, and clears on success", async () => {
+    const h = await connected();
+    const login = h.core.createDeviceLogin();
+    login.start();
+    await h.clock.advance(0);
+    const outage = { status: 503 };
+    h.fake.script("/auth/device/poll", outage, outage, outage, outage, outage, outage);
+    const polls = (): number => h.fake.paths().filter((path) => path === "POST /auth/device/poll").length;
+    const firstSend = h.clock.now() + 5 * SECOND;
+    await h.clock.advance(5 * SECOND);
+    const first = login.current;
+    assert.equal(first.phase === "waiting" && first.failingSince, firstSend);
+    assert.equal(first.phase === "waiting" && first.rateLimitedSince, undefined);
+    // The Apple TV app's backoff: the poll interval, doubled, at most 30 seconds.
+    for (const wait of [5, 10, 20, 30, 30]) {
+        const before = polls();
+        await h.clock.advance(wait * SECOND - 1);
+        assert.equal(polls(), before, `waits ${wait} s`);
+        await h.clock.advance(1);
+        assert.equal(polls(), before + 1);
+        const state = login.current;
+        assert.equal(state.phase === "waiting" && state.failingSince, firstSend, "the streak keeps its first send");
+    }
+    await h.clock.advance(30 * SECOND);
+    const recovered = login.current;
+    assert.equal(recovered.phase === "waiting" && recovered.retrying, "none");
+    assert.equal(recovered.phase === "waiting" && recovered.failingSince, undefined);
+});
+
+test("a 429 streak is dated separately and resets when another failure interrupts it", async () => {
+    const h = await connected();
+    const login = h.core.createDeviceLogin();
+    login.start();
+    await h.clock.advance(0);
+    const limited = { status: 429, headers: { "Content-Type": "application/problem+json" }, body: { type: "https://siloserver.org/docs/api/v2/problems/rate_limited", title: "Rate limited", status: 429, detail: "", instance: "urn:silo:request:1" } };
+    h.fake.script("/auth/device/poll", limited, { status: 503 }, limited);
+    const firstSend = h.clock.now() + 5 * SECOND;
+    await h.clock.advance(5 * SECOND);
+    let state = login.current;
+    assert.equal(state.phase === "waiting" && state.rateLimitedSince, firstSend);
+    await h.clock.advance(5 * SECOND);
+    state = login.current;
+    assert.equal(state.phase === "waiting" && state.retrying, "unreachable");
+    assert.equal(state.phase === "waiting" && state.rateLimitedSince, undefined);
+    assert.equal(state.phase === "waiting" && state.failingSince, firstSend);
+    const thirdSend = h.clock.now() + 10 * SECOND;
+    await h.clock.advance(10 * SECOND);
+    state = login.current;
+    assert.equal(state.phase === "waiting" && state.rateLimitedSince, thirdSend);
+    assert.equal(state.phase === "waiting" && state.failingSince, firstSend);
+});
+
+const pollCount = (h: { fake: { paths(): string[] } }): number => h.fake.paths().filter((path) => path === "POST /auth/device/poll").length;
+
+test("starting while hidden sends no code request until the screen returns", async () => {
+    const h = await connected();
+    const login = h.core.createDeviceLogin();
+    login.setActive(false);
+    login.start();
+    await h.clock.advance(0);
+    const starts = (): number => h.fake.paths().filter((path) => path === "POST /auth/device/start").length;
+    assert.equal(starts(), 0);
+    login.setActive(true);
+    await h.clock.advance(0);
+    assert.equal(starts(), 1);
+});
+
+test("hidden, nothing is polled; back on screen the code is polled at once, as QRLoginViewModel.setActive", async () => {
+    const h = await connected();
+    const login = h.core.createDeviceLogin();
+    login.start();
+    await h.clock.advance(0);
+    login.setActive(false);
+    await h.clock.advance(60 * SECOND);
+    assert.equal(pollCount(h), 0, "no poll while hidden");
+    login.setActive(true);
+    await h.clock.advance(0);
+    assert.equal(pollCount(h), 1, "polled at once on return");
+    await h.clock.advance(4 * SECOND);
+    assert.equal(pollCount(h), 1);
+    await h.clock.advance(1 * SECOND);
+    assert.equal(pollCount(h), 2, "then the interval again");
+});
+
+test("coming back never polls before a server's Retry-After", async () => {
+    const h = await connected();
+    const login = h.core.createDeviceLogin();
+    login.start();
+    await h.clock.advance(0);
+    h.fake.script("/auth/device/poll", {
+        status: 429,
+        headers: { "Content-Type": "application/problem+json", "Retry-After": "30" },
+        body: { type: "https://siloserver.org/docs/api/v2/problems/rate_limited", title: "Rate limited", status: 429, detail: "", instance: "urn:silo:request:1" },
+    });
+    await h.clock.advance(5 * SECOND);
+    assert.equal(pollCount(h), 1);
+    login.setActive(false);
+    await h.clock.advance(5 * SECOND);
+    login.setActive(true);
+    await h.clock.advance(0);
+    assert.equal(pollCount(h), 1, "the 30 s the server asked for still hold");
+    // Sent at 5 s with Retry-After 30: nothing before 35 s, 25 s after coming back.
+    await h.clock.advance(25 * SECOND - 1);
+    assert.equal(pollCount(h), 1);
+    await h.clock.advance(1);
+    assert.equal(pollCount(h), 2);
+});
+
+test("a code that expires while hidden is polled once on return, then reported expired", async () => {
+    const h = await connected();
+    const login = h.core.createDeviceLogin();
+    login.start();
+    await h.clock.advance(0);
+    login.setActive(false);
+    await h.clock.advance(16 * 60 * SECOND);
+    assert.equal(login.current.phase, "waiting");
+    login.setActive(true);
+    await h.clock.advance(0);
+    assert.equal(pollCount(h), 1);
+    assert.equal(login.current.phase, "expired");
+});
+
+test("a poll already sent when the screen hides still collects its approval", async () => {
+    const h = await connected();
+    const login = h.core.createDeviceLogin();
+    login.start();
+    await h.clock.advance(0);
+    const hold = h.fake.hold("/auth/device/poll");
+    h.fake.approve(latestDeviceCode(h.fake));
+    await h.clock.advance(5 * SECOND);
+    login.setActive(false);
+    hold.release();
+    await hold.released;
+    await h.clock.advance(0);
+    assert.equal(login.current.phase, "signed_in");
+});
+
+test("an unreadable answer or an unknown status is retried as Apple does; a request-shape refusal ends the attempt", async () => {
+    const h = await connected();
+    const login = h.core.createDeviceLogin();
+    login.start();
+    await h.clock.advance(0);
+    h.fake.script("/auth/device/poll", { status: 200, body: { status: "something-new", poll_after: 5 } }, { status: 200, body: "<html>proxy</html>" });
+    await h.clock.advance(5 * SECOND);
+    let state = login.current;
+    assert.equal(state.phase === "waiting" && state.retrying, "unreachable", "an unknown status keeps the code");
+    await h.clock.advance(5 * SECOND);
+    state = login.current;
+    assert.equal(state.phase === "waiting" && state.retrying, "unreachable", "an unreadable answer keeps the code");
+    await h.clock.advance(10 * SECOND);
+    state = login.current;
+    assert.equal(state.phase === "waiting" && state.retrying, "none", "a normal answer recovers");
+
+    // pollDeviceLogin's 400/406/413/415/422 refuse the request itself; the same request can't pass.
+    h.fake.script("/auth/device/poll", { status: 422, headers: { "Content-Type": "application/problem+json" }, body: { type: "https://siloserver.org/docs/api/v2/problems/validation_failed", title: "Invalid", status: 422, detail: "", instance: "urn:silo:request:2" } });
+    await h.clock.advance(5 * SECOND);
+    assert.equal(login.current.phase, "failed");
+});

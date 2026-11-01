@@ -38,7 +38,8 @@ test("Reduced Motion removes screen and focus animation without delaying navigat
         await tv.page.emulateMedia({ reducedMotion: "reduce" });
         await tv.page.locator('[data-screen="entry"]').waitFor();
         await tv.page.keyboard.press("ArrowDown");
-        assert.equal(await tv.focused(), "connect");
+        // Down from the address reaches Advanced options, as on the Apple TV app.
+        assert.equal(await tv.focused(), "advanced");
         const motion = await tv.page.locator(".signin-screen").evaluate((screen) => ({
             screen: getComputedStyle(screen).animationDuration,
             control: getComputedStyle(document.activeElement ?? screen).transitionDuration,

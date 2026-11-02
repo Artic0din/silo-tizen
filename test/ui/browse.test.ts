@@ -1069,6 +1069,7 @@ browseTest("a failed Browse append retains cards until a completed explicit retr
     await showing(tv, "library:12");
     await tv.page.locator('[data-focus="mode:Browse"]').click();
     await tv.eventually(async () => await tv.page.locator('.catalog-grid .browse-card').count() === 100, "initial Browse batch");
+    const retained = await cardIds(tv, '.catalog-grid .browse-card');
     let failed = false;
     await tv.page.route("**/api/v2/catalog/query?*", async route => {
         const body = route.request().postDataJSON() as Record<string, unknown>;
@@ -1078,13 +1079,14 @@ browseTest("a failed Browse append retains cards until a completed explicit retr
     await tv.page.locator('.catalog-grid .browse-card').last().focus();
     await tv.page.keyboard.press("ArrowUp");
     await tv.page.getByRole("alert").waitFor();
-    assert.equal(await tv.page.locator('.catalog-grid .browse-card').count(), 100);
+    assert.deepEqual(await cardIds(tv, '.catalog-grid .browse-card'), retained);
     const recovered = tv.page.waitForResponse(response => new URL(response.url()).pathname === "/api/v2/catalog/query" && response.ok());
     await tv.page.getByRole("button", { name: "Try again", exact: true }).click();
     assert.equal(await (await recovered).finished(), null);
     assert.equal((await recovered).request().postDataJSON().cursor, undefined);
     try {
-        await tv.eventually(async () => await tv.page.getByRole("alert").count() === 0 && await tv.page.locator('.catalog-grid .browse-card').count() === 100, "retry finished");
+        await tv.eventually(async () => await tv.page.getByRole("alert").count() === 0 && await tv.page.locator('.section-catalog-loading').count() === 0, "retry finished");
+        assert.deepEqual((await cardIds(tv, '.catalog-grid .browse-card')).slice(0, retained.length), retained);
     } catch (cause) {
         const cards = await tv.page.locator('.catalog-grid .browse-card').count();
         const alerts = await tv.page.getByRole("alert").count();

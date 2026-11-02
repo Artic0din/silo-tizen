@@ -1076,7 +1076,7 @@ browseTest("a failed Browse append retains cards until a completed explicit retr
         else await route.fallback();
     });
     await tv.page.locator('.catalog-grid .browse-card').last().focus();
-    await tv.page.locator('.catalog-grid .browse-card').last().evaluate(node => node.scrollIntoView({ block: "end" }));
+    await tv.page.keyboard.press("ArrowUp");
     await tv.page.getByRole("alert").waitFor();
     assert.equal(await tv.page.locator('.catalog-grid .browse-card').count(), 100);
     const recovered = tv.page.waitForResponse(response => new URL(response.url()).pathname === "/api/v2/catalog/query" && response.ok());

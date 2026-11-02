@@ -1,10 +1,10 @@
-// The one place that sends HTTPS requests to Silo's native /api/v2.
+// The one place that sends requests to Silo's native /api/v2.
 // Session code decides which credentials to attach; this module only transports them.
 
 import { decodeProblem, type Problem, WireError } from "../contracts/v2/wire.ts";
 import { type Clock, sleep } from "./clock.ts";
 import { ApiError } from "./errors.ts";
-import type { ServerBase } from "./serverUrl.ts";
+import { isPermittedUrl, type ServerBase } from "./serverUrl.ts";
 
 export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -55,7 +55,7 @@ const RETRYABLE_STATUSES = [502, 503, 504];
 export class NativeHttp {
     async subtitleText(url: string, signal: AbortSignal): Promise<string> {
         const address = new URL(url);
-        if (address.protocol !== "https:" || address.username || address.password) throw new Error("Invalid subtitle URL");
+        if (!isPermittedUrl(address, this.base.baseUrl) || address.username || address.password) throw new Error("Invalid subtitle URL");
         const abort = new AbortController();
         const cancel = (): void => abort.abort();
         signal.addEventListener("abort", cancel, { once: true });

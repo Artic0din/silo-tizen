@@ -29,6 +29,8 @@ export interface SignInHarness {
     lastKeyPrevented: boolean | undefined;
     /** A fresh mount on the same storage, as after the app restarts. */
     mount(signedOut?: LogoutResult): void;
+    /** Signs the server sign-in is connected to out from outside the sign-in screens, before any handoff. */
+    signOutElsewhere(): Promise<LogoutResult>;
     destroy(): void;
     /** Signs the last handed-off server out and shows sign-in again, as the profile screens will. */
     logout(): Promise<LogoutResult>;
@@ -69,6 +71,7 @@ const profileFlow = location.search === "?flow=profiles";
 let screens: SignInScreens | undefined;
 let profileScreens: ProfileScreens | undefined;
 let last: ConnectedServer | undefined;
+let connected: ConnectedServer | undefined;
 const handed: ProfileHandoff[] = [];
 
 const harness: SignInHarness = {
@@ -134,6 +137,9 @@ const harness: SignInHarness = {
                 deviceName: "Living room TV",
                 devicePlatform: "tizen",
             },
+            onConnected: (server) => {
+                connected = server;
+            },
             onSignedIn: (server) => {
                 last = server;
                 harness.handoffs.push({
@@ -148,6 +154,12 @@ const harness: SignInHarness = {
             },
             ...(signedOut === undefined ? {} : { signedOut }),
         });
+    },
+    async signOutElsewhere() {
+        if (connected === undefined) {
+            throw new Error("not connected");
+        }
+        return connected.session.logout();
     },
     async logout() {
         if (last === undefined) {

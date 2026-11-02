@@ -4,7 +4,7 @@ import { discoverServer } from "../../src/api/discovery.ts";
 import { ApiError } from "../../src/api/errors.ts";
 import { NativeHttp } from "../../src/api/http.ts";
 import { operations } from "../../src/api/operations.ts";
-import { parseServerUrl } from "../../src/api/serverUrl.ts";
+import { isPermittedUrl, parseServerUrl, plainHttpFallbacks } from "../../src/api/serverUrl.ts";
 import { ManualClock } from "./support/clock.ts";
 import { FakeSilo } from "./support/fakeSilo.ts";
 
@@ -18,16 +18,52 @@ function setup(): { clock: ManualClock; fake: FakeSilo; http: NativeHttp } {
     return { clock, fake, http: new NativeHttp(parsed.base, device, fake.fetch, clock) };
 }
 
-test("server addresses: HTTPS only, path prefix kept, no credentials, query or API path", () => {
+test("server addresses: HTTPS by default, typed HTTP kept, path prefix kept, no credentials, query or API path", () => {
     assert.deepEqual(parseServerUrl(" silo.example.test/media/ "), {
         ok: true,
         base: { origin: "https://silo.example.test", baseUrl: "https://silo.example.test/media", apiRoot: "https://silo.example.test/media/api/v2" },
     });
-    assert.deepEqual(parseServerUrl("http://192.168.1.20:8096"), { ok: false, problem: "not_https" });
+    assert.deepEqual(parseServerUrl("HTTP://192.168.1.20:8091/"), {
+        ok: true,
+        base: { origin: "http://192.168.1.20:8091", baseUrl: "http://192.168.1.20:8091", apiRoot: "http://192.168.1.20:8091/api/v2" },
+    });
+    assert.deepEqual(parseServerUrl("ftp://silo.example.test"), { ok: false, problem: "unsupported_scheme" });
     assert.deepEqual(parseServerUrl("https://user:pw@silo.example.test"), { ok: false, problem: "has_credentials" });
     assert.deepEqual(parseServerUrl("https://silo.example.test/?a=1"), { ok: false, problem: "has_query_or_fragment" });
     assert.deepEqual(parseServerUrl("https://silo.example.test/api/v2"), { ok: false, problem: "has_api_path" });
     assert.deepEqual(parseServerUrl(""), { ok: false, problem: "empty" });
+});
+
+test("a scheme-less address falls back to plain HTTP like the Apple TV app: same port, then 8090", () => {
+    assert.deepEqual(plainHttpFallbacks("silo.example.test/media/"), ["http://silo.example.test/media", "http://silo.example.test:8090/media"]);
+    assert.deepEqual(plainHttpFallbacks(" 192.168.1.20:8091 "), ["http://192.168.1.20:8091"]);
+    assert.deepEqual(plainHttpFallbacks("192.168.1.20:443"), ["http://192.168.1.20:443"]);
+    assert.deepEqual(plainHttpFallbacks("https://silo.example.test"), [], "a typed scheme is never changed");
+    assert.deepEqual(plainHttpFallbacks("http://silo.example.test"), []);
+    assert.deepEqual(plainHttpFallbacks("silo.example.test/api"), []);
+});
+
+test("cleartext is allowed only from a plain-HTTP server, never as a downgrade from HTTPS", () => {
+    const secure = parseServerUrl("https://silo.example.test");
+    const plain = parseServerUrl("http://192.168.1.20:8091");
+    assert.ok(secure.ok && plain.ok);
+    assert.equal(isPermittedUrl(new URL("https://cdn.example.test/a.jpg"), secure.base.baseUrl), true);
+    assert.equal(isPermittedUrl(new URL("http://silo.example.test/a.jpg"), secure.base.baseUrl), false);
+    assert.equal(isPermittedUrl(new URL("http://192.168.1.20:8091/a.jpg"), plain.base.baseUrl), true);
+    assert.equal(isPermittedUrl(new URL("https://cdn.example.test/a.jpg"), plain.base.baseUrl), true);
+    assert.equal(isPermittedUrl(new URL("data:text/plain,x"), plain.base.baseUrl), false);
+});
+
+test("subtitle downloads may use cleartext only from a plain-HTTP server", async () => {
+    const clock = new ManualClock();
+    const plain = new FakeSilo(clock, undefined, "http://192.168.1.20:8091");
+    const plainBase = parseServerUrl(plain.origin);
+    assert.ok(plainBase.ok);
+    plain.script("/captions", { status: 200, text: "WEBVTT" });
+    const text = await new NativeHttp(plainBase.base, device, plain.fetch, clock).subtitleText(`${plain.origin}/api/v2/captions`, new AbortController().signal);
+    assert.equal(text, "WEBVTT");
+    const { http } = setup();
+    await assert.rejects(http.subtitleText(`${plain.origin}/api/v2/captions`, new AbortController().signal), /Invalid subtitle URL/);
 });
 
 test("discovery checks api_major and request_origin before any credential is sent", async () => {

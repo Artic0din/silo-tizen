@@ -7,8 +7,15 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - Documented signed-package simulator evidence and Apple TV comparisons, and corrected the retired backend guidance.
+- Redrew the sign-in screens in the Apple TV layout: Silo wordmark, a drifting brand-light backdrop with grain and the server's accent, glass cards, a server card with its mark and a Secure or HTTP badge, the QR code and code in a card beside the instructions, and the Apple TV wording for every code state; Back now waits while a server connects.
+- Sign-in codes now behave as on the Apple TV app: an expired, withdrawn or lost code renews itself for an hour and then pauses until asked, a failing start retries on its own, "Can't reach" and "Too many sign-in attempts" appear only after 10, 30 or 60 seconds of failures, and an approval shows "Signed in as …" for a second before moving on.
+- The TV now stops polling a sign-in code while the app is hidden and checks it at once on return (after any wait the server asked for), remembers each server's name, mark and accent between launches, and keeps showing a code through unreadable or unknown poll answers instead of ending sign-in.
 
 ### Added
+
+- Connected to plain-HTTP Silo servers like the Apple TV app: a typed `http://` address connects directly, and an address without a scheme tries HTTPS first, then asks "Connect without encryption?" before sending anything unencrypted.
+- Added "Sign in with a password" beside the sign-in code, as on the Apple TV app; servers without code sign-in open on the password screen, and servers that turned passwords off hide it.
+- Added Advanced options to server entry, as on the Apple TV app: choose Auto, HTTPS or HTTP and a port; HTTP connects without asking and HTTPS never falls back to plain HTTP.
 
 - Added capability-gated subtitle translation and audio transcription with quota status, job failures and selectable AI-labeled results.
 - Continued series episodes automatically with a cancellable countdown when the server-synced autoplay preference was enabled.
@@ -16,6 +23,12 @@ All notable changes to this project are documented in this file.
 - Applied profile subtitle appearance and timing to text subtitles and added persistent series subtitle choices, including Off.
 
 ### Fixed
+
+- Kept active password fields and TV keyboards intact when device sign-in became unavailable, updating the phone controls without redrawing the form.
+- Preserved the original handoff pause when returning to code sign-in after phone approval instead of starting another code.
+- Kept completed phone sign-ins intact when password replies arrived late, and removed saved sign-ins from the protocol and port selected in Advanced options.
+- Preserved active password fields and completed sign-in handoffs when provider discovery arrived late, and renewed expired codes after repeated unknown poll responses.
+- Made the HTTP badge visibly unlocked, calibrated the cleartext alert's measured frame and translucent surface, and aligned sign-in instruction wrapping and spacing with Apple TV.
 
 - Restored interrupted playback after connection loss and app return while preserving position, track choices, pause intent and profile authority.
 

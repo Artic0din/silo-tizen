@@ -1,6 +1,7 @@
 // Decisions the browse screens make about server data, kept free of the DOM so Node can test them.
 
 import type { BrowseScope } from "../api/operations.ts";
+import { isPermittedUrl } from "../api/serverUrl.ts";
 import type { Card, ItemDetail, UserLibrary } from "../contracts/v2/catalog.ts";
 
 /** What the player needs to call startPlayback: the item, one file and where to start. */
@@ -63,7 +64,7 @@ export function scopeOf(library: UserLibrary): BrowseScope {
 /**
  * Artwork URLs are uri-references: signed server routes (often root-relative) or presigned
  * storage URLs. They authorize by their own query, so no credential is ever added. Only HTTPS
- * results are used; anything else shows the placeholder.
+ * results, or plain HTTP from a plain-HTTP server, are used; anything else shows the placeholder.
  */
 export function artworkUrl(reference: string | undefined, baseUrl: string): string | undefined {
     if (reference === undefined || reference === "") {
@@ -75,7 +76,7 @@ export function artworkUrl(reference: string | undefined, baseUrl: string): stri
     } catch {
         return undefined;
     }
-    return url.protocol === "https:" ? url.href : undefined;
+    return isPermittedUrl(url, baseUrl) ? url.href : undefined;
 }
 
 export function resumeSeconds(positionSeconds: number | undefined, durationSeconds: number | undefined): number | undefined {

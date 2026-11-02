@@ -1,7 +1,9 @@
 // The /api/v2 operations this client calls, with the retry class each one's contract allows.
 // Retry classes come from the operation's x-silo-retry-safety in openapi.json (see ../contracts/v2/SOURCE).
 
+import { decodeServerBranding } from "../contracts/v2/branding.ts";
 import {
+    decodeAuthProviders,
     decodeDeviceLoginCancel,
     decodeDeviceLoginCapability,
     decodeDeviceLoginPoll,
@@ -11,6 +13,7 @@ import {
     decodeRefreshedTokens,
     decodeServerIdentity,
     decodeSystemInfo,
+    decodeTokenPair,
 } from "../contracts/v2/wire.ts";
 import {
     decodeFileVersionTracks,
@@ -97,6 +100,9 @@ export const operations = {
         retry: "safe",
         decode: decodeSystemInfo,
     }),
+    serverBranding: (): Spec<ReturnType<typeof decodeServerBranding>> => ({
+        method: "GET", path: "/theme/branding", retry: "safe", decode: decodeServerBranding,
+    }),
     /** getServerIdentity: public, read. */
     serverIdentity: (): Spec<string> => ({
         method: "GET",
@@ -134,6 +140,21 @@ export const operations = {
         retry: "safe",
         body: { device_code: deviceCode },
         decode: decodeDeviceLoginCancel,
+    }),
+    /** listAuthProviders: public read; `password_login` gates the password route. */
+    authProviders: (): Spec<ReturnType<typeof decodeAuthProviders>> => ({
+        method: "GET",
+        path: "/auth/providers",
+        retry: "safe",
+        decode: decodeAuthProviders,
+    }),
+    /** login: public, non_retryable; no `provider`, so the server's default signs in, as on the Apple TV app. */
+    login: (username: string, password: string): Spec<ReturnType<typeof decodeTokenPair>> => ({
+        method: "POST",
+        path: "/auth/login",
+        retry: "never",
+        body: { username, password },
+        decode: (value) => decodeTokenPair(value),
     }),
     /** refreshSession: domain_identity; the session decides what follows a failure. */
     refreshSession: (refreshToken: string): Spec<ReturnType<typeof decodeRefreshedTokens>> => ({

@@ -109,43 +109,785 @@
     color: #000000;
 }
 
-.signin-code-layout {
-    display: flex;
-    align-items: flex-start;
+/* The Apple TV first-run screens (MarqueeTVScreen, MarqueeTV, MarqueeControls, MarqueeFields), in
+   source points as CSS pixels. Values marked "estimate" have no source constant (system defaults).
+   Text inherits the app's font family (SF Pro may not be shipped outside Apple platforms); only the
+   sign-in code is generic monospace, as MarqueeCodeTiles is monospaced. */
+
+/* MarqueeBackdrop (marqueeBackdrop.ts): one layer behind every sign-in screen, kept across them.
+   The light is drawn into a small canvas the compositor scales up; the tint fades in 0.6 s; the grain
+   is the source's 96-pixel tile at 48 points and 4.5% opacity, unfiltered. */
+.signin.signin-auth {
+    padding: 0;
+    background-color: #000000;
 }
 
-.signin-qr-box {
-    flex: 0 0 auto;
-    margin-right: 96px;
+/* A platform stylesheet may set every element's font (the Samsung TV simulator adds
+   `*{font-family:SamsungOne;font-weight:600}`): sign-in text keeps the app's font, and each element
+   the weight its rule below gives it, else its parent's. */
+.signin.signin-auth {
+    font-weight: 400;
+}
+
+.signin-auth * {
+    font-family: inherit;
+    font-weight: inherit;
+}
+
+.marquee-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    background: #000000;
+    pointer-events: none;
+}
+
+.marquee-backdrop-light {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.marquee-backdrop-tint,
+.marquee-backdrop-grain {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.marquee-backdrop-tint {
+    opacity: 0;
+    transition: opacity 600ms ease-in-out;
+}
+
+.marquee-backdrop-tint-on {
+    opacity: 1;
+}
+
+.marquee-backdrop-grain {
+    background-repeat: repeat;
+    background-size: 48px 48px;
+    image-rendering: pixelated;
+    opacity: 0.045;
+}
+
+/* MarqueeTVScreen: 90 x 60 padding over the .leading scrim; a 64-high top row, then the copy
+   (900 wide) and the card, centred in the rest of the height. */
+.signin-auth .signin-screen {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    width: 1920px;
+    max-width: none;
+    min-height: 1080px;
+    padding: 60px 90px;
+    background-image:
+        linear-gradient(to top, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0) 35%),
+        linear-gradient(to right, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.55) 30%, rgba(0, 0, 0, 0.2) 58%, rgba(0, 0, 0, 0.1) 80%, rgba(0, 0, 0, 0.3) 100%);
+}
+
+/* SiloWordmarkView(width: 150) scaled to fit the 64-high top row: the 764x400 asset draws 122x64,
+   centred (measured on the Apple TV app: x 104, 124 wide). */
+.signin-auth .signin-wordmark {
+    display: block;
+    flex: none;
+    width: 150px;
+    height: 64px;
+    margin: 0;
+    object-fit: contain;
+}
+
+.marquee-body,
+.signin-behind {
+    display: flex;
+    flex: 1 1 auto;
+}
+
+.signin-behind {
+    flex-direction: column;
+}
+
+.marquee-body {
+    align-items: center;
+}
+
+.marquee-copy {
+    flex: 0 0 900px;
+    width: 900px;
+}
+
+/* MarqueeTVStatusChip: 52 high, 22 medium; top right as the screen's accessory. */
+.marquee-chip {
+    display: flex;
+    align-items: center;
+    width: -webkit-fit-content;
+    width: fit-content;
+    max-width: 900px;
+    min-height: 52px;
+    padding: 0 22px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 26px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(237, 237, 237, 0.62);
+    font-size: 22px;
+    font-weight: 500;
+}
+
+.marquee-copy > .marquee-chip {
+    margin-bottom: 30px;
+}
+
+.signin-screen > .marquee-chip,
+.signin-behind > .marquee-chip {
+    position: absolute;
+    top: 66px;
+    right: 90px;
+}
+
+.marquee-chip .marquee-icon {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    margin-right: 14px;
+}
+
+.marquee-icon {
+    display: block;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* MarqueeServerCard: mark 80 (corner 20), name 34 bold, address 23, padding 24, corner 30, gap 22. */
+.marquee-server-card {
+    display: flex;
+    align-items: center;
+    width: -webkit-fit-content;
+    width: fit-content;
+    max-width: 900px;
+    padding: 23px 24px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 30px;
+    background: linear-gradient(rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.04)), rgba(255, 255, 255, 0.07);
+}
+
+.marquee-server-mark {
+    position: relative;
+    overflow: hidden;
+    flex: none;
+    width: 80px;
+    height: 80px;
+    margin-right: 22px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 20px;
+    background: linear-gradient(135deg, #eaa65c, #a8521d, #5e290d);
+    color: #fff6ea;
+    /* Apple draws this initial in its serif design; the app's own font family is used here. */
+    font-size: 43.2px;
+    font-weight: 700;
+    line-height: 78px;
+    text-align: center;
+}
+
+/* AsyncImage, scaled to fill; the initial shows until it loads and stays if it fails. */
+.marquee-mark-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+}
+
+.marquee-mark-image.marquee-mark-loaded {
+    opacity: 1;
+}
+
+.marquee-server-names {
+    min-width: 0;
+    margin-right: 22px;
+}
+
+.marquee-server-name,
+.marquee-server-address {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.marquee-server-name {
+    color: #ededed;
+    font-size: 34px;
+    font-weight: 700;
+}
+
+.marquee-server-address {
+    margin-top: 2px;
+    color: rgba(237, 237, 237, 0.4);
+    font-size: 24px;
+    line-height: 28px;
+}
+
+/* MarqueeBadge: 18 semibold, kerning 0.8, uppercase, 2.1 x 18 high. */
+.marquee-badge {
+    display: flex;
+    flex: none;
+    align-items: center;
+    height: 37.8px;
+    padding: 0 16.2px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 18.9px;
+    background: rgba(0, 0, 0, 0.45);
+    color: #ededed;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+}
+
+.marquee-badge .marquee-icon {
+    width: 18px;
+    height: 18px;
+    margin-right: 5px;
+    stroke-width: 2.6;
+}
+
+.marquee-badge-warning {
+    border-color: rgba(244, 200, 105, 0.35);
+    background: rgba(244, 200, 105, 0.08);
+    color: #f4c869;
+}
+
+/* The 88 heavy headline, kerning -2; 44 below the server card. SwiftUI sets no line height (the
+   font's own); Apple TV frames measure 106 between baselines, so 1.2 here. */
+.signin-auth .marquee-hero {
+    margin: 0;
+    color: #ededed;
+    font-size: 88px;
+    font-weight: 800;
+    letter-spacing: -2px;
+    line-height: 1.2;
+    white-space: pre-line;
+}
+
+.marquee-server-card + .marquee-hero {
+    margin-top: 44px;
+}
+
+/* The single-line MarqueeTVBody measures 34px with 28px type. */
+.marquee-lead {
+    margin: 22px 0 0;
+    color: rgba(237, 237, 237, 0.62);
+    font-size: 28px;
+    line-height: 34px;
+}
+
+[data-screen="starting"] .marquee-lead,
+[data-screen="code"] .marquee-lead,
+[data-screen="ended"] .marquee-lead {
+    margin-top: 26px;
+    font-size: 27px;
+    line-height: 35.5px;
+}
+
+/* MarqueeTVField: 84 high, corner 16, font 30, 30 inset, glyph gap 18; focus fills it white. */
+.marquee-field {
+    display: flex;
+    align-items: center;
+    width: 760px;
+    height: 84px;
+    margin-top: 40px;
+    padding: 0 30px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(237, 237, 237, 0.4);
+    font-size: 30px;
+    transition: transform var(--silo-fast) ease-out, background-color var(--silo-fast) ease-out;
+}
+
+.marquee-field .marquee-icon {
+    flex: none;
+    /* Glyph size: estimate for a symbol at the 30 field font. */
+    width: 30px;
+    height: 30px;
+    margin-right: 18px;
+}
+
+.marquee-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: #ededed;
+    font: inherit;
+    font-size: 30px;
+}
+
+.marquee-input::placeholder {
+    color: rgba(237, 237, 237, 0.4);
+}
+
+.marquee-field.signin-field-error {
+    border: 3px solid rgba(255, 105, 97, 0.75);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.marquee-field:focus-within {
+    border-color: transparent;
+    background: #ededed;
+    color: rgba(0, 0, 0, 0.45);
+    transform: scale(1.04);
+    box-shadow: 0 14px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* The error stroke stays while focused, as MarqueeTVField draws it over the white fill. */
+.marquee-field.signin-field-error:focus-within {
+    border-color: rgba(255, 105, 97, 0.75);
+}
+
+.marquee-field:focus-within .marquee-input {
+    color: #000000;
+}
+
+.marquee-field:focus-within .marquee-input::placeholder {
+    color: rgba(0, 0, 0, 0.4);
+}
+
+/* MarqueeErrorText: 24, error ink, under its control. Glyph gap: estimate. */
+.marquee-error {
+    display: flex;
+    align-items: flex-start;
+    width: 760px;
+    margin: 16px 0 0;
+    color: #ff6961;
+    font-size: 24px;
+}
+
+.marquee-error .marquee-icon {
+    flex: none;
+    width: 24px;
+    height: 24px;
+    margin: 3px 10px 0 0;
+}
+
+.signin-hint {
+    width: 760px;
+    margin: 16px 0 0;
+    color: rgba(237, 237, 237, 0.4);
+    font-size: 22px;
+}
+
+/* MarqueeButtonStyle: 76 high capsules, font 29, 40 inset; compact 0.75 high, 0.85 font, 0.7 inset.
+   Glass and primary rest as glass on tvOS; focus fills white and scales 1.06. */
+.signin-auth .marquee-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 76px;
+    min-width: 0;
+    margin: 0 22px 0 0;
+    padding: 0 40px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 38px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #ededed;
+    font-size: 29px;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: transform var(--silo-fast) ease-out, background-color var(--silo-fast) ease-out, color var(--silo-fast) ease-out;
+}
+
+.signin-auth .marquee-plain {
+    border-color: transparent;
+    background: transparent;
+    color: rgba(237, 237, 237, 0.62);
+    font-weight: 500;
+}
+
+.signin-auth .marquee-compact {
+    height: 57px;
+    padding: 0 28px;
+    border-radius: 28.5px;
+    font-size: 24.65px;
+}
+
+.signin-auth .marquee-button:focus {
+    outline: none;
+    border-color: transparent;
+    background: #ededed;
+    color: #000000;
+    font-weight: 600;
+    transform: scale(1.06);
+    box-shadow: 0 14px 24px rgba(0, 0, 0, 0.5);
+}
+
+.signin-auth .marquee-button:disabled {
+    opacity: 0.45;
+}
+
+.marquee-button:last-child {
+    margin-right: 0;
+}
+
+.marquee-button .marquee-icon {
+    flex: none;
+    width: 1em;
+    height: 1em;
+    /* Label's glyph gap: estimate. */
+    margin-right: 12px;
+}
+
+.marquee-button .marquee-spinner {
+    width: 0.9em;
+    height: 0.9em;
+    margin-right: 10px;
+}
+
+.signin-auth .signin-toggle {
+    flex: none;
+    margin: 0 0 0 16px;
+}
+
+/* Apple TV frames: the button is 124 wide and its eye about 38; this eye spans 7/8 of its box. */
+/* TVLoginView disables show/hide unless the password or the button has focus (disabled: 0.45). */
+.signin-password-row:not(:focus-within) .signin-toggle {
+    opacity: 0.45;
+}
+
+.signin-toggle .marquee-icon {
+    width: 44px;
+    height: 44px;
+    margin: 0;
+}
+
+.marquee-actions {
+    display: flex;
+    align-items: center;
+    margin-top: 40px;
+}
+
+[data-screen="starting"] .marquee-actions,
+[data-screen="code"] .marquee-actions,
+[data-screen="ended"] .marquee-actions {
+    /* shortcut: no nearby sign-in, fill its 24px gap and 26.4px hint row when discovery is implemented. */
+    margin-top: 98.4px;
+}
+
+.marquee-copy > .signin-toggle-row {
+    margin-top: 18px;
+}
+
+/* Protocol buttons and the 250-wide port field, 14 apart. */
+.signin-advanced {
+    display: flex;
+    align-items: center;
+    margin-top: 14px;
+}
+
+.signin-advanced .marquee-button {
+    margin-right: 14px;
+}
+
+.signin-advanced .signin-port {
+    width: 250px;
+    margin-top: 0;
+}
+
+/* siloGlass is tvOS Liquid Glass (Glass.regular), a private renderer with no published values.
+   Paired Apple/Tizen frames of the code screen set this approximation: a backdrop blur with no
+   added saturation (saturating made the glass redder than Apple's), and over the server card's thin
+   fill a 4% white lift (Apple's glass reads 49,35,34 there; this gives 53,37,35). Resting glass and
+   primary buttons read as an 8% lift over their 8% fill (Sign in 44 over black, Auto 44, the dimmed
+   show-password 41,25,26). The blur amount is unmeasured, and the glass's specular edge is not drawn. */
+.marquee-card,
+.marquee-server-card,
+.signin-auth .marquee-glass:not(:focus),
+.signin-auth .marquee-primary:not(:focus) {
+    -webkit-backdrop-filter: blur(30px);
+    backdrop-filter: blur(30px);
+}
+
+.signin-auth .marquee-glass:not(:focus),
+.signin-auth .marquee-primary:not(:focus) {
+    background-image: linear-gradient(rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.08));
+}
+
+/* MarqueeTVCard: 640 wide, padding 52, corner 40, over glass. */
+.marquee-card {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    align-items: center;
+    width: 640px;
+    margin-left: auto;
+    padding: 52px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 40px;
+    background: rgba(31, 31, 31, 0.72);
+    box-shadow: 0 24px 40px rgba(0, 0, 0, 0.55);
+    text-align: center;
+}
+
+/* Measured code-card rhythm compensates for the substitute font's advances. */
+[data-screen="code"] .marquee-card {
+    padding-top: 51px;
+    padding-bottom: 52.6px;
+}
+
+/* MarqueeTVCardSymbol: 112 glass circle, glyph at 0.46 of it. */
+.marquee-symbol {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 112px;
+    height: 112px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    color: #ededed;
+}
+
+.marquee-symbol .marquee-icon {
+    width: 51.52px;
+    height: 51.52px;
+    stroke-width: 1.6;
+}
+
+.marquee-symbol-warning {
+    color: #f4c869;
+}
+
+/* The approval's check: #30D158 at 140. */
+.marquee-symbol-success {
+    width: 140px;
+    height: 140px;
+    color: #30d158;
+}
+
+.marquee-symbol-success .marquee-icon {
+    width: 64.4px;
+    height: 64.4px;
+}
+
+.marquee-card-title {
+    margin: 34px 0 0;
+    color: #ededed;
+    font-size: 40px;
+    font-weight: 700;
+}
+
+.marquee-card-text {
+    margin: 14px 0 0;
+    color: rgba(237, 237, 237, 0.62);
+    font-size: 24px;
+}
+
+/* The QR code: 360 with a 30 quiet zone on a white panel, corner 24. */
+.signin-qr-frame {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 420px;
+    height: 420px;
+    padding: 30px;
+    border-radius: 24px;
+    background: #ffffff;
+    box-shadow: 0 14px 24px rgba(0, 0, 0, 0.45);
 }
 
 .signin-qr {
     display: block;
-    width: 440px;
-    height: 440px;
+    width: 360px;
+    height: 360px;
 }
 
-.signin-code-info {
-    flex: 1 1 auto;
+.signin-qr-missing {
+    margin: 0;
+    color: #000000;
+    font-size: 24px;
 }
 
-.signin-uri {
-    margin: 0 0 28px;
-    font-size: 36px;
-    font-weight: 600;
-    word-break: break-all;
-}
-
+/* MarqueeCodeTiles: 72 bold monospaced, slashed zero, one line within 520. */
 .signin-code {
-    margin: 0 0 40px;
-    font-size: 120px;
+    max-width: 520px;
+    margin: 33px 0 0;
+    letter-spacing: 1.25px;
+    color: #ededed;
+    direction: ltr;
+    font-family: monospace;
+    font-size: 72px;
+    font-variant-numeric: slashed-zero;
     font-weight: 700;
-    letter-spacing: 0.08em;
-    line-height: 1;
+    line-height: 1.2;
+    text-transform: uppercase;
+    white-space: nowrap;
 }
 
-.signin-countdown {
+.signin-typed-url {
+    display: -webkit-box;
+    margin: 18px 0 0;
+    overflow: hidden;
+    color: rgba(237, 237, 237, 0.62);
+    font-size: 22.7px;
+    line-height: 29px;
+    word-break: break-all;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.signin-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 24px;
+    color: rgba(237, 237, 237, 0.62);
+    font-size: 24px;
+}
+
+.signin-status .marquee-spinner {
+    margin-right: 14px;
+}
+
+[data-screen="code"] .signin-status {
+    margin-top: 28px;
+    line-height: 32px;
+}
+
+[data-screen="code"] .signin-status .marquee-spinner {
+    width: 36px;
+    height: 36px;
+    /* The measured indicator extends 2px above and below the 32px text line. */
+    margin-top: -2px;
+    margin-bottom: -2px;
+}
+
+/* The activity indicator's size and stroke: estimate. */
+.marquee-spinner {
+    display: inline-block;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    border: 3px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    opacity: 0.7;
+    animation: marquee-spin 900ms linear infinite;
+}
+
+.signin-qr-frame .marquee-spinner {
+    width: 50px;
+    height: 50px;
+    color: rgba(0, 0, 0, 0.5);
+}
+
+@keyframes marquee-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Username and password, 20 apart, inside one 760 column. */
+.signin-fields {
+    width: 760px;
+    margin-top: 40px;
+}
+
+.signin-fields .marquee-field {
+    width: 100%;
+    margin-top: 0;
+}
+
+.signin-password-row {
+    display: flex;
+    align-items: center;
+    margin-top: 20px;
+}
+
+.signin-password-row .marquee-field {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* MarqueeShake: -8, 8, -6, 4, 0 over 0.07, 0.07, 0.07, 0.07, 0.09 s. */
+.signin-shake {
+    animation: signin-shake 370ms linear;
+}
+
+@keyframes signin-shake {
+    18.9% { transform: translateX(-8px); }
+    37.8% { transform: translateX(8px); }
+    56.8% { transform: translateX(-6px); }
+    75.7% { transform: translateX(4px); }
+    100% { transform: translateX(0); }
+}
+
+/* Measured tvOS cleartext alert; the material remains a CSS approximation. */
+.signin-behind {
+    opacity: 0.55;
+}
+
+.signin-alert {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: 586px;
+    min-height: 330px;
+    padding: 45px 30px 30px;
+    border: 1px solid var(--silo-hairline);
+    border-radius: 40px;
+    background: rgba(17, 17, 20, 0.6);
+    backdrop-filter: blur(30px);
+    transform: translate(-50%, -50%);
+}
+
+.signin-alert-title {
+    margin: 0 16px 12px;
+    font-size: 32px;
+    line-height: 37px;
+    font-weight: 700;
+}
+
+.signin-alert-text {
+    margin: 0 16px 28px;
+    font-size: 25px;
+    line-height: 1.32;
     color: var(--silo-secondary);
+}
+
+.signin-alert .signin-actions {
+    display: flex;
+    justify-content: space-between;
+    margin: auto 0 0;
+}
+
+.signin-auth .signin-alert .marquee-button {
+    width: 250px;
+    height: 66px;
+    margin: 0;
+    padding: 0 32px;
+    border: 2px solid transparent;
+    border-radius: 40px;
+    background: var(--silo-selected);
+    font-size: 30px;
+    transform: none;
+    box-shadow: none;
+}
+
+.signin-auth .signin-alert .marquee-button:focus {
+    background: #ffffff;
 }
 
 .profile-grid {
@@ -220,5 +962,14 @@
 @media (prefers-reduced-motion: reduce) {
     .signin {
         scroll-behavior: auto;
+    }
+
+    .signin-shake {
+        animation: none;
+    }
+
+    .signin-auth .marquee-button:focus,
+    .marquee-field:focus-within {
+        transform: none;
     }
 }

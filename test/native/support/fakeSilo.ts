@@ -47,6 +47,9 @@ export interface CatalogRoutes {
     route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>, headers?: Readonly<Record<string, string>>): Reply | undefined;
 }
 
+/** The fake account's password; a test value, not a credential. */
+export const FAKE_PASSWORD = "fake-password-for-tests";
+
 export const PROBLEM_BASE = "https://siloserver.org/docs/api/v2/problems/";
 
 export function problem(status: number, id: string, title: string, headers?: Record<string, string>): Reply {
@@ -58,7 +61,7 @@ export function problem(status: number, id: string, title: string, headers?: Rec
 }
 
 export class FakeSilo {
-    readonly origin = "https://silo.example.test";
+    readonly origin: string;
     readonly serverId: string;
     readonly requests: RecordedRequest[] = [];
     /** Replies that replace the next answer for a path, first in first out. */
@@ -88,9 +91,10 @@ export class FakeSilo {
     private nextId = 1;
     private readonly clock: ManualClock;
 
-    constructor(clock: ManualClock, serverId = "3f2a9d5e-6b1c-4c7e-9a0d-2f4b8c1e7a35") {
+    constructor(clock: ManualClock, serverId = "3f2a9d5e-6b1c-4c7e-9a0d-2f4b8c1e7a35", origin = "https://silo.example.test") {
         this.clock = clock;
         this.serverId = serverId;
+        this.origin = origin;
     }
 
     // --- test controls ---
@@ -220,6 +224,10 @@ export class FakeSilo {
                 return this.cancelDevice(String(body?.device_code));
             case "POST /auth/refresh":
                 return this.refresh(String(body?.refresh_token));
+            case "GET /auth/providers":
+                return { status: 200, body: fixture("list_auth_providers_ok") };
+            case "POST /auth/login":
+                return this.login(body);
             case "POST /auth/logout": {
                 const session = this.authenticate(headers);
                 if (session === undefined) {
@@ -304,6 +312,20 @@ export class FakeSilo {
             request.status = "canceled";
         }
         return { status: 200, body: { status: request.status } };
+    }
+
+    /** LoginInputBody: username and password of at least one character; one account, `laura`. */
+    private login(body: Record<string, unknown> | undefined): Reply {
+        const problemReply = (status: number, name: string): Reply => ({ status, headers: { "Content-Type": "application/problem+json" }, body: fixture(name) });
+        if (typeof body?.username !== "string" || body.username === "" || typeof body.password !== "string" || body.password === "") {
+            return problemReply(422, "login_password_required");
+        }
+        // Unknown names and wrong passwords get the same answer, so the reply reveals no account.
+        if (body.username !== "laura" || body.password !== FAKE_PASSWORD) {
+            return problemReply(401, "login_invalid_credentials");
+        }
+        const ok = fixture("login_ok");
+        return { status: 200, body: { ...ok, ...this.mintSession(), user: { ...toRecord(ok.user), password_change_required: this.passwordChangeRequired } } };
     }
 
     private mintSession(sessionId = this.nextId++): { access_token: string; refresh_token: string; expires_in: number } {

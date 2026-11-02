@@ -11,6 +11,10 @@ export interface Control {
     readonly element: HTMLElement;
     /** Grid placement, set on every control of the screen or on none; rows in remote order. */
     readonly row?: number;
+    /** Grid: where the TV keyboard's Done goes from this field, instead of the next row. */
+    readonly done?: string;
+    /** Grid: entering this control's row lands here, as a SwiftUI `defaultFocus` in a focus section. */
+    readonly landing?: boolean;
 }
 
 export interface Screen {
@@ -27,10 +31,15 @@ export interface Screen {
 
 export class ScreenHost {
     private readonly root: HTMLElement;
+    private readonly wordmark: () => HTMLElement;
+    /** Kept as the root's first child across screens (a backdrop that must not restart). */
+    private readonly behind: HTMLElement | undefined;
     private current: Screen | undefined;
 
-    constructor(root: HTMLElement) {
+    constructor(root: HTMLElement, wordmark: () => HTMLElement = () => el("div", "signin-wordmark", "SILO"), behind?: HTMLElement) {
         this.root = root;
+        this.wordmark = wordmark;
+        this.behind = behind;
         document.addEventListener("keydown", this.onKey);
     }
 
@@ -47,12 +56,15 @@ export class ScreenHost {
             section.classList.add("signin-screen-enter");
         }
         section.setAttribute("data-screen", screen.name);
-        section.appendChild(el("div", "signin-wordmark", "SILO"));
+        section.appendChild(this.wordmark());
         for (const node of screen.content) {
             section.appendChild(node);
         }
-        while (this.root.firstChild !== null) {
-            this.root.removeChild(this.root.firstChild);
+        while (this.root.lastChild !== null && this.root.lastChild !== this.behind) {
+            this.root.removeChild(this.root.lastChild);
+        }
+        if (this.behind !== undefined && this.behind.parentNode !== this.root) {
+            this.root.insertBefore(this.behind, this.root.firstChild);
         }
         this.root.appendChild(section);
         this.focus(focus ?? kept ?? screen.focus);
@@ -99,15 +111,21 @@ export class ScreenHost {
             return;
         }
         const arrow = key === "up" || key === "down" || key === "left" || key === "right";
+        const inText = active instanceof HTMLInputElement;
         if (screen.controls.every((control) => control.row !== undefined)) {
-            // Enter is left to the browser here too.
-            if (arrow) {
-                event.preventDefault();
-                screen.controls[gridTarget(screen.controls, index, key)]?.element.focus();
+            // Enter is left to the browser here too. The TV keyboard's Done moves down a row.
+            const done = key === "ime_done" && inText ? screen.controls[index]?.done : undefined;
+            const target = done !== undefined
+                ? screen.controls.findIndex((control) => control.key === done)
+                : arrow || (key === "ime_done" && inText) ? gridTarget(screen.controls, index, key === "ime_done" ? "down" : key) : -1;
+            // A field with nothing beside it keeps Left/Right for its caret.
+            if (target === -1 || (inText && (key === "left" || key === "right") && target === index)) {
+                return;
             }
+            event.preventDefault();
+            screen.controls[target]?.element.focus();
             return;
         }
-        const inText = active instanceof HTMLInputElement;
         let step = 0;
         if (key === "up" || (key === "left" && !inText)) {
             step = -1;
@@ -123,7 +141,7 @@ export class ScreenHost {
     };
 }
 
-/** Left/Right stay within the row; Up/Down keep the column where the next row has one. */
+/** Field accessories are reached horizontally; vertical moves stay in the field's lane. */
 function gridTarget(controls: readonly Control[], index: number, key: "up" | "down" | "left" | "right"): number {
     const rowOf = (at: number): number => controls[at]?.row ?? 0;
     const row = rowOf(index);
@@ -139,7 +157,10 @@ function gridTarget(controls: readonly Control[], index: number, key: "up" | "do
         return index;
     }
     const target = inRow(next);
-    return target[Math.min(column, target.length - 1)] ?? index;
+    const landing = target.find(at => controls[at]?.landing === true);
+    const inputAt = target.find(at => controls[at]?.element instanceof HTMLInputElement);
+    const verticalColumn = current.some(at => controls[at]?.element instanceof HTMLInputElement) ? 0 : column;
+    return landing ?? inputAt ?? target[Math.min(verticalColumn, target.length - 1)] ?? index;
 }
 
 export function el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text?: string): HTMLElementTagNameMap[K] {

@@ -1,13 +1,22 @@
-// Native sign-in screens: the server address, then the eight-digit code, ending in one typed
-// handoff of the signed-in server. The session core owns discovery, restore, polling, storage
+// Native sign-in screens: the server address, then the eight-digit code or a password, ending in
+// one typed handoff of the signed-in server. The session core owns discovery, restore, polling, storage
 // and logout; this module only shows its states and turns remote keys into its calls.
 
 import { type Clock, systemClock } from "../api/clock.ts";
+import { ApiError } from "../api/errors.ts";
+import { operations } from "../api/operations.ts";
+import { type AdvancedScheme, advancedAddress, plainHttpFallbacks } from "../api/serverUrl.ts";
+import { resolveBrandingAsset } from "../contracts/v2/branding.ts";
 import { type ConnectedServer, type ConnectResult, connect, forgetStoredCredential, type SessionCoreDeps } from "../session/core.ts";
-import type { DeviceLogin, DeviceLoginState } from "../session/deviceLogin.ts";
+import type { DeviceCodeView, DeviceLogin, DeviceLoginState } from "../session/deviceLogin.ts";
+import { passwordLogin } from "../session/passwordLogin.ts";
 import type { LogoutResult } from "../session/session.ts";
+import { cachedBranding, storeBranding } from "./brandingCache.ts";
 import { codeScreen, type CodeScreen } from "./codeScreen.ts";
-import { actions, button, type Control, el, type Note, noteNodes, ScreenHost } from "./screen.ts";
+import { credentialsScreen, type CredentialsScreen } from "./credentialsScreen.ts";
+import { actionRow, chip, errorText, field, headline, keyboardCard, lead, marqueeButton, marqueeScreen, noteChips, setServerMark, textInput } from "./marquee.ts";
+import { MarqueeBackdrop } from "./marqueeBackdrop.ts";
+import { type Control, el, type Note, type Screen, ScreenHost } from "./screen.ts";
 import * as text from "./signInText.ts";
 
 export interface SignInOptions {
@@ -16,6 +25,8 @@ export interface SignInOptions {
     readonly onSignedIn: (server: ConnectedServer) => void;
     /** After a sign-out: shown on the address screen, which then waits instead of reconnecting. */
     readonly signedOut?: LogoutResult;
+    /** Told each server sign-in connects to before any account is handed over (diagnostics, tests). */
+    readonly onConnected?: (server: ConnectedServer) => void;
 }
 
 export interface SignInScreens {
@@ -25,6 +36,22 @@ export interface SignInScreens {
 /** The last server connected to, so a restart can restore its session. An address, not a secret. */
 const SERVER_KEY = "silo.native.server";
 const CLEANUP_WAIT_MS = 10000;
+const SCHEMES: readonly [AdvancedScheme, string][] = [["auto", "Auto"], ["https", "HTTPS"], ["http", "HTTP"]];
+/** Screens before a server answers; the backdrop's brand light changes once one does. */
+const SERVER_SCREENS: ReadonlySet<string> = new Set(["entry", "connecting", "insecure"]);
+
+// QRLoginViewModel.Timing, in milliseconds.
+/** Failures while getting a code before "Can't reach …". */
+const UNREACHABLE_WHILE_STARTING_MS = 10000;
+/** Failures while polling before "Can't reach …". */
+const UNREACHABLE_WHILE_POLLING_MS = 30000;
+/** 429 answers before "Too many sign-in attempts". */
+const RATE_LIMITED_AFTER_MS = 60000;
+/** How long codes renew themselves before the screen pauses. */
+const RENEWAL_LIMIT_MS = 3600000;
+const MAX_BACKOFF_SECONDS = 30;
+/** TVLoginView: let "Signed in as …" register before moving on. */
+const APPROVAL_PAUSE_MS = 1000;
 
 // A new mount must not open another vault while an abandoned flow still clears the same aliases.
 let pendingAccountCleanup: Promise<void> = Promise.resolve();
@@ -42,15 +69,62 @@ interface Active {
     readonly login: DeviceLogin;
     readonly stop: () => void;
     readonly notes: readonly Note[];
+    serverName?: string | undefined;
+    /** The branding mark, resolved against this server; and its accent, unclamped. */
+    markUrl?: string | undefined;
+    accent?: string | undefined;
     code: CodeScreen | undefined;
+    credentialsView?: CredentialsScreen;
+    /** Where to type the latest code, kept after it ends, as the Apple TV app's lead keeps it. */
+    typed: string | undefined;
+    /** What the code screen says (QRLoginViewModel.Status). */
+    status: text.CodeStatus;
+    /** The latest code, while the status keeps it on screen. */
+    shownCode: DeviceCodeView | undefined;
+    /** The code on screen replaced an expired one. */
+    renewed: boolean;
+    /** Codes renew themselves until an hour after this. */
+    windowStart: number;
+    /** When the attempt now running was asked for: a failing start's streak counts from it. */
+    startedAt: number;
+    /** The attempt now running has shown a code; a failure before that is a failed start. */
+    sawCode: boolean;
+    /** A failing-start streak: since its first failing request, its 429 run, and the next wait. */
+    startStreak: { readonly since: number; readonly limitedSince: number | undefined; readonly backoff: number } | undefined;
+    /** Cancels the next start after a failed one, or the move on after an approval. */
+    cancelTimer: (() => void) | undefined;
+    /** A start waits after a failed one; hidden, it waits for the screen, never before `floor`. */
+    pendingStart: { readonly floor: number } | undefined;
+    /** Ends the provider read and makes a password answer still in flight be revoked. */
+    readonly left: AbortController;
+    /** listAuthProviders; undefined until read, and when the read failed (the password stays offered). */
+    options: { readonly passwordLogin: boolean; readonly oauthProviders: readonly string[] } | undefined;
+    /** The password screen is open; device-code states other than an approval wait behind it. */
+    credentials: boolean;
+    submitting: boolean;
+    username: string;
+    password: string;
+    /** "Show password" pressed; kept while the screen is redrawn. */
+    shown: boolean;
+    error: string | undefined;
 }
 
 export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInScreens {
     const core = options.core;
     const clock: Clock = core.clock ?? systemClock;
-    const host = new ScreenHost(root);
-    root.classList.add("signin");
+    const backdrop = new MarqueeBackdrop(clock);
+    const host = new ScreenHost(root, () => {
+        const wordmark = el("img", "signin-wordmark");
+        wordmark.src = "img/silo-wordmark.png";
+        wordmark.alt = "Silo";
+        return wordmark;
+    }, backdrop.element);
+    root.classList.add("signin", "signin-auth");
     let address = readServer(core) ?? "";
+    // The Apple TV app's Advanced options; reset once a server answers, whose address then says both.
+    let scheme: AdvancedScheme = "auto";
+    let port = "";
+    let advanced = false;
     let connecting: AbortController | undefined;
     let active: Active | undefined;
     let destroyed = false;
@@ -60,9 +134,47 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         connecting?.abort();
         connecting = undefined;
         leaveSignIn();
+        document.removeEventListener("visibilitychange", onVisibility);
+        backdrop.destroy();
         host.destroy();
-        root.classList.remove("signin");
+        root.classList.remove("signin", "signin-auth");
     };
+
+    /** MarqueeScene: the generic light until a server answers, then the server's, with its accent. */
+    const show = (screen: Screen, focus?: string): void => {
+        const choosing = SERVER_SCREENS.has(screen.name);
+        backdrop.setStage(choosing ? 0 : 1);
+        backdrop.setAccent(choosing ? undefined : active?.accent);
+        host.show(screen, focus);
+    };
+
+    /**
+     * QRLoginViewModel.setActive: hidden, nothing is polled or started; back on screen is someone
+     * at the TV again, so the code is polled at once and codes may renew for another hour.
+     */
+    const onVisibility = (): void => {
+        const current = active;
+        if (current === undefined) {
+            return;
+        }
+        const visible = document.visibilityState !== "hidden";
+        current.login.setActive(visible);
+        const pending = current.pendingStart;
+        if (!visible) {
+            if (pending !== undefined) {
+                current.cancelTimer?.();
+                current.cancelTimer = undefined;
+            }
+            return;
+        }
+        if (!text.isTerminal(current.status)) {
+            current.windowStart = clock.now();
+        }
+        if (pending !== undefined) {
+            scheduleStart(current, Math.max(0, pending.floor - clock.now()));
+        }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
 
     const handOff = (server: ConnectedServer): void => {
         leaveSignIn(true);
@@ -70,83 +182,152 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         options.onSignedIn(server);
     };
 
-    const showEntry = (notes: readonly Note[], offerForget: boolean, focus?: string): void => {
-        const input = el("input", "signin-input");
-        input.id = "signin-address";
+    /**
+     * The Apple TV manual entry. `busy`: a connect is running; Connect says so and holds focus,
+     * and nothing else is reachable until it answers, as the Apple TV app waits for its probe.
+     */
+    const entryScreen = (notes: readonly Note[], offerForget: boolean, error?: string, busy = false): Screen => {
+        const input = textInput("signin-address", "address", "media.example.com", "Server address", address);
         input.type = "url";
-        input.value = address;
-        input.spellcheck = false;
-        input.autocomplete = "off";
-        input.setAttribute("autocapitalize", "off");
-        input.setAttribute("data-focus", "address");
+        input.readOnly = busy;
         input.addEventListener("input", () => {
             address = input.value;
         });
-        const label = el("label", "signin-label", "Server address");
-        label.htmlFor = input.id;
-        const controls: Control[] = [
-            { key: "address", element: input },
-            button("connect", "Connect", () => {
+        const connect = marqueeButton("connect", busy ? "Connecting…" : "Connect", "primary", () => {
+            if (!busy) {
                 address = input.value;
-                startConnect();
-            }),
+                submit();
+            }
+        }, { loading: busy });
+        const toggle = marqueeButton("advanced", advanced ? "Hide advanced options" : "Advanced options", "plain", () => {
+            advanced = !advanced;
+            show(entryScreen(notes, offerForget, error), "advanced");
+        }, { glyph: "gear", compact: true });
+        const controls: Control[] = [
+            { key: "address", element: input, row: 0, done: "connect" },
+            { ...toggle, row: 1 },
         ];
-        if (offerForget) {
-            controls.push(button("forget", "Remove saved sign-in", () => void forget()));
+        const copy: HTMLElement[] = [headline(text.ENTRY_TITLE), lead(text.ENTRY_LEAD), field(input, "globe", error !== undefined)];
+        if (error !== undefined) {
+            copy.push(errorText(error));
         }
-        host.show(
-            {
-                name: "entry",
-                content: [el("h1", "signin-title", "Connect to Silo"), label, input, ...noteNodes(notes), actions(controls.slice(1))],
-                controls,
-                focus: address === "" ? "address" : "connect",
-                back: undefined,
-            },
-            focus,
-        );
+        const toggleRow = actionRow([toggle]);
+        toggleRow.classList.add("signin-toggle-row");
+        copy.push(...noteChips(notes), toggleRow);
+        if (advanced) {
+            const options = el("div", "signin-advanced");
+            for (const [value, label] of SCHEMES) {
+                const option = marqueeButton(`scheme-${value}`, label, "glass", () => {
+                    scheme = value;
+                    show(entryScreen(notes, offerForget, error), `scheme-${value}`);
+                }, { compact: true, ...(scheme === value ? { glyph: "check" as const } : {}) });
+                option.element.setAttribute("aria-pressed", String(scheme === value));
+                options.appendChild(option.element);
+                controls.push({ ...option, row: 2, landing: scheme === value });
+            }
+            const portInput = textInput("signin-port", "port", "Port: auto", "Port", port);
+            portInput.inputMode = "numeric";
+            portInput.readOnly = busy;
+            portInput.addEventListener("input", () => {
+                port = portInput.value;
+            });
+            const portField = field(portInput, "number");
+            portField.classList.add("signin-port");
+            options.appendChild(portField);
+            controls.push({ key: "port", element: portInput, row: 2, done: "connect" });
+            copy.push(options);
+        }
+        const row = [connect];
+        if (offerForget) {
+            row.push(marqueeButton("forget", "Remove saved sign-in", "plain", () => void forget()));
+        }
+        copy.push(actionRow(row));
+        controls.push(...row.map((control) => ({ ...control, row: 3, landing: control.key === "connect" })));
+        if (busy) {
+            for (const control of controls) {
+                if (control.key !== "connect" && !(control.element instanceof HTMLInputElement)) {
+                    control.element.setAttribute("disabled", "");
+                }
+            }
+        }
+        const tvName = core.deviceName.trim();
+        return {
+            name: busy ? "connecting" : "entry",
+            content: marqueeScreen(copy, keyboardCard(), tvName === "" ? undefined : chip(tvName, "tv")),
+            controls: busy ? controls.filter((control) => control.key === "connect") : controls,
+            focus: address === "" ? "address" : "connect",
+            // Leaving mid-probe would let a late connect pull the app on, so Back waits for it.
+            back: busy ? () => undefined : undefined,
+        };
+    };
+
+    const showEntry = (notes: readonly Note[], offerForget: boolean, focus?: string, error?: string): void => {
+        show(entryScreen(notes, offerForget, error), focus);
+    };
+
+    /** Applies Advanced options; a bad port is explained before anything is sent. */
+    const submit = (): void => {
+        const chosen = advancedAddress(address, scheme, port);
+        if (!chosen.ok) {
+            showEntry([], false, "connect", text.INVALID_PORT);
+            return;
+        }
+        startConnect([], chosen.address, scheme);
     };
 
     const forget = async (): Promise<void> => {
-        const result = await forgetStoredCredential(address, core);
+        const chosen = advancedAddress(address, scheme, port);
+        if (!chosen.ok) {
+            showEntry([], true, "forget", text.INVALID_PORT);
+            return;
+        }
+        const result = await forgetStoredCredential(chosen.address, core);
         if (destroyed || host.name !== "entry") {
             return;
         }
         if (result === "cleared" || result === "guarded" || result === "failed") {
             const failed = result === "failed";
-            showEntry([{ text: text.forgetResult(result), tone: failed ? "error" : "info" }], failed, failed ? "forget" : "connect");
+            showEntry(failed ? [] : [{ text: text.forgetResult(result), tone: "info" }], failed, failed ? "forget" : "connect", failed ? text.forgetResult(result) : undefined);
             return;
         }
-        showEntry([{ text: text.connectProblem({ status: "invalid_url", problem: result }), tone: "error" }], false, "address");
+        showEntry([], false, "address", text.connectProblem({ status: "invalid_url", problem: result }));
     };
 
-    const startConnect = (): void => {
+    /**
+     * `fallbacks`: plain-HTTP addresses the person agreed to, tried in order after `target`.
+     * `chosen`: the protocol picked in Advanced options; only Auto asks about plain HTTP.
+     */
+    const startConnect = (fallbacks: readonly string[] = [], target = address, chosen: AdvancedScheme = "auto"): void => {
         connecting?.abort();
         const controller = new AbortController();
         connecting = controller;
-        host.show({
-            name: "connecting",
-            content: [el("h1", "signin-title", "Connecting"), el("p", "signin-text", "Checking the server."), actions([cancelConnect])],
-            controls: [cancelConnect],
-            focus: "cancel",
-            back: cancelConnecting,
-        });
+        show(entryScreen([], false, undefined, true), "connect");
         const cancelCleanupWait = clock.schedule(() => {
             if (connecting === controller && !controller.signal.aborted && !destroyed) {
                 controller.abort();
                 connecting = undefined;
-                showEntry([{ text: "This TV is still removing the earlier sign-in. Try connecting again in a moment.", tone: "error" }], false, "connect");
+                showEntry([], false, "connect", "This TV is still removing the earlier sign-in. Try connecting again in a moment.");
             }
         }, CLEANUP_WAIT_MS);
         pendingAccountCleanup.then(() => {
             cancelCleanupWait();
             if (!controller.signal.aborted && !destroyed) {
-                return connect(address, core, controller.signal);
+                return connectInOrder([target, ...fallbacks], controller.signal);
             }
             return undefined;
         }).then(
             (result) => {
                 if (result !== undefined && connecting === controller && !controller.signal.aborted && !destroyed) {
                     connecting = undefined;
+                    // Only a failed connection (TLS included) suggests plain HTTP; a server that
+                    // answered over HTTPS is never downgraded.
+                    if (fallbacks.length === 0 && chosen === "auto" && result.status === "unreachable") {
+                        const plain = plainHttpFallbacks(target);
+                        if (plain.length > 0) {
+                            askCleartext(plain);
+                            return;
+                        }
+                    }
                     connected(result);
                 }
             },
@@ -155,7 +336,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
                     return;
                 }
                 connecting = undefined;
-                showEntry([{ text: "Something went wrong while connecting. Try again.", tone: "error" }], false, "connect");
+                showEntry([], false, "connect", "Something went wrong while connecting. Try again.");
                 clock.schedule(() => {
                     throw error;
                 }, 0);
@@ -163,19 +344,63 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         );
     };
 
-    const cancelConnecting = (): void => {
-        connecting?.abort();
-        connecting = undefined;
-        showEntry([], false, "connect");
+    /** Like the Apple TV app, the first plain-HTTP address that answers as Silo wins. */
+    const connectInOrder = async (addresses: readonly string[], signal: AbortSignal): Promise<ConnectResult> => {
+        let result: ConnectResult = { status: "unreachable" };
+        for (const candidate of addresses) {
+            result = await connect(candidate, core, signal);
+            if (result.status === "connected" || signal.aborted) {
+                break;
+            }
+        }
+        return result;
     };
-    const cancelConnect = button("cancel", "Cancel", cancelConnecting);
+
+    /**
+     * Every HTTPS attempt for a scheme-less address failed; nothing is sent in the clear unasked.
+     * Like the tvOS alert: centred over the dimmed address screen, Cancel then Connect, Connect focused.
+     */
+    const askCleartext = (plain: readonly string[]): void => {
+        const decline = (): void => showEntry([], false, "connect", text.CLEARTEXT_DECLINED);
+        const controls = [
+            marqueeButton("cancel", "Cancel", "glass", decline),
+            marqueeButton("connect", "Connect", "glass", () => {
+                address = plain[0] ?? address;
+                startConnect(plain.slice(1));
+            }),
+        ];
+        // The address screen stays behind the alert, dimmed and out of reach.
+        const behind = el("div", "signin-behind");
+        behind.setAttribute("aria-hidden", "true");
+        for (const node of entryScreen([], false).content) {
+            behind.appendChild(node);
+        }
+        for (const node of Array.from(behind.querySelectorAll("input, button"))) {
+            node.removeAttribute("id");
+            node.removeAttribute("data-focus");
+            node.setAttribute("disabled", "");
+        }
+        const alert = el("div", "signin-alert");
+        alert.setAttribute("role", "alertdialog");
+        alert.setAttribute("aria-labelledby", "signin-alert-title");
+        const title = el("h2", "signin-alert-title", text.CLEARTEXT_TITLE);
+        title.id = "signin-alert-title";
+        for (const node of [title, el("p", "signin-alert-text", text.cleartextWarning(new URL(plain[0] ?? "").host)), actionRow(controls)]) {
+            alert.appendChild(node);
+        }
+        show({ name: "insecure", content: [behind, alert], controls, focus: "connect", back: decline });
+    };
 
     const connected = (result: ConnectResult): void => {
         if (result.status !== "connected") {
-            showEntry([{ text: text.connectProblem(result), tone: "error" }], result.status !== "invalid_url", "connect");
+            showEntry([], result.status !== "invalid_url", "connect", text.connectProblem(result));
             return;
         }
-        writeServer(core, result.server.http.base.baseUrl);
+        address = result.server.http.base.baseUrl;
+        scheme = "auto";
+        port = "";
+        advanced = false;
+        writeServer(core, address);
         if (result.restore === "signed_in") {
             handOff(result);
             return;
@@ -192,8 +417,90 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
                 render(state);
             }
         });
-        active = { server, login, stop, notes, code: undefined };
+        options.onConnected?.(server);
+        const base = server.server.http.base.baseUrl;
+        const remembered = cachedBranding(core.publicStorage, base);
+        const now = clock.now();
+        const current: Active = {
+            server, login, stop, notes, code: undefined, typed: undefined, left: new AbortController(), options: undefined,
+            credentials: false, submitting: false, username: "", password: "", shown: false, error: undefined,
+            status: { kind: "getting_code" }, shownCode: undefined, renewed: false, windowStart: now, startedAt: now,
+            sawCode: false, startStreak: undefined, cancelTimer: undefined, pendingStart: undefined,
+            // ServerBrandingCache: the last answer shows at once; the server's new one replaces it.
+            serverName: remembered?.serverName, markUrl: remembered?.markUrl, accent: remembered?.accentColor,
+        };
+        active = current;
+        login.setActive(document.visibilityState !== "hidden");
         login.start();
+        readOptions(current);
+        readBranding(current);
+    };
+
+    const readBranding = (current: Active): void => {
+        const base = current.server.server.http.base.baseUrl;
+        void current.server.server.http.send({ ...operations.serverBranding(), signal: current.left.signal }).then((branding) => {
+            // Only the server this screen still signs in to may show or store its answer.
+            if (active !== current || current.left.signal.aborted) return;
+            const markUrl = resolveBrandingAsset(branding.markUrl, base);
+            storeBranding(core.publicStorage, base, { serverName: branding.serverName, markUrl, accentColor: branding.accentColor });
+            const name = branding.serverName ?? text.serverHost(base);
+            current.serverName = branding.serverName;
+            current.markUrl = markUrl;
+            current.accent = branding.accentColor;
+            if (!SERVER_SCREENS.has(host.name ?? "entry")) {
+                backdrop.setAccent(current.accent);
+            }
+            // A failed read keeps what was remembered, as Apple's loader returns no branding.
+            // In place: a redraw would close the TV keyboard and move the QR code.
+            for (const node of Array.from(root.querySelectorAll<HTMLElement>(".marquee-server-name"))) node.textContent = name;
+            for (const node of Array.from(root.querySelectorAll<HTMLElement>(".marquee-server-mark"))) setServerMark(node, name, current.markUrl);
+            const title = root.querySelector<HTMLElement>("[data-server-headline]");
+            if (title !== null) title.textContent = `Sign in to ${name}`;
+            if (current.credentials) {
+                const passwordLead = root.querySelector<HTMLElement>('[data-screen="credentials"] .marquee-lead');
+                if (passwordLead !== null) passwordLead.textContent = text.passwordLead(name, passwordOnly(current));
+            }
+        }, () => undefined);
+    };
+
+    /** Like the Apple TV app: a server that predates discovery (404) takes passwords. */
+    const readOptions = (current: Active): void => {
+        current.server.server.http.send({ ...operations.authProviders(), signal: current.left.signal }).then(
+            (options) => options,
+            (error: unknown) => {
+                if (!(error instanceof ApiError)) {
+                    throw error;
+                }
+                return error.status === 404 ? { passwordLogin: true, oauthProviders: [] } : undefined;
+            },
+        ).then((options) => {
+            if (active !== current || options === undefined) {
+                return;
+            }
+            const offeredPassword = current.options?.passwordLogin !== false;
+            current.options = options;
+            if (current.server.session.signedIn) {
+                return;
+            }
+            if (current.credentials) {
+                if (host.name !== "credentials") {
+                    return;
+                }
+                const hint = root.querySelector<HTMLElement>(".signin-hint");
+                const value = passwordOnly(current) ? undefined : text.phoneHint(options.oauthProviders);
+                if (hint !== null) {
+                    hint.textContent = value ?? "";
+                    hint.hidden = value === undefined || root.querySelector(".marquee-error")?.textContent?.includes(value) === true;
+                }
+            } else if (current.login.current.phase !== "unavailable" && offeredPassword !== (options.passwordLogin !== false)) {
+                current.code = undefined;
+                showCode(current);
+            }
+        }, (error: unknown) => {
+            clock.schedule(() => {
+                throw error;
+            }, 0);
+        });
     };
 
     /** Stops listening before withdrawal; an accepted account stays only on successful handoff. */
@@ -201,8 +508,10 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         const current = active;
         active = undefined;
         if (current !== undefined) {
+            current.cancelTimer?.();
+            current.cancelTimer = undefined;
+            current.left.abort();
             current.stop();
-            current.code?.stop();
             current.login.cancel();
             if (!keepAccount && current.server.session.signedIn) {
                 const abandonedAddress = address;
@@ -224,37 +533,329 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         showEntry([], false, "connect");
     };
 
+    /** Starts the next attempt; a renewal or a retry after a failed start keeps what the screen says. */
+    const startAttempt = (current: Active): void => {
+        current.cancelTimer?.();
+        current.cancelTimer = undefined;
+        current.pendingStart = undefined;
+        current.sawCode = false;
+        current.startedAt = clock.now();
+        current.login.start();
+    };
+
+    /** "Try again" and "Show a new code": a fresh code and a fresh hour of renewals (QRLoginViewModel.retry). */
+    const retry = (current: Active): void => {
+        if (current.status.kind === "approved") {
+            if (!current.credentials) {
+                showCode(current);
+            }
+            return;
+        }
+        current.renewed = false;
+        current.windowStart = clock.now();
+        current.startStreak = undefined;
+        current.shownCode = undefined;
+        current.status = { kind: "getting_code" };
+        startAttempt(current);
+        if (!current.credentials) {
+            showCode(current);
+        }
+    };
+
+    /** Maps each device-login state onto the Apple TV app's status, then shows it. */
     const render = (state: DeviceLoginState): void => {
         const current = active;
         if (current === undefined) {
             return;
         }
-        if (state.phase !== "waiting") {
-            current.code?.stop();
-            current.code = undefined;
-        }
+        const now = clock.now();
         switch (state.phase) {
+            case "signed_in":
+                approved(current, state);
+                return;
+            case "unavailable":
+                // A server without code sign-in opens on the password, as on the Apple TV app.
+                if (host.name === "credentials" && current.credentialsView !== undefined) {
+                    current.credentialsView.usePasswordOnly();
+                    return;
+                }
+                current.credentials = true;
+                current.code = undefined;
+                showCredentials(current);
+                return;
             case "idle":
             case "starting":
-                showMessage("starting", "Sign in", ["Getting a code."], current.notes, [button("change", "Change server", changeServer)]);
-                return;
-            case "waiting":
-                if (current.code === undefined || current.code.userCode !== state.code.userCode || host.name !== "code") {
-                    current.code?.stop();
-                    current.code = codeScreen(state, current.notes, clock, button("change", "Change server", changeServer));
-                    host.show(current.code.screen);
+                // A renewal says it is getting a code; a failing start keeps its grace or its warning.
+                if (current.status.kind === "waiting" || current.status.kind === "opened") {
+                    current.status = { kind: "getting_code" };
                 }
-                current.code.update(state);
-                return;
-            case "signed_in":
-                signedIn(current, state);
-                return;
-            default: {
-                const outcome = text.ended(state);
-                const retry = button("retry", outcome.newCode ? "Get a new code" : "Try again", () => current.login.start());
-                showMessage("ended", outcome.title, [outcome.detail], [], [retry, button("change", "Change server", changeServer)], "error");
+                current.shownCode = undefined;
+                break;
+            case "waiting": {
+                current.sawCode = true;
+                current.startStreak = undefined;
+                current.shownCode = state.code;
+                current.typed = text.typedUrl(state.code.verificationUri, state.code.verificationUriComplete);
+                if (state.retrying === "none") {
+                    current.status = state.opened ? { kind: "opened" } : current.status.kind === "opened" ? current.status : { kind: "waiting", renewed: current.renewed };
+                } else if (state.retrying === "rate_limited") {
+                    if (state.rateLimitedSince !== undefined && now - state.rateLimitedSince >= RATE_LIMITED_AFTER_MS) {
+                        current.status = { kind: "rate_limited" };
+                    }
+                } else if (state.failingSince !== undefined && now - state.failingSince >= UNREACHABLE_WHILE_POLLING_MS) {
+                    current.status = { kind: "unreachable" };
+                }
+                break;
             }
+            case "denied":
+                current.status = { kind: "denied" };
+                current.shownCode = undefined;
+                break;
+            case "expired":
+            case "canceled":
+            case "consumed":
+                // Ended on the server, or its approval was lost: renew in place within the hour.
+                if (current.server.session.signedIn) {
+                    return;
+                }
+                current.shownCode = undefined;
+                current.renewed = true;
+                if (now - current.windowStart >= RENEWAL_LIMIT_MS) {
+                    current.status = { kind: "paused" };
+                    break;
+                }
+                if (current.status.kind === "waiting" || current.status.kind === "opened") {
+                    current.status = { kind: "getting_code" };
+                }
+                startAttempt(current);
+                return;
+            case "failed":
+                current.shownCode = undefined;
+                if (state.reason === "temporary_session_refused") {
+                    current.status = { kind: "could_not_finish" };
+                } else if (current.sawCode) {
+                    current.status = { kind: "failed", message: text.failedMessage(state) };
+                } else {
+                    failedStart(current, state, now);
+                }
+                break;
         }
+        if (!current.credentials) {
+            showCode(current);
+        }
+    };
+
+    /** A start that failed is sent again with backoff; the screen warns once its grace has passed. */
+    const failedStart = (current: Active, state: Extract<DeviceLoginState, { readonly phase: "failed" }>, now: number): void => {
+        const limited = state.reason === "rate_limited";
+        const previous = current.startStreak;
+        const since = previous?.since ?? current.startedAt;
+        const limitedSince = limited ? previous?.limitedSince ?? current.startedAt : undefined;
+        const backoff = previous === undefined ? 1 : Math.min(MAX_BACKOFF_SECONDS, previous.backoff * 2);
+        current.startStreak = { since, limitedSince, backoff };
+        if (limited) {
+            if (limitedSince !== undefined && now - limitedSince >= RATE_LIMITED_AFTER_MS) {
+                current.status = { kind: "rate_limited" };
+            }
+        } else if (now - since >= UNREACHABLE_WHILE_STARTING_MS) {
+            current.status = { kind: "unreachable" };
+        }
+        const retryAfter = limited ? state.retryAfterSeconds ?? 0 : 0;
+        current.pendingStart = { floor: now + retryAfter * 1000 };
+        if (document.visibilityState !== "hidden") {
+            scheduleStart(current, Math.max(backoff, retryAfter) * 1000);
+        }
+    };
+
+    const scheduleStart = (current: Active, ms: number): void => {
+        current.cancelTimer?.();
+        current.cancelTimer = clock.schedule(() => {
+            current.cancelTimer = undefined;
+            if (active === current && !current.server.session.signedIn) {
+                startAttempt(current);
+            }
+        }, ms);
+    };
+
+    const showCode = (current: Active): void => {
+        const status = current.status;
+        const action = text.stateAction(status);
+        const code = status.kind === "waiting" || status.kind === "opened" || status.kind === "unreachable" || status.kind === "rate_limited" ? current.shownCode : undefined;
+        const shown = current.code;
+        const hasAction = root.querySelector('[data-screen] [data-focus="retry"]') !== null;
+        if (shown !== undefined && code !== undefined && shown.userCode === code.userCode && host.name === "code" && hasAction === (action !== undefined)) {
+            shown.update(status);
+            return;
+        }
+        const base = current.server.server.http.base.baseUrl;
+        const controls = [
+            ...(action === undefined ? [] : [marqueeButton("retry", action, "primary", () => retry(current), { glyph: "retry" })]),
+            ...codeActions(current),
+        ];
+        const view = codeScreen({
+            status,
+            code,
+            serverName: current.serverName ?? text.serverHost(base),
+            host: text.serverHost(base),
+            secure: base.startsWith("https:"),
+            markUrl: current.markUrl,
+            typed: current.typed,
+            notes: current.notes,
+            controls,
+            rest: controls.some((control) => control.key === "password") ? "password" : "change",
+            back: changeServer,
+        });
+        current.code = view;
+        // A state that ends the attempt takes focus to its action; otherwise focus stays where it was.
+        const kept = document.activeElement?.getAttribute("data-focus") ?? undefined;
+        const keep = view.screen.focus !== "retry" && controls.some((control) => control.key === kept);
+        show(view.screen, keep ? kept : view.screen.focus);
+    };
+
+    /** "Sign in with a password" unless the server says no provider takes one; then "Change server". */
+    const codeActions = (current: Active): Control[] => [
+        ...(current.options?.passwordLogin === false ? [] : [marqueeButton("password", "Sign in with a password", "glass", () => openCredentials(current), { glyph: "key" })]),
+        marqueeButton("change", "Change server", "plain", changeServer),
+    ];
+
+    const openCredentials = (current: Active): void => {
+        current.credentials = true;
+        current.code = undefined;
+        showCredentials(current, "username");
+    };
+
+    /** Back to the code it left; one that ended meanwhile is replaced, as on the Apple TV app. */
+    const returnToCode = (current: Active): void => {
+        if (current.submitting) {
+            return;
+        }
+        current.credentials = false;
+        if (text.isTerminal(current.status)) {
+            retry(current);
+        } else {
+            current.code = undefined;
+            showCode(current);
+        }
+    };
+
+    const passwordOnly = (current: Active): boolean => current.login.current.phase === "unavailable";
+
+    const showCredentials = (current: Active, focus?: string, shake = false): void => {
+        const phoneRoute = !passwordOnly(current);
+        const base = current.server.server.http.base.baseUrl;
+        show(
+            current.credentialsView = credentialsScreen({
+                serverName: current.serverName ?? text.serverHost(base),
+                host: text.serverHost(base),
+                secure: base.startsWith("https:"),
+                markUrl: current.markUrl,
+                notes: current.notes,
+                passwordOnly: !phoneRoute,
+                hint: phoneRoute ? text.phoneHint(current.options?.oauthProviders ?? []) : undefined,
+                username: current.username,
+                password: current.password,
+                shown: current.shown,
+                error: current.error,
+                shake,
+                submitting: current.submitting,
+                onInput: (username, password) => {
+                    current.username = username;
+                    current.password = password;
+                },
+                toggle: () => {
+                    current.shown = !current.shown;
+                    showCredentials(current);
+                },
+                submit: () => submitPassword(current),
+                phone: phoneRoute ? () => returnToCode(current) : undefined,
+                change: changeServer,
+                back: current.submitting ? () => undefined : phoneRoute ? () => returnToCode(current) : changeServer,
+            }),
+            focus,
+        );
+    };
+
+    const submitPassword = (current: Active): void => {
+        if (current.submitting) {
+            return;
+        }
+        const phoneRoute = !passwordOnly(current);
+        const hint = phoneRoute ? text.phoneHint(current.options?.oauthProviders ?? []) : undefined;
+        const refuse = (message: string): void => {
+            current.error = message;
+            // Every failure, an empty field included, focuses the password, as on the Apple TV app.
+            showCredentials(current, "secret", true);
+        };
+        if (current.username.trim() === "") {
+            refuse(text.ENTER_USERNAME);
+            return;
+        }
+        if (current.password === "") {
+            refuse(text.ENTER_PASSWORD);
+            return;
+        }
+        current.submitting = true;
+        current.error = undefined;
+        showCredentials(current);
+        passwordLogin(current.server.session, current.username, current.password, current.left.signal).then((result) => {
+            if (active !== current) {
+                return;
+            }
+            current.submitting = false;
+            if (result.status !== "signed_in" && (current.server.session.signedIn || host.name !== "credentials")) {
+                return;
+            }
+            switch (result.status) {
+                case "signed_in":
+                    signedIn(current, { phase: "signed_in", persistence: result.persistence, previousSession: result.previousSession, passwordChangeRequired: result.passwordChangeRequired });
+                    return;
+                case "failed":
+                    refuse(text.passwordProblem(result.error, hint, phoneRoute));
+                    return;
+                case "superseded":
+                    showCredentials(current);
+            }
+        }, (error: unknown) => {
+            clock.schedule(() => {
+                throw error;
+            }, 0);
+        });
+    };
+
+    /**
+     * A phone approval: "Signed in as …" for a second, then on (TVLoginView). Leaving, a new
+     * sign-in, or the account's authority changing in that second cancels the move.
+     */
+    const approved = (current: Active, state: Extract<DeviceLoginState, { readonly phase: "signed_in" }>): void => {
+        if (state.passwordChangeRequired) {
+            signedIn(current, state);
+            return;
+        }
+        const session = current.server.session;
+        const generation = session.authorityGeneration;
+        current.status = { kind: "approved", account: session.account?.username || undefined };
+        current.shownCode = undefined;
+        if (!current.credentials) {
+            showCode(current);
+        }
+        const stopWatching = session.onAuthorityChange(() => {
+            if (active === current && !session.signedIn) {
+                // Signed out meanwhile: there is nothing to hand over; start again.
+                current.cancelTimer?.();
+                signIn(current.server, []);
+            }
+        });
+        const cancel = clock.schedule(() => {
+            stopWatching();
+            current.cancelTimer = undefined;
+            if (active === current && !destroyed && session.signedIn && session.authorityGeneration === generation) {
+                signedIn(current, state);
+            }
+        }, APPROVAL_PAUSE_MS);
+        current.cancelTimer = () => {
+            stopWatching();
+            cancel();
+        };
     };
 
     const signedIn = (current: Active, state: Extract<DeviceLoginState, { readonly phase: "signed_in" }>): void => {
@@ -265,9 +866,9 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             // ends this session anyway: sign it out now rather than hand over a session that fails.
             leaveSignIn(true);
             const showPassword = (extra: readonly string[]): void => {
-                const again = button("retry", "Get a new code", () => signIn(server, []));
+                const again = marqueeButton("retry", "Get a new code", "primary", () => signIn(server, []));
                 const lines = [...text.passwordChange(server.server.http.base.baseUrl), ...kept, ...extra];
-                showMessage("password", "Choose a new password", lines, [], [again, button("change", "Change server", changeServer)]);
+                showMessage("password", "Choose a new password", lines, [again, marqueeButton("change", "Change server", "plain", changeServer)]);
             };
             showPassword([]);
             void logoutCollectedAccount(server).then((result) => {
@@ -284,23 +885,13 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         }
         const account = server.session.account;
         const title = account === undefined || account.username === "" ? "Signed in" : `Signed in as ${account.username}`;
-        showMessage("notice", title, lines, [], [button("continue", "Continue", () => handOff(server))], "info", () => undefined);
+        showMessage("notice", title, lines, [marqueeButton("continue", "Continue", "primary", () => handOff(server))], () => undefined);
     };
 
-    const showMessage = (
-        name: string,
-        title: string,
-        lines: readonly string[],
-        notes: readonly Note[],
-        controls: readonly Control[],
-        tone: Note["tone"] = "info",
-        back: () => void = changeServer,
-    ): void => {
-        const body = lines.map((line) => el("p", tone === "error" ? "signin-text signin-error" : "signin-text", line));
-        if (tone === "error") {
-            body[0]?.setAttribute("role", "alert");
-        }
-        host.show({ name, content: [el("h1", "signin-title", title), ...body, ...noteNodes(notes), actions(controls)], controls, focus: controls[0]?.key ?? "", back });
+    /** A screen of its own for what only this TV says: a session it can't keep, or a password to change. */
+    const showMessage = (name: string, title: string, lines: readonly string[], controls: readonly Control[], back: () => void = changeServer): void => {
+        const copy = [headline(title), ...lines.map((line) => lead(line)), actionRow(controls)];
+        show({ name, content: marqueeScreen(copy), controls, focus: controls[0]?.key ?? "", back });
     };
 
     if (options.signedOut !== undefined) {

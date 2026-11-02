@@ -20,6 +20,7 @@ import { type Clock, sleep } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
 import { abortedError, type RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
+import { isPermittedUrl } from "../api/serverUrl.ts";
 import type { AudioTrackInfo, FileVersionTracks, PlaybackDecision, PlaybackDefaults, PlaybackMutation, PlaybackPlan, ReplanOperation, SelectedTracks, StartPlaybackBody, SubtitleTrack } from "../contracts/v2/playback.ts";
 import type { RandomBytes } from "../session/deviceIdentity.ts";
 import type { NativeSession } from "../session/session.ts";
@@ -1117,7 +1118,7 @@ export class PlaybackController implements PlayerControls {
         let media: URL;
         try {
             media = new URL(published);
-            if (media.protocol !== "https:") {
+            if (!isPermittedUrl(media, base.baseUrl)) {
                 this.fail(attempt, { kind: "server" }, true);
                 return;
             }
@@ -2140,7 +2141,7 @@ export class PlaybackController implements PlayerControls {
         } catch {
             return undefined;
         }
-        if (media.protocol !== "https:") {
+        if (!isPermittedUrl(media, base.baseUrl)) {
             return undefined;
         }
         if (media.origin !== base.origin) {

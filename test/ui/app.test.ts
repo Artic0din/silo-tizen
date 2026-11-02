@@ -38,6 +38,8 @@ async function signIn(tv: Tv): Promise<void> {
     assert.ok(code !== undefined);
     tv.fake.approve(code);
     await tv.jump(5000);
+    // "Signed in as …" holds for a second before sign-in moves on.
+    await tv.jump(1000);
     await tv.page.locator('[data-screen="profiles"]').waitFor();
     await tv.page.locator('[data-focus="profile:p-owner"]').click();
     await tv.page.locator('[data-focus="ask-every-launch"]').click();
@@ -611,6 +613,8 @@ appTest("profile loading cannot remove the exit dialog or steal its focus", asyn
     assert.ok(code !== undefined);
     tv.fake.approve(code);
     await tv.jump(5000);
+    // "Signed in as …" holds for a second before sign-in moves on.
+    await tv.jump(1000);
     await tv.page.locator('[data-screen="profiles-loading"]').waitFor();
     await tv.remote(10009);
     await tv.page.getByRole("dialog").waitFor();

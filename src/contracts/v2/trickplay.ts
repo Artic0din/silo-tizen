@@ -1,4 +1,5 @@
 import { boolean, nonEmptyString, object, WireError } from "./wire.ts";
+import { isPermittedUrl } from "../../api/serverUrl.ts";
 
 export interface TrickplayManifest {
     readonly fileId: string;
@@ -36,14 +37,14 @@ function positive(obj: ReturnType<typeof object>, key: string): number {
 function sheetURL(raw: string, origin: string): string {
     let url: URL;
     const published = raw.startsWith("/") && !raw.startsWith("//") ? origin + raw : raw;
-    if (!/^https:\/\//i.test(published)) throw new WireError("trickplay.sheet.url", "an absolute HTTPS URL or root-relative path");
+    if (!/^https?:\/\//i.test(published)) throw new WireError("trickplay.sheet.url", "an absolute HTTP(S) URL or root-relative path");
     try {
         url = new URL(published);
     } catch {
-        throw new WireError("trickplay.sheet.url", "an HTTPS signed URL");
+        throw new WireError("trickplay.sheet.url", "an HTTP(S) signed URL");
     }
-    if (url.protocol !== "https:" || url.username !== "" || url.password !== "" || url.hash !== "" || /[\s\\]/.test(published)) {
-        throw new WireError("trickplay.sheet.url", "an HTTPS signed URL");
+    if (!isPermittedUrl(url, origin) || url.username !== "" || url.password !== "" || url.hash !== "" || /[\s\\]/.test(published)) {
+        throw new WireError("trickplay.sheet.url", "a signed URL permitted for this server");
     }
     return published;
 }

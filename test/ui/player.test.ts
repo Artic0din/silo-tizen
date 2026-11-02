@@ -69,6 +69,11 @@ async function open(hidden = false, videoDir?: string): Promise<{ page: Page; lo
     page.on("pageerror", (error) => logs.push(`pageerror: ${error.message}`));
     await page.route("**/*", async (route) => {
         const path = new URL(route.request().url()).pathname;
+        if (path === "/fonts/InterVariable.woff2") {
+            // theme.css's ../fonts/ URL: the file the WGT packages.
+            await route.fulfill({ status: 200, contentType: "font/woff2", body: readFileSync(new URL("../../app/fonts/InterVariable.woff2", import.meta.url)) });
+            return;
+        }
         const body = path === "/index.html" ? HTML : path === "/harness.js" ? script : path === "/player.css" ? CSS : undefined;
         if (body === undefined) {
             await route.abort("internetdisconnected");

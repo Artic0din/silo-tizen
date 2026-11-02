@@ -49,6 +49,25 @@ test("manifest indexes sort, root-relative URLs keep the port and cross-origin s
     assert.equal(value.sheets[0], `${ORIGIN}/api/v2/artwork/trickplay/42/9913/0.9913.jpg?exp=1767409445&sig=a`);
 });
 
+test("HTTP servers accept relative and absolute HTTP thumbnail sheets without allowing HTTPS downgrade", () => {
+    const origin = "http://silo.example.test:8090";
+    const raw = rawManifest();
+    assert.ok(Array.isArray(raw.sheets));
+    raw.sheets[0] = { index: 0, url: "/first.jpg?sig=a%2Fb" };
+    raw.sheets[1] = { index: 1, url: "http://storage.example.test/second.jpg?sig=c%2Bd" };
+    const manifest = decodeTrickplay(raw, "42", origin);
+    assert.equal(manifest.sheets.length, raw.sheets.length);
+    assert.deepEqual(manifest.sheets.slice(0, 2), [
+        `${origin}/first.jpg?sig=a%2Fb`,
+        "http://storage.example.test/second.jpg?sig=c%2Bd",
+    ]);
+    assert.throws(() => decode(raw), /trickplay.sheet.url/);
+    for (const url of ["http://user:pass@storage.example.test/a.jpg", "/a.jpg#fragment", "/\\evil.example.test/a.jpg", "http:/storage.example.test/a.jpg"]) {
+        raw.sheets[0] = { index: 0, url };
+        assert.throws(() => decodeTrickplay(raw, "42", origin), /trickplay.sheet.url/);
+    }
+});
+
 for (const field of ["interval_ms", "thumbnail_width", "thumbnail_height", "tile_columns", "tile_rows", "thumbnail_count"]) {
     test(`manifest rejects invalid ${field}`, () => {
         for (const value of [0, -1, 1.5, Infinity, Number.MAX_SAFE_INTEGER + 1, "10", null]) assert.throws(() => decode({ ...rawManifest(), [field]: value }));

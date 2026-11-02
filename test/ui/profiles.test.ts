@@ -42,13 +42,16 @@ async function screenIs(tv: Tv, name: string): Promise<void> {
 /** Connects and approves a code; the profile screens start once sign-in hands off. */
 async function signIn(tv: Tv): Promise<void> {
     await tv.page.fill("#signin-address", "silo.example.test");
-    await tv.page.keyboard.press("ArrowDown");
+    // The TV keyboard's Done moves from the address to Connect; Down reaches Advanced options.
+    await tv.remote(IME_DONE);
     await tv.page.keyboard.press("Enter");
     await screenIs(tv, "code");
     const code = [...tv.fake.devices.keys()].pop();
     assert.ok(code !== undefined);
     tv.fake.approve(code);
     await tv.jump(5000);
+    // "Signed in as …" holds for a second before sign-in moves on.
+    await tv.jump(1000);
 }
 
 async function picker(tv: Tv): Promise<void> {

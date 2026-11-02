@@ -9,6 +9,8 @@ async function picker(tv: Tv): Promise<void> {
     await tv.page.locator('[data-screen="code"]').waitFor();
     tv.fake.approve([...tv.fake.devices.keys()].pop() ?? "");
     await tv.jump(5000);
+    // "Signed in as …" holds for a second before sign-in moves on.
+    await tv.jump(1000);
     await tv.page.locator('[data-screen="profiles"]').waitFor();
 }
 

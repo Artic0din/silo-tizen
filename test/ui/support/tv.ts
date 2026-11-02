@@ -10,7 +10,6 @@ import { ManualClock } from "../../native/support/clock.ts";
 import { FakeSilo } from "../../native/support/fakeSilo.ts";
 
 const ORIGIN = "https://silo.example.test";
-const PAGE = `${ORIGIN}/tv/index.html`;
 const EVENTUALLY_TIMEOUT_MS = 10000;
 /** Which screens the page mounts: the sign-in harness or the browse harness. */
 export type TvApp = "signIn" | "browse" | "application";
@@ -51,6 +50,8 @@ export function harnessBundle(app: TvApp = "signIn"): Promise<string> {
         bundle: true,
         format: "iife",
         target: "chrome76",
+        // The packaged font sits beside js/ in the WGT; the stylesheet keeps its relative URL (scripts/build.mjs).
+        external: ["../fonts/*"],
         write: false,
         outfile: "harness.js",
         define: { APP_VERSION: JSON.stringify(/<widget\b[^>]*\bversion="([^"]+)"/.exec(readFileSync(new URL("../../../app/config.xml", import.meta.url), "utf8"))?.[1]) },
@@ -91,8 +92,13 @@ export interface Tv {
     eventually(check: () => Promise<boolean>, what: string): Promise<void>;
 }
 
-export async function openTv(browser: Browser, options: { sessionOnly?: boolean; profiles?: boolean; production?: boolean; video?: string; app?: TvApp } = {}): Promise<Tv> {
+export async function openTv(
+    browser: Browser,
+    /** `origin`: where the page and the fake server live; an http one serves Silo over plain HTTP. */
+    options: { sessionOnly?: boolean; profiles?: boolean; production?: boolean; video?: string; app?: TvApp; origin?: string } = {},
+): Promise<Tv> {
     const app = options.app ?? "signIn";
+    const origin = options.origin ?? ORIGIN;
     const script = await harnessBundle(app);
     const context = await browser.newContext({
         viewport: { width: 1920, height: 1080 },
@@ -100,7 +106,7 @@ export async function openTv(browser: Browser, options: { sessionOnly?: boolean;
     });
     const page = await context.newPage();
     const clock = new ManualClock();
-    const fake = new FakeSilo(clock);
+    const fake = new FakeSilo(clock, undefined, origin);
     const logs: string[] = [];
     page.on("console", (message) => {
         // Chromium's own line for a failed or refused request, not something the app logged.
@@ -154,7 +160,7 @@ export async function openTv(browser: Browser, options: { sessionOnly?: boolean;
     await page.route("**/*", async (route) => {
         const request = route.request();
         const url = new URL(request.url());
-        if (url.origin !== ORIGIN || (tv.offline && url.pathname.startsWith("/api/"))) {
+        if (url.origin !== origin || (tv.offline && url.pathname.startsWith("/api/"))) {
             tv.blocked++;
             await route.abort("internetdisconnected");
             return;
@@ -169,6 +175,16 @@ export async function openTv(browser: Browser, options: { sessionOnly?: boolean;
         }
         if (url.pathname === "/tv/app.css") {
             await route.fulfill({ status: 200, contentType: "text/css", body: THEME + CSS[app] });
+            return;
+        }
+        if (url.pathname === "/fonts/InterVariable.woff2") {
+            // The stylesheet's ../fonts/ URL from /tv/app.css: the same file the WGT packages.
+            await route.fulfill({ status: 200, contentType: "font/woff2", body: readFileSync(new URL("../../../app/fonts/InterVariable.woff2", import.meta.url)) });
+            return;
+        }
+        if (url.pathname.startsWith("/tv/img/")) {
+            // The packaged app's own images, as the .wgt ships them beside index.html.
+            await route.fulfill({ status: 200, contentType: "image/png", body: readFileSync(new URL(`../../../app/img/${url.pathname.slice(8)}`, import.meta.url)) });
             return;
         }
         if (url.pathname.startsWith("/art/")) {
@@ -200,6 +216,6 @@ export async function openTv(browser: Browser, options: { sessionOnly?: boolean;
         await route.fulfill({ status: response.status, headers, body: await response.text() }).catch(() => undefined);
     });
     await page.clock.install({ time: clock.now() });
-    await page.goto(`${PAGE}${options.profiles === true ? "?flow=profiles" : ""}${options.production === true ? "#production" : options.sessionOnly === true ? "#session-only" : ""}`);
+    await page.goto(`${origin}/tv/index.html${options.profiles === true ? "?flow=profiles" : ""}${options.production === true ? "#production" : options.sessionOnly === true ? "#session-only" : ""}`);
     return tv;
 }

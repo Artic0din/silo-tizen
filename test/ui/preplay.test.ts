@@ -17,6 +17,8 @@ async function details(tv: Tv): Promise<void> {
     assert.ok(code);
     tv.fake.approve(code);
     await tv.jump(5000);
+    // "Signed in as …" holds for a second before sign-in moves on.
+    await tv.jump(1000);
     await tv.page.locator('[data-focus="profile:p-owner"]').click();
     await tv.page.locator('[data-focus="ask-every-launch"]').click();
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();

@@ -40,12 +40,13 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
         browse = undefined;
     };
 
-    const showSignIn = (notice?: LogoutResult): void => {
+    const showSignIn = (notice?: LogoutResult, chooseServer = false): void => {
         stopContent();
         profiles?.destroy();
         profiles = undefined;
         signIn = mountSignIn(root, {
             core: options.core,
+            ...(chooseServer ? { chooseServer: true } : {}),
             onSignedIn: (server) => {
                 // Sign-in releases its root before handing over; its old destroy would clear the successor.
                 signIn = undefined;
@@ -74,10 +75,18 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
         const content = mountBrowse(root, {
             server,
             profileName: active.profile.name,
+            ...(active.profile.avatarUrl === undefined ? {} : { profileAvatarUrl: active.profile.avatarUrl }),
             ...(options.core.publicStorage === undefined ? {} : { publicStorage: options.core.publicStorage }),
             onSignOut: () => {
                 stopContent();
                 profiles?.signOut();
+            },
+            onSwitchServer: () => {
+                stopContent();
+                profiles?.destroy();
+                profiles = undefined;
+                server.session.setProfile(undefined, "profile_cleared");
+                showSignIn(undefined, true);
             },
             onChooseProfile: () => {
                 stopContent();

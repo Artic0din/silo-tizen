@@ -47,6 +47,71 @@ async function signIn(tv: Tv): Promise<void> {
     await homeDetailsRead(tv);
 }
 
+appTest("Sign Out confirmation traps focus and cancellation preserves the session", async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => window.appHarness.storage.setItem("silo.native.serverBranding.v1", JSON.stringify({ "https://silo.example.test": { serverName: "Living room library" } })));
+    const writes = tv.fake.requests.filter(request => request.method !== "GET").length;
+    await tv.page.locator('[data-focus="profiles"]').click();
+    assert.equal(await tv.page.locator(".skyline-profile-server").textContent(), "LIVING ROOM LIBRARY");
+    assert.equal(await tv.focused(), "switch-profile");
+    await tv.page.locator('[data-focus="signout"]').focus();
+    const focusColors = await tv.page.locator('[data-focus="signout"]').evaluate(node => [getComputedStyle(node).backgroundColor, getComputedStyle(node).color]);
+    assert.deepEqual(focusColors, ["rgb(255, 255, 255)", "rgb(0, 0, 0)"], "Apple uses the common white focus platter for destructive menu rows");
+    await tv.page.locator('[data-focus="signout"]').click();
+    await tv.page.getByRole("alertdialog", { name: "Sign Out" }).waitFor();
+    assert.equal(await tv.focused(), "cancel-signout");
+    const dialogGeometry = await tv.page.getByRole("alertdialog", { name: "Sign Out" }).evaluate(node => {
+        const style = getComputedStyle(node);
+        const buttons = [...node.querySelectorAll("button")].map(button => button.getBoundingClientRect());
+        return { width: style.width, topPadding: style.paddingTop, sidePadding: style.paddingLeft, titleSize: getComputedStyle(node.querySelector("h2") as HTMLElement).fontSize, row: Math.abs((buttons[0]?.y ?? 0) - (buttons[1]?.y ?? 1)) < 1 };
+    });
+    assert.deepEqual(dialogGeometry, { width: "632px", topPadding: "42px", sidePadding: "48px", titleSize: "38px", row: true });
+    assert.equal(await tv.page.locator(".browse-nav").evaluate(node => (node as HTMLElement).inert), true);
+    assert.equal(await tv.page.locator(".browse-nav").getAttribute("aria-hidden"), "true");
+    const destination = tv.page.locator('.browse-nav [data-focus="movies"]');
+    const bounds = await destination.boundingBox();
+    assert.ok(bounds);
+    await tv.page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    assert.equal(await tv.page.getByRole("alertdialog", { name: "Sign Out" }).isVisible(), false, "the source backdrop cancels without activating its covered destination");
+    assert.equal(await tv.page.locator('.browse').getAttribute("data-view"), "home");
+    assert.equal(await tv.focused(), "profiles");
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="signout"]').click();
+    for (const code of [38, 37]) await tv.remote(code);
+    assert.equal(await tv.focused(), "cancel-signout");
+    await tv.remote(39);
+    assert.equal(await tv.focused(), "confirm-signout");
+    await tv.remote(40);
+    assert.equal(await tv.focused(), "confirm-signout");
+    await tv.remote(37);
+    assert.equal(await tv.focused(), "cancel-signout");
+    await tv.remote(10009);
+    assert.equal(await tv.focused(), "profiles");
+    assert.equal(await tv.page.locator('[data-view="home"]').isVisible(), true);
+    assert.equal(tv.fake.requests.filter(request => request.method !== "GET").length, writes);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="signout"]').click();
+    await tv.page.locator('[data-focus="confirm-signout"]').click();
+    await tv.page.locator('[data-screen="entry"]').waitFor();
+    assert.equal(await tv.page.locator(".browse").count(), 0);
+});
+
+appTest("Switch Server retires Browse and opens server entry without signing out", async tv => {
+    await signIn(tv);
+    const writes = tv.fake.requests.filter(request => request.method !== "GET").length;
+    const sessions = tv.fake.devices.size;
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="switch-server"]').click();
+    await tv.page.locator('[data-screen="entry"]').waitFor();
+    assert.equal(await tv.page.locator(".browse").count(), 0);
+    assert.equal(tv.fake.requests.filter(request => request.method !== "GET").length, writes);
+    assert.equal(tv.fake.devices.size, sessions, "entry does not start another sign-in");
+    assert.equal(await tv.page.locator("#signin-address").inputValue(), "https://silo.example.test");
+    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    assert.equal(await tv.page.locator('[data-screen="code"]').count(), 0, "the saved account restores");
+});
+
 async function startMovie(tv: Tv, id = "movie:m0001"): Promise<void> {
     await tv.page.locator(`.browse-card:not(.skyline-continue)[data-focus="${id}"]`).first().click();
     await tv.page.locator('[data-focus="play"]').click();
@@ -581,13 +646,17 @@ appTest("the profile menu opens without changing content, stays dismissed after 
     assert.equal(await tv.page.locator(".skyline-selector").first().isVisible(), false);
     assert.equal(await tv.focused(), "profiles");
     await tv.page.keyboard.press("Enter");
-    await tv.page.keyboard.press("ArrowDown");
-    for (const destination of ["watchlist", "favorites", "history", "settings"]) {
+    assert.equal(await tv.focused(), "switch-profile", "Select enters the menu immediately");
+    for (const destination of ["watchlist", "favorites", "history", "settings", "switch-server"]) {
         await tv.page.keyboard.press("ArrowDown");
         assert.equal(await tv.focused(), destination);
     }
     await tv.page.keyboard.press("ArrowDown");
     assert.equal(await tv.focused(), "signout");
+    await tv.page.keyboard.press("Enter");
+    assert.equal(await tv.focused(), "cancel-signout");
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), "confirm-signout");
     await tv.page.keyboard.press("Enter");
     await tv.page.locator('[data-screen="entry"]').waitFor();
     assert.equal(tv.fake.revokedSessions.size, 1);

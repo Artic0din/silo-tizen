@@ -33,6 +33,37 @@ async function keys(tv: Tv, ...codes: number[]): Promise<void> {
     for (const code of codes) await tv.remote(code);
 }
 
+test("an entered library dropdown keeps its anchor selected and the page undimmed", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await tv.page.emulateMedia({ reducedMotion: "reduce" });
+        await start(tv);
+        await keys(tv, 38, 39);
+        await tv.jump(250);
+        await keys(tv, 40);
+        assert.equal(await tv.focused(), "section:Recommended");
+        const chrome = await tv.page.evaluate(() => {
+            const bar = document.querySelector<HTMLElement>(".browse-nav");
+            const anchor = document.querySelector<HTMLElement>('[data-focus="movies"]');
+            const panel = document.querySelector<HTMLElement>(".skyline-selector:not(.skyline-flyout)");
+            const scrim = document.querySelector<HTMLElement>(".skyline-dropdown-scrim");
+            if (bar === null || anchor === null || panel === null || scrim === null) throw new Error("Missing navigation chrome");
+            const a = anchor.getBoundingClientRect();
+            const p = panel.getBoundingClientRect();
+            return { dimmed: bar.classList.contains("skyline-muted"), expanded: anchor.getAttribute("aria-expanded"), scrim: scrim.hidden, anchorCenter: a.x + a.width / 2, panelCenter: p.x + p.width / 2, top: p.y };
+        });
+        assert.equal(chrome.dimmed, false);
+        assert.equal(chrome.expanded, "true");
+        assert.equal(chrome.scrim, true);
+        assert.ok(Math.abs(chrome.anchorCenter - chrome.panelCenter) < 1);
+        assert.equal(chrome.top, 132);
+        await keys(tv, 10009);
+        assert.equal(await tv.focused(), "movies");
+        await tv.jump(500);
+        assert.equal(await tv.page.locator(".skyline-selector:not(.skyline-flyout)").isVisible(), false);
+    } finally { await tv.page.context().close(); }
+});
+
 test("the structural snapshot retains viewport and shelf scroll without per-card style reads", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
@@ -158,7 +189,11 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
                 });
                 assert.deepEqual(animation, { duration: 200, frames: [{ opacity: "0", transform: "translateY(12px)" }, { opacity: "1", transform: "translateY(0px)" }] });
             }
-            await keys(tv, 38, 39);
+            await keys(tv, 38);
+            assert.equal(await tv.focused(), "movies", "Up restores the current root before the transition completes");
+            await keys(tv, 39);
+            assert.equal(await tv.focused(), "series", "Right follows the displayed bar order");
+            await keys(tv, 37);
             assert.equal(await tv.focused(), "movies", "input works before the transition completes");
             await tv.jump(1000);
             assert.equal(await tv.focused(), "movies");

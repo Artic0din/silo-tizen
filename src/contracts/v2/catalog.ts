@@ -181,7 +181,7 @@ function decodeCardOverlay(value: unknown, path: string): CardOverlay | undefine
     };
 }
 
-function decodeCard(value: unknown, path: string): Card {
+export function decodeCard(value: unknown, path: string): Card {
     const obj = object(value, path);
     return {
         seriesBackdropUrl: optionalString(obj, "series_backdrop_url", path),

@@ -195,6 +195,7 @@ export function statusView(name: string, title: string, texts: readonly string[]
 
 export interface HomeHandlers {
     readonly expand: (section: HomeSection) => void;
+    readonly canExpand?: (section: HomeSection) => boolean;
     readonly search: () => void;
     readonly library: (library: UserLibrary) => void;
     readonly chooseProfile: () => void;
@@ -216,7 +217,7 @@ export function homeView(libraries: readonly UserLibrary[], sections: readonly H
             continue;
         }
         const id = `section:${section.id}`;
-        cards.push(exploreAllCard(section.title, `expand:${section.id}`, continuing, () => handlers.expand(section)));
+        if (handlers.canExpand?.(section) !== false) cards.push(exploreAllCard(section.title, `expand:${section.id}`, continuing, () => handlers.expand(section)));
         zones.push({ id, layout: "row", items: cards });
         const block = el("section", "browse-section home-section");
         block.setAttribute("data-section", section.id);

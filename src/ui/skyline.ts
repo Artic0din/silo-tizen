@@ -1,13 +1,17 @@
 import type { Clock } from "../api/clock.ts";
 import type { Card, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { PublicStorage } from "../session/deviceIdentity.ts";
-import type { FocusItem, View, Zone } from "./browseFocus.ts";
+import type { FocusItem, FocusTarget, View, Zone } from "./browseFocus.ts";
 import { artworkUrl } from "./browseModel.ts";
 import { marqueeBadges, marqueeMeta, marqueeRating, marqueeTitle } from "./cardPresentation.ts";
 import { actionButton, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
 import { TMDB_LOGO_PATH } from "./acknowledgements.ts";
 import { SkylineScroll } from "./skylineScroll.ts";
+import { navigationAvatar } from "./navigationAvatar.ts";
+import { navigationRoots } from "./navigation.ts";
+import type { PrimaryMenu } from "../contracts/v2/navigation.ts";
+import { navigationIcon } from "./navigationIcon.ts";
 import { remoteKey } from "./keys.ts";
 import { heroBackdrop, type Tints } from "./heroBackdrop.ts";
 import type { LibraryMode } from "./libraryDiscovery.ts";
@@ -17,11 +21,15 @@ type VideoTab = "movies" | "series";
 
 interface ProfileMenu {
     readonly settings?: () => void;
-    readonly personal?: (source: PersonalSource) => void;
+    readonly personal?: (source: PersonalSource, anchor?: "for_you" | "profiles") => void;
     readonly name: string;
     readonly switchProfile: () => void;
     readonly signOut?: () => void;
+    readonly switchServer?: () => void;
+    readonly serverName?: () => string | undefined;
 }
+
+type RootTarget = "home" | "search" | "calendar" | "requests" | "for_you" | UserLibrary;
 
 function replaceNodes(container: HTMLElement, nodes: readonly HTMLElement[]): void {
     while (container.firstChild !== null) container.removeChild(container.firstChild);
@@ -68,6 +76,15 @@ export class Skyline {
     private routeBack: (() => void) | undefined;
     private readonly nav = el("nav", "browse-nav");
     private readonly tabs = el("div", "skyline-tabs");
+    private readonly roots = el("div", "skyline-roots");
+    private menu: PrimaryMenu | null = null;
+    private navigationIdentity = "";
+    private panelAnchor: string | undefined;
+    private shortcutSelection: string | undefined;
+    private panelLibrary: UserLibrary | undefined;
+    private panelTitle = "";
+    private confirmation = false;
+    private avatarReference: string | undefined;
     private readonly tools = el("div", "skyline-tools");
     private readonly selector = el("div", "skyline-selector");
     private readonly marquee = el("div", "skyline-marquee");
@@ -96,9 +113,9 @@ export class Skyline {
     private immediatePreview = true;
     private readonly container: HTMLElement;
     private readonly clock: Clock;
-    private readonly activate: (target: "home" | "search" | "calendar" | "requests" | UserLibrary, mode?: LibraryMode) => void;
+    private readonly activate: (target: RootTarget, mode?: LibraryMode) => void;
     private readonly profiles: ProfileMenu;
-    private readonly refresh: () => void;
+    private readonly refresh: (focus?: FocusTarget) => void;
     private readonly storage: PublicStorage | undefined;
     private readonly storageKey: string;
     private readonly baseUrl: string;
@@ -112,9 +129,9 @@ export class Skyline {
     constructor(
         container: HTMLElement,
         clock: Clock,
-        activate: (target: "home" | "search" | "calendar" | "requests" | UserLibrary, mode?: LibraryMode) => void,
+        activate: (target: RootTarget, mode?: LibraryMode) => void,
         profiles: ProfileMenu,
-        refresh: () => void,
+        refresh: (focus?: FocusTarget) => void,
         storage: PublicStorage | undefined,
         storageKey: string,
         baseUrl: string,
@@ -136,6 +153,7 @@ export class Skyline {
         this.selector.setAttribute("role", "menu");
         this.selector.hidden = true;
         this.scrim.hidden = true;
+        this.scrim.addEventListener("click", () => { if (this.confirmation) this.back(); });
         this.flyout.hidden = true;
         this.flyout.setAttribute("role", "menu");
         this.marquee.setAttribute("aria-live", "polite");
@@ -146,20 +164,25 @@ export class Skyline {
 
     update(libraries: readonly UserLibrary[]): void {
         this.libraries = libraries;
-        const keys = ["home", ...(["movies", "series"] as const).filter((type) => this.forType(type).length > 0), ...(this.requestsEnabled ? ["requests"] : []), "search", "profiles", "calendar"];
-        if (this.items.map((item) => item.key).join(":") === keys.join(":")) return;
-        this.items = [actionButton("home", "Home", () => this.commit("home"))];
-        for (const type of ["movies", "series"] as const) {
-            if (this.forType(type).length === 0) continue;
-            const item = actionButton(type, type === "movies" ? "Movies" : "Series", () => {
-                const library = this.scope(type);
-                if (library !== undefined) this.commit({ ...library, type });
+        const roots = navigationRoots(this.menu, libraries, this.requestsEnabled);
+        const identity = JSON.stringify(roots);
+        if (identity === this.navigationIdentity || !this.selector.hidden) return;
+        this.navigationIdentity = identity;
+        this.close();
+        const rootItems = roots.map(root => {
+            const item = actionButton(root.key, root.title, () => {
+                if ("library" in root) { this.panelAnchor = root.key; this.commit(root.library); }
+                else if (root.key === "movies" || root.key === "series") {
+                    const library = this.scope(root.key);
+                    if (library !== undefined) this.commit({ ...library, type: root.key });
+                } else this.commit(root.key);
             });
-            item.element.setAttribute("aria-haspopup", "menu");
-            this.items.push(item);
-        }
-        if (this.requestsEnabled) this.items.push(actionButton("requests", "Requests", () => this.commit("requests")));
-        this.items.push(actionButton("search", "", () => this.commit("search")), actionButton("profiles", this.profiles.name.slice(0, 1).toUpperCase(), () => this.openProfile()), actionButton("calendar", "Calendar", () => this.commit("calendar")));
+            item.element.setAttribute("role", "tab");
+            if (root.key === "movies" || root.key === "series" || root.key === "for_you" || "library" in root) item.element.setAttribute("aria-haspopup", "menu");
+            return item;
+        });
+        const searchItem = actionButton("search", "", () => this.commit("search"));
+        this.items = [searchItem, ...rootItems, actionButton("profiles", this.profiles.name.slice(0, 1).toUpperCase(), () => this.openProfile(true))];
         const search = this.items.find((item) => item.key === "search");
         search?.element.setAttribute("aria-label", "Search");
         search?.element.classList.add("skyline-search");
@@ -167,10 +190,14 @@ export class Skyline {
         profiles?.element.setAttribute("aria-label", "Profiles");
         profiles?.element.classList.add("skyline-profile");
         profiles?.element.setAttribute("aria-haspopup", "menu");
-        for (const item of this.items.slice(0, -3)) item.element.setAttribute("role", "tab");
-        replaceNodes(this.tabs, this.items.slice(0, -3).map((item) => item.element));
-        replaceNodes(this.tools, this.items.slice(-3).map((item) => item.element));
+        replaceNodes(this.roots, rootItems.map(item => item.element));
+        const balance = el("span", "skyline-search-balance");
+        balance.setAttribute("aria-hidden", "true");
+        replaceNodes(this.tabs, [searchItem.element, this.roots, balance]);
+        replaceNodes(this.tools, this.items.slice(-1).map(item => item.element));
     }
+
+    setMenu(menu: PrimaryMenu | null): void { this.menu = menu; this.update(this.libraries); }
 
     private forType(type: VideoTab): readonly UserLibrary[] {
         return this.libraries.filter((library) => library.type === type || library.type === "mixed");
@@ -190,16 +217,18 @@ export class Skyline {
         const type = this.panelTab;
         if (type === undefined || this.selector.hidden || this.profileOpen) return;
         const libraries = this.forType(type);
-        const library = libraries.length === 1 ? libraries[0] : undefined;
+        const library = this.panelLibrary ?? (libraries.length === 1 ? libraries[0] : undefined);
         if (library === undefined) return;
         const previous = this.panel;
         const focused = previous.find(item => item.element === document.activeElement);
         this.panel = this.modeItems(library, type).map(item => previous.find(candidate => candidate.key === item.key) ?? item);
-        replaceNodes(this.selector, this.panel.map(item => item.element));
+        this.renderPanel();
         if (focused !== undefined) (this.panel.find(item => item.key === focused.key) ?? this.panel[0])?.element.focus({ preventScroll: true });
     }
 
-    private commit(target: "home" | "search" | "calendar" | "requests" | UserLibrary, mode?: LibraryMode): void {
+    private commit(target: RootTarget, mode?: LibraryMode): void {
+        if (!this.visible) return;
+        this.shortcutSelection = typeof target !== "string" && this.panelAnchor?.startsWith("library:") ? this.panelAnchor : undefined;
         if (typeof target !== "string") {
             const type = this.panelTab ?? (target.type === "series" ? "series" : "movies");
             this.scopes.set(type, target.id);
@@ -209,7 +238,19 @@ export class Skyline {
         this.activate(target, mode);
     }
 
+    setAvatar(name: string, reference: string | undefined, baseUrl: string): void {
+        this.avatarReference = reference;
+        const profile = this.items.find(item => item.key === "profiles");
+        const identity = JSON.stringify([name, reference, baseUrl]);
+        if (profile === undefined || (profile.element.firstElementChild as HTMLElement | null)?.dataset.avatarIdentity === identity) return;
+        const avatar = navigationAvatar(name, reference, baseUrl, 58);
+        avatar.dataset.avatarIdentity = identity;
+        replaceNodes(profile.element, [avatar]);
+    }
+
     decorate(view: View, selected: string, preview: boolean, routeBack?: () => void, libraryKey?: string): View {
+        const libraryRoot = selected === "movies" || selected === "series";
+        if ((selected === "movies" || selected === "series") && this.shortcutSelection !== undefined && libraryKey?.startsWith(`${this.shortcutSelection}:`)) selected = this.shortcutSelection;
         this.routeBack = routeBack;
         this.visible = true;
         if (this.selected !== selected) this.immediatePreview = true;
@@ -218,22 +259,26 @@ export class Skyline {
             item.element.setAttribute("aria-current", item.key === selected ? "page" : "false");
             if (item.element.getAttribute("role") === "tab") item.element.setAttribute("aria-selected", String(item.key === selected));
         }
-        const zones: Zone[] = [{ id: "nav", layout: "row", items: this.items }];
-        if (!this.selector.hidden) zones.push({ id: "selector", layout: "column", items: this.panel });
+        const zones: Zone[] = [{ id: "nav", layout: "row", items: this.items, entry: selected }];
+        if (!this.selector.hidden) zones.push({ id: "selector", layout: this.confirmation ? "row" : "column", items: this.panel });
         if (!this.flyout.hidden) zones.push({ id: "flyout", layout: "column", items: this.flyoutItems });
         const prepare = (): void => {
             this.container.classList.add("skyline-root");
             this.container.classList.toggle("skyline-preview", preview);
-            this.container.classList.toggle("skyline-home", preview && selected === "home");
-            this.container.classList.toggle("skyline-library", preview && (selected === "movies" || selected === "series"));
-            this.container.classList.toggle("skyline-grid", !preview && (selected === "movies" || selected === "series" || selected === "profiles"));
+            this.container.classList.toggle("skyline-home", preview && (selected === "home" || selected === "for_you"));
+            this.container.classList.toggle("skyline-library", preview && libraryRoot);
+            this.container.classList.toggle("skyline-grid", !preview && (libraryRoot || selected === "profiles" || view.name.startsWith("personal:")));
             view.content.forEach((node, index) => {
                 const existing = this.body.children[index];
                 if (existing !== node) this.body.insertBefore(node, existing ?? null);
             });
             while (this.body.children.length > view.content.length) this.body.lastElementChild?.remove();
         };
-        return { ...view, prepare, transition: { key: libraryKey ?? selected, group: selected }, content: [this.scrim, this.nav, this.selector, this.flyout, ...(preview ? [this.marquee] : []), this.body], zones: [...zones, ...view.zones], back: selected === "search" ? view.back : () => this.back() };
+        this.nav.inert = this.confirmation;
+        this.body.inert = this.confirmation;
+        if (this.confirmation) { this.nav.setAttribute("aria-hidden", "true"); this.body.setAttribute("aria-hidden", "true"); }
+        else { this.nav.removeAttribute("aria-hidden"); this.body.removeAttribute("aria-hidden"); }
+        return { ...view, prepare, transition: { key: libraryKey ?? selected, group: selected }, content: [this.scrim, this.nav, this.selector, this.flyout, ...(preview ? [this.marquee] : []), this.body], zones: this.confirmation ? zones.filter(zone => zone.id === "selector") : [...zones, ...view.zones], back: selected === "search" ? view.back : () => this.back() };
     }
 
     hide(): void {
@@ -292,7 +337,7 @@ export class Skyline {
         this.fillDetails(layer, card, continuing);
         const seriesArt = card.type === "episode" && card.seriesBackdropUrl !== undefined;
         const background = artworkUrl(seriesArt ? card.seriesBackdropUrl : card.backdropUrl, this.baseUrl);
-        if (background !== undefined && this.selected === "home") {
+        if (background !== undefined && (this.selected === "home" || this.selected === "for_you")) {
             layer.prepend(heroBackdrop(background, seriesArt ? undefined : card.backdropThumbhash, this.tints));
         } else if (background !== undefined) {
             const image = el("img", "skyline-backdrop");
@@ -336,19 +381,30 @@ export class Skyline {
         this.cancelFlyout();
         this.flyout.hidden = true;
         this.panelTab = undefined;
+        this.panelLibrary = undefined;
+        this.panelAnchor = undefined;
+        this.confirmation = false;
+        this.selector.removeAttribute("data-confirmation");
+        this.scrim.removeAttribute("data-confirmation");
+        this.selector.removeAttribute("aria-modal");
+        this.selector.removeAttribute("aria-label");
+        this.selector.removeAttribute("data-menu-kind");
+        this.selector.setAttribute("role", "menu");
+        this.selector.style.top = "";
         this.profileOpen = false;
         this.selector.hidden = true;
         this.scrim.hidden = true;
         this.panel = [];
+        this.updateChrome();
+        this.update(this.libraries);
     }
 
     private back(): boolean {
         if (!this.selector.hidden) {
-            const type = this.profileOpen ? "profiles" : this.panelTab;
+            const type = this.panelAnchor;
             this.close();
             this.dismissedAnchor = type;
-            this.items.find((item) => item.key === type)?.element.focus({ preventScroll: true });
-            this.refresh();
+            this.refresh({ zone: "nav", key: type ?? this.selected });
         } else if (!this.nav.contains(document.activeElement)) {
             this.items.find((item) => item.key === this.selected)?.element.focus({ preventScroll: true });
         } else if (this.selected !== "home") this.commit("home");
@@ -356,9 +412,18 @@ export class Skyline {
         return true;
     }
 
+    private updateChrome(): void {
+        const open = !this.selector.hidden;
+        this.nav.classList.toggle("skyline-muted", !open && !this.nav.contains(document.activeElement));
+        const anchor = this.panelAnchor;
+        for (const item of this.items) {
+            if (item.element.hasAttribute("aria-haspopup")) item.element.setAttribute("aria-expanded", String(open && item.key === anchor));
+        }
+    }
+
     private readonly onFocus = (event: FocusEvent): void => {
         if (!this.visible) return;
-        this.nav.classList.toggle("skyline-muted", !(event.target instanceof Node && this.nav.contains(event.target)));
+        this.updateChrome();
         const row = this.panel.find((candidate) => candidate.element === event.target);
         if (row !== undefined) {
             if (this.profileOpen || !row.key.startsWith("library:")) return;
@@ -375,41 +440,91 @@ export class Skyline {
         }
         const dismissed = !this.selector.hidden;
         this.close();
-        if (dismissed) this.refresh();
+        if (dismissed) {
+            this.refresh({ zone: "nav", key: item.key });
+            if (!item.element.isConnected) return;
+        }
         if (this.dismissedAnchor === item.key) return;
         this.dismissedAnchor = undefined;
+        if (this.roots.contains(item.element)) {
+            const row = this.roots.getBoundingClientRect();
+            const rect = item.element.getBoundingClientRect();
+            const delta = rect.left < row.left ? rect.left - row.left : rect.right > row.right ? rect.right - row.right : 0;
+            if (delta !== 0) this.scroll.move(this.roots, this.roots.scrollLeft + delta, 0);
+        }
         if (item.key === "profiles") {
             this.cancelDwell = this.clock.schedule(() => {
                 if (document.activeElement === item.element && this.visible) this.openProfile();
             }, 250);
             return;
         }
-        if (item.key !== "movies" && item.key !== "series") return;
-        const type = item.key;
+        if (!item.element.hasAttribute("aria-haspopup")) return;
         this.cancelDwell = this.clock.schedule(() => {
             if (document.activeElement !== item.element || !this.visible) return;
-            this.panelTab = type;
-            const libraries = this.forType(type);
-            const single = libraries.length === 1 ? libraries[0] : undefined;
-            this.panel = single === undefined
-                ? libraries.map((library) => actionButton(`library:${library.id}`, library.name, () => this.commit({ ...library, type })))
-                : this.modeItems(single, type);
-            if (single === undefined) for (const row of this.panel) {
-                row.element.setAttribute("role", "menuitemradio");
-                row.element.setAttribute("aria-checked", String(row.key === `library:${this.scope(type)?.id}`));
-            }
-            replaceNodes(this.selector, this.panel.map((row) => row.element));
-            this.selector.hidden = false;
-            this.scrim.hidden = false;
-            this.selector.style.left = `${Math.max(88, Math.min(1372, item.element.getBoundingClientRect().left - 100))}px`;
-            this.selector.style.right = "auto";
-            this.refresh();
+            this.openRootPanel(item);
         }, 250);
     };
+
+    private menuItem(key: string, title: string, action: () => void, icon = key): FocusItem {
+        const item = actionButton(key, title, () => { if (this.visible) action(); });
+        item.element.classList.add("skyline-menu-item");
+        item.element.replaceChildren(navigationIcon(icon), el("span", "skyline-menu-label", title));
+        item.element.setAttribute("role", "menuitem");
+        return item;
+    }
+
+    private renderPanel(): void {
+        replaceNodes(this.selector, [el("div", "skyline-menu-header", this.panelTitle), ...this.panel.map(item => item.element)]);
+    }
+
+    private openRootPanel(item: FocusItem): void {
+        this.close();
+        this.panelAnchor = item.key;
+        this.selector.setAttribute("data-menu-kind", item.key === "for_you" ? "for_you" : "library");
+        if (item.key === "for_you") {
+            this.panelTitle = "FOR YOU";
+            const personal = this.profiles.personal;
+            this.panel = personal === undefined ? [] : (["watchlist", "favorites"] as const).map(source => this.menuItem(source, PERSONAL_TITLES[source], () => { this.close(); personal(source, "for_you"); }));
+            this.panel.push(this.menuItem("recommendations", "Recommendations", () => this.commit("for_you"), "Recommended"));
+        } else {
+            const shortcut = this.libraries.find(library => item.key === `library:${library.id}`);
+            const type = item.key === "series" || shortcut?.type === "series" ? "series" : "movies";
+            this.panelTab = type;
+            this.panelLibrary = shortcut;
+            const libraries = this.forType(type);
+            const single = shortcut ?? (libraries.length === 1 ? libraries[0] : undefined);
+            this.panelTitle = single === undefined ? type === "movies" ? "MOVIE LIBRARIES" : "SERIES LIBRARIES" : single.name.toUpperCase();
+            this.panel = single === undefined ? libraries.map(library => {
+                const row = this.menuItem(`library:${library.id}`, library.name, () => this.commit({ ...library, type }), type);
+                row.element.setAttribute("role", "menuitemradio");
+                row.element.setAttribute("aria-checked", String(library.id === this.scope(type)?.id));
+                return row;
+            }) : this.modeItems(single, type);
+        }
+        this.renderPanel();
+        this.selector.hidden = false;
+        this.selector.setAttribute("aria-label", `${this.panelTitle} menu`);
+        const anchor = item.element.getBoundingClientRect();
+        this.selector.style.left = `${Math.max(88, Math.min(1372, anchor.left + anchor.width / 2 - 230))}px`;
+        this.selector.style.right = "auto";
+        this.updateChrome();
+        this.refresh();
+    }
 
     private readonly onKey = (event: KeyboardEvent): void => {
         if (!this.visible) return;
         const key = remoteKey(event);
+        const anchor = this.items.find(item => item.element === document.activeElement);
+        if (key === "down" && anchor?.element.hasAttribute("aria-haspopup")) {
+            event.preventDefault();
+            this.cancelDwell();
+            if (anchor.key === "profiles") this.openProfile();
+            else this.openRootPanel(anchor);
+            const current = this.panelTab === undefined ? undefined : this.scope(this.panelTab);
+            (this.panel.find(item => item.key === `library:${current?.id}`) ?? this.panel[0])?.element.focus({ preventScroll: true });
+            return;
+        }
+        if (this.confirmation && (key === "up" || key === "down")) { event.preventDefault(); return; }
         if (this.flyout.contains(document.activeElement) && key === "left") {
             event.preventDefault();
             this.libraryRow?.element.focus({ preventScroll: true });
@@ -420,6 +535,17 @@ export class Skyline {
             return;
         }
         const index = this.panel.findIndex((row) => row.element === document.activeElement);
+        if (index === 0 && key === "up" && !this.confirmation) {
+            event.preventDefault();
+            this.back();
+            return;
+        }
+        if (index === this.panel.length - 1 && index >= 0 && key === "down" && this.panelAnchor === "for_you") {
+            event.preventDefault();
+            this.close();
+            this.refresh();
+            return;
+        }
         if (index >= 0 && (key === "down" || key === "up")) {
             event.preventDefault();
             const row = this.panel[Math.max(0, Math.min(this.panel.length - 1, index + (key === "down" ? 1 : -1)))];
@@ -432,7 +558,7 @@ export class Skyline {
             }
             return;
         }
-        if (index >= 0 && key === "right") {
+        if (index >= 0 && key === "right" && !this.confirmation) {
             event.preventDefault();
             const row = this.panel[index];
             if (this.profileOpen || !row?.key.startsWith("library:")) return;
@@ -464,29 +590,76 @@ export class Skyline {
     }
     private cancelFade = (): void => undefined;
 
-    private openProfile(): void {
+    private openProfile(enter = false): void {
+        if (!this.visible) return;
         this.close();
         this.profileOpen = true;
-        this.panel = [actionButton("switch-profile", "Switch profile", this.profiles.switchProfile)];
+        this.panelAnchor = "profiles";
+        this.selector.setAttribute("data-menu-kind", "profile");
+        this.selector.setAttribute("aria-label", "Profile menu");
+        this.panel = [this.menuItem("switch-profile", "Switch Profile", this.profiles.switchProfile)];
         const personal = this.profiles.personal;
         if (personal !== undefined) for (const source of ["watchlist", "favorites", "history"] as const) {
-            this.panel.push(actionButton(source, PERSONAL_TITLES[source], () => { this.close(); personal(source); }));
+            this.panel.push(this.menuItem(source, PERSONAL_TITLES[source], () => { this.close(); personal(source); }));
         }
         const settings = this.profiles.settings;
-        if (settings !== undefined) this.panel.push(actionButton("settings", "Settings", () => { this.close(); settings(); }));
-        if (this.profiles.signOut !== undefined) this.panel.push(actionButton("signout", "Sign out", this.profiles.signOut));
+        if (settings !== undefined) this.panel.push(this.menuItem("settings", "Settings", () => { this.close(); settings(); }));
+        const switchServer = this.profiles.switchServer;
+        if (switchServer !== undefined) this.panel.push(this.menuItem("switch-server", "Switch Server", switchServer));
+        if (this.profiles.signOut !== undefined) {
+            const item = this.menuItem("signout", "Sign Out", () => this.confirmSignOut());
+            item.element.classList.add("skyline-destructive");
+            this.panel.push(item);
+        }
         for (const item of this.panel) item.element.setAttribute("role", "menuitem");
-        replaceNodes(this.selector, [el("h2", "skyline-profile-name", this.profiles.name), ...this.panel.map((item) => item.element)]);
+        const header = el("div", "skyline-profile-header");
+        const labels = el("div", "skyline-profile-labels");
+        labels.append(el("div", "skyline-profile-title", this.profiles.name), el("div", "skyline-profile-server", (this.profiles.serverName?.() ?? new URL(this.baseUrl).host).toUpperCase()));
+        header.append(navigationAvatar(this.profiles.name, this.avatarReference, this.baseUrl, 44), labels);
+        const divider = el("div", "skyline-menu-divider");
+        const rows: HTMLElement[] = [];
+        for (const item of this.panel) { if (item.key === "settings") rows.push(divider); rows.push(item.element); }
+        replaceNodes(this.selector, [header, ...rows]);
         this.selector.style.left = "auto";
         this.selector.style.right = "88px";
         this.selector.hidden = false;
-        this.scrim.hidden = false;
+        this.scrim.hidden = true;
+        this.updateChrome();
         this.refresh();
+        if (enter) this.panel[0]?.element.focus({ preventScroll: true });
+    }
+
+    private confirmSignOut(): void {
+        const signOut = this.profiles.signOut;
+        if (signOut === undefined) return;
+        this.close();
+        this.confirmation = true;
+        this.panelAnchor = "profiles";
+        this.selector.setAttribute("role", "alertdialog");
+        this.selector.setAttribute("aria-modal", "true");
+        this.selector.setAttribute("aria-label", "Sign Out");
+        this.selector.setAttribute("data-confirmation", "true");
+        this.scrim.setAttribute("data-confirmation", "true");
+        this.scrim.hidden = false;
+        this.panel = [actionButton("cancel-signout", "Cancel", () => this.back()), actionButton("confirm-signout", "Sign Out", () => { if (!this.visible || !this.confirmation) return; this.close(); signOut(); })];
+        this.panel[1]?.element.classList.add("skyline-destructive");
+        const header = el("div", "skyline-confirm-header");
+        header.append(el("h2", "skyline-confirm-title", "Sign Out"), el("p", "skyline-confirm-message", "Sign out of Silo on this TV?"));
+        const actions = el("div", "skyline-confirm-actions");
+        actions.append(...this.panel.map(item => item.element));
+        replaceNodes(this.selector, [header, actions]);
+        this.selector.style.left = "50%";
+        this.selector.style.right = "auto";
+        this.selector.style.top = "50%";
+        this.selector.hidden = false;
+        this.updateChrome();
+        this.refresh();
+        this.panel[0]?.element.focus({ preventScroll: true });
     }
 
     private modeItems(library: UserLibrary, type: VideoTab): FocusItem[] {
         return this.libraryModes.map(mode => {
-            const item = actionButton(`section:${mode === "Browse" ? "browse" : mode}`, mode, () => this.commit({ ...library, type }, mode));
+            const item = this.menuItem(`section:${mode === "Browse" ? "browse" : mode}`, mode, () => this.commit(this.panelAnchor === `library:${library.id}` ? library : { ...library, type }, mode), mode);
             item.element.setAttribute("role", "menuitem");
             return item;
         });

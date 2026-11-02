@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Aligned the top navigation with Apple TV: saved TV menu order, centered Search and roots, anchored menus, profile images, For You shelves, server switching and sign-out confirmation.
 - Kept loaded expanded-row cards available when a later page reported the row missing.
 - Replaced expanded Home and library row paging with a scrolling catalog that retained loaded cards and focus, followed poster-size preferences, and refreshed changed personal state.
 - Aligned Home's backdrop, row and marquee placement, poster-size preferences, artwork resolution, wordmark and control dimensions with the Apple TV source.
@@ -31,6 +32,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserved mixed-library shortcut scope, open dropdown focus during late menu updates, and unfinished Home metadata reads after visiting For You.
 - Made the Browse recovery regression verify every retained title without rejecting valid post-retry prefetch.
 - Made the Browse append-failure regression use remote scrolling so a pending focus animation could not undo its setup, and report recovery state if it failed.
 - Made the rate-limit sign-in regression await completed server replies before advancing its simulated retry deadlines.

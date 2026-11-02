@@ -3,6 +3,7 @@
 
 import { decodeServerBranding } from "../contracts/v2/branding.ts";
 import { shuffleOperations } from "./shuffleOperations.ts";
+import { recommendationOperations } from "./recommendationOperations.ts";
 import {
     decodeAuthProviders,
     decodeDeviceLoginCancel,
@@ -89,6 +90,7 @@ export type CatalogPageRequest = {
     | { readonly libraryId?: never; readonly q: string; readonly type: "video_with_episodes" });
 
 export const operations = {
+    ...recommendationOperations,
     ...shuffleOperations,
     ...subtitleOperations,
     watchDetail: (contentId: string): Spec<ReturnType<typeof decodeWatchDetail>> => ({

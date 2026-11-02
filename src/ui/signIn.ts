@@ -544,6 +544,12 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
 
     /** "Try again" and "Show a new code": a fresh code and a fresh hour of renewals (QRLoginViewModel.retry). */
     const retry = (current: Active): void => {
+        if (current.status.kind === "approved") {
+            if (!current.credentials) {
+                showCode(current);
+            }
+            return;
+        }
         current.renewed = false;
         current.windowStart = clock.now();
         current.startStreak = undefined;

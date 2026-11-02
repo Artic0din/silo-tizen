@@ -969,6 +969,35 @@ tvTest("a phone approval while the password screen is open signs in and moves on
     assert.equal(loginRequests(tv), 0);
 });
 
+for (const sessionOnly of [false, true]) {
+    for (const action of ["Back", "Use your phone instead"] as const) {
+        tvTest(`${action} after phone approval keeps the pending ${sessionOnly ? "session-only" : "persistent"} handoff`, async tv => {
+            await holdClock(tv);
+            const code = await openPassword(tv);
+            tv.fake.approve(code);
+            await tv.jump(5000);
+            await tv.eventually(async () => tv.fake.devices.get(code)?.status === "consumed", "the phone approval");
+            const starts = tv.fake.paths().filter(path => path === "POST /auth/device/start").length;
+            if (action === "Back") {
+                await tv.remote(BACK);
+            } else {
+                await tv.page.getByRole("button", { name: action, exact: true }).click();
+            }
+            await tv.page.clock.runFor(16);
+            assert.equal(tv.fake.paths().filter(path => path === "POST /auth/device/start").length, starts, "returning preserves approval instead of requesting another code");
+            assert.equal(await tv.screen(), "approved");
+            await tv.jump(983);
+            assert.equal(await handoffs(tv), 0, "the original one-second pause is retained");
+            await tv.jump(1);
+            if (sessionOnly) {
+                await tv.page.getByRole("button", { name: "Continue", exact: true }).click();
+            }
+            await tv.eventually(async () => (await handoffs(tv)) === 1, "exactly one handoff");
+            assert.equal(tv.fake.paths().filter(path => path === "POST /auth/device/start").length, starts);
+        }, { sessionOnly });
+    }
+}
+
 for (const lateReply of ["superseded", "failed"] as const) {
     tvTest(`a completed phone handoff survives a late ${lateReply} password reply`, async tv => {
         await holdClock(tv);

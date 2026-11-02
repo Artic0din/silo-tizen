@@ -24,6 +24,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserved the original handoff pause when returning to code sign-in after phone approval instead of starting another code.
 - Kept completed phone sign-ins intact when password replies arrived late, and removed saved sign-ins from the protocol and port selected in Advanced options.
 - Preserved active password fields and completed sign-in handoffs when provider discovery arrived late, and renewed expired codes after repeated unknown poll responses.
 - Made the HTTP badge visibly unlocked, calibrated the cleartext alert's measured frame and translucent surface, and aligned sign-in instruction wrapping and spacing with Apple TV.

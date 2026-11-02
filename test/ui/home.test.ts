@@ -581,6 +581,32 @@ function imageCapabilities(catalog: FakeHome, slotWidths: boolean): void {
     } };
 }
 let heldImageProbe: { release(): void };
+journey("a late artwork probe defers to Card actions and preserves watched invalidation", async (tv, catalog) => {
+    const reads = tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length;
+    await tv.down(13); await tv.jump(650); await tv.up(13);
+    const panel = tv.page.getByRole("dialog", { name: "Card actions" });
+    await panel.getByRole("button", { name: "Mark watched", exact: true }).waitFor();
+    const capability = tv.page.waitForResponse(reply => new URL(reply.url()).pathname === "/api/v2/images/capabilities");
+    heldImageProbe.release();
+    assert.equal(await (await capability).finished(), null);
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), "image probe applied during Card actions");
+    await tv.page.clock.runFor(0);
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, reads, "artwork waits for Card actions to close");
+    await panel.getByRole("button", { name: "Mark watched", exact: true }).click();
+    await panel.getByRole("button", { name: "Mark unwatched", exact: true }).waitFor();
+    catalog.removed.add("movie:m0004");
+    await tv.remote(10009);
+    await tv.eventually(async () => !(await homeTitles(tv)).includes("movie:m0004"), "watched membership refresh retained");
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, reads + 1);
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections"))[reads]?.path, "/home/sections?image_size=medium&logo_width=880&backdrop_width=1344");
+}, catalog => {
+    imageCapabilities(catalog, true);
+    const details = new FakeDetails();
+    const route = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => /^\/(watched|favorites|watchlist|capabilities\/personal-lists|catalog\/items)/.test(path)
+        ? details.route(method, path, profile, body) : route(method, path, profile, body);
+}, (_settings, tv) => { heldImageProbe = tv.fake.hold("/images/capabilities", true); });
+
 journey("a failed artwork upgrade retains usable Home without retrying", async tv => {
     const titles = await homeTitles(tv);
     const focus = await tv.focused();

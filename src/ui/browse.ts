@@ -259,7 +259,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     function upgradeHomeArtwork(): void {
         if (home.kind !== "home") return;
         const data = home.data;
-        if (torn || playing || top() !== home || loading !== undefined || data === undefined || home.failure !== undefined || homeArtworkAttempt === undefined) return;
+        if (torn || playing || cardActions.active || top() !== home || loading !== undefined || data === undefined || home.failure !== undefined || homeArtworkAttempt === undefined) return;
         const query = homeArtworkQuery(imageCapability, window.devicePixelRatio);
         if (!Object.entries(query).some(([key, value]) => homeArtworkAttempt?.[key] === undefined || Number(value) > Number(homeArtworkAttempt[key]))) return;
         load(home, signal => read(operations.listHomeSections(query), signal).catch((error: unknown) => {

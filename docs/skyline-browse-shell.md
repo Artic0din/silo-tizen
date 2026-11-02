@@ -172,6 +172,7 @@ The top bar uses the packaged 96 px wordmark, 26 px semibold labels, 56 px tab c
 The backdrop follows `TVRootHeroBackdrop`: a top-right 1228.8×756 artwork block with multiplied horizontal/vertical masks, a 190 px top scrim and sampled base/accent/shadow washes over black.
 Home immediately uses small artwork while an optional cold-start probe runs, then upgrades once through its existing load owner when the answer advertises better artwork sizing.
 The upgrade merges only artwork for retained section/card identities, preserving focus, content, hidden-library choices and in-flight metadata reads.
+It waits while Card actions is open so its artwork response cannot clear a watched-state invalidation; closing the dialog resumes the existing content reload or optional upgrade path.
 It also upgrades incomplete remembered sizing when the fresh answer adds better slots.
 A pending, failed or non-improving probe, or a failed artwork read, leaves usable Home intact without an automatic retry loop; later mounts use remembered sizing immediately.
 Canvas sampling first uses the already loaded image; a tainted canvas tries a separate anonymous CORS image without breaking the displayed image.

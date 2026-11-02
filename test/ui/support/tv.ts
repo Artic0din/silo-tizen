@@ -187,6 +187,11 @@ export async function openTv(
             await route.fulfill({ status: 200, contentType: "image/png", body: readFileSync(new URL(`../../../app/img/${url.pathname.slice(8)}`, import.meta.url)) });
             return;
         }
+        if (url.pathname.startsWith("/tv/third-party/")) {
+            // Static marks shipped from app/, as the packaged app loads them beside index.html.
+            await route.fulfill({ status: 200, contentType: "image/svg+xml", body: readFileSync(new URL(`../../../app/${url.pathname.slice("/tv/".length)}`, import.meta.url)) });
+            return;
+        }
         if (url.pathname.startsWith("/art/")) {
             await route.fulfill({ status: 200, contentType: "image/svg+xml", body: svgArt(decodeURIComponent(url.pathname.slice(5))) });
             return;
@@ -218,4 +223,17 @@ export async function openTv(
     await page.clock.install({ time: clock.now() });
     await page.goto(`${origin}/tv/index.html${options.profiles === true ? "?flow=profiles" : ""}${options.production === true ? "#production" : options.sessionOnly === true ? "#session-only" : ""}`);
     return tv;
+}
+
+/** The titles whose item detail was read, in request order. */
+export function detailReads(tv: Tv): string[] {
+    return tv.fake.requests.filter(request => request.path.startsWith("/catalog/items/")).map(request => decodeURIComponent(request.path.slice("/catalog/items/".length).split("?")[0] ?? ""));
+}
+
+/** Waits until Home has sent its detail read for every title it drew (Home reads them once as it loads). */
+export async function homeDetailsRead(tv: Tv): Promise<string[]> {
+    const titles = await tv.page.locator('[data-view="home"] [data-section] .browse-card:not(.skyline-explore)').evaluateAll(nodes => [...new Set(nodes.map(node => node.getAttribute("data-focus") ?? ""))]);
+    await tv.eventually(async () => titles.every(id => detailReads(tv).includes(id)), "Home detail reads");
+    await tv.jump(0);
+    return titles;
 }

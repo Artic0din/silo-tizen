@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -21,6 +21,7 @@ async function start(tv: Tv, multiple = false, catalog = new FakeCatalog()): Pro
     await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner"));
     await tv.page.evaluate(() => window.browseHarness.mount());
     await ready(tv, "home");
+    await homeDetailsRead(tv);
     await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
 }
 
@@ -59,7 +60,7 @@ test("the structural snapshot retains viewport and shelf scroll without per-card
         });
         assert.deepEqual(snapshot.actual, snapshot.expected);
         assert.ok(snapshot.expected.top > 0 && snapshot.expected.left > 0);
-        assert.equal(snapshot.cards, 120);
+        assert.equal(snapshot.cards, 126, "120 media cards and six Explore all cards survive the snapshot");
         assert.equal(snapshot.reads, 0);
         assert.equal(snapshot.focus, "mode:Browse", "focus is assigned in the switching task");
         held.release();

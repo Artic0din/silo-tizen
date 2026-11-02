@@ -35,7 +35,11 @@ export class SkylineScroll {
         if (row !== null) {
             const bounds = row.getBoundingClientRect();
             const card = element.getBoundingClientRect();
-            const delta = card.left < bounds.left + 12 ? card.left - bounds.left - 12 : card.right > bounds.right - 12 ? card.right - bounds.right + 12 : 0;
+            // Rows padded for a focus lift keep the lifted card inside that padding.
+            const style = getComputedStyle(row);
+            const left = Math.max(12, parseFloat(style.paddingLeft));
+            const right = Math.max(12, parseFloat(style.getPropertyValue("--reveal-end")) || parseFloat(style.paddingRight));
+            const delta = card.left < bounds.left + left ? card.left - bounds.left - left : card.right > bounds.right - right ? card.right - bounds.right + right : 0;
             this.move(row, Math.max(0, row.scrollLeft + delta), 0);
         }
         const rect = element.getBoundingClientRect();

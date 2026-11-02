@@ -22,10 +22,12 @@ import { Synopsis } from "./browseDetails.ts";
 import type { ConnectedServer } from "../session/core.ts";
 import type { PublicStorage } from "../session/deviceIdentity.ts";
 import { Skyline } from "./skyline.ts";
+import { decodeImageCapabilities, type ImageCapabilities, homeArtworkQuery } from "../contracts/v2/images.ts";
 import { FocusHost, type FocusTarget } from "./browseFocus.ts";
 import { type Destination, type PlayRequest, playChoices, visibleLibraries } from "./browseModel.ts";
 import { failureText, hasData, newPages, newRoute, PAGE_SIZE, type Pages, type Route, routeView } from "./browseRoutes.ts";
-import type { ViewContext } from "./browseViews.ts";
+import { homeRows, type ViewContext } from "./browseViews.ts";
+import { HomeEnrichment } from "./homeEnrichment.ts";
 import { el } from "./screen.ts";
 import { discoveryState, genreGroups, libraryScope, readDiscovery, type LibraryMode } from "./libraryDiscovery.ts";
 import { availableModes } from "./libraryDiscoveryViews.ts";
@@ -33,6 +35,8 @@ import { personalListCapability, readPersonalPage, type PersonalFilter } from ".
 import type { MediaScope } from "../contracts/v2/discovery.ts";
 import { personQuery } from "./personFilmography.ts";
 import { mountSettings, type SettingsScreen } from "./settings.ts";
+import type { CardOverlayPrefs } from "./cardOverlays.ts";
+import { PresentationSettings } from "./presentationSettings.ts";
 import { getCalendar } from "../api/calendarOperations.ts";
 import { calendarEventKeys, calendarState, calendarWeek, CalendarTimezoneError, deviceTimezone, localDateKey, shiftDay } from "./calendarState.ts";
 import type { CalendarHandlers } from "./calendarView.ts";
@@ -72,7 +76,30 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const container = el("div", "browse");
     root.appendChild(container);
     const host = new FocusHost(container);
-    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, open: (destination) => open(destination), preview: (card, row) => shell.preview(card, row), resume: (id, title) => {
+    // Title art and poster badges: Home renders at once and redraws as each answer lands.
+    const presentation = new PresentationSettings(session, () => {
+        if (torn) return;
+        if (shownTitleArt !== presentation.showsTitleArt) { shownTitleArt = presentation.showsTitleArt; shell.repaint(); }
+        const resized = shownScale !== presentation.posterScale;
+        if (resized) { shownScale = presentation.posterScale; applyCardSize(); }
+        if (!playing && top()?.kind === "home" && (resized || shownOverlays !== presentation.cardOverlays)) {
+            shownOverlays = presentation.cardOverlays;
+            render(host.focused());
+            if (resized) host.revealFocused();
+        }
+    }, options.publicStorage, `silo.titleArt:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`);
+    let shownTitleArt = presentation.showsTitleArt;
+    let shownScale = presentation.posterScale;
+    const applyCardSize = (): void => {
+        const scale = presentation.posterScale;
+        container.style.setProperty("--poster-scale", String(scale));
+        container.style.setProperty("--row-lift", String((264 * scale + 38) / (264 * scale)));
+        // Apple's Compact still measures 199px focused: ~22px native lift plus EpisodeThumbCard's 1.025.
+        container.style.setProperty("--still-lift", String((200 * scale + 22) / (200 * scale) * 1.025));
+    };
+    applyCardSize();
+    let shownOverlays: CardOverlayPrefs | undefined = presentation.cardOverlays;
+    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, cardOverlays: () => presentation.cardOverlays, posterScale: () => presentation.posterScale, savedFileOverlay: card => homeDetails.savedFile(card)?.overlay, open: (destination) => open(destination), preview: (card, row, continuing) => shell.preview(card, row, continuing), resume: (id, title) => {
         if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title }));
     }, quickActions: card => {
         const current = top();
@@ -152,6 +179,20 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             render(focus?.key === "requests" && !capability.enabled ? { zone: "nav", key: "home" } : focus);
         } catch { /* A transient probe failure keeps the last confirmed capability. */ }
     };
+    // Artwork sizing (Apple ImageSizeCapability): one probe per Browse. The last answer for this
+    // server is remembered so Home does not wait for it; a failed probe leaves per-slot widths off.
+    const imageKey = `silo.imageCapability:${server.server.serverId}`;
+    let imageCapability: ImageCapabilities | undefined;
+    try { imageCapability = rememberedImages(options.publicStorage?.getItem(imageKey)); }
+    catch { /* Missing optional cache data leaves the capability probe in charge. */ }
+    let imageProbe: Promise<ImageCapabilities | undefined> | undefined;
+    const probeImages = (): Promise<ImageCapabilities | undefined> => imageProbe ??= session.call({ ...operations.imageCapabilities(), profileScoped: true, signal: requestsController.signal }).then(found => {
+        imageCapability = found;
+        try { options.publicStorage?.setItem(imageKey, JSON.stringify({ state: found.state, param: found.param, sizes: found.sizes, slot_width_params: found.slotWidthParams })); }
+        catch { /* Cache persistence cannot turn a successful capability probe into a failure. */ }
+        return found;
+    }, () => undefined);
+    void probeImages();
     const requestsVisibility = (): void => { if (!document.hidden) void probeRequests(); };
     document.addEventListener("visibilitychange", requestsVisibility);
 
@@ -160,6 +201,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             return;
         }
         torn = true;
+        presentation.stop();
+        homeDetails.stop();
         requestsController.abort();
         document.removeEventListener("visibilitychange", requestsVisibility);
         cardActions.destroy();
@@ -252,6 +295,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     const read = <T>(spec: RequestSpec<T>, signal: AbortSignal): Promise<T> => session.call({ ...spec, profileScoped: true, signal });
+    // Detail fields Home shows but its rows lack, read once per Home load and never on focus.
+    const homeDetails = new HomeEnrichment(read, id => { if (!torn) shell.refreshDetails(id); }, () => {
+        // Continue Watching cards redraw once with saved-file badges, keeping focus where it is.
+        if (!torn && !playing && top()?.kind === "home" && presentation.cardOverlays !== undefined) render(host.focused());
+    });
 
     const invalidateCalendar = (): void => {
         const calendar = roots.get("calendar");
@@ -399,6 +447,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 loadPage(current, current.pages, current.pendingIndex ?? current.pages.index, quiet);
                 return;
             case "home":
+                presentation.ensure();
                 load(current, (signal) => Promise.all([
                     read(operations.listUserLibraries(), signal),
                     // The hidden list is the profile's own preference, not an access limit: when it
@@ -409,11 +458,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                         }
                         throw error;
                     }),
-                    read(operations.listHomeSections(), signal),
+                    (imageCapability === undefined ? probeImages() : Promise.resolve(imageCapability))
+                        .then(found => read(operations.listHomeSections(homeArtworkQuery(found, window.devicePixelRatio)), signal)),
                 ]), ([libraries, hidden, sections]) => {
                     const focus = host.focused();
                     current.data = { libraries: visibleLibraries(libraries, hidden), sections };
                     shell.update(current.data.libraries);
+                    homeDetails.load(homeRows(sections).flatMap(row => row.cards.map(card => ({ card, continuing: row.continuing }))));
                     // Changed tabs replace the nav nodes, including the still-present avatar.
                     return focus?.zone === "nav" ? focus : undefined;
                 }, quiet);
@@ -982,6 +1033,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 settingsScreen = undefined;
                 if (torn) return;
                 container.hidden = false;
+                presentation.reload();
                 if (hiddenChanged) {
                     const calendar = stack.find(entry => entry.kind === "calendar");
                     home.stale = true;
@@ -1003,6 +1055,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         switchProfile: chooseProfile,
         ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
     }, () => render(), options.publicStorage, `silo.skyline.scope:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`, context.baseUrl);
+    shell.titleArt = () => presentation.showsTitleArt;
+    // Only Home read these; a library landing would otherwise show them for some titles and not others.
+    shell.details = (card, continuing) => top()?.kind !== "home" ? { line: undefined, badges: undefined } : { line: homeDetails.detailLine(card.id), badges: continuing ? homeDetails.savedFile(card)?.badges : undefined };
+    shell.filled = card => top()?.kind === "home" ? homeDetails.filled(card) : card;
     shell.update([]);
     void probeRequests();
     stack = [home];
@@ -1031,4 +1087,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         },
         destroy: teardown,
     };
+}
+
+function rememberedImages(raw: string | null | undefined): ImageCapabilities | undefined {
+    if (raw === null || raw === undefined) return undefined;
+    try { return decodeImageCapabilities(JSON.parse(raw)); } catch { return undefined; }
 }

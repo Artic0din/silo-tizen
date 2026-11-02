@@ -1,4 +1,4 @@
-import { decodeEffectiveSettings, decodeExplicitSettings, decodeSettingValue, decodeSettingsCapabilities, decodeSettingsContract, decodeStoredSetting, type SettingsIdentity, type SettingsScope, type SettingsKey, type SettingValue } from "../contracts/v2/settings.ts";
+import { decodeEffectiveSettings, decodeOverlayConfig, decodeExplicitSettings, decodeSettingValue, decodeSettingsCapabilities, decodeSettingsContract, decodeStoredSetting, type SettingsIdentity, type SettingsScope, type SettingsKey, type SettingValue } from "../contracts/v2/settings.ts";
 import type { RequestSpec } from "./http.ts";
 
 function keysQuery(keys: readonly SettingsKey[]): string {
@@ -10,5 +10,6 @@ export const settingsOperations = {
     settingsValues: (keys: readonly SettingsKey[], scope: SettingsScope = "profile", identity?: SettingsIdentity): RequestSpec<ReturnType<typeof decodeExplicitSettings>> => ({ method: "GET", path: `/settings/values?scope=${scope}&${keysQuery(keys)}`, retry: "safe", decode: body => decodeExplicitSettings(keys, body, scope, identity) }),
     effectiveSettings: (keys: readonly SettingsKey[], identity?: SettingsIdentity): RequestSpec<ReturnType<typeof decodeEffectiveSettings>> => ({ method: "GET", path: `/settings/values/effective?${keysQuery(keys)}`, retry: "safe", decode: body => decodeEffectiveSettings(keys, body, identity) }),
     putSetting: (key: SettingsKey, value: SettingValue, scope: SettingsScope = "profile", identity?: SettingsIdentity, previousRevision = 0): RequestSpec<ReturnType<typeof decodeStoredSetting>> => ({ method: "PUT", path: `/settings/values/${key}?scope=${scope}`, retry: "never", body: { value: decodeSettingValue(key, value) }, decode: body => decodeStoredSetting(key, body, scope, identity, previousRevision) }),
+    overlayConfig: (): RequestSpec<ReturnType<typeof decodeOverlayConfig>> => ({ method: "GET", path: "/settings/overlay-config", retry: "safe", decode: decodeOverlayConfig }),
     deleteSetting: (key: SettingsKey, scope: SettingsScope = "profile"): RequestSpec<undefined> => ({ method: "DELETE", path: `/settings/values/${key}?scope=${scope}`, retry: "never", decode: () => undefined }),
 };

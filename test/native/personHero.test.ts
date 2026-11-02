@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { spawnSync } from "node:child_process";
 import { decodePerson } from "../../src/contracts/v2/details.ts";
 import { personAge, personInitials, personMetadataBadges } from "../../src/ui/personHero.ts";
 import { decodeThumbhash } from "../../src/ui/thumbhash.ts";
@@ -7,6 +8,16 @@ import { WireError } from "../../src/contracts/v2/wire.ts";
 
 const OPAQUE = "1QcSHQRnh493V4dIh4eXh1h4kJUI";
 const ALPHA = "X5qGNQw7oElslqhGWfSE+Q6oJ1h2iHB2Rw==";
+
+test("person and aired dates follow the device region without shifting the calendar day", () => {
+    const module = new URL("../../src/ui/personHero.ts", import.meta.url).href;
+    const script = `import { formatPersonDate } from ${JSON.stringify(module)}; process.stdout.write(formatPersonDate("2024-11-26"));`;
+    for (const [region, expected] of [["en_AU.UTF-8", "26 Nov 2024"], ["en_US.UTF-8", "Nov 26, 2024"]] as const) {
+        const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script], { env: { ...process.env, LANG: region, LC_ALL: region, TZ: "Pacific/Honolulu" }, encoding: "utf8" });
+        assert.equal(result.status, 0, result.stderr);
+        assert.equal(result.stdout, expected, region);
+    }
+});
 
 test("person photo_thumbhash is consumed and strict", () => {
     assert.equal(decodePerson({ id: "7", name: "River Vale", photo_thumbhash: OPAQUE }).photoThumbhash, OPAQUE);

@@ -1,20 +1,35 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
+import { createServer } from "node:http";
+import { once } from "node:events";
+import { build } from "esbuild";
 import { FakeHome } from "../native/support/fakeHome.ts";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { FakeSettings } from "../native/support/fakeSettings.ts";
+import { type SettingsKey, TITLE_ART_KEY } from "../../src/contracts/v2/settings.ts";
+
+const CARD_OVERLAYS_KEY = "ui.card_overlays" as SettingsKey;
+const CARD_OVERLAYS_ENABLED_KEY = "ui.card_overlays_enabled" as SettingsKey;
+const CARD_PRESENTATION_KEY = "ui.card_presentation" as SettingsKey;
+import { detailReads, homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
 
-function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void>): void {
+/** Every distinct title Home drew. */
+const homeTitles = (tv: Tv): Promise<string[]> => tv.page.locator('[data-view="home"] [data-section] .browse-card:not(.skyline-explore)').evaluateAll(nodes => [...new Set(nodes.map(node => node.getAttribute("data-focus") ?? ""))]);
+const detailsRead = homeDetailsRead;
+
+function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void>, setup?: (catalog: FakeHome) => void, settings?: (settings: FakeSettings, tv: Tv) => void, options: { readonly whileReading?: boolean } = {}): void {
     test(name, async () => {
         const tv = await openTv(browser, { app: "browse" });
         const catalog = new FakeHome();
+        setup?.(catalog);
         tv.fake.catalog = catalog;
+        if (settings !== undefined) settings(new FakeSettings(tv.fake), tv);
         try {
             await tv.page.emulateMedia({ reducedMotion: "reduce" });
             await tv.page.evaluate(() => window.browseHarness.connect());
@@ -25,22 +40,465 @@ function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void
             await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner"));
             await tv.page.evaluate(() => window.browseHarness.mount());
             await tv.page.locator('[data-view="home"] [data-section]').first().waitFor();
+            // Home reads detail for its titles as it loads; journeys start once those reads are out.
+            if (options.whileReading !== true) await detailsRead(tv);
             await body(tv, catalog);
             assert.deepEqual(tv.console, []);
         } finally { await tv.page.context().close(); }
     });
 }
 
-journey("Home folds existing recommendations after Continue, ignores featured and preserves additive rows", async tv => {
-    assert.deepEqual(await tv.page.locator('[data-section]').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-section"))), ["resume/opaque", "because/opaque", "for/you", "recent/12", "future/opaque"]);
-    assert.equal(await tv.focused(), "movie:m0001");
-    assert.equal(await tv.page.locator('.skyline-marquee h1').innerText(), "Movie 0001");
+journey("Home keeps the server's row order and shows featured rows as ordinary rows", async tv => {
+    assert.deepEqual(await tv.page.locator('[data-section]').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-section"))), ["hero/opaque", "recent/12", "because/opaque", "resume/opaque", "future/opaque", "for/you"]);
+    assert.equal(await tv.page.locator('[data-section="hero/opaque"] .browse-section-title').innerText(), "Featured");
+    assert.equal(await tv.page.locator('[data-section="hero/opaque"] [data-focus="expand:hero/opaque"]').count(), 1);
+    assert.equal(await tv.focused(), "movie:m0004");
+    assert.equal(await tv.page.locator('.skyline-marquee h1').innerText(), "Movie 0004");
+    const titles = await homeTitles(tv);
+    assert.deepEqual(detailReads(tv).sort(), titles.sort(), "one detail read per distinct Home title, and none for anything else");
     const count = tv.fake.requests.length;
     await tv.page.keyboard.press("ArrowRight");
     await tv.page.keyboard.press("ArrowDown");
     assert.equal(tv.fake.requests.length, count, "no focus reads");
     assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/recommendations")).length, 0, "no duplicate recommendations feed");
 });
+
+journey("Home uses the Apple row band and marquee frame without changing library geometry", async tv => {
+    const frames = await tv.page.evaluate(() => {
+        const frame = (selector: string): number[] => {
+            const rect = document.querySelector(selector)?.getBoundingClientRect();
+            if (rect === undefined) throw new Error(`Missing ${selector}`);
+            return [rect.x, rect.y, rect.width, rect.height];
+        };
+        return { rows: frame(".skyline-content"), marquee: frame(".skyline-marquee"), title: frame(".home-section .browse-section-title") };
+    });
+    assert.deepEqual(frames.rows, [0, 596, 1920, 484]);
+    assert.deepEqual(frames.marquee, [88, 256, 880, 280]);
+    assert.equal(frames.title[0], 80);
+});
+
+journey("Home caps each shelf at Apple's 20 media cards", async tv => {
+    assert.equal(await tv.page.locator('[data-section="recent/12"] .browse-card:not(.skyline-explore)').count(), 20);
+});
+
+journey("Home's trailing Explore all card is remote reachable and restores its row after Back", async tv => {
+    const tile = tv.page.locator('[data-focus="expand:recent/12"]');
+    assert.equal(await tile.getAttribute("aria-label"), "Explore all, Recently Added in Movies");
+    await tv.page.keyboard.press("ArrowDown");
+    assert.equal(await tv.focused(), "movie:m0001");
+    for (let move = 0; move < 20; move++) await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), "expand:recent/12");
+    const right = await tile.locator(".browse-art").evaluate(node => node.getBoundingClientRect().right);
+    assert.ok(right <= 1920, "the last tile remains inside the viewport");
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-view="homeSection:recent/12"] .browse-card').first().waitFor();
+    await tv.remote(10009);
+    assert.equal(await tv.focused(), "expand:recent/12");
+});
+
+journey("Home chrome uses the shared Swift wordmark and control dimensions", async tv => {
+    assert.equal(await tv.page.locator(".skyline-wordmark").evaluate(node => node.tagName), "IMG");
+    assert.equal(await tv.page.locator(".skyline-wordmark").evaluate(node => node.getBoundingClientRect().width), 96);
+    const tab = await tv.page.locator('.skyline-tabs [data-focus="home"]').evaluate(node => {
+        const style = getComputedStyle(node);
+        return [style.fontSize, style.fontWeight, node.getBoundingClientRect().height];
+    });
+    assert.deepEqual(tab, ["26px", "600", 56]);
+    assert.equal(await tv.page.locator(".skyline-profile").evaluate(node => node.getBoundingClientRect().width), 58);
+});
+
+journey("Home keeps the packaged font and source weights under a simulator's global stylesheet", async tv => {
+    await tv.page.addStyleTag({ content: "* { font-family: SamsungOne; font-weight: 600; }" });
+    const subtitle = await tv.page.locator('.home-section [data-focus="movie:m0001"] .browse-card-subtitle').first().evaluate(node => {
+        const style = getComputedStyle(node);
+        return [style.fontFamily, style.fontWeight];
+    });
+    assert.match(subtitle[0] ?? "", /Inter/);
+    assert.equal(subtitle[1], "400");
+    assert.equal(await tv.page.locator(".home-section .browse-card:focus .browse-card-subtitle").evaluate(node => getComputedStyle(node).fontWeight), "500");
+});
+
+journey("Home fills omitted marquee rating and runtime from detail but preserves row values", async tv => {
+    const meta = tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) .skyline-meta-line");
+    await tv.eventually(async () => (await meta.innerText()).includes("1h 54m"), "detail runtime");
+    assert.equal(await meta.locator(".skyline-chip").innerText(), "R");
+    const reads = tv.fake.requests.length;
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.jump(300);
+    assert.equal(await meta.locator(".skyline-chip").innerText(), "PG");
+    assert.match(await meta.innerText(), /1h 39m/);
+    assert.equal(tv.fake.requests.length, reads, "enrichment only looks up the Home-load cache on focus");
+}, catalog => {
+    const featured = catalog.households.get("p-owner")?.sections.find(row => row.id === "hero/opaque");
+    assert.ok(featured);
+    featured.items.push("movie:m0005");
+    enrichHome(catalog, { "movie:m0004": { runtime: undefined, duration_seconds: undefined, content_rating: undefined }, "movie:m0005": { runtime: 99, content_rating: "PG" } });
+    enrichDetails(catalog, { "movie:m0004": { runtime: 114, content_rating: "R" }, "movie:m0005": { runtime: 114, content_rating: "R" } });
+});
+
+for (const [cors, thumbhash] of [[true, undefined], [false, undefined], [false, "1QcSHQRnh493V4dIh4eXh1h4kJUI"]] as const) test(`Home backdrop displays cross-origin artwork when palette sampling CORS is ${cors ? "allowed" : "refused"}${thumbhash === undefined ? "" : " with ThumbHash"}`, async () => {
+    let samplingRequests = 0;
+    const server = createServer((request, response) => {
+        if (request.headers.origin !== undefined) samplingRequests++;
+        response.writeHead(200, { "Content-Type": "image/svg+xml", ...(cors ? { "Access-Control-Allow-Origin": "*" } : {}) });
+        response.end('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="red"/></svg>');
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    assert.ok(address !== null && typeof address !== "string");
+    const url = `http://127.0.0.1:${address.port}/home.svg`;
+    const pageServer = createServer((_request, response) => {
+        response.writeHead(200, { "Content-Type": "text/html" });
+        response.end("<html><body></body></html>");
+    });
+    pageServer.listen(0, "127.0.0.1");
+    await once(pageServer, "listening");
+    const pageAddress = pageServer.address();
+    assert.ok(pageAddress !== null && typeof pageAddress !== "string");
+    const page = await browser.newPage();
+    const failedRequests: string[] = [];
+    page.on("requestfailed", request => failedRequests.push(request.failure()?.errorText ?? "unknown network failure"));
+    page.on("console", message => { if (message.type() === "error") failedRequests.push(message.text()); });
+    try {
+        await page.goto(`http://127.0.0.1:${pageAddress.port}/tv`);
+        const fixture = await build({ entryPoints: [new URL("../../src/ui/heroBackdrop.ts", import.meta.url).pathname], bundle: true, format: "iife", globalName: "HomeBackdropFixture", target: "chrome108", write: false });
+        await page.addScriptTag({ content: fixture.outputFiles[0]?.text ?? "" });
+        const sampling = cors
+            ? page.waitForResponse(response => response.url() === url && response.request().headers().origin !== undefined)
+            : page.waitForEvent("requestfailed", request => request.url() === url && request.headers().origin !== undefined);
+        await page.evaluate(({ url, thumbhash }) => {
+            const fixture = Reflect.get(window, "HomeBackdropFixture") as typeof import("../../src/ui/heroBackdrop.ts");
+            document.body.appendChild(fixture.heroBackdrop(url, thumbhash, new Map()));
+        }, { url, thumbhash });
+        await Promise.all([sampling, page.waitForFunction(() => document.querySelector<HTMLImageElement>(".skyline-backdrop")?.naturalWidth === 64, undefined, { timeout: 5000 })]).catch((error: unknown) => { throw new Error(`Artwork fixture failed (${failedRequests.join(", ")}); server samples ${samplingRequests}: ${String(error)}`); });
+        if (cors) await page.waitForFunction(() => document.querySelector<HTMLElement>(".skyline-tint-wash")?.style.background.includes("255, 0, 0") === true);
+        else {
+            const background = await page.locator(".skyline-tint-wash").evaluate(node => (node as HTMLElement).style.background);
+            if (thumbhash === undefined) assert.equal(background, "rgb(0, 0, 0)");
+            else assert.match(background, /linear-gradient/);
+        }
+        assert.ok(samplingRequests > 0, "an anonymous CORS request samples the image independently of display");
+    } finally {
+        await page.context().close();
+        server.closeAllConnections();
+        pageServer.closeAllConnections();
+        await Promise.all([server, pageServer].map(server => new Promise<void>((resolve, reject) => server.close(error => error === undefined ? resolve() : reject(error)))));
+    }
+});
+
+/** Adds contract members (`CatalogItem` at the pinned SOURCE) the synthetic Home cards lack. */
+function enrichHome(catalog: FakeHome, extra: Record<string, Record<string, unknown>>): void {
+    const route = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const reply = route(method, path, profile, body);
+        if (!path.startsWith("/home/sections") || reply?.status !== 200) return reply;
+        const response = reply.body as { sections: { items: Record<string, unknown>[] }[] };
+        return { ...reply, body: { ...response, sections: response.sections.map(row => ({ ...row, items: row.items.map(item => ({ ...item, ...extra[String(item.content_id)] })) })) } };
+    };
+}
+
+/** Adds item-detail members (`CatalogItemDetail` at the pinned SOURCE) to the synthetic detail answers. */
+function enrichDetails(catalog: FakeHome, extra: Record<string, Record<string, unknown>>): void {
+    const route = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const reply = route(method, path, profile, body);
+        const id = /^\/catalog\/items\/([^?]+)/.exec(path)?.[1];
+        const fields = id === undefined ? undefined : extra[decodeURIComponent(id)];
+        return fields === undefined || reply?.status !== 200 ? reply : { ...reply, body: { ...(reply.body as Record<string, unknown>), ...fields } };
+    };
+}
+
+const savedFile = (resolution: string, extra: Record<string, unknown>) => ({ file_id: "chosen", resolution, codec_video: "hevc", codec_audio: "eac3", hdr: false, container: "mkv", file_size: 1, duration: 1200, bitrate: 1, added_at: "2026-01-01T00:00:00Z", ...extra });
+const detailFields = {
+    // Continue Watching: the episode's last-played file is a Dolby Vision 4K encode with 5.1 EAC3.
+    "episode:s1e12": { versions: [savedFile("1080p", { file_id: "43" }), savedFile("2160p", { hdr: true, video_tracks: [{ dolby_vision: "dvhe.08.06", dv_config_present: true, dv_bl_compat_id_present: true, interlaced: false }], audio_tracks: [{ codec: "eac3", channels: 6, layout: "5.1(side)", default: true }] })] },
+    // The movie's last file is gone, so its row summary stays.
+    "movie:m0001": { user_data: { played: false, last_file_id: "deleted", position_seconds: 321.5 } },
+    "movie:m0005": { air_date: "2026-03-12", cast: [{ name: "Anna Torv", character: "Tess", order: 2 }, { name: "Pedro Pascal", character: "Joel", order: 0 }, { name: "Gabriel Luna", character: "Tommy", order: 3 }, { name: "Bella Ramsey", character: "Ellie", order: 1 }] },
+};
+
+const heroFields = {
+    "episode:s1e12": { content_rating: "tv-14", runtime: 22, duration_seconds: 1320, position_seconds: 480, overlay_summary: { resolution: "1080P", audio: "aac stereo" }, series_backdrop_url: "/art/series%3As1.svg", backdrop_url: "/art/still.svg" },
+    "movie:m0001": { content_rating: "R", runtime: 170, overlay_summary: { resolution: "2160p", hdr: "Dolby Vision", audio: "TrueHD Atmos" } },
+    "movie:m0005": { user_state: { played: true, is_favorite: false, in_watchlist: false, not_interested: false } },
+};
+
+journey("Home marquee headlines episodes with their series and shows rating, meta and file chips without an eyebrow", async tv => {
+    const requests = tv.fake.requests.length;
+    await tv.page.locator('[data-section="resume/opaque"] [data-focus="episode:s1e12"]').focus();
+    await tv.jump(300);
+    const layer = tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing)");
+    assert.equal(await layer.locator("h1").innerText(), "Harbor Lights");
+    assert.equal(await layer.locator(".skyline-eyebrow").count(), 0, "no visible eyebrow");
+    assert.equal(await layer.locator(".skyline-row-name").textContent(), "Continue Watching", "row name stays for screen readers");
+    assert.deepEqual(await layer.locator(".skyline-meta-line > *").allTextContents(), ["TV-14", "S1 E2 · Harbor Lights chapter 1.2 · 22m · 14m left"]);
+    assert.deepEqual(await layer.locator(".skyline-badges > *").allInnerTexts(), ["4K", "DOLBY VISION", "EAC3 5.1"], "the file this viewer last played, not the best file");
+    assert.equal(await layer.locator(".skyline-detail-line").textContent(), "Al Pacino", "the pinned detail fixture's billed cast, no air date");
+    assert.match(await layer.locator(".skyline-backdrop").getAttribute("src") ?? "", /\/art\/series%3As1\.svg$/, "episodes use the series backdrop, not the still");
+    await tv.page.locator('[data-section="resume/opaque"] [data-focus="movie:m0001"]').focus();
+    await tv.jump(300);
+    assert.equal(await layer.locator("h1").innerText(), "Movie 0001");
+    assert.deepEqual(await layer.locator(".skyline-meta-line > *").allTextContents(), ["R", "1991 · Crime · 2h 50m"]);
+    assert.deepEqual(await layer.locator(".skyline-badges > *").allInnerTexts(), ["4K", "DOLBY VISION", "ATMOS"]);
+    await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0005"]').focus();
+    await tv.jump(300);
+    assert.deepEqual(await layer.locator(".skyline-meta-line > *").allTextContents(), ["1995 · Crime · 1h 30m"]);
+    assert.equal(await layer.locator(".skyline-detail-line").textContent(), "Aired Mar 12, 2026 · Pedro Pascal, Bella Ramsey, Anna Torv");
+    assert.equal(await layer.locator(".skyline-badges > *").count(), 0);
+    assert.equal(tv.fake.requests.length, requests, "the marquee reads only answers Home already holds");
+}, catalog => { enrichHome(catalog, heroFields); enrichDetails(catalog, detailFields); });
+
+journey("Home refreshes the same title's marquee progress after playback", async (tv, catalog) => {
+    const id = "episode:s1e12";
+    const item = tv.page.locator(`[data-section="resume/opaque"] [data-focus="${id}"]`);
+    await item.focus();
+    await tv.jump(300);
+    const meta = tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) .skyline-meta");
+    assert.match(await meta.innerText(), /14m left/);
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "player handoff");
+    enrichHome(catalog, { [id]: { position_seconds: 900, progress_updated_at: "after-playback" } });
+    await tv.page.evaluate(() => window.browseHarness.resume());
+    await tv.jump(300);
+    await tv.eventually(async () => /7m left/.test(await meta.innerText()), "refreshed marquee progress");
+    assert.equal(await tv.focused(), id);
+}, catalog => { enrichHome(catalog, heroFields); enrichDetails(catalog, detailFields); });
+
+for (const failure of ["read", "write"] as const) {
+    journey(`Home still loads when its optional image cache cannot ${failure}`, async tv => {
+        await tv.page.evaluate(mode => {
+            window.browseHarness.destroy();
+            window.browseHarness.failPublicStorage(mode === "read", mode === "write");
+            window.browseHarness.mount();
+        }, failure);
+        await tv.page.locator('[data-view="home"] [data-section]').first().waitFor();
+        assert.equal(await tv.page.locator('[data-view="home"] .browse-card').count() > 0, true);
+    }, catalog => imageCapabilities(catalog, true));
+}
+
+journey("Home cards caption episodes by series, mark watched titles and label Continue Watching", async tv => {
+    const caption = (id: string) => tv.page.locator(`[data-section="resume/opaque"] [data-focus="${id}"] :is(.browse-card-title, .browse-card-subtitle)`).allInnerTexts();
+    assert.deepEqual(await caption("episode:s1e12"), ["Harbor Lights", "S01E02 · Harbor Lights chapter 1.2"]);
+    assert.deepEqual(await caption("movie:m0001"), ["Movie 0001", "1991"]);
+    const watched = tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0005"]');
+    assert.equal(await watched.locator(".browse-watched").count(), 1);
+    assert.match(await watched.getAttribute("aria-label") ?? await watched.innerText(), /Watched/);
+    assert.equal(await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0006"] .browse-watched').count(), 0);
+    assert.equal(await tv.page.locator('[data-section="resume/opaque"] .browse-section-title .home-row-glyph').count(), 1);
+    assert.equal(await tv.page.locator('[data-section="recent/12"] .browse-section-title .home-row-glyph').count(), 0);
+    assert.equal(await tv.page.locator('[data-section="resume/opaque"] .browse-section-title').innerText(), "Continue Watching");
+}, catalog => enrichHome(catalog, heroFields));
+
+journey("Home lifts the focused poster and Continue Watching still without clipping either", async tv => {
+    await tv.page.emulateMedia({ reducedMotion: "no-preference" });
+    for (const id of ['[data-section="resume/opaque"] [data-focus="movie:m0001"]', '[data-section="recent/12"] [data-focus="movie:m0004"]']) {
+        await tv.page.locator(id).focus();
+        await tv.jump(400);
+        await tv.page.evaluate(() => { for (const animation of document.getAnimations()) animation.finish(); });
+        const box = await tv.page.locator(id).evaluate(card => {
+            const art = card.querySelector(".browse-art");
+            if (!(art instanceof HTMLElement)) throw new Error("art missing");
+            const lifted = art.getBoundingClientRect();
+            const clips = [card.closest(".browse-row"), card.closest(".skyline-content")].map(node => node?.getBoundingClientRect());
+            const caption = card.querySelector(".browse-card-title")?.getBoundingClientRect();
+            return { grew: lifted.width > art.offsetWidth, inside: clips.every(clip => clip !== undefined && lifted.left >= clip.left - 0.5 && lifted.right <= clip.right + 0.5 && lifted.top >= clip.top - 0.5), captionBelow: caption !== undefined && caption.top >= lifted.bottom };
+        });
+        assert.deepEqual(box, { grew: true, inside: true, captionBelow: true }, id);
+    }
+}, catalog => enrichHome(catalog, heroFields));
+
+const badgeFields = {
+    ...heroFields,
+    "movie:m0006": { logo_url: "/art/m0006-logo.svg", rating_imdb: 8.46, rating_tmdb: 6.1, show_status: "returning series", overlay_summary: { resolution: "2160p", hdr: "HDR10", audio: "TrueHD Atmos", release_type: "WEB-DL" } },
+    "movie:m0007": { rating_tmdb: 7.04 },
+    "episode:s1e12": { ...heroFields["episode:s1e12"], rating_imdb: 9.1 },
+};
+const POSTER = '[data-section="future/opaque"] [data-focus="movie:m0006"]';
+const corners = (tv: Tv, card: string) => tv.page.locator(card).evaluate(node => Object.fromEntries([...node.querySelectorAll(".card-overlay-stack")].map(stack => [
+    [...stack.classList].find(name => name.startsWith("card-overlay-") && name !== "card-overlay-stack")?.slice("card-overlay-".length), [...stack.children].map(badge => badge.textContent)])));
+const baseline = JSON.stringify({ version: 2, preset: "classic", order: [], items: { resolution: { enabled: false, position: "top-left" }, hdr: { enabled: false, position: "top-left" }, audio: { enabled: false, position: "top-left" }, release_type: { enabled: false, position: "bottom-left" }, rating_imdb: { enabled: true, position: "top-right" } } });
+const REGISTRY_DEFAULTS = { "top-left": ["4K", "HDR10", "TrueHD Atmos"], "bottom-left": ["WEB-DL"] };
+
+for (const [name, configure, expected] of [
+    ["the registry defaults when neither the profile nor the administrator chose", () => undefined, REGISTRY_DEFAULTS],
+    ["the administrator's baseline when the profile has no document", (settings: FakeSettings) => { settings.overlayConfig = { enabled: true, defaults: baseline }; }, { "top-right": ["IMDb 8.5"] }],
+    ["the profile's document over the administrator's baseline", (settings: FakeSettings) => {
+        settings.overlayConfig = { enabled: true, defaults: baseline };
+        settings.profile().set(CARD_OVERLAYS_KEY, { version: 2, preset: "square", order: ["show_status", "rating_tmdb"], items: { resolution: { enabled: false, position: "top-left" }, hdr: { enabled: false, position: "top-left" }, audio: { enabled: false, position: "top-left" }, release_type: { enabled: false, position: "bottom-left" }, rating_tmdb: { enabled: true, position: "bottom-right" }, show_status: { enabled: true, position: "bottom-right", accentColor: "#00ff00" } } });
+    }, { "bottom-right": ["Returning", "TMDB 6.1"] }],
+    ["no badges when the administrator turned them off and the profile has not chosen", (settings: FakeSettings) => { settings.overlayConfig = { enabled: false }; }, {}],
+    ["the profile's on over the administrator's off", (settings: FakeSettings) => { settings.overlayConfig = { enabled: false }; settings.profile().set(CARD_OVERLAYS_ENABLED_KEY, true); }, REGISTRY_DEFAULTS],
+    ["no badges when the profile turned them off", (settings: FakeSettings) => { settings.profile().set(CARD_OVERLAYS_ENABLED_KEY, false); }, {}],
+    ["the registry defaults when the server-wide default cannot be read (nothing known to be off)", (settings: FakeSettings) => { settings.overlayConfig = undefined; }, REGISTRY_DEFAULTS],
+    ["no badges when the profile turned them off and the server-wide default cannot be read", (settings: FakeSettings) => { settings.overlayConfig = undefined; settings.profile().set(CARD_OVERLAYS_ENABLED_KEY, false); }, {}],
+] as const) {
+    journey(`Home poster badges use ${name}`, async tv => {
+        await tv.eventually(async () => tv.fake.requests.some(request => request.path.startsWith("/settings/overlay-config")), "badge settings read");
+        await tv.jump(300);
+        assert.deepEqual(await corners(tv, POSTER), expected);
+        assert.equal(await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0004"] .browse-art').count(), 1, "Home stays usable");
+        const requests = tv.fake.requests.length;
+        await tv.page.locator(POSTER).focus();
+        await tv.page.keyboard.press("ArrowLeft");
+        await tv.jump(300);
+        assert.equal(tv.fake.requests.length, requests, "focus moves read nothing");
+    }, catalog => enrichHome(catalog, badgeFields), configure);
+}
+
+journey("Home poster badges scale from Apple's 185pt poster and Continue Watching badges sit above the progress bar", async tv => {
+    await tv.eventually(async () => await tv.page.locator(`${POSTER} .card-overlay`).count() > 0, "badges");
+    const sizes = await tv.page.locator(`${POSTER} .card-overlay`).first().evaluate(node => { const style = getComputedStyle(node); return [style.fontSize, style.paddingTop, style.paddingLeft]; });
+    assert.deepEqual(sizes, ["9.51px", "2.85px", "7.61px"], "classic preset at 176 / 185");
+    const wide = tv.page.locator('[data-section="resume/opaque"] [data-focus="episode:s1e12"]');
+    await tv.eventually(async () => JSON.stringify(await corners(tv, '[data-section="resume/opaque"] [data-focus="episode:s1e12"]')) === JSON.stringify({ "top-left": ["4K", "DV", "EAC3"] }), "saved-file badges");
+    assert.deepEqual(await corners(tv, '[data-section="resume/opaque"] [data-focus="movie:m0001"]'), { "top-left": ["4K", "Dolby Vision", "TrueHD Atmos"] }, "an unknown last file keeps the summary");
+    assert.equal(await wide.locator(".card-overlays + .skyline-progress").count(), 1, "the progress bar draws over the badges");
+}, catalog => { enrichHome(catalog, badgeFields); enrichDetails(catalog, detailFields); }, () => undefined);
+
+for (const [size, scale] of [["compact", 0.86], ["standard", 1], ["large", 1.2]] as const) journey(`Home ${size} artwork and poster badges follow the profile's TV size`, async tv => {
+    const sizes = await tv.page.locator(`${POSTER} .browse-art`).evaluate(node => {
+        const badge = node.querySelector<HTMLElement>(".card-overlay");
+        return { width: (node as HTMLElement).offsetWidth, height: (node as HTMLElement).offsetHeight, badgeFont: parseFloat(badge?.style.fontSize ?? "0") };
+    });
+    assert.ok(Math.abs(sizes.width - 176 * scale) < 1);
+    assert.ok(Math.abs(sizes.height - 264 * scale) < 1);
+    assert.ok(Math.abs(sizes.badgeFont - Math.round(10 * 176 * scale / 185 * 100) / 100) < 0.01);
+    const still = tv.page.locator('[data-section="resume/opaque"] .browse-art').first();
+    assert.ok(Math.abs(await still.evaluate(node => (node as HTMLElement).offsetWidth) - 360 * scale) < 1);
+}, catalog => enrichHome(catalog, badgeFields), settings => settings.profile().set(CARD_PRESENTATION_KEY, { poster_size: size, caption: "title_metadata" }));
+
+let posterAnswer: { release(): void };
+journey("Compact Continue Watching focus matches Apple's measured 199px still height", async tv => {
+    await tv.page.emulateMedia({ reducedMotion: "no-preference" });
+    const still = tv.page.locator('[data-section="resume/opaque"] [data-focus="episode:s1e12"]');
+    await still.focus();
+    await tv.jump(500);
+    await tv.page.evaluate(() => { for (const animation of document.getAnimations()) animation.finish(); });
+    const frame = await still.locator(".browse-art").boundingBox();
+    assert.ok(frame !== null);
+    assert.ok(Math.abs(frame.height - 199) < 1, `focused still height ${frame.height}`);
+}, undefined, settings => settings.profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" }));
+
+journey("a late Home poster-size answer resizes existing focus without fetching on navigation", async tv => {
+    await tv.page.keyboard.press("ArrowRight");
+    const focus = await tv.focused();
+    posterAnswer.release();
+    await tv.eventually(() => tv.page.locator(".browse").evaluate(node => node.style.getPropertyValue("--poster-scale") === "0.86"), "compact size applied");
+    assert.equal(await tv.focused(), focus);
+    const requests = tv.fake.requests.length;
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(tv.fake.requests.length, requests);
+}, undefined, (settings, tv) => {
+    settings.profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" });
+    posterAnswer = tv.fake.hold("/settings/values/effective?keys=ui.card_presentation", true);
+});
+
+let largerPosterAnswer: { release(): void };
+journey("late larger Home posters reveal the same focused card at the row edge", async tv => {
+    await tv.page.keyboard.press("ArrowDown");
+    for (let move = 0; move < 7; move++) await tv.page.keyboard.press("ArrowRight");
+    const focus = await tv.focused();
+    const reads = tv.fake.requests.length;
+    largerPosterAnswer.release();
+    await tv.eventually(() => tv.page.locator(".browse").evaluate(node => node.style.getPropertyValue("--poster-scale") === "1.2"), "large size applied");
+    await tv.jump(500);
+    assert.equal(await tv.focused(), focus);
+    const bounds = await tv.page.locator('[data-section="recent/12"] :focus .browse-art').evaluate(node => {
+        const art = node.getBoundingClientRect();
+        const row = node.closest(".browse-row")?.getBoundingClientRect();
+        if (row === undefined) throw new Error("missing focused row");
+        return { left: art.left, right: art.right, rowLeft: row.left, rowRight: row.right };
+    });
+    assert.ok(bounds.left >= bounds.rowLeft && bounds.right <= bounds.rowRight, JSON.stringify(bounds));
+    assert.equal(tv.fake.requests.length, reads, "resizing and revealing focus sends no requests");
+}, undefined, (settings, tv) => {
+    settings.profile().set(CARD_PRESENTATION_KEY, { poster_size: "large", caption: "title_metadata" });
+    largerPosterAnswer = tv.fake.hold("/settings/values/effective?keys=ui.card_presentation", true);
+});
+
+journey("Home marquee scores titles with IMDb, else TMDB, and never episodes", async tv => {
+    const layer = tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing)");
+    const meta = async () => layer.locator(".skyline-meta").evaluate(node => [...node.children].map(child => child.getAttribute("aria-label") ?? child.textContent));
+    await tv.page.locator(POSTER).focus();
+    await tv.jump(300);
+    assert.deepEqual(await meta(), ["1996 · Crime · 1h 30m", " · ", "IMDb 8.5"]);
+    assert.deepEqual(await layer.locator(".skyline-rating > *").allTextContents(), ["IMDb", "8.5"]);
+    await tv.page.locator('[data-section="for/you"] [data-focus="movie:m0007"]').focus();
+    await tv.jump(300);
+    assert.deepEqual(await meta(), ["1997 · Crime · 1h 30m", " · ", "TMDB 7.0"]);
+    const mark = layer.locator(".skyline-rating img.skyline-rating-logo");
+    assert.match(await mark.getAttribute("src") ?? "", /^third-party\/tmdb-logo\.svg$/, "TMDB's approved logo replaces its text mark");
+    await tv.eventually(async () => await mark.evaluate(image => (image as HTMLImageElement).naturalWidth > 0), "TMDB logo decoded");
+    assert.equal(await layer.locator(".skyline-rating-mark").count(), 0);
+    await tv.page.locator('[data-section="resume/opaque"] [data-focus="episode:s1e12"]').focus();
+    await tv.jump(300);
+    assert.deepEqual(await meta(), ["S1 E2 · Harbor Lights chapter 1.2 · 22m", " · ", "14m left"]);
+}, catalog => enrichHome(catalog, badgeFields));
+
+for (const mode of ["on", "off", "pending", "failed"] as const) {
+    let hold: { release(): void } | undefined;
+    journey(`Home marquee title art ${mode}`, async tv => {
+        let logos = 0;
+        tv.page.on("request", request => { if (new URL(request.url()).pathname === "/art/m0006-logo.svg") logos++; });
+        try {
+            await tv.page.locator(POSTER).focus();
+            await tv.jump(300);
+            const title = tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) h1");
+            if (mode !== "off") {
+                // Apple shows logos unless the last confirmed answer is off: pending and failed reads included.
+                await title.locator("img.skyline-logo").waitFor({ timeout: 3000 });
+                assert.equal(await title.locator("img").getAttribute("alt"), "Movie 0006");
+                assert.equal(logos, 1);
+                if (mode === "pending") assert.equal(tv.fake.requests.filter(request => request.path === "/settings/values/effective?keys=ui.title_art").length, 1, "the logo shows while the one title-art read is still held");
+                return;
+            }
+            await tv.jump(300);
+            assert.equal(await title.textContent(), "Movie 0006");
+            assert.equal(logos, 0, "no logo is requested once the profile's off is known");
+        } finally { hold?.release(); }
+    }, catalog => enrichHome(catalog, badgeFields), (settings, tv) => {
+        if (mode === "off") settings.profile().set(TITLE_ART_KEY as SettingsKey, false);
+        if (mode === "pending") hold = tv.fake.hold("/settings/values/effective?keys=ui.title_art", true);
+        if (mode === "failed") tv.fake.script("/settings/values/effective?keys=ui.title_art", problem(500, "internal", "Unavailable"));
+    });
+}
+
+journey("Home poster badges show the registry defaults while their reads are pending, then the administrator's off", async tv => {
+    assert.deepEqual(await corners(tv, POSTER), REGISTRY_DEFAULTS, "Apple draws its defaults until the reads answer");
+    heldBadges?.release();
+    await tv.eventually(async () => JSON.stringify(await corners(tv, POSTER)) === "{}", "administrator off");
+}, catalog => enrichHome(catalog, badgeFields), (settings, tv) => { settings.overlayConfig = { enabled: false }; heldBadges = tv.fake.hold("/settings/overlay-config", true); });
+let heldBadges: { release(): void } | undefined;
+
+journey("Home detail reads go out once while Home loads, and focus moves start none", async tv => {
+    // Focus roams while the reads are still going out.
+    for (const key of ["ArrowRight", "ArrowRight", "ArrowDown", "ArrowRight", "ArrowDown", "ArrowLeft"]) { await tv.page.keyboard.press(key); await tv.jump(200); }
+    const titles = await detailsRead(tv);
+    assert.deepEqual(detailReads(tv).sort(), titles.sort(), "each Home title is read exactly once; focus added nothing");
+    const count = tv.fake.requests.length;
+    for (const key of ["ArrowRight", "ArrowRight", "ArrowUp", "ArrowDown", "ArrowDown", "ArrowLeft"]) { await tv.page.keyboard.press(key); await tv.jump(200); }
+    assert.equal(tv.fake.requests.length, count, "after the reads settle, focus sends nothing");
+}, undefined, undefined, { whileReading: true });
+
+function imageCapabilities(catalog: FakeHome, slotWidths: boolean): void {
+    const route = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => path !== "/images/capabilities" ? route(method, path, profile, body) : { status: 200, body: {
+        revision: "r1", state: "available", allowed: true, param: "image_size", sizes: ["small", "medium", "large", "original"], widths: {}, original_max_width_px: 3840,
+        episode_still_provenance: true, episode_parent_artwork: true, extended_item_artwork: true, season_list_artwork_param: "include_artwork", storage_backend: "local", delivery: "server",
+        ...(slotWidths ? { slot_width_params: { poster: "poster_width", backdrop: "backdrop_width", logo: "logo_width", still: "still_width", photo: "photo_width" } } : {}),
+    } };
+}
+for (const [server, setup, expected] of [
+    ["takes per-slot widths", (catalog: FakeHome) => imageCapabilities(catalog, true), "/home/sections?image_size=medium&logo_width=880&backdrop_width=1344"],
+    ["takes one size only", (catalog: FakeHome) => imageCapabilities(catalog, false), "/home/sections?image_size=medium"],
+    ["has no image capability", () => undefined, "/home/sections?image_size=small"],
+] as const) {
+    journey(`Home asks for title logos at the marquee's width only when the server ${server}`, async tv => {
+        assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path), [expected]);
+        assert.equal(tv.fake.requests.filter(request => request.path === "/images/capabilities").length, 1, "one probe per Home session");
+    }, setup);
+}
 
 journey("card quick-actions abandon a pending Home turn and refresh the committed page with nearby focus", async (tv, catalog) => {
     const details = new FakeDetails();
@@ -181,6 +639,7 @@ for (const [id, activation, position] of [["movie:m0001", "Enter", 321.5], ["epi
 for (const mode of ["missing", "restricted", "unreadable", "mismatch"] as const) {
     journey(`Continue ${mode} leaves Retry and Back without playback`, async (tv, catalog) => {
         catalog.detailMode = mode;
+        await tv.page.locator('[data-section="resume/opaque"] [data-focus="movie:m0001"]').focus();
         await tv.page.keyboard.press("Enter");
         await tv.page.getByRole("alert").waitFor();
         assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0);
@@ -194,6 +653,7 @@ for (const mode of ["missing", "restricted", "unreadable", "mismatch"] as const)
 for (const cancel of ["Back", "profile", "logout"] as const) {
     journey(`Continue ${cancel} cancels an already processed late answer`, async tv => {
         const held = tv.fake.hold("/catalog/items/movie%3Am0001", true);
+        await tv.page.locator('[data-section="resume/opaque"] [data-focus="movie:m0001"]').focus();
         await tv.page.keyboard.press("Enter");
         await tv.eventually(async () => tv.fake.requests.some(request => request.path.split("?")[0] === "/catalog/items/movie%3Am0001"), "resolution");
         if (cancel === "Back") await tv.remote(10009);
@@ -209,6 +669,7 @@ for (const cancel of ["Back", "profile", "logout"] as const) {
 
 journey("Continue network failure never sends playback and Retry resolves only on activation", async tv => {
     tv.offline = true;
+    await tv.page.locator('[data-section="resume/opaque"] [data-focus="movie:m0001"]').focus();
     await tv.page.keyboard.press("Enter");
     await tv.jump(1000);
     await tv.page.getByRole("alert").waitFor();
@@ -228,7 +689,7 @@ journey("expanded Continue keeps episode cards and resumes while ordinary rows s
     await tv.page.locator('[data-view="homeSection:resume/opaque"] .browse-card').first().waitFor();
     assert.equal(await tv.focused(), "episode:s1e12");
     await tv.remote(10009);
-    await tv.page.locator('[data-section="because/opaque"] .browse-card').click();
+    await tv.page.locator('[data-section="because/opaque"] [data-focus="movie:m0005"]').click();
     await tv.page.locator('[data-view="item:movie:m0005"]').waitFor();
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 1);
 });

@@ -25,6 +25,8 @@ async function setup() {
     await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner"));
     await tv.page.evaluate(() => window.browseHarness.mount());
     await tv.page.locator('[data-view="home"]').waitFor();
+    // Home reads title art and poster badges when it loads; let those settle before scripting settings replies.
+    await tv.eventually(async () => ["keys=ui.title_art", "keys=ui.card_overlays"].every(key => tv.fake.requests.some(request => request.path.startsWith("/settings/values/effective?") && request.path.includes(key))), "Home settings reads");
     return { tv, catalog, settings };
 }
 async function details(tv: Tv, _catalog: FakeDetails): Promise<void> {

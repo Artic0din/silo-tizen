@@ -30,12 +30,12 @@ function parsePersonDate(value: string | undefined): CalendarDate | undefined {
     return { year, month, day };
 }
 
-function formatPersonDate(value: string | undefined): string | undefined {
+export function formatPersonDate(value: string | undefined): string | undefined {
     const trimmed = value?.trim();
     if (trimmed === undefined || trimmed === "") return undefined;
     const parsed = parsePersonDate(trimmed);
     if (parsed === undefined) return trimmed;
-    return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(parsed.year, parsed.month - 1, parsed.day, 12));
+    return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(parsed.year, parsed.month - 1, parsed.day, 12));
 }
 
 /** Whole years from `birthValue` to `today`'s local date, or absent when that is not a living age. */

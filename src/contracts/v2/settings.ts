@@ -11,9 +11,14 @@ export const SEEK_FORWARD_KEY = "player.video_skip_forward_seconds";
 export const SEEK_KEYS = [SEEK_BACK_KEY, SEEK_FORWARD_KEY] as const;
 const SEEK_SECONDS = [5, 10, 15, 30, 45, 60, 90];
 export const AUTO_NEXT_KEY = "playback.auto_play_next";
+/** Read-only here: the profile's poster-badge document (`card-overlays.json`) and its on/off choice. */
+export const CARD_OVERLAYS_KEY = "ui.card_overlays";
+export const CARD_OVERLAYS_ENABLED_KEY = "ui.card_overlays_enabled";
+export const CARD_PRESENTATION_KEY = "ui.card_presentation";
 export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY, QUALITY_KEY, BITRATE_KEY, ...SEEK_KEYS, TITLE_ART_KEY] as const;
-export type SettingsKey = (typeof SETTINGS_KEYS)[number] | typeof AUTO_NEXT_KEY;
-export type SettingValue = null | boolean | string | number | readonly number[];
+export type SettingsKey = (typeof SETTINGS_KEYS)[number] | typeof AUTO_NEXT_KEY | typeof CARD_OVERLAYS_KEY | typeof CARD_OVERLAYS_ENABLED_KEY | typeof CARD_PRESENTATION_KEY;
+type Json = null | boolean | string | number | readonly Json[] | { readonly [member: string]: Json | undefined };
+export type SettingValue = null | boolean | string | number | readonly number[] | { readonly [member: string]: Json | undefined };
 export type SettingsScope = "profile" | "profile_device";
 export interface SettingsIdentity { readonly profileId: string; readonly deviceId: string; readonly manifestRevision?: number }
 export interface SettingsCapabilities {
@@ -24,6 +29,8 @@ export interface SettingsCapabilities {
     readonly allowed: boolean;
     readonly scopes: readonly string[];
     readonly supportsBatchedEffective: boolean;
+    readonly supportsAtomicShortcuts: boolean;
+    readonly clientFamilies: readonly string[];
 }
 export interface SettingDefinition {
     readonly key: SettingsKey;
@@ -68,6 +75,8 @@ export function decodeSettingsCapabilities(value: unknown): SettingsCapabilities
         allowed: boolean(obj, "allowed", "settings_capabilities"),
         scopes: strings(obj.scopes, "settings_capabilities.scopes"),
         supportsBatchedEffective: obj.supports_batched_effective === undefined ? false : boolean(obj, "supports_batched_effective", "settings_capabilities"),
+        supportsAtomicShortcuts: obj.supports_atomic_shortcuts === undefined ? false : boolean(obj, "supports_atomic_shortcuts", "settings_capabilities"),
+        clientFamilies: obj.client_families === undefined ? [] : strings(obj.client_families, "settings_capabilities.client_families"),
     };
 }
 
@@ -150,6 +159,21 @@ export function numericLibraryId(id: string): number {
 }
 
 export function decodeSettingValue(key: SettingsKey, value: unknown): SettingValue {
+    if (key === CARD_PRESENTATION_KEY) {
+        const document = object(value, "card_presentation.value");
+        if (!["compact", "standard", "large"].includes(string(document, "poster_size", "card_presentation.value"))) throw new WireError("card_presentation.value.poster_size", "a supported size");
+        return document as { readonly [member: string]: Json };
+    }
+    if (key === CARD_OVERLAYS_KEY) {
+        // The document's members are interpreted (and unknown ones dropped) by the badge registry.
+        if (value === null) return null;
+        // Decoded from a JSON response body, so every member is JSON.
+        return object(value, "card_overlays.value") as { readonly [member: string]: Json };
+    }
+    if (key === CARD_OVERLAYS_ENABLED_KEY) {
+        if (value !== null && typeof value !== "boolean") throw new WireError("card_overlays_enabled.value", "a JSON boolean or null");
+        return value;
+    }
     if (key === AUTO_NEXT_KEY) {
         if (typeof value !== "boolean") throw new WireError("auto_play_next.value", "a JSON boolean");
         return value;
@@ -261,4 +285,18 @@ export function decodeEffectiveSettings(keys: readonly SettingsKey[], value: unk
         }
         return [key, result];
     }));
+}
+
+/** `GET /settings/overlay-config`: the server-wide badge default and the administrator's baseline document. */
+export interface OverlayConfig {
+    readonly enabled: boolean;
+    /** A JSON document string; absent when the administrator set none. */
+    readonly defaults: string | undefined;
+}
+
+export function decodeOverlayConfig(value: unknown): OverlayConfig {
+    const obj = object(value, "overlay_config");
+    const defaults = obj.defaults;
+    if (defaults !== undefined && typeof defaults !== "string") throw new WireError("overlay_config.defaults", "a string");
+    return { enabled: boolean(obj, "enabled", "overlay_config"), defaults };
 }

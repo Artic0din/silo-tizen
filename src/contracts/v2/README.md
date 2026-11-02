@@ -34,7 +34,7 @@ Server day groups, event order, release metadata and all returned events are ret
 | `listCatalogItemVersions` | read (`profile_scoped`) | One transport retry; read once per play for each version's `audio_tracks`; a failure only disables audio choices |
 | `startPlayback`, `replanPlayback`, `stopPlayback` | `domain_identity` | The player resends only the identical body (same `playback_attempt_id`, `replan_request_id` or `stop_id`) after no answer or a transient failure |
 | `updatePlaybackProgress` | `domain_identity` | Never resent; the next sample has a higher `sequence` |
-| `listUserLibraries`, `listEffectiveSettings` (hidden libraries and playback defaults), `listHomeSections`, `listCatalogItems`, `getCatalogItem`, `listSeriesSeasons`, `listSeasonEpisodes` | read (`profile_scoped`) | One transport retry; sent with the active profile's headers |
+| `listUserLibraries`, `listEffectiveSettings` (hidden libraries and playback defaults), `getImageCapabilities`, `listHomeSections`, `listCatalogItems`, `getCatalogItem`, `listSeriesSeasons`, `listSeasonEpisodes` | read (`profile_scoped`) | One transport retry; sent with the active profile's headers |
 | `settingsCapabilities`, `settingsContract` | read | One transport retry; discover the Settings manifest and supported profile controls |
 | `settingsValues`, `effectiveSettings` | read (`profile_scoped`) | One transport retry; read explicit profile rows separately from effective settings; title art also reads this profile-device row |
 | `putSetting`, `deleteSetting` | `non_retryable` (`profile_scoped`) | Never resent automatically; profile scope by default (including explicit null for nullable keys); title art uses its selected profile/device scope and confirms both scopes and effective readback |

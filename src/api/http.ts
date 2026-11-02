@@ -43,6 +43,7 @@ export interface RequestSpec<T> {
     readonly profile?: ProfileHeaders | undefined;
     readonly signal?: AbortSignal | undefined;
     readonly timeoutMs?: number;
+    readonly clientFamily?: "tv";
 }
 
 export const DEFAULT_TIMEOUT_MS = 15000;
@@ -168,6 +169,7 @@ export class NativeHttp {
             "X-Silo-Device-Name": this.device.name,
             "X-Silo-Device-Platform": this.device.platform,
         };
+        if (spec.clientFamily !== undefined) headers["X-Silo-Client-Family"] = spec.clientFamily;
         if (spec.body !== undefined) {
             headers["Content-Type"] = "application/json";
         }

@@ -7,7 +7,7 @@ import type { Card, ItemDetail } from "../contracts/v2/catalog.ts";
 import { playChoices, resumeSeconds, type PlayRequest } from "./browseModel.ts";
 import type { Clock } from "../api/clock.ts";
 import type { NativeSession } from "../session/session.ts";
-import { TITLE_ART_KEY, profileSettings } from "../contracts/v2/settings.ts";
+import { readSettingsCapability, readTitleArt } from "./presentationSettings.ts";
 import { RatingState } from "./ratingState.ts";
 
 export interface PersonalChange {
@@ -95,28 +95,11 @@ export class DetailsState {
         this.titleArtPolicy = "pending";
         this.changed();
         const run = async (): Promise<void> => {
-            let capability;
-            try { capability = await this.read(operations.settingsCapabilities(), controller); }
-            catch (error) {
-                if (error instanceof ApiError && (error.status === 404 || error.status === 501)) {
-                    if (this.current(controller)) this.titleArtPolicy = "compatibility";
-                    return;
-                }
-                throw error;
-            }
-            if (!this.current(controller)) return;
-            if (capability.apiVersion !== 1 || capability.state !== "available" || !capability.allowed) throw new Error("Title-art settings unavailable");
-            if (capability.manifestRevision < 16) { this.titleArtPolicy = "compatibility"; return; }
-            const contract = await this.read(operations.settingsContract(), controller);
-            if (!this.current(controller)) return;
-            if (contract.revision < capability.manifestRevision || !profileSettings(contract, capability).some(def => def.key === TITLE_ART_KEY)) throw new Error("Incompatible title-art definition");
-            const profile = this.session.activeProfile;
-            if (profile === undefined) return;
-            const effective = await this.read(operations.effectiveSettings([TITLE_ART_KEY], { profileId: profile.id, deviceId: this.session.http.deviceId, manifestRevision: contract.revision }), controller);
-            if (!this.current(controller)) return;
-            const value = effective.get(TITLE_ART_KEY)?.value;
-            if (typeof value !== "boolean") throw new Error("Missing title-art boolean");
-            this.titleArt = value;
+            const read = <T>(spec: RequestSpec<T>): Promise<T> => this.read(spec, controller);
+            const answer = await readTitleArt(read, this.session, await readSettingsCapability(read));
+            if (!this.current(controller) || answer === undefined) return;
+            if (answer === "compatibility") { this.titleArtPolicy = "compatibility"; return; }
+            this.titleArt = answer;
             this.titleArtPolicy = "supported";
         };
         run().then(() => { if (this.current(controller)) this.changed(); }, () => {

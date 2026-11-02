@@ -113,10 +113,33 @@ export type CardType = (typeof CARD_TYPES)[number] | "unknown";
 
 export interface Card {
     readonly backdropUrl?: string | undefined;
+    readonly backdropThumbhash?: string | undefined;
     readonly overview?: string | undefined;
     readonly runtimeMinutes?: number | undefined;
     readonly durationSeconds?: number | undefined;
     readonly positionSeconds?: number | undefined;
+    /** When the viewer's progress last changed; a new value may mean a newly chosen file. */
+    readonly progressUpdatedAt?: string | undefined;
+    /** On an episode card: the series backdrop, never the episode still. */
+    readonly seriesBackdropUrl?: string | undefined;
+    readonly contentRating?: string | undefined;
+    readonly genres?: readonly string[] | undefined;
+    /** Technical badges of the best file (`overlay_summary`). */
+    readonly overlay?: CardOverlay | undefined;
+    /** `user_state.played`; absent without a profile. */
+    readonly played?: boolean | undefined;
+    /** Title logo art (`logo_url`); shown only where the profile's title-art setting allows. */
+    readonly logoUrl?: string | undefined;
+    /** Fields the card overlay badges and the marquee rating read. */
+    readonly ratingImdb?: number | undefined;
+    readonly ratingTmdb?: number | undefined;
+    readonly ratingRtCritic?: number | undefined;
+    readonly ratingRtAudience?: number | undefined;
+    readonly advisoryAge?: number | undefined;
+    readonly originalLanguage?: string | undefined;
+    readonly studios?: readonly string[] | undefined;
+    readonly networks?: readonly string[] | undefined;
+    readonly showStatus?: string | undefined;
     readonly id: string;
     readonly type: CardType;
     readonly title: string;
@@ -129,14 +152,60 @@ export interface Card {
     readonly episodeNumber: number | undefined;
 }
 
+export interface CardOverlay {
+    readonly resolution: string | undefined;
+    readonly hdr: string | undefined;
+    readonly audio: string | undefined;
+    readonly audioChannels?: string | undefined;
+    readonly videoCodec?: string | undefined;
+    readonly container?: string | undefined;
+    readonly aspectRatio?: string | undefined;
+    readonly releaseType?: string | undefined;
+    readonly edition?: string | undefined;
+    readonly multiAudio?: boolean | undefined;
+    readonly multiSub?: boolean | undefined;
+}
+
+function optionalBoolean(obj: WireObject, key: string, path: string): boolean | undefined {
+    return obj[key] === undefined ? undefined : boolean(obj, key, path);
+}
+
+function decodeCardOverlay(value: unknown, path: string): CardOverlay | undefined {
+    if (value === undefined) return undefined;
+    const obj = object(value, path);
+    const text = (key: string): string | undefined => optionalString(obj, key, path);
+    return {
+        resolution: text("resolution"), hdr: text("hdr"), audio: text("audio"), audioChannels: text("audio_channels"), videoCodec: text("video_codec"),
+        container: text("container"), aspectRatio: text("aspect_ratio"), releaseType: text("release_type"), edition: text("edition"),
+        multiAudio: optionalBoolean(obj, "multi_audio", path), multiSub: optionalBoolean(obj, "multi_sub", path),
+    };
+}
+
 function decodeCard(value: unknown, path: string): Card {
     const obj = object(value, path);
     return {
+        seriesBackdropUrl: optionalString(obj, "series_backdrop_url", path),
+        contentRating: optionalString(obj, "content_rating", path),
+        genres: obj.genres === undefined ? undefined : stringArray(obj, "genres", path),
+        overlay: decodeCardOverlay(obj.overlay_summary, `${path}.overlay_summary`),
+        played: obj.user_state === undefined ? undefined : boolean(object(obj.user_state, `${path}.user_state`), "played", `${path}.user_state`),
+        logoUrl: optionalString(obj, "logo_url", path),
+        ratingImdb: optionalNumber(obj, "rating_imdb", path),
+        ratingTmdb: optionalNumber(obj, "rating_tmdb", path),
+        ratingRtCritic: optionalInteger(obj, "rating_rt_critic", path),
+        ratingRtAudience: optionalInteger(obj, "rating_rt_audience", path),
+        advisoryAge: optionalInteger(obj, "advisory_age", path),
+        originalLanguage: optionalString(obj, "original_language", path),
+        studios: obj.studios === undefined ? undefined : stringArray(obj, "studios", path),
+        networks: obj.networks === undefined ? undefined : stringArray(obj, "networks", path),
+        showStatus: optionalString(obj, "show_status", path),
         backdropUrl: optionalString(obj, "backdrop_url", path),
+        backdropThumbhash: optionalString(obj, "backdrop_thumbhash", path),
         overview: optionalString(obj, "overview", path),
         runtimeMinutes: optionalInteger(obj, "runtime", path),
         durationSeconds: optionalNumber(obj, "duration_seconds", path),
         positionSeconds: optionalNumber(obj, "position_seconds", path),
+        progressUpdatedAt: optionalString(obj, "progress_updated_at", path),
         id: string(obj, "content_id", path),
         type: oneOf(string(obj, "type", path), CARD_TYPES),
         title: string(obj, "title", path),
@@ -397,6 +466,92 @@ export function decodeWatchDetail(value: unknown): WatchDetail {
                 throw new WireError(versionPath, "a nonnegative duration and a complete ordered episode range");
             }
             return { fileId: nonEmptyString(version, "file_id", versionPath), durationSeconds: duration, multiEpisodeStart: start, multiEpisodeEnd: end };
+        }),
+    };
+}
+
+// --- The parts of item detail (CatalogItemDetail) the Home marquee and Continue Watching cards add ---
+
+export interface MarqueeAudioTrack {
+    /** Absent on the v2 wire today; Apple matches it first, then the position. */
+    readonly index: number | undefined;
+    readonly codec: string | undefined;
+    readonly channels: number | undefined;
+    readonly layout: string | undefined;
+    readonly isDefault: boolean | undefined;
+}
+
+export interface MarqueeFile {
+    readonly fileId: string;
+    readonly resolution: string | undefined;
+    readonly hdr: boolean | undefined;
+    readonly codecVideo: string | undefined;
+    readonly codecAudio: string | undefined;
+    readonly container: string | undefined;
+    readonly effectiveAudioTrackIndex: number | undefined;
+    readonly audioTracks: readonly MarqueeAudioTrack[];
+    readonly videoTracks: readonly { readonly dolbyVision: string | undefined; readonly videoRange: string | undefined }[];
+    readonly subtitleTrackCount: number;
+}
+
+export interface MarqueeDetail {
+    readonly id: string;
+    readonly contentRating?: string | undefined;
+    readonly runtimeMinutes?: number | undefined;
+    /** Calendar date, `YYYY-MM-DD`. */
+    readonly airDate: string | undefined;
+    readonly cast: readonly { readonly name: string; readonly order: number | undefined }[];
+    /** `user_data.last_file_id`: the file this viewer last played. */
+    readonly lastFileId: string | undefined;
+    readonly versions: readonly MarqueeFile[];
+}
+
+function optionalBooleanField(obj: WireObject, key: string, path: string): boolean | undefined {
+    return obj[key] === undefined ? undefined : boolean(obj, key, path);
+}
+
+function optionalList(obj: WireObject, key: string, path: string): unknown[] {
+    return obj[key] === undefined ? [] : array(obj, key, path);
+}
+
+export function decodeMarqueeDetail(value: unknown): MarqueeDetail {
+    const path = "item_detail";
+    const obj = object(value, path);
+    const userData = obj.user_data === undefined ? undefined : object(obj.user_data, `${path}.user_data`);
+    return {
+        id: string(obj, "content_id", path),
+        contentRating: optionalString(obj, "content_rating", path),
+        runtimeMinutes: optionalInteger(obj, "runtime", path),
+        airDate: optionalString(obj, "air_date", path),
+        cast: optionalList(obj, "cast", path).map((entry, index) => {
+            const castPath = `${path}.cast[${index}]`;
+            const credit = object(entry, castPath);
+            return { name: string(credit, "name", castPath), order: optionalInteger(credit, "order", castPath) };
+        }),
+        lastFileId: userData === undefined ? undefined : optionalString(userData, "last_file_id", `${path}.user_data`),
+        versions: optionalList(obj, "versions", path).map((entry, index) => {
+            const filePath = `${path}.versions[${index}]`;
+            const file = object(entry, filePath);
+            return {
+                fileId: string(file, "file_id", filePath),
+                resolution: optionalString(file, "resolution", filePath),
+                hdr: optionalBooleanField(file, "hdr", filePath),
+                codecVideo: optionalString(file, "codec_video", filePath),
+                codecAudio: optionalString(file, "codec_audio", filePath),
+                container: optionalString(file, "container", filePath),
+                effectiveAudioTrackIndex: optionalInteger(file, "effective_audio_track_index", filePath),
+                audioTracks: optionalList(file, "audio_tracks", filePath).map((track, trackIndex) => {
+                    const trackPath = `${filePath}.audio_tracks[${trackIndex}]`;
+                    const audio = object(track, trackPath);
+                    return { index: optionalInteger(audio, "index", trackPath), codec: optionalString(audio, "codec", trackPath), channels: optionalInteger(audio, "channels", trackPath), layout: optionalString(audio, "layout", trackPath), isDefault: optionalBooleanField(audio, "default", trackPath) };
+                }),
+                videoTracks: optionalList(file, "video_tracks", filePath).map((track, trackIndex) => {
+                    const trackPath = `${filePath}.video_tracks[${trackIndex}]`;
+                    const video = object(track, trackPath);
+                    return { dolbyVision: optionalString(video, "dolby_vision", trackPath), videoRange: optionalString(video, "video_range", trackPath) };
+                }),
+                subtitleTrackCount: optionalList(file, "subtitle_tracks", filePath).length,
+            };
         }),
     };
 }

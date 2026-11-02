@@ -45,14 +45,34 @@ test("Calendar root opens a weekly catalog journey by remote", async () => {
 async function activate(tv: Tv, key: string): Promise<void> {
     await tv.page.locator(".browse").locator("[data-focus]").evaluateAll((nodes, key) => {
         const node = nodes.find(node => node.getAttribute("data-focus") === key);
-        if (!(node instanceof HTMLElement)) throw new Error(`Missing target ${key}`);
+        if (!(node instanceof HTMLElement)) {
+            const state = {
+                browse: document.querySelectorAll(".browse").length,
+                view: document.querySelector("[data-view]")?.getAttribute("data-view"),
+                screen: document.querySelector("[data-screen]")?.getAttribute("data-screen"),
+                successor: document.getElementById("successor") !== null,
+                targets: nodes.map(candidate => ({ key: candidate.getAttribute("data-focus"), connected: candidate.isConnected })),
+            };
+            throw new Error(`Missing target ${key}: ${JSON.stringify(state)}`);
+        }
         node.focus({ preventScroll: true });
     }, key);
     await tv.page.keyboard.press("Enter");
 }
 const reads = (tv: Tv) => tv.fake.requests.filter(request => request.path.startsWith("/calendar?"));
 async function ready(tv: Tv, count?: number): Promise<void> {
-    await tv.eventually(async () => await tv.page.locator('.browse[data-view="calendar"]').count() === 1 && await tv.page.getByText("Loading the week.", { exact: true }).count() === 0 && (count === undefined || await tv.page.locator(".calendar-event").count() === count), "loaded Calendar");
+    try {
+        await tv.eventually(async () => await tv.page.locator('.browse[data-view="calendar"]').count() === 1 && await tv.page.getByText("Loading the week.", { exact: true }).count() === 0 && (count === undefined || await tv.page.locator(".calendar-event").count() === count), "loaded Calendar");
+    } catch (error: unknown) {
+        const state = await tv.page.evaluate(() => ({
+            view: document.querySelector("[data-view]")?.getAttribute("data-view"),
+            screen: document.querySelector("[data-screen]")?.getAttribute("data-screen"),
+            focus: document.activeElement?.getAttribute("data-focus"),
+            events: document.querySelectorAll(".calendar-event").length,
+            successor: document.getElementById("successor") !== null,
+        }));
+        throw new Error(`${String(error)}: ${JSON.stringify(state)}; recent requests: ${JSON.stringify(tv.fake.requests.slice(-8).map(request => ({ method: request.method, path: request.path })))}`);
+    }
 }
 function calendarTest(name: string, body: (tv: Tv, catalog: FakeCalendar) => Promise<void>): void {
     test(name, async () => {

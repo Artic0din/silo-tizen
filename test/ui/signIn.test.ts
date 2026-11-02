@@ -1021,7 +1021,11 @@ for (const lateReply of ["superseded", "failed"] as const) {
         await tv.page.fill("#signin-password", FAKE_PASSWORD);
         await tv.page.getByRole("button", { name: "Sign in", exact: true }).click();
         await shows(tv, "Signing in…");
-        const approval = tv.page.waitForResponse(reply => new URL(reply.url()).pathname.endsWith("/auth/device/poll"));
+        const approval = tv.page.waitForResponse(async reply => {
+            if (!new URL(reply.url()).pathname.endsWith("/auth/device/poll")) return false;
+            const body: unknown = await reply.json();
+            return typeof body === "object" && body !== null && "status" in body && body.status === "approved";
+        });
         tv.fake.approve(code);
         await tv.jump(5000);
         await tv.eventually(async () => tv.fake.devices.get(code)?.status === "consumed", "the phone approval");

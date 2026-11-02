@@ -30,6 +30,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept the blank-portrait regression focused on its own image requests after the preceding cast photo finished loading.
 - Allowed sign-in grain artwork and the native AVPlay surface under the TV's content policy while keeping scripts, styles and player objects restricted to the app.
 - Made phone/password handoff tests await the approval response before advancing the handoff clock on slower runners.
 - Kept Home artwork visible when palette sampling was refused, filled missing marquee metadata from detail, followed regional air dates, and capped shelves at 20 titles with an Explore all tile.

@@ -116,6 +116,7 @@ test("a portrait without a photo shows initials and does not request an image", 
     const tv = await openTv(browser, { app: "browse" });
     try {
         await signIn(tv);
+        await tv.page.locator('[data-focus="person:7"] img').first().evaluate(image => (image as HTMLImageElement).decode());
         const images: string[] = [];
         tv.page.on("request", request => { if (request.url().includes("/art/river.svg")) images.push(request.url()); });
         await person(tv, { name: "e\u0301lodie Martin", photo_url: "  ", photo_thumbhash: OPAQUE });

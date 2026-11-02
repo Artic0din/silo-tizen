@@ -1481,7 +1481,7 @@ browseTest("row scrolling has intermediate frames without delaying focus", async
 });
 
 browseTest("Continue Watching keeps landscape geometry when backdrop or progress metadata is missing", async (tv) => {
-    const boxes = await tv.page.locator('[data-section="continue_watching"] .browse-card:not(.skyline-explore) .browse-art').evaluateAll((nodes) => nodes.map((node) => ({ width: node.clientWidth, height: node.clientHeight })));
+    const boxes = await tv.page.evaluate(() => Array.from(document.querySelectorAll('[data-section="continue_watching"] .browse-card:not(.skyline-explore) .browse-art')).map(node => ({ width: node.clientWidth, height: node.clientHeight })));
     assert.deepEqual(boxes, [{ width: 360, height: 200 }, { width: 360, height: 200 }]);
 });
 
@@ -1495,7 +1495,7 @@ browseTest("Continue Watching uses section type rather than its opaque identity"
     section.title = "Resume";
     await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
     await tv.page.locator('[data-section="shelf-resume-opaque"] .browse-art').first().waitFor();
-    const boxes = await tv.page.locator('[data-section="shelf-resume-opaque"] .browse-card:not(.skyline-explore) .browse-art').evaluateAll((nodes) => nodes.map((node) => ({ width: node.clientWidth, height: node.clientHeight })));
+    const boxes = await tv.page.evaluate(() => Array.from(document.querySelectorAll('[data-section="shelf-resume-opaque"] .browse-card:not(.skyline-explore) .browse-art')).map(node => ({ width: node.clientWidth, height: node.clientHeight })));
     assert.deepEqual(boxes, [{ width: 360, height: 200 }, { width: 360, height: 200 }]);
 });
 

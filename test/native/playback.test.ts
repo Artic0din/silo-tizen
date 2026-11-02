@@ -17,6 +17,19 @@ import { connected, type Harness, signIn } from "./support/harness.ts";
 
 const MOVIE: PlayRequest = { contentId: "movie-1", fileId: "42", title: "Movie", startSeconds: 12.5 };
 
+test("a completed Shuffle item advances the same server session before offering its next pick", async () => {
+    const r = await rig();
+    r.h.fake.script("/shuffles/sh1/advance", { status: 200, body: { id: "sh1", current: { content_id: MOVIE.contentId }, next: { content_id: MOVIE.contentId } } });
+    await playMovie(r, { ...MOVIE, shuffleId: "sh1" });
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    const advance = r.h.fake.requests.filter(request => request.path === "/shuffles/sh1/advance");
+    assert.equal(advance.length, 1);
+    assert.deepEqual(advance[0]?.body, { from_content_id: MOVIE.contentId });
+    assert.equal(last(r.views).phase, "completion");
+    r.controller.destroy();
+});
+
 test("transcription refuses with a notice when the plan omits the audio track's server index", async () => {
     const r = await rig();
     r.h.fake.script("/subtitles/ai/status", { status: 200, body: { state: "available", allowed: true, enabled: true, transcribe_enabled: true } });

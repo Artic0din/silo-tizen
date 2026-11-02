@@ -15,7 +15,7 @@ import type { CalendarState } from "./calendarState.ts";
 import { calendarView, type CalendarHandlers } from "./calendarView.ts";
 import { actionButton, homeView, lines, pagedGrid, type SearchResults, searchView, statusView, type ViewContext, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
-import { discoveryState, type DiscoveryState, type LibraryMode, type LibrarySource } from "./libraryDiscovery.ts";
+import { discoveryState, type BrowseChange, type DiscoveryState, type LibraryMode, type LibrarySource } from "./libraryDiscovery.ts";
 import { discoveryView, resultsView } from "./libraryDiscoveryViews.ts";
 import { personalView, type PersonalFilter, type PersonalSource, type PersonalListCapability } from "./personalLists.ts";
 import type { MediaScope } from "../contracts/v2/discovery.ts";
@@ -74,7 +74,7 @@ export function hasData(current: Route): boolean {
         case "personal":
             return current.pages.page !== undefined || current.capability !== undefined;
         case "library":
-            return current.discovery?.data !== undefined && (!(current.discovery.mode === "A–Z" || current.discovery.mode === "Recently Added" || current.discovery.genre !== undefined) || current.pages.page !== undefined);
+            return current.discovery?.mode === "Browse" ? current.discovery.snapshot !== undefined : current.discovery?.data !== undefined && (!(current.discovery.mode === "A–Z" || current.discovery.mode === "Recently Added" || current.discovery.genre !== undefined) || current.pages.page !== undefined);
         case "libraryResults":
         case "personFilmography":
         case "homeSection":
@@ -87,6 +87,11 @@ export function hasData(current: Route): boolean {
 }
 
 export interface RouteHandlers {
+    readonly browse: (route: Extract<Route, { kind: "library" }>, change: BrowseChange) => void;
+    readonly more: (route: Extract<Route, { kind: "library" }>) => void;
+    readonly preserve: (route: Extract<Route, { kind: "library" }>) => boolean;
+    readonly gridColumns: number;
+    readonly shuffle: { readonly starting: boolean; readonly failure: string | undefined; readonly start: (route: Extract<Route, { kind: "library" }>) => void; readonly dismiss: () => void } | undefined;
     readonly requests: (route: Extract<Route, { kind: "requests" }>) => RequestsHandlers;
     readonly personFilter: (route: Extract<Route, { kind: "personFilmography" }>, filter: MediaScope) => void;
     readonly calendar: (route: Extract<Route, { kind: "calendar" }>) => CalendarHandlers;

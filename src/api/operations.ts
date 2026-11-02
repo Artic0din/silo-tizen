@@ -2,6 +2,7 @@
 // Retry classes come from the operation's x-silo-retry-safety in openapi.json (see ../contracts/v2/SOURCE).
 
 import { decodeServerBranding } from "../contracts/v2/branding.ts";
+import { shuffleOperations } from "./shuffleOperations.ts";
 import {
     decodeAuthProviders,
     decodeDeviceLoginCancel,
@@ -88,6 +89,7 @@ export type CatalogPageRequest = {
     | { readonly libraryId?: never; readonly q: string; readonly type: "video_with_episodes" });
 
 export const operations = {
+    ...shuffleOperations,
     ...subtitleOperations,
     watchDetail: (contentId: string): Spec<ReturnType<typeof decodeWatchDetail>> => ({
         method: "GET", path: `/watch/${encodeURIComponent(contentId)}`, retry: "safe", decode: decodeWatchDetail,

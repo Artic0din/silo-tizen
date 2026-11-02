@@ -76,7 +76,7 @@ export class Skyline {
     private readonly flyout = el("div", "skyline-selector skyline-flyout");
     private flyoutItem: FocusItem | undefined;
     private flyoutItems: FocusItem[] = [];
-    private libraryModes: readonly LibraryMode[] = ["Browse", "Collections"];
+    private libraryModes: readonly LibraryMode[] = ["Recommended", "Collections", "Browse"];
     private libraryRow: FocusItem | undefined;
     private cancelFlyout = (): void => undefined;
     private readonly scroll = new SkylineScroll();

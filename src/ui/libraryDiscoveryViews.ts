@@ -5,17 +5,18 @@ import { newPages, newRoute, type Route, type RouteHandlers } from "./browseRout
 import { actionButton, artwork, cardItem, lines, pagedGrid, zoneNode } from "./browseViews.ts";
 import { LIBRARY_MODES, type DiscoveryState, type LibrarySource } from "./libraryDiscovery.ts";
 import { el } from "./screen.ts";
+import { browsePage, panelFocus } from "./libraryBrowseViews.ts";
 
 type LibraryRoute = Extract<Route, { kind: "library" }>;
 export function availableModes(caps: DiscoveryState["capabilities"]): readonly import("./libraryDiscovery.ts").LibraryMode[] {
     const available = caps?.allowed === true && caps.state === "available";
-    return LIBRARY_MODES.filter(mode => mode === "Browse" || mode === "Collections" || (available && (mode === "Recently Added" || (mode === "Genres" ? caps.extendedQueryRules === true : caps.letterIndex === true))));
+    return LIBRARY_MODES.filter(mode => mode === "Recommended" || mode === "Browse" || mode === "Collections" || (available && (mode === "Recently Added" || (mode === "Genres" ? caps.extendedQueryRules === true : caps.letterIndex === true))));
 }
 export function discoveryView(route: LibraryRoute, state: DiscoveryState, handlers: RouteHandlers): View {
     const caps = state.data?.capabilities ?? state.capabilities;
     const modes = availableModes(caps);
     const pills = modes.map(mode => {
-        const item = actionButton(`mode:${mode}`, mode, () => state.mode === "Browse" && mode === "Browse" && state.data !== undefined ? handlers.focusDefault() : handlers.mode(route, mode));
+        const item = actionButton(`mode:${mode}`, mode, () => state.mode === "Recommended" && mode === "Recommended" && state.data !== undefined ? handlers.focusDefault() : handlers.mode(route, mode));
         item.element.setAttribute("aria-pressed", String(state.mode === mode));
         return item;
     });
@@ -24,6 +25,12 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
     const content: HTMLElement[] = [pillRow];
     const zones: Zone[] = [{ id: "pills", layout: "row", items: pills, ...(state.mode === "A–Z" ? { down: "grid" } : {}) }];
     const open = (title: string, source: LibrarySource): void => handlers.push(newRoute({ kind: "libraryResults", library: route.library, title, source, pages: newPages(), descending: false }));
+    if (state.mode === "Browse") {
+        const page = browsePage(route, state, handlers);
+        const modal = state.panel !== undefined || handlers.shuffle?.failure !== undefined;
+        if (modal) { pillRow.setAttribute("aria-hidden", "true"); pillRow.setAttribute("inert", ""); }
+        return { name: `library:${route.library.id}`, content: [pillRow, ...page.content], zones: [...(modal ? [] : zones), ...page.zones], focus: panelFocus(state) ?? { zone: "controls", key: "sort" }, back: page.back ?? handlers.pop, ready: state.snapshot !== undefined };
+    }
     if (route.failure !== undefined) {
         const retry = actionButton("retry", "Try again", () => handlers.retry(route));
         content.push(...lines([route.failure], "error"), zoneNode("browse-actions", [retry]));
@@ -33,7 +40,7 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
         skeleton.setAttribute("role", "status");
         skeleton.setAttribute("aria-label", "Loading");
         content.push(skeleton);
-    } else if (state.mode === "Browse") {
+    } else if (state.mode === "Recommended") {
         state.data.sections.forEach((section, index) => {
             sectionRow(section);
             if (index === 0) inlineCollections();

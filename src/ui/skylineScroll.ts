@@ -30,7 +30,7 @@ export class SkylineScroll {
 
     reveal(element: HTMLElement, container: HTMLElement): void {
         if (element.closest(".browse-nav, .skyline-selector:not(.details-audio-picker)") !== null) return;
-        const viewport = element.closest<HTMLElement>(".details-audio-picker, .skyline-content") ?? container;
+        const viewport = element.closest<HTMLElement>(".browse-panel-list, .details-audio-picker, .skyline-content") ?? container;
         const row = element.closest<HTMLElement>(".browse-row");
         if (row !== null) {
             const bounds = row.getBoundingClientRect();

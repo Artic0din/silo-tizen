@@ -39,7 +39,7 @@ export type CatalogFiltersRequest = {
     readonly section_id?: string;
     readonly library_id?: string;
     readonly collection_id?: string;
-    readonly type: MediaScope;
+    readonly type?: MediaScope;
     readonly skip_technical?: boolean;
 };
 type Obj = ReturnType<typeof object>;

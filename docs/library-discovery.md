@@ -1,8 +1,21 @@
 # Library discovery
 
 Movies and Series each keep one selected library using the existing server/profile storage key.
-Browse opens the server's library sections; each section opens a bounded catalog view.
-Browse inserts up to eight curated collections by descending item count after the first server items section, followed by See All.
+Recommended opens the server's library sections; each section opens a continuous catalog view.
+Recommended inserts up to eight curated collections by descending item count after the first server items section, followed by See All.
+Browse is a separate whole-library Movies/Series grid, matching the split in Apple's `TVLibraryTypeTabView`.
+It requests 100 cards at a time and prefetches when a card in the last eight rows becomes visible.
+The seven video sorts, typed facet groups and transient A–Z prefix share one query; moving focus alone sends no request.
+Sort applies immediately; Filter edits a draft, applies through Done or Back from its root, and returns from a facet to the facet list on Back.
+Committed sort and filters are remembered per server, profile and library while Preserve sort & filters is enabled; the prefix is never persisted.
+Browse retains loaded cards, item focus and scroll through ordinary Details/Back, and refreshes explicit personal/playback invalidation from page one through the retained depth.
+Favorites and Watchlist changes in Details invalidate filtered Browse even when a write's answer is lost.
+Duplicate cards and repeated cursors cannot accumulate; an invalid cursor restarts once, and a later failure keeps the loaded cards with an explicit Retry.
+Optional facet and Shuffle capability answers do not delay the catalog.
+Poster size and badge answers repaint existing cards without changing their identity or querying the catalog again.
+Supported whole-library Shuffle creates one non-retryable server session, resolves its current pick through the existing watch/version path, and advances through the player completion owner.
+Pending Shuffle launches are discarded when their Browse visit is replaced, left or covered by Settings or Card Actions.
+Mixed-library Movies/Series slices hide Shuffle because the server's library scope would include other media.
 Collections preserves server groups and order, including opted-in personal collections, in a three-column fan-card grid.
 Each card uses the single poster or collage supplied by the server, without inventing additional posters.
 Personal collection contents use `POST /catalog/query` with `source=user_collection`, `collection_id` and the current library scope.
@@ -14,6 +27,38 @@ Section queries send only their Home/library scope, section id, optional library
 They retain loaded depth through Details and refresh explicitly invalidated state from the beginning through that depth.
 Other catalog and collection pages still contain at most 24 cards.
 Section previews show at most 24 cards; their complete contents open through the section action.
+
+## Browse simulator evidence
+
+The signed Browse calibration build is paired with historical actual Apple TV frames for [Browse entry](screenshots/91-browse/browse-comparison.png), [Sort](screenshots/91-browse/sort-comparison.png) and [Filter](screenshots/91-browse/filter-comparison.png).
+Tizen's native 1920×1080 frame is shown at 50%; Apple's native 960×540 preview is shown at 100%, without upscaling.
+The Apple frames come from the earlier r3/r12 captures at the pinned source revision; they were not recaptured for this PR.
+Current tool access does not provide the earlier tvOS DeviceHub interaction workflow.
+
+At the profile's Compact size, the first poster is `(94.03,333)`, size `223.59×335.40`, versus Apple's `(94,333)`, `224×335`.
+The second poster starts at `385.70` versus `386`; row two starts at `801.40` versus `801`; captions start at `684.40` versus `684`.
+The 16px inherited grid inset was removed, and the grid's track widths and caption alignment were calibrated together.
+The Sort panel's three sampled fill colours differ from the Apple frame by at most 1/255 per channel after calibration; this is a bounded colour comparison, not whole-material equality.
+
+The [retained-depth frame](screenshots/91-browse/browse-depth.png) records a real 100→200-card Movies append and ordinary Details/Back return with the same item, scroll and loaded depth and no catalog reread.
+The [Series frame](screenshots/91-browse/series-grid.png) records a separate real 100-card Series query and the same controls.
+The [empty-result frame](screenshots/91-browse/empty-grid.png) uses the real Q prefix plus 1960s filter, with Clear filters owning focus; clearing it restored the default query.
+Standard/Large sizing, delayed preference answers, append failure/retry, query cancellation, profile abandonment and Shuffle have automated browser/native coverage; their complete state set does not have paired tvOS/simulator captures.
+
+The signed calibration WGT has SHA-256 `db8b16b57e95be154c1be01b0cfe6758d10320ce2e99755d63273ff251e3b02d`.
+Its 14 unpacked files matched the installed simulator files; [the calibration manifest](screenshots/91-browse/calibration-installed.sha256) has SHA-256 `cd50b1da9cb7c3d6b097f2f4d9238d08155fdff9f06f3daa6e359192eb3ea9fb`.
+The subsequent Shuffle-ownership and personal-filter invalidation corrections are covered by six RED/GREEN browser regressions.
+The corrected signed WGT has SHA-256 `1b103870b1ff4502509bce00294d2015d58e4494647579744d0f0369159df84b`; all 14 files match its simulator installation, recorded in [the final manifest](screenshots/91-browse/installed.sha256), SHA-256 `6f244cbdb4948a908d136714c553c283ed280e1a2e3cbb2ba7fe201387686b82`.
+Only JavaScript and the two signature files differ from the calibration package; the pictured styles, artwork and fonts are unchanged.
+After relaunch, CDP read-back of the loaded JavaScript and CSS matched the signed build byte for byte.
+
+Inter substitutes for SF Pro; drawn SVGs replace SF Symbols, CSS scale/shadow replaces native parallax/specular focus, and the dark panel gradient approximates the tvOS material.
+The focused Sort direction stays readable instead of copying Apple's low-contrast label.
+The historical Apple Filter frame leaves focus on Search behind the panel; Tizen keeps focus inside the modal instead of reproducing that escape.
+Existing top navigation and the six library mode controls are retained; their complete Apple composition belongs to #94 and is not claimed by this Browse delivery.
+The locked-desktop run used CDP focus emulation in Samsung's software simulator.
+This does not prove native visibility behavior, packaged browser-origin access, physical Tizen 8 behavior or successful AVPlay playback.
+Physical-TV testing remains deferred until simulator parity is complete.
 
 ## Expanded-row simulator evidence
 
@@ -36,7 +81,7 @@ All 14 unpacked files matched the installed simulator files; their complete hash
 The later append-404 correction is covered by native regression tests; it changes error handling without changing this screen geometry.
 
 Search capabilities control the Genres, A–Z and Recently Added destinations.
-Explicit unsupported capabilities leave Browse and Collections available; failed reads show an error and Retry.
+Explicit unsupported capabilities leave Recommended, Browse and Collections available; failed reads show an error and Retry.
 A–Z and Recently Added grids have no marquee; the alphabet rail is on the right and supports remote entry and return.
 All requests use the existing operations/session/NativeHttp owners and active profile authority.
 Changing mode, scope or sort starts a fresh page sequence; Back restores the previous collection, section or genre focus.
@@ -49,9 +94,10 @@ Reduced motion leaves focused cards at their resting size.
 Return visibility is measured before reveal, including when reduced motion applies scrolling immediately.
 Entering library content from navigation does not restore a saved navigation or selector control as the default card.
 
-The approved Skyline guide was read from the historical export in `issue-27-browse-shell-20261030/skyline-design-guide.md` because this iMac has no sibling `silo-apple` checkout.
-The source and seven API fixtures are pinned to server commit `cc8514943289045e7b9f7ac8d36d4968bfe93926`.
+The Browse port references Apple commit `1a7cceeaf3b2bfc4f889c00487d19b2c6f843940`: `TVLibraryTypeTabView`, `TVLibraryGridView`, `CatalogSortKey`, `CatalogFilterState`, `CatalogFacets`, `CatalogQueryBuilder` and `ShuffleLauncher`.
+The existing session/operations boundary is retained; the server web Shuffle module is a thin request wrapper and offers no smaller reusable browser owner here.
+The API fixtures and consumed Shuffle wire fields are pinned to server commit `cc8514943289045e7b9f7ac8d36d4968bfe93926`.
 Optional test screenshots require both `DISCOVERY_CAPTURE` and `DISCOVERY_OUTPUT`; ordinary tests create no evidence directory.
 Desktop fake-server tests exercise discovery, authentication authority and the existing detail/player handoff.
-They do not establish Samsung simulator, actual Chromium 76, packaged Tizen or physical TV compatibility.
+They do not establish Samsung simulator, actual Tizen 8 Chromium 108, packaged Tizen or physical TV compatibility.
 Home and whole-app parity remain outside this slice, and issue 28 remains open for parent review and remaining acceptance.

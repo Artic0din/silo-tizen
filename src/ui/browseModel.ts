@@ -6,6 +6,7 @@ import type { Card, ItemDetail, UserLibrary } from "../contracts/v2/catalog.ts";
 
 /** What the player needs to call startPlayback: the item, one file and where to start. */
 export interface PlayRequest {
+    readonly shuffleId?: string;
     readonly episode?: true;
     readonly contentId: string;
     /** startPlayback's file_id. */

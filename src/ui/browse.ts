@@ -43,6 +43,11 @@ import { calendarEventKeys, calendarState, calendarWeek, CalendarTimezoneError, 
 import type { CalendarHandlers } from "./calendarView.ts";
 import { isSectionRoute, SectionCatalog, type SectionRoute } from "./sectionCatalog.ts";
 import { readSectionCatalog } from "./sectionCatalogState.ts";
+import { BrowsePrefs, browseQuery } from "./libraryBrowse.ts";
+import { stopFeed } from "./catalogFeed.ts";
+import type { BrowseChange, DiscoveryState } from "./libraryDiscovery.ts";
+import { shufflePick } from "../player/nextShuffle.ts";
+import type { ShuffleCapability } from "../contracts/v2/shuffle.ts";
 
 export type { PlayRequest } from "./browseModel.ts";
 
@@ -81,6 +86,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const host = new FocusHost(container);
     const sectionCatalogs = new WeakMap<SectionRoute, SectionCatalog>();
     let activeSection: SectionCatalog | undefined;
+    let activeBrowse: Pages | undefined;
+    const browsePrefs = new BrowsePrefs(options.publicStorage, `silo.browse:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`);
     const sectionCatalog = (route: SectionRoute): SectionCatalog => {
         let catalog = sectionCatalogs.get(route);
         if (catalog === undefined) { catalog = new SectionCatalog(); sectionCatalogs.set(route, catalog); }
@@ -93,7 +100,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const resized = shownScale !== presentation.posterScale;
         if (resized) { shownScale = presentation.posterScale; applyCardSize(); }
         const current = top();
-        if (!playing && current !== undefined && (current.kind === "home" || isSectionRoute(current)) && (resized || shownOverlays !== presentation.cardOverlays)) {
+        if (!playing && current !== undefined && (current.kind === "home" || isSectionRoute(current) || (current.kind === "library" && current.discovery?.mode === "Browse")) && (resized || shownOverlays !== presentation.cardOverlays)) {
             shownOverlays = presentation.cardOverlays;
             render(host.focused());
             if (resized) host.revealFocused();
@@ -115,7 +122,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     }, quickActions: card => {
         const current = top();
         if (current === undefined || torn || playing || cardActions.active) return;
+        shuffleGeneration++;
         activeSection?.stop();
+        if (activeBrowse !== undefined) stopFeed(activeBrowse);
         loading?.abort();
         loading = undefined;
         cancelSlow();
@@ -170,7 +179,45 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let requestsCapability: RequestsCapability = { enabled: false, follow: false };
     let probeOrdinal = 0;
     let requestWritePending = false;
+    let shuffleCapability: ShuffleCapability = { usable: false, scopeKinds: [] };
+    let shuffleProbe: Promise<void> | undefined;
+    let shuffleStarting = false;
+    // A retained route can return after another view has owned the screen.
+    let shuffleGeneration = 0;
+    let shuffleFailure: { route: Route; text: string } | undefined;
     const requestsController = new AbortController();
+    const probeShuffles = (): Promise<void> => shuffleProbe ??= session.call({ ...operations.shuffleCapabilities(), profileScoped: true, signal: requestsController.signal }).then(capability => {
+        if (torn) return;
+        shuffleCapability = capability;
+        const current = top();
+        if (current?.kind === "library" && current.discovery?.mode === "Browse" && !playing) render(host.focused());
+    }, () => undefined);
+    const startShuffle = (current: Extract<Route, { kind: "library" }>): void => {
+        if (torn || playing || top() !== current || shuffleStarting || !canShuffle(current)) return;
+        const discovery = current.discovery, generation = shuffleGeneration;
+        shuffleStarting = true; shuffleFailure = undefined;
+        render({ zone: "controls", key: "shuffle" });
+        const owns = (): boolean => !torn && !playing && generation === shuffleGeneration && top() === current && current.discovery === discovery && discovery?.mode === "Browse";
+        void (async () => {
+            try {
+                const shuffle = await session.call({ ...operations.createShuffle(current.library.id), profileScoped: true, replayAfterRefresh: false, signal: requestsController.signal });
+                if (!owns()) return;
+                const request = await shufflePick(spec => read(spec, requestsController.signal), shuffle);
+                if (!owns()) return;
+                if (request === undefined) { shuffleFailure = { route: current, text: "Nothing here can be played." }; return; }
+                play(request);
+            } catch (error) {
+                if (owns() && !(error instanceof ApiError && error.aborted)) shuffleFailure = { route: current, text: error instanceof ApiError && error.status === 404 ? "This is no longer available to shuffle." : "Couldn't start the shuffle. Try again." };
+            } finally {
+                shuffleStarting = false;
+                if (owns()) render(host.focused());
+            }
+        })();
+    };
+    const canShuffle = (route: Extract<Route, { kind: "library" }>): boolean => {
+        const original = home.kind === "home" ? home.data?.libraries.find(library => library.id === route.library.id) : undefined;
+        return shuffleCapability.usable && shuffleCapability.scopeKinds.includes("library") && (original?.type !== "mixed" || route.library.type === "mixed");
+    };
     const probeRequests = async (): Promise<void> => {
         const ordinal = ++probeOrdinal;
         try {
@@ -215,6 +262,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         torn = true;
         presentation.stop();
         activeSection?.stop();
+        if (activeBrowse !== undefined) stopFeed(activeBrowse);
         homeDetails.stop();
         requestsController.abort();
         document.removeEventListener("visibilitychange", requestsVisibility);
@@ -326,7 +374,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const detailsChanged = (current: Route, audioClosed = false): void => {
         if (current.kind === "item" || current.kind === "season") {
             const changes = current.data?.details?.changes;
-            if (changes !== undefined && [...changes.values()].some(change => change.pending)) invalidateCalendar();
+            if (changes !== undefined && [...changes.values()].some(change => change.pending)) {
+                invalidateCalendar();
+                for (const entry of new Set([...roots.values(), ...stack])) {
+                    if (entry.kind === "library" && entry.discovery?.mode === "Browse") entry.stale = true;
+                }
+            }
         }
         if ((current.kind === "item" || current.kind === "season") && current.data?.details?.changes.get("watched")?.pending) {
             invalidateWatched(current, current.data.details.detail);
@@ -343,7 +396,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const seriesId = detail.type === "series" ? detail.id : detail.seriesId;
         for (const entry of new Set([...roots.values(), ...stack])) {
             if (entry === current) continue;
-            if (entry.kind === "home" || isSectionRoute(entry) || entry.kind === "calendar") entry.stale = true;
+            if (entry.kind === "home" || isSectionRoute(entry) || entry.kind === "calendar" || (entry.kind === "library" && entry.discovery?.mode === "Browse")) entry.stale = true;
             if (entry.kind === "season" && entry.seriesId === seriesId && (detail.type !== "season" || entry.seasonNumber === detail.seasonNumber)) entry.stale = true;
             if (entry.kind === "item") {
                 const covered = entry.data?.detail;
@@ -385,8 +438,68 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         return true;
     };
 
+    const loadBrowse = (current: Extract<Route, { kind: "library" }>, quiet = false, append = false): void => {
+        const state = current.discovery;
+        if (state === undefined || state.mode !== "Browse") return;
+        void probeShuffles();
+        if (!state.facetsRequested) {
+            state.filter = browsePrefs.saved(current.library) ?? state.filter;
+            state.facetsRequested = true;
+            if (state.capabilities === undefined) void session.call({ ...operations.getCatalogSearchCapabilities(), profileScoped: true, signal: requestsController.signal }).then(capabilities => {
+                if (torn || current.discovery !== state) return;
+                state.capabilities = capabilities;
+                if (state.data !== undefined) state.data = { ...state.data, capabilities };
+                if (!playing && top() === current) render(host.focused());
+            }, () => undefined);
+            void session.call({ ...operations.getCatalogFilters({ library_id: current.library.id }), profileScoped: true, signal: requestsController.signal }).then(filters => {
+                if (torn || current.discovery !== state) return;
+                state.facets = filters;
+                if (state.data !== undefined) state.data = { ...state.data, filters };
+                if (!playing && top() === current) render(host.focused());
+            }, () => undefined);
+        }
+        const query = browseQuery(state.filter, current.library, 100);
+        load(current, async signal => {
+            const snapshot = await readSectionCatalog(state.snapshot, append, async cursor => read(operations.queryCatalogItems({ ...query, ...(cursor === undefined ? {} : { cursor }) }), signal), signal);
+            if (snapshot.unavailable) throw new ApiError({ kind: "http", status: 404, retryAfterSeconds: undefined });
+            let emptyReason: DiscoveryState["emptyReason"] = "libraryEmpty";
+            if (snapshot.page.items.length === 0 && (query.groups !== undefined || query.name_prefix !== undefined)) {
+                const probe = await read(operations.queryCatalogItems({ ...libraryScope(current.library), limit: 1 }), signal);
+                if (probe.items.length > 0) emptyReason = "noFilterMatches";
+            }
+            return { snapshot, emptyReason };
+        }, result => {
+            state.snapshot = result.snapshot; state.emptyReason = result.emptyReason;
+            state.data = { capabilities: state.capabilities, sections: [], collections: undefined, filters: state.facets, letters: undefined };
+            current.pages.page = result.snapshot.page;
+            return host.focused() ?? current.focus;
+        }, quiet);
+        render(host.focused());
+    };
+    const moreBrowse = (current: Extract<Route, { kind: "library" }>): void => {
+        if (torn || playing || top() !== current || loading !== undefined || cardActions.active || synopsis.active || settingsScreen !== undefined || current.discovery?.panel !== undefined || shuffleFailure?.route === current || current.failure !== undefined || current.discovery?.snapshot?.page.nextCursor === undefined) return;
+        loadBrowse(current, true, true);
+    };
+    const changeBrowse = (current: Extract<Route, { kind: "library" }>, change: BrowseChange): void => {
+        const state = current.discovery;
+        if (torn || playing || top() !== current || state?.mode !== "Browse") return;
+        if (change.preserve !== undefined) { browsePrefs.setPreserve(current.library, change.preserve); if (change.preserve) browsePrefs.save(current.library, state.filter); }
+        if ("panel" in change) state.panel = change.panel;
+        if (change.filter !== undefined) {
+            const changed = JSON.stringify(browseQuery(change.filter, current.library, 100)) !== JSON.stringify(browseQuery(state.filter, current.library, 100));
+            state.filter = change.filter;
+            browsePrefs.save(current.library, state.filter);
+            if (changed) {
+                state.snapshot = undefined; current.pages = newPages(); current.failure = undefined;
+                loadBrowse(current, true);
+            }
+        }
+        render(change.focus ?? host.focused());
+    };
+
     const loadRoute = (current: Route, quiet = false): void => {
         if (loadSection(current, quiet)) return;
+        if (current.kind === "library" && current.discovery?.mode === "Browse") { loadBrowse(current, quiet); return; }
         switch (current.kind) {
             case "requests": {
                 const state = current.requests, source = state.source;
@@ -759,6 +872,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     const push = (next: Route): void => {
+        shuffleGeneration++;
         stopDetails();
         const current = top();
         if (current !== undefined) {
@@ -801,6 +915,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const play = (request: PlayRequest): void => {
         activeSection?.stop();
+        if (activeBrowse !== undefined) stopFeed(activeBrowse);
         const current = top();
         if (current === undefined || torn || playing) return;
         const details = current.kind === "item" ? current.data?.details : undefined;
@@ -839,7 +954,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const render = (focus?: FocusTarget): void => {
         activeSection?.stop();
+        if (activeBrowse !== undefined) stopFeed(activeBrowse);
         activeSection = undefined;
+        activeBrowse = undefined;
         cancelCalendarDay();
         const current = top();
         if (current === undefined || torn || playing || synopsis.active || cardActions.active || settingsScreen !== undefined) {
@@ -851,8 +968,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             cancelCalendarDay = clock.schedule(() => render(host.focused()), midnight.getTime() - clock.now());
         }
         if (current.kind === "library") shell.setLibraryModes(availableModes(current.discovery?.data?.capabilities ?? current.discovery?.capabilities));
-        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, personFilter, calendar: calendarHandlers, requests: requestsHandlers };
+        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: current.kind === "library" && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
         container.classList.toggle("section-catalog", isSectionRoute(current));
+        const browsing = current.kind === "library" && current.discovery?.mode === "Browse";
+        container.classList.toggle("library-browse", browsing);
+        if (browsing) activeBrowse = current.pages;
         if (isSectionRoute(current)) activeSection = sectionCatalog(current);
         const view = activeSection !== undefined && isSectionRoute(current)
             ? activeSection.view(current, context, loading !== undefined, pop, () => retry(current), () => {
@@ -862,9 +982,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const rootRoute = current.kind === "home" || current.kind === "library" || current.kind === "search" || current.kind === "personal" || current.kind === "calendar" || (current.kind === "requests" && current.requests.source.kind === "hub");
         if (rootRoute) {
             const selected = current.kind === "library" ? (current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? "profiles" : current.kind;
-            const preview = current.kind === "home" || (current.kind === "library" && (current.discovery?.mode ?? "Browse") === "Browse");
-            const decorated = shell.decorate(view, selected, preview, current.kind === "personal" || (current.kind === "library" && current.discovery?.genre !== undefined) ? pop : undefined, current.kind === "library" ? `library:${current.library.id}:${current.library.type}:${current.discovery?.mode ?? "Browse"}` : undefined);
-            host.show({ ...decorated, ...(current.kind === "library" ? { ready: hasData(current), ...(current.discovery?.genre !== undefined ? { back: pop } : {}) } : {}) }, focus);
+            const preview = current.kind === "home" || (current.kind === "library" && (current.discovery?.mode ?? "Recommended") === "Recommended");
+            const modal = browsing && (current.discovery?.panel !== undefined || shuffleFailure?.route === current);
+            const decorated = shell.decorate(view, selected, preview, modal ? () => { view.back?.(); } : current.kind === "personal" || (current.kind === "library" && current.discovery?.genre !== undefined) ? pop : undefined, current.kind === "library" ? `library:${current.library.id}:${current.library.type}:${current.discovery?.mode ?? "Recommended"}` : undefined);
+            const nav = container.querySelector<HTMLElement>(".browse-nav");
+            if (nav !== null) { nav.inert = modal; if (modal) nav.setAttribute("aria-hidden", "true"); else nav.removeAttribute("aria-hidden"); }
+            host.show({ ...decorated, ...(current.kind === "library" ? { ready: hasData(current), ...(current.discovery?.genre !== undefined ? { back: pop } : {}) } : {}), ...(modal ? { zones: view.zones, back: view.back } : {}) }, focus);
         } else {
             host.holdVisit();
             shell.hide();
@@ -1043,6 +1166,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const home = newRoute({ kind: "home", data: undefined });
     const roots = new Map<string, Route>([["home", home]]);
     const shell = new Skyline(container, clock, (target, destinationMode) => {
+        shuffleGeneration++;
         const current = top();
         if (current !== undefined) current.focus = host.focused();
         const key = typeof target === "string" ? target : `library:${target.id}:${target.type}`;
@@ -1066,6 +1190,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     }, {
         name: options.profileName ?? "Profiles",
         settings: () => {
+            shuffleGeneration++;
             stopDetails();
             cancelCalendarDay();
             loading?.abort();

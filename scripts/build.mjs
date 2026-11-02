@@ -1,5 +1,5 @@
 // Stage the Tizen web app in dist/wgt: static files from app/ plus one
-// classic-script bundle of src/main.ts for the 2021 TV engine (Chromium 76).
+// classic-script bundle of src/main.ts for Tizen 8.0's Chromium 108 engine.
 import { build } from "esbuild";
 import { cpSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -21,7 +21,7 @@ await build({
     outfile: join(stageDir, "js", "main.js"),
     bundle: true,
     format: "iife",
-    target: "chrome76",
+    target: "chrome108",
     // app/fonts is copied beside js/; the stylesheet's relative URL must stay as written.
     external: ["../fonts/*"],
     define: { APP_VERSION: JSON.stringify(version) },

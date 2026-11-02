@@ -42,7 +42,7 @@ Browse and composition tests also cover bounded type tabs, menu dwell and dismis
 
 The retired Jellyfin adapter and its legacy browser/layout fixtures are no longer part of the app or test gate.
 Native transport tests cover headers, timeouts, HTTPS and logout, while native browse and composed-app tests cover the current focus and return behavior.
-Desktop Chromium and fake AVPlay do not prove real video/audio, TV keyboard behavior or Chromium 76 rendering.
+Desktop Chromium and fake AVPlay do not prove real video/audio, TV keyboard behavior or Tizen 8.0's Chromium 108 rendering.
 The signed-TV app journey and the remaining hardware matrix must be checked separately.
 
 ## Captures and security

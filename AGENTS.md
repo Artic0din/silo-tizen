@@ -54,7 +54,7 @@ First-party Samsung Tizen TV client for [Silo Server](https://github.com/Silo-Se
 - **Direct play first**; **HLS (MPEG-TS segments)** transcode as the fallback. No ABR logic in MVP.
 - Report playback start, **progress every 10 s**, and stop through the adapter.
 - Device **capability profile** lists what the TV can direct-play. No **DTS** direct play on Samsung TVs — expect transcode.
-- **Target TV:** Samsung S95C (2023, Tizen 7.0). Build the direct-play profile and AVPlay capability checks for it.
+- **Minimum OS:** Tizen 8.0. Target the Samsung S95C with supported installed firmware; validate its current OS and AVPlay capabilities rather than assuming them from the model year.
 - AVPlay cannot set HTTP headers on playback URLs; pass auth as a **query parameter** on stream URLs.
 - On **visibilitychange**, call AVPlay suspend/restore; rebuild the stream URL on restore.
 

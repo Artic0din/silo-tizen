@@ -1,6 +1,7 @@
 # silo-tizen
 
-Silo client for Samsung Tizen TVs from model year 2021 (Tizen 6.0).
+Silo client for Samsung TVs running Tizen 8.0 or later.
+Earlier Tizen versions are no longer supported; the installed OS version, rather than the TV's original model year, determines compatibility.
 
 ## Native app
 
@@ -52,7 +53,7 @@ This is not TV playback or IME proof.
 Earlier signed diagnostics on the S95C running Tizen 9 proved normal-HTTPS discovery/authenticated reads and direct playback with picture, dialogue, a 60-second resume, forward seek and progress.
 The composed debug-signed app was then checked on the same S95C: device-code approval, real profile and catalog reads, account restoration after a full exit/relaunch, AVPlay start/pause/forward and backward seeking, an audio-track replan, return to the title, and sign-out with server revocation.
 AVPlay state and server responses were observed; picture, dialogue and audible track differences were not independently confirmed during that composed-app run.
-The TV keyboard, 2021 hardware, store builds, full remux/transcode acceptance and audible/visible track acceptance remain open.
+The TV keyboard, minimum-version Tizen 8.0 hardware, store builds, full remux/transcode acceptance and audible/visible track acceptance remain open.
 
 The client declares no subtitle renderer.
 Movie and episode Details offer Audio Auto or an explicit track from the displayed file, for this attempt only.
@@ -67,9 +68,9 @@ See [playback recovery](docs/playback-quality.md#lifecycle-and-connection-recove
 
 ## Build and package
 
-The 2021 TVs run Chromium 76 ([Samsung web engine specifications](https://developer.samsung.com/smarttv/develop/specifications/web-engine-specifications.html)).
+Tizen 8.0 uses Chromium 108 ([Samsung web engine specifications](https://developer.samsung.com/smarttv/develop/specifications/web-engine-specifications.html)).
 TypeScript checks ES2019 and DOM code in strict mode; tests additionally load Node types.
-esbuild emits a classic script targeting `chrome76`.
+esbuild emits a classic script targeting `chrome108`.
 Neither step supplies missing browser APIs or CSS support.
 Node.js 26 or later is required.
 

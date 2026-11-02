@@ -1,7 +1,7 @@
 // Runs the sign-in harness in desktop Chromium against the fake Silo. The page is served from
 // the fake server's origin, so requests need no CORS, as on the TV. Any other host fails as an
 // unreachable server. Time is Playwright's fake clock, moved together with the fake's clock.
-// Desktop Chromium is not the TV's Chromium 76: this proves behavior, not 2021 rendering.
+// Desktop Chromium is not the TV's Chromium 108: this proves behavior, not TV rendering.
 
 import { readFileSync } from "node:fs";
 import { build } from "esbuild";
@@ -49,7 +49,7 @@ export function harnessBundle(app: TvApp = "signIn"): Promise<string> {
         entryPoints: [new URL(ENTRY[app], import.meta.url).pathname],
         bundle: true,
         format: "iife",
-        target: "chrome76",
+        target: "chrome108",
         // The packaged font sits beside js/ in the WGT; the stylesheet keeps its relative URL (scripts/build.mjs).
         external: ["../fonts/*"],
         write: false,

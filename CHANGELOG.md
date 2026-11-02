@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Required Tizen 8.0 or later and targeted its Chromium 108 web engine; TVs on earlier OS versions must upgrade before installing new releases.
 - Documented signed-package simulator evidence and Apple TV comparisons, and corrected the retired backend guidance.
 - Redrew the sign-in screens in the Apple TV layout: Silo wordmark, a drifting brand-light backdrop with grain and the server's accent, glass cards, a server card with its mark and a Secure or HTTP badge, the QR code and code in a card beside the instructions, and the Apple TV wording for every code state; Back now waits while a server connects.
 - Sign-in codes now behave as on the Apple TV app: an expired, withdrawn or lost code renews itself for an hour and then pauses until asked, a failing start retries on its own, "Can't reach" and "Too many sign-in attempts" appear only after 10, 30 or 60 seconds of failures, and an approval shows "Signed in as …" for a second before moving on.

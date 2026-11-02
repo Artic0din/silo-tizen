@@ -1,5 +1,5 @@
 // The native browse screens, driven by remote keys in Chromium against the fake Silo household.
-// Desktop Chromium is not the TV's Chromium 76: this proves behavior, not 2021 rendering.
+// Desktop Chromium is not the TV's Chromium 108: this proves behavior, not TV rendering.
 
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";

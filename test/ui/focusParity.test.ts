@@ -1,4 +1,4 @@
-// Browse focus and scroll parity. Desktop Chromium is not the TV's Chromium 76.
+// Browse focus and scroll parity. Desktop Chromium is not the TV's Chromium 108.
 
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";

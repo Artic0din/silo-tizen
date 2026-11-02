@@ -7,6 +7,7 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - Aligned Home's backdrop, row and marquee placement, poster-size preferences, artwork resolution, wordmark and control dimensions with the Apple TV source.
+- Kept Home available while the optional artwork-capability probe was pending, using small artwork until sizing was known.
 - Required Tizen 8.0 or later and targeted its Chromium 108 web engine; TVs on earlier OS versions must upgrade before installing new releases.
 - Documented signed-package simulator evidence and Apple TV comparisons, and corrected the retired backend guidance.
 - Redrew the sign-in screens in the Apple TV layout: Silo wordmark, a drifting brand-light backdrop with grain and the server's accent, glass cards, a server card with its mark and a Secure or HTTP badge, the QR code and code in a card beside the instructions, and the Apple TV wording for every code state; Back now waits while a server connects.

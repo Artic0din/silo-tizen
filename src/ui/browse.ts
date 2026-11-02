@@ -458,8 +458,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                         }
                         throw error;
                     }),
-                    (imageCapability === undefined ? probeImages() : Promise.resolve(imageCapability))
-                        .then(found => read(operations.listHomeSections(homeArtworkQuery(found, window.devicePixelRatio)), signal)),
+                    read(operations.listHomeSections(homeArtworkQuery(imageCapability, window.devicePixelRatio)), signal),
                 ]), ([libraries, hidden, sections]) => {
                     const focus = host.focused();
                     current.data = { libraries: visibleLibraries(libraries, hidden), sections };

@@ -31,7 +31,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Made the Browse append-failure regression use remote scrolling so a pending focus animation could not undo its setup.
+- Made the Browse append-failure regression use remote scrolling so a pending focus animation could not undo its setup, and report recovery state if it failed.
 - Kept the blank-portrait regression focused on its own image requests after the preceding cast photo finished loading.
 - Allowed sign-in grain artwork and the native AVPlay surface under the TV's content policy while keeping scripts, styles and player objects restricted to the app.
 - Made phone/password handoff tests await the approval response before advancing the handoff clock on slower runners.

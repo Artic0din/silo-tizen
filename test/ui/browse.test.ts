@@ -1083,7 +1083,15 @@ browseTest("a failed Browse append retains cards until a completed explicit retr
     await tv.page.getByRole("button", { name: "Try again", exact: true }).click();
     assert.equal(await (await recovered).finished(), null);
     assert.equal((await recovered).request().postDataJSON().cursor, undefined);
-    await tv.eventually(async () => await tv.page.getByRole("alert").count() === 0 && await tv.page.locator('.catalog-grid .browse-card').count() === 100, "retry finished");
+    try {
+        await tv.eventually(async () => await tv.page.getByRole("alert").count() === 0 && await tv.page.locator('.catalog-grid .browse-card').count() === 100, "retry finished");
+    } catch (cause) {
+        const cards = await tv.page.locator('.catalog-grid .browse-card').count();
+        const alerts = await tv.page.getByRole("alert").count();
+        const loading = await tv.page.locator('.section-catalog-loading').count();
+        if (cause instanceof Error) cause.message += `; Browse retry retained ${cards} cards with ${alerts} alerts and ${loading} loading indicators`;
+        throw cause;
+    }
 }, { catalog: new FakeCatalog(260) });
 
 browseTest("Browse keeps Down in the final grid row while the next page is pending", async tv => {

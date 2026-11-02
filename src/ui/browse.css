@@ -571,3 +571,82 @@
 .card-actions-buttons { display: flex; flex-direction: column; }
 .card-actions-buttons .browse-button { margin: 8px 0; text-align: left; }
 .card-actions-buttons [aria-disabled="true"] { opacity: .6; }
+
+.library-browse .skyline-content { top: 216px; left: 0; width: 1920px; height: 864px; }
+/* TVLibraryGridView: a 216pt clear spacer, then 32pt stack spacing above and below the control row. */
+.browse-controls { display: flex; margin: 32px 0 32px 80px; }
+.browse .browse-controls .browse-button { display: flex; align-items: center; height: 53px; margin: 0 16px 0 0; padding: 0 22px; border: 1px solid rgba(255,255,255,.09); border-radius: 27px; background: rgba(255,255,255,.07); color: #ededed; font-size: 24px; font-weight: 500; transition: transform 120ms ease-out; }
+.browse .browse-controls .browse-button[aria-pressed="true"] { background: rgba(255,255,255,.14); }
+.browse .browse-controls .browse-button:focus { background: #ededed; color: #000; border-color: transparent; transform: scale(1.04); }
+.browse-icon { display: inline-block; width: 24px; height: 24px; margin-right: 10px; flex-shrink: 0; }
+.browse-icon svg { display: block; width: 100%; height: 100%; }
+.browse-control-detail { margin-left: 10px; color: rgba(237,237,237,.6); }
+.browse .browse-controls .browse-button:focus .browse-control-detail { color: rgba(0,0,0,.6); }
+.browse-control-count { margin-left: 10px; padding: 2px 8px; border-radius: 14px; background: rgba(0,0,0,.25); font-family: var(--silo-font); font-size: 18px; font-weight: 700; }
+.library-browse .catalog-grid { margin: 0 0 0 80px; }
+.library-browse { font-weight: 400; }
+.library-browse * { font-family: var(--silo-font); font-weight: inherit; }
+.library-browse .catalog-grid { grid-template-columns: repeat(var(--grid-columns, 6), minmax(0, 1fr)); justify-items: center; column-gap: 40px; row-gap: 60px; padding: 0 0 48px; }
+.catalog-grid .browse-card { width: calc(260px * var(--poster-scale, 1)); padding: 0; border: 0; border-radius: 0; transition: none; }
+.catalog-grid .browse-card:focus { transform: none; box-shadow: none; }
+.catalog-grid .browse-art { width: calc(260px * var(--poster-scale, 1)); height: calc(390px * var(--poster-scale, 1)); border-radius: 12px; }
+.catalog-grid .browse-card:focus .browse-art { transform: scale(var(--grid-lift)); box-shadow: 0 18px 36px rgba(0,0,0,.6); }
+.catalog-grid .browse-card-title { margin: 16px 0 4px; padding: 0; font: 500 24px/29px var(--silo-font); color: rgba(237,237,237,.45); text-align: center; }
+.catalog-grid .browse-card-subtitle { margin: 0; padding: 0; font: 400 20px/24px var(--silo-font); color: rgba(237,237,237,.32); text-align: center; }
+.catalog-grid .browse-card:focus .browse-card-title { color: #fff; font-weight: 600; }
+.catalog-grid .browse-card:focus .browse-card-subtitle { color: rgba(255,255,255,.92); font-weight: 500; }
+.catalog-grid .browse-card:focus .browse-card-title, .catalog-grid .browse-card:focus .browse-card-subtitle { transform: translateY(5px); text-shadow: 0 0 10px rgba(255,255,255,.45), 0 0 3px rgba(255,255,255,.25); }
+@media (prefers-reduced-motion: reduce) { .catalog-grid .browse-card:focus .browse-art { transform: none; } }
+.catalog-skeleton { display: grid; }
+.catalog-skeleton .discovery-skeleton { width: calc(260px * var(--poster-scale, 1)); height: calc(390px * var(--poster-scale, 1)); }
+.browse-empty-title { margin: 160px 0 16px; font-size: 36px; font-weight: 600; text-align: center; }
+.browse-empty-title ~ .browse-text { max-width: none; text-align: center; font-size: 26px; }
+.browse-empty-actions { text-align: center; }
+.browse-empty-actions .browse-button { display: inline-flex; align-items: center; font-size: 24px; font-weight: 500; }
+/* TVAlphabetRail: a slim 18pt peek, centred like Apple's in the 1020pt column above the TV safe area, until a
+   letter is focused, then 96pt of 38pt chips from the top, as Apple's overflowing rail starts. The chips sit without
+   Apple's 4pt gap so all 28 (1064pt) stay on the 1080 screen without the rail scrolling. */
+.browse-letters { position: fixed; z-index: 3; top: 0; right: 32px; width: 18px; height: 1020px; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: width 180ms ease-out; }
+.browse-letters .browse-button { flex-shrink: 0; width: 10px; height: 10px; min-height: 0; margin: 2px 0; padding: 0; border: 0; border-radius: 3px; background: transparent; color: rgba(237,237,237,.35); font-family: var(--silo-font); font-size: 10px; font-weight: 600; line-height: 10px; overflow: hidden; }
+.browse-letters[data-open], .browse-letters:focus-within { width: 96px; justify-content: flex-start; }
+.browse-letters:focus-within .browse-button { width: 38px; height: 38px; margin: 0; border-radius: 8px; color: #ededed; font-size: 15px; line-height: 38px; }
+.browse-letters .browse-button[aria-pressed="true"], .browse .browse-letters .browse-button:focus { background: #fff; color: #000; }
+/* Sort and Filter panels over a dimmed page (TVSkylinePanelChrome), centred on y510 as measured
+   on the Apple TV (the tab body sits under the top bar). */
+.browse-panel-scrim { position: fixed; z-index: 6; top: 0; left: 0; width: 1920px; height: 1080px; background: rgba(0,0,0,.55); }
+.browse-panel { position: fixed; z-index: 7; top: 510px; left: 50%; transform: translate(-50%, -50%); border: 1px solid rgba(255,255,255,.16); border-radius: 22px; background: linear-gradient(rgba(17,17,23,.97), rgba(10,10,14,.98)); box-shadow: 0 20px 60px #000; }
+.browse-sort-panel { width: 460px; padding: 14px; }
+/* The shuffle failure alert over the same dimmed page as the panels. */
+.browse-alert { width: 720px; padding: 40px 48px 32px; text-align: center; }
+.browse-alert-title { margin: 0 0 14px; font-size: 34px; font-weight: 600; }
+.browse-alert-message { margin: 0 0 30px; font-size: 25px; line-height: 1.35; color: rgba(237,237,237,.7); }
+.browse .browse-alert .browse-button { min-width: 320px; margin: 0; padding: 16px 32px; border-radius: 14px; font-size: 25px; font-weight: 600; }
+.browse-filter-panel { width: 680px; height: 680px; padding: 22px; display: flex; flex-direction: column; }
+.browse-filter-panel > * { flex-shrink: 0; }
+.browse-filter-panel > .browse-panel-list { flex-shrink: 1; min-height: 0; }
+.browse-panel-eyebrow { margin: 0; padding: 0 18px 8px; font-family: var(--silo-font); font-size: 18px; font-weight: 600; letter-spacing: 2px; color: rgba(237,237,237,.6); }
+.browse-filter-panel .browse-panel-eyebrow { padding: 0 0 6px; font-size: 16px; }
+.browse-panel-title { margin: 0; font-size: 34px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.browse-panel-divider { height: 1px; margin: 12px 0; background: rgba(255,255,255,.12); }
+.browse-panel-list { flex: 1 1 auto; overflow: hidden; padding: 4px 0; }
+.browse-panel-section { margin: 0; padding: 20px 16px 6px; font-family: var(--silo-font); font-size: 15px; font-weight: 600; letter-spacing: 2px; color: rgba(237,237,237,.6); }
+.browse-panel-note { margin: 0; padding: 18px 16px; font-size: 24px; color: rgba(237,237,237,.6); }
+.browse .browse-panel .browse-panel-row { display: flex; align-items: center; width: 100%; margin: 0 0 4px; padding: 13px 16px; border: 0; border-radius: 12px; background: transparent; color: #ededed; font-size: 24px; font-weight: 400; text-align: left; white-space: nowrap; }
+/* Row type per TVBrowseFilterUI: sort 26, facets 25, Match and Options rows 23, Done 25 semibold, values 24. */
+.browse .browse-sort-panel .browse-panel-row { font-size: 26px; }
+.browse .browse-panel [data-focus^="facet:"] { font-size: 25px; }
+.browse .browse-panel [data-focus^="match:"], .browse .browse-panel [data-focus="preserve"], .browse .browse-panel [data-focus="reset"], .browse .browse-panel [data-focus^="clear:"] { font-size: 23px; }
+.browse .browse-panel .browse-panel-done { font-size: 25px; font-weight: 600; }
+.browse .browse-panel .browse-panel-row:focus { background: #ededed; color: #000; }
+.browse .browse-panel .browse-panel-row[aria-disabled="true"] { opacity: .45; }
+.browse-panel-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.browse-panel-detail { margin-left: 16px; opacity: .68; }
+.browse-panel-row .browse-icon { margin-right: 14px; }
+/* Filter panel glyphs at Apple's symbol sizes: 22 semibold, the back chevron 20, a facet's chevron 18 at 55%. */
+.browse-filter-panel .browse-panel-row .browse-icon { width: 22px; height: 22px; }
+.browse-filter-panel [data-focus="facet-back"] .browse-icon { width: 20px; height: 20px; }
+.browse-panel-row .browse-panel-detail + .browse-icon { width: 18px; height: 18px; margin: 0 0 0 14px; opacity: .55; }
+.browse-panel-row:focus { --icon-ink: #ededed; }
+
+/* Shuffle stays focusable while it starts (a disabled button loses focus); it dims to 60%. */
+.browse .browse-controls .browse-control-starting { opacity: .6; }

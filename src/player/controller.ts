@@ -31,12 +31,14 @@ import { AUTO_NEXT_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KE
 import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
 import { markerAt, type SkipMarker } from "../contracts/v2/markers.ts";
 import { nextEpisode } from "./nextEpisode.ts";
+import { nextShuffle } from "./nextShuffle.ts";
 import { SubtitleAI, type SubtitleAIView } from "./subtitleAI.ts";
 import { DEFAULT_APPEARANCE, decodeCues, type SubtitleAppearance, type SubtitleCue } from "../contracts/v2/subtitles.ts";
 import { PlaybackRecovery, recoveryVerdict, type RecoveryStep, type RecoveryVerdict, unanswered } from "./playbackRecovery.ts";
 
 /** What browse hands over: one file of one catalog item. */
 export interface PlayRequest {
+    readonly shuffleId?: string;
     readonly episode?: true;
     readonly audioTrackId?: string;
     readonly allowAlternateVersions?: false;
@@ -1489,6 +1491,16 @@ export class PlaybackController implements PlayerControls {
         try {
             await this.stopSession(attempt);
             if (!current()) return;
+            if (attempt.request.shuffleId !== undefined) {
+                show("resolving");
+                const next = await nextShuffle(spec => {
+                    if (!current()) throw abortedError();
+                    return this.deps.session.call({ ...spec, profileScoped: true, signal: abort.signal });
+                }, attempt.request.shuffleId, attempt.request.contentId);
+                show("ready", next);
+                if (current() && next !== undefined && attempt.autoNext) this.startAutoplay(completion);
+                return;
+            }
             if (attempt.request.episode !== true) {
                 this.cancelCompletion();
                 this.attempt = undefined;

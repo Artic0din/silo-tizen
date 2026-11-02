@@ -15,6 +15,7 @@ interface VisitSnapshot {
     lastZone: string | undefined;
     top: number;
     rows: Map<string, number>;
+    panels: Map<string, number>;
 }
 
 function visitKey(view: View): string {
@@ -29,6 +30,7 @@ export interface FocusItem {
 }
 
 export interface Zone {
+    readonly onLeft?: () => void;
     readonly id: string;
     readonly up?: string;
     readonly down?: string;
@@ -189,8 +191,9 @@ export class FocusHost {
             this.scroll.stop();
             this.applyVisit(visit);
             const element = this.locate(document.activeElement)?.item.element;
-            if (this.container.classList.contains("section-catalog") && element !== undefined) {
-                const card = element.getBoundingClientRect(), bounds = this.container.getBoundingClientRect();
+            if ((this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse")) && element !== undefined) {
+                const viewport = element.closest<HTMLElement>(".browse-panel-list, .skyline-content") ?? this.container;
+                const card = element.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
                 if (card.top < bounds.top + 12 || card.bottom > bounds.bottom - 32) this.scroll.reveal(element, this.container);
             }
         }
@@ -226,12 +229,15 @@ export class FocusHost {
             this.memory.set(focused.zone.id, focused.item.key);
             this.lastZone = focused.zone.id;
         }
-        this.visits.set(key, { memory: new Map(this.memory), lastZone: this.lastZone, top: this.viewport().scrollTop, rows: new Map(Array.from(this.container.querySelectorAll<HTMLElement>(".browse-row")).map((row, index) => [this.rowKey(row, index), row.scrollLeft])) });
+        const panels = new Map(this.visits.get(key)?.panels);
+        this.container.querySelectorAll<HTMLElement>(".browse-panel-list[data-scroll-key]").forEach(panel => panels.set(panel.dataset.scrollKey ?? "", panel.scrollTop));
+        this.visits.set(key, { memory: new Map(this.memory), lastZone: this.lastZone, top: this.viewport().scrollTop, rows: new Map(Array.from(this.container.querySelectorAll<HTMLElement>(".browse-row")).map((row, index) => [this.rowKey(row, index), row.scrollLeft])), panels });
     }
 
     private applyVisit(visit: VisitSnapshot | undefined): void {
         this.viewport().scrollTop = visit?.top ?? 0;
         this.container.querySelectorAll<HTMLElement>(".browse-row").forEach((row, index) => { row.scrollLeft = visit?.rows.get(this.rowKey(row, index)) ?? 0; });
+        this.container.querySelectorAll<HTMLElement>(".browse-panel-list[data-scroll-key]").forEach(panel => { panel.scrollTop = visit?.panels.get(panel.dataset.scrollKey ?? "") ?? 0; });
     }
 
     private intersects(element: HTMLElement): boolean {
@@ -448,6 +454,7 @@ export class FocusHost {
         }
         event.preventDefault();
         const { zone, zoneIndex, index } = found;
+        if (key === "left" && zone.onLeft !== undefined) { zone.onLeft(); return; }
         const target = moveWithin(zone, zone.items.length, index, key);
         if (target !== undefined) {
             this.focusItem(zone, zone.items[target]);

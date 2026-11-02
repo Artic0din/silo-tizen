@@ -275,7 +275,12 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     };
 
     const forget = async (): Promise<void> => {
-        const result = await forgetStoredCredential(address, core);
+        const chosen = advancedAddress(address, scheme, port);
+        if (!chosen.ok) {
+            showEntry([], true, "forget", text.INVALID_PORT);
+            return;
+        }
+        const result = await forgetStoredCredential(chosen.address, core);
         if (destroyed || host.name !== "entry") {
             return;
         }
@@ -786,6 +791,9 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
                 return;
             }
             current.submitting = false;
+            if (result.status !== "signed_in" && (current.server.session.signedIn || host.name !== "credentials")) {
+                return;
+            }
             switch (result.status) {
                 case "signed_in":
                     signedIn(current, { phase: "signed_in", persistence: result.persistence, previousSession: result.previousSession, passwordChangeRequired: result.passwordChangeRequired });

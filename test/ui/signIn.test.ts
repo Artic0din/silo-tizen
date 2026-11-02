@@ -12,6 +12,7 @@ const IME_DONE = 65376;
 const IME_CANCEL = 65385;
 const MINUTE = 60000;
 const CLOCK_PROTOCOL_MARGIN_MS = 1000;
+const PLAIN = "http://silo.example.test";
 
 let browser: Browser;
 before(async () => {
@@ -115,7 +116,37 @@ tvTest("the address screen explains an unusable address without contacting anyth
     assert.deepEqual(tv.fake.requests, []);
 });
 
-const PLAIN = "http://silo.example.test";
+for (const invalidPort of [false, true]) {
+    tvTest(`offline saved sign-in removal uses Advanced options${invalidPort ? " and rejects an invalid port" : ""}`, async tv => {
+        await connectTo(tv, `${PLAIN}:8090`);
+        await signIn(tv);
+        assert.equal(await tv.page.evaluate(() => window.harness.keyManager?.items.size), 1);
+        await tv.page.evaluate(() => {
+            window.harness.storage.removeItem("silo.native.server");
+            window.harness.mount();
+        });
+        tv.offline = true;
+        await tv.page.fill("#signin-address", "silo.example.test");
+        await tv.page.getByRole("button", { name: "Advanced options", exact: true }).click();
+        await tv.page.locator('[data-focus="scheme-http"]').click();
+        await tv.page.fill("#signin-port", "8090");
+        await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
+        await connectFails(tv, "Could not reach a Silo server at that address.");
+        if (invalidPort) {
+            await tv.page.fill("#signin-port", "70000");
+        }
+        await tv.page.getByRole("button", { name: "Remove saved sign-in", exact: true }).click();
+        if (invalidPort) {
+            await tv.page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+            assert.equal(await tv.page.getByText("Port must be a number between 1 and 65535.", { exact: true }).count(), 1);
+            assert.equal(await tv.page.evaluate(() => window.harness.keyManager?.items.size), 1, "an invalid target never removes a credential");
+        } else {
+            await shows(tv, "Removed this server's saved sign-in from this TV.");
+            assert.equal(await tv.page.evaluate(() => window.harness.keyManager?.items.size), 0, "the HTTP port's credential was removed");
+        }
+    }, { origin: `${PLAIN}:8090` });
+}
+
 
 tvTest("a typed http:// address connects over plain HTTP without asking, as on the Apple TV app", async (tv) => {
     await connectTo(tv, PLAIN);
@@ -937,6 +968,36 @@ tvTest("a phone approval while the password screen is open signs in and moves on
     await tv.eventually(async () => (await handoffs(tv)) === 1, "the handoff");
     assert.equal(loginRequests(tv), 0);
 });
+
+for (const lateReply of ["superseded", "failed"] as const) {
+    tvTest(`a completed phone handoff survives a late ${lateReply} password reply`, async tv => {
+        await holdClock(tv);
+        const code = await openPassword(tv);
+        if (lateReply === "failed") {
+            tv.fake.script("/auth/login", { status: 401, headers: { "Content-Type": "application/problem+json" }, body: fixture("login_invalid_credentials") });
+        }
+        const hold = tv.fake.hold("/auth/login", true);
+        await tv.page.fill("#signin-username", "laura");
+        await tv.page.fill("#signin-password", FAKE_PASSWORD);
+        await tv.page.getByRole("button", { name: "Sign in", exact: true }).click();
+        await shows(tv, "Signing in…");
+        tv.fake.approve(code);
+        await tv.jump(5000);
+        await tv.eventually(async () => tv.fake.devices.get(code)?.status === "consumed", "the phone approval");
+        await tv.jump(1000);
+        await tv.page.getByRole("button", { name: "Continue", exact: true }).waitFor();
+        const response = tv.page.waitForResponse(reply => new URL(reply.url()).pathname.endsWith("/auth/login"));
+        hold.release();
+        await (await response).finished();
+        await tv.page.clock.runFor(16);
+        assert.equal(await tv.page.getByRole("button", { name: "Continue", exact: true }).count(), 1, "the phone's completed handoff owns the screen");
+        await tv.page.getByRole("button", { name: "Continue", exact: true }).click();
+        await tv.eventually(async () => (await handoffs(tv)) === 1, "one handoff");
+        if (lateReply === "superseded") {
+            await tv.eventually(async () => tv.fake.revokedSessions.size === 1, "the superseded password session to be revoked");
+        }
+    }, { sessionOnly: true });
+}
 
 tvTest("leaving during a password sign-in revokes its late answer and hands nothing over", async (tv) => {
     await openPassword(tv);

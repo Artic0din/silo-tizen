@@ -255,10 +255,17 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     try { imageCapability = rememberedImages(options.publicStorage?.getItem(imageKey)); }
     catch { /* Missing optional cache data leaves the capability probe in charge. */ }
     let imageProbe: Promise<ImageCapabilities | undefined> | undefined;
+    let homeUsesFallbackArtwork = false;
+    function upgradeHomeArtwork(): void {
+        if (torn || playing || top() !== home || loading !== undefined || !hasData(home) || home.failure !== undefined || !homeUsesFallbackArtwork) return;
+        if (Object.keys(homeArtworkQuery(imageCapability, window.devicePixelRatio)).length > 0) loadRoute(home, true);
+    }
     const probeImages = (): Promise<ImageCapabilities | undefined> => imageProbe ??= session.call({ ...operations.imageCapabilities(), profileScoped: true, signal: requestsController.signal }).then(found => {
+        if (torn) return undefined;
         imageCapability = found;
         try { options.publicStorage?.setItem(imageKey, JSON.stringify({ state: found.state, param: found.param, sizes: found.sizes, slot_width_params: found.slotWidthParams })); }
         catch { /* Cache persistence cannot turn a successful capability probe into a failure. */ }
+        upgradeHomeArtwork();
         return found;
     }, () => undefined);
     void probeImages();
@@ -621,8 +628,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     current.pages.page = { items: row.items.filter(card => destinationOf(card) !== undefined), total: row.items.length, totalExact: false, nextCursor: undefined };
                 }, quiet);
                 return;
-            case "home":
+            case "home": {
                 presentation.ensure();
+                const artworkQuery = homeArtworkQuery(imageCapability, window.devicePixelRatio);
                 load(current, (signal) => Promise.all([
                     read(operations.listUserLibraries(), signal),
                     // The hidden list is the profile's own preference, not an access limit: when it
@@ -633,16 +641,19 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                         }
                         throw error;
                     }),
-                    read(operations.listHomeSections(homeArtworkQuery(imageCapability, window.devicePixelRatio)), signal),
+                    read(operations.listHomeSections(artworkQuery), signal),
                 ]), ([libraries, hidden, sections]) => {
                     const focus = host.focused();
                     current.data = { libraries: visibleLibraries(libraries, hidden), sections };
+                    homeUsesFallbackArtwork = Object.keys(artworkQuery).length === 0;
                     shell.update(current.data.libraries);
                     homeDetails.load(homeRows(sections).flatMap(row => row.cards.map(card => ({ card, continuing: row.continuing }))));
                     // Changed tabs replace the nav nodes, including the still-present avatar.
-                    return focus?.zone === "nav" ? focus : undefined;
+                    queueMicrotask(upgradeHomeArtwork);
+                    return quiet || focus?.zone === "nav" ? focus : undefined;
                 }, quiet);
                 return;
+            }
             case "library":
                 current.discovery ??= discoveryState();
                 if (current.discovery.data !== undefined && (current.discovery.mode === "Recently Added" || current.discovery.mode === "A–Z" || current.discovery.genre !== undefined)) {
@@ -929,6 +940,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         } else if ((current.kind === "home" || current.kind === "for_you") && current.data !== undefined) {
             const sections = current.kind === "home" ? current.data.sections : current.data;
             homeDetails.load(homeRows(sections).flatMap(row => row.cards.map(card => ({ card, continuing: current.kind === "home" && row.continuing }))));
+            if (current.kind === "home") upgradeHomeArtwork();
         }
     };
 

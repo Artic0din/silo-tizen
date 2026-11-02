@@ -1,0 +1,27 @@
+{
+  "cold": {
+    "width": 300,
+    "height": 169,
+    "focus": "episode-tvdb-384968-3-3",
+    "cards": 156,
+    "alerts": 0
+  },
+  "ready": {
+    "width": 3840,
+    "height": 2160,
+    "focus": "episode-tvdb-384968-3-3",
+    "cards": 156,
+    "alerts": 0
+  },
+  "home_requests": [
+    "/api/v2/home/sections?image_size=small",
+    "/api/v2/home/sections?image_size=medium&logo_width=1760&backdrop_width=2688"
+  ],
+  "capability_status": 200,
+  "frame": {
+    "x": 691.1953125,
+    "y": 0,
+    "width": 1228.796875,
+    "height": 756
+  }
+}

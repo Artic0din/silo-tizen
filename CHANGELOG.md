@@ -32,6 +32,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Upgraded cold Home artwork after image sizing became available while retaining the selected title and cached metadata.
 - Preserved mixed-library shortcut scope, open dropdown focus during late menu updates, and unfinished Home metadata reads after visiting For You.
 - Made the Browse recovery regression verify every retained title without rejecting valid post-retry prefetch.
 - Made the Browse append-failure regression use remote scrolling so a pending focus animation could not undo its setup, and report recovery state if it failed.

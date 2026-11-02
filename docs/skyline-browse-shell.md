@@ -147,6 +147,10 @@ Apple's native 960×540 frame is displayed at 100%, and the current 1920×1080 T
 On the Compact profile, current measurements are y596 for the first heading, y939.99 for the next heading, and 357.92×198.85 for focused landscape artwork, against Apple's 358.8×199 accessibility frame.
 The [focused poster capture](screenshots/107-home/home-poster.png) is current Tizen evidence only, without a matching Apple frame.
 The simulator uses Chromium 137 with a legacy Tizen user-agent string, so it establishes this software runtime's rendering rather than physical Tizen 8/AVPlay compatibility.
+The [actual S95C capture](screenshots/107-home/home-actual-tv.png) records PR #112's `117314f` build on Tizen 9 / Chromium 120; restored and fresh device-code sign-in, profile selection, Home and native AVPlay playback were exercised.
+AVPlay reported H.264 1920×1080 with stereo audio and a position advancing from 184367 to 185369 ms over a one-second sample; start, progress and stop requests succeeded, and the app returned to Home.
+The debugger reported no uncaught JavaScript exceptions or HTTP error responses, but did record blocked data-image and plugin-object policy errors tracked in [#113](https://github.com/Artic0din/silo-tizen/issues/113), plus one loading failure without diagnostic text.
+The physical-TV capture was made with the debugger attached and `document.hasFocus` false, so it does not establish focused appearance or full visual parity; physical Tizen 8 and other media formats remain untested.
 Expanded rows keep one page of at most 24 cards, explicit paging and Retry/Back controls, and restore the originating Home row focus and scroll on Back.
 
 Holding Select for 650 ms opens card actions; a shorter down/up invokes the card's existing Details or Continue Watching activation once.

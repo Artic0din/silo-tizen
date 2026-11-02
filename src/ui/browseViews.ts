@@ -26,6 +26,8 @@ export interface ViewContext {
     /** Home captions episodes with their series and an `S01E02 · Pilot` line, as Apple TV does. */
     readonly homeCaptions?: boolean;
     readonly posterScale?: () => number;
+    /** Standard poster width for a section grid; Home keeps its existing row width. */
+    readonly posterWidth?: number;
     /** The profile's poster badges, read when a Home row renders; undefined while unknown, failed or off. */
     readonly cardOverlays?: () => CardOverlayPrefs | undefined;
     /** Home rows draw poster badges (Apple MediaRow and EpisodeThumbCard); other card screens do not. */
@@ -127,7 +129,7 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     // Badges sit under the progress bar and the watched tick, which win a shared corner.
     const saved = continuing ? context.savedFileOverlay?.(card) : undefined;
     const scale = context.homeCaptions === true ? context.posterScale?.() ?? 1 : 1;
-    const badges = context.overlays === undefined ? undefined : overlayLayer(saved === undefined ? card : { ...card, overlay: saved }, context.overlays, continuing ? "wide" : "poster", (continuing ? HOME_STILL_WIDTH : HOME_POSTER_WIDTH) * scale);
+    const badges = context.overlays === undefined ? undefined : overlayLayer(saved === undefined ? card : { ...card, overlay: saved }, context.overlays, continuing ? "wide" : "poster", (continuing ? HOME_STILL_WIDTH : context.posterWidth ?? HOME_POSTER_WIDTH) * scale);
     if (badges !== undefined) element.firstElementChild?.insertBefore(badges, element.firstElementChild.querySelector(".skyline-progress"));
     if (card.played === true) {
         const tick = el("span", "browse-watched");

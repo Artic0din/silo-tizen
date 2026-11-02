@@ -119,6 +119,9 @@ export class FakeCatalog implements CatalogRoutes {
         }
         const household = profileId === undefined ? undefined : this.households.get(profileId);
         if (household !== undefined) {
+            if (body?.source === "section" && ["q", "name_prefix", "match", "type", "genre", "year_min", "year_max", "content_rating", "status", "sort", "order", "query_limit"].some(key => body[key] !== undefined)) {
+                return problem(422, "validation_failed", "Section sources do not allow query overlays");
+            }
             if (body?.type === "video_with_episodes" && body.source !== undefined && body.source !== "query") {
                 return problem(422, "validation_failed", "Unsupported search scope");
             }

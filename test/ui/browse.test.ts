@@ -933,9 +933,9 @@ for (const [tab, library, first] of [["movies", "12", "movie:m0001"], ["series",
         await showing(tv, `library:${library}`);
         assert.equal(await tv.focused(), first);
         await tv.page.locator('[data-focus="section:library-picks"]').click();
-        await shows(tv, "Page 1");
-        assert.ok(tv.fake.requests.some(request => request.path.startsWith(`/library/${library}/sections/library-picks/items`)));
-        assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).slice(-1)[0]?.body, { library_id: library, type: tab === "movies" ? "movie" : "series", limit: 24, sort: "title", order: "asc", source: "section", scope: "library", section_id: "library-picks" });
+        await tv.page.locator(".section-catalog-title").waitFor();
+        await tv.page.locator(".section-catalog-grid .browse-card").first().waitFor();
+        assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).slice(-1)[0]?.body, { library_id: library, limit: 60, source: "section", scope: "library", section_id: "library-picks" });
         await tv.remote(BACK);
         assert.equal(await tv.focused(), "section:library-picks");
         await tv.page.locator('[data-focus="mode:Collections"]').click();

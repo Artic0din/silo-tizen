@@ -1,4 +1,25 @@
 /* Native browse screens, 1920x1080, targeting Tizen 8.0's Chromium 108 engine. */
+.browse.section-catalog { padding: 56px 80px; font-weight: 400; }
+.section-catalog * { font-family: var(--silo-font); font-weight: inherit; }
+.section-catalog-title { margin: 0; height: 64px; font-size: 56px; line-height: 64px; font-weight: 700; text-align: center; color: #454545; }
+.section-catalog-count { margin: 42px auto 0; font-size: 22px; line-height: 26px; color: var(--silo-secondary); }
+.browse-grid.section-catalog-grid { grid-template-columns: repeat(var(--section-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; width: 1664px; margin: 48px auto; padding: 0 0 48px; }
+.section-catalog-title + .section-catalog-grid { margin-top: 116px; }
+.section-catalog-grid .browse-card { width: calc(260px * var(--section-scale, 1)); margin: 0; padding: 0; border: 0; border-radius: 0; transition: none; }
+.section-catalog-grid .browse-card:focus { transform: none; box-shadow: none; }
+.section-catalog-grid .browse-art { width: calc(260px * var(--section-scale, 1)); height: calc(390px * var(--section-scale, 1)); border-radius: 12px; transition: transform 150ms ease-out; }
+.section-catalog-grid .browse-card:focus .browse-art { transform: scale(var(--section-lift)); box-shadow: 0 18px 36px rgba(0,0,0,.6); }
+.section-catalog-grid .browse-card-title { margin: 22px 0 4px; padding: 0; font-size: 24px; line-height: 29px; font-weight: 500; color: rgba(237,237,237,.45); }
+.section-catalog-grid .browse-card-subtitle { margin: 0; padding: 0; font-size: 20px; line-height: 24px; font-weight: 400; color: rgba(237,237,237,.32); }
+.section-catalog-grid .browse-card:focus .browse-card-title { color: #fff; font-weight: 600; }
+.section-catalog-grid .browse-card:focus .browse-card-subtitle { color: rgba(255,255,255,.92); font-weight: 500; }
+.section-catalog-grid .browse-card:focus .browse-card-title, .section-catalog-grid .browse-card:focus .browse-card-subtitle { transform: translateY(5px); text-shadow: 0 0 10px rgba(255,255,255,.45), 0 0 3px rgba(255,255,255,.25); }
+.section-catalog-state { margin: 220px 0 16px; font-size: 36px; font-weight: 600; text-align: center; outline: none; }
+.section-catalog-state ~ .browse-text { text-align: center; font-size: 26px; }
+.section-catalog-loading { width: 40px; height: 40px; margin: 0 auto 48px; border: 4px solid var(--silo-secondary); border-top-color: var(--silo-text); border-radius: 50%; }
+@media (prefers-reduced-motion: reduce) {
+    .section-catalog-grid .browse-card:focus .browse-art { transform: none; transition: none; }
+}
 .skyline-home { font-family: var(--silo-font); font-weight: 400; }
 /* Platform-wide font rules must not replace the packaged face or the component's inherited weight. */
 .skyline-home * { font-family: inherit; font-weight: inherit; }

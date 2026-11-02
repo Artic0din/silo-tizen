@@ -19,6 +19,8 @@ export interface BrowseHarness {
     mount(): void;
     resume(): void;
     destroy(): void;
+    failPublicStorage(read: boolean, write: boolean): void;
+    hasImageCapabilityCache(): boolean;
     /** As the profile screens do on Switch profile: clear the profile, which ends browse's authority. */
     clearProfile(): void;
     logout(): Promise<void>;
@@ -120,6 +122,13 @@ const harness: BrowseHarness = {
     },
     destroy() {
         browse?.destroy();
+    },
+    failPublicStorage(read, write) {
+        publicStorage.failGet = read;
+        publicStorage.failSet = write;
+    },
+    hasImageCapabilityCache() {
+        return publicStorage.getItem(`silo.imageCapability:${connected().server.serverId}`) !== null;
     },
     clearProfile() {
         connected().profiles.clear();

@@ -12,10 +12,18 @@ export class FakeSettings {
     revision = 24;
     allowed = true;
     supportsBatchedEffective = true;
+    clientFamilies: string[] = ["tv"];
+    supportsAtomicShortcuts = true;
+    cardClientFamily: string | undefined;
     constrained = false;
+    /** `GET /settings/overlay-config`; undefined answers 404. */
+    overlayConfig: { enabled: boolean; defaults?: string } | undefined = { enabled: true };
     constructor(fake: FakeSilo) {
         const catalog = fake.catalog;
-        fake.catalog = { route: (method, path, profile, body, headers) => this.route(method, path, profile, body, headers?.["x-silo-device-id"]) ?? catalog?.route(method, path, profile, body, headers) };
+        fake.catalog = { route: (method, path, profile, body, headers) => {
+            if (path.includes("ui.card_presentation")) this.cardClientFamily = headers?.["x-silo-client-family"];
+            return this.route(method, path, profile, body, headers?.["x-silo-device-id"]) ?? catalog?.route(method, path, profile, body, headers);
+        } };
     }
     profile(id = "p-owner"): Map<SettingsKey, SettingValue> {
         let rows = this.rows.get(id);
@@ -31,8 +39,9 @@ export class FakeSettings {
     private route(method: string, path: string, profile: string | undefined, body: Record<string, unknown> | undefined, device?: string): Reply | undefined {
         const url = new URL(path, "https://fake.invalid");
         const pathname = url.pathname;
-        if (pathname === "/settings/contract/capabilities") return { status: 200, body: { api_version: 1, revision: "opaque-24", manifest_revision: this.revision, state: "available", allowed: this.allowed, scopes: ["profile", "profile_device"], supports_batched_effective: this.supportsBatchedEffective } };
+        if (pathname === "/settings/contract/capabilities") return { status: 200, body: { api_version: 1, revision: "opaque-24", manifest_revision: this.revision, state: "available", allowed: this.allowed, scopes: ["profile", "profile_client", "profile_device"], supports_batched_effective: this.supportsBatchedEffective, supports_atomic_shortcuts: this.supportsAtomicShortcuts, client_families: this.clientFamilies } };
         if (pathname === "/settings/contract") return { status: 200, body: fixture("settings_contract_ok") };
+        if (pathname === "/settings/overlay-config") return this.overlayConfig === undefined ? problem(404, "not_found", "Not found") : { status: 200, body: { quick_actions_enabled: false, quick_actions_default: "both", ...this.overlayConfig } };
         if (!pathname.startsWith("/settings/values")) return undefined;
         if (profile === undefined) return problem(422, "validation_failed", "Profile required");
         const scope = url.searchParams.get("scope") ?? "profile";
@@ -53,7 +62,7 @@ export class FakeSettings {
                         ...(source === "default" ? {} : { scope: source, profile_id: profile, ...(source === "profile_device" ? { device_id: device } : {}), source_context: { profile_id: profile, ...(source === "profile_device" ? { device_id: device } : {}) } }) };
                 }
                 const override = this.overrides.has(typed);
-                const value = override ? this.overrides.get(typed) : rows.has(typed) ? rows.get(typed) : typed === QUALITY_KEY ? "auto" : typed === SEEK_BACK_KEY ? 10 : typed === SEEK_FORWARD_KEY ? 30 : null;
+                const value = override ? this.overrides.get(typed) : rows.has(typed) ? rows.get(typed) : key === "ui.card_presentation" ? { poster_size: "standard", caption: "title_metadata" } : typed === QUALITY_KEY ? "auto" : typed === SEEK_BACK_KEY ? 10 : typed === SEEK_FORWARD_KEY ? 30 : null;
                 return { key, value, source: override ? "profile_device" : rows.has(typed) ? "profile" : "default", definition_revision: this.revision, ...(this.constrained && typed === AUDIO_KEY ? { constrained: true, requested_value: rows.get(typed) ?? null, permitted_values: [null, "en"] } : {}) };
             });
             return { status: 200, body: { items, revision: this.revision } };

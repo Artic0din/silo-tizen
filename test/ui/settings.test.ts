@@ -23,6 +23,8 @@ async function setup() {
     await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner"));
     await tv.page.evaluate(() => window.browseHarness.mount());
     await tv.page.locator('[data-view="home"]').waitFor();
+    // Home reads title art and poster badges when it loads; let those settle before scripting settings replies.
+    await tv.eventually(async () => ["keys=ui.title_art", "keys=ui.card_overlays"].every(key => tv.fake.requests.some(request => request.path.startsWith("/settings/values/effective?") && request.path.includes(key))), "Home settings reads");
     return { tv, settings };
 }
 async function openSettings(tv: Tv): Promise<void> {
@@ -327,5 +329,33 @@ test("bitrate uncertain readback keeps the draft and Retry checks the committed 
         assert.equal(await tv.page.locator(".settings").count(), 0);
         assert.equal(tv.fake.requests.filter(r => r.method === "PUT").length, 2);
         assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("Server settings open Acknowledgements with TMDB's logo and required notice, and Back returns to the row", async () => {
+    const { tv } = await setup();
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="server"]').click();
+        assert.equal(await tv.page.locator(".settings-section-header").innerText(), "ABOUT");
+        await tv.page.getByRole("button", { name: "Acknowledgements", exact: true }).click();
+        const credits = tv.page.locator(".acknowledgements-document");
+        await credits.waitFor();
+        const count = tv.fake.requests.length;
+        assert.equal(await tv.focused(), "document", "the document is the first focus stop, as Apple's overlay");
+        assert.equal(await tv.page.locator(".acknowledgements-eyebrow").innerText(), "CREDITS");
+        const logo = credits.locator("img.acknowledgements-logo");
+        assert.equal(await logo.getAttribute("alt"), "TMDB");
+        await tv.eventually(async () => await logo.evaluate(image => (image as HTMLImageElement).naturalWidth > 0), "TMDB logo");
+        await credits.getByText("This application uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by TMDB.", { exact: true }).waitFor();
+        await credits.getByText("These names and logos belong to their owners. Silo is not affiliated with or endorsed by them.", { exact: true }).waitFor();
+        await tv.page.keyboard.press("ArrowUp");
+        assert.equal(await tv.focused(), "done", "Up from the top of the document reaches Done");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "document");
+        await tv.remote(10009);
+        await tv.page.getByRole("button", { name: "Acknowledgements", exact: true }).waitFor();
+        assert.equal(await tv.focused(), "acknowledgements", "Back returns to the row that opened it");
+        assert.equal(tv.fake.requests.length, count, "credits are local and read nothing");
     } finally { await tv.page.context().close(); }
 });

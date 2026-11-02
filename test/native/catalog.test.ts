@@ -34,14 +34,31 @@ test("browse fixtures decode with the production decoders", () => {
         year: 1995,
         posterUrl: "https://s3.example.test/poster.jpg",
         backdropUrl: undefined,
+        backdropThumbhash: undefined,
         overview: undefined,
         runtimeMinutes: 170,
         durationSeconds: 10200,
         positionSeconds: 1200.5,
+        progressUpdatedAt: "2026-01-02T03:04:05.000Z",
         seriesId: undefined,
         seriesTitle: undefined,
         seasonNumber: undefined,
         episodeNumber: undefined,
+        seriesBackdropUrl: undefined,
+        contentRating: "R",
+        genres: ["Crime"],
+        overlay: { resolution: "4K", hdr: "Dolby Vision", audio: undefined, audioChannels: undefined, videoCodec: undefined, container: undefined, aspectRatio: undefined, releaseType: undefined, edition: undefined, multiAudio: undefined, multiSub: undefined },
+        played: false,
+        logoUrl: undefined,
+        ratingImdb: 8.3,
+        ratingTmdb: undefined,
+        ratingRtCritic: undefined,
+        ratingRtAudience: undefined,
+        advisoryAge: undefined,
+        originalLanguage: undefined,
+        studios: undefined,
+        networks: undefined,
+        showStatus: undefined,
     });
 
     const page = decodeCatalogPage(fixture("list_catalog_items_ok"));
@@ -73,6 +90,16 @@ test("Home featured is a boolean independent of the opaque section identity and 
     assert.equal(decodeHomeSections({ sections: [{ ...section, featured: true }] })[0]?.featured, true);
     assert.equal(decodeHomeSections({ sections: [section] })[0]?.featured, false);
     assert.throws(() => decodeHomeSections({ sections: [{ ...section, featured: "true" }] }), WireError);
+});
+
+test("Home backdrop ThumbHashes retain strings and reject malformed wire values", () => {
+    const raw = fixture("list_home_sections_ok") as { sections: { items: Record<string, unknown>[] }[] };
+    const card = raw.sections[0]?.items[0];
+    assert.ok(card);
+    card.backdrop_thumbhash = "1QcSHQRnh493V4dIh4eXh1h4kJUI";
+    assert.equal(decodeHomeSections(raw)[0]?.items[0]?.backdropThumbhash, card.backdrop_thumbhash);
+    card.backdrop_thumbhash = ["invalid"];
+    assert.throws(() => decodeHomeSections(raw), WireError);
 });
 
 test("unknown media and library kinds decode as unknown; wrong shapes fail without echoing values", () => {

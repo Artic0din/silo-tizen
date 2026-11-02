@@ -8,7 +8,7 @@ import type { Browser } from "playwright";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
 const IME_DONE = 65376;
@@ -46,6 +46,7 @@ function browseTest(name: string, body: (tv: Tv, catalog: FakeCatalog) => Promis
                 household.hidden = [];
             }
             await signedInBrowse(tv, catalog, start.profile ?? "p-owner", start.pin);
+            if (await tv.page.locator('[data-view="home"]').count() === 1) await homeDetailsRead(tv);
             await body(tv, catalog);
             assert.deepEqual(tv.console, [], "the page logs nothing");
         } finally {
@@ -278,7 +279,7 @@ for (const aggregate of ["series", "season"]) {
             await tv.remote(BACK);
             await showing(tv, `item:${episodeId}`);
             await tv.eventually(async () => await tv.page.getByRole("button", { name: played ? "Mark unwatched" : "Mark watched", exact: true }).count() === 1, "covered episode reflects the aggregate change");
-            assert.equal(browseReads(tv, "/catalog/items/episode%3As1e12").length, 2);
+            assert.equal(browseReads(tv, "/catalog/items/episode%3As1e12").length, 3, "Home's one load-time read, then Details' read and its refresh");
             assert.equal(catalog.mutations.length, 1);
         }, { catalog: new FakeDetails() });
     }
@@ -1047,7 +1048,7 @@ browseTest("Skyline keeps bounded type tabs and a passive debounced marquee", as
     assert.equal(await tv.focused(), "episode:s1e12");
     assert.equal(await tv.page.locator(".skyline-marquee h1").textContent(), "Movie 0001");
     await tv.jump(150);
-    assert.equal(await tv.page.locator(".skyline-marquee h1").last().textContent(), "Harbor Lights chapter 1.2");
+    assert.equal(await tv.page.locator(".skyline-marquee h1").last().textContent(), "Harbor Lights", "episodes headline with their series");
     assert.equal(tv.fake.requests.length, reads);
 });
 
@@ -1065,8 +1066,8 @@ browseTest("row scrolling has intermediate frames without delaying focus", async
 });
 
 browseTest("Continue Watching keeps landscape geometry when backdrop or progress metadata is missing", async (tv) => {
-    const boxes = await tv.page.locator('[data-section="continue_watching"] .browse-art').evaluateAll((nodes) => nodes.map((node) => ({ width: node.clientWidth, height: node.clientHeight })));
-    assert.deepEqual(boxes, [{ width: 372, height: 209 }, { width: 372, height: 209 }]);
+    const boxes = await tv.page.locator('[data-section="continue_watching"] .browse-card:not(.skyline-explore) .browse-art').evaluateAll((nodes) => nodes.map((node) => ({ width: node.clientWidth, height: node.clientHeight })));
+    assert.deepEqual(boxes, [{ width: 360, height: 200 }, { width: 360, height: 200 }]);
 });
 
 browseTest("Continue Watching uses section type rather than its opaque identity", async (tv, catalog) => {
@@ -1079,8 +1080,8 @@ browseTest("Continue Watching uses section type rather than its opaque identity"
     section.title = "Resume";
     await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
     await tv.page.locator('[data-section="shelf-resume-opaque"] .browse-art').first().waitFor();
-    const boxes = await tv.page.locator('[data-section="shelf-resume-opaque"] .browse-art').evaluateAll((nodes) => nodes.map((node) => ({ width: node.clientWidth, height: node.clientHeight })));
-    assert.deepEqual(boxes, [{ width: 372, height: 209 }, { width: 372, height: 209 }]);
+    const boxes = await tv.page.locator('[data-section="shelf-resume-opaque"] .browse-card:not(.skyline-explore) .browse-art').evaluateAll((nodes) => nodes.map((node) => ({ width: node.clientWidth, height: node.clientHeight })));
+    assert.deepEqual(boxes, [{ width: 360, height: 200 }, { width: 360, height: 200 }]);
 });
 
 browseTest("a populated Home changes route without copying every descendant's computed styles", async (tv, catalog) => {
@@ -1110,9 +1111,10 @@ browseTest("a populated Home changes route without copying every descendant's co
     await showing(tv, "library:loading");
     const snapshot = tv.page.locator(".skyline-route-outgoing");
     assert.equal(await snapshot.getAttribute("aria-hidden"), "true");
-    assert.equal(await snapshot.locator(".browse-card").count(), 120);
+    assert.equal(await snapshot.locator(".browse-card:not(.skyline-explore)").count(), 120);
+    assert.equal(await snapshot.locator(".skyline-explore").count(), 6);
     assert.equal(await snapshot.locator(".browse-nav, [data-focus]").count(), 0);
-    assert.deepEqual(await snapshot.locator(".browse-art").first().evaluate((node) => ({ width: node.clientWidth, height: node.clientHeight })), { width: 208, height: 312 });
+    assert.deepEqual(await snapshot.locator(".browse-art").first().evaluate((node) => ({ width: node.clientWidth, height: node.clientHeight })), { width: 176, height: 264 });
     response.release();
     await showing(tv, "library:12");
     assert.equal(await tv.focused(), "movie:m0001");

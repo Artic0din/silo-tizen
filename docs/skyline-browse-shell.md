@@ -84,15 +84,73 @@ Keys contain server identity, profile identity and video type, and stored choice
 Credentials are never stored here.
 
 Marquee fields come from `CatalogItem` at the pinned `src/contracts/v2/SOURCE` revision.
-Backdrop, overview, runtime, duration and resume position are optional.
+Backdrop, series backdrop, logo, overview, runtime, duration, resume position, content rating, genres, IMDb and TMDB scores, `overlay_summary` and `user_state.played` are optional.
 Missing metadata stays absent; the client does not request details on focus or invent badges.
+The marquee follows the [Apple TV marquee](https://github.com/Silo-Server/silo-apple/blob/1a7cceeaf3b2bfc4f889c00487d19b2c6f843940/iosApp/iosApp/tvOS/Components/TVFocusMarquee.swift) at the installed Apple build `1a7ccee`.
+The row name is spoken but not drawn.
+Episodes headline with their series and use the series backdrop; the episode moves to the meta line (`S9 E8 · Fire Drill · 22m · 14m left`).
+Movies and series show `year · genre · runtime`; time left appears only in Continue Watching.
+The content rating leads the meta line as a chip, and resolution, dynamic range and audio from `overlay_summary` follow as chips.
+Movies and series add one score after the meta text: IMDb, else TMDB, out of 10 with one decimal, as a dimmed text mark and a bold score.
+TMDB scores use TMDB's approved logo instead of a text mark, as Apple does; Settings > Server > Acknowledgements carries the notice TMDB's terms require (see `app/third-party/README.md`).
+The card's `logo_url` replaces the text title once the image loads, aspect-fit inside 880×200 on Home and 880×150 on a library landing.
+Logos follow Apple `TitleArtPreferences`: they show unless the server's last confirmed `ui.title_art` answer for this server and profile is off.
+That answer comes from the same capability, contract and effective-value reads Details uses and is kept on the TV, so a pending or failed read keeps it and a server without the key drops it.
+Home uses medium row artwork on a server that advertises it, with the 1344 px backdrop fill and 880 px logo slots when per-slot widths are supported, scaled by device pixel ratio.
+An unknown or older image API retains the small-artwork fallback.
+The probe runs once per Home session, and its last answer for the server is remembered so Home does not wait for it.
+Apple reads item detail when focus rests for the aired-date and cast line and for Continue Watching's last-played file.
+Tizen never reads on focus: when Home's rows load it reads detail once for each distinct title Home draws, four at a time, Continue Watching first, through the same `getCatalogItem` request Details sends.
+Answers are kept for the Home session; a reload reads only titles not read yet and Continue Watching titles whose `progress_updated_at` moved.
+The aired line (`Aired 12 Mar 2026 · first three billed cast`, in an Australian region) fills in place when its answer lands and keeps its space until then.
+Dates follow the device region and retain the server's calendar day.
+Detail also supplies a runtime or content rating omitted by a row, without replacing the row's confirmed values.
+Continue Watching's chips and card badges describe the file in `user_data.last_file_id` when the item still has that file; otherwise they keep `overlay_summary`, the server's best file, and never guess.
+Rows stay usable while the reads run, and focus moves only look answers up.
 Continue Watching keeps landscape geometry, using its backdrop or cropping its poster when no backdrop is available.
-Home ignores sections whose server `featured` flag is true.
-Continue Watching comes first, followed by existing personalized recommendation rows with their server titles, then the remaining rows.
-The server's order within each group and additive section types remain intact; no duplicate recommendation feed is requested.
-Each row retains at most 24 cards and a remote-reachable See All action.
-See All uses the existing catalog query with `source=section`, `scope=home` and the opaque `section_id`, without overriding media type, sorting or filters.
+Home cards follow Apple `MediaCard` and `EpisodeThumbCard`: standard 176×264 posters and 360×200 Continue Watching stills, 40 px apart.
+The effective `ui.card_presentation` value is read for the `tv` client family through the existing presentation-settings owner; Compact, Standard and Large scale artwork by 0.86, 1 and 1.2.
+The last confirmed size is cached per server/profile, a transient failure keeps it, an older incompatible server restores Standard, and optional storage failure does not block a successful in-memory answer.
+Poster badge sizes use the actual scaled artwork width; Continue Watching badges retain their fixed wide-card size.
+Episode cards are captioned with their series and an `S01E02 · Pilot` line.
+Unfocused captions dim; focus brightens and drops the caption below a lift of the artwork only.
+The lift size comes from Apple's measured native card lift (about 38 px of height), not from the tvOS system effect itself.
+With reduced motion the artwork does not grow and shows Apple's 4 px focus ring instead.
+Continue Watching's heading carries a drawn play-circle mark; Apple's SF Symbol is not bundled.
+Watched titles show a check disc on every card.
+Home cards draw the profile's poster badges (Apple `CardOverlays`): the profile's `ui.card_overlays` document wins outright, else the administrator's baseline from `/settings/overlay-config`, else the registry defaults.
+The profile's `ui.card_overlays_enabled` choice overrides the server-wide default in either direction.
+As in Apple `OverlayPrefsStore`, the registry defaults show until the reads answer; a failed read keeps that half's last answer, so a known administrator or profile off stays off.
+Poster badges scale from Apple's 185 px poster reference; Continue Watching badges keep their size and clear the progress bar.
+Brand marks (DV, HDR10, ATMOS, AV1) are text as in Apple; Apple's other badge icons are SF Symbols and are not drawn.
+The settings are read when Home loads and again after Settings closes, never on focus.
+Home shows non-empty rows in the server's profile order, matching the Apple TV client.
+Sections whose server `featured` flag is true render as ordinary rows.
+Additive section types remain intact; no duplicate recommendation feed is requested.
+Each row retains at most 20 media cards and a remote-reachable Explore all tile, following `SectionRowLimit` and `SectionExploreAllCard`.
+The tile uses the row's artwork size and has a drawn arrow in place of the unavailable SF Symbol; its stable focus key and existing row-page destination are preserved.
+Explore all uses the existing catalog query with `source=section`, `scope=home` and the opaque `section_id`, without overriding media type, sorting or filters.
 This preserves server-resolved membership, preferences, episode cards and cursor order.
+
+Home's row band begins at y596 with height 484, and the bottom-anchored marquee frame is at x88/y256, 880×280, at the 1920×1080 logical viewport.
+Rows start at x80 and retain an 80 px trailing reveal clearance.
+The top bar uses the packaged 96 px wordmark, 26 px semibold labels, 56 px tab capsules and 58 px icon targets; this slice preserves its existing destinations and ordering.
+The backdrop follows `TVRootHeroBackdrop`: a top-right 1228.8×756 artwork block with multiplied horizontal/vertical masks, a 190 px top scrim and sampled base/accent/shadow washes over black.
+Home uses image capabilities already known at request time; a cold launch immediately uses small artwork while the optional probe runs, and later loads use the cached sizing without a late-answer reload or focus change.
+Canvas sampling first uses the already loaded image; a tainted canvas tries a separate anonymous CORS image without breaking the displayed image.
+If sampling is refused, the matching backdrop ThumbHash supplies the wash, or black when there is no valid hash; an episode-still hash is never used with its series backdrop.
+Real local HTTP tests cover allowed/refused CORS while retaining visible artwork, but do not establish the packaged TV's origin policy.
+Inter is the licensed substitute for SF Pro; drawn symbols and CSS lift/ring approximate native focus effects, with no claim of tvOS parallax or specular equivalence.
+Continue Watching uses a separately measured landscape lift: the Compact still is about 199 px high when focused, including `EpisodeThumbCard`'s 1.025 scale; the poster's 38 px lift does not apply to stills.
+The [Home comparison](screenshots/107-home/home-comparison.png) pairs this signed candidate in Samsung's software simulator with the historical Apple r13 frame in the same Continue Watching state; the earlier Tizen r13 build is not used as current-build proof.
+Apple's native 960×540 frame is displayed at 100%, and the current 1920×1080 Tizen frame at 50%, without upscaling.
+On the Compact profile, current measurements are y596 for the first heading, y939.99 for the next heading, and 357.92×198.85 for focused landscape artwork, against Apple's 358.8×199 accessibility frame.
+The [focused poster capture](screenshots/107-home/home-poster.png) is current Tizen evidence only, without a matching Apple frame.
+The simulator uses Chromium 137 with a legacy Tizen user-agent string, so it establishes this software runtime's rendering rather than physical Tizen 8/AVPlay compatibility.
+The [actual S95C capture](screenshots/107-home/home-actual-tv.png) records PR #112's `117314f` build on Tizen 9 / Chromium 120; restored and fresh device-code sign-in, profile selection, Home and native AVPlay playback were exercised.
+AVPlay reported H.264 1920×1080 with stereo audio and a position advancing from 184367 to 185369 ms over a one-second sample; start, progress and stop requests succeeded, and the app returned to Home.
+The debugger reported no uncaught JavaScript exceptions or HTTP error responses, but did record blocked data-image and plugin-object policy errors tracked in [#113](https://github.com/Artic0din/silo-tizen/issues/113), plus one loading failure without diagnostic text.
+The physical-TV capture was made with the debugger attached and `document.hasFocus` false, so it does not establish focused appearance or full visual parity; physical Tizen 8 and other media formats remain untested.
 Expanded rows keep one page of at most 24 cards, explicit paging and Retry/Back controls, and restore the originating Home row focus and scroll on Back.
 
 Holding Select for 650 ms opens card actions; a shorter down/up invokes the card's existing Details or Continue Watching activation once.

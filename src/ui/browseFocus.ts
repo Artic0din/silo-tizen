@@ -206,6 +206,11 @@ export class FocusHost {
         return found === undefined ? undefined : { zone: found.zone.id, key: found.item.key };
     }
 
+    revealFocused(): void {
+        const element = this.locate(document.activeElement)?.item.element;
+        if (element !== undefined) this.scroll.reveal(element, this.container);
+    }
+
     private viewport(): HTMLElement {
         return this.container.querySelector<HTMLElement>(".skyline-content") ?? this.container;
     }

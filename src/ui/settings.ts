@@ -6,8 +6,12 @@ import { el } from "./screen.ts";
 import { remoteKey } from "./keys.ts";
 import { SettingsState } from "./settingsState.ts";
 import type { ProfileLaunch } from "../session/profileLaunch.ts";
+import { acknowledgementsDocument } from "./acknowledgements.ts";
 
-type Category = "general" | "playback";
+type Category = "general" | "playback" | "server";
+const CATEGORY_LABELS = { general: "General", playback: "Playback", server: "Server" } as const;
+/** Apple scrolls its Acknowledgements document by remote presses while the document holds focus. */
+const DOCUMENT_STEP = 160;
 type Picker = "hidden" | "audio" | "quality" | "bitrate" | "seek-back" | "seek-forward";
 const PICKER_KEYS = { hidden: HIDDEN_KEY, audio: AUDIO_KEY, quality: QUALITY_KEY, bitrate: BITRATE_KEY, "seek-back": SEEK_BACK_KEY, "seek-forward": SEEK_FORWARD_KEY } as const;
 const PICKER_LABELS = { hidden: "Hidden libraries", audio: "Preferred audio", quality: "Preferred quality", bitrate: "Maximum bitrate", "seek-back": "Video rewind interval", "seek-forward": "Video fast-forward interval" } as const;
@@ -20,7 +24,8 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     const host = new FocusHost(container);
     let category: Category = "general";
     let picker: Picker | undefined;
-    let returnRow: Picker = "hidden";
+    let returnRow: Picker | "acknowledgements" = "hidden";
+    let acknowledging = false;
     let bitrateDraft = "";
     let bitrateError: string | undefined;
     let torn = false;
@@ -60,13 +65,22 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     const exit = (): void => { const changed = state.hiddenChanged; destroy(); close(changed); };
     const rowFocus = (): FocusTarget => ({ zone: "settings-rows", key: returnRow });
     const back = (): void => {
-        if (picker !== undefined) { picker = undefined; render(rowFocus()); }
+        if (acknowledging) { acknowledging = false; render(rowFocus()); }
+        else if (picker !== undefined) { picker = undefined; render(rowFocus()); }
         else if (host.focused()?.zone !== "settings-categories") render({ zone: "settings-categories", key: category });
         else exit();
     };
     const onKey = (event: KeyboardEvent): void => {
         const key = remoteKey(event);
-        if (picker === undefined && key === "left" && host.focused()?.zone === "settings-rows") {
+        const credits = container.querySelector<HTMLElement>(".acknowledgements-document");
+        if (acknowledging && credits !== null && host.focused()?.key === "document" && (key === "up" || key === "down")) {
+            // The document scrolls until an edge; Up from its top then reaches Done.
+            const before = credits.scrollTop;
+            credits.scrollTop += key === "down" ? DOCUMENT_STEP : -DOCUMENT_STEP;
+            if (credits.scrollTop !== before || key === "down") event.preventDefault();
+            return;
+        }
+        if (picker === undefined && !acknowledging && key === "left" && host.focused()?.zone === "settings-rows") {
             event.preventDefault();
             render({ zone: "settings-categories", key: category });
         }
@@ -196,19 +210,44 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         host.show({ name: `settings:${picker}`, content, zones: [{ id: "settings-picker", layout: "column", items: controls }], focus: { zone: "settings-picker", key: "back" }, back }, undefined);
     };
 
+    const renderAcknowledgements = (): void => {
+        const done = actionButton("done", "Done", back);
+        const credits = acknowledgementsDocument();
+        credits.tabIndex = 0;
+        credits.setAttribute("data-focus", "document");
+        credits.setAttribute("aria-label", "Acknowledgements and open-source licenses");
+        const panel = el("div", "acknowledgements-panel");
+        const heading = el("div", "acknowledgements-heading");
+        heading.append(el("p", "acknowledgements-eyebrow", "CREDITS"), el("h1", "acknowledgements-title", "Acknowledgements"));
+        const header = el("div", "acknowledgements-header");
+        header.append(heading, zoneNode("acknowledgements-actions", [done]));
+        panel.append(header, credits);
+        host.show({ name: "settings:acknowledgements", content: [panel], zones: [
+            { id: "acknowledgements-actions", layout: "row", down: "acknowledgements-document", items: [done] },
+            { id: "acknowledgements-document", layout: "column", up: "acknowledgements-actions", items: [{ key: "document", element: credits }] },
+        ], focus: { zone: "acknowledgements-document", key: "document" }, back }, undefined);
+    };
+
     function render(focus?: FocusTarget): void {
         if (torn) return;
+        if (acknowledging) { renderAcknowledgements(); return; }
         if (picker !== undefined) { renderPicker(); return; }
-        const categories = (["general", "playback"] as const).map(id => {
-            const item = actionButton(id, id === "general" ? "General" : "Playback", () => { category = id; returnRow = id === "general" ? "hidden" : "audio"; render(rowFocus()); });
+        const categories = (["general", "playback", "server"] as const).map(id => {
+            const item = actionButton(id, CATEGORY_LABELS[id], () => { category = id; returnRow = id === "general" ? "hidden" : id === "playback" ? "audio" : "acknowledgements"; render(rowFocus()); });
             item.element.setAttribute("aria-current", id === category ? "page" : "false");
             item.element.addEventListener("focus", () => { if (category !== id) { category = id; render({ zone: "settings-categories", key: id }); } });
             return item;
         });
         const rows: FocusItem[] = [];
         const body = el("div", "settings-pane");
-        body.append(el("h2", "browse-section-title", category === "general" ? "General" : "Playback"), ...feedback());
-        const pickers: readonly Picker[] = category === "general" ? ["hidden"] : ["audio", "quality", "bitrate", "seek-back", "seek-forward"];
+        body.append(el("h2", "browse-section-title", CATEGORY_LABELS[category]), ...(category === "server" ? [] : feedback()));
+        const pickers: readonly Picker[] = category === "general" ? ["hidden"] : category === "playback" ? ["audio", "quality", "bitrate", "seek-back", "seek-forward"] : [];
+        if (category === "server") {
+            // Apple's Server pane: an ABOUT section whose Acknowledgements row opens the credits.
+            const item = actionButton("acknowledgements", "Acknowledgements", () => { acknowledging = true; returnRow = "acknowledgements"; render(); });
+            body.append(el("h3", "settings-section-header", "ABOUT"), item.element);
+            rows.push(item);
+        }
         const titleArt = state.effective.get(TITLE_ART_KEY);
         if (category === "general" && state.loaded && titleArt !== undefined) {
             const all = titleArt.source === "profile";
@@ -246,7 +285,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         }
         if (state.loaded && rows.length === 0) body.appendChild(el("p", "browse-text", "No supported settings in this category."));
         const settingRows = rows.length;
-        rows.push(...retryButton());
+        if (category !== "server") rows.push(...retryButton());
         rows.push(actionButton("settings-back", "Back", back));
         body.classList.add("settings-controls");
         body.appendChild(zoneNode("settings-controls", rows.slice(settingRows)));

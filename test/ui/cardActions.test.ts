@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -18,6 +18,7 @@ async function start(tv: Tv, catalog = new FakeDetails()): Promise<FakeDetails> 
     await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner"));
     await tv.page.evaluate(() => window.browseHarness.mount());
     await tv.page.locator('[data-section="recently_added"] .browse-card').first().waitFor();
+    await homeDetailsRead(tv);
     return catalog;
 }
 const origin = (tv: Tv, continuing = false) => tv.page.locator(`[data-section="${continuing ? "continue_watching" : "recently_added"}"] [data-focus="movie:m0001"]`);
@@ -35,6 +36,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await tv.page.emulateMedia({ reducedMotion });
             await start(tv);
             await origin(tv, continuing).focus();
+            const before = tv.fake.requests.length;
             await tv.page.keyboard.down("Enter");
             assert.equal(await tv.page.locator('.browse').getAttribute("data-view"), "home", "first Enter default must be prevented");
             await tv.jump(400);
@@ -45,8 +47,9 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await menu(tv).getByRole("button", { name: "Mark watched", exact: true }).waitFor();
             assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays), []);
             assert.deepEqual((tv.fake.catalog as FakeDetails).mutations, []);
-            assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/catalog/items/")).length, 1);
-            assert.equal(tv.fake.requests.filter(r => /recommendations|settings\/contract/.test(r.path)).length, 0, "personal startup skips unrelated reads");
+            assert.equal(tv.fake.requests.slice(before).filter(r => r.path.startsWith("/catalog/items/")).length, 1);
+            // Home itself reads the settings contract for title art when it loads; the card action reads nothing unrelated.
+            assert.equal(tv.fake.requests.slice(before).filter(r => /recommendations|settings\/contract/.test(r.path)).length, 0, "personal startup skips unrelated reads");
             await tv.remote(10009);
             assert.equal(await menu(tv).count(), 0, "modal Back precedes Skyline capture");
             assert.equal(await tv.focused(), "movie:m0001");
@@ -103,6 +106,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) for (const can
             await tv.page.emulateMedia({ reducedMotion });
             await start(tv);
             await origin(tv).focus();
+            const before = tv.fake.requests.length;
             assert.equal(await tv.down(13), true, "first Select is cancelled");
             await tv.jump(300);
             if (cancel === "arrow") await tv.remote(39);
@@ -115,7 +119,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) for (const can
             await tv.jump(1000);
             await tv.up(13);
             assert.equal(await menu(tv).count(), 0);
-            assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/catalog/items/")).length, 0);
+            assert.equal(tv.fake.requests.slice(before).filter(r => r.path.startsWith("/catalog/items/")).length, 0);
             assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays), []);
             assert.deepEqual(tv.console, []);
         } finally { await tv.page.context().close(); }
@@ -126,11 +130,12 @@ test("card actions pointer contextmenu shares the menu, plain left click retains
     const tv = await openTv(browser, { app: "browse" });
     try {
         await start(tv);
+        const before = tv.fake.requests.length;
         await origin(tv).click({ button: "right" });
         await menu(tv).getByRole("button", { name: "Add favorite", exact: true }).waitFor();
         await origin(tv).dispatchEvent("contextmenu");
         assert.equal(await menu(tv).count(), 1);
-        assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/catalog/items/")).length, 1);
+        assert.equal(tv.fake.requests.slice(before).filter(r => r.path.startsWith("/catalog/items/")).length, 1);
         await menu(tv).getByRole("button", { name: "Close", exact: true }).click();
         await origin(tv).click();
         await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();

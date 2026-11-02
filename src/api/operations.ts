@@ -34,6 +34,7 @@ import {
     decodeHiddenLibraries,
     decodeHomeSections,
     decodeItemDetail,
+    decodeMarqueeDetail,
     decodeSeasons,
     decodeUserLibraries,
     decodeWatchDetail,
@@ -41,10 +42,12 @@ import {
     HIDDEN_LIBRARIES_KEY,
     type HomeSection,
     type ItemDetail,
+    type MarqueeDetail,
     type Season,
     type UserLibrary,
 } from "../contracts/v2/catalog.ts";
 import type { RequestSpec } from "./http.ts";
+import { decodeImageCapabilities, type ImageCapabilities } from "../contracts/v2/images.ts";
 import { discoveryOperations } from "./discoveryOperations.ts";
 import { settingsOperations } from "./settingsOperations.ts";
 import { trickplayOperations } from "./trickplayOperations.ts";
@@ -255,10 +258,12 @@ export const operations = {
         retry: "safe",
         decode: decodeHiddenLibraries,
     }),
+    /** getImageCapabilities: how image-bearing reads may size their artwork. */
+    imageCapabilities: (): Spec<ImageCapabilities> => ({ method: "GET", path: "/images/capabilities", retry: "safe", decode: decodeImageCapabilities }),
     /** listHomeSections: every section with its first cards, bounded by each section's item_limit. */
-    listHomeSections: (): Spec<HomeSection[]> => ({
+    listHomeSections: (slotWidths: Readonly<Record<string, string>> = {}): Spec<HomeSection[]> => ({
         method: "GET",
-        path: `/home/sections${query({ image_size: LIST_IMAGES })}`,
+        path: `/home/sections${query({ image_size: LIST_IMAGES, ...slotWidths })}`,
         retry: "safe",
         decode: decodeHomeSections,
     }),
@@ -282,6 +287,13 @@ export const operations = {
         path: `/catalog/items/${encodeURIComponent(contentId)}${query({ image_size: DETAIL_IMAGES })}`,
         retry: "safe",
         decode: decodeItemDetail,
+    }),
+    /** getCatalogItem, read for the fields the Home marquee and Continue Watching cards add (the same request as Details'). */
+    marqueeDetail: (contentId: string): Spec<MarqueeDetail> => ({
+        method: "GET",
+        path: `/catalog/items/${encodeURIComponent(contentId)}${query({ image_size: DETAIL_IMAGES })}`,
+        retry: "safe",
+        decode: decodeMarqueeDetail,
     }),
     /** listSeriesSeasons: bounded, unpaginated. */
     listSeriesSeasons: (seriesId: string): Spec<Season[]> => ({

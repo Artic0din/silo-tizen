@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Aligned Home's backdrop, row and marquee placement, poster-size preferences, artwork resolution, wordmark and control dimensions with the Apple TV source.
+- Kept Home available while the optional artwork-capability probe was pending, using small artwork until sizing was known.
 - Required Tizen 8.0 or later and targeted its Chromium 108 web engine; TVs on earlier OS versions must upgrade before installing new releases.
 - Documented signed-package simulator evidence and Apple TV comparisons, and corrected the retired backend guidance.
 - Redrew the sign-in screens in the Apple TV layout: Silo wordmark, a drifting brand-light backdrop with grain and the server's accent, glass cards, a server card with its mark and a Secure or HTTP badge, the QR code and code in a card beside the instructions, and the Apple TV wording for every code state; Back now waits while a server connects.
@@ -22,15 +24,24 @@ All notable changes to this project are documented in this file.
 - Continued series episodes automatically with a cancellable countdown when the server-synced autoplay preference was enabled.
 - Added the server-enabled Requests hub, discovery and search, title requests, My Requests, cancellation and follow controls with safe profile changes and return focus.
 - Applied profile subtitle appearance and timing to text subtitles and added persistent series subtitle choices, including Off.
+- Added a Server pane to Settings with Acknowledgements, crediting TMDB and the other rating sources and listing the open source code in the app.
 
 ### Fixed
 
+- Kept Home artwork visible when palette sampling was refused, filled missing marquee metadata from detail, followed regional air dates, and capped shelves at 20 titles with an Explore all tile.
 - Kept active password fields and TV keyboards intact when device sign-in became unavailable, updating the phone controls without redrawing the form.
 - Preserved the original handoff pause when returning to code sign-in after phone approval instead of starting another code.
 - Kept completed phone sign-ins intact when password replies arrived late, and removed saved sign-ins from the protocol and port selected in Advanced options.
 - Preserved active password fields and completed sign-in handoffs when provider discovery arrived late, and renewed expired codes after repeated unknown poll responses.
 - Made the HTTP badge visibly unlocked, calibrated the cleartext alert's measured frame and translucent surface, and aligned sign-in instruction wrapping and spacing with Apple TV.
 
+- Kept Home metadata current after playback and Home usable when the TV could not save optional presentation caches.
+
+- Home kept the server's profile row order and showed featured rows as ordinary rows, matching Apple TV, instead of moving Continue Watching and recommendations first and hiding featured rows.
+- Home's marquee and rows matched Apple TV more closely: series-first episode headlines, rating and file chips, Apple-sized posters and stills, series captions, dimmed captions with an artwork-only focus lift, and watched checks on cards.
+- Home showed title logos unless the profile turned title art off, an IMDb or TMDB score in the marquee with TMDB's logo, and the profile's poster badges from its badge settings.
+- Home's marquee showed the aired date and billed cast, and Continue Watching showed the file the viewer last played, from detail read once when Home loads.
+- Home asked for sharper title logos on servers that take per-slot image widths.
 - Restored interrupted playback after connection loss and app return while preserving position, track choices, pause intent and profile authority.
 
 - Kept each library mode's scroll and focus through Details, playback, Settings and interrupted loads, revealed clipped shelf cards on return, and stopped focused cards from growing with reduced motion.

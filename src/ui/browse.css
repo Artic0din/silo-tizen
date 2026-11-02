@@ -1,5 +1,7 @@
-/* Native browse screens, 1920x1080. Chrome 76: no flex gap, aspect-ratio, inset, clamp() or
-   :focus-visible, so spacing is margins and card sizes are fixed (GRID_COLUMNS in browseViews.ts). */
+/* Native browse screens, 1920x1080, targeting Tizen 8.0's Chromium 108 engine. */
+.skyline-home { font-family: var(--silo-font); font-weight: 400; }
+/* Platform-wide font rules must not replace the packaged face or the component's inherited weight. */
+.skyline-home * { font-family: inherit; font-weight: inherit; }
 
 /* Settings shares the browse focus grammar and one scrollable control pane. */
 .settings { overflow-y: auto; }
@@ -15,6 +17,21 @@
 .settings .browse-button:focus { outline: none; background: #fff; color: #000; border-color: #fff; }
 .settings-input { box-sizing: border-box; }
 .settings-value { color: var(--silo-secondary); font-size: 26px; line-height: 1.4; margin: 0 0 32px; }
+/* Apple TVSettingsSectionHeader. */
+.settings-section-header { margin: 26px 0 6px; padding: 0 24px; font-size: 19px; font-weight: 600; letter-spacing: 1.2px; color: rgba(237,237,237,.6); }
+/* Apple TVOpenSourceAcknowledgementsOverlay: a 1500 x 900 elevated panel over a dimmed screen, the document as one focus stop. */
+.acknowledgements-panel { position: fixed; z-index: 20; top: 90px; left: 210px; box-sizing: border-box; display: flex; flex-direction: column; width: 1500px; height: 900px; padding: 40px; background: #15171c; border: 1px solid rgba(255,255,255,.09); border-radius: 32px; box-shadow: 0 0 0 100vmax rgba(0,0,0,.82); }
+.acknowledgements-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+.acknowledgements-eyebrow { margin: 0 0 7px; font: 600 15px/1.2 ui-monospace, monospace; letter-spacing: 2px; color: rgba(237,237,237,.6); }
+.acknowledgements-title { margin: 0; font-size: 38px; font-weight: 600; color: #ededed; }
+.acknowledgements-panel .browse-button { width: 210px; font-size: 24px; font-weight: 600; }
+.acknowledgements-document { flex: 1; overflow-y: auto; padding: 4px 8px; border-radius: 12px; outline: none; }
+.acknowledgements-document:focus { box-shadow: 0 0 0 3px #fff; }
+.acknowledgements-credit { margin-bottom: 28px; }
+.acknowledgements-name { margin: 0 0 6px; font-size: 24px; font-weight: 600; color: #ededed; }
+.acknowledgements-logo { display: block; height: 20px; margin: 2px 0 8px; }
+.acknowledgements-detail { margin: 0 0 6px; font-size: 20px; line-height: 1.35; color: rgba(237,237,237,.6); }
+.acknowledgements-license { margin: 12px 0 0; font: 20px/1.4 ui-monospace, monospace; color: #ededed; }
 .settings [aria-disabled="true"] { opacity: .7; }
 
 /* Pushed Details pages: editorial hero and remote-reachable rails, no root chrome. */
@@ -338,13 +355,13 @@
 .skyline-preview { padding-top: 545px; }
 .browse-nav { position: fixed; z-index: 5; top: 56px; left: 88px; width: 1744px; height: 64px; display: flex; align-items: center; margin: 0; transition: opacity 200ms; }
 .skyline-muted { opacity: .7; }
-.skyline-wordmark { font-size: 26px; font-weight: 800; letter-spacing: .34em; }
+.skyline-wordmark { display: block; width: 96px; height: auto; }
 .skyline-tabs { position: absolute; left: 50%; transform: translateX(-50%); display: flex; }
 .skyline-tools { margin-left: auto; display: flex; align-items: center; }
-.browse-nav .browse-button { height: 64px; margin: 0 8px 0 0; padding: 11px 26px; border: 1px solid transparent; border-radius: 40px; background: transparent; color: rgba(237,237,237,.62); font-size: 23px; }
+.browse-nav .browse-button { height: 56px; margin: 0 8px 0 0; padding: 0 29px; border: 1px solid transparent; border-radius: 40px; background: transparent; color: rgba(237,237,237,.62); font-size: 26px; font-weight: 600; }
 .browse-nav .browse-button[aria-current="page"] { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.1); color: #ededed; }
 .browse .browse-button:focus { background: #fff; color: #000; box-shadow: none; border-color: #fff; }
-.browse-nav .skyline-search, .browse-nav .skyline-profile { position: relative; width: 52px; height: 52px; padding: 0; margin-left: 22px; margin-right: 0; }
+.browse-nav .skyline-search, .browse-nav .skyline-profile { position: relative; width: 58px; height: 58px; padding: 0; margin-left: 22px; margin-right: 0; }
 .skyline-search::before { content: ""; position: absolute; width: 18px; height: 18px; border: 2px solid currentColor; border-radius: 50%; top: 12px; left: 12px; }
 .skyline-search::after { content: ""; position: absolute; width: 12px; height: 2px; background: currentColor; transform: rotate(45deg); left: 29px; top: 33px; }
 .browse-nav .skyline-profile { border-radius: 50%; font-weight: 700; background: var(--silo-elevated); }
@@ -361,14 +378,13 @@
 .skyline-selector .browse-button { display: block; width: 100%; margin: 0; padding: 16px 18px; font-size: 22px; border: 0; background: transparent; color: #ededed; white-space: normal; overflow-wrap: break-word; text-align: left; }
 .skyline-marquee { position: fixed; top: 218px; left: 88px; width: 880px; height: 280px; pointer-events: none; }
 .skyline-marquee-layer { animation: skyline-appear 240ms ease-out; }
-.skyline-marquee-layer { position: absolute; top: 0; left: 0; width: 880px; }
+.skyline-marquee-layer { position: absolute; bottom: 0; left: 0; width: 880px; }
 .skyline-marquee-layer.skyline-outgoing { opacity: 0; transition: opacity 240ms; }
 .skyline-backdrop, .skyline-scrim { position: fixed; top: 0; left: 0; width: 1920px; height: 1080px; z-index: -2; }
 .skyline-backdrop { object-fit: cover; }
 .skyline-scrim { z-index: -1; background: linear-gradient(0deg, #000 10%, rgba(0,0,0,.4) 54%, rgba(0,0,0,.42)), linear-gradient(90deg, rgba(0,0,0,.8), transparent); }
-.skyline-synopsis { max-width: 780px; max-height: 64px; overflow: hidden; font-size: 22px; line-height: 1.45; color: rgba(237,237,237,.6); }
 .skyline-library { padding-top: 510px; }
-.skyline-library .skyline-marquee { top: 246px; }
+.skyline-library .skyline-marquee { top: 246px; height: 250px; }
 .skyline-library .skyline-title { font-size: 66px; max-height: 136px; }
 .skyline-pills { position: fixed; top: 150px; left: 88px; width: 1744px; z-index: 4; }
 .skyline-pills.person-filmography-filters { position: static; width: auto; margin-bottom: 24px; }
@@ -408,6 +424,14 @@
 .skyline-content { position: fixed; top: 180px; left: 88px; width: 1744px; height: 900px; overflow: hidden; }
 .skyline-preview .skyline-content { top: 545px; height: 535px; }
 .skyline-library .skyline-content { top: 510px; height: 570px; }
+.skyline-home .skyline-content { top: 596px; height: 484px; left: 0; width: 1920px; padding-left: 80px; }
+.skyline-home .skyline-marquee { top: 256px; }
+.skyline-home .home-section .browse-row { margin-left: -80px; padding-left: 80px; --reveal-end: 80px; }
+.skyline-home .skyline-hero-backdrop { position: fixed; inset: 0; width: 1920px; height: 1080px; z-index: -2; pointer-events: none; }
+.skyline-home .skyline-tint-wash { position: absolute; inset: 0; background: #000; }
+.skyline-home .skyline-art-frame { position: absolute; top: 0; left: 691.2px; width: 1228.8px; height: 756px; overflow: hidden; mask-image: linear-gradient(to bottom, #000 0%, #000 38%, rgba(0,0,0,.88) 52%, rgba(0,0,0,.58) 68%, rgba(0,0,0,.24) 81%, transparent 90%); }
+.skyline-home .skyline-backdrop { position: static; display: block; width: 100%; height: 100%; object-fit: cover; mask-image: linear-gradient(to left, #000 0%, #000 32%, transparent 100%); }
+.skyline-home .skyline-top-scrim { position: absolute; top: 0; left: 0; width: 100%; height: 190px; background: linear-gradient(rgba(0,0,0,.5), transparent); }
 .skyline-grid .skyline-content { top: 228px; height: 852px; }
 .skyline-grid .browse-grid { width: 1680px; }
 .browse-card, .browse-episode { color: #ededed; }
@@ -415,10 +439,32 @@
 .browse-input:focus { box-shadow: none; }
 .browse-episode:focus { background: #fff; color: #000; box-shadow: none; }
 .browse-episode:focus .browse-card-subtitle { color: rgba(0,0,0,.6); }
-.skyline-eyebrow { margin: 0 0 18px; font-size: 17px; font-weight: 700; letter-spacing: .3em; text-transform: uppercase; }
-.skyline-eyebrow::before { content: ""; display: inline-block; vertical-align: middle; width: 26px; height: 3px; margin-right: 16px; background: rgba(255,255,255,.85); }
-.skyline-title { margin: 0 0 20px; font-size: 84px; line-height: .98; font-weight: 800; max-height: 166px; overflow: hidden; }
-.skyline-meta { margin: 0; font-size: 20px; color: rgba(237,237,237,.6); }
+/* Marquee block: Apple TVMarqueeBlock and SiloTheme.Skyline (silo-apple 1a7ccee), bottom-anchored, 14px apart. */
+.silo-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.skyline-title { margin: 0 0 14px; font-size: 84px; line-height: .98; font-weight: 800; color: #fff; text-shadow: 0 4px 10px rgba(0,0,0,.5); max-height: 166px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.skyline-meta-line { display: flex; align-items: center; max-width: 780px; height: 27px; margin: 0 0 14px; white-space: nowrap; }
+.skyline-meta { display: flex; align-items: baseline; min-width: 0; overflow: hidden; white-space: nowrap; font-size: 20px; font-weight: 500; color: rgba(237,237,237,.6); }
+.skyline-library .skyline-meta { font-size: 19px; }
+.skyline-chip { flex-shrink: 0; display: inline-block; margin-right: 10px; padding: 5px 10px; border: 1px solid rgba(255,255,255,.24); border-radius: 6px; background: rgba(255,255,255,.07); color: rgba(255,255,255,.92); font-size: 15px; font-weight: 600; letter-spacing: 1.2px; line-height: 1.2; }
+.skyline-synopsis { max-width: 780px; margin: 0 0 14px; overflow: hidden; font-size: 22px; line-height: 28px; color: rgba(237,237,237,.6); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.skyline-title-wrapped .skyline-synopsis, .skyline-library .skyline-synopsis { -webkit-line-clamp: 2; }
+.skyline-meta-lead, .skyline-meta-trailing { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.skyline-meta-dot { flex-shrink: 0; white-space: pre; }
+/* Apple RatingEntryView at the meta size: a dimmed semibold text mark at 0.87x, 0.35x apart from a bold score. */
+.skyline-rating { flex-shrink: 0; }
+.skyline-rating-mark { margin-right: 7px; font-size: 17px; font-weight: 600; opacity: .72; }
+.skyline-rating-score { font-weight: 700; font-variant-numeric: tabular-nums; }
+/* TMDB's approved logo replaces its text mark at the score's cap height (0.7x), undimmed, on the baseline. */
+.skyline-rating-logo { height: 14px; width: auto; margin-right: 7px; vertical-align: baseline; }
+.skyline-library .skyline-rating-logo { height: 13px; }
+/* Apple marquee logo: aspect-fit inside 880 x 200 (Home) or 880 x 150 (library), leading. */
+.skyline-title.skyline-title-logo { display: block; max-height: none; overflow: visible; text-shadow: none; line-height: 0; }
+.skyline-logo { display: block; max-width: 880px; max-height: 200px; }
+.skyline-library .skyline-logo { max-height: 150px; }
+/* Apple detailLine: one line at the meta size, medium weight, on-surface at half opacity, synopsis width. */
+.skyline-detail-line { max-width: 780px; height: 24px; margin: 0 0 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 20px; line-height: 24px; font-weight: 500; color: rgba(237,237,237,.5); }
+.skyline-library .skyline-detail-line { font-size: 19px; }
+.skyline-badges { display: flex; align-items: center; height: 27px; }
 .browse-section { margin-bottom: 32px; position: relative; }
 .browse-section-title { font-size: 30px; font-weight: 700; margin-bottom: 20px; }
 .browse-row { padding: 12px 8px; }
@@ -427,9 +473,57 @@
 .browse-row .browse-art { width: 208px; height: 312px; border-radius: 12px; }
 .browse-card:focus { transform: scale(1.05); border-color: #fff; box-shadow: 0 12px 30px rgba(0,0,0,.7); }
 .browse-card-title { font-size: 20px; }
+/* Watched tick on every card (Apple MediaCard/EpisodeThumbCard): 40px #EDEDED disc, check drawn in CSS. */
+.browse-watched { position: absolute; top: 12px; right: 12px; width: 40px; height: 40px; border-radius: 50%; background: #ededed; box-shadow: 0 0 4px rgba(0,0,0,.3); }
+.browse-watched::after { content: ""; position: absolute; left: 14px; top: 8px; width: 9px; height: 18px; border: solid #000; border-width: 0 4px 4px 0; transform: rotate(45deg); }
+.skyline-continue .browse-watched { top: 14px; right: 14px; }
+/* Poster badges (Apple CardOverlays); per-preset sizes and colours are set inline from the badge document. */
+.card-overlays { position: absolute; top: 0; right: 0; bottom: 0; left: 0; pointer-events: none; }
+.card-overlay-stack { position: absolute; display: flex; flex-direction: column; }
+.card-overlay { display: inline-flex; align-items: center; line-height: 1.2; text-transform: uppercase; white-space: nowrap; }
+.card-overlay-mark { font-weight: 800; letter-spacing: .2px; }
+/* Home rows: Apple MediaRow, MediaCard and EpisodeThumbCard (silo-apple 1a7ccee). The content reaches into a
+   40px gutter so a lifted first card is never clipped; cards still start at the 88px edge. */
+.skyline-preview:not(.skyline-library):not(.skyline-home) .skyline-content { left: 48px; width: 1824px; padding-left: 40px; }
+.home-section { margin: 0; }
+.home-section .browse-section-title { margin: 0; font-size: 36px; font-weight: 600; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.home-row-glyph { position: relative; display: inline-block; vertical-align: -4px; width: 32px; height: 32px; margin-right: 14px; border-radius: 50%; background: #ededed; }
+.home-row-glyph::after { content: ""; position: absolute; top: 9px; left: 12px; border-style: solid; border-width: 7px 0 7px 11px; border-color: transparent transparent transparent #000; }
+.home-section .browse-row { margin-left: -40px; padding: 34px 40px 24px; }
+.home-section .browse-card { width: 176px; margin: 0 40px 0 0; border: 0; border-radius: 0; transition: none; }
+.home-section .browse-card:focus { transform: none; box-shadow: none; }
+.home-section .browse-art { width: 176px; height: 264px; border-radius: 12px; transition: transform var(--silo-fast) ease-out, box-shadow var(--silo-fast) ease-out; }
+/* Apple measures the native .card lift as ~38pt of added height at any size: (264 + 38) / 264. */
+.home-section .browse-card:focus .browse-art { transform: scale(1.144); }
+.home-section .browse-card.skyline-continue { width: 360px; }
+.home-section .skyline-continue .browse-art { width: 360px; height: 200px; box-shadow: 0 4px 8px rgba(0,0,0,.2); }
+/* Landscape lift is calibrated separately from posters; Home supplies the size-dependent value. */
+.home-section .skyline-continue:focus .browse-art { transform: scale(1.22); box-shadow: 0 10px 20px rgba(0,0,0,.5); }
+.skyline-home .home-section .browse-card, .skyline-home .home-section .browse-art { width: calc(176px * var(--poster-scale, 1)); }
+.skyline-home .home-section .browse-art { height: calc(264px * var(--poster-scale, 1)); }
+.skyline-home .home-section .skyline-continue, .skyline-home .home-section .skyline-continue .browse-art { width: calc(360px * var(--poster-scale, 1)); }
+.skyline-home .home-section .skyline-continue .browse-art { height: calc(200px * var(--poster-scale, 1)); }
+.skyline-home .home-section .browse-card:focus .browse-art { transform: scale(var(--row-lift, 1.144)); }
+.skyline-home .home-section .skyline-continue:focus .browse-art { transform: scale(var(--still-lift, 1.22)); }
+.home-section .browse-card-title, .home-section .browse-card-subtitle { padding: 0; line-height: 1.2; transition: color var(--silo-fast) ease-out, text-shadow var(--silo-fast) ease-out, transform var(--silo-fast) ease-out; }
+.home-section .browse-card-title { margin: 22px 0 0; font-size: 24px; font-weight: 500; color: rgba(237,237,237,.45); }
+.home-section .browse-card-subtitle { margin: 4px 0 0; font-size: 20px; font-weight: 400; color: rgba(237,237,237,.32); }
+.home-section .skyline-continue .browse-card-title { margin-top: 14px; }
+.home-section .browse-card:focus .browse-card-title { color: #fff; font-weight: 600; }
+.home-section .browse-card:focus .browse-card-subtitle { color: rgba(255,255,255,.92); font-weight: 500; }
+.home-section .skyline-explore .skyline-explore-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 8px; border: 1px solid rgba(255,255,255,.08); background: #15171c; color: #ededed; }
+.skyline-explore-icon { display: flex; align-items: center; justify-content: center; width: 66px; height: 66px; margin-bottom: 18px; border-radius: 50%; background: rgba(237,237,237,.12); }
+.skyline-explore-icon svg { width: 30px; height: 30px; }
+.skyline-explore-label { font-size: 24px; font-weight: 500; white-space: nowrap; }
+/* Focused captions glow and drop clear of the lift: 19 + 8 - 22 for posters, 19 + 8 - 14 for stills. */
+.home-section .browse-card:focus .browse-card-title, .home-section .browse-card:focus .browse-card-subtitle { transform: translateY(5px); text-shadow: 0 0 10px rgba(255,255,255,.45), 0 0 3px rgba(255,255,255,.25); }
+.home-section .skyline-continue:focus .browse-card-title, .home-section .skyline-continue:focus .browse-card-subtitle { transform: translateY(13px); }
 @keyframes skyline-appear { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
+  .skyline-home .home-section .browse-card:focus .browse-art, .skyline-home .home-section .skyline-continue:focus .browse-art { transform: none; }
   .browse-card:focus { transform: none; }
+    /* No growth: Apple's non-motion card focus ring (tvFocusRing, 4px white at 90%) marks the art instead. */
+    .home-section .browse-card:focus .browse-art, .home-section .skyline-continue:focus .browse-art { transform: none; box-shadow: 0 0 0 4px rgba(255,255,255,.9); }
     .browse *, .browse *::before, .browse *::after { animation: none !important; transition: none !important; }
     .skyline-route-outgoing { display: none; animation: none; }
 }

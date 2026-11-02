@@ -2,11 +2,14 @@ import type { Clock } from "../api/clock.ts";
 import type { Card, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { PublicStorage } from "../session/deviceIdentity.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
-import { artworkUrl, episodeLabel } from "./browseModel.ts";
+import { artworkUrl } from "./browseModel.ts";
+import { marqueeBadges, marqueeMeta, marqueeRating, marqueeTitle } from "./cardPresentation.ts";
 import { actionButton, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
+import { TMDB_LOGO_PATH } from "./acknowledgements.ts";
 import { SkylineScroll } from "./skylineScroll.ts";
 import { remoteKey } from "./keys.ts";
+import { heroBackdrop, type Tints } from "./heroBackdrop.ts";
 import type { LibraryMode } from "./libraryDiscovery.ts";
 import { PERSONAL_TITLES, type PersonalSource } from "./personalLists.ts";
 
@@ -23,6 +26,35 @@ interface ProfileMenu {
 function replaceNodes(container: HTMLElement, nodes: readonly HTMLElement[]): void {
     while (container.firstChild !== null) container.removeChild(container.firstChild);
     for (const node of nodes) container.appendChild(node);
+}
+
+function renderMetaLine(card: Card, continuing: boolean): HTMLElement {
+    const metaLine = el("div", "skyline-meta-line");
+    const rating = card.contentRating?.trim();
+    if (rating) metaLine.appendChild(el("span", "skyline-chip", rating.toUpperCase()));
+    const meta = marqueeMeta(card, continuing);
+    const score = marqueeRating(card);
+    if (meta.lead.length > 0 || score !== undefined || meta.trailing.length > 0) {
+        // The rating keeps its width; the text around it truncates first (Apple metaText).
+        const text = el("span", "skyline-meta");
+        const parts: HTMLElement[] = [];
+        if (meta.lead.length > 0) parts.push(el("span", "skyline-meta-lead", meta.lead.join(" · ")));
+        if (score !== undefined) {
+            const entry = el("span", "skyline-rating");
+            entry.setAttribute("aria-label", `${score.name} ${score.display}`);
+            if (score.name === "TMDB") {
+                const logo = el("img", "skyline-rating-logo");
+                logo.alt = "";
+                logo.src = TMDB_LOGO_PATH;
+                entry.append(logo, el("span", "skyline-rating-score", score.display));
+            } else entry.append(el("span", "skyline-rating-mark", score.name), el("span", "skyline-rating-score", score.display));
+            parts.push(entry);
+        }
+        if (meta.trailing.length > 0) parts.push(el("span", "skyline-meta-trailing", meta.trailing.join(" · ")));
+        parts.forEach((part, index) => { if (index > 0) text.appendChild(el("span", "skyline-meta-dot", " · ")); text.appendChild(part); });
+        metaLine.appendChild(text);
+    }
+    return metaLine;
 }
 
 /** Root chrome owns no requests. Only explicit activation changes the route or library. */
@@ -57,6 +89,7 @@ export class Skyline {
     private cancelDwell = (): void => undefined;
     private cancelPreview = (): void => undefined;
     private previewId: string | undefined;
+    private readonly tints = new Map<string, Tints>();
     private selected = "home";
     private scopes = new Map<VideoTab, string>();
     private visible = false;
@@ -69,6 +102,12 @@ export class Skyline {
     private readonly storage: PublicStorage | undefined;
     private readonly storageKey: string;
     private readonly baseUrl: string;
+    /** Whether the profile's title-art setting lets a logo replace the marquee title. */
+    titleArt: () => boolean = () => false;
+    filled: (card: Card) => Card = card => card;
+    /** What Home's detail reads added for a title: the aired and cast line, and Continue Watching's saved-file chips. */
+    details: (card: Card, continuing: boolean) => { readonly line: string | undefined; readonly badges: readonly string[] | undefined } = () => ({ line: undefined, badges: undefined });
+    private shown: { card: Card; row: string; continuing: boolean } | undefined;
 
     constructor(
         container: HTMLElement,
@@ -90,7 +129,10 @@ export class Skyline {
         this.baseUrl = baseUrl;
         this.nav.setAttribute("aria-label", "Main navigation");
         this.tabs.setAttribute("role", "tablist");
-        this.nav.append(el("span", "skyline-wordmark", "SILO"), this.tabs, this.tools);
+        const wordmark = el("img", "skyline-wordmark");
+        wordmark.src = "img/silo-wordmark.png";
+        wordmark.alt = "Silo";
+        this.nav.append(wordmark, this.tabs, this.tools);
         this.selector.setAttribute("role", "menu");
         this.selector.hidden = true;
         this.scrim.hidden = true;
@@ -182,6 +224,7 @@ export class Skyline {
         const prepare = (): void => {
             this.container.classList.add("skyline-root");
             this.container.classList.toggle("skyline-preview", preview);
+            this.container.classList.toggle("skyline-home", preview && selected === "home");
             this.container.classList.toggle("skyline-library", preview && (selected === "movies" || selected === "series"));
             this.container.classList.toggle("skyline-grid", !preview && (selected === "movies" || selected === "series" || selected === "profiles"));
             view.content.forEach((node, index) => {
@@ -198,43 +241,94 @@ export class Skyline {
         this.visible = false;
         this.close();
         this.cancelPreview();
-        this.container.classList.remove("skyline-root", "skyline-preview", "skyline-library");
+        this.container.classList.remove("skyline-root", "skyline-preview", "skyline-library", "skyline-home");
     }
 
-    preview(card: Card, row: string): void {
+    /** Redraws the shown preview, as when the title-art answer lands. */
+    repaint(): void {
+        const shown = this.shown;
+        if (shown !== undefined && this.previewId === `${shown.row}:${shown.card.id}`) this.draw(shown.card, shown.row, shown.continuing);
+    }
+
+    /** Fills in what a detail read added for the shown title, in place, when its answer lands. */
+    refreshDetails(id: string): void {
+        const shown = this.shown;
+        const layer = this.marquee.querySelector<HTMLElement>(".skyline-marquee-layer:not(.skyline-outgoing)");
+        if (shown !== undefined && shown.card.id === id && layer !== null) this.fillDetails(layer, shown.card, shown.continuing);
+    }
+
+    private fillDetails(layer: HTMLElement, card: Card, continuing: boolean): void {
+        layer.querySelector(".skyline-meta-line")?.replaceWith(renderMetaLine(this.filled(card), continuing));
+        const details = this.details(card, continuing);
+        const line = layer.querySelector(".skyline-detail-line");
+        if (line !== null) line.textContent = details.line ?? "";
+        const badges = layer.querySelector(".skyline-badges");
+        if (badges !== null) replaceNodes(badges as HTMLElement, (details.badges ?? marqueeBadges(card.overlay)).map(badge => el("span", "skyline-chip", badge)));
+    }
+
+    preview(card: Card, row: string, continuing = false): void {
         this.cancelPreview();
         const apply = (): void => {
             const identity = `${row}:${card.id}`;
-            if (this.previewId === identity) return;
+            if (this.previewId === identity && this.shown?.card === card && this.shown.continuing === continuing) return;
             this.previewId = identity;
             this.immediatePreview = false;
-            const layer = el("div", "skyline-marquee-layer");
-            layer.append(el("p", "skyline-eyebrow", row), el("h1", "skyline-title", card.title));
-            const meta = [card.year, card.seriesTitle, episodeLabel(card.seasonNumber, card.episodeNumber), card.runtimeMinutes === undefined ? undefined : `${card.runtimeMinutes} min`].filter((value) => value !== undefined).join(" · ");
-            if (meta !== "") layer.appendChild(el("p", "skyline-meta", meta));
-            if (card.overview) layer.appendChild(el("p", "skyline-synopsis", card.overview));
-            const background = artworkUrl(card.backdropUrl, this.baseUrl);
-            if (background !== undefined) {
-                const image = el("img", "skyline-backdrop");
-                image.alt = "";
-                image.referrerPolicy = "no-referrer";
-                image.src = background;
-                image.addEventListener("error", () => image.remove());
-                layer.prepend(image, el("div", "skyline-scrim"));
-            }
-            const outgoing = this.marquee.lastElementChild;
-            this.marquee.appendChild(layer);
-            if (outgoing !== null) {
-                outgoing.setAttribute("aria-hidden", "true");
-                outgoing.classList.add("skyline-outgoing");
-                this.cancelFade();
-                this.cancelFade = this.clock.schedule(() => {
-                    for (const old of Array.from(this.marquee.children)) if (old !== layer) old.remove();
-                }, 240);
-            }
+            this.draw(card, row, continuing);
         };
         if (this.previewId === undefined || this.immediatePreview) apply();
         else this.cancelPreview = this.clock.schedule(apply, 150);
+    }
+
+    private draw(card: Card, row: string, continuing: boolean): void {
+        this.shown = { card, row, continuing };
+        // Apple's marquee (TVMarqueeBlock): the row name is spoken, never drawn.
+        const layer = el("div", "skyline-marquee-layer");
+        const title = el("h1", "skyline-title", marqueeTitle(card));
+        layer.append(el("span", "skyline-row-name silo-sr-only", row), title);
+        layer.appendChild(el("div", "skyline-meta-line"));
+        if (card.overview) layer.appendChild(el("p", "skyline-synopsis", card.overview));
+        // Aired date and cast, and saved-file chips, come from Home's detail reads; the line keeps its space until then.
+        layer.append(el("div", "skyline-detail-line"), el("div", "skyline-badges"));
+        this.fillDetails(layer, card, continuing);
+        const seriesArt = card.type === "episode" && card.seriesBackdropUrl !== undefined;
+        const background = artworkUrl(seriesArt ? card.seriesBackdropUrl : card.backdropUrl, this.baseUrl);
+        if (background !== undefined && this.selected === "home") {
+            layer.prepend(heroBackdrop(background, seriesArt ? undefined : card.backdropThumbhash, this.tints));
+        } else if (background !== undefined) {
+            const image = el("img", "skyline-backdrop");
+            image.alt = "";
+            image.referrerPolicy = "no-referrer";
+            image.src = background;
+            image.addEventListener("error", () => image.remove());
+            layer.prepend(image, el("div", "skyline-scrim"));
+        }
+        const outgoing = this.marquee.lastElementChild;
+        this.marquee.appendChild(layer);
+        // A two-line title costs the synopsis a line (Apple synopsisLineLimit).
+        layer.classList.toggle("skyline-title-wrapped", title.offsetHeight > parseFloat(getComputedStyle(title).fontSize) * 1.4);
+        // The text title shows first; the logo replaces it only once decoded and only while title art is on.
+        const logo = this.titleArt() ? artworkUrl(card.logoUrl, this.baseUrl) : undefined;
+        if (logo !== undefined) {
+            const image = el("img", "skyline-logo");
+            image.alt = title.textContent ?? "";
+            image.referrerPolicy = "no-referrer";
+            image.addEventListener("load", () => {
+                if (!this.titleArt() || !layer.isConnected || layer.classList.contains("skyline-outgoing")) return;
+                title.textContent = "";
+                title.classList.add("skyline-title-logo");
+                title.appendChild(image);
+                layer.classList.add("skyline-title-wrapped");
+            });
+            image.src = logo;
+        }
+        if (outgoing !== null) {
+            outgoing.setAttribute("aria-hidden", "true");
+            outgoing.classList.add("skyline-outgoing");
+            this.cancelFade();
+            this.cancelFade = this.clock.schedule(() => {
+                for (const old of Array.from(this.marquee.children)) if (old !== layer) old.remove();
+            }, 240);
+        }
     }
 
     private close(): void {

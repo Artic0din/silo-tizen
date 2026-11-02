@@ -74,9 +74,9 @@ async function ready(tv: Tv, count?: number): Promise<void> {
         throw new Error(`${String(error)}: ${JSON.stringify(state)}; recent requests: ${JSON.stringify(tv.fake.requests.slice(-8).map(request => ({ method: request.method, path: request.path })))}`);
     }
 }
-function calendarTest(name: string, body: (tv: Tv, catalog: FakeCalendar) => Promise<void>): void {
+function calendarTest(name: string, body: (tv: Tv, catalog: FakeCalendar) => Promise<void>, startTime?: string): void {
     test(name, async () => {
-        const tv = await openTv(browser, { app: "browse", ...(process.env.CALENDAR_VIDEO && name.startsWith("Calendar complete") ? { video: process.env.CALENDAR_VIDEO } : {}) });
+        const tv = await openTv(browser, { app: "browse", ...(startTime === undefined ? {} : { time: Date.parse(startTime) }), ...(process.env.CALENDAR_VIDEO && name.startsWith("Calendar complete") ? { video: process.env.CALENDAR_VIDEO } : {}) });
         try {
             const catalog = await start(tv);
             await body(tv, catalog);
@@ -461,15 +461,8 @@ calendarTest("S-C2 Calendar re-entry refreshes playback completed through Home",
 });
 
 for (const [start, nextDay, hours] of [["2026-04-04T13:00:00Z", "2026-04-06", 25], ["2026-10-03T14:00:00Z", "2026-10-05", 23]] as const) {
+    // Set the date before sign-in: jumping months through pending refreshes tests auth instead of DST.
     calendarTest(`S-C1 Calendar redraw follows the ${hours}-hour Melbourne day`, async tv => {
-        let remaining = await tv.page.evaluate(start => Date.parse(start) - Date.now(), start);
-        // Playwright coerces each fast-forward duration to a signed 32-bit value.
-        const maxClockStepMs = 2_000_000_000;
-        while (remaining > 0) {
-            const step = Math.min(remaining, maxClockStepMs);
-            await tv.jump(step);
-            remaining -= step;
-        }
         await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
         await activate(tv, "calendar"); await ready(tv, 0);
         const timing = await tv.page.evaluate(day => {
@@ -486,7 +479,7 @@ for (const [start, nextDay, hours] of [["2026-04-04T13:00:00Z", "2026-04-06", 25
         assert.equal(await tv.page.locator('[data-focus="today"]').count(), 1);
         assert.equal(await tv.focused(), origin);
         assert.equal(reads(tv).length, count);
-    });
+    }, start);
 }
 
 calendarTest("S-C1 Calendar owns one day timer and cancels it on root exit and teardown", async tv => {

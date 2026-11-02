@@ -63,6 +63,8 @@ The [AVPlay guide](https://developer.samsung.com/smarttv/develop/guides/multimed
 The policy regression test enforces the packaged directives in Chromium, checks the real grain image, and rejects a foreign object.
 The simulator's disabled web security cannot prove physical-TV policy enforcement or AVPlay rendering.
 Full physical-TV validation is deferred until simulator parity is complete.
+The policy correction includes a [historical Apple/current Samsung grain comparison](screenshots/113-policy/grain-comparison.png) and the [paired package/installed asset hashes](screenshots/113-policy/installed-sha256.txt).
+The comparison labels its different drift phases, signed-out state and platform substitutions; it is not complete visual acceptance.
 
 The simulator's AVPlay support did not provide successful playback in the audited runs.
 An unavailable player or failed open is failure-path evidence only.

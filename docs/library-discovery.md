@@ -9,8 +9,31 @@ Personal collection contents use `POST /catalog/query` with `source=user_collect
 Genres keeps filtered results and sort controls under the persistent library pills.
 A–Z uses the server's letters, counts and positions with its query window cursor.
 Recently Added requests `added_at` descending.
-Catalog and collection pages contain at most 24 cards.
+Expanded Home and library section rows read 60 cards at a time into one scrolling grid, reading more when the last six cards enter the viewport.
+Section queries send only their Home/library scope, section id, optional library id, limit and cursor, matching Apple's `sectionItems` builder; media filtering stays local because the server rejects query overlays on section sources.
+They retain loaded depth through Details and refresh explicitly invalidated state from the beginning through that depth.
+Other catalog and collection pages still contain at most 24 cards.
 Section previews show at most 24 cards; their complete contents open through the section action.
+
+## Expanded-row simulator evidence
+
+The [Compact comparison](screenshots/117-section/section-comparison.png) pairs this candidate's Samsung simulator frame with the historical Apple `New Releases` frame at the pinned `1a7ccee` source revision, with the same first six titles and focused card.
+Apple's native 960×540 preview is shown at 100%; Tizen's native 1920×1080 capture is shown at 50%, without upscaling either image.
+The Apple frame was not recaptured this run: the existing DeviceHub tool required a device-interaction skill unavailable in this environment.
+At 1920×1080, the second Compact poster is at `(422.2, 236)`, size `223.6×335.4`, versus Apple's `(422, 236)`, `224×335`; the count starts at `(128, 162)` versus `(128, 161)`.
+The focused artwork is `248.9×373.4` versus Apple's measured `250.7×375`; native parallax/specular lift is represented by the existing CSS scale/shadow equivalent.
+Inter replaces SF Pro, so longer captions can truncate sooner even at the same font size.
+Compact was measured in the Samsung simulator; Standard/Large geometry, reduced motion, delayed badge changes and failure/loading/empty states have automated browser coverage, without paired native frames for each state.
+
+Both real Home and library section requests returned 200 with 60 initial cards and the exact 1,021-item total.
+The [retained-depth capture](screenshots/117-section/section-depth.png) records a successful 60→120-card append and Details/Back return: the same focused card at `y=633.6`, scroll `3872`, with no catalog query during that round trip.
+The existing scroll owner restarts a reveal only when a section repaint restores the focused card outside its 12px/32px viewport margins.
+The locked-desktop session used CDP focus emulation in Samsung's software simulator; this does not establish native visibility handling, Tizen 8 hardware behavior, browser-origin compatibility or successful AVPlay playback.
+Physical-TV runs remain deferred until simulator parity is complete.
+
+The signed screen-calibration WGT at `f4096cd` has SHA-256 `81dbbd519e1dfd8274439b66c36d4c06b1c18d6a321f000e00f20836e2c08c79`.
+All 14 unpacked files matched the installed simulator files; their complete hashes are in [the installed asset manifest](screenshots/117-section/installed-calibrated.sha256), SHA-256 `5e910bc2141ad8d298c2acc14be603fb18deaad096d9b3c998fa805f8d2c09a5`.
+The later append-404 correction is covered by native regression tests; it changes error handling without changing this screen geometry.
 
 Search capabilities control the Genres, A–Z and Recently Added destinations.
 Explicit unsupported capabilities leave Browse and Collections available; failed reads show an error and Retry.

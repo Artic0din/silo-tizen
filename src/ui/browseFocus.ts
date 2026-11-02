@@ -188,6 +188,11 @@ export class FocusHost {
             // Repainting the same identity (including a dismissed modal) must keep its viewport.
             this.scroll.stop();
             this.applyVisit(visit);
+            const element = this.locate(document.activeElement)?.item.element;
+            if (this.container.classList.contains("section-catalog") && element !== undefined) {
+                const card = element.getBoundingClientRect(), bounds = this.container.getBoundingClientRect();
+                if (card.top < bounds.top + 12 || card.bottom > bounds.bottom - 32) this.scroll.reveal(element, this.container);
+            }
         }
         if (animate) {
             this.incoming = Array.from(this.container.querySelectorAll<HTMLElement>(".skyline-content > :not(.skyline-pills), .skyline-marquee"));

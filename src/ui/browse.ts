@@ -24,7 +24,7 @@ import type { PublicStorage } from "../session/deviceIdentity.ts";
 import { Skyline } from "./skyline.ts";
 import { decodeImageCapabilities, type ImageCapabilities, homeArtworkQuery } from "../contracts/v2/images.ts";
 import { FocusHost, type FocusTarget } from "./browseFocus.ts";
-import { type Destination, type PlayRequest, playChoices, visibleLibraries } from "./browseModel.ts";
+import { type Destination, type PlayRequest, destinationOf, playChoices, visibleLibraries } from "./browseModel.ts";
 import { failureText, hasData, newPages, newRoute, PAGE_SIZE, type Pages, type Route, routeView } from "./browseRoutes.ts";
 import { homeRows, type ViewContext } from "./browseViews.ts";
 import { HomeEnrichment } from "./homeEnrichment.ts";
@@ -33,6 +33,7 @@ import { discoveryState, genreGroups, libraryScope, readDiscovery, type LibraryM
 import { availableModes } from "./libraryDiscoveryViews.ts";
 import { personalListCapability, readPersonalPage, type PersonalFilter } from "./personalLists.ts";
 import type { MediaScope } from "../contracts/v2/discovery.ts";
+import type { CatalogQueryRequest } from "../contracts/v2/discovery.ts";
 import { personQuery } from "./personFilmography.ts";
 import { mountSettings, type SettingsScreen } from "./settings.ts";
 import type { CardOverlayPrefs } from "./cardOverlays.ts";
@@ -40,6 +41,8 @@ import { PresentationSettings } from "./presentationSettings.ts";
 import { getCalendar } from "../api/calendarOperations.ts";
 import { calendarEventKeys, calendarState, calendarWeek, CalendarTimezoneError, deviceTimezone, localDateKey, shiftDay } from "./calendarState.ts";
 import type { CalendarHandlers } from "./calendarView.ts";
+import { isSectionRoute, SectionCatalog, type SectionRoute } from "./sectionCatalog.ts";
+import { readSectionCatalog } from "./sectionCatalogState.ts";
 
 export type { PlayRequest } from "./browseModel.ts";
 
@@ -76,13 +79,21 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const container = el("div", "browse");
     root.appendChild(container);
     const host = new FocusHost(container);
+    const sectionCatalogs = new WeakMap<SectionRoute, SectionCatalog>();
+    let activeSection: SectionCatalog | undefined;
+    const sectionCatalog = (route: SectionRoute): SectionCatalog => {
+        let catalog = sectionCatalogs.get(route);
+        if (catalog === undefined) { catalog = new SectionCatalog(); sectionCatalogs.set(route, catalog); }
+        return catalog;
+    };
     // Title art and poster badges: Home renders at once and redraws as each answer lands.
     const presentation = new PresentationSettings(session, () => {
         if (torn) return;
         if (shownTitleArt !== presentation.showsTitleArt) { shownTitleArt = presentation.showsTitleArt; shell.repaint(); }
         const resized = shownScale !== presentation.posterScale;
         if (resized) { shownScale = presentation.posterScale; applyCardSize(); }
-        if (!playing && top()?.kind === "home" && (resized || shownOverlays !== presentation.cardOverlays)) {
+        const current = top();
+        if (!playing && current !== undefined && (current.kind === "home" || isSectionRoute(current)) && (resized || shownOverlays !== presentation.cardOverlays)) {
             shownOverlays = presentation.cardOverlays;
             render(host.focused());
             if (resized) host.revealFocused();
@@ -104,6 +115,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     }, quickActions: card => {
         const current = top();
         if (current === undefined || torn || playing || cardActions.active) return;
+        activeSection?.stop();
         loading?.abort();
         loading = undefined;
         cancelSlow();
@@ -202,6 +214,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
         torn = true;
         presentation.stop();
+        activeSection?.stop();
         homeDetails.stop();
         requestsController.abort();
         document.removeEventListener("visibilitychange", requestsVisibility);
@@ -298,7 +311,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     // Detail fields Home shows but its rows lack, read once per Home load and never on focus.
     const homeDetails = new HomeEnrichment(read, id => { if (!torn) shell.refreshDetails(id); }, () => {
         // Continue Watching cards redraw once with saved-file badges, keeping focus where it is.
-        if (!torn && !playing && top()?.kind === "home" && presentation.cardOverlays !== undefined) render(host.focused());
+        const current = top();
+        if (!torn && !playing && current !== undefined && (current.kind === "home" || isSectionRoute(current)) && presentation.cardOverlays !== undefined) {
+            activeSection?.invalidate();
+            render(host.focused());
+        }
     });
 
     const invalidateCalendar = (): void => {
@@ -326,7 +343,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const seriesId = detail.type === "series" ? detail.id : detail.seriesId;
         for (const entry of new Set([...roots.values(), ...stack])) {
             if (entry === current) continue;
-            if (entry.kind === "home" || entry.kind === "homeSection" || entry.kind === "calendar") entry.stale = true;
+            if (entry.kind === "home" || isSectionRoute(entry) || entry.kind === "calendar") entry.stale = true;
             if (entry.kind === "season" && entry.seriesId === seriesId && (detail.type !== "season" || entry.seasonNumber === detail.seasonNumber)) entry.stale = true;
             if (entry.kind === "item") {
                 const covered = entry.data?.detail;
@@ -347,7 +364,29 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         current.stale = false;
     };
 
+    const loadSection = (current: Route, quiet: boolean, append = false): boolean => {
+        if (!isSectionRoute(current)) return false;
+        const catalog = sectionCatalog(current);
+        const mediaType = current.kind === "homeSection" ? undefined : libraryScope(current.library).type;
+        // Section order is server-owned; this source rejects type and sort overlays.
+        const query: CatalogQueryRequest = current.kind === "homeSection"
+            ? { source: "section", scope: "home", section_id: current.id }
+            : { source: "section", scope: "library", section_id: current.source.id, library_id: current.library.id };
+        load(current, signal => readSectionCatalog(catalog.snapshot, append, async (cursor, limit) => {
+            const page = await read(operations.queryCatalogItems({ ...query, limit, ...(cursor === undefined ? {} : { cursor }) }), signal);
+            const items = page.items.filter(card => destinationOf(card) !== undefined && (mediaType === undefined || mediaType === "video" || mediaType === card.type || (mediaType === "series" && card.type === "episode")));
+            return { ...page, items, totalExact: page.totalExact && items.length === page.items.length };
+        }, signal), snapshot => {
+            catalog.snapshot = snapshot;
+            current.pages.page = snapshot.page;
+            return host.focused() ?? current.focus;
+        }, quiet);
+        render(host.focused());
+        return true;
+    };
+
     const loadRoute = (current: Route, quiet = false): void => {
+        if (loadSection(current, quiet)) return;
         switch (current.kind) {
             case "requests": {
                 const state = current.requests, source = state.source;
@@ -761,6 +800,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     const play = (request: PlayRequest): void => {
+        activeSection?.stop();
         const current = top();
         if (current === undefined || torn || playing) return;
         const details = current.kind === "item" ? current.data?.details : undefined;
@@ -798,6 +838,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     const render = (focus?: FocusTarget): void => {
+        activeSection?.stop();
+        activeSection = undefined;
         cancelCalendarDay();
         const current = top();
         if (current === undefined || torn || playing || synopsis.active || cardActions.active || settingsScreen !== undefined) {
@@ -810,7 +852,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
         if (current.kind === "library") shell.setLibraryModes(availableModes(current.discovery?.data?.capabilities ?? current.discovery?.capabilities));
         const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, personFilter, calendar: calendarHandlers, requests: requestsHandlers };
-        const view = routeView(current, handlers);
+        container.classList.toggle("section-catalog", isSectionRoute(current));
+        if (isSectionRoute(current)) activeSection = sectionCatalog(current);
+        const view = activeSection !== undefined && isSectionRoute(current)
+            ? activeSection.view(current, context, loading !== undefined, pop, () => retry(current), () => {
+                if (top() !== current || torn || playing || loading !== undefined || cardActions.active || synopsis.active || settingsScreen !== undefined || current.failure !== undefined || current.pages.page?.nextCursor === undefined) return;
+                loadSection(current, true, true);
+            }) : routeView(current, handlers);
         const rootRoute = current.kind === "home" || current.kind === "library" || current.kind === "search" || current.kind === "personal" || current.kind === "calendar" || (current.kind === "requests" && current.requests.source.kind === "hub");
         if (rootRoute) {
             const selected = current.kind === "library" ? (current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? "profiles" : current.kind;

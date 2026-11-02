@@ -23,6 +23,17 @@ after(async () => { await browser.close(); });
 const homeTitles = (tv: Tv): Promise<string[]> => tv.page.locator('[data-view="home"] [data-section] .browse-card:not(.skyline-explore)').evaluateAll(nodes => [...new Set(nodes.map(node => node.getAttribute("data-focus") ?? ""))]);
 const detailsRead = homeDetailsRead;
 
+function sectionReplyProduced(catalog: FakeHome): Promise<void> {
+    return new Promise(resolve => {
+        const read = catalog.route.bind(catalog);
+        catalog.route = (method, path, profile, body) => {
+            const reply = read(method, path, profile, body);
+            if (path.startsWith("/catalog/query")) resolve();
+            return reply;
+        };
+    });
+}
+
 function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void>, setup?: (catalog: FakeHome) => void, settings?: (settings: FakeSettings, tv: Tv) => void, options: { readonly whileReading?: boolean } = {}): void {
     test(name, async () => {
         const tv = await openTv(browser, { app: "browse" });
@@ -79,6 +90,21 @@ journey("Home uses the Apple row band and marquee frame without changing library
 
 journey("Home caps each shelf at Apple's 20 media cards", async tv => {
     assert.equal(await tv.page.locator('[data-section="recent/12"] .browse-card:not(.skyline-explore)').count(), 20);
+});
+
+journey("expanded rows use the shared section catalog instead of a discrete pager", async (tv, catalog) => {
+    await tv.page.locator('[data-focus="expand:recent/12"]').click();
+    await tv.page.locator(".section-catalog-title").waitFor();
+    await tv.page.locator(".section-catalog-grid .browse-card").first().waitFor();
+    assert.equal(await tv.page.locator(".section-catalog-title").textContent(), "Recently Added in Movies");
+    assert.equal(catalog.queries[0]?.limit, 60);
+    assert.equal(await tv.page.locator(".section-catalog-grid .browse-card").count(), 60);
+    assert.equal(await tv.page.getByRole("button", { name: "Next page", exact: true }).count(), 0);
+    const reads = catalog.queries.length;
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(catalog.queries.length, reads);
+    await tv.remote(10009);
+    assert.equal(await tv.focused(), "expand:recent/12");
 });
 
 journey("Home's trailing Explore all card is remote reachable and restores its row after Back", async tv => {
@@ -320,6 +346,71 @@ const corners = (tv: Tv, card: string) => tv.page.locator(card).evaluate(node =>
 const baseline = JSON.stringify({ version: 2, preset: "classic", order: [], items: { resolution: { enabled: false, position: "top-left" }, hdr: { enabled: false, position: "top-left" }, audio: { enabled: false, position: "top-left" }, release_type: { enabled: false, position: "bottom-left" }, rating_imdb: { enabled: true, position: "top-right" } } });
 const REGISTRY_DEFAULTS = { "top-left": ["4K", "HDR10", "TrueHD Atmos"], "bottom-left": ["WEB-DL"] };
 
+for (const [size, scale, columns] of [["compact", 0.86, 6], ["standard", 1, 6], ["large", 1.2, 5]] as const) {
+    journey(`expanded section ${size} posters fit their tracks and focus columns`, async tv => {
+        await tv.page.locator('[data-focus="expand:recent/12"]').click();
+        const grid = tv.page.locator(".section-catalog-grid");
+        await grid.waitFor();
+        const frame = await grid.evaluate(node => {
+            const cards = [...node.querySelectorAll<HTMLElement>(".browse-card")];
+            const art = cards[0]?.querySelector<HTMLElement>(".browse-art");
+            const rects = cards.slice(0, 6).map(card => card.getBoundingClientRect());
+            return { width: art?.offsetWidth, gridWidth: (node as HTMLElement).offsetWidth, columns: getComputedStyle(node).gridTemplateColumns.split(" ").length,
+                fits: rects.every((rect, index) => index === 0 || rect.top !== rects[index - 1]?.top || rect.left - (rects[index - 1]?.right ?? 0) >= 39) };
+        });
+        assert.ok(Math.abs((frame.width ?? 0) - 260 * scale) < 1);
+        assert.equal(frame.columns, columns);
+        assert.equal(frame.gridWidth, Math.max(1664, columns * 260 * scale + (columns - 1) * 40));
+        assert.equal(frame.fits, true);
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), `movie:m${String(columns + 1).padStart(4, "0")}`);
+    }, undefined, settings => settings.profile().set(CARD_PRESENTATION_KEY, { poster_size: size, caption: "title_metadata" }));
+}
+
+journey("section captions retain Apple's focus contrast under the simulator font reset", async tv => {
+    await tv.page.addStyleTag({ content: "* { font-family: SamsungOne; font-weight: 600; }" });
+    await tv.page.locator('[data-focus="expand:recent/12"]').click();
+    const cards = tv.page.locator(".section-catalog-grid .browse-card");
+    await cards.first().waitFor();
+    const styles = await tv.page.locator(".section-catalog").evaluate(root => {
+        const read = (selector: string) => { const node = root.querySelector(selector); if (node === null) throw new Error(selector); const style = getComputedStyle(node); return { weight: style.fontWeight, color: style.color, transform: style.transform }; };
+        return { title: read(".browse-card:focus .browse-card-title"), subtitle: read(".browse-card:focus .browse-card-subtitle"), resting: read(".browse-card:not(:focus) .browse-card-title"), metadata: read(".browse-card:not(:focus) .browse-card-subtitle"), count: read(".section-catalog-count") };
+    });
+    assert.equal(styles.title.weight, "600");
+    assert.equal(styles.title.color, "rgb(255, 255, 255)");
+    assert.equal(styles.subtitle.weight, "500");
+    assert.equal(styles.resting.weight, "500");
+    assert.equal(styles.resting.color, "rgba(237, 237, 237, 0.45)");
+    assert.equal(styles.metadata.weight, "400");
+    assert.equal(styles.metadata.color, "rgba(237, 237, 237, 0.32)");
+    assert.equal(styles.count.weight, "400");
+    assert.equal(styles.title.transform, "matrix(1, 0, 0, 1, 0, 5)");
+});
+
+let heldSectionBadges: { release(): void };
+journey("a late section badge answer repaints retained cards without changing focus or depth", async (tv, catalog) => {
+    await tv.page.locator('[data-focus="expand:recent/12"]').click();
+    const card = tv.page.locator('.section-catalog-grid [data-focus="movie:m0006"]');
+    await card.focus();
+    assert.ok(await card.locator(".card-overlay").count() > 0);
+    const reads = catalog.queries.length;
+    heldSectionBadges.release();
+    await tv.eventually(async () => await card.locator(".card-overlay").count() === 0, "disabled section badges removed");
+    assert.equal(await tv.focused(), "movie:m0006");
+    assert.equal(await tv.page.locator(".section-catalog-grid .browse-card").count(), 60);
+    assert.equal(catalog.queries.length, reads);
+}, catalog => {
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const reply = read(method, path, profile, body);
+        const response = reply?.body;
+        if (path.startsWith("/catalog/query") && reply?.status === 200 && typeof response === "object" && response !== null && "items" in response && Array.isArray(response.items)) {
+            return { ...reply, body: { ...response, items: response.items.map((item: unknown) => typeof item === "object" && item !== null ? { ...item, overlay_summary: { resolution: "2160p" } } : item) } };
+        }
+        return reply;
+    };
+}, (settings, tv) => { settings.overlayConfig = { enabled: false }; heldSectionBadges = tv.fake.hold("/settings/overlay-config", true); });
+
 for (const [name, configure, expected] of [
     ["the registry defaults when neither the profile nor the administrator chose", () => undefined, REGISTRY_DEFAULTS],
     ["the administrator's baseline when the profile has no document", (settings: FakeSettings) => { settings.overlayConfig = { enabled: true, defaults: baseline }; }, { "top-right": ["IMDb 8.5"] }],
@@ -528,11 +619,9 @@ journey("card quick-actions abandon a pending Home turn and refresh the committe
         ? details.route(method, path, profile, body) : route(method, path, profile, body);
     await tv.page.locator('[data-focus="expand:recent/12"]').click();
     await tv.page.locator('.browse .browse-grid .browse-card').first().waitFor();
-    await tv.page.locator('[data-focus="next"]').click();
-    await tv.page.getByText("Page 2 of 3", { exact: true }).waitFor();
     const pending = tv.fake.hold("/catalog/query", true);
-    await tv.page.locator('[data-focus="next"]').click();
-    await tv.eventually(async () => catalog.queries.length === 3, "pending third page");
+    await tv.page.locator('.section-catalog-grid .browse-card').last().evaluate(node => node.scrollIntoView({ block: "end" }));
+    await tv.eventually(async () => catalog.queries.length === 2, "pending append");
     await tv.page.locator('.browse [data-focus="movie:m0030"]').focus();
     await tv.down(13); await tv.jump(650); await tv.up(13);
     const panel = tv.page.getByRole("dialog", { name: "Card actions" });
@@ -541,13 +630,13 @@ journey("card quick-actions abandon a pending Home turn and refresh the committe
     catalog.removed.add("movie:m0030");
     await tv.remote(10009);
     await tv.eventually(async () => await tv.focused() === "movie:m0031", "nearby Home page focus");
-    assert.equal(catalog.queries.slice(-1)[0]?.cursor, "opaque:/+second==");
+    assert.equal(catalog.queries.slice(-1)[0]?.cursor, undefined);
     pending.release(); await tv.jump(0);
     assert.equal(await tv.focused(), "movie:m0031");
-    await tv.page.getByText("Page 2 of 3", { exact: true }).waitFor();
+    assert.equal(await tv.page.locator('.section-catalog-grid [data-focus="movie:m0030"]').count(), 0);
 });
 
-journey("Home See All pages 24 cards, keeps opaque cursors and restores origin focus and scroll", async (tv, catalog) => {
+journey("Home Explore all appends unique cards and restores origin focus and scroll", async (tv, catalog) => {
     const expand = tv.page.locator('[data-section="recent/12"] [data-focus="expand:recent/12"]');
     assert.equal(await expand.count(), 1, "Home exposes row expansion");
     await expand.focus();
@@ -559,13 +648,12 @@ journey("Home See All pages 24 cards, keeps opaque cursors and restores origin f
     const rowLeft = await tv.page.locator('[data-section="recent/12"] .browse-row').evaluate(node => node.scrollLeft);
     await tv.page.keyboard.press("Enter");
     await tv.page.locator('[data-view="homeSection:recent/12"] .browse-card').first().waitFor();
-    assert.equal(await tv.page.locator('.browse .browse-card').count(), 24);
-    assert.deepEqual(catalog.queries[0], { source: "section", scope: "home", section_id: "recent/12", limit: 24 });
-    await tv.page.getByRole("button", { name: "Next page", exact: true }).click();
-    await tv.page.getByText("Page 2 of 3", { exact: true }).waitFor();
-    assert.equal(await tv.page.locator('.browse .browse-card').count(), 24);
+    assert.equal(await tv.page.locator('.browse .browse-card').count(), 60);
+    assert.deepEqual(catalog.queries[0], { source: "section", scope: "home", section_id: "recent/12", limit: 60 });
+    await tv.page.locator('.section-catalog-grid .browse-card').last().evaluate(node => node.scrollIntoView({ block: "end" }));
+    await tv.eventually(async () => await tv.page.locator('.section-catalog-grid .browse-card').count() === 70, "append without repeated cards");
     assert.equal(catalog.queries[1]?.cursor, "opaque:/+second==");
-    assert.equal(await tv.page.locator('.browse-card').first().getAttribute("data-focus"), "movie:m0025");
+    assert.equal(await tv.page.locator('.browse-card').first().getAttribute("data-focus"), "movie:m0001");
     const requests = tv.fake.requests.length;
     await tv.page.keyboard.press("ArrowUp");
     await tv.page.keyboard.press("ArrowRight");
@@ -581,12 +669,44 @@ journey("Home See All pages 24 cards, keeps opaque cursors and restores origin f
     assert.match(query?.headers.authorization ?? "", /^Bearer /);
 });
 
+journey("section append finishes revealing the focused card when its response interrupts scrolling", async tv => {
+    await tv.page.emulateMedia({ reducedMotion: "no-preference" });
+    await tv.page.locator('[data-focus="expand:recent/12"]').click();
+    await tv.page.locator(".section-catalog-grid .browse-card").first().waitFor();
+    for (let row = 0; row < 9; row++) await tv.page.keyboard.press("ArrowDown");
+    await tv.page.clock.runFor(120);
+    await tv.eventually(async () => await tv.page.locator(".section-catalog-grid .browse-card").count() === 70, "append during reveal");
+    await tv.page.clock.runFor(500);
+    assert.equal(await tv.focused(), "movie:m0055");
+    assert.equal(await tv.page.locator(".section-catalog-grid .browse-card:focus").evaluate(node => {
+        const card = node.getBoundingClientRect(), pane = node.closest(".browse")?.getBoundingClientRect();
+        return pane !== undefined && card.top >= pane.top + 12 && card.bottom <= pane.bottom - 32;
+    }), true);
+});
+
+journey("expanded rows retain depth, focus and scrolling through Details without a query", async (tv, catalog) => {
+    await tv.page.locator('[data-focus="expand:recent/12"]').click();
+    await tv.page.locator('.section-catalog-grid .browse-card').first().waitFor();
+    await tv.page.locator('.section-catalog-grid .browse-card').last().evaluate(node => node.scrollIntoView({ block: "end" }));
+    await tv.eventually(async () => await tv.page.locator('.section-catalog-grid .browse-card').count() === 70, "loaded depth");
+    await tv.page.locator('.section-catalog-grid [data-focus="movie:m0065"]').focus();
+    await tv.jump(300);
+    const top = await tv.page.locator(".browse").evaluate(node => node.scrollTop);
+    const queries = catalog.queries.length;
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-view="item:movie:m0065"]').waitFor();
+    await tv.remote(10009);
+    assert.equal(await tv.focused(), "movie:m0065");
+    assert.equal(await tv.page.locator('.section-catalog-grid .browse-card').count(), 70);
+    assert.equal(await tv.page.locator(".browse").evaluate(node => node.scrollTop), top);
+    assert.equal(catalog.queries.length, queries);
+});
+
 journey("Home playback return discards an abandoned expanded-row page turn", async (tv, catalog) => {
     await tv.page.locator('[data-focus="expand:recent/12"]').click();
     await tv.page.locator('[data-view="homeSection:recent/12"] .browse-card').first().waitFor();
     const held = tv.fake.hold("/catalog/query", true);
-    await tv.page.locator('[data-focus="next"]').focus();
-    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('.section-catalog-grid .browse-card').last().evaluate(node => node.scrollIntoView({ block: "end" }));
     await tv.eventually(async () => catalog.queries.length === 2, "pending second page");
     await tv.page.locator('.browse [data-focus="movie:m0001"]').focus();
     await tv.page.keyboard.press("Enter");
@@ -603,13 +723,13 @@ journey("Home playback return discards an abandoned expanded-row page turn", asy
     held.release();
     refresh.release();
     await tv.eventually(async () => await cached.evaluate(node => !node.isConnected), "expanded-row refresh rendered");
-    assert.equal(await tv.page.locator('.browse').getByText("Page 1 of 3", { exact: true }).count(), 1);
+    assert.equal(await tv.page.locator('.section-catalog-grid .browse-card').count(), 60);
     assert.equal(await tv.focused(), "movie:m0001");
     assert.equal(catalog.queries[catalog.queries.length - 1]?.cursor, undefined, "return refreshes the committed page");
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 1);
 });
 
-journey("Home expansion invalid cursor retains reachable Retry and Back and restarts only on activation", async (tv, catalog) => {
+journey("Home expansion restarts an invalid cursor and keeps remote Back reachable", async (tv, catalog) => {
     const expand = tv.page.locator('[data-focus="expand:recent/12"]');
     assert.equal(await expand.count(), 1, "Home exposes row expansion");
     await expand.click();
@@ -620,14 +740,10 @@ journey("Home expansion invalid cursor retains reachable Retry and Back and rest
         if (invalid) { invalid = false; await route.fulfill({ status: 400, contentType: "application/problem+json", json: problem(400, "invalid_cursor", "Invalid cursor").body }); }
         else await route.fallback();
     });
-    await tv.page.getByRole("button", { name: "Next page", exact: true }).click();
-    await tv.page.getByRole("alert").waitFor();
-    const before = catalog.queries.length;
-    await tv.jump(30000);
-    assert.equal(catalog.queries.length, before);
-    await tv.page.getByRole("button", { name: "Try again", exact: true }).click();
-    await tv.page.locator('[data-view="homeSection:recent/12"] .browse-card').first().waitFor();
-    assert.equal(catalog.queries[catalog.queries.length - 1]?.cursor, undefined);
+    await tv.page.locator('.section-catalog-grid .browse-card').last().evaluate(node => node.scrollIntoView({ block: "end" }));
+    await tv.eventually(async () => catalog.queries.length >= 2, "fresh sequence after invalid cursor");
+    assert.equal(catalog.queries[1]?.cursor, undefined);
+    assert.equal(await tv.page.getByRole("alert").count(), 0);
     await tv.remote(10009);
     assert.equal(await tv.focused(), "expand:recent/12");
 });
@@ -715,6 +831,62 @@ journey("expanded Continue keeps episode cards and resumes while ordinary rows s
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 1);
 });
 
+journey("an expanded loading row owns focus and Back discards its late answer", async (tv, catalog) => {
+    const held = tv.fake.hold("/catalog/query", true);
+    const produced = sectionReplyProduced(catalog);
+    const cancelled = tv.page.waitForEvent("requestfailed", request => new URL(request.url()).pathname === "/api/v2/catalog/query");
+    await tv.page.locator('[data-focus="expand:recent/12"]').click();
+    await tv.page.getByRole("status", { name: "Loading Recently Added in Movies", exact: true }).waitFor();
+    assert.equal(await tv.focused(), "state");
+    await tv.remote(10009);
+    await cancelled;
+    held.release();
+    await produced;
+    await tv.page.clock.runFor(0);
+    assert.equal(await tv.focused(), "expand:recent/12");
+    assert.equal(await tv.page.locator(".section-catalog-grid").count(), 0);
+});
+
+journey("a failed section append retains its cards and offers an explicit retry", async tv => {
+    await tv.page.locator('[data-focus="expand:recent/12"]').click();
+    await tv.page.locator('.section-catalog-grid .browse-card').first().waitFor();
+    let fail = true;
+    await tv.page.route("**/api/v2/catalog/query?*", async route => {
+        if (fail) { fail = false; await route.fulfill({ status: 422, contentType: "application/problem+json", json: problem(422, "validation_failed", "Could not read row").body }); }
+        else await route.fallback();
+    });
+    await tv.page.locator('.section-catalog-grid .browse-card').last().evaluate(node => node.scrollIntoView({ block: "end" }));
+    await tv.page.getByRole("alert").waitFor();
+    assert.equal(await tv.page.locator('.section-catalog-grid .browse-card').count(), 60);
+    const recovered = tv.page.waitForResponse(reply => new URL(reply.url()).pathname === "/api/v2/catalog/query" && reply.ok());
+    await tv.page.getByRole("button", { name: "Try again", exact: true }).click();
+    assert.equal(await (await recovered).finished(), null);
+    assert.deepEqual((await recovered).request().postDataJSON(), { source: "section", scope: "home", section_id: "recent/12", limit: 60 });
+    await tv.page.clock.runFor(0);
+    await tv.eventually(async () => await tv.page.getByRole("alert").count() === 0 && await tv.page.locator('.section-catalog-grid .browse-card').count() >= 60, "row recovered");
+});
+
+journey("a late expanded row answer cannot cross a profile switch", async (tv, catalog) => {
+    const held = tv.fake.hold("/catalog/query", true);
+    const produced = sectionReplyProduced(catalog);
+    const cancelled = tv.page.waitForEvent("requestfailed", request => new URL(request.url()).pathname === "/api/v2/catalog/query");
+    await tv.page.locator('[data-focus="expand:recent/12"]').click();
+    await tv.page.getByRole("status", { name: "Loading Recently Added in Movies", exact: true }).waitFor();
+    await tv.page.evaluate(() => window.browseHarness.clearProfile());
+    await cancelled;
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.selectProfile("p-kid", "2468")), "verified");
+    await tv.page.evaluate(() => window.browseHarness.mount());
+    await tv.page.locator('[data-view="home"] [data-section="kids_picks"]').waitFor();
+    const focus = await tv.focused();
+    held.release();
+    await produced;
+    await tv.page.clock.runFor(0);
+    assert.equal(await tv.focused(), focus);
+    assert.equal(await tv.page.locator(".section-catalog-grid").count(), 0);
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 0);
+    assert.equal(await tv.page.locator('[data-section="kids_picks"]').count(), 1);
+});
+
 journey("Home expansion empty, missing and failed reads retain reachable controls", async (tv, catalog) => {
     const home = catalog.households.get("p-owner");
     assert.ok(home);
@@ -722,13 +894,13 @@ journey("Home expansion empty, missing and failed reads retain reachable control
     assert.ok(recent);
     recent.items = [];
     await tv.page.locator('[data-focus="expand:recent/12"]').click();
-    await tv.page.getByText("No titles available.", { exact: true }).waitFor();
-    assert.equal(await tv.focused(), "back");
+    await tv.page.getByText("Nothing here yet", { exact: true }).waitFor();
+    assert.equal(await tv.focused(), "state");
     await tv.remote(10009);
     home.sections = home.sections.filter(row => row !== recent);
     await tv.page.locator('[data-focus="expand:recent/12"]').click();
-    await tv.page.getByRole("alert").waitFor();
-    assert.equal(await tv.page.getByRole("button", { name: "Try again", exact: true }).count(), 1);
+    await tv.page.getByText("Row unavailable", { exact: true }).waitFor();
+    assert.equal(await tv.focused(), "state");
     await tv.remote(10009);
     assert.equal(await tv.focused(), "expand:recent/12");
 });

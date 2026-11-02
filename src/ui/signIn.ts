@@ -471,10 +471,22 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             if (active !== current || options === undefined) {
                 return;
             }
+            const offeredPassword = current.options?.passwordLogin !== false;
             current.options = options;
+            if (current.server.session.signedIn) {
+                return;
+            }
             if (current.credentials) {
-                showCredentials(current);
-            } else if (current.login.current.phase !== "unavailable") {
+                if (host.name !== "credentials") {
+                    return;
+                }
+                const hint = root.querySelector<HTMLElement>(".signin-hint");
+                const value = passwordOnly(current) ? undefined : text.phoneHint(options.oauthProviders);
+                if (hint !== null) {
+                    hint.textContent = value ?? "";
+                    hint.hidden = value === undefined || root.querySelector(".marquee-error")?.textContent?.includes(value) === true;
+                }
+            } else if (current.login.current.phase !== "unavailable" && offeredPassword !== (options.passwordLogin !== false)) {
                 current.code = undefined;
                 showCode(current);
             }

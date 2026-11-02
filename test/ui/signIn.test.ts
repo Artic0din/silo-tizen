@@ -865,7 +865,7 @@ tvTest("empty fields and refusals read as on the Apple TV app; the name stays an
     await tv.page.fill("#signin-password", "wrong");
     await signInButton.click();
     await shows(tv, `Incorrect username or password. ${SSO_HINT}`);
-    assert.equal(await tv.page.getByText(SSO_HINT, { exact: true }).count(), 0, "the hint is not repeated under the error");
+    assert.equal(await tv.page.getByText(SSO_HINT, { exact: true }).isVisible(), false, "the hint is not repeated under the error");
     assert.equal(await tv.focused(), "secret");
     assert.equal(await tv.page.inputValue("#signin-username"), "laura");
     assert.equal(await tv.page.locator('[role="alert"]').count(), 1);
@@ -991,6 +991,41 @@ tvTest("failed discovery keeps the password button, as on the Apple TV app", asy
     await codeScreen(tv);
     await shows(tv, "Sign in with a password");
 });
+
+tvTest("late provider discovery updates the hint without replacing the active password fields", async tv => {
+    const hold = tv.fake.hold("/auth/providers");
+    await openPassword(tv);
+    await tv.page.fill("#signin-username", "laura");
+    await tv.page.fill("#signin-password", FAKE_PASSWORD);
+    await tv.page.locator("#signin-username").focus();
+    const username = await tv.page.locator("#signin-username").elementHandle();
+    const password = await tv.page.locator("#signin-password").elementHandle();
+    assert.ok(username);
+    assert.ok(password);
+    hold.release();
+    await shows(tv, "If you sign in with Example SSO, use your phone instead.");
+    assert.equal(await username.evaluate(node => node.isConnected), true, "provider discovery keeps the input and TV keyboard alive");
+    assert.equal(await password.evaluate(node => node.isConnected), true);
+    assert.equal(await tv.focused(), "username");
+    assert.equal(await tv.page.locator("#signin-username").inputValue(), "laura");
+    assert.equal(await tv.page.locator("#signin-password").inputValue(), FAKE_PASSWORD);
+});
+
+tvTest("late provider discovery preserves the session-only password handoff", async tv => {
+    const hold = tv.fake.hold("/auth/providers");
+    await openPassword(tv);
+    await tv.page.fill("#signin-username", "laura");
+    await tv.page.fill("#signin-password", FAKE_PASSWORD);
+    await tv.page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await shows(tv, "This TV can't store your sign-in securely, so you will need to sign in again after the app closes.");
+    const response = tv.page.waitForResponse(reply => new URL(reply.url()).pathname.endsWith("/auth/providers"));
+    hold.release();
+    await (await response).finished();
+    await tv.page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+    assert.equal(await tv.page.getByRole("button", { name: "Continue", exact: true }).count(), 1, "the completed sign-in keeps its handoff action");
+    await tv.page.getByRole("button", { name: "Continue", exact: true }).click();
+    await tv.eventually(async () => (await handoffs(tv)) === 1, "the handoff");
+}, { sessionOnly: true });
 
 // --- The Apple TV Marquee layout (TVServerSetupView.manualEntry, TVLoginView, MarqueeTV*) ---
 

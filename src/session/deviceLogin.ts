@@ -410,6 +410,10 @@ export class DeviceLogin {
             notBefore = 0;
             if (answer.status === "unknown") {
                 // A status this app doesn't know yet: Apple keeps polling it as a failure.
+                if (lastChance) {
+                    this.finish(attempt, { phase: "expired" }, false);
+                    return;
+                }
                 backoffSeconds = backoffSeconds === 0 ? interval : Math.min(MAX_BACKOFF_SECONDS, backoffSeconds * 2);
                 waitSeconds = backoffSeconds;
                 failingSince = failingSince ?? sentAt;

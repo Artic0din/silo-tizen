@@ -694,3 +694,16 @@ test("an unreadable answer or an unknown status is retried as Apple does; a requ
     await h.clock.advance(5 * SECOND);
     assert.equal(login.current.phase, "failed");
 });
+
+test("repeated unknown poll statuses expire after the code's final deadline poll", async () => {
+    const h = await connected();
+    const login = h.core.createDeviceLogin();
+    h.fake.script("/auth/device/poll", ...Array.from({ length: 100 }, () => ({ status: 200, body: { status: "something-new", poll_after: 5 } })));
+    login.start();
+    await h.clock.advance(0);
+    await h.clock.advance(20 * 60 * SECOND);
+    assert.equal(login.current.phase, "expired", "an unknown status cannot keep an expired code alive");
+    const polls = h.fake.paths().filter(path => path === "POST /auth/device/poll").length;
+    await h.clock.advance(60 * SECOND);
+    assert.equal(h.fake.paths().filter(path => path === "POST /auth/device/poll").length, polls, "a settled attempt sends no more polls");
+});

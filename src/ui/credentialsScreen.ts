@@ -64,9 +64,9 @@ export function credentialsScreen(view: CredentialsView): Screen {
         lines.push(errorText(view.error));
     }
     // Shown with the error only when the error does not already say it.
-    if (view.hint !== undefined && view.error?.includes(view.hint) !== true) {
-        lines.push(el("p", "signin-hint", view.hint));
-    }
+    const hint = el("p", "signin-hint", view.hint ?? "");
+    hint.hidden = view.hint === undefined || view.error?.includes(view.hint) === true;
+    lines.push(hint);
 
     const signIn = marqueeButton("signin", view.submitting ? "Signing in…" : "Sign in", "primary", view.submit, { loading: view.submitting });
     const row: Control[] = [signIn];

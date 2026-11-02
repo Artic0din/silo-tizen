@@ -24,6 +24,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserved active password fields and completed sign-in handoffs when provider discovery arrived late, and renewed expired codes after repeated unknown poll responses.
 - Made the HTTP badge visibly unlocked, calibrated the cleartext alert's measured frame and translucent surface, and aligned sign-in instruction wrapping and spacing with Apple TV.
 
 - Restored interrupted playback after connection loss and app return while preserving position, track choices, pause intent and profile authority.

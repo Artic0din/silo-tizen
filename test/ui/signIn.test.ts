@@ -531,16 +531,25 @@ tvTest("a failing start retries with backoff and says the server can't be reache
 });
 
 tvTest("a rate-limited start keeps trying, honouring Retry-After, and says so after a minute", async (tv) => {
+    await holdClock(tv);
+    const rateLimitedStart = async (send: () => Promise<void>): Promise<void> => {
+        const answer = tv.page.waitForResponse(response => new URL(response.url()).pathname === "/api/v2/auth/device/start");
+        await send();
+        const response = await answer;
+        assert.equal(response.status(), 429);
+        assert.equal(await response.finished(), null);
+        await tv.page.clock.runFor(0);
+    };
     tv.fake.script("/auth/device/start", rateLimited(30), rateLimited(30), rateLimited(30));
-    await connectTo(tv);
+    await rateLimitedStart(() => connectTo(tv));
     const starts = (): number => tv.fake.paths().filter((path) => path === "POST /auth/device/start").length;
     await tv.eventually(async () => starts() === 1, "the first start");
     await tv.jump(29000);
     assert.equal(starts(), 1, "waits the full Retry-After");
-    await tv.jump(1000);
+    await rateLimitedStart(() => tv.jump(1000));
     await tv.eventually(async () => starts() === 2, "start 2");
     await shows(tv, "Getting a sign-in code…");
-    await tv.jump(30000);
+    await rateLimitedStart(() => tv.jump(30000));
     await tv.eventually(async () => starts() === 3, "start 3");
     await shows(tv, "Too many sign-in attempts. Trying again shortly.");
     await tv.jump(30000);

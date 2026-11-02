@@ -33,6 +33,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Preserved mixed-library shortcut scope, open dropdown focus during late menu updates, and unfinished Home metadata reads after visiting For You.
+- Made the Browse recovery regression verify every retained title without rejecting valid post-retry prefetch.
 - Made the Browse append-failure regression use remote scrolling so a pending focus animation could not undo its setup, and report recovery state if it failed.
 - Made the rate-limit sign-in regression await completed server replies before advancing its simulated retry deadlines.
 - Kept the blank-portrait regression focused on its own image requests after the preceding cast photo finished loading.

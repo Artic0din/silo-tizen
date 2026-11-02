@@ -28,6 +28,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Allowed sign-in grain artwork and the native AVPlay surface under the TV's content policy while keeping scripts, styles and player objects restricted to the app.
 - Kept Home artwork visible when palette sampling was refused, filled missing marquee metadata from detail, followed regional air dates, and capped shelves at 20 titles with an Explore all tile.
 - Kept active password fields and TV keyboards intact when device sign-in became unavailable, updating the phone controls without redrawing the form.
 - Preserved the original handoff pause when returning to code sign-in after phone approval instead of starting another code.

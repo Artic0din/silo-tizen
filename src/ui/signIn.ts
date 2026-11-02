@@ -13,7 +13,7 @@ import { passwordLogin } from "../session/passwordLogin.ts";
 import type { LogoutResult } from "../session/session.ts";
 import { cachedBranding, storeBranding } from "./brandingCache.ts";
 import { codeScreen, type CodeScreen } from "./codeScreen.ts";
-import { credentialsScreen } from "./credentialsScreen.ts";
+import { credentialsScreen, type CredentialsScreen } from "./credentialsScreen.ts";
 import { actionRow, chip, errorText, field, headline, keyboardCard, lead, marqueeButton, marqueeScreen, noteChips, setServerMark, textInput } from "./marquee.ts";
 import { MarqueeBackdrop } from "./marqueeBackdrop.ts";
 import { type Control, el, type Note, type Screen, ScreenHost } from "./screen.ts";
@@ -74,6 +74,7 @@ interface Active {
     markUrl?: string | undefined;
     accent?: string | undefined;
     code: CodeScreen | undefined;
+    credentialsView?: CredentialsScreen;
     /** Where to type the latest code, kept after it ends, as the Apple TV app's lead keeps it. */
     typed: string | undefined;
     /** What the code screen says (QRLoginViewModel.Status). */
@@ -574,6 +575,10 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
                 return;
             case "unavailable":
                 // A server without code sign-in opens on the password, as on the Apple TV app.
+                if (host.name === "credentials" && current.credentialsView !== undefined) {
+                    current.credentialsView.usePasswordOnly();
+                    return;
+                }
                 current.credentials = true;
                 current.code = undefined;
                 showCredentials(current);
@@ -739,7 +744,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         const phoneRoute = !passwordOnly(current);
         const base = current.server.server.http.base.baseUrl;
         show(
-            credentialsScreen({
+            current.credentialsView = credentialsScreen({
                 serverName: current.serverName ?? text.serverHost(base),
                 host: text.serverHost(base),
                 secure: base.startsWith("https:"),

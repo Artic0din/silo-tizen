@@ -1082,6 +1082,74 @@ tvTest("failed discovery keeps the password button, as on the Apple TV app", asy
     await shows(tv, "Sign in with a password");
 });
 
+const unavailableDeviceCases: readonly { name: string; path: string; reply: Reply; focus: "username" | "phone" }[] = [
+    { name: "disabled capability", path: "/auth/device/capability", reply: { status: 200, body: { ...fixture("get_device_login_capability_ok"), state: "disabled" } }, focus: "username" },
+    { name: "unsupported capability", path: "/auth/device/capability", reply: problem(404, "not_found", "Not found"), focus: "username" },
+    { name: "refused start", path: "/auth/device/start", reply: problem(403, "not_permitted", "Not permitted"), focus: "username" },
+    { name: "unsupported start", path: "/auth/device/start", reply: problem(404, "not_found", "Not found"), focus: "username" },
+    { name: "disabled capability with phone focused", path: "/auth/device/capability", reply: { status: 200, body: { ...fixture("get_device_login_capability_ok"), state: "disabled" } }, focus: "phone" },
+];
+
+for (const scenario of unavailableDeviceCases) {
+    tvTest(`late ${scenario.name} preserves the live password fields`, async tv => {
+        const hold = tv.fake.hold(scenario.path);
+        tv.fake.script(scenario.path, scenario.reply);
+        await connectTo(tv);
+        await tv.page.getByRole("button", { name: "Sign in with a password", exact: true }).click();
+        await passwordScreen(tv);
+        await tv.page.fill("#signin-username", "laura");
+        await tv.page.fill("#signin-password", FAKE_PASSWORD);
+        await tv.page.locator(`[data-focus="${scenario.focus}"]`).focus();
+        const username = await tv.page.locator("#signin-username").elementHandle();
+        const password = await tv.page.locator("#signin-password").elementHandle();
+        assert.ok(username);
+        assert.ok(password);
+        hold.release();
+        await shows(tv, "This server only supports password sign-in.");
+        assert.equal(await username.evaluate(node => node.isConnected), true, "the active TV keyboard keeps its input");
+        assert.equal(await password.evaluate(node => node.isConnected), true);
+        assert.equal(await tv.page.locator("#signin-username").inputValue(), "laura");
+        assert.equal(await tv.page.locator("#signin-password").inputValue(), FAKE_PASSWORD);
+        assert.equal(await tv.focused(), scenario.focus === "phone" ? "signin" : "username");
+        assert.equal(await tv.page.getByRole("button", { name: "Use your phone instead", exact: true }).count(), 0);
+        assert.equal(await tv.page.locator(".signin-hint").isVisible(), false);
+        if (scenario.focus === "username") {
+            await tv.remote(IME_DONE);
+            assert.equal(await tv.focused(), "secret");
+            await tv.remote(IME_DONE);
+            assert.equal(await tv.focused(), "signin");
+        }
+        await tv.page.keyboard.press("ArrowRight");
+        assert.equal(await tv.focused(), "change", "the removed phone route is absent from remote navigation");
+        await tv.remote(BACK);
+        assert.equal(await tv.screen(), "entry", "Back uses the password-only route");
+    });
+}
+
+tvTest("late device unavailability preserves an in-flight password form and its Back guard", async tv => {
+    const capability = tv.fake.hold("/auth/device/capability");
+    tv.fake.script("/auth/device/capability", { status: 200, body: { ...fixture("get_device_login_capability_ok"), state: "disabled" } });
+    await connectTo(tv);
+    await tv.page.getByRole("button", { name: "Sign in with a password", exact: true }).click();
+    await passwordScreen(tv);
+    await tv.page.fill("#signin-username", "laura");
+    await tv.page.fill("#signin-password", FAKE_PASSWORD);
+    const response = tv.fake.hold("/auth/login");
+    await tv.page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await shows(tv, "Signing in…");
+    const username = await tv.page.locator("#signin-username").elementHandle();
+    assert.ok(username);
+    capability.release();
+    await shows(tv, "This server only supports password sign-in.");
+    assert.equal(await username.evaluate(node => node.isConnected), true);
+    await tv.remote(BACK);
+    assert.equal(await tv.screen(), "credentials");
+    assert.equal(await tv.page.evaluate(() => window.harness.lastKeyPrevented), true);
+    assert.equal(loginRequests(tv), 1);
+    response.release();
+    await tv.eventually(async () => (await handoffs(tv)) === 1, "the original password handoff");
+});
+
 tvTest("late provider discovery updates the hint without replacing the active password fields", async tv => {
     const hold = tv.fake.hold("/auth/providers");
     await openPassword(tv);

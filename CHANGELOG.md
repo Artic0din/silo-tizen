@@ -24,6 +24,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept active password fields and TV keyboards intact when device sign-in became unavailable, updating the phone controls without redrawing the form.
 - Preserved the original handoff pause when returning to code sign-in after phone approval instead of starting another code.
 - Kept completed phone sign-ins intact when password replies arrived late, and removed saved sign-ins from the protocol and port selected in Advanced options.
 - Preserved active password fields and completed sign-in handoffs when provider discovery arrived late, and renewed expired codes after repeated unknown poll responses.

@@ -35,7 +35,11 @@ export interface CredentialsView {
     readonly back: () => void;
 }
 
-export function credentialsScreen(view: CredentialsView): Screen {
+export interface CredentialsScreen extends Screen {
+    usePasswordOnly(): void;
+}
+
+export function credentialsScreen(view: CredentialsView): CredentialsScreen {
     const username = textInput("signin-username", "username", "Username", "Username", view.username);
     username.autocomplete = "username";
     const password = textInput("signin-password", "secret", "Password", "Password", view.password);
@@ -85,14 +89,31 @@ export function credentialsScreen(view: CredentialsView): Screen {
         { ...toggle, row: 1 },
         ...row.filter((control) => !control.element.hasAttribute("disabled")).map((control) => ({ ...control, row: 2, landing: control.key === "signin" })),
     ];
+    const body = lead(text.passwordLead(view.serverName, view.passwordOnly));
+    let back = view.back;
     const copy = [
         ...noteChips(view.notes),
         serverCard(view.serverName, view.host, view.secure, view.markUrl),
         headline(text.PASSWORD_TITLE),
-        lead(text.passwordLead(view.serverName, view.passwordOnly)),
+        body,
         fields,
         ...lines,
         actionRow(row),
     ];
-    return { name: "credentials", content: marqueeScreen(copy, keyboardCard()), controls, focus: "username", back: view.back };
+    return {
+        name: "credentials", content: marqueeScreen(copy, keyboardCard()), controls, focus: "username", back: () => back(),
+        usePasswordOnly: () => {
+            body.textContent = text.passwordLead(view.serverName, true);
+            hint.textContent = "";
+            hint.hidden = true;
+            back = view.submitting ? view.back : view.change;
+            const phone = row.find(control => control.key === "phone");
+            const focused = phone !== undefined && document.activeElement === phone.element;
+            controls.splice(0, controls.length, ...controls.filter(control => control.key !== "phone"));
+            phone?.element.remove();
+            if (focused) {
+                signIn.element.focus();
+            }
+        },
+    };
 }

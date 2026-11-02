@@ -20,6 +20,8 @@ import { discoveryView, resultsView } from "./libraryDiscoveryViews.ts";
 import { personalView, type PersonalFilter, type PersonalSource, type PersonalListCapability } from "./personalLists.ts";
 import type { MediaScope } from "../contracts/v2/discovery.ts";
 import { personFilmographyView } from "./personFilmography.ts";
+import type { RecommendationLocator, RecommendationRow } from "../contracts/v2/recommendations.ts";
+import { recommendationsView } from "./recommendationsView.ts";
 
 /** Cards per catalog page: four grid rows. Only the shown page is kept. */
 export const PAGE_SIZE = 24;
@@ -32,10 +34,12 @@ export interface Pages {
 }
 
 export type RouteData =
+    | { readonly kind: "for_you"; data: RecommendationRow[] | undefined }
+    | { readonly kind: "recommendationSection"; readonly locator: RecommendationLocator; readonly title: string; pages: Pages }
     | { readonly kind: "requests"; readonly requests: RequestsState }
     | { readonly kind: "personFilmography"; readonly id: string; readonly title: string; filter: MediaScope; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "calendar"; readonly calendar: CalendarState }
-    | { readonly kind: "personal"; readonly source: PersonalSource; filter: PersonalFilter; capability: PersonalListCapability | undefined; pages: Pages; pendingIndex: number | undefined }
+    | { readonly kind: "personal"; readonly source: PersonalSource; readonly anchor?: "for_you" | "profiles"; filter: PersonalFilter; capability: PersonalListCapability | undefined; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "home"; data: { libraries: UserLibrary[]; sections: HomeSection[] } | undefined }
     | { readonly kind: "homeSection"; readonly id: string; readonly title: string; readonly continuing: boolean; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "resume"; readonly id: string; readonly title: string }
@@ -78,6 +82,7 @@ export function hasData(current: Route): boolean {
         case "libraryResults":
         case "personFilmography":
         case "homeSection":
+        case "recommendationSection":
             return current.pages.page !== undefined;
         case "search":
             return current.pages?.page !== undefined;
@@ -117,6 +122,7 @@ export interface RouteHandlers {
 }
 
 export function routeView(current: Route, handlers: RouteHandlers): View {
+    if (current.kind === "for_you" || current.kind === "recommendationSection") return recommendationsView(current, handlers);
     if (current.kind === "requests") return requestsView(current.requests, handlers.requests(current));
     const { context, pop } = handlers;
     if (current.kind === "calendar") return calendarView(current.calendar, handlers.calendar(current));

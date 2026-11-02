@@ -20,6 +20,8 @@ import { type Control, el, type Note, type Screen, ScreenHost } from "./screen.t
 import * as text from "./signInText.ts";
 
 export interface SignInOptions {
+    /** Explicit server switching preserves saved sign-ins and starts at server entry. */
+    readonly chooseServer?: boolean;
     readonly core: SessionCoreDeps;
     /** Receives the server once its account is signed in. The sign-in screens are gone by then. */
     readonly onSignedIn: (server: ConnectedServer) => void;
@@ -896,6 +898,8 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
 
     if (options.signedOut !== undefined) {
         showEntry(text.signedOutNotice(options.signedOut).map((line) => ({ text: line, tone: "info" })), false);
+    } else if (options.chooseServer === true) {
+        showEntry([], false, "connect");
     } else if (address !== "") {
         startConnect();
     } else {

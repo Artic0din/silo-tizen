@@ -68,12 +68,42 @@ The broader discovery and Details parity work remains tracked by issue #28.
 
 Focus never activates a route or starts a request.
 A library tab opens its anchored selector after 250 ms.
+The selector is centered under its tab at y132, clamped to the screen's horizontal safe area.
+An open selector keeps the top bar lit and its anchor selected while the page behind it remains undimmed.
+These dimensions follow `TVTopMenuBar` and `SiloTheme.Skyline` at Apple revision `1a7ccee`.
 With one visible library, Down enters its modes directly in a single-level panel.
 With multiple libraries, Down enters the scoped library list, Right enters its modes flyout, and Left returns to the library row.
 Back closes either panel without committing.
 Explicit activation commits one library, never a merged scope.
-The profile avatar opens an anchored menu with Switch profile, personal lists, Settings and Sign out.
+Search precedes the centered roots and the profile avatar stays fixed at the right.
+`nav.primary_menu` is read separately from poster preferences through the existing profile-scoped adapter with client family `tv`.
+The default order follows `appleDefaultPrimaryMenuItems`: Home, Movies, Series, For You and Calendar, with Requests appended only when the server enables it.
+Saved order and omissions are preserved; unavailable libraries, unsupported Music/Audiobook roots and section/collection shortcuts are hidden.
+Supported library shortcuts retain their labels and open the existing library modes.
+Failed optional menu reads retain the last confirmed menu, and abandoned answers cannot repaint another profile.
+
+The avatar uses the server-resolved image through the existing artwork URL policy, keeping the initial visible until loading succeeds or if it fails.
+The anchored profile menu includes Switch Profile, personal lists, Settings, Switch Server and a red, unfocused Sign Out row.
+The header uses the confirmed server branding name, falling back to the host when none is cached.
+Every focused menu row uses a white platter and black text, including Sign Out.
+Switch Server retires Browse and enters manual server entry without logging out or deleting saved sign-ins.
+Sign Out requires confirmation; Cancel and Back preserve the session and restore avatar focus.
+Its two-action layout follows `TVSettingsConfirmationOverlay`: centered surface, 48/42 px padding, 38 px title, 22 px message, horizontal 260 px buttons with 16 px spacing and a 0.62 black backdrop.
+The existing focus host owns that row; Up/Down stay inside it, Left/Right select an action, and tapping the backdrop cancels without activating the covered page.
 Back dismisses either anchored menu until focus leaves its anchor or the viewer presses it again.
+Up from the first dropdown row returns to its anchor, and Down from the last For You action returns to content.
+
+For You reuses Home's Skyline artwork, marquee and shelf renderers.
+Its rows come from `/recommendations/discover`; nonempty rows titled “For You” are stably placed first.
+Explore All is offered only for a supported recommendation `kind`/`key` and uses `/recommendations/section/{kind}` with its terminal 60-card contract.
+Recommendation identities are namespaced separately from Home sections; no continuation or exact total is invented.
+The server web client's recommendation adapter was checked, but importing its React/legacy-card layer would add a second transport and model without reducing this port.
+
+This slice does not implement Apple's saved-server list or the additional Sign Out & Remove Server confirmation action.
+Those are remaining client work under #107, not claimed Tizen limitations.
+Music, Audiobooks and Watch Party remain in their existing separate scopes.
+Inter, original SVG drawings and CSS material/focus effects remain documented platform equivalents; full-product and physical-TV parity are not established by these changes.
+The [current signed simulator comparisons](screenshots/94-navigation/README.md) record package identity, historical-frame labels, measured menu/dialog bounds and remaining validation limits.
 
 `BrowseOptions.publicStorage` accepts the existing `PublicStorage` interface.
 The composition owner passes its existing public storage dependency to persist scopes across launches.

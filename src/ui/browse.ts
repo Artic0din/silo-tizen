@@ -38,6 +38,8 @@ import { personQuery } from "./personFilmography.ts";
 import { mountSettings, type SettingsScreen } from "./settings.ts";
 import type { CardOverlayPrefs } from "./cardOverlays.ts";
 import { PresentationSettings } from "./presentationSettings.ts";
+import { NavigationSettings } from "./navigationSettings.ts";
+import { cachedBranding } from "./brandingCache.ts";
 import { getCalendar } from "../api/calendarOperations.ts";
 import { calendarEventKeys, calendarState, calendarWeek, CalendarTimezoneError, deviceTimezone, localDateKey, shiftDay } from "./calendarState.ts";
 import type { CalendarHandlers } from "./calendarView.ts";
@@ -59,7 +61,9 @@ export interface BrowseOptions {
     /** The person asked for the profile screens; browse has already removed itself. */
     readonly onChooseProfile: () => void;
     readonly onSignOut?: () => void;
+    readonly onSwitchServer?: () => void;
     readonly profileName?: string;
+    readonly profileAvatarUrl?: string;
     readonly clock?: Clock;
     readonly publicStorage?: PublicStorage;
 }
@@ -88,6 +92,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let activeSection: SectionCatalog | undefined;
     let activeBrowse: Pages | undefined;
     const browsePrefs = new BrowsePrefs(options.publicStorage, `silo.browse:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`);
+    const navigation = new NavigationSettings((spec, signal) => session.call({ ...spec, profileScoped: true, signal }), () => {
+        if (torn) return;
+        const focus = host.focused();
+        shell.setMenu(navigation.value);
+        render(focus);
+    });
     const sectionCatalog = (route: SectionRoute): SectionCatalog => {
         let catalog = sectionCatalogs.get(route);
         if (catalog === undefined) { catalog = new SectionCatalog(); sectionCatalogs.set(route, catalog); }
@@ -100,7 +110,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const resized = shownScale !== presentation.posterScale;
         if (resized) { shownScale = presentation.posterScale; applyCardSize(); }
         const current = top();
-        if (!playing && current !== undefined && (current.kind === "home" || isSectionRoute(current) || (current.kind === "library" && current.discovery?.mode === "Browse")) && (resized || shownOverlays !== presentation.cardOverlays)) {
+        if (!playing && current !== undefined && (current.kind === "home" || current.kind === "for_you" || current.kind === "recommendationSection" || isSectionRoute(current) || (current.kind === "library" && current.discovery?.mode === "Browse")) && (resized || shownOverlays !== presentation.cardOverlays)) {
             shownOverlays = presentation.cardOverlays;
             render(host.focused());
             if (resized) host.revealFocused();
@@ -264,6 +274,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         activeSection?.stop();
         if (activeBrowse !== undefined) stopFeed(activeBrowse);
         homeDetails.stop();
+        navigation.destroy();
         requestsController.abort();
         document.removeEventListener("visibilitychange", requestsVisibility);
         cardActions.destroy();
@@ -396,7 +407,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const seriesId = detail.type === "series" ? detail.id : detail.seriesId;
         for (const entry of new Set([...roots.values(), ...stack])) {
             if (entry === current) continue;
-            if (entry.kind === "home" || isSectionRoute(entry) || entry.kind === "calendar" || (entry.kind === "library" && entry.discovery?.mode === "Browse")) entry.stale = true;
+            if (entry.kind === "home" || entry.kind === "for_you" || entry.kind === "recommendationSection" || isSectionRoute(entry) || entry.kind === "calendar" || (entry.kind === "library" && entry.discovery?.mode === "Browse")) entry.stale = true;
             if (entry.kind === "season" && entry.seriesId === seriesId && (detail.type !== "season" || entry.seasonNumber === detail.seasonNumber)) entry.stale = true;
             if (entry.kind === "item") {
                 const covered = entry.data?.detail;
@@ -597,6 +608,18 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 return;
             case "personal":
                 loadPage(current, current.pages, current.pendingIndex ?? current.pages.index, quiet);
+                return;
+            case "for_you":
+                presentation.ensure();
+                load(current, signal => read(operations.recommendations(homeArtworkQuery(imageCapability, window.devicePixelRatio)), signal), sections => {
+                    current.data = sections;
+                    homeDetails.load(homeRows(sections).flatMap(row => row.cards.map(card => ({ card, continuing: false }))));
+                }, quiet);
+                return;
+            case "recommendationSection":
+                load(current, signal => read(operations.recommendationSection(current.locator), signal), row => {
+                    current.pages.page = { items: row.items.filter(card => destinationOf(card) !== undefined), total: row.items.length, totalExact: false, nextCursor: undefined };
+                }, quiet);
                 return;
             case "home":
                 presentation.ensure();
@@ -967,9 +990,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             midnight.setHours(24, 0, 0, 0);
             cancelCalendarDay = clock.schedule(() => render(host.focused()), midnight.getTime() - clock.now());
         }
+        shell.setAvatar(options.profileName ?? "Profiles", options.profileAvatarUrl, context.baseUrl);
         if (current.kind === "library") shell.setLibraryModes(availableModes(current.discovery?.data?.capabilities ?? current.discovery?.capabilities));
         const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: current.kind === "library" && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
-        container.classList.toggle("section-catalog", isSectionRoute(current));
+        container.classList.toggle("section-catalog", isSectionRoute(current) || current.kind === "recommendationSection");
         const browsing = current.kind === "library" && current.discovery?.mode === "Browse";
         container.classList.toggle("library-browse", browsing);
         if (browsing) activeBrowse = current.pages;
@@ -979,14 +1003,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (top() !== current || torn || playing || loading !== undefined || cardActions.active || synopsis.active || settingsScreen !== undefined || current.failure !== undefined || current.pages.page?.nextCursor === undefined) return;
                 loadSection(current, true, true);
             }) : routeView(current, handlers);
-        const rootRoute = current.kind === "home" || current.kind === "library" || current.kind === "search" || current.kind === "personal" || current.kind === "calendar" || (current.kind === "requests" && current.requests.source.kind === "hub");
+        const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || current.kind === "search" || current.kind === "personal" || current.kind === "calendar" || (current.kind === "requests" && current.requests.source.kind === "hub");
         if (rootRoute) {
-            const selected = current.kind === "library" ? (current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? "profiles" : current.kind;
-            const preview = current.kind === "home" || (current.kind === "library" && (current.discovery?.mode ?? "Recommended") === "Recommended");
+            const selected = current.kind === "library" ? (current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? current.anchor ?? "profiles" : current.kind;
+            const preview = current.kind === "home" || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && (current.discovery?.mode ?? "Recommended") === "Recommended");
             const modal = browsing && (current.discovery?.panel !== undefined || shuffleFailure?.route === current);
             const decorated = shell.decorate(view, selected, preview, modal ? () => { view.back?.(); } : current.kind === "personal" || (current.kind === "library" && current.discovery?.genre !== undefined) ? pop : undefined, current.kind === "library" ? `library:${current.library.id}:${current.library.type}:${current.discovery?.mode ?? "Recommended"}` : undefined);
             const nav = container.querySelector<HTMLElement>(".browse-nav");
-            if (nav !== null) { nav.inert = modal; if (modal) nav.setAttribute("aria-hidden", "true"); else nav.removeAttribute("aria-hidden"); }
+            if (nav !== null) { nav.inert = modal || nav.inert; if (nav.inert) nav.setAttribute("aria-hidden", "true"); else nav.removeAttribute("aria-hidden"); }
             host.show({ ...decorated, ...(current.kind === "library" ? { ready: hasData(current), ...(current.discovery?.genre !== undefined ? { back: pop } : {}) } : {}), ...(modal ? { zones: view.zones, back: view.back } : {}) }, focus);
         } else {
             host.holdVisit();
@@ -1173,7 +1197,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         let route = roots.get(key);
         if (route === undefined) {
             route = typeof target === "string"
-                ? target === "requests" ? newRoute({ kind: "requests", requests: requestsState({ kind: "hub" }) }) : target === "calendar" ? newRoute({ kind: "calendar", calendar: calendarState() }) : newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
+                ? target === "for_you" ? newRoute({ kind: "for_you", data: undefined }) : target === "requests" ? newRoute({ kind: "requests", requests: requestsState({ kind: "hub" }) }) : target === "calendar" ? newRoute({ kind: "calendar", calendar: calendarState() }) : newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
                 : newRoute({ kind: "library", library: target, pages: newPages() });
             roots.set(key, route);
         }
@@ -1189,6 +1213,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (hasData(route) && (route.focus === undefined || route.focus.zone === "nav")) host.focusDefault();
     }, {
         name: options.profileName ?? "Profiles",
+        serverName: () => cachedBranding(options.publicStorage, context.baseUrl)?.serverName,
         settings: () => {
             shuffleGeneration++;
             stopDetails();
@@ -1206,6 +1231,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (torn) return;
                 container.hidden = false;
                 presentation.reload();
+                void navigation.reload();
                 if (hiddenChanged) {
                     const calendar = stack.find(entry => entry.kind === "calendar");
                     home.stale = true;
@@ -1219,19 +1245,21 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (current !== undefined) showRoute(current, { zone: "nav", key: "profiles" });
             }, server.profileLaunch);
         },
-        personal: source => {
+        personal: (source, anchor = "profiles") => {
             const origin = top();
-            push(newRoute({ kind: "personal", source, filter: "movie", pages: newPages(), capability: undefined, pendingIndex: undefined }));
-            if (origin !== undefined) origin.focus = { zone: "nav", key: "profiles" };
+            push(newRoute({ kind: "personal", source, anchor, filter: "movie", pages: newPages(), capability: undefined, pendingIndex: undefined }));
+            if (origin !== undefined) origin.focus = { zone: "nav", key: anchor };
         },
         switchProfile: chooseProfile,
+        ...(options.onSwitchServer === undefined ? {} : { switchServer: () => { teardown(); options.onSwitchServer?.(); } }),
         ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
-    }, () => render(), options.publicStorage, `silo.skyline.scope:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`, context.baseUrl);
+    }, focus => render(focus), options.publicStorage, `silo.skyline.scope:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`, context.baseUrl);
     shell.titleArt = () => presentation.showsTitleArt;
     // Only Home read these; a library landing would otherwise show them for some titles and not others.
-    shell.details = (card, continuing) => top()?.kind !== "home" ? { line: undefined, badges: undefined } : { line: homeDetails.detailLine(card.id), badges: continuing ? homeDetails.savedFile(card)?.badges : undefined };
-    shell.filled = card => top()?.kind === "home" ? homeDetails.filled(card) : card;
+    shell.details = (card, continuing) => !(top()?.kind === "home" || top()?.kind === "for_you") ? { line: undefined, badges: undefined } : { line: homeDetails.detailLine(card.id), badges: continuing ? homeDetails.savedFile(card)?.badges : undefined };
+    shell.filled = card => top()?.kind === "home" || top()?.kind === "for_you" ? homeDetails.filled(card) : card;
     shell.update([]);
+    void navigation.reload();
     void probeRequests();
     stack = [home];
     host.listen();

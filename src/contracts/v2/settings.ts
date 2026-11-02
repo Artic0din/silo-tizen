@@ -1,5 +1,6 @@
 // Consumed subset of settings v1, server cc851494 (manifest revision 24).
 import { boolean, integer, object, string, WireError } from "./wire.ts";
+import { PRIMARY_MENU_KEY, decodePrimaryMenu } from "./navigation.ts";
 
 export const HIDDEN_KEY = "ui.disabled_library_ids";
 export const TITLE_ART_KEY = "ui.title_art";
@@ -16,7 +17,7 @@ export const CARD_OVERLAYS_KEY = "ui.card_overlays";
 export const CARD_OVERLAYS_ENABLED_KEY = "ui.card_overlays_enabled";
 export const CARD_PRESENTATION_KEY = "ui.card_presentation";
 export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY, QUALITY_KEY, BITRATE_KEY, ...SEEK_KEYS, TITLE_ART_KEY] as const;
-export type SettingsKey = (typeof SETTINGS_KEYS)[number] | typeof AUTO_NEXT_KEY | typeof CARD_OVERLAYS_KEY | typeof CARD_OVERLAYS_ENABLED_KEY | typeof CARD_PRESENTATION_KEY;
+export type SettingsKey = (typeof SETTINGS_KEYS)[number] | typeof AUTO_NEXT_KEY | typeof CARD_OVERLAYS_KEY | typeof CARD_OVERLAYS_ENABLED_KEY | typeof CARD_PRESENTATION_KEY | typeof PRIMARY_MENU_KEY;
 type Json = null | boolean | string | number | readonly Json[] | { readonly [member: string]: Json | undefined };
 export type SettingValue = null | boolean | string | number | readonly number[] | { readonly [member: string]: Json | undefined };
 export type SettingsScope = "profile" | "profile_device";
@@ -159,6 +160,7 @@ export function numericLibraryId(id: string): number {
 }
 
 export function decodeSettingValue(key: SettingsKey, value: unknown): SettingValue {
+    if (key === PRIMARY_MENU_KEY) return decodePrimaryMenu(value);
     if (key === CARD_PRESENTATION_KEY) {
         const document = object(value, "card_presentation.value");
         if (!["compact", "standard", "large"].includes(string(document, "poster_size", "card_presentation.value"))) throw new WireError("card_presentation.value.poster_size", "a supported size");

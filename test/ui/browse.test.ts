@@ -661,7 +661,7 @@ browseTest("a completed library read preserves navigation chosen while loading",
     const pending = tv.fake.hold("/library/12/sections", true);
     await tv.page.locator('[data-focus="movies"]').click();
     await tv.page.locator('[aria-label="Loading"]').waitFor();
-    await press(tv, "ArrowUp", "ArrowRight");
+    await press(tv, "ArrowUp", "ArrowRight", "ArrowLeft");
     const focused = await tv.focused();
     assert.equal(focused, "movies");
     pending.release();
@@ -1454,7 +1454,7 @@ browseTest("discovery uses nonzero letter positions and cancels an obsolete quer
 }, { multipleLibraries: true });
 
 browseTest("Skyline keeps bounded type tabs and a passive debounced marquee", async (tv) => {
-    assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["home", "movies", "series", "search", "profiles", "calendar"]);
+    assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["search", "home", "movies", "series", "for_you", "calendar", "profiles"]);
     assert.equal(await tv.page.locator(".skyline-marquee h1").textContent(), "Movie 0001");
     const reads = tv.fake.requests.length;
     await press(tv, "ArrowRight");
@@ -1644,7 +1644,7 @@ browseTest("reduced motion snaps scrolling and the real Browse flyout preserves 
 
 browseTest("Home lists visible video libraries and supported rows, and every row is reachable by remote", async (tv) => {
     const nav = await cardIds(tv, ".browse-nav .browse-button");
-    assert.deepEqual(nav, ["home", "movies", "series", "search", "profiles", "calendar"], "bounded video types and Calendar only");
+    assert.deepEqual(nav, ["search", "home", "movies", "series", "for_you", "calendar", "profiles"], "video roots, For You and Calendar between fixed utilities");
     const rows = await tv.page.evaluate(() => Array.from(document.querySelectorAll("[data-section]")).map((node) => node.getAttribute("data-section")));
     assert.deepEqual(rows, ["continue_watching", "recently_added"], "a row of only books is left out");
     assert.equal((await cardIds(tv)).indexOf("ebook:atlas"), -1, "the book card in a mixed row is left out");
@@ -1992,7 +1992,7 @@ browseTest("episode-aware Search preserves opaque paging scope, invalid-cursor R
 });
 
 browseTest("typing invalidates an in-flight search before the debounce expires", async (tv) => {
-    await press(tv, "ArrowUp", "ArrowRight", "ArrowRight", "ArrowRight", "Enter");
+    await press(tv, "ArrowUp", "ArrowLeft", "Enter");
     await showing(tv, "search");
     const first = tv.fake.hold("/catalog", true);
     await tv.page.fill("#browse-search", "Movie 0001");
@@ -2011,7 +2011,7 @@ browseTest("typing invalidates an in-flight search before the debounce expires",
 }, { catalog: videoOnlyCatalog() });
 
 browseTest("search uses the TV keyboard, shows only the latest query's answer, and recovers from failures", async (tv, catalog) => {
-    await press(tv, "ArrowUp", "ArrowRight", "ArrowRight", "ArrowRight", "Enter");
+    await press(tv, "ArrowUp", "ArrowLeft", "Enter");
     await showing(tv, "search");
     assert.equal(await tv.focused(), "query");
 
@@ -2050,7 +2050,7 @@ browseTest("search uses the TV keyboard, shows only the latest query's answer, a
 }, { catalog: videoOnlyCatalog() });
 
 browseTest("Back from a result reloads a query edited before its debounce could run", async (tv) => {
-    await press(tv, "ArrowUp", "ArrowRight", "ArrowRight", "ArrowRight", "Enter");
+    await press(tv, "ArrowUp", "ArrowLeft", "Enter");
     await showing(tv, "search");
     await tv.page.fill("#browse-search", "Movie 0001");
     await tv.remote(IME_DONE);
@@ -2132,19 +2132,21 @@ browseTest("an authority change removes only browse, aborts its reads, and the n
     assert.equal(await tv.page.evaluate(() => window.browseHarness.selectProfile("p-kid", "2468")), "verified");
     await tv.page.evaluate(() => window.browseHarness.mount());
     await showing(tv, "home");
-    assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["home", "movies", "search", "profiles", "calendar"]);
+    assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["search", "home", "movies", "for_you", "calendar", "profiles"]);
     const kidReads = browseReads(tv).filter((read) => read.headers["x-profile-id"] === "p-kid");
     assert.ok(kidReads.length >= 3 && kidReads.every((read) => read.headers["x-profile-token"]?.startsWith("pvt-")));
 
-    await press(tv, "ArrowUp", "ArrowRight", "ArrowRight", "Enter");
+    await press(tv, "ArrowUp", "ArrowLeft", "Enter");
     await tv.page.fill("#browse-search", "movie");
     await tv.remote(IME_DONE);
     await shows(tv, 'No results for "movie".');
     await tv.remote(BACK);
     await showing(tv, "home");
 
-    await press(tv, "ArrowRight", "Enter");
-    await press(tv, "ArrowDown", "Enter");
+    assert.equal(await tv.focused(), "search");
+    await press(tv, "ArrowRight", "ArrowRight", "ArrowRight", "ArrowRight", "ArrowRight", "Enter");
+    assert.equal(await tv.focused(), "switch-profile");
+    await press(tv, "Enter");
     assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.chooseProfileCalls), [false], "browse was gone before onChooseProfile ran");
     assert.equal(await tv.page.locator(".browse").count(), 0);
 }, { profile: "p-owner" });

@@ -30,6 +30,8 @@ export interface FocusItem {
 }
 
 export interface Zone {
+    /** A screen's current root, used when entering its navigation row. */
+    readonly entry?: string;
     readonly onLeft?: () => void;
     readonly id: string;
     readonly up?: string;
@@ -354,7 +356,7 @@ export class FocusHost {
             const zone = zones[next];
             if (zone !== undefined && zone.items.length > 0) {
                 const remembered = this.memory.get(zone.id);
-                this.focusItem(zone, zone.items.find((item) => item.key === remembered) ?? zone.items[0]);
+                this.focusItem(zone, zone.items.find(item => item.key === zone.entry) ?? zone.items.find((item) => item.key === remembered) ?? zone.items[0]);
                 return true;
             }
         }

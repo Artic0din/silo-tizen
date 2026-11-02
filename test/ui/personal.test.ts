@@ -403,14 +403,13 @@ test("remote personal journey keeps scrolled focus visible with Reduced Motion a
             if (process.env.PERSONAL_VIDEO !== undefined) await tv.page.waitForTimeout(350);
         };
         await step("ArrowUp");
-        for (let i = 0; i < 4; i++) await step("ArrowRight");
+        for (let i = 0; i < 5; i++) await step("ArrowRight");
         await step("Enter");
         const output = process.env.PERSONAL_CAPTURE;
         if (output !== undefined) {
             await mkdir(output, { recursive: true });
             await tv.page.screenshot({ path: `${output}/profile-after.png` });
         }
-        await step("ArrowDown");
         await step("ArrowDown");
         assert.equal(await tv.focused(), "watchlist");
         await step("Enter");

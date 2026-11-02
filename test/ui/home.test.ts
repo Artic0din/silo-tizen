@@ -23,6 +23,17 @@ after(async () => { await browser.close(); });
 const homeTitles = (tv: Tv): Promise<string[]> => tv.page.locator('[data-view="home"] [data-section] .browse-card:not(.skyline-explore)').evaluateAll(nodes => [...new Set(nodes.map(node => node.getAttribute("data-focus") ?? ""))]);
 const detailsRead = homeDetailsRead;
 
+function sectionReplyProduced(catalog: FakeHome): Promise<void> {
+    return new Promise(resolve => {
+        const read = catalog.route.bind(catalog);
+        catalog.route = (method, path, profile, body) => {
+            const reply = read(method, path, profile, body);
+            if (path.startsWith("/catalog/query")) resolve();
+            return reply;
+        };
+    });
+}
+
 function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void>, setup?: (catalog: FakeHome) => void, settings?: (settings: FakeSettings, tv: Tv) => void, options: { readonly whileReading?: boolean } = {}): void {
     test(name, async () => {
         const tv = await openTv(browser, { app: "browse" });
@@ -84,6 +95,7 @@ journey("Home caps each shelf at Apple's 20 media cards", async tv => {
 journey("expanded rows use the shared section catalog instead of a discrete pager", async (tv, catalog) => {
     await tv.page.locator('[data-focus="expand:recent/12"]').click();
     await tv.page.locator(".section-catalog-title").waitFor();
+    await tv.page.locator(".section-catalog-grid .browse-card").first().waitFor();
     assert.equal(await tv.page.locator(".section-catalog-title").textContent(), "Recently Added in Movies");
     assert.equal(catalog.queries[0]?.limit, 60);
     assert.equal(await tv.page.locator(".section-catalog-grid .browse-card").count(), 60);
@@ -819,14 +831,18 @@ journey("expanded Continue keeps episode cards and resumes while ordinary rows s
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 1);
 });
 
-journey("an expanded loading row owns focus and Back discards its late answer", async tv => {
+journey("an expanded loading row owns focus and Back discards its late answer", async (tv, catalog) => {
     const held = tv.fake.hold("/catalog/query", true);
+    const produced = sectionReplyProduced(catalog);
+    const cancelled = tv.page.waitForEvent("requestfailed", request => new URL(request.url()).pathname === "/api/v2/catalog/query");
     await tv.page.locator('[data-focus="expand:recent/12"]').click();
     await tv.page.getByRole("status", { name: "Loading Recently Added in Movies", exact: true }).waitFor();
     assert.equal(await tv.focused(), "state");
     await tv.remote(10009);
+    await cancelled;
     held.release();
-    await tv.jump(16);
+    await produced;
+    await tv.page.clock.runFor(0);
     assert.equal(await tv.focused(), "expand:recent/12");
     assert.equal(await tv.page.locator(".section-catalog-grid").count(), 0);
 });
@@ -842,8 +858,33 @@ journey("a failed section append retains its cards and offers an explicit retry"
     await tv.page.locator('.section-catalog-grid .browse-card').last().evaluate(node => node.scrollIntoView({ block: "end" }));
     await tv.page.getByRole("alert").waitFor();
     assert.equal(await tv.page.locator('.section-catalog-grid .browse-card').count(), 60);
+    const recovered = tv.page.waitForResponse(reply => new URL(reply.url()).pathname === "/api/v2/catalog/query" && reply.ok());
     await tv.page.getByRole("button", { name: "Try again", exact: true }).click();
+    assert.equal(await (await recovered).finished(), null);
+    assert.deepEqual((await recovered).request().postDataJSON(), { source: "section", scope: "home", section_id: "recent/12", limit: 60 });
+    await tv.page.clock.runFor(0);
     await tv.eventually(async () => await tv.page.getByRole("alert").count() === 0 && await tv.page.locator('.section-catalog-grid .browse-card').count() >= 60, "row recovered");
+});
+
+journey("a late expanded row answer cannot cross a profile switch", async (tv, catalog) => {
+    const held = tv.fake.hold("/catalog/query", true);
+    const produced = sectionReplyProduced(catalog);
+    const cancelled = tv.page.waitForEvent("requestfailed", request => new URL(request.url()).pathname === "/api/v2/catalog/query");
+    await tv.page.locator('[data-focus="expand:recent/12"]').click();
+    await tv.page.getByRole("status", { name: "Loading Recently Added in Movies", exact: true }).waitFor();
+    await tv.page.evaluate(() => window.browseHarness.clearProfile());
+    await cancelled;
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.selectProfile("p-kid", "2468")), "verified");
+    await tv.page.evaluate(() => window.browseHarness.mount());
+    await tv.page.locator('[data-view="home"] [data-section="kids_picks"]').waitFor();
+    const focus = await tv.focused();
+    held.release();
+    await produced;
+    await tv.page.clock.runFor(0);
+    assert.equal(await tv.focused(), focus);
+    assert.equal(await tv.page.locator(".section-catalog-grid").count(), 0);
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 0);
+    assert.equal(await tv.page.locator('[data-section="kids_picks"]').count(), 1);
 });
 
 journey("Home expansion empty, missing and failed reads retain reachable controls", async (tv, catalog) => {

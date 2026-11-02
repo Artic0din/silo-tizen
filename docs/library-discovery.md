@@ -31,8 +31,9 @@ The existing scroll owner restarts a reveal only when a section repaint restores
 The locked-desktop session used CDP focus emulation in Samsung's software simulator; this does not establish native visibility handling, Tizen 8 hardware behavior, browser-origin compatibility or successful AVPlay playback.
 Physical-TV runs remain deferred until simulator parity is complete.
 
-The signed WGT SHA-256 is `81dbbd519e1dfd8274439b66c36d4c06b1c18d6a321f000e00f20836e2c08c79`.
+The signed screen-calibration WGT at `f4096cd` has SHA-256 `81dbbd519e1dfd8274439b66c36d4c06b1c18d6a321f000e00f20836e2c08c79`.
 All 14 unpacked files matched the installed simulator files; their complete hashes are in [the installed asset manifest](screenshots/117-section/installed-calibrated.sha256), SHA-256 `5e910bc2141ad8d298c2acc14be603fb18deaad096d9b3c998fa805f8d2c09a5`.
+The later append-404 correction is covered by native regression tests; it changes error handling without changing this screen geometry.
 
 Search capabilities control the Genres, A–Z and Recently Added destinations.
 Explicit unsupported capabilities leave Browse and Collections available; failed reads show an error and Retry.

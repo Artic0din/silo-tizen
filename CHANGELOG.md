@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Kept loaded expanded-row cards available when a later page reported the row missing.
 - Replaced expanded Home and library row paging with a scrolling catalog that retained loaded cards and focus, followed poster-size preferences, and refreshed changed personal state.
 - Aligned Home's backdrop, row and marquee placement, poster-size preferences, artwork resolution, wordmark and control dimensions with the Apple TV source.
 - Kept Home available while the optional artwork-capability probe was pending, using small artwork until sizing was known.

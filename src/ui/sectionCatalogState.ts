@@ -44,7 +44,7 @@ export async function readSectionCatalog(
                 continue;
             }
             if (error instanceof ApiError && error.problemId === "invalid_cursor") throw new ApiError({ kind: "invalid_response", path: "catalog.page.cursor" });
-            if (error instanceof ApiError && error.status === 404) {
+            if (error instanceof ApiError && error.status === 404 && !append) {
                 return { page: { items: [], nextCursor: undefined, total: 0, totalExact: true }, cursors: new Set(), unavailable: true };
             }
             throw error;

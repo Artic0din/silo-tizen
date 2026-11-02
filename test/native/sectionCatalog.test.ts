@@ -104,6 +104,15 @@ test("a removed row is distinct from a valid empty row", async () => {
     assert.equal(empty.unavailable, false);
 });
 
+test("a removed row during append leaves the loaded snapshot usable", async () => {
+    const before = await readSectionCatalog(undefined, false, async () => page(["a", "b", "c", "d", "e", "f"], "second"), signal());
+    await assert.rejects(readSectionCatalog(before, true, async () => {
+        throw new ApiError({ kind: "http", status: 404, retryAfterSeconds: undefined });
+    }, signal()), error => error instanceof ApiError && error.status === 404);
+    assert.equal(before.page.items.length, 6);
+    assert.equal(before.unavailable, false);
+});
+
 test("cancellation prevents the following thin-page request", async () => {
     const controller = new AbortController();
     let reads = 0;

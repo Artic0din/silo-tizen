@@ -255,10 +255,33 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     try { imageCapability = rememberedImages(options.publicStorage?.getItem(imageKey)); }
     catch { /* Missing optional cache data leaves the capability probe in charge. */ }
     let imageProbe: Promise<ImageCapabilities | undefined> | undefined;
-    let homeUsesFallbackArtwork = false;
+    let homeArtworkAttempt: Readonly<Record<string, string>> | undefined;
     function upgradeHomeArtwork(): void {
-        if (torn || playing || top() !== home || loading !== undefined || !hasData(home) || home.failure !== undefined || !homeUsesFallbackArtwork) return;
-        if (Object.keys(homeArtworkQuery(imageCapability, window.devicePixelRatio)).length > 0) loadRoute(home, true);
+        if (home.kind !== "home") return;
+        const data = home.data;
+        if (torn || playing || top() !== home || loading !== undefined || data === undefined || home.failure !== undefined || homeArtworkAttempt === undefined) return;
+        const query = homeArtworkQuery(imageCapability, window.devicePixelRatio);
+        if (!Object.entries(query).some(([key, value]) => homeArtworkAttempt?.[key] === undefined || Number(value) > Number(homeArtworkAttempt[key]))) return;
+        load(home, signal => read(operations.listHomeSections(query), signal).catch((error: unknown) => {
+            if (error instanceof ApiError && !error.aborted) return undefined;
+            throw error;
+        }), sections => {
+            homeArtworkAttempt = query;
+            if (sections !== undefined) {
+                const artwork = new Map(sections.map(section => [section.id, new Map(section.items.map(card => [card.id, card]))]));
+                home.data = { ...data, sections: data.sections.map(section => ({ ...section, items: section.items.map(card => {
+                    const sized = artwork.get(section.id)?.get(card.id);
+                    return sized === undefined ? card : { ...card,
+                        posterUrl: sized.posterUrl ?? card.posterUrl,
+                        backdropUrl: sized.backdropUrl ?? card.backdropUrl,
+                        backdropThumbhash: sized.backdropThumbhash ?? card.backdropThumbhash,
+                        seriesBackdropUrl: sized.seriesBackdropUrl ?? card.seriesBackdropUrl,
+                        logoUrl: sized.logoUrl ?? card.logoUrl,
+                    };
+                }) })) };
+            }
+            return host.focused();
+        }, true);
     }
     const probeImages = (): Promise<ImageCapabilities | undefined> => imageProbe ??= session.call({ ...operations.imageCapabilities(), profileScoped: true, signal: requestsController.signal }).then(found => {
         if (torn) return undefined;
@@ -645,7 +668,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 ]), ([libraries, hidden, sections]) => {
                     const focus = host.focused();
                     current.data = { libraries: visibleLibraries(libraries, hidden), sections };
-                    homeUsesFallbackArtwork = Object.keys(artworkQuery).length === 0;
+                    homeArtworkAttempt = artworkQuery;
                     shell.update(current.data.libraries);
                     homeDetails.load(homeRows(sections).flatMap(row => row.cards.map(card => ({ card, continuing: row.continuing }))));
                     // Changed tabs replace the nav nodes, including the still-present avatar.

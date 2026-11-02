@@ -171,7 +171,9 @@ Rows start at x80 and retain an 80 px trailing reveal clearance.
 The top bar uses the packaged 96 px wordmark, 26 px semibold labels, 56 px tab capsules and 58 px icon targets; this slice preserves its existing destinations and ordering.
 The backdrop follows `TVRootHeroBackdrop`: a top-right 1228.8×756 artwork block with multiplied horizontal/vertical masks, a 190 px top scrim and sampled base/accent/shadow washes over black.
 Home immediately uses small artwork while an optional cold-start probe runs, then upgrades once through its existing load owner when the answer advertises better artwork sizing.
-The upgrade preserves focus and reuses cached metadata; a pending, failed or non-improving probe leaves usable Home intact, and later mounts use remembered sizing immediately.
+The upgrade merges only artwork for retained section/card identities, preserving focus, content, hidden-library choices and in-flight metadata reads.
+It also upgrades incomplete remembered sizing when the fresh answer adds better slots.
+A pending, failed or non-improving probe, or a failed artwork read, leaves usable Home intact without an automatic retry loop; later mounts use remembered sizing immediately.
 Canvas sampling first uses the already loaded image; a tainted canvas tries a separate anonymous CORS image without breaking the displayed image.
 If sampling is refused, the matching backdrop ThumbHash supplies the wash, or black when there is no valid hash; an episode-still hash is never used with its series backdrop.
 Real local HTTP tests cover allowed/refused CORS while retaining visible artwork, but do not establish the packaged TV's origin policy.

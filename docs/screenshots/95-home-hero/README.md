@@ -1,6 +1,6 @@
 # Home hero artwork evidence
 
-These Tizen frames show signed build r1 in Samsung's NW.js software simulator at a real 1920×1080 viewport.
+These Tizen frames show corrected signed build r2 in Samsung's NW.js software simulator at a real 1920×1080 viewport.
 The engine is Chromium 137; this does not establish physical Tizen 8/Chromium 108 behavior, packaged-origin CORS or AVPlay playback.
 No physical TV was used.
 
@@ -15,10 +15,12 @@ The 1344-CSS-pixel backdrop budget produced a 2688-image-pixel request at the si
 The server delivered the larger image, so 3840 is an observed decode size rather than a requested layout constant.
 Home made exactly two section reads, recorded in [the sanitized transition record](cold-to-ready.json).
 The focus identity stayed `episode-tvdb-384968-3-3`.
-Metadata enrichment continued independently; the cast line had arrived by the ready capture.
+Metadata enrichment continued independently; the cast line is present in both captures.
 The ready image is the settled capture, rather than the first frame of the repaint.
+The correction merges artwork into retained section/card identities without rereading libraries/preferences or restarting pending metadata.
+Automated regressions cover optional artwork-read failure, hidden-library preservation, in-flight metadata and incomplete remembered sizing; those failure scenarios were not injected into the live server.
 
-The first interception attempt ended with an invalid interception identifier and simulator exit.
+During the earlier r1 capture, the first interception attempt ended with an invalid interception identifier and simulator exit.
 It is excluded from acceptance evidence; no application root cause was established.
 After relaunch, response-stage continuation completed successfully without that failure.
 
@@ -42,11 +44,12 @@ Text-only/wrapped-title, delayed logo, missing-file and failed-probe paths have 
 
 ## Package and running assets
 
-Signed WGT SHA-256: `f33e760ada8bf0bfbef660422edae19cc265cbf537f09301fe7776ba364f0900`.
-All 14 archive files matched the installed files in [installed-assets.sha256](installed-assets.sha256), whose SHA-256 is `d7928a735beb3e38d04432a9d201797141aba731847c2acef005e28643451296`.
+Signed r2 WGT SHA-256: `c103505709b5b0a707f5ca6c78a929d6ec9fb8bf390c52aaf58e1682aa14b94b`.
+All 14 archive files matched the installed files in [installed-assets-r2.sha256](installed-assets-r2.sha256), whose SHA-256 is `879a24279cd0b1b03de651da9acae9aaf9a8045f37b6e4a19e5930a1b8f3a3c6`.
+The [r1 installed manifest](installed-assets.sha256) is retained as earlier-build evidence, not the current installation.
 Loaded resources were independently read through CDP and matched the build:
 
-- `js/main.js`: `916a857eccfd9a72f4103c9f8d579ea381ba0eb98c480ccd7a8aae4c08fac165`.
+- `js/main.js`: `aa2102a8932535d09bfb0b6729a9a35e93b6a4ec88c51694d9d958c398edbc5c`.
 - `js/main.css`: `829a5d647296e0b2fbd449ddf0aa7edf8ed2863ca0b202343b086132a1fe6a22`.
 
 The simulator remains on Home with the signed candidate installed.

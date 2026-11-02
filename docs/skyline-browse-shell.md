@@ -81,6 +81,8 @@ The default order follows `appleDefaultPrimaryMenuItems`: Home, Movies, Series, 
 Saved order and omissions are preserved; unavailable libraries, unsupported Music/Audiobook roots and section/collection shortcuts are hidden.
 Supported library shortcuts retain their labels and open the existing library modes.
 Failed optional menu reads retain the last confirmed menu, and abandoned answers cannot repaint another profile.
+An updated menu waits for an open dropdown to close, then restores the explicitly chosen root so horizontal navigation keeps its focus.
+Whole-library shortcuts preserve mixed-video scope; Movies and Series category tabs still narrow their own routes.
 
 The avatar uses the server-resolved image through the existing artwork URL policy, keeping the initial visible until loading succeeds or if it fails.
 The anchored profile menu includes Switch Profile, personal lists, Settings, Switch Server and a red, unfocused Sign Out row.
@@ -94,13 +96,15 @@ Back dismisses either anchored menu until focus leaves its anchor or the viewer 
 Up from the first dropdown row returns to its anchor, and Down from the last For You action returns to content.
 
 For You reuses Home's Skyline artwork, marquee and shelf renderers.
+Returning to a retained Home or For You feed restarts only unfinished enrichment through the existing cache owner.
 Its rows come from `/recommendations/discover`; nonempty rows titled “For You” are stably placed first.
 Explore All is offered only for a supported recommendation `kind`/`key` and uses `/recommendations/section/{kind}` with its terminal 60-card contract.
 Recommendation identities are namespaced separately from Home sections; no continuation or exact total is invented.
 The server web client's recommendation adapter was checked, but importing its React/legacy-card layer would add a second transport and model without reducing this port.
 
 This slice does not implement Apple's saved-server list or the additional Sign Out & Remove Server confirmation action.
-Those are remaining client work under #107, not claimed Tizen limitations.
+The saved-server list is tracked in #127; the additional removal action remains under #107.
+Those are client work, not claimed Tizen limitations.
 Music, Audiobooks and Watch Party remain in their existing separate scopes.
 Inter, original SVG drawings and CSS material/focus effects remain documented platform equivalents; full-product and physical-TV parity are not established by these changes.
 The [current signed simulator comparisons](screenshots/94-navigation/README.md) record package identity, historical-frame labels, measured menu/dialog bounds and remaining validation limits.

@@ -926,6 +926,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (!hasData(current) || current.stale || current.failure !== undefined || queryChanged) {
             loadRoute(current, hasData(current) && !queryChanged);
             if (current.kind === "calendar") render(focus);
+        } else if ((current.kind === "home" || current.kind === "for_you") && current.data !== undefined) {
+            const sections = current.kind === "home" ? current.data.sections : current.data;
+            homeDetails.load(homeRows(sections).flatMap(row => row.cards.map(card => ({ card, continuing: current.kind === "home" && row.continuing }))));
         }
     };
 

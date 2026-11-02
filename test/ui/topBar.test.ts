@@ -163,6 +163,94 @@ test("a late authored menu preserves content focus and a library shortcut keeps 
     } finally { held.release(); await tv.page.context().close(); }
 });
 
+test("a mixed-library shortcut keeps its whole scope when a mode is selected", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = new RecommendationsCatalog();
+        const library = catalog.households.get("p-owner")?.libraries.find(item => item.id === "12");
+        assert.ok(library);
+        library.type = "mixed";
+        await start(tv, { items: [{ type: "builtin", destination: "home" }, { type: "library", library_id: 12, label: "Mixed" }] }, catalog);
+        await tv.page.locator('[data-focus="library:12"]').waitFor();
+        await tv.page.locator('[data-focus="library:12"]').focus();
+        await tv.remote(40); await tv.remote(40); await tv.remote(40);
+        assert.equal(await tv.focused(), "section:browse");
+        await tv.page.keyboard.press("Enter");
+        await tv.page.locator('.library-browse .catalog-grid .browse-card').first().waitFor();
+        const query = tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).pop();
+        assert.ok(query);
+        assert.equal(query.body?.type, "video", "mixed shortcuts must not become a Movies slice");
+    } finally { await tv.page.context().close(); }
+});
+
+test("a late authored menu waits for an entered dropdown to close", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    const held = tv.fake.hold("/settings/values/effective?keys=nav.primary_menu", true);
+    try {
+        await start(tv, { items: [{ type: "builtin", destination: "home" }, { type: "builtin", destination: "movies" }, { type: "builtin", destination: "for_you" }] });
+        await tv.page.locator('[data-focus="movies"]').focus();
+        await tv.remote(40);
+        const row = await tv.page.locator('.skyline-selector [data-focus="section:Recommended"]').elementHandle();
+        assert.ok(row);
+        const answer = tv.page.waitForResponse(response => new URL(response.url()).searchParams.get("keys") === PRIMARY_MENU_KEY);
+        held.release();
+        assert.equal(await (await answer).finished(), null);
+        await tv.page.clock.runFor(0);
+        assert.equal(await row.evaluate(node => node.isConnected), true);
+        assert.equal(await tv.focused(), "section:Recommended");
+        await tv.remote(10009);
+        await tv.page.waitForFunction(() => document.querySelector(".skyline-roots")?.textContent === "HomeMoviesFor You");
+        assert.equal(await tv.focused(), "movies");
+    } finally { held.release(); await tv.page.context().close(); }
+});
+
+test("returning to cached Home restarts enrichment cancelled by For You", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    const path = "/catalog/items/movie%3Am0002";
+    const held = tv.fake.hold(path, true);
+    try {
+        await start(tv);
+        await tv.eventually(async () => tv.fake.requests.some(request => request.path.startsWith(path)), "Home enrichment in flight");
+        await tv.page.locator('[data-focus="for_you"]').click();
+        await tv.page.locator('[data-view="for_you"] .browse-card').first().waitFor();
+        held.release();
+        await tv.page.locator('[data-focus="home"]').click();
+        await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+        await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith(path)).length === 2, "unfinished Home detail restarted");
+    } finally { held.release(); await tv.page.context().close(); }
+});
+
+test("a deferred menu keeps root focus when leaving a passive dropdown horizontally", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    const held = tv.fake.hold("/settings/values/effective?keys=nav.primary_menu", true);
+    try {
+        await start(tv, { items: (["home", "movies", "series", "for_you"] as const).map(destination => ({ type: "builtin", destination })) });
+        await tv.page.locator('[data-focus="movies"]').focus();
+        await tv.jump(250);
+        const answer = tv.page.waitForResponse(response => new URL(response.url()).searchParams.get("keys") === PRIMARY_MENU_KEY);
+        held.release();
+        assert.equal(await (await answer).finished(), null);
+        await tv.page.clock.runFor(0);
+        await tv.remote(39);
+        assert.equal(await tv.focused(), "series");
+        assert.equal(await tv.page.locator(".skyline-roots").textContent(), "HomeMoviesSeriesFor You");
+    } finally { held.release(); await tv.page.context().close(); }
+});
+
+test("horizontal navigation between passive dropdowns keeps normal dwell", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await tv.page.locator('[data-focus="movies"]').focus();
+        await tv.jump(250);
+        await tv.remote(39);
+        await tv.jump(250);
+        assert.equal(await tv.focused(), "series");
+        assert.equal(await tv.page.locator(".skyline-selector:not(.skyline-flyout)").evaluate(node => (node as HTMLElement).hidden), false);
+        assert.equal(await tv.page.locator(".skyline-selector:not(.skyline-flyout)").getAttribute("aria-label"), "SHOWS menu");
+    } finally { await tv.page.context().close(); }
+});
+
 test("a long authored menu scrolls roots while Search and the avatar remain fixed", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

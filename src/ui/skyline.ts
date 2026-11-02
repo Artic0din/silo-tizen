@@ -166,7 +166,7 @@ export class Skyline {
         this.libraries = libraries;
         const roots = navigationRoots(this.menu, libraries, this.requestsEnabled);
         const identity = JSON.stringify(roots);
-        if (identity === this.navigationIdentity) return;
+        if (identity === this.navigationIdentity || !this.selector.hidden) return;
         this.navigationIdentity = identity;
         this.close();
         const rootItems = roots.map(root => {
@@ -396,6 +396,7 @@ export class Skyline {
         this.scrim.hidden = true;
         this.panel = [];
         this.updateChrome();
+        this.update(this.libraries);
     }
 
     private back(): boolean {
@@ -439,7 +440,10 @@ export class Skyline {
         }
         const dismissed = !this.selector.hidden;
         this.close();
-        if (dismissed) this.refresh();
+        if (dismissed) {
+            this.refresh({ zone: "nav", key: item.key });
+            if (!item.element.isConnected) return;
+        }
         if (this.dismissedAnchor === item.key) return;
         this.dismissedAnchor = undefined;
         if (this.roots.contains(item.element)) {
@@ -655,7 +659,7 @@ export class Skyline {
 
     private modeItems(library: UserLibrary, type: VideoTab): FocusItem[] {
         return this.libraryModes.map(mode => {
-            const item = this.menuItem(`section:${mode === "Browse" ? "browse" : mode}`, mode, () => this.commit({ ...library, type }, mode), mode);
+            const item = this.menuItem(`section:${mode === "Browse" ? "browse" : mode}`, mode, () => this.commit(this.panelAnchor === `library:${library.id}` ? library : { ...library, type }, mode), mode);
             item.element.setAttribute("role", "menuitem");
             return item;
         });

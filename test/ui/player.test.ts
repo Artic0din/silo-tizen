@@ -1,5 +1,5 @@
 // The player screen in Chromium with stub controls: remote keys, focus and readable states.
-// Desktop Chromium is not the TV's Chromium 76; this proves behavior, not 2021 rendering.
+// Desktop Chromium is not the TV's Chromium 108; this proves behavior, not TV rendering.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -50,7 +50,7 @@ before(async () => {
         entryPoints: [new URL("./playerHarness.ts", import.meta.url).pathname],
         bundle: true,
         format: "iife",
-        target: "chrome76",
+        target: "chrome108",
         write: false,
         logLevel: "silent",
     });

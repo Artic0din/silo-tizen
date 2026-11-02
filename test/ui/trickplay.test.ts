@@ -23,7 +23,7 @@ const sprites = new Map<number, Buffer>();
 
 before(async () => {
     const workspace = new URL("../../", import.meta.url).pathname;
-    const built = await build({ entryPoints: [new URL("./trickplayHarness.ts", import.meta.url).pathname], bundle: true, format: "iife", target: "chrome76", write: false,
+    const built = await build({ entryPoints: [new URL("./trickplayHarness.ts", import.meta.url).pathname], bundle: true, format: "iife", target: "chrome108", write: false,
         plugins: BASELINE === undefined ? [] : [{ name: "matched-base", setup(build) {
             build.onResolve({ filter: /\.ts$/ }, (args) => {
                 const path = resolve(dirname(args.importer), args.path);

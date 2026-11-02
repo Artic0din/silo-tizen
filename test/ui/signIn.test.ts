@@ -548,23 +548,34 @@ tvTest("a rate-limited start keeps trying, honouring Retry-After, and says so af
 });
 
 tvTest("rate limits slow polling without ending sign-in, and say so only after a minute of them", async (tv) => {
+    await holdClock(tv);
     await connectTo(tv);
     await codeScreen(tv);
     tv.fake.script("/auth/device/poll", rateLimited(20), rateLimited(20), rateLimited(20), rateLimited(20));
-    await tv.jump(5000);
+    const pollAfter = async (ms: number, status: number): Promise<void> => {
+        const next = tv.page.waitForResponse(reply => new URL(reply.url()).pathname.endsWith("/auth/device/poll"));
+        await tv.jump(ms);
+        const response = await next;
+        assert.equal(response.status(), status);
+        await response.finished();
+        await tv.page.clock.runFor(0);
+    };
+    await pollAfter(5000, 429);
     await shows(tv, "Waiting for approval");
     const limited = polls(tv);
-    await tv.jump(5000);
+    await tv.jump(19999);
     assert.equal(polls(tv), limited, "the next poll waits for Retry-After");
-    await tv.jump(15000);
-    await tv.jump(20000);
+    await pollAfter(1, 429);
+    await pollAfter(20000, 429);
     await shows(tv, "Waiting for approval");
     // The fourth 429 is sent 60 s after the first.
-    await tv.jump(20000);
+    await tv.jump(19999);
+    assert.equal(await tv.page.getByText("Too many sign-in attempts", { exact: false }).count(), 0);
+    await pollAfter(1, 429);
     await shows(tv, "Too many sign-in attempts. Trying again shortly.");
     assert.equal(await retryButton(tv), "Try again");
     assert.equal(await tv.focused(), "password");
-    await tv.jump(20000);
+    await pollAfter(20000, 200);
     await shows(tv, "Waiting for approval");
 });
 

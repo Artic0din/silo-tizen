@@ -6,6 +6,7 @@
     <name>Silo</name>
     <access origin="*" subdomains="true"/>
     <tizen:allow-navigation>*</tizen:allow-navigation>
+    <tizen:content-security-policy>default-src *; script-src 'self'; style-src 'self'; img-src * data:; object-src 'self';</tizen:content-security-policy>
     <feature name="http://tizen.org/feature/screen.size.normal.1080.1920"/>
     <tizen:privilege name="http://tizen.org/privilege/internet"/>
     <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>

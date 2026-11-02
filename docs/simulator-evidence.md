@@ -57,6 +57,15 @@ Do not infer the engine version from the simulator's TV user-agent string.
 Check server responses and the actual target runtime separately.
 Do not add certificate bypasses or rewrite server responses to manufacture acceptance.
 
+The package declares its content policy in `app/config.xml`.
+It preserves app-only scripts and styles, allows generated `data:` images for the Swift-derived grain tile, and permits app-origin objects for Samsung's required AVPlay surface.
+The [AVPlay guide](https://developer.samsung.com/smarttv/develop/guides/multimedia/media-playback/using-avplay.html) requires that native object; removing it is not a policy fix.
+The policy regression test enforces the packaged directives in Chromium, checks the real grain image, and rejects a foreign object.
+The simulator's disabled web security cannot prove physical-TV policy enforcement or AVPlay rendering.
+Full physical-TV validation is deferred until simulator parity is complete.
+The policy correction includes a [historical Apple/current Samsung grain comparison](screenshots/113-policy/grain-comparison.png) and the [paired package/installed asset hashes](screenshots/113-policy/installed-sha256.txt).
+The comparison labels its different drift phases, signed-out state and platform substitutions; it is not complete visual acceptance.
+
 The simulator's AVPlay support did not provide successful playback in the audited runs.
 An unavailable player or failed open is failure-path evidence only.
 Use synthetic AVPlay only in the existing automated harness; never install a stand-in into the package and label its output native playback proof.

@@ -48,7 +48,8 @@ jobs:
           python3 scripts/release-version.py beta "${BETA_TAG}" > build.txt
           cat build.txt >> "${GITHUB_OUTPUT}"
           release_tag="$(sed -n 's/^release_tag=//p' build.txt)"
-          if [[ "$(gh release view "${BETA_TAG}" --json isPrerelease --jq .isPrerelease 2>/dev/null)" != "true" ]]; then
+          # A failed upload leaves the tester build as a draft, which testers never got.
+          if [[ "$(gh release view "${BETA_TAG}" --json isPrerelease,isDraft --jq '"\(.isPrerelease) \(.isDraft)"' 2>/dev/null || true)" != "true false" ]]; then
             echo "::error::${BETA_TAG} has no published tester build on GitHub."
             exit 1
           fi

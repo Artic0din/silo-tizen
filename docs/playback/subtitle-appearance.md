@@ -1,6 +1,6 @@
 # Profile subtitles
 
-Issue [#64](https://github.com/Artic0din/silo-tizen/issues/64) uses the native contract pinned by [SOURCE](../src/contracts/v2/SOURCE).
+Issue [#64](https://github.com/Artic0din/silo-tizen/issues/64) uses the native contract pinned by [SOURCE](../../src/contracts/v2/SOURCE).
 `getEffectiveSubtitleAppearance` reads `/settings/subtitle-appearance/effective` with the captured profile and stable device headers.
 Its `effective_value` is a JSON string containing a sparse appearance override.
 The client merges it over the complete manifest defaults, validates fonts, colors, opacity and enums, and uses a readable default if the preference cannot be read.

@@ -110,7 +110,7 @@ python3 scripts/test-release-version.py
 Playwright screen tests. Then package the `.wgt` and exercise visible changes on
 a Samsung TV running it. Desktop Chromium and the Samsung TV simulator do not
 prove TV rendering, AVPlay playback or remote behavior; see
-[docs/simulator-evidence.md](docs/simulator-evidence.md).
+[docs/evidence/simulator-evidence.md](docs/evidence/simulator-evidence.md).
 
 ## Show visible changes
 

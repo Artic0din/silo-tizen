@@ -6,8 +6,7 @@ How the packaged app behaves today, and what has and has not been proven on a TV
 
 The packaged app uses Silo's native `/api/v2`: server entry, device-code sign-in with a password fallback, household profiles and PINs, Movies and Series browsing, and AVPlay playback with audio and subtitle selection.
 
-The [Requests journeys](requests.md) appear when the server enables Requests for the active viewer.
-The earlier Jellyfin-compatible client is retired.
+The [Requests journeys](features/requests.md) appear when the server enables Requests for the active viewer.
 Sign-in uses an eight-digit device code approved on Silo's web page, with "Sign in with a password" one press away as on the Apple TV app.
 The password is sent only in the body of `login` and is never stored; only the issued tokens are kept.
 The server address is remembered publicly; credentials use Tizen KeyManager or the explicit session-only mode when protected storage is unavailable.
@@ -18,7 +17,7 @@ The profile controller remains active while browsing and playback use its profil
 When that authority ends, the app removes the old content before the profile controller takes the screen back.
 Player Back, movie completion and dismissed errors return to the same browse view and focus.
 Natural episode completion waits for the final STOP receipt and fresh authorized watch data, then offers manual Play next or Back.
-See [playback completion](playback-quality.md#manual-episode-completion) for ordering and validation limits.
+See [playback completion](playback/playback-quality.md#manual-episode-completion) for ordering and validation limits.
 Back from Home or library content returns to the navigation bar, then selects Home, then opens an Exit/Cancel dialog.
 Modal keys do not reach the screen underneath.
 
@@ -36,7 +35,7 @@ Supported servers inherit 10 seconds backward and 30 seconds forward; unsupporte
 The mounted Skyline bar groups visible libraries into Movies and Series tabs, with anchored library and profile menus.
 Library scope is remembered per server, profile and content type.
 Card focus drives a passive preview without fetching details; scrolling retargets immediately and respects Reduced Motion.
-See [Skyline browse behavior](skyline-browse-shell.md) for the implemented section boundary.
+See [Skyline browse behavior](features/skyline-browse-shell.md) for the implemented section boundary.
 
 ## Validation limits
 
@@ -51,9 +50,9 @@ The client declares no subtitle renderer.
 Movie and episode Details offer Audio Auto or an explicit track from the displayed file, for this attempt only.
 Changing version clears that track choice; explicitly choosing a version pins its source through playback.
 Resume checks fresh profile progress for up to three seconds; Play from start sends source position zero.
-See [preplay behavior](skyline-browse-shell.md#preplay-audio-and-resume) for fallback, cancellation and persistence limits.
+See [preplay behavior](features/skyline-browse-shell.md#preplay-audio-and-resume) for fallback, cancellation and persistence limits.
 The server can burn embedded subtitles into video when transcoding is allowed; external and downloaded subtitles receive an explicit unsupported result.
 Visibility changes suspend the active pipeline and revalidate authority and media authorization before restoring it.
 Mid-stream connection loss pauses playback and retries at the saved source position with bounded backoff, preserving playing or paused intent.
 Cold launches use the normal server resume flow; they do not restore an in-memory pipeline.
-See [playback recovery](playback-quality.md#lifecycle-and-connection-recovery) for cancellation, terminal errors and remaining hardware acceptance under [#13](https://github.com/Artic0din/silo-tizen/issues/13).
+See [playback recovery](playback/playback-quality.md#lifecycle-and-connection-recovery) for cancellation, terminal errors and remaining hardware acceptance under [#13](https://github.com/Artic0din/silo-tizen/issues/13).

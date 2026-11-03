@@ -28,6 +28,7 @@ Check the file against its `.sha256` first.
 ## Store release
 
 Samsung TV Seller Office has no upload API, so a store release is part workflow, part manual.
+No build is submitted until the app reaches parity with the Apple TV app; until then, use tester builds only.
 
 1. Actions → **Promote** → enter the tester build to release, such as `v1.0.0-beta.23`.
    Nothing is rebuilt: GitHub gets a draft release `v1.0.0` on the same commit with the same `.wgt` and checksum.

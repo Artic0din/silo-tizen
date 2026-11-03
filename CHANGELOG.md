@@ -21,6 +21,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a docs index, a native API v2 reference and a TV focus guide, and grouped the feature, playback and evidence notes into folders as the Apple and Android repositories do.
 - Added the top-level files the Silo Apple and Android repositories carry: contributing guide, Samsung store and platform licence exceptions, trademark policy, third-party notices, CLAUDE.md and t3.json, and rewrote the README and agent guide in their layout.
 - Added a Promote workflow that turns a tester build into a draft store release with the same `.wgt` and store notes, with a fixed `silo-tizen-latest.wgt` that the `releases/latest` link serves once the store release is published.
 - Added a Release workflow that tags a numbered tester build, signs its `.wgt` and publishes it on a GitHub prerelease, plus a fixed "latest tester build" link.

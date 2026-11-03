@@ -30,6 +30,7 @@ official clients where it fits:
 [silo-apple `Networking/APIv2`](https://github.com/Silo-Server/silo-apple/tree/main/iosApp/iosApp/Networking/APIv2) and
 [silo-android `AuthInterceptorImpl.kt`, `PlaybackV2Api.kt`, `SequencedPlayback.kt`](https://github.com/Silo-Server/silo-android).
 Do not copy from jellyfin-web or jellyfin-tizen.
+Before porting a feature, read its upstream design spec; [Upstream design notes](docs/upstream-design-notes.md) links the ones that apply to a TV client.
 
 ## Build, Test, and Development Commands
 

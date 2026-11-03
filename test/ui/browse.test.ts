@@ -180,11 +180,14 @@ async function press(tv: Tv, ...keys: string[]): Promise<void> {
 }
 
 /** Details regressions enter from an ordinary row; Continue Watching now resumes directly. */
-async function activateDetails(tv: Tv, id = "movie:m0001"): Promise<void> {
+async function activateDetails(tv: Tv, id = "movie:m0001", information = false): Promise<void> {
     if (await view(tv) === "home") {
         await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).focus();
     }
-    await press(tv, "Enter");
+    if (information) {
+        await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).click({ button: "right" });
+        await tv.page.locator('[data-focus="episode-information"]').click();
+    } else await press(tv, "Enter");
 }
 
 function browseReads(tv: Tv, pathname?: string): { path: string; headers: Readonly<Record<string, string>> }[] {
@@ -296,7 +299,7 @@ for (const kind of ["movie", "episode"]) {
         catalog.neverPlayed.add(id);
         catalog.progress.delete(id);
         catalog.watchedEpisodes.delete(id);
-        await activateDetails(tv, id);
+        await activateDetails(tv, id, kind === "episode");
         await showing(tv, `item:${id}`);
         await detailsMore(tv);
         await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
@@ -378,7 +381,7 @@ for (const aggregate of ["series", "season"]) {
             await tv.page.route("**/api/v2/recommendations/similar/episode%3As1e12?**", async (route) => {
                 await route.fulfill({ status: 200, json: { ...fixture("list_catalog_items_ok"), items: [{ content_id: aggregateId, type: aggregate, title: "Harbor Lights", series_id: "series:s1", season_number: 1 }] } });
             });
-            await activateDetails(tv, episodeId);
+            await activateDetails(tv, episodeId, true);
             await showing(tv, `item:${episodeId}`);
             await detailsMore(tv);
             await tv.page.getByRole("button", { name: played ? "Mark watched" : "Mark unwatched", exact: true }).waitFor();
@@ -395,7 +398,7 @@ for (const aggregate of ["series", "season"]) {
             await showing(tv, `item:${episodeId}`);
             await detailsMore(tv);
             await tv.eventually(async () => await tv.page.getByRole("button", { name: played ? "Mark unwatched" : "Mark watched", exact: true }).count() === 1, "covered episode reflects the aggregate change");
-            assert.equal(browseReads(tv, "/catalog/items/episode%3As1e12").length, 3, "Home's one load-time read, then Details' read and its refresh");
+            assert.equal(browseReads(tv, "/catalog/items/episode%3As1e12").length, 4, "Home and Card actions, then Details and its refresh");
             assert.equal(catalog.mutations.length, 1);
         }, { catalog: new FakeDetails() });
     }
@@ -693,7 +696,9 @@ browseTest("season Details keeps episodes first, exposes real facts and restores
     await showing(tv, "season:series:s1:1");
     await shows(tv, "The first season follows the night shift at a coastal observatory.");
     assert.equal(await tv.focused(), "episode:s1e11");
-    await press(tv, "ArrowDown", "Enter");
+    await press(tv, "ArrowDown");
+    await tv.page.locator('[data-focus="episode:s1e12"]').click({ button: "right" });
+    await tv.page.locator('[data-focus="episode-information"]').click();
     await showing(tv, "item:episode:s1e12");
     await tv.remote(BACK);
     await showing(tv, "season:series:s1:1");
@@ -714,8 +719,9 @@ browseTest("season Details keeps watched available when the server rejects list 
     await tv.remote(BACK);
     await tv.page.locator('[data-focus="next-episode"]').focus();
     await press(tv, "Enter");
-    await showing(tv, "item:episode:s1e11");
-    await tv.remote(BACK);
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), "season primary playback");
+    assert.equal((await tv.page.evaluate(() => window.browseHarness.plays))[0]?.contentId, "episode:s1e11");
+    await tv.page.evaluate(() => window.browseHarness.resume());
     await showing(tv, "season:series:s1:1");
     await tv.remote(BACK);
     await showing(tv, "item:series:s1");
@@ -1928,7 +1934,7 @@ browseTest("details hand the player the file and resume point; returning restore
     assert.equal(await tv.focused(), "movie:m0001", "Back restores the card in its row");
 });
 
-browseTest("series open seasons, seasons list episodes, and Back retraces each step by identity", async (tv) => {
+browseTest("series open seasons, episode Select plays directly, and playback returns by identity", async (tv) => {
     await press(tv, "ArrowDown", "Enter");
     await showing(tv, "item:series:s1");
     await shows(tv, "Harbor Lights");
@@ -1942,9 +1948,8 @@ browseTest("series open seasons, seasons list episodes, and Back retraces each s
     await shows(tv, "Harbor Lights · Season 2");
     assert.equal(await tv.focused(), "episode:s1e21");
     await press(tv, "ArrowDown", "Enter");
-    await showing(tv, "item:episode:s1e22");
-    await shows(tv, "Harbor Lights · S2:E2");
-    await press(tv, "Enter");
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), "direct season episode handoff");
+    assert.equal(await tv.page.locator('[data-view="item:episode:s1e22"]').count(), 0);
     assert.deepEqual((await tv.page.evaluate(() => window.browseHarness.plays))[0], {
         contentId: "episode:s1e22",
         episode: true,
@@ -1954,7 +1959,6 @@ browseTest("series open seasons, seasons list episodes, and Back retraces each s
         subtitle: { kind: "auto" },
     });
     await tv.page.evaluate(() => window.browseHarness.resume());
-    await tv.remote(BACK);
     await showing(tv, "season:series:s1:2");
     assert.equal(await tv.focused(), "episode:s1e22");
     await tv.remote(BACK);
@@ -1963,9 +1967,9 @@ browseTest("series open seasons, seasons list episodes, and Back retraces each s
     await tv.remote(BACK);
     await showing(tv, "home");
     assert.equal(await tv.focused(), "series:s1");
-});
+}, { catalog: new FakeDetails() });
 
-browseTest("episode-aware text Search returns an episode-only match and preserves Details, resume and Back focus", async (tv, catalog) => {
+browseTest("episode-aware Search plays directly and preserves explicit information, query and Back focus", async (tv, catalog) => {
     catalog.progress.set("episode:s1e12", 420);
     await tv.page.locator('[data-focus="search"]').click();
     assert.equal(browseReads(tv, "/catalog/search/capabilities").length, 0, "empty Search performs no negotiation");
@@ -1979,15 +1983,20 @@ browseTest("episode-aware text Search returns an episode-only match and preserve
     await press(tv, "ArrowRight", "ArrowLeft");
     assert.equal(browseReads(tv).length, reads, "focus never fetches");
     await press(tv, "Enter");
-    await showing(tv, "item:episode:s1e12");
-    await tv.remote(BACK);
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), "direct Search episode handoff");
+    assert.equal(await tv.page.locator('[data-view="item:episode:s1e12"]').count(), 0);
+    assert.deepEqual((await tv.page.evaluate(() => window.browseHarness.plays))[0], {
+        contentId: "episode:s1e12", fileId: "f-episode:s1e12", title: "Harbor Lights chapter 1.2", startSeconds: 420, episode: true, subtitle: { kind: "auto" },
+    });
+    await tv.page.evaluate(() => window.browseHarness.resume());
     await showing(tv, "search");
     assert.equal(await tv.focused(), "episode:s1e12");
-    await press(tv, "Enter");
+    await tv.page.locator('[data-focus="episode:s1e12"]').click({ button: "right" });
+    await tv.page.locator('[data-focus="episode-information"]').click();
     await showing(tv, "item:episode:s1e12");
     await tv.page.getByRole("button", { name: /^Resume/ }).click();
-    await tv.eventually(async () => (await tv.page.evaluate(() => window.browseHarness.plays.length)) === 1, "fresh episode Resume handoff");
-    assert.deepEqual((await tv.page.evaluate(() => window.browseHarness.plays))[0], {
+    await tv.eventually(async () => (await tv.page.evaluate(() => window.browseHarness.plays.length)) === 2, "fresh episode Resume handoff");
+    assert.deepEqual((await tv.page.evaluate(() => window.browseHarness.plays))[1], {
         contentId: "episode:s1e12", fileId: "f-episode:s1e12", title: "Harbor Lights chapter 1.2", startSeconds: 420, episode: true, subtitle: { kind: "auto" },
     });
     await tv.page.evaluate(() => window.browseHarness.resume());
@@ -1997,7 +2006,7 @@ browseTest("episode-aware text Search returns an episode-only match and preserve
     assert.equal(await tv.focused(), "episode:s1e12");
     assert.equal(await tv.page.inputValue("#browse-search"), "chapter 1.2");
     assert.equal(browseReads(tv, "/catalog/search/capabilities").length, 1);
-});
+}, { catalog: new FakeDetails() });
 
 browseTest("episode-aware Search keeps movies, series and episode metadata without fetching on focus", async tv => {
     await tv.page.locator('[data-focus="search"]').click();
@@ -2133,7 +2142,8 @@ browseTest("episode-aware Search preserves opaque paging scope, invalid-cursor R
     assert.equal(second.searchParams.get("cursor"), "search+/= ?字:signal:video_with_episodes:24");
     assert.equal(second.searchParams.get("type"), "video_with_episodes");
     await tv.page.locator('[data-focus="episode:signal25"]').focus();
-    await press(tv, "Enter");
+    await tv.page.locator('[data-focus="episode:signal25"]').click({ button: "right" });
+    await tv.page.locator('[data-focus="episode-information"]').click();
     await showing(tv, "item:episode:signal25");
     await tv.remote(BACK);
     await showing(tv, "search");

@@ -157,11 +157,10 @@ calendarTest("Calendar complete remote journey retains every event and restores 
     await tv.remote(40);
     assert.equal(await tv.focused(), "episode:s1e22", "Calendar focuses the relevant episode");
     await tv.page.keyboard.press("Enter");
-    await tv.eventually(async () => await tv.page.locator('.browse[data-view="item:episode:s1e22"]').count() === 1, "episode Details");
-    await activate(tv, "play");
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.slice(-1)[0]?.contentId === "episode:s1e22"), "direct episode playback");
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.slice(-1)[0]?.contentId), "episode:s1e22");
     await tv.page.evaluate(() => window.browseHarness.resume());
-    await tv.remote(10009); await tv.eventually(async () => await tv.focused() === "episode:s1e22", "episode return");
+    await tv.eventually(async () => await tv.focused() === "episode:s1e22", "episode return");
     await tv.remote(10009); await ready(tv, 32);
     await tv.page.clock.runFor(260); assert.deepEqual(await position(), episodeScroll, "vertical and shelf scroll survive Details and playback");
     assert.equal(await tv.page.locator(":focus").getAttribute("data-content-id"), "episode:s1e22");
@@ -402,7 +401,8 @@ calendarTest("Calendar-origin series refresh preserves a subsequently selected s
     await tv.page.keyboard.press("Enter");
     await tv.page.locator('.details-episodes [data-focus="episode:s1e21"]').waitFor();
     await activate(tv, "season:1");
-    await tv.page.locator('.details-episodes [data-focus="episode:s1e11"]').click();
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e11"]').click({ button: "right" });
+    await tv.page.locator('[data-focus="episode-information"]').click();
     await tv.page.locator('[data-view="item:episode:s1e11"]').waitFor();
     await tv.page.locator('[data-focus="more"]').click();
     await tv.page.locator('[data-focus="watched"]').click();

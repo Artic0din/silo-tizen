@@ -4,13 +4,14 @@ import type { RequestSpec } from "../api/http.ts";
 import { detailOperations, type PersonalAction } from "../api/detailOperations.ts";
 import { operations } from "../api/operations.ts";
 import type { Card, ItemDetail } from "../contracts/v2/catalog.ts";
-import { playChoices, resumeSeconds, type PlayRequest } from "./browseModel.ts";
+import { playChoices, type PlayRequest } from "./browseModel.ts";
 import type { Clock } from "../api/clock.ts";
 import type { NativeSession } from "../session/session.ts";
 import { readSettingsCapability, readTitleArt } from "./presentationSettings.ts";
 import { RatingState } from "./ratingState.ts";
 import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
 import { SeriesEpisodes } from "./seriesEpisodes.ts";
+import { freshPlayPosition } from "./playbackPreparation.ts";
 
 export interface PersonalChange {
     readonly target: boolean;
@@ -27,6 +28,11 @@ export class DetailsState {
     get audioOpen(): boolean { return this.panel === "audio"; }
     preparingPlay = false;
     failedPlay: PlayRequest | undefined;
+    nextEpisode: ItemDetail | undefined;
+    nextEpisodeLoading = false;
+    nextEpisodeFailed = false;
+    private nextEpisodeRevision = 0;
+    private full = false;
     private audioPick: { fileId: string; ordinal: number; inventory: string } | undefined;
     private subtitlePick: { fileId: string; inventory: string; intent: SubtitleIntent } | undefined;
     related: readonly Card[] | undefined;
@@ -60,10 +66,12 @@ export class DetailsState {
     start(mode: "full" | "personal" = "full"): void {
         if (this.controller !== undefined) return;
         this.controller = new AbortController();
+        this.full = mode === "full";
         if (mode === "full" && ["movie", "series"].includes(this.detail.type)) this.rating.start();
         this.stopAuthority = this.session.onAuthorityChange(() => { this.stop(); this.changed(); });
         if (mode === "full") this.series?.start();
         if (mode === "full") this.loadTitleArt();
+        if (mode === "full" && this.nextEpisode === undefined && !this.nextEpisodeFailed) this.loadNextEpisode();
         let interrupted = false;
         for (const [kind, change] of this.changes) {
             if (change.pending) {
@@ -87,6 +95,7 @@ export class DetailsState {
         this.titleArtPolicy = "pending";
         this.panel = undefined;
         this.preparingPlay = false;
+        this.nextEpisodeLoading = false;
     }
 
     /** Capture the route generation as well as the confirmed policy for late image events. */
@@ -194,7 +203,7 @@ export class DetailsState {
         if (request.startSeconds === 0) { handoff(request); return; }
         this.preparingPlay = true;
         this.changed();
-        this.freshPosition(request, clock, controller.signal).then(position => {
+        freshPlayPosition(this.session, request, clock, controller.signal).then(position => {
             if (!this.current(controller)) return;
             this.preparingPlay = false;
             handoff({ ...request, startSeconds: position });
@@ -206,32 +215,34 @@ export class DetailsState {
         });
     }
 
-    private async freshPosition(request: PlayRequest, clock: Clock, signal: AbortSignal): Promise<number> {
-        const controller = new AbortController();
-        const abort = (): void => controller.abort();
-        signal.addEventListener("abort", abort, { once: true });
-        let cancel = (): void => undefined;
-        try {
-            const timeout = new Promise<never>((_resolve, reject) => {
-                cancel = clock.schedule(() => { reject(new ApiError({ kind: "timeout" })); controller.abort(); }, 3000);
-            });
-            const fresh = await Promise.race([this.read(detailOperations.resumePosition(request.contentId, request.fileId), controller), timeout]);
-            return resumeSeconds(fresh.position, fresh.duration) ?? 0;
-        } catch (error) {
-            if (!signal.aborted && error instanceof ApiError && (error.failure.kind === "network" || error.failure.kind === "timeout" || error.status === 501 || error.status === 503)) return request.startSeconds ?? 0;
-            throw error;
-        } finally {
-            cancel();
-            signal.removeEventListener("abort", abort);
-        }
-    }
-
     private read<T>(spec: RequestSpec<T>, controller: AbortController): Promise<T> {
         return this.session.call({ ...spec, profileScoped: true, signal: controller.signal });
     }
 
     private current(controller: AbortController): boolean {
         return this.controller === controller && !controller.signal.aborted;
+    }
+
+    loadNextEpisode(): void {
+        const controller = this.controller, id = this.detail.playContentId;
+        if (controller === undefined || !this.full || id === undefined || this.nextEpisodeLoading || !["series", "season"].includes(this.detail.type)) return;
+        this.nextEpisodeLoading = true;
+        this.nextEpisodeFailed = false;
+        const revision = ++this.nextEpisodeRevision;
+        const current = (): boolean => this.current(controller) && this.nextEpisodeRevision === revision && this.detail.playContentId === id;
+        this.changed();
+        this.read(operations.getCatalogItem(id), controller).then(detail => {
+            if (!current()) return;
+            if (detail.id !== id || detail.type !== "episode") throw new ApiError({ kind: "invalid_response", path: "nextEpisode.item" });
+            this.nextEpisode = detail;
+            this.nextEpisodeLoading = false;
+            this.changed();
+        }).catch(() => {
+            if (!current()) return;
+            this.nextEpisodeLoading = false;
+            this.nextEpisodeFailed = true;
+            this.changed();
+        });
     }
 
     loadRelated(): void {
@@ -321,6 +332,10 @@ export class DetailsState {
             if (this.current(controller)) {
                 this.detail = detail;
                 this.values.set(kind, detail.played);
+                this.nextEpisode = undefined;
+                this.nextEpisodeLoading = false;
+                this.nextEpisodeFailed = false;
+                this.loadNextEpisode();
             }
             return detail.played;
         }

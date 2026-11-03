@@ -21,7 +21,14 @@ Re-selecting a loading chip keeps the same request and Calendar episode context.
 Moving focus makes no request.
 Ordinary episode Details/Back retains the selected season, loaded rail and focused episode.
 The existing season-information destination remains available in More.
-Episode activation still opens episode Details; direct play and the corresponding Play S#:E# series action remain tracked by #93.
+Episode Select on the rail, season list and ordinary media cards prepares playback directly.
+The existing resolution route owns catalog/file selection, fresh resume, loading, Retry and cancellation before the player handoff.
+It checks fresh progress even when cached progress is zero, while explicit Start Over sends zero without a progress read.
+Series and season primary actions resolve the server's target episode on entry and show Play/Resume S#:E#; unavailable metadata or files retain a truthful loading, retry or unavailable action.
+Default direct activation uses automatic audio and subtitle selection without borrowing another episode's choices.
+Hold Select or right-click an episode to choose Episode information for its full synopsis and visit-only version/audio/subtitle controls.
+Calendar retains its existing series-context navigation rather than becoming a playback command.
+Playback return restores the originating card or action, selected season and visit scroll; the discarded resolution route cannot replay.
 
 ## Preplay audio, subtitles and resume
 
@@ -85,7 +92,7 @@ Resolved scope belongs to the active Search route and stays fixed through its cu
 Changing text resets the cursor; late query/profile answers cannot paint or start another authorised query.
 Focus, render and page changes do not reread a resolved Search capability.
 
-Episode cards retain their content ID, series title and season/episode metadata, opening the existing episode Details, resume and player handoff.
+Episode cards retain their content ID, series title and season/episode metadata and start prepared playback on Select; Card actions offers explicit Episode information.
 Back restores result focus; reopening Search through navigation preserves the query and page with its existing field-first entry.
 The 600 ms debounce, TV Done key, cancellation and profile-menu Back priority remain unchanged.
 

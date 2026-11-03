@@ -90,8 +90,8 @@ File pointers are repository-relative.
 | Feature | Tizen | Apple TV | Android TV | Notes |
 |---|:---:|:---:|:---:|---|
 | Movie and series details (artwork, facts, ratings, cast and crew, versions) | ✅ | ✅ | ✅ | Layout parity open (#92). Android: `TvItemDetailScreen` |
-| Series → seasons → episodes | ✅ | ✅ | ✅ | Tizen uses season chips and an inline episode rail; episode activation still opens Details pending direct play (#93). Season information remains in More |
-| Series Play starts the next-up episode | 🟡 | ✅ | ✅ | Tizen's Next episode button opens the episode page (#93). Apple: `TVSeriesDetailView`. Android: `TvItemDetailScreen` |
+| Series → seasons → episodes | ✅ | ✅ | ✅ | Tizen uses season chips and an inline episode rail; episode Select plays directly. Card actions retains explicit Episode information; season information remains in More |
+| Series Play starts the next-up episode | ✅ | ✅ | ✅ | Tizen resolves the server's target for Play/Resume S#:E# and refreshes its resume point at activation. Apple: `TVSeriesDetailView`. Android: `TvItemDetailScreen` |
 | Related titles | 🟡 | ✅ | ✅ | Series page shows "Could not load related titles" (#90). Apple: `TVSimilarRail` |
 | Person page (bio, age, photo, filmography preview) | ✅ | ✅ | ✅ | Layout parity open (#102). Android: `TvPersonDetailScreen` |
 | Full filmography (All, Movies, Series) | ✅ | ✅ | ✅ | Server-filtered, paged. Android: filter chips on `TvPersonDetailScreen`. Apple: `TVPersonDetailContent` with `PersonFilterBar`, paged |

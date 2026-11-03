@@ -1,0 +1,140 @@
+{
+  "packages": [
+    {
+      "label": "current",
+      "source": "22dc1f489ce1270497450bfd28d1deccdc43ea70",
+      "wgtSha256": "2c79ee6285142b0ff32a9a2fc7f120c12d274ede8693690fc13246ebb0b1bb11",
+      "archiveFiles": [
+        {
+          "path": "NOTICE",
+          "sha256": "276906e0992a5fc5b351f542d60e3ede362f060a8ef8431eb98242a9dcf07647"
+        },
+        {
+          "path": "THIRD-PARTY-NOTICES.txt",
+          "sha256": "073845886fcd38da71a0cbd357b78937dbd1c7e44eb8ba2493619eb9438f1761"
+        },
+        {
+          "path": "author-signature.xml",
+          "sha256": "bf294e3bb5ba7cf56b1b28944773a2ab7b9e02fcc7f6b35cb7efbdf62cee3766"
+        },
+        {
+          "path": "config.xml",
+          "sha256": "143680fada9942e9fdb632414255da1efb8db13e679ad63c6638775525e420d5"
+        },
+        {
+          "path": "fonts/Inter-LICENSE.txt",
+          "sha256": "262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a"
+        },
+        {
+          "path": "fonts/InterVariable.woff2",
+          "sha256": "693b77d4f32ee9b8bfc995589b5fad5e99adf2832738661f5402f9978429a8e3"
+        },
+        {
+          "path": "fonts/README.md",
+          "sha256": "735901e3bc46096a3accfe0f84065fd0d465c6ea54ef149b5296bf8573fb382f"
+        },
+        {
+          "path": "icon.png",
+          "sha256": "62f34cc4e6710da6c14702a68c6eecb9a4d2328170492be2d71176ee41fe853b"
+        },
+        {
+          "path": "img/silo-wordmark.png",
+          "sha256": "d26edc566bcbc759fd149e2d02b8a149cd6f7610d11d75036eacbd413d3d122c"
+        },
+        {
+          "path": "index.html",
+          "sha256": "298bd16a7de84cedcb3a9f203f01d09c07d06ebb6fccf0e7c83013d0d953239e"
+        },
+        {
+          "path": "js/main.css",
+          "sha256": "ca57f2768d2a289c664b69cb30b9a6729dd4e8556ff39bec82c87a57f8fabd5a"
+        },
+        {
+          "path": "js/main.js",
+          "sha256": "a1fd46f08dd98ff09b896640bb7d87d3811e459d39b9736b460877a6aea5a1ad"
+        },
+        {
+          "path": "signature1.xml",
+          "sha256": "64f402d5c1b50e8cb4d982d3d0c33d19909e69b5364a713ee3cf80383af2ec19"
+        },
+        {
+          "path": "third-party/README.md",
+          "sha256": "623384124b1b8ca5d687d98157f9eed74c7f3ceca6172033001aaa9aac202ca3"
+        },
+        {
+          "path": "third-party/tmdb-logo.svg",
+          "sha256": "8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c"
+        }
+      ],
+      "installedMatchedAtCapture": true
+    },
+    {
+      "label": "baseline",
+      "source": "602adac960eff4235420d93f8fb80631fd4f1022",
+      "wgtSha256": "b1bd6e089fb0d5be7ac2292221952d23d11f5a8a9853d8f3bbd11b6c2f4494fd",
+      "archiveFiles": [
+        {
+          "path": "NOTICE",
+          "sha256": "276906e0992a5fc5b351f542d60e3ede362f060a8ef8431eb98242a9dcf07647"
+        },
+        {
+          "path": "THIRD-PARTY-NOTICES.txt",
+          "sha256": "073845886fcd38da71a0cbd357b78937dbd1c7e44eb8ba2493619eb9438f1761"
+        },
+        {
+          "path": "author-signature.xml",
+          "sha256": "c9ddae27ec80b8f18009d42e08c00cd8dd7a7b50e79f0f33cb5682f11dbe6b6a"
+        },
+        {
+          "path": "config.xml",
+          "sha256": "143680fada9942e9fdb632414255da1efb8db13e679ad63c6638775525e420d5"
+        },
+        {
+          "path": "fonts/Inter-LICENSE.txt",
+          "sha256": "262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a"
+        },
+        {
+          "path": "fonts/InterVariable.woff2",
+          "sha256": "693b77d4f32ee9b8bfc995589b5fad5e99adf2832738661f5402f9978429a8e3"
+        },
+        {
+          "path": "fonts/README.md",
+          "sha256": "735901e3bc46096a3accfe0f84065fd0d465c6ea54ef149b5296bf8573fb382f"
+        },
+        {
+          "path": "icon.png",
+          "sha256": "62f34cc4e6710da6c14702a68c6eecb9a4d2328170492be2d71176ee41fe853b"
+        },
+        {
+          "path": "img/silo-wordmark.png",
+          "sha256": "d26edc566bcbc759fd149e2d02b8a149cd6f7610d11d75036eacbd413d3d122c"
+        },
+        {
+          "path": "index.html",
+          "sha256": "298bd16a7de84cedcb3a9f203f01d09c07d06ebb6fccf0e7c83013d0d953239e"
+        },
+        {
+          "path": "js/main.css",
+          "sha256": "ca57f2768d2a289c664b69cb30b9a6729dd4e8556ff39bec82c87a57f8fabd5a"
+        },
+        {
+          "path": "js/main.js",
+          "sha256": "ac3db5aed0238fbce43c6124f953d34c472aa45cf4c52a4e086eedb6169a7f45"
+        },
+        {
+          "path": "signature1.xml",
+          "sha256": "efd084d8484d0dea280b76511b7c53f74bfa911c33020e532cf05dee68795458"
+        },
+        {
+          "path": "third-party/README.md",
+          "sha256": "623384124b1b8ca5d687d98157f9eed74c7f3ceca6172033001aaa9aac202ca3"
+        },
+        {
+          "path": "third-party/tmdb-logo.svg",
+          "sha256": "8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c"
+        }
+      ],
+      "installedMatchedAtCapture": true
+    }
+  ]
+}

@@ -1,0 +1,120 @@
+{
+  "source": "22dc1f489ce1270497450bfd28d1deccdc43ea70",
+  "baselineSource": "602adac960eff4235420d93f8fb80631fd4f1022",
+  "runtime": {
+    "name": "Samsung TV Web Simulator",
+    "version": "10.0.6",
+    "chromium": "137.0.7151.69",
+    "logicalViewport": [
+      1920,
+      1080
+    ],
+    "dpr": 2,
+    "method": "Persistent CDP connection, focus emulation, app-frame capture; desktop remained locked"
+  },
+  "observedByParent": {
+    "baselineShortSelect": "episode information; zero playback starts",
+    "currentShortSelect": "preparation then 201 player handoff; no intermediate episode information",
+    "railBackFocus": "same third episode in Season 1",
+    "heldSelect": "Card actions offers explicit Episode information; no additional start",
+    "primaryPointer": "Play S2:E1; one 201 start; Back restores primary focus",
+    "nativePrimaryKeyboard": "no activation observed; not accepted as native keyboard proof",
+    "decodedVideo": false,
+    "matchedAppleScreenshot": false,
+    "physicalTV": false,
+    "CORS": false
+  },
+  "video": {
+    "codec": "h264",
+    "width": 1920,
+    "height": 1080,
+    "frames": 13,
+    "seconds": 40.12,
+    "audioStreams": 0
+  },
+  "assets": [
+    {
+      "file": "after-player.png",
+      "bytes": 15169,
+      "sha256": "26e8869cbcd24b3bc8338015fab94e0715671dc94155f4db22be0e14a504e39e",
+      "width": 1920,
+      "height": 1080,
+      "chunks": [
+        "IDAT",
+        "IEND",
+        "IHDR",
+        "iCCP"
+      ]
+    },
+    {
+      "file": "after-return.png",
+      "bytes": 1461452,
+      "sha256": "783a59f035e64623255681bb26776901b85e3ff49e9d0e6734fe7da6f16b6d28",
+      "width": 1920,
+      "height": 1080,
+      "chunks": [
+        "IDAT",
+        "IEND",
+        "IHDR",
+        "iCCP"
+      ]
+    },
+    {
+      "file": "before-select.png",
+      "bytes": 1220344,
+      "sha256": "0b779b943a5b9ebbde904c16d5d6748aeb2cce342b7e0be893c7f98430972b64",
+      "width": 1920,
+      "height": 1080,
+      "chunks": [
+        "IDAT",
+        "IEND",
+        "IHDR",
+        "iCCP"
+      ]
+    },
+    {
+      "file": "before-series.png",
+      "bytes": 1486843,
+      "sha256": "25035280eea939ad2d792ca8e107a486a9040f128296fb197482752ed9e19241",
+      "width": 1920,
+      "height": 1080,
+      "chunks": [
+        "IDAT",
+        "IEND",
+        "IHDR",
+        "iCCP"
+      ]
+    },
+    {
+      "file": "episode-actions.png",
+      "bytes": 749965,
+      "sha256": "a6667d6b5fee025942d9ee1b20bc2d7e024bba4b74de1615da437627dbcd1a8a",
+      "width": 1920,
+      "height": 1080,
+      "chunks": [
+        "IDAT",
+        "IEND",
+        "IHDR",
+        "iCCP"
+      ]
+    },
+    {
+      "file": "episode-information.png",
+      "bytes": 1220344,
+      "sha256": "0b779b943a5b9ebbde904c16d5d6748aeb2cce342b7e0be893c7f98430972b64",
+      "width": 1920,
+      "height": 1080,
+      "chunks": [
+        "IDAT",
+        "IEND",
+        "IHDR",
+        "iCCP"
+      ]
+    },
+    {
+      "file": "primary-play-return.mp4",
+      "bytes": 642907,
+      "sha256": "d87a7269e69c90cf4c314b70ef3222a9ce7f6bd3006d92e6a8ca5e6afc2e0d9e"
+    }
+  ]
+}

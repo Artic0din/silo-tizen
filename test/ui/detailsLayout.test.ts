@@ -97,7 +97,8 @@ detailTest("series Details selects season chips explicitly and restores its inli
     await tv.page.keyboard.press("Enter");
     await tv.page.locator('.details-episodes [data-focus="episode:s1e21"]').waitFor();
     assert.equal(episodeReads(), before + 1);
-    await tv.page.locator('[data-focus="episode:s1e21"]').click();
+    await tv.page.locator('[data-focus="episode:s1e21"]').click({ button: "right" });
+    await tv.page.locator('[data-focus="episode-information"]').click();
     await tv.page.locator('[data-view="item:episode:s1e21"]').waitFor();
     await tv.remote(10009);
     await tv.page.locator('[data-view="item:series:s1"]').waitFor();

@@ -320,13 +320,13 @@ journey("Series filmography retains season, episode, and authorized playback own
     await tv.page.locator('.browse-grid [data-focus="series:s1"]').click();
     await tv.page.locator('[data-focus="season:1"]').click();
     await tv.page.locator('[data-focus="episode:s1e11"]').click();
-    await tv.page.locator('[data-focus="play"]').click();
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), "direct filmography episode handoff");
     const plays = await tv.page.evaluate(() => window.browseHarness.plays);
     assert.equal(plays.length, 1);
     assert.equal(plays[0]?.contentId, "episode:s1e11");
     assert.ok(plays[0]?.fileId);
     await tv.page.evaluate(() => window.browseHarness.resume());
-    await tv.remote(BACK); await tv.remote(BACK);
+    await tv.remote(BACK);
     await tv.eventually(async () => await grid(tv).count() === 3, "Series filmography after playback");
     assert.equal(await tv.focused(), "series:s1");
     assert.equal(metadataReads(tv), 1);

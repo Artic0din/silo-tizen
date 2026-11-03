@@ -64,6 +64,29 @@ test("temporary creation from a remembered profile preserves its launch choice a
     } finally { await tv.page.context().close(); await browser.close(); }
 });
 
+test("switching to another profile keeps the remembered profile and never re-prompts", async () => {
+    const browser = await launchBrowser();
+    const tv = await openTv(browser, { app: "application" });
+    tv.fake.catalog = new FakeDetails();
+    try {
+        await picker(tv); await selectKid(tv);
+        await tv.page.locator('[data-screen="remember-profile"]').waitFor();
+        await tv.page.keyboard.press("Enter");
+        await tv.page.locator('[data-view="home"]').waitFor();
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.locator('[data-focus="switch-profile"]').click();
+        await tv.page.locator('[data-screen="profiles"]').waitFor();
+        await tv.page.locator('[data-focus="profile:p-owner"]').click();
+        await tv.page.locator('[data-view="home"]').waitFor();
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.locator('[data-focus="switch-profile"]').click();
+        await tv.page.locator('[data-screen="profiles"]').waitFor();
+        await tv.page.locator('[data-focus="profile:p-kid"] .profile-remembered').waitFor();
+        assert.equal(await tv.page.locator('[data-focus="profile:p-owner"] .profile-remembered').count(), 0);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); await browser.close(); }
+});
+
 test("fresh TV offers remember; protected restart skips PIN; Settings opt-out restores picker", async () => {
     const browser = await launchBrowser();
     const tv = await openTv(browser, { app: "application" });

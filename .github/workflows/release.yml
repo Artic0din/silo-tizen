@@ -251,7 +251,7 @@ jobs:
           fi
 
           # The first run creates the tag and the release.
-          if ! gh api "repos/${GH_REPO}/git/refs/tags/${BETA_LATEST}" > /dev/null 2>&1; then
+          if ! gh api "repos/${GH_REPO}/git/ref/tags/${BETA_LATEST}" > /dev/null 2>&1; then
             gh api "repos/${GH_REPO}/git/refs" -f ref="refs/tags/${BETA_LATEST}" -f sha="${GITHUB_SHA}" --silent
           fi
           if ! gh release view "${BETA_LATEST}" > /dev/null 2>&1; then

@@ -69,7 +69,8 @@ jobs:
             exit 1
           fi
           # gh release create would reuse an existing tag's commit instead of the tester build's.
-          if gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${release_tag}" > /dev/null 2>&1; then
+          # git/ref (singular) matches exactly; git/refs/tags/v1.0.0 would also list v1.0.0-beta.N.
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${release_tag}" > /dev/null 2>&1; then
             echo "::error::The tag ${release_tag} already exists without a release. Delete it to promote again."
             exit 1
           fi

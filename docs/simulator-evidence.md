@@ -17,6 +17,7 @@ export TIZEN_SECURITY_PROFILE="YourProfileName"
 shasum -a 256 dist/Silo.wgt
 ```
 
+The `silo-tizen-wgt` artifact from a Tizen Builds run is the same package, signed in CI for that commit; its `Silo.wgt.sha256` records the hash.
 Record the source commit, uncommitted-diff identity if applicable, package hash and simulator version.
 The package command stages the web app and signs `dist/Silo.wgt`; do not substitute `tizen build-web` on CLI 6.1.
 Keep a copy of any installed candidate that must be restored.

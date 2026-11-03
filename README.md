@@ -89,6 +89,10 @@ export TIZEN_SECURITY_PROFILE="YourProfileName"
 
 The script builds the package staging directory and writes `dist/Silo.wgt`.
 
+CI builds the same package on every pull request and push to main (`.github/workflows/tizen-build.yml`).
+On main and same-repository pull requests it signs with the maintainer's Samsung certificate from repository secrets and uploads `Silo.wgt` with its SHA-256 as the `silo-tizen-wgt` artifact.
+That certificate lists the TVs it may install on, so a CI-signed package installs only on those TVs.
+
 ## Test
 
 `npm test` runs both strict type checks, the production build, native contract/session/player tests and Playwright screen/composition tests.

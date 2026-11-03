@@ -19,6 +19,7 @@ Start with the root [README](../README.md) for build, signing and release, and [
 - [Native API v2](native-api-v2.md) - every `/api/v2` operation the app calls, with its auth, gating and error handling
 - [TV focus](tv-focus.md) - read before changing navigation, menus, grids, dialogs or custom controls
 - [Releasing](releasing.md) - tester builds, store releases and installing a tester build
+- `parity/upstream-snapshot.json` - the Apple TV and Android TV state FEATURES.md was last reviewed against; the weekly Parity drift workflow opens an issue when upstream changes (`scripts/parity-drift.py`)
 
 ## Playback
 

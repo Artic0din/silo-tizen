@@ -37,6 +37,12 @@ They retain loaded depth through Details and refresh explicitly invalidated stat
 Other catalog and collection pages still contain at most 24 cards.
 Recommended media previews show at most 20 supported cards; Explore All opens their complete section contents.
 
+## Recommended simulator evidence
+
+The [shared Skyline evidence](../evidence/screenshots/152-library-skyline/README.md) records the current signed build, historical Apple comparison, focused artwork clearance, reduced motion, inline collections, section expansion and controlled failure/Retry.
+It separates requested artwork sizes from delivered dimensions and records package, installation and loaded-resource identity.
+Compact was measured in Samsung's software simulator; this is not physical-TV or whole-screen parity acceptance.
+
 ## Browse simulator evidence
 
 The signed Browse calibration build is paired with historical actual Apple TV frames for [Browse entry](../evidence/screenshots/91-browse/browse-comparison.png), [Sort](../evidence/screenshots/91-browse/sort-comparison.png) and [Filter](../evidence/screenshots/91-browse/filter-comparison.png).

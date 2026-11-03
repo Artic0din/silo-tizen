@@ -155,7 +155,7 @@ Its headings are plain text; Explore All retains the section route and library s
 Inline collection tiles retain their separate presentation and actions.
 The 38 px added artwork height is the measured native-card substitute, not a universal Swift scale constant.
 [Earlier signed shelf focus comparisons](../evidence/screenshots/149-library-focus/README.md) document the superseded 208×312 Library shelf layout; they do not prove the current shared scene.
-Current signed scene evidence remains required before #152 acceptance.
+The [current signed scene evidence](../evidence/screenshots/152-library-skyline/README.md) records shared-scene calibration, corrected Collections-to-row artwork clearance, reduced motion, expansion and controlled failure recovery, with historical Apple and simulator limits disclosed.
 Other legacy card owners, detail backgrounds and the historical Home row alignment remain separate investigations.
 Continue Watching's heading carries a drawn play-circle mark; Apple's SF Symbol is not bundled.
 Watched titles show a check disc on every card.

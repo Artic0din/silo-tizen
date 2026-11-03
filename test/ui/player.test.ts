@@ -250,6 +250,21 @@ test("Skip counts down, activates with Enter or Play, and returns focus without 
     } finally { await page.close(); }
 });
 
+test("Enter on the default focus skips while a marker shows and pauses otherwise", async () => {
+    const { page, logs } = await open();
+    const view = { ...playing(TRACKS), positionSeconds: 25, skipMarker: { kind: "intro" as const, startSeconds: 20, endSeconds: 60 } };
+    try {
+        await show(page, view);
+        assert.equal(await focused(page), "player");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["seekToSeconds 60"]);
+        await show(page, { ...playing(TRACKS), positionSeconds: 60 });
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["seekToSeconds 60", "togglePause"]);
+        assert.deepEqual(logs, []);
+    } finally { await page.close(); }
+});
+
 test("saved 15/45 drives transport labels, repeated preview, dedicated keys and clamping", async () => {
     const { page, logs } = await open();
     const view = { ...playing(TRACKS), positionSeconds: 100, durationSeconds: 200, seekIntervals: { backward: 15, forward: 45 } };

@@ -4,6 +4,7 @@
 # certificates from the repository secrets. Without them (fork pull requests), it makes a
 # throwaway author certificate so packaging is still checked; that .wgt is never shipped.
 # Prints signing=samsung or signing=throwaway to GITHUB_OUTPUT when it is set.
+# The certificates stay in $RUNNER_TEMP/tizen-signing for packaging; the workflow removes them.
 set -euo pipefail
 
 if ! command -v tizen >/dev/null 2>&1; then
@@ -34,7 +35,8 @@ else
     signing="throwaway"
     password="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"
     tizen certificate -a silo-ci -p "${password}" -f silo-ci -- "${work_dir}"
-    author_p12="$(find "${work_dir}" "${HOME}"/tizen-*data/keystore -name silo-ci.p12 2>/dev/null | head -n 1)"
+    # The CLI's output directory varies by version; a missing search root is not an error.
+    author_p12="$(find "${work_dir}" "${HOME}"/tizen-*data/keystore -name silo-ci.p12 2>/dev/null | head -n 1 || true)"
     if [[ -z "${author_p12}" ]]; then
         echo "error: tizen certificate did not create silo-ci.p12." >&2
         exit 1
@@ -43,7 +45,7 @@ else
 fi
 
 # `tizen package` reads profiles only from the file named in its CLI configuration.
-profiles_xml="$(find "${HOME}"/tizen-*data/profile -name profiles.xml 2>/dev/null | head -n 1)"
+profiles_xml="$(find "${HOME}"/tizen-*data/profile -name profiles.xml 2>/dev/null | head -n 1 || true)"
 if [[ -z "${profiles_xml}" ]]; then
     echo "error: tizen security-profiles add did not write profiles.xml." >&2
     exit 1

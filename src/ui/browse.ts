@@ -255,10 +255,40 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     try { imageCapability = rememberedImages(options.publicStorage?.getItem(imageKey)); }
     catch { /* Missing optional cache data leaves the capability probe in charge. */ }
     let imageProbe: Promise<ImageCapabilities | undefined> | undefined;
+    let homeArtworkAttempt: Readonly<Record<string, string>> | undefined;
+    function upgradeHomeArtwork(): void {
+        if (home.kind !== "home") return;
+        const data = home.data;
+        if (torn || playing || cardActions.active || top() !== home || loading !== undefined || data === undefined || home.failure !== undefined || homeArtworkAttempt === undefined) return;
+        const query = homeArtworkQuery(imageCapability, window.devicePixelRatio);
+        if (!Object.entries(query).some(([key, value]) => homeArtworkAttempt?.[key] === undefined || Number(value) > Number(homeArtworkAttempt[key]))) return;
+        load(home, signal => read(operations.listHomeSections(query), signal).catch((error: unknown) => {
+            if (error instanceof ApiError && !error.aborted) return undefined;
+            throw error;
+        }), sections => {
+            homeArtworkAttempt = query;
+            if (sections !== undefined) {
+                const artwork = new Map(sections.map(section => [section.id, new Map(section.items.map(card => [card.id, card]))]));
+                home.data = { ...data, sections: data.sections.map(section => ({ ...section, items: section.items.map(card => {
+                    const sized = artwork.get(section.id)?.get(card.id);
+                    return sized === undefined ? card : { ...card,
+                        posterUrl: sized.posterUrl ?? card.posterUrl,
+                        backdropUrl: sized.backdropUrl ?? card.backdropUrl,
+                        backdropThumbhash: sized.backdropThumbhash ?? card.backdropThumbhash,
+                        seriesBackdropUrl: sized.seriesBackdropUrl ?? card.seriesBackdropUrl,
+                        logoUrl: sized.logoUrl ?? card.logoUrl,
+                    };
+                }) })) };
+            }
+            return host.focused();
+        }, true);
+    }
     const probeImages = (): Promise<ImageCapabilities | undefined> => imageProbe ??= session.call({ ...operations.imageCapabilities(), profileScoped: true, signal: requestsController.signal }).then(found => {
+        if (torn) return undefined;
         imageCapability = found;
         try { options.publicStorage?.setItem(imageKey, JSON.stringify({ state: found.state, param: found.param, sizes: found.sizes, slot_width_params: found.slotWidthParams })); }
         catch { /* Cache persistence cannot turn a successful capability probe into a failure. */ }
+        upgradeHomeArtwork();
         return found;
     }, () => undefined);
     void probeImages();
@@ -621,8 +651,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     current.pages.page = { items: row.items.filter(card => destinationOf(card) !== undefined), total: row.items.length, totalExact: false, nextCursor: undefined };
                 }, quiet);
                 return;
-            case "home":
+            case "home": {
                 presentation.ensure();
+                const artworkQuery = homeArtworkQuery(imageCapability, window.devicePixelRatio);
                 load(current, (signal) => Promise.all([
                     read(operations.listUserLibraries(), signal),
                     // The hidden list is the profile's own preference, not an access limit: when it
@@ -633,16 +664,19 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                         }
                         throw error;
                     }),
-                    read(operations.listHomeSections(homeArtworkQuery(imageCapability, window.devicePixelRatio)), signal),
+                    read(operations.listHomeSections(artworkQuery), signal),
                 ]), ([libraries, hidden, sections]) => {
                     const focus = host.focused();
                     current.data = { libraries: visibleLibraries(libraries, hidden), sections };
+                    homeArtworkAttempt = artworkQuery;
                     shell.update(current.data.libraries);
                     homeDetails.load(homeRows(sections).flatMap(row => row.cards.map(card => ({ card, continuing: row.continuing }))));
                     // Changed tabs replace the nav nodes, including the still-present avatar.
-                    return focus?.zone === "nav" ? focus : undefined;
+                    queueMicrotask(upgradeHomeArtwork);
+                    return quiet || focus?.zone === "nav" ? focus : undefined;
                 }, quiet);
                 return;
+            }
             case "library":
                 current.discovery ??= discoveryState();
                 if (current.discovery.data !== undefined && (current.discovery.mode === "Recently Added" || current.discovery.mode === "A–Z" || current.discovery.genre !== undefined)) {
@@ -929,6 +963,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         } else if ((current.kind === "home" || current.kind === "for_you") && current.data !== undefined) {
             const sections = current.kind === "home" ? current.data.sections : current.data;
             homeDetails.load(homeRows(sections).flatMap(row => row.cards.map(card => ({ card, continuing: current.kind === "home" && row.continuing }))));
+            if (current.kind === "home") upgradeHomeArtwork();
         }
     };
 

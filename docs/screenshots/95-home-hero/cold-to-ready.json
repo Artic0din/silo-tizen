@@ -1,0 +1,23 @@
+{
+  "cold": {
+    "focus": "episode-tvdb-384968-3-3",
+    "width": 300,
+    "height": 169,
+    "logoWidth": 500,
+    "cards": 156,
+    "alerts": 0
+  },
+  "ready": {
+    "focus": "episode-tvdb-384968-3-3",
+    "width": 3840,
+    "height": 2160,
+    "logoWidth": 800,
+    "cards": 156,
+    "alerts": 0
+  },
+  "requests": [
+    "/api/v2/home/sections?image_size=small",
+    "/api/v2/home/sections?image_size=medium&logo_width=1760&backdrop_width=2688"
+  ],
+  "capabilityStatus": 200
+}

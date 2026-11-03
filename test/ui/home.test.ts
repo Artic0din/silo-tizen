@@ -8,7 +8,7 @@ import { FakeHome } from "../native/support/fakeHome.ts";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
-import { type SettingsKey, TITLE_ART_KEY } from "../../src/contracts/v2/settings.ts";
+import { type SettingsKey, HIDDEN_KEY, TITLE_ART_KEY } from "../../src/contracts/v2/settings.ts";
 
 const CARD_OVERLAYS_KEY = "ui.card_overlays" as SettingsKey;
 const CARD_OVERLAYS_ENABLED_KEY = "ui.card_overlays_enabled" as SettingsKey;
@@ -581,18 +581,179 @@ function imageCapabilities(catalog: FakeHome, slotWidths: boolean): void {
     } };
 }
 let heldImageProbe: { release(): void };
-journey("a pending optional image probe cannot block cold Home", async tv => {
-    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, 1);
-    assert.equal(tv.fake.requests.find(request => request.path.startsWith("/home/sections"))?.path, "/home/sections?image_size=small");
-    const focus = await tv.focused();
-    assert.equal(await tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), false);
+journey("a late artwork probe defers to Card actions and preserves watched invalidation", async (tv, catalog) => {
+    const reads = tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length;
+    await tv.down(13); await tv.jump(650); await tv.up(13);
+    const panel = tv.page.getByRole("dialog", { name: "Card actions" });
+    await panel.getByRole("button", { name: "Mark watched", exact: true }).waitFor();
+    const capability = tv.page.waitForResponse(reply => new URL(reply.url()).pathname === "/api/v2/images/capabilities");
     heldImageProbe.release();
-    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), "image capability cached");
+    assert.equal(await (await capability).finished(), null);
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), "image probe applied during Card actions");
+    await tv.page.clock.runFor(0);
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, reads, "artwork waits for Card actions to close");
+    await panel.getByRole("button", { name: "Mark watched", exact: true }).click();
+    await panel.getByRole("button", { name: "Mark unwatched", exact: true }).waitFor();
+    catalog.removed.add("movie:m0004");
+    await tv.remote(10009);
+    await tv.eventually(async () => !(await homeTitles(tv)).includes("movie:m0004"), "watched membership refresh retained");
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, reads + 1);
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections"))[reads]?.path, "/home/sections?image_size=medium&logo_width=880&backdrop_width=1344");
+}, catalog => {
+    imageCapabilities(catalog, true);
+    const details = new FakeDetails();
+    const route = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => /^\/(watched|favorites|watchlist|capabilities\/personal-lists|catalog\/items)/.test(path)
+        ? details.route(method, path, profile, body) : route(method, path, profile, body);
+}, (_settings, tv) => { heldImageProbe = tv.fake.hold("/images/capabilities", true); });
+
+journey("a failed artwork upgrade retains usable Home without retrying", async tv => {
+    const titles = await homeTitles(tv);
+    const focus = await tv.focused();
+    const upgraded = tv.page.waitForResponse(reply => new URL(reply.url()).pathname === "/api/v2/home/sections" && new URL(reply.url()).searchParams.has("backdrop_width"));
+    heldImageProbe.release();
+    assert.equal(await (await upgraded).finished(), null);
+    await tv.page.clock.runFor(0);
+    assert.equal(await tv.page.getByRole("alert").count(), 0);
+    assert.deepEqual(await homeTitles(tv), titles);
     assert.equal(await tv.focused(), focus);
-    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, 1, "the optional answer never reloads Home");
-}, catalog => imageCapabilities(catalog, true), (_settings, tv) => {
+    await tv.page.keyboard.press("ArrowRight"); await tv.jump(200);
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, 2);
+}, catalog => {
+    imageCapabilities(catalog, true);
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => path.startsWith("/home/sections") && path.includes("backdrop_width")
+        ? problem(422, "validation_failed", "Artwork refresh failed") : read(method, path, profile, body);
+}, (_settings, tv) => { heldImageProbe = tv.fake.hold("/images/capabilities", true); });
+
+journey("an artwork upgrade preserves hidden libraries without rereading preferences", async tv => {
+    const libraries = tv.fake.requests.filter(request => request.path === "/user/libraries").length;
+    const hidden = tv.fake.requests.filter(request => request.path.includes("ui.disabled_library_ids")).length;
+    const upgraded = tv.page.waitForResponse(reply => new URL(reply.url()).pathname === "/api/v2/home/sections" && new URL(reply.url()).searchParams.has("backdrop_width"));
+    heldImageProbe.release();
+    assert.equal(await (await upgraded).finished(), null);
+    await tv.page.clock.runFor(0);
+    assert.equal(tv.fake.requests.filter(request => request.path === "/user/libraries").length, libraries);
+    assert.equal(tv.fake.requests.filter(request => request.path.includes("ui.disabled_library_ids")).length, hidden);
+    await tv.page.locator('[data-focus="movies"]').focus();
+    await tv.page.keyboard.press("ArrowDown");
+    assert.equal(await tv.page.getByRole("button", { name: "Archive", exact: true }).count(), 0);
+}, catalog => imageCapabilities(catalog, true), (settings, tv) => {
+    settings.profile().set(HIDDEN_KEY, [15]);
     heldImageProbe = tv.fake.hold("/images/capabilities", true);
 });
+
+let heldHomeDetail: { release(): void };
+journey("an artwork upgrade preserves in-flight Home metadata reads", async tv => {
+    await tv.eventually(async () => detailReads(tv).includes("movie:m0004"), "held Home detail started");
+    const before = detailReads(tv).filter(id => id === "movie:m0004").length;
+    const upgraded = tv.page.waitForResponse(reply => new URL(reply.url()).pathname === "/api/v2/home/sections" && new URL(reply.url()).searchParams.has("backdrop_width"));
+    heldImageProbe.release();
+    assert.equal(await (await upgraded).finished(), null);
+    await tv.page.clock.runFor(0);
+    assert.equal(detailReads(tv).filter(id => id === "movie:m0004").length, before);
+    heldHomeDetail.release();
+    await detailsRead(tv);
+    assert.equal(detailReads(tv).filter(id => id === "movie:m0004").length, before);
+}, catalog => imageCapabilities(catalog, true), (_settings, tv) => {
+    heldImageProbe = tv.fake.hold("/images/capabilities", true);
+    heldHomeDetail = tv.fake.hold("/catalog/items/movie%3Am0004", true);
+}, { whileReading: true });
+
+journey("fresh slot sizing upgrades incomplete remembered Home artwork", async (tv, catalog) => {
+    const cached = tv.page.waitForResponse(reply => new URL(reply.url()).pathname === "/api/v2/images/capabilities");
+    heldImageProbe.release();
+    assert.equal(await (await cached).finished(), null);
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), "one-size capability cached");
+    await tv.eventually(async () => tv.fake.requests.filter(request => request.path === "/home/sections?image_size=medium").length === 1, "one-size upgrade completed");
+    await detailsRead(tv);
+    imageCapabilities(catalog, true);
+    heldImageProbe = tv.fake.hold("/images/capabilities", true);
+    await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+    await tv.page.locator('[data-view="home"] [data-section]').first().waitFor();
+    const focus = await tv.focused();
+    heldImageProbe.release();
+    await tv.eventually(async () => tv.fake.requests.some(request => request.path === "/home/sections?image_size=medium&logo_width=880&backdrop_width=1344"), "remembered artwork upgraded");
+    assert.equal(await tv.focused(), focus);
+}, catalog => imageCapabilities(catalog, false), (_settings, tv) => { heldImageProbe = tv.fake.hold("/images/capabilities", true); });
+
+journey("a pending optional image probe cannot block cold Home", async tv => {
+    const titles = await homeTitles(tv);
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, 1);
+    assert.equal(tv.fake.requests.find(request => request.path.startsWith("/home/sections"))?.path, "/home/sections?image_size=small");
+    await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0012"]').focus();
+    await tv.jump(200);
+    const focus = await tv.focused();
+    const metadataReads = detailReads(tv).length;
+    const upgraded = tv.page.waitForResponse(response => new URL(response.url()).pathname === "/api/v2/home/sections" && new URL(response.url()).searchParams.get("backdrop_width") === "1344");
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), false);
+    heldImageProbe.release();
+    assert.equal(await (await upgraded).finished(), null);
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), "image capability cached");
+    assert.equal(await tv.focused(), focus);
+    await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length === 2, "cold artwork upgraded");
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections"))[1]?.path, "/home/sections?image_size=medium&logo_width=880&backdrop_width=1344");
+    await tv.eventually(async () => (await tv.page.locator('.skyline-marquee-layer:not(.skyline-outgoing) .skyline-backdrop').getAttribute("src"))?.includes("width=1344") === true, "upgraded artwork displayed");
+    assert.deepEqual(await homeTitles(tv), titles, "artwork changes cannot replace content or metadata");
+    assert.equal(await tv.focused(), focus);
+    assert.equal(detailReads(tv).length, metadataReads, "artwork refresh reuses completed metadata");
+    const reads = tv.fake.requests.length;
+    await tv.page.keyboard.press("ArrowRight"); await tv.jump(200);
+    assert.equal(tv.fake.requests.length, reads, "focus moves neither reload nor probe");
+}, catalog => {
+    imageCapabilities(catalog, true);
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const reply = read(method, path, profile, body);
+        if (!path.startsWith("/home/sections") || reply?.status !== 200) return reply;
+        const width = new URL(path, "https://fake.invalid").searchParams.get("backdrop_width") ?? "300";
+        const data = reply.body as { sections: { items: Record<string, unknown>[] }[] };
+        return { ...reply, body: { ...data, sections: data.sections.map(row => ({ ...row, items: row.items.map(card => ({ ...card, ...(width === "300" ? {} : { title: "Changed during artwork read" }), backdrop_url: `/art/m0004.svg?width=${width}` })) })) } };
+    };
+}, (_settings, tv) => {
+    heldImageProbe = tv.fake.hold("/images/capabilities", true);
+});
+
+for (const answer of ["failed", "non-improving"] as const) {
+    journey(`a ${answer} image probe leaves cold Home intact`, async tv => {
+        const focus = await tv.focused();
+        const response = tv.page.waitForResponse(reply => new URL(reply.url()).pathname === "/api/v2/images/capabilities");
+        heldImageProbe.release();
+        assert.equal(await (await response).finished(), null);
+        await tv.page.clock.runFor(0);
+        assert.equal(await tv.focused(), focus);
+        assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, 1);
+        assert.equal(await tv.page.getByRole("alert").count(), 0);
+    }, catalog => {
+        imageCapabilities(catalog, true);
+        const read = catalog.route.bind(catalog);
+        catalog.route = (method, path, profile, body) => {
+            const reply = read(method, path, profile, body);
+            if (path !== "/images/capabilities") return reply;
+            return answer === "failed" ? problem(422, "validation_failed", "Image capability unavailable") : {
+                status: 200, body: { ...(reply?.body as Record<string, unknown>), state: "unavailable" },
+            };
+        };
+    }, (_settings, tv) => { heldImageProbe = tv.fake.hold("/images/capabilities", true); });
+}
+
+journey("a late image answer waits for Home return without replacing Details", async tv => {
+    const focus = await tv.focused();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-view="item:movie:m0004"]').waitFor();
+    const ready = tv.page.waitForResponse(reply => new URL(reply.url()).pathname === "/api/v2/images/capabilities");
+    heldImageProbe.release();
+    assert.equal(await (await ready).finished(), null);
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), "capability cached while in Details");
+    assert.equal(await tv.page.locator('[data-view="item:movie:m0004"]').count(), 1);
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, 1);
+    const upgraded = tv.page.waitForResponse(reply => new URL(reply.url()).pathname === "/api/v2/home/sections" && new URL(reply.url()).searchParams.has("backdrop_width"));
+    await tv.remote(10009);
+    assert.equal(await (await upgraded).finished(), null);
+    await tv.page.clock.runFor(0);
+    assert.equal(await tv.focused(), focus);
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, 2);
+}, catalog => imageCapabilities(catalog, true), (_settings, tv) => { heldImageProbe = tv.fake.hold("/images/capabilities", true); });
 
 for (const [server, setup, expected] of [
     ["takes per-slot widths", (catalog: FakeHome) => imageCapabilities(catalog, true), "/home/sections?image_size=medium&logo_width=880&backdrop_width=1344"],
@@ -600,14 +761,17 @@ for (const [server, setup, expected] of [
     ["has no image capability", () => undefined, "/home/sections?image_size=small"],
 ] as const) {
     journey(`Home asks for title logos at the marquee's width only when the server ${server}`, async tv => {
-        assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path), ["/home/sections?image_size=small"]);
         assert.equal(tv.fake.requests.filter(request => request.path === "/images/capabilities").length, 1, "one probe per Home session");
-        if (server === "has no image capability") return;
+        if (server === "has no image capability") {
+            assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path), ["/home/sections?image_size=small"]);
+            return;
+        }
+        await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length === 2, "cold Home upgraded once");
         await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), "capability cached for next mount");
         const held = tv.fake.hold("/images/capabilities", true);
         await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
         await tv.page.locator('[data-view="home"] [data-section]').first().waitFor();
-        assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path), ["/home/sections?image_size=small", expected], "cached sizing applies even while the refresh probe is pending");
+        assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path), ["/home/sections?image_size=small", expected, expected], "cached sizing applies even while the refresh probe is pending");
         held.release();
     }, setup);
 }

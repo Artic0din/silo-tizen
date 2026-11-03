@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Made Enter on the player's default focus skip the intro, recap or credits while the Skip control shows, instead of pausing.
+
 ### Changed
 
 - Shared Home's Skyline presentation with Library Recommended, replaced heading controls with Explore All tiles, retained usable shelves when collections failed, kept lifted artwork visible when returning between rows, and preserved the current card at grid edges.

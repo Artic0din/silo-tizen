@@ -580,7 +580,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         if (key === "back") {
             controls.back();
         } else if (key === "enter") {
-            controls.togglePause();
+            if (skip.hidden) controls.togglePause();
+            else skip.click();
         } else if (key === "left") {
             previewSeek("backward");
         } else if (key === "right") {

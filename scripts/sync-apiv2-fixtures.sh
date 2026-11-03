@@ -130,11 +130,20 @@ settings="$(jq --argjson keys "$keys_json" --argjson sets "$sets_json" '
   {api_version, revision,
    definitions: [.definitions[] | select(.key as $k | $keys | index($k))],
    option_sets: (.option_sets | with_entries(select(.key as $k | $sets | index($k))))}' <<< "$manifest")"
-found="$(jq '.definitions | length' <<< "$settings")"
-[ "$found" -eq "${#SETTINGS_KEYS[@]}" ] \
-  || { echo "$MANIFEST_SRC at $SHA has $found of the ${#SETTINGS_KEYS[@]} SETTINGS_KEYS" >&2; exit 1; }
+# Every key exactly once: a repeated key must not stand in for a missing one.
+found="$(jq -r '[.definitions[].key] | sort | join(" ")' <<< "$settings")"
+[ "$found" = "$(printf '%s\n' "${SETTINGS_KEYS[@]}" | sort | paste -sd' ' -)" ] \
+  || { echo "$MANIFEST_SRC at $SHA does not hold each of the ${#SETTINGS_KEYS[@]} SETTINGS_KEYS exactly once (found: $found)" >&2; exit 1; }
 [ "$(jq '.option_sets | length' <<< "$settings")" -eq "${#SETTINGS_OPTION_SETS[@]}" ] \
   || { echo "$MANIFEST_SRC at $SHA lacks one of the SETTINGS_OPTION_SETS" >&2; exit 1; }
+
+# Stage the whole set, then publish it, so a failed read never leaves a mixed fixture set.
+stage="$(mktemp -d)"
+trap 'rm -rf "$stage"' EXIT
+for name in "${SELECTED[@]}"; do
+  show "$FIXTURES_SRC/$name.json" > "$stage/$name.json"
+done
+printf '%s\n' "$settings" > "$stage/$SETTINGS_FIXTURE.json"
 
 mkdir -p "$DEST"
 removed=0
@@ -147,13 +156,19 @@ for file in "$DEST"/*.json; do
   echo "removed stale $name.json (not in SELECTED)"
   removed=$((removed + 1))
 done
-for name in "${SELECTED[@]}"; do
-  show "$FIXTURES_SRC/$name.json" > "$DEST/$name.json"
-done
-printf '%s\n' "$settings" > "$DEST/$SETTINGS_FIXTURE.json"
+cp "$stage"/*.json "$DEST/"
+previous="$(cat "$CONTRACT/SOURCE" 2>/dev/null || true)"
 printf '%s\n' "$SHA" > "$CONTRACT/SOURCE"
 
-manifest_sha="$(printf '%s\n' "$manifest" | shasum -a 256 | cut -d' ' -f1)"
+# Hash the blob itself; a shell variable would drop its trailing newlines.
+manifest_sha="$(show "$MANIFEST_SRC" | shasum -a 256 | cut -d' ' -f1)"
 revision="$(jq '.revision' <<< "$manifest")"
 echo "vendored ${#SELECTED[@]} API v2 fixtures and the Settings subset from $SHA ($REF); removed $removed stale"
 echo "Settings manifest revision $revision, SHA-256 $manifest_sha: update src/contracts/v2/README.md if either changed"
+if [ -n "$previous" ] && [ "$previous" != "$SHA" ]; then
+  stale_docs="$(grep -rlF --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=fixtures -e "$previous" -e "${previous:0:7}" "$ROOT" | grep -v '/SOURCE$' || true)"
+  if [ -n "$stale_docs" ]; then
+    echo "these files still cite the previous pin ${previous:0:7}; update them:"
+    printf '%s\n' "$stale_docs" | sed "s|^$ROOT/|  |"
+  fi
+fi

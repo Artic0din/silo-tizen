@@ -52,10 +52,11 @@ write_manifest() {
     printf '%s\n' "$2" | sed 's/.*/,{"key":"&"}/' | tr -d '\n'
     printf '],"option_sets":{"unused":{}'
     printf '%s\n' "$sets" | sed 's/.*/,"&":{"type":"x"}/' | tr -d '\n'
-    printf '}}\n'
+    printf '}}\n\n'
   } > "$server/contracts/settings/v1/manifest.json"
 }
-write_manifest 24 "$keys"
+manifest_order="$(printf '%s\n' "$keys" | tail -r 2>/dev/null || printf '%s\n' "$keys" | tac)"
+write_manifest 24 "$manifest_order"
 base="$(commit base)"
 
 # Must fail and leave the fixture directory exactly as it was.
@@ -77,7 +78,10 @@ env -u SILO_SERVER_REPO "$sync" "$base" >/dev/null 2>&1 || status=$?
 ok "requires SILO_SERVER_REPO"
 
 printf '{"stale":true}\n' > "$dest/dropped_from_selected.json"
-SILO_SERVER_REPO="$server" "$sync" "$base" >/dev/null
+printf '%s\n' "0000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" > "$client/src/contracts/v2/SOURCE"
+mkdir -p "$client/docs"
+printf 'Pinned to 0000000.\n' > "$client/docs/pin.md"
+out="$(SILO_SERVER_REPO="$server" "$sync" "$base")"
 while IFS= read -r name; do
   cmp -s "$fixtures/$name.json" "$dest/$name.json" || fail "$name.json differs from the server copy"
 done <<< "$selected"
@@ -86,7 +90,7 @@ ok "vendors every SELECTED fixture despite a listing larger than a pipe buffer"
 [ ! -e "$dest/zz_padding_fixture_with_a_long_enough_name_0.json" ] || fail "an unselected server fixture was vendored"
 ok "deletes stale fixtures and vendors nothing outside SELECTED"
 settings="$dest/settings_contract_ok.json"
-[ "$(jq -r '[.definitions[].key] | join(" ")' "$settings")" = "$(printf '%s\n' "$keys" | paste -sd' ' -)" ] \
+[ "$(jq -r '[.definitions[].key] | join(" ")' "$settings")" = "$(printf '%s\n' "$manifest_order" | paste -sd' ' -)" ] \
   || fail "settings subset keys are: $(jq -c '[.definitions[].key]' "$settings")"
 [ "$(jq -r '.option_sets | keys | join(" ")' "$settings")" = "$(printf '%s\n' "$sets" | sort | paste -sd' ' -)" ] \
   || fail "settings option sets are: $(jq -c '.option_sets | keys' "$settings")"
@@ -94,11 +98,21 @@ settings="$dest/settings_contract_ok.json"
 ok "writes only the selected Settings definitions and option sets, in manifest order"
 [ "$(cat "$client/src/contracts/v2/SOURCE")" = "$base" ] || fail "SOURCE is not the server commit"
 ok "records the server commit in SOURCE"
+expected_sha="$(git -C "$server" show "$base:contracts/settings/v1/manifest.json" | shasum -a 256 | cut -d' ' -f1)"
+printf '%s\n' "$out" | grep -qF "SHA-256 $expected_sha" || fail "manifest digest is not the blob's: $out"
+ok "reports the manifest blob's own SHA-256"
+printf '%s\n' "$out" | grep -qF "docs/pin.md" || fail "the stale pin in docs/pin.md was not reported: $out"
+ok "lists files that still cite the previous pin"
+
+first="$(printf '%s\n' "$keys" | head -n 1)"
+write_manifest 24 "$(printf '%s\n%s\n' "$first" "$(printf '%s\n' "$keys" | sed 1d | sed 1d)" ; printf '%s\n' "$first")"
+duplicate="$(commit "repeat $first, drop the second key")"
+expect_reject "a repeated key cannot stand in for a missing one" "exactly once" "$duplicate"
 
 first_key="$(printf '%s\n' "$keys" | head -n 1)"
 write_manifest 25 "$(printf '%s\n' "$keys" | sed 1d)"
 missing_key="$(commit "drop $first_key")"
-expect_reject "manifest loses a SETTINGS_KEYS definition" "of the $(printf '%s\n' "$keys" | grep -c .) SETTINGS_KEYS" "$missing_key"
+expect_reject "manifest loses a SETTINGS_KEYS definition" "exactly once" "$missing_key"
 
 first_selected="$(printf '%s\n' "$selected" | head -n 1)"
 write_manifest 24 "$keys"

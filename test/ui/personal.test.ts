@@ -302,7 +302,11 @@ test("personal destinations page on the server, restore Details focus and reconc
             await tv.eventually(async () => await tv.page.locator(`.browse-card[data-focus="${id}"]`).count() === 0, "membership refresh");
             catalog.excluded.clear();
             await tv.page.locator('[data-focus="back"]').click();
-            await tv.page.locator('[data-view="home"]').waitFor();
+            try { await tv.page.locator('[data-view="home"]').waitFor(); }
+            catch (error: unknown) {
+                const state = await tv.page.evaluate(() => ({ view: document.querySelector('.browse')?.getAttribute('data-view'), focus: document.activeElement?.getAttribute('data-focus'), alerts: [...document.querySelectorAll('[role="alert"]')].map(node => node.textContent), targets: [...document.querySelectorAll('.browse [data-focus]')].map(node => node.getAttribute('data-focus')) }));
+                throw new Error(`${String(error)}; source=${source}; state=${JSON.stringify(state)}`);
+            }
             assert.equal(await tv.focused(), "profiles");
         }
         assert.deepEqual(tv.console, []);

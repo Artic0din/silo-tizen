@@ -1,4 +1,4 @@
-/* Native sign-in and profile screens, 1920x1080. Chrome 76: no flex gap, clamp() or :focus-visible. */
+/* Native sign-in and profile screens, 1920x1080, Chromium 108. */
 
 .signin {
     box-sizing: border-box;

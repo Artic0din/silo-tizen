@@ -466,7 +466,7 @@ test("a start sends the v3 body under the active profile and plays the server's 
     assert.equal("audio_track_index" in body, false);
     assert.match(String(body.playback_attempt_id), BOUNDED_IDENTIFIER);
     const capabilities = JSON.stringify(body.client_capabilities);
-    assert.ok(!capabilities.includes("dts"), "no DTS claim on 2021 TVs");
+    assert.ok(!capabilities.includes("dts"), "no DTS claim on Samsung TVs");
     assert.match(capabilities, /"video_evidence":"declared"/);
     assert.match(JSON.stringify(body.client_playback_context), /"audio_passthrough_codecs":\[\]/);
 

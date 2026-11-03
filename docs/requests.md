@@ -33,5 +33,5 @@ Search runs on Search or keyboard Done; editing cancels obsolete reads immediate
 There is no lint command in package.json or CI.
 Run `REQUESTS_EVIDENCE=artifacts/requests node --test --test-timeout=60000 test/ui/requests.test.ts` to capture matched Home, hub, search, detail, My Requests, empty, failure and loading screenshots from that same test run.
 Artifacts are intentionally ignored by Git.
-The harness bundles for Chrome 76 but runs desktop Chromium against a fake native server; it does not establish real-server deployment, Tizen software-emulator or Samsung TV acceptance.
+The harness bundles for Chrome 108 but runs desktop Chromium against a fake native server; it does not establish real-server deployment, Tizen software-emulator or Samsung TV acceptance.
 Signed packaging requires the Tizen CLI and a configured developer security profile via `scripts/build-wgt.sh`.

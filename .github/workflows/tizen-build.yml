@@ -69,6 +69,10 @@ jobs:
           scripts/build-wgt.sh
           (cd dist && sha256sum Silo.wgt | tee Silo.wgt.sha256)
 
+      - name: Show the Tizen CLI log
+        if: failure()
+        run: find "${HOME}" -path '*cli/logs/cli.log' -exec tail -n 60 {} \;
+
       - name: Upload the signed .wgt
         if: steps.signing.outputs.signing == 'samsung'
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5

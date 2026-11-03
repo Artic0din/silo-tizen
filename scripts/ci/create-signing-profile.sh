@@ -42,6 +42,14 @@ else
     tizen security-profiles add -f -A -n "${profile}" -a "${author_p12}" -p "${password}"
 fi
 
+# `tizen package` reads profiles only from the file named in its CLI configuration.
+profiles_xml="$(find "${HOME}"/tizen-*data/profile -name profiles.xml 2>/dev/null | head -n 1)"
+if [[ -z "${profiles_xml}" ]]; then
+    echo "error: tizen security-profiles add did not write profiles.xml." >&2
+    exit 1
+fi
+tizen cli-config "profiles.path=${profiles_xml}"
+
 echo "Signing with the ${signing} profile."
 if [[ -n "${GITHUB_ENV:-}" ]]; then
     echo "TIZEN_SECURITY_PROFILE=${profile}" >> "${GITHUB_ENV}"

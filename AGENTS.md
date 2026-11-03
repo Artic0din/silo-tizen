@@ -38,7 +38,7 @@ Do not copy from jellyfin-web or jellyfin-tizen.
 - `npm test` runs both type checks, the build, native tests and Playwright screen tests.
 - `python3 scripts/test-release-version.py` tests the release version script.
 - `SILO_SERVER_REPO=/path/to/silo-server scripts/sync-apiv2-fixtures.sh <server-commit>` re-vendors the API v2 contract fixtures; never hand-edit `src/contracts/v2/fixtures/`.
-- `export TIZEN_SECURITY_PROFILE="YourProfileName"` then `./scripts/build-wgt.sh` packages and signs `dist/Silo.wgt` with `tizen package -t wgt`. Avoid `tizen build-web` on CLI 6.1 (known crash).
+- `export TIZEN_SECURITY_PROFILE="YourProfileName"` then `./scripts/build-wgt.sh` packages and signs `dist/Silo.wgt` with `tizen package -t wgt`.
 - `tizen install -n dist/Silo.wgt -t <device>` and `tizen run -p Sil0Tv0001.Silo -t <device>` install and launch on a TV in Developer Mode.
 
 The proof bar: the `.wgt` builds; smoke-test in the Tizen TV software emulator
@@ -54,7 +54,7 @@ boundaries.
 
 [Native API v2](docs/native-api-v2.md) lists every operation the app calls, with its auth, gating and error handling.
 
-- The packaged app uses only Silo's native `/api/v2`, through `src/api/`, `src/contracts/v2/` and the session owners.
+- The packaged app uses only Silo's native `/api/v2`, through `src/api/`, `src/contracts/v2/` and the session owners. `scripts/ci/check-no-api-v1.sh` fails CI on any `/api/v1` path in `app/`, `src/` or `test/`.
 - Keep server operations and response decoding in the existing API and contract modules. UI and player controllers use the existing session transport and active profile authority rather than assembling separate authorization paths.
 - Server CORS behavior and platform origin restrictions must be checked on the runtime being claimed.
 - `DeviceId` is generated once per install and stored locally; never derive it from a server URL or account.

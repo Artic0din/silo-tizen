@@ -18,13 +18,18 @@ All notable changes to this project are documented in this file.
 - Aligned Home's backdrop, row and marquee placement, poster-size preferences, artwork resolution, wordmark and control dimensions with the Apple TV source.
 - Kept Home available while the optional artwork-capability probe was pending, using small artwork until sizing was known.
 - Required Tizen 8.0 or later and targeted its Chromium 108 web engine; TVs on earlier OS versions must upgrade before installing new releases.
-- Documented signed-package simulator evidence and Apple TV comparisons, and corrected the retired backend guidance.
+- Documented signed-package simulator evidence and Apple TV comparisons.
 - Redrew the sign-in screens in the Apple TV layout: Silo wordmark, a drifting brand-light backdrop with grain and the server's accent, glass cards, a server card with its mark and a Secure or HTTP badge, the QR code and code in a card beside the instructions, and the Apple TV wording for every code state; Back now waits while a server connects.
 - Sign-in codes now behave as on the Apple TV app: an expired, withdrawn or lost code renews itself for an hour and then pauses until asked, a failing start retries on its own, "Can't reach" and "Too many sign-in attempts" appear only after 10, 30 or 60 seconds of failures, and an approval shows "Signed in as …" for a second before moving on.
 - The TV now stops polling a sign-in code while the app is hidden and checks it at once on return (after any wait the server asked for), remembers each server's name, mark and accent between launches, and keeps showing a code through unreadable or unknown poll answers instead of ending sign-in.
+- Replaced per-library navigation with Skyline type tabs, anchored library and profile menus, a focus-driven preview and smooth remote scrolling.
+- Applied Skyline's OLED palette, typography, focus states and reduced-motion transitions to sign-in, profiles, dialogs and playback, and replaced the blank launcher with Silo artwork.
+- Connected native sign-in, profiles, browsing and playback in the packaged app.
+- Removed redundant sign-in instructions and movie taglines from the native screens.
 
 ### Added
 
+- Added a CI check that fails when the app or its tests mention an `/api/v1` path, as silo-apple's does.
 - Added FEATURES.md, a feature inventory that tracks parity with the Apple TV and Android TV apps, as silo-android's does.
 - Added `scripts/sync-apiv2-fixtures.sh`, which re-vendors the API v2 contract fixtures and Settings subset from a silo-server commit, with a test in the CI scripts job.
 - Added a weekly Parity drift workflow that opens an issue when the Apple TV or Android TV apps change features since FEATURES.md was last reviewed.
@@ -38,58 +43,11 @@ All notable changes to this project are documented in this file.
 - Connected to plain-HTTP Silo servers like the Apple TV app: a typed `http://` address connects directly, and an address without a scheme tries HTTPS first, then asks "Connect without encryption?" before sending anything unencrypted.
 - Added "Sign in with a password" beside the sign-in code, as on the Apple TV app; servers without code sign-in open on the password screen, and servers that turned passwords off hide it.
 - Added Advanced options to server entry, as on the Apple TV app: choose Auto, HTTPS or HTTP and a port; HTTP connects without asking and HTTPS never falls back to plain HTTP.
-
 - Added capability-gated subtitle translation and audio transcription with quota status, job failures and selectable AI-labeled results.
 - Continued series episodes automatically with a cancellable countdown when the server-synced autoplay preference was enabled.
 - Added the server-enabled Requests hub, discovery and search, title requests, My Requests, cancellation and follow controls with safe profile changes and return focus.
 - Applied profile subtitle appearance and timing to text subtitles and added persistent series subtitle choices, including Off.
 - Added a Server pane to Settings with Acknowledgements, crediting TMDB and the other rating sources and listing the open source code in the app.
-
-### Fixed
-
-- Measured current Continue Watching artwork in geometry regressions without retaining nodes across Home redraws.
-- Upgraded cold or incomplete Home artwork after image sizing became available while preserving the selected title, hidden libraries, pending metadata and watched changes from Card actions, including when the optional artwork read failed.
-- Preserved mixed-library shortcut scope, open dropdown focus during late menu updates, and unfinished Home metadata reads after visiting For You.
-- Made the Browse recovery regression verify every retained title without rejecting valid post-retry prefetch.
-- Made the Browse append-failure regression use remote scrolling so a pending focus animation could not undo its setup, and report recovery state if it failed.
-- Made the rate-limit sign-in regression await completed server replies before advancing its simulated retry deadlines.
-- Kept the blank-portrait regression focused on its own image requests after the preceding cast photo finished loading.
-- Allowed sign-in grain artwork and the native AVPlay surface under the TV's content policy while keeping scripts, styles and player objects restricted to the app.
-- Made phone/password handoff tests await the approval response before advancing the handoff clock on slower runners.
-- Kept Home artwork visible when palette sampling was refused, filled missing marquee metadata from detail, followed regional air dates, and capped shelves at 20 titles with an Explore all tile.
-- Kept active password fields and TV keyboards intact when device sign-in became unavailable, updating the phone controls without redrawing the form.
-- Preserved the original handoff pause when returning to code sign-in after phone approval instead of starting another code.
-- Kept completed phone sign-ins intact when password replies arrived late, and removed saved sign-ins from the protocol and port selected in Advanced options.
-- Preserved active password fields and completed sign-in handoffs when provider discovery arrived late, and renewed expired codes after repeated unknown poll responses.
-- Made the HTTP badge visibly unlocked, calibrated the cleartext alert's measured frame and translucent surface, and aligned sign-in instruction wrapping and spacing with Apple TV.
-
-- Kept Home metadata current after playback and Home usable when the TV could not save optional presentation caches.
-
-- Home kept the server's profile row order and showed featured rows as ordinary rows, matching Apple TV, instead of moving Continue Watching and recommendations first and hiding featured rows.
-- Home's marquee and rows matched Apple TV more closely: series-first episode headlines, rating and file chips, Apple-sized posters and stills, series captions, dimmed captions with an artwork-only focus lift, and watched checks on cards.
-- Home showed title logos unless the profile turned title art off, an IMDb or TMDB score in the marquee with TMDB's logo, and the profile's poster badges from its badge settings.
-- Home's marquee showed the aired date and billed cast, and Continue Watching showed the file the viewer last played, from detail read once when Home loads.
-- Home asked for sharper title logos on servers that take per-slot image widths.
-- Restored interrupted playback after connection loss and app return while preserving position, track choices, pause intent and profile authority.
-
-- Kept each library mode's scroll and focus through Details, playback, Settings and interrupted loads, revealed clipped shelf cards on return, and stopped focused cards from growing with reduced motion.
-
-- Preserved episode completion after refused player changes and removed an unusable Retry action when the session expired before completion.
-- Removed an unusable Retry action when an episode's playback session expired during final progress reporting, while keeping Back available.
-- Synchronized Calendar formatting-recovery tests with the pending weekly response before retrying.
-- Refreshed confirmed card-menu values after reopening an unresolved action and preserved Select presses during Details updates.
-- Kept preplay audio focus visible, reset changed track selections and rejected incomplete resume responses.
-- Corrected the profile PIN regression test to distinguish an unchanged public device ID from retained PIN material while continuing to check all stored values for profile proofs.
-- Kept the opening Select hold from activating card actions, prevented concurrent personal updates across Details and card menus, and retained related-card focus during refresh.
-- Updated Calendar's Today state at local midnight and refreshed retained weeks after watched, favorites, watchlist and playback changes.
-- Preserved the expanded Home row's page and card after playback interrupted a pending page turn.
-- Restored playback focus after a media button cancelled a seek preview so the controls could hide again.
-- Preserved navigation during slow personal-list loads and refreshed covered personal lists after membership changes in another list.
-- Refreshed Home progress after watched changes and made interrupted personal actions retryable when returning to Details.
-- Kept synopsis dialogs open during Details updates, refreshed visible and cached episode watched controls after aggregate changes, and enabled watched actions for titles without playback progress.
-
-### Added
-
 - Added a timed Skip control for intro, recap and credits during video playback.
 - Added a first-selection Remember this profile choice and a device-local launch preference in General Settings, with protected proof restoration and PIN checks for other profiles.
 - Added per-profile movie and series star ratings with remote controls, server-confirmed saves and explicit retries.
@@ -112,7 +70,7 @@ All notable changes to this project are documented in this file.
 - Added profile-scoped Watchlist, Favorites and History pages with bounded pagination, server-side media filters including History episodes, and page and item focus retained on return from Details even after an interrupted page turn.
 - Added richer title and season details with artwork, ratings, facts, cast and crew, person pages, related titles, file version selection and server-confirmed personal actions.
 - Added Movies and Series library sections, collections, genres, A–Z letter navigation and recently added titles.
-- Added strict TypeScript checks and a bundled build targeting Chrome 76.
+- Added strict TypeScript checks and a bundled build.
 - Added a native Silo `/api/v2` session core with device-code sign-in, household profiles and PIN checks, and credential storage in Tizen KeyManager.
 - Added native sign-in screens for server address entry and device-code sign-in with a QR code, remote-key focus and recovery for each failure.
 - Added native household profile screens for choosing and switching profiles, PIN entry with lockout handling, and sign-out.
@@ -121,16 +79,44 @@ All notable changes to this project are documented in this file.
 - Added native Movies and Series browsing for the selected profile: Home rows, visible libraries in pages, search with the TV keyboard, and movie, series, season and episode pages that hand the chosen file and resume point to the player.
 - Added a CI workflow that runs the type checks, the build and all tests.
 
-### Changed
-
-- Replaced per-library navigation with Skyline type tabs, anchored library and profile menus, a focus-driven preview and smooth remote scrolling.
-- Applied Skyline's OLED palette, typography, focus states and reduced-motion transitions to sign-in, profiles, dialogs and playback, and replaced the blank launcher with Silo artwork.
-- Connected native sign-in, profiles, browsing and playback in the packaged app, replacing the earlier Jellyfin-compatible client and password sign-in on the TV.
-- Removed redundant sign-in instructions and movie taglines from the native screens.
-- Set the minimum app platform to Tizen 6.0.
-
 ### Fixed
 
+- Measured current Continue Watching artwork in geometry regressions without retaining nodes across Home redraws.
+- Upgraded cold or incomplete Home artwork after image sizing became available while preserving the selected title, hidden libraries, pending metadata and watched changes from Card actions, including when the optional artwork read failed.
+- Preserved mixed-library shortcut scope, open dropdown focus during late menu updates, and unfinished Home metadata reads after visiting For You.
+- Made the Browse recovery regression verify every retained title without rejecting valid post-retry prefetch.
+- Made the Browse append-failure regression use remote scrolling so a pending focus animation could not undo its setup, and report recovery state if it failed.
+- Made the rate-limit sign-in regression await completed server replies before advancing its simulated retry deadlines.
+- Kept the blank-portrait regression focused on its own image requests after the preceding cast photo finished loading.
+- Allowed sign-in grain artwork and the native AVPlay surface under the TV's content policy while keeping scripts, styles and player objects restricted to the app.
+- Made phone/password handoff tests await the approval response before advancing the handoff clock on slower runners.
+- Kept Home artwork visible when palette sampling was refused, filled missing marquee metadata from detail, followed regional air dates, and capped shelves at 20 titles with an Explore all tile.
+- Kept active password fields and TV keyboards intact when device sign-in became unavailable, updating the phone controls without redrawing the form.
+- Preserved the original handoff pause when returning to code sign-in after phone approval instead of starting another code.
+- Kept completed phone sign-ins intact when password replies arrived late, and removed saved sign-ins from the protocol and port selected in Advanced options.
+- Preserved active password fields and completed sign-in handoffs when provider discovery arrived late, and renewed expired codes after repeated unknown poll responses.
+- Made the HTTP badge visibly unlocked, calibrated the cleartext alert's measured frame and translucent surface, and aligned sign-in instruction wrapping and spacing with Apple TV.
+- Kept Home metadata current after playback and Home usable when the TV could not save optional presentation caches.
+- Home kept the server's profile row order and showed featured rows as ordinary rows, matching Apple TV, instead of moving Continue Watching and recommendations first and hiding featured rows.
+- Home's marquee and rows matched Apple TV more closely: series-first episode headlines, rating and file chips, Apple-sized posters and stills, series captions, dimmed captions with an artwork-only focus lift, and watched checks on cards.
+- Home showed title logos unless the profile turned title art off, an IMDb or TMDB score in the marquee with TMDB's logo, and the profile's poster badges from its badge settings.
+- Home's marquee showed the aired date and billed cast, and Continue Watching showed the file the viewer last played, from detail read once when Home loads.
+- Home asked for sharper title logos on servers that take per-slot image widths.
+- Restored interrupted playback after connection loss and app return while preserving position, track choices, pause intent and profile authority.
+- Kept each library mode's scroll and focus through Details, playback, Settings and interrupted loads, revealed clipped shelf cards on return, and stopped focused cards from growing with reduced motion.
+- Preserved episode completion after refused player changes and removed an unusable Retry action when the session expired before completion.
+- Removed an unusable Retry action when an episode's playback session expired during final progress reporting, while keeping Back available.
+- Synchronized Calendar formatting-recovery tests with the pending weekly response before retrying.
+- Refreshed confirmed card-menu values after reopening an unresolved action and preserved Select presses during Details updates.
+- Kept preplay audio focus visible, reset changed track selections and rejected incomplete resume responses.
+- Corrected the profile PIN regression test to distinguish an unchanged public device ID from retained PIN material while continuing to check all stored values for profile proofs.
+- Kept the opening Select hold from activating card actions, prevented concurrent personal updates across Details and card menus, and retained related-card focus during refresh.
+- Updated Calendar's Today state at local midnight and refreshed retained weeks after watched, favorites, watchlist and playback changes.
+- Preserved the expanded Home row's page and card after playback interrupted a pending page turn.
+- Restored playback focus after a media button cancelled a seek preview so the controls could hide again.
+- Preserved navigation during slow personal-list loads and refreshed covered personal lists after membership changes in another list.
+- Refreshed Home progress after watched changes and made interrupted personal actions retryable when returning to Details.
+- Kept synopsis dialogs open during Details updates, refreshed visible and cached episode watched controls after aggregate changes, and enabled watched actions for titles without playback progress.
 - Preserved remote focus when library reads finished and kept inline collection cards at their intended width.
 - Returned directly between the A–Z grid and its navigation pills while keeping the alphabet rail reachable from the side.
 - Cleared invalid pagination cursors so reopening a cached list starts from its first page.
@@ -143,12 +129,8 @@ All notable changes to this project are documented in this file.
 - Kept the exit dialog visible and focused while a screen finished loading.
 - Made track-choice buttons activate the same selection as remote Enter.
 - Kept playback progress current during track changes and stopped safely when a change's outcome could not be confirmed.
-
 - Kept long audio and subtitle lists inside the player's menu with the focused choice and track status visible.
 - Removed the browser placeholder icon from native TV playback.
-
-- Fixed layouts on 2021 TVs, whose Chromium 76 engine lacks some newer CSS: sign-in fields, poster rows and the details screen keep their spacing, posters keep their 2:3 shape, and titles show in posters without artwork.
-- Fixed the exit dialog on 2021 TVs: it now covers the screen instead of opening below it, with space between its Yes and No buttons.
 - Kept the details poster at 2:3 when the description is taller than the poster, instead of stretching it.
 - Prevented an old stream from ending playback while a backward seek waited for a replacement plan in the native player.
 - Stopped the native player when Silo was backgrounded and preserved codec failures received during a seek.

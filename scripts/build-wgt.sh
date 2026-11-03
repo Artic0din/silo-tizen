@@ -28,7 +28,6 @@ if [[ ! -f "${STAGE_DIR}/config.xml" ]]; then
     exit 1
 fi
 
-# Tizen CLI 6.1: package the staged directory directly; avoid `tizen build-web` (known crash).
 echo "Packaging web app from ${STAGE_DIR} with profile '${PROFILE}' (expected: ${EXPECTED_BASENAME})..."
 tizen package -t wgt -s "${PROFILE}" -- "${STAGE_DIR}"
 

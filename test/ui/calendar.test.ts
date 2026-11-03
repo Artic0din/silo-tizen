@@ -319,7 +319,16 @@ calendarTest("Calendar failed revalidation retains only the current window with 
     await tv.page.getByText("The server had a problem. Try again in a moment.").waitFor();
     assert.equal(await tv.page.locator(".calendar-event").count(), 3);
     assert.equal(await tv.page.locator(":focus").getAttribute("data-content-id"), "movie:m0001");
-    catalog.calendarFailure = undefined; await activate(tv, "retry"); await ready(tv, 3);
+    catalog.calendarFailure = undefined;
+    // Retry clears the error and keeps the old events, so `ready` is true before the answer repaints; a late repaint would detach the Next week target mid-press.
+    const response = tv.fake.hold("/calendar"), before = reads(tv).length;
+    await activate(tv, "retry");
+    const retained = await tv.page.locator(".calendar-event").first().elementHandle();
+    assert.ok(retained);
+    await tv.eventually(async () => reads(tv).length === before + 1, "Retry read");
+    response.release();
+    await tv.eventually(() => retained.evaluate(node => !node.isConnected), "Retry response repaint");
+    await ready(tv, 3);
     assert.equal(await tv.page.getByRole("alert").count(), 0);
     await activate(tv, "next-week"); await ready(tv, 0);
     assert.equal(await tv.page.locator(".calendar-event").count(), 0, "no previous-window cache leaks into an empty week");

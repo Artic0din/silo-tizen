@@ -25,7 +25,7 @@ The correction records incoming focus instead and synchronously tests Left → R
 A separate shelf request-count failure came from queued enrichment; its exact assertion now begins after all rendered titles' detail requests have dispatched.
 The controlled RED/GREEN probes establish both causes; no timeout, retry or production enrichment behavior changed.
 
-Current behavior source: `f7528ecc8c31e449f1f7d4ac4d7df489a25750c8`.
+Incoming-focus correction source: `f7528ecc8c31e449f1f7d4ac4d7df489a25750c8`.
 Signed r3 WGT SHA-256: `54ff19bfac33ede966cfcbbe1689d79634d2f0c05f6c6321eb416c73f621c189`.
 All 15 archive files matched the installation; [installed-r3.sha256](installed-r3.sha256) records that identity.
 Loaded JavaScript matched the r3 package; loaded CSS is byte-identical to r2.
@@ -37,6 +37,27 @@ The final full check again passed 565 native + 654 UI tests, exit 0, and release
 The correction review approved the four-path source/test delta; focused controlled checks passed 8/8.
 Native pending-grid probes did not establish their setup prerequisite and are excluded; the grid-edge guarantee comes from the controlled automated regression.
 The r2 images/recording remain presentation evidence, not proof of the later focus listener.
+
+## Updated signed r4 current-mode navigation
+
+A later landing review found that reselecting the active library destination closed the cascade without refreshing the focus zones.
+The automated regression observed Up → Up stopping at the first card instead of reaching Movies.
+The correction renders the live view before restoring the retained content target; the same regression then reaches navigation without new requests.
+The first attempted placement in the separate mode-strip handler did not cover the cascade path and is excluded from GREEN proof.
+
+Current behavior source: `bf8e03b94f48d33432029af30fb273fa08d0343c`.
+Signed r4 WGT SHA-256: `3d115a66bb24abc5c70b1cf01ec3f63e4354b2e0e01c08485c6ccae6b6676db6`.
+All 15 files matched the simulator installation in [installed-r4.sha256](installed-r4.sha256), and loaded JS/CSS matched that package.
+CSS remains byte-identical to the earlier presentation builds.
+[runtime-r4.json](runtime-r4.json) records the current source/resource identity and native journey.
+
+The [current-mode pair](09-r4-navigation-return.png) shows the retained collection after Recommended is reselected, followed by Up → Up reaching Movies with no catalog/detail requests during that journey.
+The normal anchor dwell opens the menu in the final frame.
+Both frames are current r4 Samsung simulator states, not an Apple comparison.
+The current source passed 7/7 focused checks, 565 native + 654 UI tests, seven parity-drift checks and 17 release checks, all with exit 0.
+Fresh landing autoreview found no actionable issues; this small follow-up was fixed by the parent without a sixth delegated round.
+The earlier r2/r3 artifacts retain their stated scope and do not establish the r4 current-mode fix.
+An initial install check ran before the SDK finished copying; it is excluded, and installation equality was verified before the retained launch/smoke.
 
 ## Captures
 
@@ -50,6 +71,7 @@ The r2 images/recording remain presentation evidence, not proof of the later foc
 | [Failure / Retry](05-failure-and-retry.png) | A controlled local Collections denial retains shelves; disabling that fixture and selecting Retry restores collections. |
 | [Remote recording](07-remote-focus.mp4) | Down to Collections and Up to the media row, using the signed r2 client. |
 | [Current r3 smoke](08-r3-focus-smoke.png) | Updated signed source retains the same artwork clearance after Collections → Up. |
+| [Current r4 navigation](09-r4-navigation-return.png) | Reselecting Recommended retains content and leaves a working upward path to Movies. |
 
 Each paired PNG is 1940×690, containing two 960×540 app areas.
 Samsung's 1920×1080 captures are shown at 50%; Apple's 960×540 preview is shown at 100%, without upscaling.

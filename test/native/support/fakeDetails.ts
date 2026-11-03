@@ -86,8 +86,7 @@ export class FakeDetails extends FakeCatalog {
         if (profileId !== "p-owner" && !url.pathname.startsWith("/user/") && (url.pathname.startsWith("/catalog/people/") || url.pathname.startsWith("/recommendations/") || url.pathname.startsWith("/capabilities/"))) return problem(404, "not_found", "Not found");
         if (url.pathname === "/capabilities/personal-lists") return { status: 200, body: { state: this.capability ? "available" : "unsupported", allowed: this.capability, membership_supported: this.capability, revision: "synthetic" } };
         if (url.pathname.startsWith("/recommendations/similar/")) {
-            const base = fixture("list_catalog_items_ok");
-            return { status: 200, body: { ...base, items: this.empty ? [] : Array.from({ length: 30 }, (_, index) => ({ content_id: `movie:m${String(index + 2).padStart(4, "0")}`, type: "movie", title: `Movie ${String(index + 2).padStart(4, "0")}`, poster_url: `/art/movie-${index + 2}.svg` })), total: this.empty ? 0 : 30, total_exact: true } };
+            return { status: 200, body: { items: this.empty ? [] : Array.from({ length: 30 }, (_, index) => ({ content_id: `movie:m${String(index + 2).padStart(4, "0")}`, type: "movie", title: `Movie ${String(index + 2).padStart(4, "0")}`, poster_url: `/art/movie-${index + 2}.svg` })) } };
         }
         const personal = /^\/(watchlist|favorites|watched)\/([^/]+)(\/membership)?$/.exec(url.pathname);
         if (personal !== null) {

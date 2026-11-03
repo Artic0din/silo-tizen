@@ -52,6 +52,19 @@ test("Details operations use pinned paths, bounded queries and explicit mutation
     }
 });
 
+test("related titles decode the server's unpaginated collection and reject malformed cards", () => {
+    const spec = detailOperations.similar("series:opaque");
+    assert.deepEqual(spec.decode({ items: [] }).items, []);
+    for (const type of ["movie", "series"]) {
+        const page = spec.decode({ items: [{ content_id: `${type}:opaque`, type, title: "Related title" }] });
+        assert.equal(page.items[0]?.id, `${type}:opaque`);
+    }
+    assert.throws(() => spec.decode({}));
+    assert.throws(() => spec.decode({ items: null }));
+    assert.throws(() => spec.decode({ items: [{ content_id: "series:opaque", type: "series", title: 123 }] }));
+    assert.throws(() => decodeCatalogPage({ items: [] }), "catalog pages still require pagination totals");
+});
+
 test("explicit version selection preserves its file id and uses that file's end margin", () => {
     const detail = decodeItemDetail({ ...fixture("get_catalog_item_ok"), duration_seconds: 9000,
         versions: [{ file_id: "long", duration: 9000 }, { file_id: "short", duration: 1200 }],

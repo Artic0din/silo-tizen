@@ -7,6 +7,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Showed posters on Requests discovery, search, My Requests and detail pages, with title fallbacks when artwork was missing or failed.
+- Restored related titles on Details when the server returned cards without catalog pagination totals.
 - Made Enter on the player's default focus skip the intro, recap or credits while the Skip control shows, instead of pausing.
 
 ### Changed

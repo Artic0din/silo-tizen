@@ -5,6 +5,7 @@ Samsung TV client for the [Silo](https://github.com/Silo-Server/silo-server) sel
 This repo builds a Tizen web app (`.wgt`) for Samsung TVs running Tizen 8.0 or later.
 The installed OS version, not the TV's model year, decides compatibility; earlier Tizen versions are not supported.
 It talks to Silo's native `/api/v2` and plays through Samsung's AVPlay.
+[FEATURES.md](FEATURES.md) lists what it does today and tracks parity with the Apple TV app.
 
 ## Tester builds
 

@@ -23,6 +23,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added FEATURES.md, a feature inventory that tracks parity with the Apple TV app, as silo-android's does.
 - Added a docs index, a native API v2 reference and a TV focus guide, and grouped the feature, playback and evidence notes into folders as the Apple and Android repositories do.
 - Added the top-level files the Silo Apple and Android repositories carry: contributing guide, Samsung store and platform licence exceptions, trademark policy, third-party notices, CLAUDE.md and t3.json, and rewrote the README and agent guide in their layout.
 - Added a Promote workflow that turns a tester build into a draft store release with the same `.wgt` and store notes, with a fixed `silo-tizen-latest.wgt` that the `releases/latest` link serves once the store release is published.

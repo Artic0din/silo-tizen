@@ -38,7 +38,8 @@ Samsung TV Seller Office has no upload API, so a store release is part workflow,
 3. Add the store notes and submit the version for certification.
 4. On GitHub → Releases, edit the `v1.0.0` draft notes if needed.
 5. When Samsung approves, publish the GitHub release.
-   `published.yml` then copies its `.wgt` to `silo-tizen-latest.wgt`, so `releases/latest/download/silo-tizen-latest.wgt` serves this version.
+   The draft already carries `silo-tizen-latest.wgt`, so `releases/latest/download/silo-tizen-latest.wgt` then serves this version.
+   Tester builds are prereleases, so they never move that link.
 
 GitHub won't let the workflow's own token release a commit whose `.github/workflows/` files differ from `main`.
 If the workflows changed after the tester build, either promote a newer tester build or add a `RELEASE_TOKEN` repository secret: a fine-grained token for this repository with Contents and Workflows write.

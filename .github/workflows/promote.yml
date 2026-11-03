@@ -4,7 +4,8 @@ name: Promote
 # GitHub release vX.Y.Z on the same commit with the same .wgt, and writes the
 # store notes. Samsung TV Seller Office has no upload API, so a maintainer
 # uploads that .wgt in Seller Office, and publishes the GitHub release once
-# Samsung approves it (published.yml takes it from there).
+# Samsung approves it. The draft already carries silo-tizen-latest.wgt, so
+# releases/latest/download/silo-tizen-latest.wgt serves it once published.
 # See docs/releasing.md.
 
 on:
@@ -113,6 +114,9 @@ jobs:
           gh release download "${BETA_TAG}" --dir wgt --pattern "${name}" --pattern "${name}.sha256"
           (cd wgt && sha256sum --check "${name}.sha256")
           cp "wgt/${name}" "wgt/${upload}"
+          # A release event would run the tester commit's workflows, which can predate any
+          # handler, so the fixed latest name is attached here rather than on publication.
+          cp "wgt/${name}" wgt/silo-tizen-latest.wgt
           {
             echo "Silo for Tizen ${VERSION}, build ${BUILD}: the tester build ${BETA_TAG}, on the Samsung TV store."
             echo
@@ -124,7 +128,7 @@ jobs:
             echo "To install the package yourself: \`${name}\`, checked with its \`.sha256\` file."
           } > body.md
           gh release create "${RELEASE_TAG}" --draft --target "${COMMIT}" \
-            --title "Silo for Tizen ${VERSION}" --notes-file body.md "wgt/${name}" "wgt/${name}.sha256" "wgt/${upload}"
+            --title "Silo for Tizen ${VERSION}" --notes-file body.md "wgt/${name}" "wgt/${name}.sha256" "wgt/${upload}" wgt/silo-tizen-latest.wgt
           {
             echo "Drafted ${RELEASE_TAG} with \`${name}\`."
             echo

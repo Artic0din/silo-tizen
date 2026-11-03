@@ -20,7 +20,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Added a Promote workflow that turns a tester build into a draft store release with the same `.wgt` and store notes, and a fixed `silo-tizen-latest.wgt` link that follows the newest store release.
+- Added a Promote workflow that turns a tester build into a draft store release with the same `.wgt` and store notes, with a fixed `silo-tizen-latest.wgt` that the `releases/latest` link serves once the store release is published.
 - Added a Release workflow that tags a numbered tester build, signs its `.wgt` and publishes it on a GitHub prerelease, plus a fixed "latest tester build" link.
 - Added a Tizen Builds CI job that packages the `.wgt` on every pull request and signs it with the maintainer's Samsung certificate on main and same-repository pull requests.
 - Added Silo issue forms, contact links, a pull request template, evidence paths, release-note categories and the Discord commit feed, matching the Apple and Android apps.

@@ -1,0 +1,94 @@
+name: Tizen Builds
+
+# CI gate: tests and a packaged .wgt on main pushes and pull requests.
+# With the signing secrets (main and same-repository pull requests), the .wgt is
+# signed with the maintainer's Samsung certificate and uploaded. Fork pull
+# requests sign with a throwaway certificate to check packaging only.
+# release.yml only releases a commit this workflow passed on main.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tizen-builds-${{ github.ref }}
+  # Main runs always finish, so every commit there gets a result release.yml can check.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.11.1
+          package-manager-cache: false
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+
+  package:
+    name: Package .wgt
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.11.1
+          package-manager-cache: false
+      - run: npm ci
+
+      - name: Install the Tizen CLI
+        run: scripts/ci/install-tizen-cli.sh
+
+      - name: Create the signing profile
+        id: signing
+        run: scripts/ci/create-signing-profile.sh
+        env:
+          TIZEN_AUTHOR_P12_B64: ${{ secrets.TIZEN_AUTHOR_P12_B64 }}
+          TIZEN_AUTHOR_PASSWORD: ${{ secrets.TIZEN_AUTHOR_PASSWORD }}
+          TIZEN_DISTRIBUTOR_P12_B64: ${{ secrets.TIZEN_DISTRIBUTOR_P12_B64 }}
+          TIZEN_DISTRIBUTOR_PASSWORD: ${{ secrets.TIZEN_DISTRIBUTOR_PASSWORD }}
+
+      - name: Require the Samsung certificate outside pull requests
+        if: github.event_name != 'pull_request' && steps.signing.outputs.signing != 'samsung'
+        run: |
+          echo "::error::The TIZEN_* signing secrets are missing, so main cannot produce a TV-installable .wgt."
+          exit 1
+
+      - name: Package and sign
+        run: |
+          scripts/build-wgt.sh
+          (cd dist && sha256sum Silo.wgt | tee Silo.wgt.sha256)
+
+      - name: Show the Tizen CLI log
+        if: failure()
+        run: find "${HOME}" -path '*cli/logs/cli.log' -exec tail -n 60 {} \;
+
+      - name: Upload the signed .wgt
+        if: steps.signing.outputs.signing == 'samsung'
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: silo-tizen-wgt
+          path: |
+            dist/Silo.wgt
+            dist/Silo.wgt.sha256
+          if-no-files-found: error
+
+      - name: Remove the signing certificates
+        if: always()
+        run: rm -rf "${RUNNER_TEMP}/tizen-signing" "${HOME}"/tizen-*data/profile "${HOME}"/tizen-*data/keystore

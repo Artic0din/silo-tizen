@@ -1280,7 +1280,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             roots.set(key, route);
         }
         if (route.kind === "library" && destinationMode !== undefined) {
-            if (route === current && route.discovery?.mode === destinationMode && hasData(route)) { host.focusDefault(); return; }
+            if (route === current && route.discovery?.mode === destinationMode && hasData(route)) { render(); host.focusDefault(); return; }
             route.discovery = { ...discoveryState(), mode: destinationMode, capabilities: route.discovery?.capabilities };
             route.pages = newPages();
         }

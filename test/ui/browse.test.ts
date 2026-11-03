@@ -1324,6 +1324,12 @@ browseTest("activating current Recommended restores its content without reads", 
         const viewport = node.closest('.skyline-content')?.getBoundingClientRect();
         return viewport !== undefined && bounds.top >= viewport.top && bounds.bottom <= viewport.bottom;
     }), true);
+    const upward = await tv.page.evaluate(() => [1, 2].map(() => {
+        document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", keyCode: 38, bubbles: true, cancelable: true }));
+        return document.activeElement?.getAttribute("data-focus");
+    }));
+    assert.deepEqual(upward, ["movie:m0001", "movies"], "reselecting the current mode leaves a live path back to navigation");
+    assert.equal(tv.fake.requests.length, reads);
 });
 
 browseTest("R2 grid destinations retain pills without marquee and place rail on right", async (tv) => {

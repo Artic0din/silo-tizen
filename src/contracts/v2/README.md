@@ -6,6 +6,8 @@
 which contains the selected Settings manifest subset consumed by this client.
 That documented exception selects seven definitions unchanged from `contracts/settings/v1/manifest.json` at `SOURCE` (v1, revision 24): `ui.disabled_library_ids`, `playback.audio_language`, `playback.preferred_quality`, `playback.max_bitrate_kbps`, `player.video_skip_back_seconds`, `player.video_skip_forward_seconds` and `ui.title_art`, plus the unchanged `playback_audio_languages` option set.
 The source manifest SHA-256 is `95b716c8b34974e4b97ee96f5c644135c437e09f4a6f2285fb263e3351e6c6ea`.
+`scripts/sync-apiv2-fixtures.sh <server-ref>`, with `SILO_SERVER_REPO` set to a silo-server checkout, re-vendors both from `git show <commit>:<path>` and rewrites `SOURCE`; the Settings subset is written in manifest order.
+The script prints the manifest revision and SHA-256 so the lines above can be updated; `scripts/sync-apiv2-fixtures.test.sh` covers it.
 `wire.ts` decodes only the members the client reads; unknown members are ignored and unknown
 response enum values decode to `"unknown"`, so additive server changes keep working.
 

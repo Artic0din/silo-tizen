@@ -11,12 +11,32 @@ Signed WGT SHA-256: `f03e8286e16ff59eb3b49e16f1ebcdd34aadbee405ef8f2d7930e632a00
 All 15 archive files matched the simulator installation; [installed-r2.sha256](installed-r2.sha256) records their hashes without certificate contents.
 CDP read-back of loaded JavaScript and CSS matched the package for each retained capture.
 [runtime-r2.json](runtime-r2.json) records sanitized measurements and the loaded-resource hashes.
-The later evidence commit changes documentation and media only.
+These r2 captures predate the incoming-focus correction; the updated signed r3 smoke below validates that later source.
 
 Samsung SDK 10.0.6 runs NW.js Chromium 137.0.7151.69 here, with a logical 1920×1080 viewport and DPR 2.
 The user-agent's Chrome 55 string is not the runtime version.
 This is not physical Tizen 8 / Chromium 108, and the SDK's disabled web security cannot establish ordinary packaged-origin CORS behavior.
 CDP focus emulation supported the locked-desktop run; it does not establish native visibility handling.
+
+## Updated signed r3 focus smoke
+
+Hosted CI exposed an outgoing-focus listener that overwrote the card remembered by programmatic navigation.
+The correction records incoming focus instead and synchronously tests Left → Right → Down at a pending grid edge so a redraw cannot conceal stale memory.
+A separate shelf request-count failure came from queued enrichment; its exact assertion now begins after all rendered titles' detail requests have dispatched.
+The controlled RED/GREEN probes establish both causes; no timeout, retry or production enrichment behavior changed.
+
+Current behavior source: `f7528ecc8c31e449f1f7d4ac4d7df489a25750c8`.
+Signed r3 WGT SHA-256: `54ff19bfac33ede966cfcbbe1689d79634d2f0c05f6c6321eb416c73f621c189`.
+All 15 archive files matched the installation; [installed-r3.sha256](installed-r3.sha256) records that identity.
+Loaded JavaScript matched the r3 package; loaded CSS is byte-identical to r2.
+[runtime-r3.json](runtime-r3.json) records the current hashes, measurements and bounded journeys.
+
+The [current smoke pair](08-r3-focus-smoke.png) retains Masterplan after Collections → Up at artwork y597.195, viewport y596 and scrollTop 57.
+Right/Left/Down/Up and Details/Back restored the expected card and scroll without catalog/detail requests during the return journeys.
+The final full check again passed 565 native + 654 UI tests, exit 0, and release checks passed 17/17.
+The correction review approved the four-path source/test delta; focused controlled checks passed 8/8.
+Native pending-grid probes did not establish their setup prerequisite and are excluded; the grid-edge guarantee comes from the controlled automated regression.
+The r2 images/recording remain presentation evidence, not proof of the later focus listener.
 
 ## Captures
 
@@ -29,6 +49,7 @@ CDP focus emulation supported the locked-desktop run; it does not establish nati
 | [Collections / expansion](04-collections-and-expansion.png) | Existing inline collections and the library-scoped expanded catalog. |
 | [Failure / Retry](05-failure-and-retry.png) | A controlled local Collections denial retains shelves; disabling that fixture and selecting Retry restores collections. |
 | [Remote recording](07-remote-focus.mp4) | Down to Collections and Up to the media row, using the signed r2 client. |
+| [Current r3 smoke](08-r3-focus-smoke.png) | Updated signed source retains the same artwork clearance after Collections → Up. |
 
 Each paired PNG is 1940×690, containing two 960×540 app areas.
 Samsung's 1920×1080 captures are shown at 50%; Apple's 960×540 preview is shown at 100%, without upscaling.

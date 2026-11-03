@@ -1,8 +1,7 @@
-import type { HomeSection } from "../contracts/v2/catalog.ts";
 import type { CollectionSummary } from "../contracts/v2/discovery.ts";
 import type { View, Zone } from "./browseFocus.ts";
 import { newPages, newRoute, type Route, type RouteHandlers } from "./browseRoutes.ts";
-import { actionButton, artwork, cardItem, lines, pagedGrid, zoneNode } from "./browseViews.ts";
+import { actionButton, artwork, homeView, homeRows, lines, pagedGrid, zoneNode } from "./browseViews.ts";
 import { LIBRARY_MODES, type DiscoveryState, type LibrarySource } from "./libraryDiscovery.ts";
 import { el } from "./screen.ts";
 import { browsePage, panelFocus } from "./libraryBrowseViews.ts";
@@ -22,8 +21,8 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
     });
     const pillRow = zoneNode("skyline-pills", pills);
     pillRow.appendChild(el("span", "skyline-scope", route.library.name));
-    const content: HTMLElement[] = [pillRow];
-    const zones: Zone[] = [{ id: "pills", layout: "row", items: pills, ...(state.mode === "A–Z" ? { down: "grid" } : {}) }];
+    const content: HTMLElement[] = state.mode === "Recommended" ? [] : [pillRow];
+    const zones: Zone[] = state.mode === "Recommended" ? [] : [{ id: "pills", layout: "row", items: pills, ...(state.mode === "A–Z" ? { down: "grid" } : {}) }];
     const open = (title: string, source: LibrarySource): void => handlers.push(newRoute({ kind: "libraryResults", library: route.library, title, source, pages: newPages(), descending: false }));
     if (state.mode === "Browse") {
         const page = browsePage(route, state, handlers);
@@ -41,11 +40,19 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
         skeleton.setAttribute("aria-label", "Loading");
         content.push(skeleton);
     } else if (state.mode === "Recommended") {
-        state.data.sections.forEach((section, index) => {
-            sectionRow(section);
+        const rows = homeRows(state.data.sections.filter(section => section.featured !== true)).filter(row => row.cards.length > 0);
+        rows.forEach(({ section }, index) => {
+            const row = homeView([], [section], handlers.context, {
+                expand: value => open(value.title, { kind: "section", id: value.id }),
+                search: () => handlers.push(newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })),
+                library: library => handlers.push(newRoute({ kind: "library", library, pages: newPages() })),
+                chooseProfile: handlers.chooseProfile,
+            });
+            content.push(...row.content);
+            zones.push(...row.zones);
             if (index === 0) inlineCollections();
         });
-        if (state.data.sections.length === 0) inlineCollections();
+        if (rows.length === 0) inlineCollections();
     } else if (state.mode === "Collections") {
         const collections = state.data.collections;
         const groups = collections?.groups ?? [];
@@ -88,24 +95,18 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
             content.push(loading);
         }
     }
-    if (state.data !== undefined && route.failure === undefined && zones.slice(1).every(zone => zone.items.length === 0)) content.push(...lines(["No titles"]));
+    if (state.data !== undefined && route.failure === undefined && zones.every(zone => zone.id === "pills" || zone.items.length === 0)) content.push(...lines(["No titles"]));
     const firstZone = zones.find(zone => (zone.id === "grid" || zone.id.startsWith("section:")) && zone.items.length > 0) ?? zones.slice(1).find(zone => zone.items.length > 0) ?? zones[0];
     const first = firstZone?.items[0];
-    return { name: state.data === undefined && route.failure === undefined ? "library:loading" : `library:${route.library.id}`, content, zones, focus: first === undefined ? undefined : { zone: firstZone?.id ?? "pills", key: first.key }, back: handlers.pop };
+    return { name: state.data === undefined && route.failure === undefined ? "library:loading" : `library:${route.library.id}`, content, zones, focus: state.data === undefined && state.mode !== "Recommended" ? { zone: "pills", key: `mode:${state.mode}` } : first === undefined ? undefined : { zone: firstZone?.id ?? "pills", key: first.key }, back: handlers.pop };
 
-    function sectionRow(section: HomeSection): void {
-        const more = actionButton(`section:${section.id}`, section.title, () => open(section.title, { kind: "section", id: section.id }));
-        const cards = section.items.slice(0, 24).flatMap(card => {
-            const item = cardItem(card, { ...handlers.context, preview: value => handlers.context.preview?.(value, section.title) });
-            return item === undefined ? [] : [item];
-        });
-        const block = el("section", "browse-section library-media-shelf");
-        block.setAttribute("data-section", section.id);
-        block.append(zoneNode("browse-actions", [more]), zoneNode("browse-row", cards));
-        content.push(block);
-        zones.push({ id: `section-link:${section.id}`, layout: "row", items: [more] }, { id: `section:${section.id}`, layout: "row", items: cards });
-    }
     function inlineCollections(): void {
+        if (state.data?.collectionsFailure !== undefined) {
+            const retry = actionButton("retry-collections", "Try again", () => handlers.retry(route));
+            content.push(...lines([state.data.collectionsFailure], "error"), zoneNode("browse-actions", [retry]));
+            zones.push({ id: "collections-error", layout: "row", items: [retry] });
+            return;
+        }
         const collections = [...(state.data?.collections?.collections ?? [])].sort((a, b) => b.itemCount - a.itemCount).slice(0, 8);
         collectionRow("inline", "Collections", collections, "admin", false);
     }

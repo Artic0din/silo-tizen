@@ -1,3 +1,4 @@
+import { selectLibraryMode } from "./support/library.ts";
 // Browse focus and scroll parity. Desktop Chromium is not the TV's Chromium 108.
 
 import assert from "node:assert/strict";
@@ -127,7 +128,7 @@ async function focusClip(tv: Tv): Promise<{ key: string; transform: string; insi
         }
         const matrix = /^matrix\(([^)]+)\)$/.exec(transform)?.[1]?.split(",").map(part => Number(part.trim())) ?? [];
         const scale = matrix.length === 6 ? matrix[0] ?? 1 : transform === "none" ? 1 : Number.NaN;
-        return { key: card.getAttribute("data-focus") ?? "", transform, inside, scale, artGrowth: rect.height - art.offsetHeight, captionClearance: caption.getBoundingClientRect().top - rect.bottom, border: getComputedStyle(card).borderTopColor, clippedBy };
+        return { key: card.getAttribute("data-focus") ?? "", transform, inside, scale, artGrowth: rect.height - art.offsetHeight, captionClearance: caption.getBoundingClientRect().top - rect.bottom, border: getComputedStyle(card).borderTopWidth === "0px" ? "rgba(0, 0, 0, 0)" : getComputedStyle(card).borderTopColor, clippedBy };
     });
 }
 
@@ -160,7 +161,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await openLibrary(tv);
             await tv.jump(300);
             const reads = tv.fake.requests.length;
-            for (const moves of [0, 23]) {
+            for (const moves of [0, 19]) {
                 for (let step = 0; step < moves; step++) await tv.remote(39);
                 await tv.jump(300);
                 await settleFocusMotion(tv);
@@ -251,9 +252,9 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await tv.jump(300);
             assert.deepEqual(await scrollOf(tv, committed.section), { top: committed.top, left: committed.left });
             assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "library:12");
-            // Scroll 140 leaves this row above the library scroller. The border check uses a
-            // committed position that keeps the card inside and is still not the reveal target.
-            const fitted = await commitScroll(tv, 100);
+            // Keep the smaller shared row fully inside while testing a non-default scroll.
+            const fitted = await commitScroll(tv, 20);
+            assert.equal((await focusClip(tv)).inside, true, "setup fully contains the artwork");
             await tv.remote(ENTER);
             await showing(tv, `item:${fitted.key}`);
             await tv.remote(BACK);
@@ -314,22 +315,22 @@ test("library modes keep separate scroll and focus visits", async () => {
         for (let step = 0; step < 8; step++) await tv.remote(39);
         await tv.jump(300);
         const committed = await commitScroll(tv, 140);
-        await activate(tv, "mode:Collections");
+        await selectLibraryMode(tv, "Collections");
         await tv.page.locator('[data-focus="collection:highlights"]').waitFor();
         assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "library:12", "mode changes keep the public library view id");
         assert.notEqual(await tv.focused(), committed.key);
         assert.equal((await scrollOf(tv, committed.section)).top, 0);
-        await activate(tv, "mode:Genres");
+        await selectLibraryMode(tv, "Genres");
         await tv.page.locator('[data-focus="genre:Drama"]').waitFor();
         await tv.remote(39);
         assert.equal(await tv.focused(), "genre:Comedy");
-        await activate(tv, "mode:Recommended");
+        await selectLibraryMode(tv, "Recommended");
         await tv.page.locator(`[data-focus="${committed.key}"]`).waitFor();
         await tv.jump(300);
         assert.equal(await tv.focused(), committed.key, "Browse visit focus");
         assert.deepEqual(await scrollOf(tv, committed.section), { top: committed.top, left: committed.left });
         assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "library:12");
-        await activate(tv, "mode:Genres");
+        await selectLibraryMode(tv, "Genres");
         await tv.eventually(async () => await tv.focused() === "genre:Comedy", "Genres visit focus");
         assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "library:12");
         assert.deepEqual(tv.console, []);
@@ -394,7 +395,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await tv.page.emulateMedia({ reducedMotion });
             await signedIn(tv);
             await openLibrary(tv);
-            await activate(tv, "mode:Recently Added");
+            await selectLibraryMode(tv, "Recently Added");
             const card = tv.page.locator(".browse-grid .browse-card[data-focus]").last();
             await card.waitFor();
             await tv.jump(300);
@@ -430,17 +431,17 @@ for (const destination of ["mode", "settings"] as const) test(`pending library r
         for (let step = 0; step < 8; step++) await tv.remote(39);
         await tv.jump(300);
         const committed = await commitScroll(tv, 140);
-        await activate(tv, "mode:Collections");
+        await selectLibraryMode(tv, "Collections");
         await tv.page.locator('[data-focus="collection:highlights"]').waitFor();
         const before = tv.fake.requests.filter(request => request.path.startsWith("/library/12/sections")).length;
         const held = tv.fake.hold("/library/12/sections", true);
-        await activate(tv, "mode:Recommended");
+        await selectLibraryMode(tv, "Recommended");
         await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/library/12/sections")).length === before + 1, "Browse restore read dispatched");
         if (destination === "mode") {
-            await activate(tv, "mode:Genres");
+            await selectLibraryMode(tv, "Genres");
             await tv.page.locator('[data-focus="genre:Drama"]').waitFor();
             held.release();
-            await activate(tv, "mode:Recommended");
+            await selectLibraryMode(tv, "Recommended");
         } else {
             await tv.page.locator('[data-focus="profiles"]').focus();
             await tv.page.keyboard.press("Enter");
@@ -453,9 +454,9 @@ for (const destination of ["mode", "settings"] as const) test(`pending library r
         await tv.jump(300);
         assert.equal(await tv.focused(), committed.key, "loading controls do not replace the saved card");
         assert.deepEqual(await scrollOf(tv, committed.section), { top: committed.top, left: committed.left });
-        await activate(tv, "mode:Genres");
+        await selectLibraryMode(tv, "Genres");
         await tv.page.locator('[data-focus="genre:Drama"]').waitFor();
-        await activate(tv, "mode:Recommended");
+        await selectLibraryMode(tv, "Recommended");
         await tv.eventually(async () => await tv.focused() === committed.key, "restored visit remains usable");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
@@ -480,9 +481,9 @@ test("a pending shelf return reveals its saved partly clipped card", async () =>
             return card.getAttribute("data-focus");
         });
         assert.ok(key);
-        await activate(tv, "mode:Collections");
+        await selectLibraryMode(tv, "Collections");
         await tv.page.locator('[data-focus="collection:highlights"]').waitFor();
-        await activate(tv, "mode:Recommended");
+        await selectLibraryMode(tv, "Recommended");
         await tv.page.locator(`.browse-row [data-focus="${key}"]`).waitFor();
         await tv.jump(300);
         await settleFocusMotion(tv);
@@ -499,12 +500,12 @@ test("a missing pending target does not prevent saving the next visit", async ()
         for (let step = 0; step < 8; step++) await tv.remote(39);
         await tv.jump(300);
         await commitScroll(tv, 140);
-        await activate(tv, "mode:Collections");
+        await selectLibraryMode(tv, "Collections");
         await tv.page.locator('[data-focus="collection:highlights"]').waitFor();
         catalog.removed.add("movie:m0009");
         const before = tv.fake.requests.filter(request => request.path.startsWith("/library/12/sections")).length;
         const held = tv.fake.hold("/library/12/sections", true);
-        await activate(tv, "mode:Recommended");
+        await selectLibraryMode(tv, "Recommended");
         await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/library/12/sections")).length === before + 1, "pending restore dispatched");
         await tv.remote(39);
         held.release();

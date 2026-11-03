@@ -110,7 +110,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const resized = shownScale !== presentation.posterScale;
         if (resized) { shownScale = presentation.posterScale; applyCardSize(); }
         const current = top();
-        if (!playing && current !== undefined && (current.kind === "home" || current.kind === "for_you" || current.kind === "recommendationSection" || isSectionRoute(current) || (current.kind === "library" && current.discovery?.mode === "Browse")) && (resized || shownOverlays !== presentation.cardOverlays)) {
+        if (!playing && current !== undefined && (current.kind === "home" || current.kind === "for_you" || current.kind === "recommendationSection" || isSectionRoute(current) || (current.kind === "library" && (current.discovery?.mode === "Browse" || current.discovery?.mode === "Recommended"))) && (resized || shownOverlays !== presentation.cardOverlays)) {
             shownOverlays = presentation.cardOverlays;
             render(host.focused());
             if (resized) host.revealFocused();
@@ -256,6 +256,35 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     catch { /* Missing optional cache data leaves the capability probe in charge. */ }
     let imageProbe: Promise<ImageCapabilities | undefined> | undefined;
     let homeArtworkAttempt: Readonly<Record<string, string>> | undefined;
+    const libraryArtworkAttempts = new WeakMap<Route, Readonly<Record<string, string>>>();
+    function upgradeLibraryArtwork(): void {
+        const current = top();
+        if (current?.kind !== "library" || current.discovery?.mode !== "Recommended" || current.discovery.data === undefined || torn || playing || cardActions.active || loading !== undefined || current.failure !== undefined) return;
+        const attempt = libraryArtworkAttempts.get(current);
+        const query = homeArtworkQuery(imageCapability, window.devicePixelRatio);
+        if (attempt === undefined || !Object.entries(query).some(([key, value]) => attempt[key] === undefined || Number(value) > Number(attempt[key]))) return;
+        load(current, signal => read(operations.listLibrarySections(current.library.id, query), signal).catch((error: unknown) => {
+            if (error instanceof ApiError && !error.aborted) return undefined;
+            throw error;
+        }), sections => {
+            libraryArtworkAttempts.set(current, query);
+            const state = current.discovery;
+            if (sections !== undefined && state?.mode === "Recommended" && state.data !== undefined) {
+                const artwork = new Map(sections.map(section => [section.id, new Map(section.items.map(card => [card.id, card]))]));
+                state.data = { ...state.data, sections: state.data.sections.map(section => ({ ...section, items: section.items.map(card => {
+                    const sized = artwork.get(section.id)?.get(card.id);
+                    return sized === undefined ? card : { ...card,
+                        posterUrl: sized.posterUrl ?? card.posterUrl,
+                        backdropUrl: sized.backdropUrl ?? card.backdropUrl,
+                        backdropThumbhash: sized.backdropThumbhash ?? card.backdropThumbhash,
+                        seriesBackdropUrl: sized.seriesBackdropUrl ?? card.seriesBackdropUrl,
+                        logoUrl: sized.logoUrl ?? card.logoUrl,
+                    };
+                }) })) };
+            }
+            return host.focused();
+        }, true);
+    }
     function upgradeHomeArtwork(): void {
         if (home.kind !== "home") return;
         const data = home.data;
@@ -289,6 +318,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         try { options.publicStorage?.setItem(imageKey, JSON.stringify({ state: found.state, param: found.param, sizes: found.sizes, slot_width_params: found.slotWidthParams })); }
         catch { /* Cache persistence cannot turn a successful capability probe into a failure. */ }
         upgradeHomeArtwork();
+        upgradeLibraryArtwork();
         return found;
     }, () => undefined);
     void probeImages();
@@ -401,7 +431,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const homeDetails = new HomeEnrichment(read, id => { if (!torn) shell.refreshDetails(id); }, () => {
         // Continue Watching cards redraw once with saved-file badges, keeping focus where it is.
         const current = top();
-        if (!torn && !playing && current !== undefined && (current.kind === "home" || isSectionRoute(current)) && presentation.cardOverlays !== undefined) {
+        if (!torn && !playing && current !== undefined && (current.kind === "home" || isSectionRoute(current) || (current.kind === "library" && current.discovery?.mode === "Recommended")) && presentation.cardOverlays !== undefined) {
             activeSection?.invalidate();
             render(host.focused());
         }
@@ -679,21 +709,28 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }
             case "library":
                 current.discovery ??= discoveryState();
+                if (current.discovery.mode === "Recommended") presentation.ensure();
                 if (current.discovery.data !== undefined && (current.discovery.mode === "Recently Added" || current.discovery.mode === "A–Z" || current.discovery.genre !== undefined)) {
                     loadPage(current, current.pages, current.pages.index, quiet);
                     return;
                 }
                 load(current, async signal => {
                     const state = current.discovery ?? discoveryState();
-                    const data = await readDiscovery(current.library, state.mode, spec => read(spec, signal));
+                    const artworkQuery = homeArtworkQuery(imageCapability, window.devicePixelRatio);
+                    const data = await readDiscovery(current.library, state.mode, spec => read(spec, signal), artworkQuery);
                     const page = (state.mode === "Recently Added" || state.mode === "A–Z") && data.capabilities?.allowed === true
                         ? await read(operations.queryCatalogItems({ ...libraryScope(current.library), limit: PAGE_SIZE, sort: state.mode === "Recently Added" ? "added_at" : "title", order: state.mode === "Recently Added" ? "desc" : "asc" }), signal) : undefined;
-                    return { data, page };
-                }, ({ data, page }) => {
+                    return { data, page, artworkQuery };
+                }, ({ data, page, artworkQuery }) => {
                     if (current.discovery !== undefined) {
                         current.discovery.data = data;
                         current.discovery.capabilities = data.capabilities;
                         shell.setLibraryModes(availableModes(data.capabilities));
+                        if (current.discovery.mode === "Recommended") {
+                            libraryArtworkAttempts.set(current, artworkQuery);
+                            homeDetails.load(homeRows(data.sections.filter(section => section.featured !== true)).flatMap(row => row.cards.map(card => ({ card, continuing: row.continuing }))));
+                            queueMicrotask(upgradeLibraryArtwork);
+                        }
                     }
                     current.pages.page = page;
                     current.pages.cursors = [undefined, page?.nextCursor];
@@ -964,6 +1001,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const sections = current.kind === "home" ? current.data.sections : current.data;
             homeDetails.load(homeRows(sections).flatMap(row => row.cards.map(card => ({ card, continuing: current.kind === "home" && row.continuing }))));
             if (current.kind === "home") upgradeHomeArtwork();
+        } else if (current.kind === "library" && current.discovery?.mode === "Recommended" && current.discovery.data !== undefined) {
+            homeDetails.load(homeRows(current.discovery.data.sections.filter(section => section.featured !== true)).flatMap(row => row.cards.map(card => ({ card, continuing: row.continuing }))));
+            upgradeLibraryArtwork();
         }
     };
 
@@ -1240,6 +1280,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             roots.set(key, route);
         }
         if (route.kind === "library" && destinationMode !== undefined) {
+            if (route === current && route.discovery?.mode === destinationMode && hasData(route)) { host.focusDefault(); return; }
             route.discovery = { ...discoveryState(), mode: destinationMode, capabilities: route.discovery?.capabilities };
             route.pages = newPages();
         }
@@ -1293,9 +1334,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
     }, focus => render(focus), options.publicStorage, `silo.skyline.scope:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`, context.baseUrl);
     shell.titleArt = () => presentation.showsTitleArt;
-    // Only Home read these; a library landing would otherwise show them for some titles and not others.
-    shell.details = (card, continuing) => !(top()?.kind === "home" || top()?.kind === "for_you") ? { line: undefined, badges: undefined } : { line: homeDetails.detailLine(card.id), badges: continuing ? homeDetails.savedFile(card)?.badges : undefined };
-    shell.filled = card => top()?.kind === "home" || top()?.kind === "for_you" ? homeDetails.filled(card) : card;
+    const enrichedScene = (): boolean => { const current = top(); return current?.kind === "home" || current?.kind === "for_you" || (current?.kind === "library" && current.discovery?.mode === "Recommended"); };
+    shell.details = (card, continuing) => !enrichedScene() ? { line: undefined, badges: undefined } : { line: homeDetails.detailLine(card.id), badges: continuing ? homeDetails.savedFile(card)?.badges : undefined };
+    shell.filled = card => enrichedScene() ? homeDetails.filled(card) : card;
     shell.update([]);
     void navigation.reload();
     void probeRequests();

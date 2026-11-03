@@ -153,7 +153,7 @@ test("a late authored menu preserves content focus and a library shortcut keeps 
         await tv.page.locator('.skyline-roots [data-focus="library:12"]').waitFor();
         assert.equal(await tv.focused(), focused);
         await tv.page.locator('.skyline-roots [data-focus="library:12"]').click();
-        await tv.page.locator('[data-view="library:12"] .skyline-pills').waitFor();
+        await tv.page.locator('[data-view="library:12"] .home-section').waitFor();
         assert.equal(await tv.page.locator('.skyline-roots [aria-current="page"]').getAttribute("data-focus"), "library:12");
         await tv.page.locator('[data-focus="library:12"]').first().focus();
         await tv.remote(40);

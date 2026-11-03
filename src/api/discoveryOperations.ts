@@ -22,8 +22,8 @@ function params(values: { readonly [key: string]: string | number | boolean | un
 
 /** All operations are profile_scoped; callers send through session.call with profileScoped. */
 export const discoveryOperations = {
-    listLibrarySections: (libraryId: string) =>
-        read(`/library/${encodeURIComponent(libraryId)}/sections?image_size=small`, decodeHomeSections),
+    listLibrarySections: (libraryId: string, artwork: Readonly<Record<string, string>> = {}) =>
+        read(`/library/${encodeURIComponent(libraryId)}/sections${params({ image_size: "small", ...artwork })}`, decodeHomeSections),
     getLibrarySectionItems: (libraryId: string, sectionId: string) =>
         read(`/library/${encodeURIComponent(libraryId)}/sections/${encodeURIComponent(sectionId)}/items?image_size=small`, decodeLibrarySection),
     getLibraryCollections: (libraryId: string) =>

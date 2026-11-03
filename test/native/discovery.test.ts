@@ -19,6 +19,12 @@ test("discovery factories encode opaque paths and only contract-supported parame
     assert.equal(api.getCatalogSearchCapabilities().path, "/catalog/search/capabilities");
 });
 
+test("library section artwork slots preserve the unchanged small fallback", () => {
+    assert.equal(api.listLibrarySections("12", { image_size: "medium", logo_width: "880", backdrop_width: "1344" }).path,
+        "/library/12/sections?image_size=medium&logo_width=880&backdrop_width=1344");
+    assert.equal(api.listLibrarySections("12").path, "/library/12/sections?image_size=small");
+});
+
 test("structured queries preserve scope, groups, cursor, prefix and server positions", () => {
     const body = { library_id: "opaque/1", type: "movie", limit: 100, cursor: "seed+/=", seek: 318,
         name_prefix: "H", sort: "title", order: "desc", match: "all",

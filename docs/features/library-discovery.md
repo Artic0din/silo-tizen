@@ -1,8 +1,15 @@
 # Library discovery
 
 Movies and Series each keep one selected library using the existing server/profile storage key.
-Recommended opens the server's library sections; each section opens a continuous catalog view.
-Recommended inserts up to eight curated collections by descending item count after the first server items section, followed by See All.
+Recommended uses Home's shared Skyline backdrop, marquee and preference-aware media rows.
+Featured rows and rows without supported video destinations are omitted; headings are not focus targets, and Explore All opens the existing library-scoped section catalog.
+Recommended inserts up to eight curated collections by descending item count after the first rendered media row, followed by See All, and retains the collection row when no media rows render.
+The top-bar cascade provides every supported library destination; Recommended no longer duplicates it with a mode strip.
+Other destinations retain their mode strip.
+A failed Recommended collections read leaves media shelves usable and exposes an explicit Retry.
+Hero enrichment uses the existing bounded queue after accepted loads and cached re-entry, never on focus movement.
+Known artwork capabilities size the initial section read; a late improving answer rereads sections only and merges artwork by retained section/card identity.
+That optional upgrade preserves membership, metadata, collections, focus and scroll, and an expected failure leaves the current screen usable.
 Browse is a separate whole-library Movies/Series grid, matching the split in Apple's `TVLibraryTypeTabView`.
 It requests 100 cards at a time and prefetches when a card in the last eight rows becomes visible.
 The seven video sorts, typed facet groups and transient A–Z prefix share one query; moving focus alone sends no request.
@@ -26,7 +33,7 @@ Expanded Home and library section rows read 60 cards at a time into one scrollin
 Section queries send only their Home/library scope, section id, optional library id, limit and cursor, matching Apple's `sectionItems` builder; media filtering stays local because the server rejects query overlays on section sources.
 They retain loaded depth through Details and refresh explicitly invalidated state from the beginning through that depth.
 Other catalog and collection pages still contain at most 24 cards.
-Section previews show at most 24 cards; their complete contents open through the section action.
+Recommended media previews show at most 20 supported cards; Explore All opens their complete section contents.
 
 ## Browse simulator evidence
 

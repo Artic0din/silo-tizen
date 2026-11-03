@@ -25,6 +25,25 @@ The signing certificate lists the TVs it may install on (their DUIDs), so a test
 On a listed TV in Developer Mode, install the `.wgt` with Tizen Studio's Device Manager or `tizen install -n silo-tizen-1.0.0-23.wgt -t <device>`.
 Check the file against its `.sha256` first.
 
+## Store release
+
+Samsung TV Seller Office has no upload API, so a store release is part workflow, part manual.
+
+1. Actions → **Promote** → enter the tester build to release, such as `v1.0.0-beta.23`.
+   Nothing is rebuilt: GitHub gets a draft release `v1.0.0` on the same commit with the same `.wgt` and checksum.
+   The run's summary lists the next steps and the store notes (Features and Fixes, at most 500 characters).
+2. In [TV Seller Office](https://seller.samsungapps.com/tv/), **Applications > App Package > Upload** the `.wgt` from the draft.
+   Seller Office pre-tests it and refuses a version it has already received.
+3. Add the store notes and submit the version for certification.
+4. On GitHub → Releases, edit the `v1.0.0` draft notes if needed.
+5. When Samsung approves, publish the GitHub release.
+   `published.yml` then copies its `.wgt` to `silo-tizen-latest.wgt`, so `releases/latest/download/silo-tizen-latest.wgt` serves this version.
+
+While the draft exists, version 1.0.0 counts as released: Release refuses `bump: build`, and `bump: minor` starts 1.1.0.
+If Samsung rejects the build, delete the GitHub draft and fix the problem.
+Then run Release with `version: 1.0.0`, because once 1.1.0 has started, `bump: build` continues that one.
+Promote the new build.
+
 ## After a store release
 
 The next Release run needs `bump: minor` (the next version has new features) or `bump: patch` (fixes only).

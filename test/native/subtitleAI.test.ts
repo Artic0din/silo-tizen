@@ -8,7 +8,7 @@ import { problem } from "./support/fakeSilo.ts";
 const request = { media_file_id: "42", kind: "translate", source_index: 2, source_language: "en", target_language: "fr", start_position: 12 } as const;
 const job = (status: string, extra: Record<string, unknown> = {}) => ({ job: { id: "opaque-job", media_file_id: "42", kind: "translate", source_index: 2, target_language: "fr", status, result_subtitle_id: status === "completed" ? "opaque-result" : null, ...extra } });
 
-async function setup(remaining = 3, enabled = true) {
+async function setup(remaining = 3, enabled = true, blocked = new Set<string>()) {
     const h = await connected();
     await signIn(h);
     const profile = (await h.core.profiles.list())[0];
@@ -17,7 +17,7 @@ async function setup(remaining = 3, enabled = true) {
     h.fake.script("/subtitles/ai/status", { status: 200, body: { enabled, transcribe_enabled: enabled, allowed: true, state: "available", revision: "opaque" } });
     h.fake.script("/subtitles/ai/quota", ...Array.from({ length: 3 }, () => ({ status: 200, body: { limited: true, limit: 5, used: 5 - remaining, remaining, period: "month" } })));
     h.fake.script("/settings/contract", { status: 200, body: { option_sets: { playback_subtitle_languages: { options: [{ value: "fr" }, { value: "en" }] } } } });
-    const ai = new SubtitleAI(h.core.session, h.clock, "42", () => undefined);
+    const ai = new SubtitleAI(h.core.session, h.clock, "42", () => undefined, blocked);
     await h.clock.advance(0);
     return { h, ai };
 }
@@ -105,9 +105,9 @@ test("lost polling or an unknown accepted status cannot create another quota-spe
     for (const status of ["pending", "future"]) {
         const { h, ai } = await setup();
         h.fake.script("/subtitles/ai/translate", { status: 202, body: job(status) });
-        h.fake.script("/subtitles/ai/jobs/opaque-job", problem(400, "unavailable", "Job state unavailable"));
+        h.fake.script("/subtitles/ai/jobs/opaque-job", ...Array.from({ length: 3 }, () => problem(400, "unavailable", "Job state unavailable")));
         await ai.start(request);
-        await h.clock.advance(2000);
+        await h.clock.advance(6000);
         await ai.start(request);
         assert.equal(h.fake.requests.filter(row => row.path === "/subtitles/ai/translate").length, 1);
         assert.equal(ai.view?.busy, true);
@@ -131,4 +131,34 @@ test("a 429 quota refusal is definite, so a later start is allowed while 5xx sta
     assert.equal(failed.h.fake.requests.filter(row => row.path === "/subtitles/ai/translate").length, 1);
     assert.equal(failed.ai.view?.busy, true);
     failed.ai.destroy();
+});
+
+test("a failed poll is retried and a later answer still delivers the finished track", async () => {
+    const { h, ai } = await setup();
+    h.fake.script("/subtitles/ai/translate", { status: 202, body: job("pending") });
+    h.fake.script("/subtitles/ai/jobs/opaque-job", problem(400, "unavailable", "Job state unavailable"), { status: 200, body: job("completed") });
+    await ai.start(request);
+    await h.clock.advance(2000);
+    assert.equal(ai.view?.busy, true, "one lost poll keeps waiting");
+    await h.clock.advance(2000);
+    assert.deepEqual(ai.view?.results, [{ id: "opaque-result", label: "AI-translated · FR" }]);
+    assert.equal(ai.view?.busy, false);
+    assert.equal(h.fake.requests.filter(row => row.path === "/subtitles/ai/translate").length, 1);
+    ai.destroy();
+});
+
+test("the duplicate-job block for a file survives switching to another file and back", async () => {
+    const blocked = new Set<string>();
+    const { h, ai } = await setup(3, true, blocked);
+    h.fake.script("/subtitles/ai/translate", { status: 202, body: job("running") });
+    await ai.start(request);
+    ai.destroy();
+    h.fake.script("/subtitles/ai/status", { status: 200, body: { enabled: true, transcribe_enabled: true, allowed: true, state: "available", revision: "opaque" } });
+    h.fake.script("/subtitles/ai/quota", { status: 200, body: { limited: true, limit: 5, used: 2, remaining: 3, period: "month" } });
+    const back = new SubtitleAI(h.core.session, h.clock, "42", () => undefined, blocked);
+    await h.clock.advance(0);
+    assert.equal(back.view?.busy, true);
+    await back.start(request);
+    assert.equal(h.fake.requests.filter(row => row.path === "/subtitles/ai/translate").length, 1);
+    back.destroy();
 });

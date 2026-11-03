@@ -69,7 +69,7 @@ File pointers are repository-relative.
 | Feature | Tizen | Apple TV | Android TV | Notes |
 |---|:---:|:---:|:---:|---|
 | Movies and Series tabs, per-type library scope | ✅ | ✅ | ✅ | Scope remembered per server, profile and type. Android: `TvLibraryTabType`, `TvLibraryScopeStore` |
-| Library modes: Recommended, Browse, Collections, Genres, A–Z, Recently Added | ✅ | 🟡 | 🟡 | Apple: `TVLibraryTypeTabView`. Recommended presentation (#152); opening a section heading returns HTTP 422 (#89). Android: Recommended, Browse (with A–Z rail) and Collections in `TvLibraryDetailScreen`; Genres and Recently Added not found as separate modes. Apple: three modes (`TVLibraryPill`); Genres is a filter, Recently Added a Date Added sort, A–Z the rail in Browse |
+| Library modes: Recommended, Browse, Collections, Genres, A–Z, Recently Added | ✅ | 🟡 | 🟡 | Apple: `TVLibraryTypeTabView`. Recommended shares Home's Skyline scene (#152); the historical section HTTP 422 remains unverified (#89). Android: Recommended, Browse (with A–Z rail) and Collections in `TvLibraryDetailScreen`; Genres and Recently Added not found as separate modes. Apple: three modes (`TVLibraryPill`); Genres is a filter, Recently Added a Date Added sort, A–Z the rail in Browse |
 | Browse grid: sort, filters, A–Z rail, remembered choices | ✅ | ✅ | ✅ | 100 cards per read. Apple: `TVLibraryGridView`, `TVBrowseFilterUI`. Android: `TvFilterSheet`, `TvAlphabetRail` |
 | Expanded section grid (60-card reads) | ✅ | ✅ | ✅ | Apple: `SectionCatalogView`. Android: `TvSectionBrowseScreen` |
 | Collections (fan-card grid, personal collections) | ✅ | ✅ | ✅ | Layout parity open (#100). Android: `TvCollectionsScreen` |

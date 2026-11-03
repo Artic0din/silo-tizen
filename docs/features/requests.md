@@ -13,6 +13,16 @@ Request detail shows the server state and offers cancellation for the active pro
 Series creation omits `seasons`, requesting all aired seasons still missing, as defined by the native contract.
 Administration stays in web admin.
 
+Discovery rows, expanded rows, request search, My Requests and both detail routes show the contract's optional `poster_path`.
+The decoder also retains `backdrop_path`; this poster-only change does not add a hub hero.
+These are TMDB paths, not server-relative image URLs.
+Posters use `https://image.tmdb.org/t/p/w342`, matching Apple's `RequestImageURL`; absolute HTTP(S) references still pass through the existing image admission rule, including refusing plain HTTP for an HTTPS server.
+Images use the shared lazy-loading artwork helper with `no-referrer`, empty decorative alt text and a title placeholder for missing, rejected or failed images.
+Each request button keeps its title/status accessible name and its request identity and action; no catalog identity or quick action is fabricated.
+The existing four-column focus grid and 24px gap remain, with the shared 256px card and 248×372px poster geometry.
+Detail posters sit beside the existing title, overview and actions.
+These dimensions reuse Tizen's current browse styles; they require native visual calibration and do not establish Apple TV visual parity.
+
 All operations pass through the native adapter and `session.call` with active profile authority.
 Create, cancel, follow and unfollow never replay after a transport failure or session refresh.
 After an unconfirmed write, Refresh reads authoritative state before enabling another write.
@@ -26,6 +36,7 @@ Search runs on Search or keyboard Done; editing cancels obsolete reads immediate
 - Native OpenAPI: `contracts/api/v2/openapi.json` at [`cc8514943289045e7b9f7ac8d36d4968bfe93926`](https://github.com/Silo-Server/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/contracts/api/v2/openapi.json), the revision pinned by `src/contracts/v2/SOURCE`.
 - Apple [`TVRequestsPage`](https://github.com/Silo-Server/silo-apple/blob/1a7cceeaf3b2bfc4f889c00487d19b2c6f843940/iosApp/iosApp/tvOS/Screens/Requests/TVRequestsPage.swift) supplies the hub/mine and return-focus reference.
 - Apple [`RequestsFeatureStore`](https://github.com/Silo-Server/silo-apple/blob/1a7cceeaf3b2bfc4f889c00487d19b2c6f843940/iosApp/iosApp/Networking/RequestsFeatureStore.swift) supplies the capability re-probe and transient-failure reference.
+- Apple [`RequestImageURL`](https://github.com/Silo-Server/silo-apple/blob/1a7cceeaf3b2bfc4f889c00487d19b2c6f843940/iosApp/iosApp/Screens/Requests/Core/RequestImageURL.swift) and [`RequestMediaCard`](https://github.com/Silo-Server/silo-apple/blob/1a7cceeaf3b2bfc4f889c00487d19b2c6f843940/iosApp/iosApp/Screens/Requests/Components/RequestMediaCard.swift) define direct TMDB poster resolution and request-specific poster cards.
 
 ## Validation and evidence
 
@@ -35,3 +46,5 @@ Run `REQUESTS_EVIDENCE=artifacts/requests node --test --test-timeout=60000 test/
 Artifacts are intentionally ignored by Git.
 The harness bundles for Chrome 108 but runs desktop Chromium against a fake native server; it does not establish real-server deployment, Tizen software-emulator or Samsung TV acceptance.
 Signed packaging requires the Tizen CLI and a configured developer security profile via `scripts/build-wgt.sh`.
+For native artwork acceptance, capture matched discovery, expanded row, search, My Requests and detail states, including missing and failed posters.
+Check caption readability, focus rings, Back restoration, scrolling and image loading without leaking the server address or authorization to the CDN.

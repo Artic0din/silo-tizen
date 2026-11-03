@@ -21,6 +21,55 @@ async function start(tv: Tv, fake = new FakeRequests()): Promise<FakeRequests> {
     return fake;
 }
 const button = (tv: Tv, key: string) => tv.page.locator(`[data-focus="${key}"]`).last();
+test("Requests artwork spans discover, rows, search, mine and both details with accessible fallback", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests();
+        Object.assign(fake.record, { poster_path: "/request-poster.jpg", backdrop_path: "/request-backdrop.jpg" });
+        const title = fake.title.bind(fake);
+        fake.title = () => ({ ...title(), poster_path: "/request-poster.jpg", backdrop_path: "/request-backdrop.jpg" });
+        await tv.page.route("https://image.tmdb.org/**", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="342" height="513"><rect width="342" height="513" fill="blue"/></svg>' }));
+        await start(tv, fake);
+        const check = async (selector: string): Promise<void> => {
+            await tv.page.locator(selector).waitFor();
+            const image = tv.page.locator(selector).locator("img");
+            assert.equal(await image.count(), 1, "request surface renders its poster");
+            assert.equal(await image.getAttribute("src"), "https://image.tmdb.org/t/p/w342/request-poster.jpg");
+            assert.equal(await image.getAttribute("referrerpolicy"), "no-referrer");
+            assert.equal(await image.getAttribute("alt"), "");
+            assert.equal(await image.getAttribute("loading"), "lazy");
+            await image.scrollIntoViewIfNeeded();
+            await image.evaluate(image => (image as HTMLImageElement).decode());
+        };
+        await button(tv, "requests").click();
+        await check('[data-focus="movie:949"]');
+        await tv.page.getByRole("button", { name: "Heat · Not requested", exact: true }).waitFor();
+        await button(tv, "more").click(); await view(tv, "row"); await check('[data-focus="movie:949"]');
+        await tv.remote(10009); await button(tv, "search").click();
+        await tv.page.getByRole("searchbox").fill("Heat"); await button(tv, "submit").click();
+        await check('[data-focus="movie:949"]');
+        await button(tv, "movie:949").click(); await view(tv, "media"); await check(".requests-detail-art");
+        await button(tv, "create").click();
+        await tv.eventually(async () => fake.created && await button(tv, "create").count() === 0, "created");
+        await tv.remote(10009); await tv.remote(10009); await button(tv, "mine").click();
+        await check('[data-focus="request-one"]');
+        await button(tv, "request-one").click(); await view(tv, "request"); await check(".requests-detail-art");
+        await button(tv, "cancel").waitFor();
+        const focused = await tv.focused();
+        await tv.page.locator(".requests-detail-art img").dispatchEvent("error");
+        await tv.page.locator(".requests-detail-art.browse-art-missing").getByText("Heat", { exact: true }).waitFor();
+        assert.equal(await tv.focused(), focused, "image failure preserves focus");
+        await tv.remote(10009); await tv.remote(10009);
+        for (const poster of [undefined, "", "bad-path", "http://images.example.test/poster.jpg"]) {
+            fake.title = () => ({ ...title(), poster_path: poster });
+            await button(tv, "refresh").click(); await button(tv, "movie:949").waitFor();
+            await tv.page.getByText("Loading requests…").waitFor({ state: "detached" });
+            await button(tv, "movie:949").locator(".browse-art-missing").getByText("Heat", { exact: true }).waitFor();
+            assert.equal(await button(tv, "movie:949").locator("img").count(), 0);
+        }
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
 async function view(tv: Tv, kind: string): Promise<void> { await tv.page.locator(`.browse[data-view="requests:${kind}"]`).waitFor(); }
 async function evidence(tv: Tv, name: string): Promise<void> {
     if (!process.env.REQUESTS_EVIDENCE) return;

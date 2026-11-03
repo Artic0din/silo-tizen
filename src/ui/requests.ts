@@ -1,6 +1,7 @@
 import type { MediaRequest, MyRequests, RequestPage, RequestsCapability, RequestSection, RequestTitle } from "../contracts/v2/requests.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
-import { actionButton, lines, zoneNode } from "./browseViews.ts";
+import { actionButton, artwork, lines, zoneNode } from "./browseViews.ts";
+import { requestPosterUrl } from "./browseModel.ts";
 import { el } from "./screen.ts";
 
 export type RequestsSource =
@@ -32,7 +33,7 @@ export interface RequestsHandlers {
     readonly edit: () => void;
     readonly next: (page: number | string) => void;
 }
-export function requestsView(state: RequestsState, h: RequestsHandlers): View {
+export function requestsView(state: RequestsState, h: RequestsHandlers, baseUrl: string): View {
     const source = state.source, data = state.data;
     const content: HTMLElement[] = [];
     const zones: Zone[] = [];
@@ -42,7 +43,14 @@ export function requestsView(state: RequestsState, h: RequestsHandlers): View {
         const enabled = items.filter(item => !(item.element instanceof HTMLButtonElement) || !item.element.disabled);
         if (enabled.length > 0) zones.push({ id, layout: grid ? "grid" : "row", ...(grid ? { columns: 4 } : {}), items: enabled });
     };
-    const titleItems = (titles: readonly RequestTitle[]): FocusItem[] => titles.filter(title => title.mediaType === "movie" || title.mediaType === "series").map(title => actionButton(`${title.mediaType}:${title.tmdbId}`, `${title.title} · ${title.availability === "available" ? "Available" : title.request.state ?? "Not requested"}`, () => h.open({ kind: "media", title })));
+    const requestCard = (key: string, title: RequestTitle | MediaRequest, label: string, open: () => void): FocusItem => {
+        const item = actionButton(key, label, open);
+        item.element.className = "browse-card requests-card";
+        item.element.setAttribute("aria-label", label);
+        item.element.replaceChildren(artwork("browse-art", requestPosterUrl(title.posterPath), baseUrl, title.title), el("span", "browse-card-title", label));
+        return item;
+    };
+    const titleItems = (titles: readonly RequestTitle[]): FocusItem[] => titles.filter(title => title.mediaType === "movie" || title.mediaType === "series").map(title => requestCard(`${title.mediaType}:${title.tmdbId}`, title, `${title.title} · ${title.availability === "available" ? "Available" : title.request.state ?? "Not requested"}`, () => h.open({ kind: "media", title })));
     if (source.kind === "hub") add("tools", [actionButton("search", "Search requests", () => h.open({ kind: "search", query: "", page: 1 })), actionButton("mine", "My Requests", () => h.open({ kind: "mine", cursor: undefined }))]);
     if (source.kind === "search") {
         if (state.search === undefined) {
@@ -71,10 +79,11 @@ export function requestsView(state: RequestsState, h: RequestsHandlers): View {
             if (data.results.length === 0) content.push(...lines(["No titles found."], "info"));
             add("pages", [...(data.page > 1 ? [actionButton("previous", "Previous page", () => h.next(data.page - 1))] : []), ...(data.nextPage <= data.totalPages ? [actionButton("next", "Next page", () => h.next(data.nextPage))] : [])]);
         } else if ("items" in data) {
-            add("mine", data.items.map(item => actionButton(item.id, `${item.title} · ${item.state}`, () => h.open({ kind: "request", id: item.id }))), true);
+            add("mine", data.items.map(item => requestCard(item.id, item, `${item.title} · ${item.state}`, () => h.open({ kind: "request", id: item.id }))), true);
             if (data.items.length === 0) content.push(...lines(["No requests yet."], "info"));
             if (data.cursor !== undefined) { const cursor = data.cursor; add("pages", [actionButton("next", "Next page", () => h.next(cursor))]); }
         } else if ("title" in data) {
+            content.push(artwork("browse-art requests-detail-art", requestPosterUrl(data.posterPath), baseUrl, data.title));
             content.push(el("h2", "browse-title", data.title), ...lines(data.overview === undefined ? [] : [data.overview], "info"));
             const actions: FocusItem[] = [];
             if ("request" in data) {

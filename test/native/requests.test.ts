@@ -1,8 +1,27 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { requestOperations as operations } from "../../src/api/requestOperations.ts";
-import { decodeDiscover, decodeMyRequests, decodeRequestsCapability, decodeRequestTitle, decodeRequestPage } from "../../src/contracts/v2/requests.ts";
+import { decodeDiscover, decodeMediaRequest, decodeMyRequests, decodeRequestsCapability, decodeRequestTitle, decodeRequestPage } from "../../src/contracts/v2/requests.ts";
 import { FakeRequests } from "./support/fakeRequests.ts";
+import { artworkUrl, requestPosterUrl } from "../../src/ui/browseModel.ts";
+
+test("Request posters resolve TMDB paths before normal image admission", () => {
+    assert.equal(requestPosterUrl("/poster.jpg"), "https://image.tmdb.org/t/p/w342/poster.jpg");
+    assert.equal(requestPosterUrl("https://images.example.test/poster.jpg"), "https://images.example.test/poster.jpg");
+    for (const path of [undefined, "", "poster.jpg", "//images.example.test/poster.jpg", "javascript:alert(1)", "data:image/png;base64,AAAA"]) assert.equal(requestPosterUrl(path), undefined);
+    assert.equal(artworkUrl(requestPosterUrl("http://images.example.test/poster.jpg"), "https://silo.example.test"), undefined);
+    assert.equal(artworkUrl(requestPosterUrl("/poster.jpg"), "https://silo.example.test/prefix"), "https://image.tmdb.org/t/p/w342/poster.jpg");
+});
+
+test("Requests retains optional TMDB artwork on result, detail and record reads", () => {
+    const fake = new FakeRequests();
+    for (const title of [decodeRequestTitle({ ...fake.title(), poster_path: "/poster.jpg", backdrop_path: "/backdrop.jpg" }), decodeMediaRequest({ ...fake.record, poster_path: "/poster.jpg", backdrop_path: "/backdrop.jpg" })]) {
+        assert.equal(title.posterPath, "/poster.jpg");
+        assert.equal(title.backdropPath, "/backdrop.jpg");
+    }
+    assert.equal(decodeRequestTitle(fake.title()).posterPath, undefined);
+    assert.throws(() => decodeRequestTitle({ ...fake.title(), poster_path: 42 }));
+});
 
 test("Requests contract consumes capability, ordered discovery, detail and cursor pages", () => {
     const fake = new FakeRequests();

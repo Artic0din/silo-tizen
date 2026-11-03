@@ -6,10 +6,12 @@ export interface RequestState {
     readonly id: string | undefined; readonly state: string | undefined; readonly reason: string | undefined;
 }
 export interface RequestTitle {
+    readonly posterPath?: string | undefined; readonly backdropPath?: string | undefined;
     readonly mediaType: string; readonly tmdbId: number; readonly title: string;
     readonly overview: string | undefined; readonly availability: string; readonly request: RequestState;
 }
 export interface MediaRequest {
+    readonly posterPath?: string | undefined; readonly backdropPath?: string | undefined;
     readonly id: string; readonly mediaType: string; readonly tmdbId: number; readonly title: string;
     readonly state: string; readonly status: string; readonly outcome: string;
     readonly profileId: string | undefined; readonly overview: string | undefined;
@@ -30,10 +32,10 @@ export function decodeRequestState(value: unknown): RequestState {
     const o = object(value, "request");
     return { requestable: boolean(o, "requestable", "requests"), following: boolean(o, "following", "requests"), requestedByViewer: boolean(o, "requested_by_viewer", "requests"), id: optionalString(o, "request_id", "requests"), state: optionalString(o, "state", "requests"), reason: optionalString(o, "reason", "requests") };
 }
-function identity(o: Record<string, unknown>): { mediaType: string; tmdbId: number; title: string; overview: string | undefined } {
+function identity(o: Record<string, unknown>): Pick<RequestTitle, "mediaType" | "tmdbId" | "title" | "overview" | "posterPath" | "backdropPath"> {
     const tmdbId = integer(o, "tmdb_id", "requests");
     if (tmdbId < 1) throw new WireError("tmdb_id", "a positive integer");
-    return { mediaType: string(o, "media_type", "requests"), tmdbId, title: nonEmptyString(o, "title", "requests"), overview: optionalString(o, "overview", "requests") };
+    return { mediaType: string(o, "media_type", "requests"), tmdbId, title: nonEmptyString(o, "title", "requests"), overview: optionalString(o, "overview", "requests"), posterPath: optionalString(o, "poster_path", "requests"), backdropPath: optionalString(o, "backdrop_path", "requests") };
 }
 export function decodeRequestTitle(value: unknown): RequestTitle {
     const o = object(value, "request.title");

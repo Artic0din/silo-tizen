@@ -82,6 +82,13 @@ export function artworkUrl(reference: string | undefined, baseUrl: string): stri
     return isPermittedUrl(url, baseUrl) ? url.href : undefined;
 }
 
+/** Request paths name TMDB images, not signed Silo routes (Apple RequestImageURL). */
+export function requestPosterUrl(path: string | undefined): string | undefined {
+    if (path === undefined || path === "") return undefined;
+    if (/^https?:\/\//.test(path)) return path;
+    return path.startsWith("/") && !path.startsWith("//") ? `https://image.tmdb.org/t/p/w342${path}` : undefined;
+}
+
 export function resumeSeconds(positionSeconds: number | undefined, durationSeconds: number | undefined): number | undefined {
     if (positionSeconds === undefined || positionSeconds <= 0) {
         return undefined;

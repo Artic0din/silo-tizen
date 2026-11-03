@@ -183,6 +183,9 @@
 
 .requests-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; margin-bottom: 40px; }
 .requests-grid .browse-button { margin: 0; border-radius: 16px; white-space: normal; min-height: 110px; text-align: left; }
+.requests-grid .requests-card { margin: 0; }
+.requests-card .browse-card-title { white-space: normal; }
+.requests-detail-art { float: right; margin: 0 0 24px 32px; }
 
 .browse-button {
     display: inline-block;

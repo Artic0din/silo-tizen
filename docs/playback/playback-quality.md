@@ -28,8 +28,8 @@ Movies return to Browse after confirmed teardown; exhausted episode sequences re
 
 Back, backgrounding, teardown and authority changes cancel continuation and fence late answers.
 Remote focus stays reachable during finalization, resolution, failure and exhaustion; focus movement sends no reads.
-There is no autoplay, pre-EOF prompt, countdown, saved autoplay editor, credits policy, queue or cross-title fallback in this slice.
-Apple autoplay parity remains open.
+Autoplay adds a ten-second countdown with Cancel when the profile's autoplay setting is on; see [Series autoplay](series-autoplay.md).
+There is no pre-EOF prompt, saved autoplay editor, credits policy, queue or cross-title fallback.
 
 The source contracts are pinned to [server cc85149](https://github.com/Artic0din/silo-server/tree/cc8514943289045e7b9f7ac8d36d4968bfe93926), including WatchDetail, WatchFileVersion, Season, Episode and PlaybackMutation in OpenAPI and the stop finalization handler.
 Behavioral tests use synthetic server data and fake AVPlay.

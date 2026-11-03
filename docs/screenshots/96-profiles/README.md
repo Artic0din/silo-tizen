@@ -1,20 +1,20 @@
 # Profile picker and TV creation
 
-Issue #96, based on `f068d8d13b7741bd9183528367b27669d4434d02` plus the reviewed feature working tree.
-The screenshots show the signed r4 candidate, captured on 3 November 2026.
-They precede the subsequent validation-error placement, structured-rejection and construction-ownership corrections; final publication must refresh the signed package and recording after integration with current main.
+Issue #96, source commit `985960e3152dbc0b5e0eacfc56a79a8827df7130`, incorporating main `031d5f42935aec467997db4fb6ce4fa4a4d796bc`.
+The screenshots show the signed r5 package, captured on 3 November 2026 after the final error-handling and ownership corrections.
 They establish Samsung software-simulator rendering, not physical-Tizen acceptance or whole-authentication parity.
 
 ## Evidence
 
 | File | Content |
 | --- | --- |
-| `01-before-after.png` | Same current household before and after: PR130 signed r3 versus the signed profile r4 candidate. |
-| `02-apple-picker.png` | Historical Apple picker from 1 November, source `1a7ccee`, against current signed Tizen r4. |
-| `03-create-form.png` | Current Tizen form and remote Done/Down reaching lower controls, with blank fields and 18 loaded presets. Both panels are Tizen. |
-| `04-create-remote.mp4` | Four seconds of the r4 native simulator form: Done/Down and return to the blank name field after submission. Its error placement predates the correction described above. No account names or entered values appear. |
-| `runtime-r4.json` | Sanitized current runtime, loaded-resource hashes and picker geometry. |
-| `installed-assets-r4.sha256` | All 14 signed-archive file hashes, freshly compared with the simulator installation. |
+| `01-before-after.png` | Same current household before and after: PR130 signed r3 versus the signed profile r5 package. |
+| `02-apple-picker.png` | Historical Apple picker from 1 November, source `1a7ccee`, against current signed Tizen r5. |
+| `03-create-form.png` | Current Tizen form, blank fields and 18 loaded presets; local blank-name validation beside its focused input. Both panels are Tizen. |
+| `04-create-remote.mp4` | Four seconds of the r5 native simulator form: Done/Down, visible local validation and retained Name-field focus. No account names or entered values appear. |
+| `runtime-r5.json` | Sanitized current runtime, loaded-resource hashes and picker geometry. |
+| `recording-r5.json` | 32 native frames captured in 4001 ms, encoded at 8 fps; validation in view, Name focused and zero observed profile-write requests. |
+| `installed-assets-r5.sha256` | All 14 signed-archive file hashes, freshly compared with the simulator installation. |
 
 Each PNG contains two equal 960 × 540 app frames in a 1940 × 690 canvas.
 Samsung captures are native 1920 × 1080, displayed at 50%; the historical Apple 960 × 540 capture is displayed at 100% and is never upscaled.
@@ -24,9 +24,9 @@ Private originals and excluded captures are not committed.
 
 ## Package and runtime
 
-Signed WGT SHA-256: `ab1dc6b1099638016a0cc18cdf1099632877d4c1f2892b59d123198af9fa0df7`.
-Installed manifest SHA-256: `691f61cf7a4ac8f5d322d99bf33b280fa44fd6e339aaf37f594961a1809ae87e`.
-Loaded JavaScript SHA-256: `472331a7810b9953256d4bf72a347f93306b28aea07328b090f1b02b31b9f0b8`.
+Signed WGT SHA-256: `110cf2ddeac717d46402f6390954f0a9bd62c77458019bb9d8269cf38dd44ead`.
+Installed manifest SHA-256: `3e3869d59b61bb0c61773ce0ff7438b19019da3d53c73ce1e41639d48da9e181`.
+Loaded JavaScript SHA-256: `b1d3a0a6b8658ea75d7f64c3051d2bed67a7ddda8ef69bd7bd1df61c2ce1eb59`.
 Loaded CSS SHA-256: `464622210d57fb46d4f5933f8a83977f11a8b86040b40c954187c51e7809e810`.
 All archive files matched the installed files, and CDP-loaded JavaScript/CSS matched the packaged resources.
 
@@ -54,10 +54,10 @@ Apple's account-to-TV-user caption has no equivalent in this client and is not f
 
 ## Verified behavior and remaining limits
 
-The current-source full behavior run recorded 563 native and 644 UI passes, with no failures or cancellations, including the later error handling and construction-ownership corrections.
+The integrated-source full behavior run recorded 564 native and 644 UI passes, with no failures or cancellations, including the error handling and construction-ownership corrections.
 It includes the Acknowledgements change, build and both typechecks.
 Focused profile checks cover 1–8 total tiles, footer return, reduced motion, image transparency/failure, PIN/lockout, creation scope, child restrictions, duplicate presses, uncertain writes, late replies and remembered-profile preservation.
-The native r4 run opened Add, loaded 18 presets, moved through fields with Done/Down, rejected a blank name locally and returned to Add on Back.
+The native r5 run opened Add, loaded 18 presets, moved through fields with Done/Down, rejected a blank name locally with the error visible and Name still focused, and returned to Add on Back.
 Successful creation, primary PIN management, bootstrap and late-response isolation are automated fake-server proof; no live profile was intentionally created or deleted.
 
 Fresh Apple TV interaction was unavailable: the device inventory exposed iPhones and iPads, with no Apple TV target.
@@ -71,4 +71,7 @@ The earlier Portrait full-suite cancellation remains under #122; later green run
 
 Captures containing the simulator's Exit prompt were excluded and retaken after dismissal.
 An initial resource-hash attempt lacked CDP Page enablement, and a second did not account for resource query strings; neither supplied acceptance evidence.
-The successful hash record above uses loaded resources and the exact signed r4 bytes.
+An initial r5 recording used separate raw-key and character Enter events and lost focus after validation.
+The verified run uses one trusted Enter key-down carrying its text followed by key-up; focus remained on Name before and after key-up, without an application change.
+The failed recording is excluded.
+The successful hash and recording records above use loaded resources and the exact signed r5 bytes.

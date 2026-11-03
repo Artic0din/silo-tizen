@@ -241,6 +241,8 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await tv.page.keyboard.press("Enter");
             await ready(tv, "library:12");
             await tv.jump(200);
+            const titles = await tv.page.locator('.home-section .browse-card:not(.skyline-explore)').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? ""));
+            await tv.eventually(async () => titles.every(id => tv.fake.requests.some(request => request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(id)}`)), "Recommended enrichment queue dispatched");
             const cachedReads = tv.fake.requests.length;
             await tv.page.locator('[data-focus="movies"]').focus();
             await tv.jump(250);

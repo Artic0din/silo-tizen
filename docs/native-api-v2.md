@@ -13,7 +13,8 @@ The contract file itself is not in this repository, so this page does not re-ver
 ## Boundaries
 
 Every request path in `src/api/` is relative to `/api/v2`.
-No path outside `/api/v2` is requested by the API modules.
+No API operation requests a path outside `/api/v2`.
+Artwork, trickplay sheets and subtitle files are fetched from the URLs the server returns, which may be on another permitted origin.
 Server operations and response decoding stay in `src/api/` and `src/contracts/v2/`.
 Authenticated requests from UI and player code go through `NativeSession.call` (`src/session/session.ts`).
 The public sign-in reads (branding and auth providers) call `NativeHttp.send` directly (`src/ui/signIn.ts`).
@@ -393,7 +394,7 @@ Stream URL authentication: AVPlay cannot send headers.
 When the plan's `stream.url` has the API origin (root-relative URLs are resolved below `baseUrl`), the controller appends `token=<access token>` from `mediaToken`.
 The token is never added to a URL on another origin.
 URLs failing `isPermittedUrl` fail the playback.
-The code comment calls this a "Gate C candidate" from `playback-api.md`, so the server's acceptance of the `token` query on stream and subtitle URLs is not marked final.
+The code comment calls this a "Gate C candidate" from silo-server's `docs/playback-api.md` (at the commit in `src/contracts/v2/SOURCE`), so the server's acceptance of the `token` query on stream and subtitle URLs is not marked final.
 On `visibilitychange` the stream URL is rebuilt with a fresh token (`urlWithToken`).
 
 ### Markers

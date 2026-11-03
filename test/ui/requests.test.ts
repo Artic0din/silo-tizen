@@ -267,3 +267,16 @@ test("a settling write keeps focus the person moved meanwhile", async () => {
         assert.equal(await tv.focused(), "back", "a settled write keeps moved focus");
     } finally { await tv.page.context().close(); }
 });
+
+test("My Requests opens on the first request and keeps Refresh reachable", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = await start(tv); fake.created = true;
+        await button(tv, "requests").click(); await button(tv, "mine").click(); await view(tv, "mine");
+        await button(tv, "request-one").waitFor();
+        await tv.page.getByText("Loading requests…").waitFor({ state: "detached" });
+        assert.equal(await tv.focused(), "request-one");
+        await tv.remote(40);
+        assert.equal(await tv.focused(), "refresh");
+    } finally { await tv.page.context().close(); }
+});

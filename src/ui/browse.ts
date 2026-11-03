@@ -366,7 +366,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const controller = new AbortController();
         loading = controller;
         const entryRevision = inputRevision;
-        const enterResults = !quiet && (current.kind === "personal" || current.kind === "personFilmography" || (current.kind === "library" && host.focused()?.key !== "sort"));
+        const enterResults = !quiet && (current.kind === "personal" || current.kind === "personFilmography" || (current.kind === "library" && host.focused()?.key !== "sort") || (current.kind === "requests" && current.requests.source.kind !== "hub" && current.focus === undefined));
         current.slow = false;
         if (!quiet) {
             cancelSlow = clock.schedule(() => {

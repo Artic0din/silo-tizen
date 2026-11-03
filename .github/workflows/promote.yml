@@ -34,7 +34,10 @@ jobs:
     permissions:
       contents: write # draft the release
     env:
-      GH_TOKEN: ${{ github.token }}
+      # GitHub refuses GITHUB_TOKEN a release on a commit whose workflow files differ from
+      # main's. RELEASE_TOKEN, a token with Contents and Workflows write, lifts that limit.
+      GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+      HAS_RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN != '' }}
       BETA_TAG: ${{ inputs.tag }}
     steps:
       # Runs with contents: write, so only main's reviewed scripts may run here.
@@ -71,6 +74,14 @@ jobs:
           fi
           commit="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${BETA_TAG}" --jq .sha)"
           echo "commit=${commit}" >> "${GITHUB_OUTPUT}"
+          if [[ "${HAS_RELEASE_TOKEN}" != "true" ]]; then
+            changed="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${commit}...${GITHUB_SHA}" \
+              --jq '[.files[].filename | select(startswith(".github/workflows/"))] | length')"
+            if [[ "${changed}" != "0" ]]; then
+              echo "::error::Workflow files changed on main since ${BETA_TAG}, so GITHUB_TOKEN cannot release that commit. Add a RELEASE_TOKEN secret (Contents and Workflows write) or promote a newer tester build. See docs/releasing.md."
+              exit 1
+            fi
+          fi
           # Notes cover everything since the last store release, or every
           # change when there is none yet.
           previous_release="$(gh release view --json tagName --jq .tagName 2>/dev/null || true)"
@@ -96,8 +107,12 @@ jobs:
           COMMIT: ${{ steps.build.outputs.commit }}
         run: |
           name="silo-tizen-${VERSION}-${BUILD}.wgt"
+          # Seller Office refuses package file names with characters other than letters,
+          # digits, spaces and underscores, so the draft also carries the same bytes as Silo_X_Y_Z_B.wgt.
+          upload="Silo_${VERSION//./_}_${BUILD}.wgt"
           gh release download "${BETA_TAG}" --dir wgt --pattern "${name}" --pattern "${name}.sha256"
           (cd wgt && sha256sum --check "${name}.sha256")
+          cp "wgt/${name}" "wgt/${upload}"
           {
             echo "Silo for Tizen ${VERSION}, build ${BUILD}: the tester build ${BETA_TAG}, on the Samsung TV store."
             echo
@@ -109,13 +124,13 @@ jobs:
             echo "To install the package yourself: \`${name}\`, checked with its \`.sha256\` file."
           } > body.md
           gh release create "${RELEASE_TAG}" --draft --target "${COMMIT}" \
-            --title "Silo for Tizen ${VERSION}" --notes-file body.md "wgt/${name}" "wgt/${name}.sha256"
+            --title "Silo for Tizen ${VERSION}" --notes-file body.md "wgt/${name}" "wgt/${name}.sha256" "wgt/${upload}"
           {
             echo "Drafted ${RELEASE_TAG} with \`${name}\`."
             echo
             echo "Next, in [TV Seller Office](https://seller.samsungapps.com/tv/):"
             echo
-            echo "1. **Applications > App Package > Upload**: upload \`${name}\` from the ${RELEASE_TAG} draft."
+            echo "1. **Applications > App Package > Upload**: upload \`${upload}\` from the ${RELEASE_TAG} draft (the same bytes as \`${name}\`)."
             echo "2. Paste the store notes below into the release notes and submit the version for certification."
             echo "3. Publish the ${RELEASE_TAG} GitHub release once Samsung approves it."
             echo

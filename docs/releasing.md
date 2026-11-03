@@ -31,13 +31,18 @@ Samsung TV Seller Office has no upload API, so a store release is part workflow,
 
 1. Actions → **Promote** → enter the tester build to release, such as `v1.0.0-beta.23`.
    Nothing is rebuilt: GitHub gets a draft release `v1.0.0` on the same commit with the same `.wgt` and checksum.
+   The draft also carries `Silo_1_0_0_23.wgt`, the same bytes under a name Seller Office accepts (letters, digits, spaces and underscores only).
    The run's summary lists the next steps and the store notes (Features and Fixes, at most 500 characters).
-2. In [TV Seller Office](https://seller.samsungapps.com/tv/), **Applications > App Package > Upload** the `.wgt` from the draft.
+2. In [TV Seller Office](https://seller.samsungapps.com/tv/), **Applications > App Package > Upload** `Silo_1_0_0_23.wgt` from the draft.
    Seller Office pre-tests it and refuses a version it has already received.
 3. Add the store notes and submit the version for certification.
 4. On GitHub → Releases, edit the `v1.0.0` draft notes if needed.
 5. When Samsung approves, publish the GitHub release.
    `published.yml` then copies its `.wgt` to `silo-tizen-latest.wgt`, so `releases/latest/download/silo-tizen-latest.wgt` serves this version.
+
+GitHub won't let the workflow's own token release a commit whose `.github/workflows/` files differ from `main`.
+If the workflows changed after the tester build, either promote a newer tester build or add a `RELEASE_TOKEN` repository secret: a fine-grained token for this repository with Contents and Workflows write.
+Promote stops with that explanation before drafting anything.
 
 While the draft exists, version 1.0.0 counts as released: Release refuses `bump: build`, and `bump: minor` starts 1.1.0.
 If Samsung rejects the build, delete the GitHub draft and fix the problem.

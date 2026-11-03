@@ -23,13 +23,15 @@ export class CardActions {
     private readonly changed: (state: DetailsState) => void;
     private readonly closed: () => void;
     private readonly pendingElsewhere: () => boolean;
+    private readonly information: ((card: Pick<Card, "id" | "title" | "type">) => void) | undefined;
 
-    constructor(container: HTMLElement, session: NativeSession, changed: (state: DetailsState) => void, closed: () => void, pendingElsewhere: () => boolean) {
+    constructor(container: HTMLElement, session: NativeSession, changed: (state: DetailsState) => void, closed: () => void, pendingElsewhere: () => boolean, information?: (card: Pick<Card, "id" | "title" | "type">) => void) {
         this.container = container;
         this.session = session;
         this.changed = changed;
         this.closed = closed;
         this.pendingElsewhere = pendingElsewhere;
+        this.information = information;
     }
 
     get active(): boolean { return this.panel !== undefined; }
@@ -83,6 +85,11 @@ export class CardActions {
         content.appendChild(el("h1", "browse-section-title", this.state?.detail.title ?? this.card?.title ?? ""));
         const controls = this.state === undefined ? undefined : personalControls(this.state);
         this.items = [...controls?.items ?? [], ...(this.failed ? [actionButton("retry-card-actions", "Try again", () => this.load())] : []), actionButton("close-card-actions", "Close", () => this.close())];
+        const card = this.card;
+        if (card?.type === "episode" && this.information !== undefined) this.items.splice(this.items.length - 1, 0, actionButton("episode-information", "Episode information", () => {
+            this.close();
+            this.information?.(card);
+        }));
         content.append(...(controls?.notes ?? lines([this.failed ? "Could not load card actions." : "Loading card actions."], this.failed ? "error" : "info")));
         if (this.state !== undefined && this.state.personalSupported === false) content.append(...lines(["List actions are unavailable for this title."]));
         if (this.state !== undefined && !this.state.values.has("watched")) content.append(...lines(["Watched state is unavailable."]));

@@ -153,7 +153,17 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     }
     const next = detail.playContentId;
     if ((detail.type === "series" || detail.type === "season") && next !== undefined) {
-        actions.push(actionButton("next-episode", "Next episode", () => context.open({ kind: "item", id: next, title: detail.title })));
+        const target = state?.nextEpisode;
+        const targetChoices = target === undefined ? undefined : playChoices(target);
+        const label = target === undefined ? "Loading episode…" : `${targetChoices?.resume === undefined ? "Play" : "Resume"} ${episodeLabel(target.seasonNumber, target.episodeNumber) ?? target.title}`;
+        const primary = actionButton("next-episode", state?.nextEpisodeFailed === true ? "Retry episode" : target !== undefined && targetChoices === undefined ? "Episode unavailable" : label, () => {
+            if (state?.nextEpisodeFailed === true) state.loadNextEpisode();
+            else if (target !== undefined && targetChoices !== undefined) context.playEpisode?.(target.id, target.title);
+        });
+        primary.element.setAttribute("aria-disabled", String(state?.nextEpisodeFailed !== true && targetChoices === undefined));
+        actions.push(primary);
+        if (targetChoices?.resume !== undefined && target !== undefined) actions.push(actionButton("start-over-episode", "Start Over", () => context.playEpisode?.(target.id, target.title, true)));
+        if (target !== undefined && targetChoices === undefined) notes.push("This episode has no file this TV can play.");
     }
     const series = state?.series === undefined ? undefined : seriesEpisodesView(state.series, context);
     const seasonItems = series?.zones[0]?.items ?? (detail.type === "series" ? seasons.map((season) => seasonItem(detail.id, detail.title, season, context)) : []);
@@ -215,6 +225,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     if (state?.failedPlay !== undefined) {
         content.push(...lines(["Could not check resume position."], "error"));
     }
+    if (state?.nextEpisodeFailed === true) content.push(...lines(["Could not load the next episode."], "error"));
     if (state?.titleArtPolicy === "failed") content.push(...lines(["Could not load title-art settings."], "error"));
     if (series !== undefined) content.push(...series.content);
     else if (seasonItems.length > 0) {
@@ -401,7 +412,7 @@ export function seasonView(name: string, title: string, episodes: readonly Episo
         const runtime = episode.runtimeMinutes > 0 ? `${episode.runtimeMinutes} min` : "";
         info.appendChild(el("span", "browse-card-subtitle", [runtime, episode.played ? "Watched" : ""].filter((part) => part !== "").join(" · ")));
         element.appendChild(info);
-        element.addEventListener("click", () => context.open({ kind: "item", id: episode.id, title: episode.title }));
+        element.addEventListener("click", () => context.playEpisode === undefined ? context.open({ kind: "item", id: episode.id, title: episode.title }) : context.playEpisode(episode.id, episode.title));
         return mediaItem({ key: episode.id, element }, { id: episode.id, title: episode.title, type: "episode" }, context);
     });
     const header = detail === undefined ? undefined : itemView(detail, [], context, play, back, synopsis, state);

@@ -59,6 +59,171 @@ async function prepare(tv: Tv): Promise<void> {
     await tv.page.getByRole("slider").waitFor();
 }
 
+async function series(tv: Tv): Promise<void> {
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="home"] .browse-card[data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="next-episode"]').waitFor();
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e12"]').waitFor();
+    await tv.eventually(async () => await tv.page.locator('[data-focus="next-episode"]').getAttribute("aria-disabled") !== "true", "primary episode metadata");
+}
+
+preplay("direct episode activation refreshes cached-zero progress and returns to its rail", async (tv, catalog, playback) => {
+    const id = "episode:s1e12", watch = "/watch/episode%3As1e12?file_id=42";
+    catalog.fileIds.set(id, "42");
+    catalog.progress.set(id, 420);
+    const fresh = catalog.route("GET", watch, "p-owner");
+    assert.ok(fresh);
+    assert.equal(fresh.status, 200);
+    catalog.progress.delete(id);
+    tv.fake.script(watch, fresh);
+    playback.items.set(id, ["42"]);
+    await series(tv);
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e12"]').click();
+    await tv.eventually(async () => starts(tv).length > 0 || await tv.page.locator('[data-view="item:episode:s1e12"]').count() > 0, "episode activation");
+    assert.equal(await tv.page.locator('[data-view="item:episode:s1e12"]').count(), 0, "short Select must not open episode information");
+    await prepare(tv);
+    assert.equal(starts(tv).length, 1);
+    assert.equal(starts(tv)[0]?.body?.file_id, "42");
+    assert.equal(tv.fake.requests.filter(request => request.path === watch).length, 1);
+    assert.equal(starts(tv)[0]?.body?.start_position, 420);
+    assert.equal(starts(tv)[0]?.body?.audio_track_id, undefined);
+    assert.equal(starts(tv)[0]?.body?.subtitle_track_id, undefined);
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="item:series:s1"]').waitFor();
+    await tv.eventually(async () => await tv.focused() === id, "originating episode focus");
+    assert.equal(await tv.page.locator('[data-focus="season:1"]').getAttribute("aria-pressed"), "true");
+    assert.equal(starts(tv).length, 1, "return must not replay the episode");
+});
+
+preplay("direct episode activation keeps information and selectors behind an explicit action", async (tv, catalog) => {
+    catalog.fileIds.set("episode:s1e12", "42");
+    await series(tv);
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e12"]').click({ button: "right" });
+    const panel = tv.page.getByRole("dialog", { name: "Card actions", exact: true });
+    await panel.waitFor();
+    assert.equal(starts(tv).length, 0);
+    assert.equal(await panel.locator('[data-focus="episode-information"]').count(), 1, "episode information remains an explicit choice");
+    await panel.locator('[data-focus="episode-information"]').click();
+    await tv.page.locator('[data-view="item:episode:s1e12"]').waitFor();
+    await tv.page.locator('[data-focus="audio"]').click();
+    assert.equal(await tv.page.getByRole("radio", { name: /Japanese/ }).count(), 1);
+    assert.equal(starts(tv).length, 0);
+});
+
+preplay("series primary action resumes its actual numbered episode directly", async (tv, catalog, playback) => {
+    catalog.fileIds.set("episode:s1e11", "42");
+    catalog.progress.set("episode:s1e11", 630);
+    playback.items.set("episode:s1e11", ["42"]);
+    await series(tv);
+    const primary = tv.page.locator('[data-focus="next-episode"]');
+    assert.equal(await primary.textContent(), "Resume S1:E1");
+    await primary.click();
+    await prepare(tv);
+    assert.equal(starts(tv).length, 1);
+    assert.equal(starts(tv)[0]?.body?.file_id, "42");
+    assert.equal(tv.fake.requests.filter(request => request.path === "/watch/episode%3As1e11?file_id=42").length, 1);
+    assert.equal(starts(tv)[0]?.body?.start_position, 630);
+});
+
+for (const phase of ["catalog", "watch"] as const) {
+    preplay(`direct episode ${phase} resolution ignores duplicate Select and an abandoned late answer`, async (tv, catalog) => {
+        catalog.fileIds.set("episode:s1e12", "42");
+        await series(tv);
+        const path = phase === "catalog" ? "/catalog/items/episode%3As1e12?image_size=medium" : "/watch/episode%3As1e12?file_id=42";
+        const before = tv.fake.requests.filter(request => request.path === path).length;
+        const held = tv.fake.hold(path, true);
+        await tv.page.evaluate(() => {
+            const card = document.querySelector<HTMLButtonElement>('.details-episodes [data-focus="episode:s1e12"]');
+            if (card === null) throw new Error("episode card missing");
+            card.focus(); card.click(); card.click();
+        });
+        await tv.eventually(async () => tv.fake.requests.filter(request => request.path === path).length > before, "held episode read");
+        assert.equal(tv.fake.requests.filter(request => request.path === path).length, before + 1);
+        assert.equal(starts(tv).length, 0);
+        await tv.remote(10009);
+        await tv.page.locator('[data-view="item:series:s1"]').waitFor();
+        held.release();
+        await tv.jump(4000);
+        assert.equal(starts(tv).length, 0);
+        assert.equal(await tv.page.locator(".player").count(), 0);
+        assert.equal(await tv.focused(), "episode:s1e12");
+    });
+}
+
+preplay("direct episode malformed watch offers Retry for the same target without an information page", async (tv, catalog, playback) => {
+    catalog.fileIds.set("episode:s1e12", "42");
+    playback.items.set("episode:s1e12", ["42"]);
+    await series(tv);
+    tv.fake.script("/watch/episode%3As1e12?file_id=42", { status: 200, body: { content_id: "episode:s1e12", type: "episode", versions: [] } });
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e12"]').click();
+    const retry = tv.page.getByRole("button", { name: "Try again", exact: true });
+    await retry.waitFor();
+    assert.equal(starts(tv).length, 0);
+    assert.equal(await tv.page.locator('[data-view="item:episode:s1e12"]').count(), 0);
+    await retry.click();
+    await prepare(tv);
+    assert.equal(starts(tv).length, 1);
+    assert.equal(starts(tv)[0]?.body?.file_id, "42");
+});
+
+preplay("series Start Over skips fresh resume and retains automatic selectors", async (tv, catalog, playback) => {
+    catalog.fileIds.set("episode:s1e11", "42");
+    catalog.progress.set("episode:s1e11", 630);
+    playback.items.set("episode:s1e11", ["42"]);
+    await series(tv);
+    const before = tv.fake.requests.filter(request => request.path.startsWith("/watch/")).length;
+    await tv.page.locator('[data-focus="start-over-episode"]').click();
+    await prepare(tv);
+    assert.equal(starts(tv).length, 1);
+    assert.equal(starts(tv)[0]?.body?.start_position, 0);
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/watch/")).length, before);
+});
+
+for (const failure of ["identity", "files"] as const) {
+    preplay(`direct episode ${failure} failure keeps Retry and Back without playback`, async (tv, catalog) => {
+        await series(tv);
+        const reply = catalog.route("GET", "/catalog/items/episode%3As1e12", "p-owner");
+        assert.ok(reply);
+        assert.ok(typeof reply.body === "object" && reply.body !== null);
+        tv.fake.script("/catalog/items/episode%3As1e12?image_size=medium", { status: 200, body: { ...reply.body, ...(failure === "identity" ? { content_id: "wrong-target" } : { versions: [] }) } });
+        await tv.page.locator('.details-episodes [data-focus="episode:s1e12"]').click();
+        await tv.page.getByRole("button", { name: "Try again", exact: true }).waitFor();
+        assert.equal(starts(tv).length, 0);
+        assert.equal(await tv.page.locator('[data-view="item:episode:s1e12"]').count(), 0);
+        await tv.remote(10009);
+        await tv.page.locator('[data-view="item:series:s1"]').waitFor();
+        assert.equal(await tv.focused(), "episode:s1e12");
+    });
+}
+
+preplay("direct activation accepts an opaque episode identity and its server-selected file", async (tv, catalog, playback) => {
+    const id = "broadcast_7a";
+    catalog.add({ id, title: "Opaque episode", type: "episode", libraryId: "13", seriesId: "series:s1", season: 1, episode: 4 });
+    catalog.fileIds.set(id, "43");
+    playback.items.set(id, ["43"]);
+    await series(tv);
+    await tv.page.locator('.details-episodes [data-focus="broadcast_7a"]').click();
+    await prepare(tv);
+    assert.equal(starts(tv).length, 1);
+    assert.equal(starts(tv)[0]?.body?.file_id, "43");
+    assert.equal(tv.fake.requests.filter(request => request.path === "/watch/broadcast_7a?file_id=43").length, 1);
+    assert.equal(starts(tv)[0]?.body?.audio_track_id, undefined);
+});
+
+preplay("destroy during direct episode preparation rejects an already processed late answer", async (tv, catalog) => {
+    catalog.fileIds.set("episode:s1e12", "42");
+    await series(tv);
+    const path = "/watch/episode%3As1e12?file_id=42";
+    const held = tv.fake.hold(path, true);
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e12"]').click();
+    await tv.eventually(async () => tv.fake.requests.some(request => request.path === path), "held watch before teardown");
+    await tv.page.evaluate(() => window.appHarness.destroy());
+    held.release();
+    await tv.jump(4000);
+    assert.equal(starts(tv).length, 0);
+    assert.equal(await tv.page.locator(".player").count(), 0);
+});
+
 for (const reduced of [false, true]) {
     preplay(`production ${reduced ? "reduced" : "normal"}: remote Audio focus, captured Resume and one handoff`, async (tv, catalog) => {
         await tv.page.locator('[data-focus="audio"]').focus();
@@ -179,7 +344,8 @@ preplay("episode Details uses its file audio and restores the initiating Resume 
     await tv.remote(10009);
     await tv.page.locator('[data-view="home"] .browse-card[data-focus="series:s1"]').first().click();
     await tv.page.locator('[data-focus="season:1"]').click();
-    await tv.page.locator('[data-focus="episode:s1e12"]').click();
+    await tv.page.locator('[data-focus="episode:s1e12"]').click({ button: "right" });
+    await tv.page.locator('[data-focus="episode-information"]').click();
     await tv.page.locator('[data-focus="audio"]').click();
     await tv.page.getByRole("radio", { name: /Japanese/ }).click();
     await tv.page.locator('[data-focus="resume"]').click();

@@ -42,6 +42,12 @@ export class FakeHome extends FakeCatalog {
         }
         const reply = super.route(method, path, profileId, body);
         const response = reply?.status === 200 ? record(reply.body) : undefined;
+        if (method === "GET" && url.pathname.startsWith("/watch/")) {
+            const detail = this.route("GET", `/catalog/items/${url.pathname.slice(7)}`, profileId);
+            if (detail?.status !== 200) return detail;
+            const data = record(detail.body);
+            return { status: 200, body: { ...data, versions: Array.isArray(data.versions) ? data.versions.map((file: unknown) => ({ ...record(file), duration_seconds: record(file).duration })) : data.versions } };
+        }
         if (url.pathname === "/home/sections" && response !== undefined && Array.isArray(response.sections)) {
             return { status: 200, body: { ...response, sections: response.sections.map((row: Record<string, unknown>) => ({ ...row, featured: row.id === "hero/opaque", items: Array.isArray(row.items) ? row.items.slice(0, 24) : [] })) } };
         }

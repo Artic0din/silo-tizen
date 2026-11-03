@@ -17,6 +17,7 @@ import { operations } from "../api/operations.ts";
 import { detailOperations } from "../api/detailOperations.ts";
 import type { ItemDetail } from "../contracts/v2/catalog.ts";
 import { DetailsState } from "./detailsState.ts";
+import { freshPlayPosition } from "./playbackPreparation.ts";
 import { SeriesEpisodes } from "./seriesEpisodes.ts";
 import { CardActions } from "./cardActions.ts";
 import { Synopsis } from "./browseDetails.ts";
@@ -130,6 +131,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let shownOverlays: CardOverlayPrefs | undefined = presentation.cardOverlays;
     const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, cardOverlays: () => presentation.cardOverlays, posterScale: () => presentation.posterScale, savedFileOverlay: card => homeDetails.savedFile(card)?.overlay, open: (destination) => open(destination), preview: (card, row, continuing) => shell.preview(card, row, continuing), resume: (id, title) => {
         if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title }));
+    }, playEpisode: (id, title, startOver) => {
+        if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title, episode: true, startOver: startOver === true }));
     }, quickActions: card => {
         const current = top();
         if (current === undefined || torn || playing || cardActions.active) return;
@@ -178,7 +181,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             showRoute(origin.route, origin.focus);
             render(origin.focus);
         }
-    }, personalPending);
+    }, personalPending, card => open({ kind: "item", id: card.id, title: card.title }));
     const synopsis = new Synopsis(container, () => {
         const current = top();
         const more = (current?.kind === "item" || current?.kind === "season") && current.data?.details?.panel === "more";
@@ -666,14 +669,18 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             case "resume":
                 load(current, async signal => {
                     const detail = await read(operations.getCatalogItem(current.id), signal);
-                    if (detail.id !== current.id || (detail.type !== "movie" && detail.type !== "episode")) throw new ApiError({ kind: "invalid_response", path: "resume.item" });
-                    return playChoices(detail);
-                }, choices => {
-                    if (choices === undefined) { current.failure = "No playable version is available for this title."; return; }
+                    if (detail.id !== current.id || (detail.type !== "movie" && detail.type !== "episode") || (current.episode === true && detail.type !== "episode")) throw new ApiError({ kind: "invalid_response", path: "resume.item" });
+                    const choices = playChoices(detail);
+                    if (choices === undefined) return undefined;
+                    const request = current.startOver === true ? choices.fromStart : choices.resume ?? choices.fromStart;
+                    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+                    return detail.type === "episode" && current.startOver !== true ? { ...request, startSeconds: await freshPlayPosition(session, request, clock, signal) } : request;
+                }, request => {
+                    if (request === undefined) { current.failure = "No playable version is available for this title."; return; }
                     // Discard the resolution route before handing off so returning cannot replay it.
                     stack.pop();
                     render(top()?.focus);
-                    play(choices.resume ?? choices.fromStart);
+                    handoff(request);
                 });
                 return;
             case "homeSection":

@@ -231,13 +231,14 @@ for (const reduced of [false, true]) {
         await tv.page.emulateMedia({ reducedMotion: reduced ? "reduce" : "no-preference" });
         catalog.persistStops = false;
         await startEpisode(tv, playback, catalog);
+        const watchReads = tv.fake.requests.filter(r => r.path.startsWith("/watch/")).length;
         const id = [...playback.sessions.keys()][0];
         assert.ok(id !== undefined);
         const stop = tv.fake.hold(`/playback/${id}`);
         await tv.page.evaluate(() => { window.appHarness.avplay.tick(5399000); window.appHarness.avplay.listener?.onstreamcompleted(); });
         await tv.page.getByText("Ending playback…", { exact: true }).waitFor();
         assert.equal(await tv.focused(), "back");
-        assert.equal(tv.fake.requests.some(r => r.path.startsWith("/watch/")), false);
+        assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/watch/")).length, watchReads, "EOF must wait for STOP before reading the next episode");
         stop.release();
         await tv.page.getByRole("button", { name: "Play next", exact: true }).waitFor();
         assert.equal(await tv.focused(), "back", "adding a next action must not move surviving focus");
@@ -264,6 +265,7 @@ for (const reduced of [false, true]) {
 
 appTest("Back during EOF STOP restores Browse and late answers cannot show continuation", async (tv, playback, catalog) => {
     await startEpisode(tv, playback, catalog);
+    const watchReads = tv.fake.requests.filter(r => r.path.startsWith("/watch/")).length;
     const id = [...playback.sessions.keys()][0];
     assert.ok(id !== undefined);
     const stop = tv.fake.hold(`/playback/${id}`, true);
@@ -275,7 +277,7 @@ appTest("Back during EOF STOP restores Browse and late answers cannot show conti
     await tv.jump(0);
     assert.equal(await tv.focused(), "episode:s1e12");
     assert.equal(await tv.page.getByRole("button", { name: "Play next", exact: true }).count(), 0);
-    assert.equal(tv.fake.requests.some(r => r.path.startsWith("/watch/")), false);
+    assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/watch/")).length, watchReads, "abandoned EOF must not read the next episode");
 }, true);
 
 for (const reduced of [false, true]) {

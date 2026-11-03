@@ -35,6 +35,7 @@ export interface ViewContext {
     /** Continue Watching badges for the file the viewer last played, once Home's detail reads know it. */
     readonly savedFileOverlay?: (card: Card) => CardOverlay | undefined;
     readonly resume?: (id: string, title: string) => void;
+    readonly playEpisode?: (id: string, title: string, startOver?: boolean) => void;
     readonly quickActions?: (card: Pick<Card, "id" | "title" | "type">) => void;
 }
 
@@ -142,7 +143,8 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
         element.appendChild(el("span", "browse-card-subtitle", caption.line));
     }
     element.addEventListener("click", () => {
-        if (continuing && context.resume !== undefined && (card.type === "movie" || card.type === "episode")) context.resume(card.id, card.title);
+        if (card.type === "episode" && context.playEpisode !== undefined) context.playEpisode(card.id, card.title);
+        else if (continuing && context.resume !== undefined && (card.type === "movie" || card.type === "episode")) context.resume(card.id, card.title);
         else context.open(destination);
     });
     element.addEventListener("focus", () => context.preview?.(card, "Browse"));

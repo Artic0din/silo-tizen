@@ -467,7 +467,8 @@ test("History includes episodes and cached Details return remains visible during
         assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).pop()?.body?.type, "episode");
         assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).pop()?.body?.cursor, undefined);
         assert.ok(await tv.page.locator('.browse .browse-card[data-focus^="episode:"]').count() > 0);
-        await tv.page.locator('.browse .browse-card[data-focus^="episode:"]').first().click();
+        await tv.page.locator('.browse .browse-card[data-focus^="episode:"]').first().click({ button: "right" });
+        await tv.page.locator('[data-focus="episode-information"]').click();
         await tv.page.locator('[data-view^="item:episode:"]').waitFor();
         await tv.remote(10009);
         await tv.page.locator('[data-view="personal:history"]').waitFor();

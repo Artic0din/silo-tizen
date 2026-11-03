@@ -28,6 +28,11 @@ export class DetailsState {
     get audioOpen(): boolean { return this.panel === "audio"; }
     preparingPlay = false;
     failedPlay: PlayRequest | undefined;
+    nextEpisode: ItemDetail | undefined;
+    nextEpisodeLoading = false;
+    nextEpisodeFailed = false;
+    private nextEpisodeRevision = 0;
+    private full = false;
     private audioPick: { fileId: string; ordinal: number; inventory: string } | undefined;
     private subtitlePick: { fileId: string; inventory: string; intent: SubtitleIntent } | undefined;
     related: readonly Card[] | undefined;
@@ -61,10 +66,12 @@ export class DetailsState {
     start(mode: "full" | "personal" = "full"): void {
         if (this.controller !== undefined) return;
         this.controller = new AbortController();
+        this.full = mode === "full";
         if (mode === "full" && ["movie", "series"].includes(this.detail.type)) this.rating.start();
         this.stopAuthority = this.session.onAuthorityChange(() => { this.stop(); this.changed(); });
         if (mode === "full") this.series?.start();
         if (mode === "full") this.loadTitleArt();
+        if (mode === "full" && this.nextEpisode === undefined && !this.nextEpisodeFailed) this.loadNextEpisode();
         let interrupted = false;
         for (const [kind, change] of this.changes) {
             if (change.pending) {
@@ -88,6 +95,7 @@ export class DetailsState {
         this.titleArtPolicy = "pending";
         this.panel = undefined;
         this.preparingPlay = false;
+        this.nextEpisodeLoading = false;
     }
 
     /** Capture the route generation as well as the confirmed policy for late image events. */
@@ -215,6 +223,28 @@ export class DetailsState {
         return this.controller === controller && !controller.signal.aborted;
     }
 
+    loadNextEpisode(): void {
+        const controller = this.controller, id = this.detail.playContentId;
+        if (controller === undefined || !this.full || id === undefined || this.nextEpisodeLoading || !["series", "season"].includes(this.detail.type)) return;
+        this.nextEpisodeLoading = true;
+        this.nextEpisodeFailed = false;
+        const revision = ++this.nextEpisodeRevision;
+        const current = (): boolean => this.current(controller) && this.nextEpisodeRevision === revision && this.detail.playContentId === id;
+        this.changed();
+        this.read(operations.getCatalogItem(id), controller).then(detail => {
+            if (!current()) return;
+            if (detail.id !== id || detail.type !== "episode") throw new ApiError({ kind: "invalid_response", path: "nextEpisode.item" });
+            this.nextEpisode = detail;
+            this.nextEpisodeLoading = false;
+            this.changed();
+        }).catch(() => {
+            if (!current()) return;
+            this.nextEpisodeLoading = false;
+            this.nextEpisodeFailed = true;
+            this.changed();
+        });
+    }
+
     loadRelated(): void {
         const controller = this.controller;
         if (controller === undefined) return;
@@ -302,6 +332,10 @@ export class DetailsState {
             if (this.current(controller)) {
                 this.detail = detail;
                 this.values.set(kind, detail.played);
+                this.nextEpisode = undefined;
+                this.nextEpisodeLoading = false;
+                this.nextEpisodeFailed = false;
+                this.loadNextEpisode();
             }
             return detail.played;
         }

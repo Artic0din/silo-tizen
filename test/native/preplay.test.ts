@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { decodeItemDetail, decodeResumePosition } from "../../src/contracts/v2/catalog.ts";
+import { decodeItemDetail, decodeResumePosition, type ItemDetail } from "../../src/contracts/v2/catalog.ts";
 import { decodeFileVersionTracks } from "../../src/contracts/v2/playback.ts";
-import { WireError } from "../../src/contracts/v2/wire.ts";
+import { object, WireError } from "../../src/contracts/v2/wire.ts";
 import { DetailsState } from "../../src/ui/detailsState.ts";
 import { playChoices, type PlayRequest } from "../../src/ui/browseModel.ts";
 import { connected, signIn } from "./support/harness.ts";
@@ -31,6 +31,86 @@ async function rig() {
     const plays: PlayRequest[] = [];
     return { h, catalog, state, request, plays, handoff: (request: PlayRequest) => { plays.push(request); } };
 }
+
+test("series primary metadata is visit-owned, validates episode identity and retries explicitly", async () => {
+    const r = await rig();
+    r.state.stop();
+    const raw = r.catalog.route("GET", "/catalog/items/series%3As1", "p-owner");
+    assert.ok(raw);
+    const detail = decodeItemDetail(raw.body);
+    const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
+    const target = (): ItemDetail | undefined => state.nextEpisode;
+    const path = "/catalog/items/episode%3As1e11?image_size=medium";
+    const held = r.h.fake.hold(path, true);
+    state.start();
+    await settle();
+    assert.equal(state.nextEpisodeLoading, true);
+    state.stop();
+    held.release();
+    await settle();
+    assert.equal(target(), undefined);
+    assert.equal(state.nextEpisodeFailed, false);
+    r.h.fake.script(path, { status: 200, body: raw.body });
+    state.start();
+    await settle();
+    assert.equal(state.nextEpisodeFailed, true, "a series response cannot become the episode action");
+    assert.equal(target(), undefined);
+    state.loadNextEpisode();
+    await settle();
+    assert.equal(target()?.id, "episode:s1e11");
+    assert.equal(state.nextEpisodeFailed, false);
+    assert.equal(state.detail, detail, "episode preparation must not replace the series hero");
+    const count = r.h.fake.requests.filter(request => request.path === path).length;
+    state.stop(); state.start();
+    await settle();
+    assert.equal(r.h.fake.requests.filter(request => request.path === path).length, count, "ordinary return retains accepted metadata");
+    state.stop();
+});
+
+for (const next of ["episode:s1e11", "episode:s1e12"]) test(`watched refresh reconciles primary episode ${next} and its cleared progress`, async () => {
+    const r = await rig();
+    r.state.stop();
+    r.catalog.progress.set("episode:s1e11", 500);
+    const reply = r.catalog.route("GET", "/catalog/items/series%3As1", "p-owner");
+    assert.ok(reply);
+    const state = new DetailsState(decodeItemDetail(reply.body), r.h.core.session, () => undefined, async () => undefined);
+    state.start();
+    await settle();
+    const initial = state.nextEpisode;
+    assert.ok(initial);
+    assert.equal(playChoices(initial)?.resume?.startSeconds, 500);
+    r.catalog.failNext("/catalog/items/series%3As1", { status: 200, body: { ...object(reply.body, "series"), play_content_id: next, user_state: { played: true }, user_data: { played: true } } });
+    state.change("watched", true);
+    await settle();
+    assert.equal(state.changes.size, 0);
+    const refreshed = state.nextEpisode;
+    assert.ok(refreshed);
+    assert.equal(refreshed.id, next);
+    assert.equal(playChoices(refreshed)?.resume, undefined, "a watched mutation clears the old Resume/Start Over target");
+    state.stop();
+});
+
+test("watched reconciliation replaces an older pending primary read within the same visit", async () => {
+    const r = await rig();
+    r.state.stop();
+    r.catalog.progress.set("episode:s1e11", 500);
+    const reply = r.catalog.route("GET", "/catalog/items/series%3As1", "p-owner");
+    assert.ok(reply);
+    const state = new DetailsState(decodeItemDetail(reply.body), r.h.core.session, () => undefined, async () => undefined);
+    const held = r.h.fake.hold("/catalog/items/episode%3As1e11?image_size=medium", true);
+    state.start();
+    await settle();
+    assert.equal(state.nextEpisodeLoading, true);
+    state.change("watched", true);
+    await settle();
+    const accepted = state.nextEpisode;
+    assert.ok(accepted);
+    assert.equal(playChoices(accepted)?.resume, undefined);
+    held.release();
+    await settle();
+    assert.equal(state.nextEpisode, accepted, "the pre-mutation response cannot replace reconciled progress");
+    state.stop();
+});
 
 test("Details reuses the per-file audio decoder and never invents omitted tracks", () => {
     const tracks = [{ default: false, embedded_title: "Dub", language: "ja", codec: "aac", channels: 2 }, { default: true, title: "Original" }];

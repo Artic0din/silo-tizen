@@ -45,6 +45,7 @@ test("Requests hub, search, create, My Requests and cancel preserve return focus
         await tv.remote(10009); await view(tv, "search");
         assert.equal(await tv.focused(), "movie:949");
         await tv.remote(10009); await view(tv, "hub"); await button(tv, "mine").click(); await view(tv, "mine");
+        assert.equal(await button(tv, "request-one").textContent(), "Heat · Pending");
         await button(tv, "request-one").click(); await view(tv, "request"); await button(tv, "cancel").waitFor();
         await evidence(tv, "my-request"); await button(tv, "cancel").click();
         await tv.eventually(async () => fake.cancelled && await button(tv, "cancel").count() === 0, "cancelled");
@@ -174,7 +175,7 @@ test("reopened detail reconciles after a background write settles", async () => 
         await button(tv, "create").click();
         await tv.eventually(async () => fake.created, "write processed");
         await tv.remote(10009); await button(tv, "movie:949").click();
-        await tv.page.getByText("pending", { exact: true }).waitFor();
+        await tv.page.getByText("Pending", { exact: true }).waitFor();
         // Serve stale media state until the held write's answer has reached the client.
         fake.created = false; await button(tv, "refresh").click(); await button(tv, "create").waitFor();
         assert.equal(await button(tv, "create").isDisabled(), true);
@@ -237,7 +238,7 @@ test("a settled write refreshes the retained Requests hub", async () => {
         const answered = tv.page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/requests"));
         held.release(); await answered; await tv.jump(1);
         await button(tv, "requests").click(); await view(tv, "hub");
-        await tv.page.getByRole("button", { name: "Heat · pending" }).waitFor();
+        await tv.page.getByRole("button", { name: "Heat · Pending" }).waitFor();
     } finally { await tv.page.context().close(); }
 });
 

@@ -1,6 +1,7 @@
 import type { MediaRequest, MyRequests, RequestPage, RequestsCapability, RequestSection, RequestTitle } from "../contracts/v2/requests.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { actionButton, lines, zoneNode } from "./browseViews.ts";
+import { requestStateLabel } from "./requestStatus.ts";
 import { el } from "./screen.ts";
 
 export type RequestsSource =
@@ -42,7 +43,7 @@ export function requestsView(state: RequestsState, h: RequestsHandlers): View {
         const enabled = items.filter(item => !(item.element instanceof HTMLButtonElement) || !item.element.disabled);
         if (enabled.length > 0) zones.push({ id, layout: grid ? "grid" : "row", ...(grid ? { columns: 4 } : {}), items: enabled });
     };
-    const titleItems = (titles: readonly RequestTitle[]): FocusItem[] => titles.filter(title => title.mediaType === "movie" || title.mediaType === "series").map(title => actionButton(`${title.mediaType}:${title.tmdbId}`, `${title.title} · ${title.availability === "available" ? "Available" : title.request.state ?? "Not requested"}`, () => h.open({ kind: "media", title })));
+    const titleItems = (titles: readonly RequestTitle[]): FocusItem[] => titles.filter(title => title.mediaType === "movie" || title.mediaType === "series").map(title => actionButton(`${title.mediaType}:${title.tmdbId}`, `${title.title} · ${title.availability === "available" ? "Available" : title.request.state === undefined ? "Not requested" : requestStateLabel(title.request.state)}`, () => h.open({ kind: "media", title })));
     if (source.kind === "hub") add("tools", [actionButton("search", "Search requests", () => h.open({ kind: "search", query: "", page: 1 })), actionButton("mine", "My Requests", () => h.open({ kind: "mine", cursor: undefined }))]);
     if (source.kind === "search") {
         if (state.search === undefined) {
@@ -71,18 +72,18 @@ export function requestsView(state: RequestsState, h: RequestsHandlers): View {
             if (data.results.length === 0) content.push(...lines(["No titles found."], "info"));
             add("pages", [...(data.page > 1 ? [actionButton("previous", "Previous page", () => h.next(data.page - 1))] : []), ...(data.nextPage <= data.totalPages ? [actionButton("next", "Next page", () => h.next(data.nextPage))] : [])]);
         } else if ("items" in data) {
-            add("mine", data.items.map(item => actionButton(item.id, `${item.title} · ${item.state}`, () => h.open({ kind: "request", id: item.id }))), true);
+            add("mine", data.items.map(item => actionButton(item.id, `${item.title} · ${requestStateLabel(item.state)}`, () => h.open({ kind: "request", id: item.id }))), true);
             if (data.items.length === 0) content.push(...lines(["No requests yet."], "info"));
             if (data.cursor !== undefined) { const cursor = data.cursor; add("pages", [actionButton("next", "Next page", () => h.next(cursor))]); }
         } else if ("title" in data) {
             content.push(el("h2", "browse-title", data.title), ...lines(data.overview === undefined ? [] : [data.overview], "info"));
             const actions: FocusItem[] = [];
             if ("request" in data) {
-                content.push(...lines([data.availability === "available" ? "Available" : data.request.state ?? data.request.reason ?? "Not requested"], "info"));
+                content.push(...lines([data.availability === "available" ? "Available" : requestStateLabel(data.request.state ?? data.request.reason ?? "not requested")], "info"));
                 if (data.request.requestable) actions.push(actionButton("create", "Request title", () => h.write("create")));
                 if (h.capability.follow && data.request.id !== undefined && !data.request.requestedByViewer) actions.push(actionButton("follow", data.request.following ? "Unfollow" : "Follow", () => h.write(data.request.following ? "unfollow" : "follow")));
             } else {
-                content.push(...lines([data.state], "info"));
+                content.push(...lines([requestStateLabel(data.state)], "info"));
                 if (data.profileId === h.profileId && data.outcome === "active" && data.status === "pending") actions.push(actionButton("cancel", "Cancel request", () => h.write("cancel")));
             }
             for (const action of actions) (action.element as HTMLButtonElement).disabled = state.writing || state.uncertain || h.busy;

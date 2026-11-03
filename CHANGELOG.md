@@ -85,6 +85,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Kept a rating write running when the details page restarted, and read the rating only after it settled, so the page shows the stored rating instead of the old one.
+- Showed plain request status labels such as "Partly available" and "Processing" in Requests lists and detail instead of raw server states.
 - Measured current Continue Watching artwork in geometry regressions without retaining nodes across Home redraws.
 - Upgraded cold or incomplete Home artwork after image sizing became available while preserving the selected title, hidden libraries, pending metadata and watched changes from Card actions, including when the optional artwork read failed.
 - Preserved mixed-library shortcut scope, open dropdown focus during late menu updates, and unfinished Home metadata reads after visiting For You.

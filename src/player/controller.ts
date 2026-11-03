@@ -187,6 +187,7 @@ const WARNING_NOTICES: Readonly<Record<string, string>> = {
 interface Attempt {
     autoNext: boolean;
     ai: SubtitleAI | undefined;
+    readonly aiBlockedFiles: Set<string>;
     pendingAIResult: string | undefined;
     appearance: SubtitleAppearance;
     subtitleSync: number;
@@ -318,7 +319,7 @@ export class PlaybackController implements PlayerControls {
         this.shownError = undefined;
         const attempt: Attempt = {
             autoNext: false,
-            ai: undefined, pendingAIResult: undefined,
+            ai: undefined, aiBlockedFiles: new Set(), pendingAIResult: undefined,
             appearance: DEFAULT_APPEARANCE, subtitleSync: 0, cues: [], captionAbort: undefined, captionNotice: "", captionPreferenceNotice: "", captionKey: undefined, captionPreferencesRead: false, seriesSubtitle: request.episode ? { busy: false, message: "" } : undefined,
             request,
             playbackAttemptId: this.newId(),
@@ -1025,7 +1026,7 @@ export class PlaybackController implements PlayerControls {
         attempt.plan = plan;
         if (attempt.ai?.fileId !== plan.effectiveMediaFileId) {
             attempt.ai?.destroy();
-            attempt.ai = new SubtitleAI(this.deps.session, this.deps.clock, plan.effectiveMediaFileId, () => this.showPlayback(attempt));
+            attempt.ai = new SubtitleAI(this.deps.session, this.deps.clock, plan.effectiveMediaFileId, () => this.showPlayback(attempt), attempt.aiBlockedFiles);
             attempt.pendingAIResult = undefined;
         }
         this.readMarkers(attempt, plan.effectiveMediaFileId);

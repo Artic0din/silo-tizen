@@ -15,6 +15,9 @@ export interface SubtitleAIView {
     readonly results: readonly AIResult[];
 }
 
+const POLL_INTERVAL_MS = 2000;
+const POLL_ATTEMPTS = 3;
+
 export class SubtitleAI {
     private readonly session: NativeSession;
     private readonly clock: Clock;
@@ -25,13 +28,15 @@ export class SubtitleAI {
     private cancelPoll: (() => void) | undefined;
     private readonly results: AIResult[] = [];
     private busy = false;
-    private uncertain = false;
     private message = "";
     private available: SubtitleAIStatus | undefined;
     private languages: readonly string[] = [];
     private quota: SubtitleAIQuota | undefined;
+    /** Files whose server job outcome is unknown; owned by the caller so it outlives this instance. */
+    private readonly blockedFiles: Set<string>;
 
-    constructor(session: NativeSession, clock: Clock, fileId: string, changed: () => void) {
+    constructor(session: NativeSession, clock: Clock, fileId: string, changed: () => void, blockedFiles: Set<string> = new Set()) {
+        this.blockedFiles = blockedFiles;
         this.session = session;
         this.clock = clock;
         this.fileId = fileId;
@@ -44,11 +49,15 @@ export class SubtitleAI {
         else void this.discover();
     }
 
+    private get uncertain(): boolean { return this.blockedFiles.has(this.fileId); }
+
     get view(): SubtitleAIView | undefined {
         return this.available === undefined ? undefined : { available: this.available, languages: this.languages, quota: this.quota, busy: this.busy || this.uncertain, message: this.message, results: this.results };
     }
 
     destroy(): void {
+        // A job still in flight can finish unseen, so its file stays blocked for the next instance.
+        if (this.busy) this.blockedFiles.add(this.fileId);
         this.abort.abort();
         this.cancelPoll?.();
         this.stopAuthority();
@@ -100,7 +109,7 @@ export class SubtitleAI {
             if (this.abort.signal.aborted) return;
             this.busy = false;
             // A problem body is the server's answer; 429 (e.g. quota_exceeded) refuses, unlike 408/5xx whose outcome is unknown.
-            this.uncertain = !(error instanceof ApiError && error.problemId !== undefined && (!error.transient || error.status === 429));
+            if (!(error instanceof ApiError && error.problemId !== undefined && (!error.transient || error.status === 429))) this.blockedFiles.add(this.fileId);
             this.notice(error instanceof ApiError && error.problemId ? `AI subtitles could not start: ${error.problemId}. Playback continues.` : "Could not confirm the AI request. It may still finish on the server; it was not sent again.");
             void this.refreshQuota();
         }
@@ -119,16 +128,26 @@ export class SubtitleAI {
             void this.refreshQuota();
         } else if (job.status === "pending" || job.status === "running") {
             this.notice("Generating AI subtitles…");
-            this.cancelPoll = this.clock.schedule(() => {
-                void this.call(operations.subtitleAIJob(job.id)).then(next => {
-                    if (next.id !== job.id || next.fileId !== this.fileId || next.kind !== job.kind || next.sourceIndex !== job.sourceIndex || next.language !== job.language) throw new Error("AI job identity changed");
-                    return this.update(next);
-                }).catch(() => { this.busy = false; this.uncertain = true; this.notice("Could not check the AI job. It may still finish on the server; another request is blocked for this playback. Playback continues."); });
-            }, 2000);
+            this.poll(job, 0);
         } else {
             this.busy = false;
-            this.uncertain = true;
+            this.blockedFiles.add(this.fileId);
             this.notice("The server returned an unknown AI job state. Playback continues.");
         }
+    }
+
+    private poll(job: SubtitleAIJob, failures: number): void {
+        this.cancelPoll = this.clock.schedule(() => {
+            void this.call(operations.subtitleAIJob(job.id)).then(next => {
+                if (next.id !== job.id || next.fileId !== this.fileId || next.kind !== job.kind || next.sourceIndex !== job.sourceIndex || next.language !== job.language) throw new Error("AI job identity changed");
+                return this.update(next);
+            }).catch(() => {
+                if (this.abort.signal.aborted) return;
+                if (failures + 1 < POLL_ATTEMPTS) { this.poll(job, failures + 1); return; }
+                this.busy = false;
+                this.blockedFiles.add(this.fileId);
+                this.notice("Could not check the AI job. It may still finish on the server; another request is blocked for this playback. Playback continues.");
+            });
+        }, POLL_INTERVAL_MS);
     }
 }

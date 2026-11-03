@@ -26,6 +26,8 @@ export class RatingState {
     failed = false;
     failedTarget: number | null | undefined;
     private controller: AbortController | undefined;
+    /** Settles when the last write request has an answer; a restart reads only after it. */
+    private writing: Promise<void> = Promise.resolve();
 
     private readonly session: NativeSession;
     private readonly id: string;
@@ -64,7 +66,7 @@ export class RatingState {
         this.failed = false;
         this.failedTarget = undefined;
         this.changed();
-        this.read(controller).then(value => {
+        this.writing.then(() => this.read(controller)).then(value => {
             if (!this.current(controller)) return;
             this.value = value;
             this.loading = false;
@@ -91,7 +93,10 @@ export class RatingState {
                 this.value = actual;
                 if (actual === target) return;
             }
-            await this.session.call({ ...ratingOperations.write(this.id, target), profileScoped: true, replayAfterRefresh: false, signal: controller.signal });
+            // Not tied to the page: leaving mid-write must not leave the server outcome unknown.
+            const write = this.session.call({ ...ratingOperations.write(this.id, target), profileScoped: true, replayAfterRefresh: false });
+            this.writing = write.then(() => undefined, () => undefined);
+            await write;
             if (!this.current(controller)) return;
             const actual = await this.read(controller);
             if (actual !== target) throw new Error("Rating was not applied");

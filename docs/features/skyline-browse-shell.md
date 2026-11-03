@@ -107,7 +107,7 @@ The saved-server list is tracked in #127; the additional removal action remains 
 Those are client work, not claimed Tizen limitations.
 Music, Audiobooks and Watch Party remain in their existing separate scopes.
 Inter, original SVG drawings and CSS material/focus effects remain documented platform equivalents; full-product and physical-TV parity are not established by these changes.
-The [current signed simulator comparisons](screenshots/94-navigation/README.md) record package identity, historical-frame labels, measured menu/dialog bounds and remaining validation limits.
+The [current signed simulator comparisons](../evidence/screenshots/94-navigation/README.md) record package identity, historical-frame labels, measured menu/dialog bounds and remaining validation limits.
 
 `BrowseOptions.publicStorage` accepts the existing `PublicStorage` interface.
 The composition owner passes its existing public storage dependency to persist scopes across launches.
@@ -155,7 +155,7 @@ The 38 px added artwork height is the measured native-card substitute, not a uni
 The shelf viewport extends 16 px on each side while content keeps its resting horizontal position, allowing the lifted first and last artwork to remain unclipped.
 Unfocused shelf captions use the shared .45/.32 opacities; focused captions brighten and drop 15 px to clear the artwork above their existing 12 px gap.
 Collection tiles, section-heading controls, other legacy card owners, detail backgrounds and Home row alignment are outside this shelf correction.
-[Signed shelf focus comparisons](screenshots/149-library-focus/README.md) retain the before/after, historical Apple, reduced-motion and remote-navigation references for later calibration.
+[Signed shelf focus comparisons](../evidence/screenshots/149-library-focus/README.md) retain the before/after, historical Apple, reduced-motion and remote-navigation references for later calibration.
 Continue Watching's heading carries a drawn play-circle mark; Apple's SF Symbol is not bundled.
 Watched titles show a check disc on every card.
 Home cards draw the profile's poster badges (Apple `CardOverlays`): the profile's `ui.card_overlays` document wins outright, else the administrator's baseline from `/settings/overlay-config`, else the registry defaults.
@@ -186,12 +186,12 @@ If sampling is refused, the matching backdrop ThumbHash supplies the wash, or bl
 Real local HTTP tests cover allowed/refused CORS while retaining visible artwork, but do not establish the packaged TV's origin policy.
 Inter is the licensed substitute for SF Pro; drawn symbols and CSS lift/ring approximate native focus effects, with no claim of tvOS parallax or specular equivalence.
 Continue Watching uses a separately measured landscape lift: the Compact still is about 199 px high when focused, including `EpisodeThumbCard`'s 1.025 scale; the poster's 38 px lift does not apply to stills.
-The [Home comparison](screenshots/107-home/home-comparison.png) pairs this signed candidate in Samsung's software simulator with the historical Apple r13 frame in the same Continue Watching state; the earlier Tizen r13 build is not used as current-build proof.
+The [Home comparison](../evidence/screenshots/107-home/home-comparison.png) pairs this signed candidate in Samsung's software simulator with the historical Apple r13 frame in the same Continue Watching state; the earlier Tizen r13 build is not used as current-build proof.
 Apple's native 960×540 frame is displayed at 100%, and the current 1920×1080 Tizen frame at 50%, without upscaling.
 On the Compact profile, current measurements are y596 for the first heading, y939.99 for the next heading, and 357.92×198.85 for focused landscape artwork, against Apple's 358.8×199 accessibility frame.
-The [focused poster capture](screenshots/107-home/home-poster.png) is current Tizen evidence only, without a matching Apple frame.
+The [focused poster capture](../evidence/screenshots/107-home/home-poster.png) is current Tizen evidence only, without a matching Apple frame.
 The simulator uses Chromium 137 with a legacy Tizen user-agent string, so it establishes this software runtime's rendering rather than physical Tizen 8/AVPlay compatibility.
-The [actual S95C capture](screenshots/107-home/home-actual-tv.png) records PR #112's `117314f` build on Tizen 9 / Chromium 120; restored and fresh device-code sign-in, profile selection, Home and native AVPlay playback were exercised.
+The [actual S95C capture](../evidence/screenshots/107-home/home-actual-tv.png) records PR #112's `117314f` build on Tizen 9 / Chromium 120; restored and fresh device-code sign-in, profile selection, Home and native AVPlay playback were exercised.
 AVPlay reported H.264 1920×1080 with stereo audio and a position advancing from 184367 to 185369 ms over a one-second sample; start, progress and stop requests succeeded, and the app returned to Home.
 The debugger reported no uncaught JavaScript exceptions or HTTP error responses, but did record blocked data-image and plugin-object policy errors tracked in [#113](https://github.com/Artic0din/silo-tizen/issues/113), plus one loading failure without diagnostic text.
 The physical-TV capture was made with the debugger attached and `document.hasFocus` false, so it does not establish focused appearance or full visual parity; physical Tizen 8 and other media formats remain untested.
@@ -278,7 +278,7 @@ The shell uses the shared tokens in `src/theme.css` alongside Skyline's navigati
 Desktop Chromium tests and synthetic captures do not prove actual Chromium 108, Tizen emulator, signed package or Samsung TV behavior.
 
 Settings uses the existing native session and HTTP owners.
-General contains Hidden libraries and the [title-art switches](title-art.md) with this-TV/all-devices scope; Playback contains the [saved profile defaults](playback-quality.md#saved-profile-defaults), including separate video seek intervals.
+General contains Hidden libraries and the [title-art switches](title-art.md) with this-TV/all-devices scope; Playback contains the [saved profile defaults](../playback/playback-quality.md#saved-profile-defaults), including separate video seek intervals.
 The category rail, control pane and pickers share `FocusHost`.
 Category focus only previews loaded controls; requests and writes require explicit activation.
 Back cancels a picker, returns from controls to the category rail, then returns to browse with avatar focus.

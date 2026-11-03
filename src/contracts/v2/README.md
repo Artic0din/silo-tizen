@@ -14,7 +14,7 @@ response enum values decode to `"unknown"`, so additive server changes keep work
 `requests.ts` consumes the Requests status, discovery rows, search, media detail, request detail and My Requests contracts at `SOURCE`.
 Create and cancel use POST; follow uses PUT and unfollow uses DELETE.
 All four writes use `retry: never` and `replayAfterRefresh: false`, including naturally idempotent follows, so an uncertain write requires an explicit read before another attempt.
-See [Requests](../../../docs/requests.md) for capability and navigation behavior.
+See [Requests](../../../docs/features/requests.md) for capability and navigation behavior.
 
 `calendar.ts` consumes `getCalendar` from the pinned OpenAPI schema without converting events to catalog cards.
 The weekly query includes the device IANA timezone and an inclusive seven-day window.
@@ -44,7 +44,7 @@ It requires settings API v1, numeric manifest revision 16 or later, the compatib
 Opaque capability `revision` remains opaque.
 The decoder checks title-art JSON booleans, explicit and effective identities, discovered collection revisions and advancing PUT row revisions.
 It accepts a server administrator's effective `source=default, value=false` without manufacturing a saved row.
-See [title art](../../../docs/title-art.md) for the ordered write plan and compatibility behavior.
+See [title art](../../../docs/features/title-art.md) for the ordered write plan and compatibility behavior.
 
 Playback bodies live in `playback.ts`, following `docs/playback-api.md` and `docs/architecture/playback-protocol-v3.md` at the same commit.
 The vendored `playback_start_opaque_ids` plan is a direct plan at offset 0; the test server builds offset timelines, terminal decisions and problems without a fixture from the OpenAPI schemas.
@@ -60,7 +60,7 @@ The effective settings request repeats `keys` for each setting, as required by t
 The player retains the current quality and cap for the attempt and repeats them on track, seek and recovery replans; Auto restores the saved cap after a server rung is selected.
 Quality choices come from `available_qualities` in server order, retaining additive labels and optional height/bitrate values without applying a client ladder.
 Auto is added locally; legacy Original entries are removed, and no quality list is shown without a real alternative.
-See [quality selection](../../../docs/playback-quality.md) for highlighting and replacement safety.
+See [quality selection](../../../docs/playback/playback-quality.md) for highlighting and replacement safety.
 
 `catalog.ts` holds the browse decoders. They are handwritten from `openapi.json` at the commit in `SOURCE`, not generated.
 The browse fixtures (`user_libraries`, `list_effective_settings_ok`, `list_home_sections_ok`, `list_catalog_items_ok`, `get_catalog_item_ok`, `list_series_seasons_ok`, `list_series_seasons_without_artwork`, `list_season_episodes_ok`) are copied unchanged from the same commit.
@@ -87,7 +87,7 @@ Only consumed video facets and capability flags are decoded.
 Text Search also consumes optional `video_with_episodes_scope` as a strict boolean and negotiates the existing GET `listCatalogItems` request only after an allowed, available, true response.
 Absent/false flags keep video-only searches; capability read/decode failures remain recoverable failures rather than unsupported facts.
 The episode-inclusive request type is limited to text Search and is not added to library, facet, letter or POST source types.
-See [Text Search](../../../docs/skyline-browse-shell.md#text-search) for route ownership, continuation and source evidence.
+See [Text Search](../../../docs/features/skyline-browse-shell.md#text-search) for route ownership, continuation and source evidence.
 Unknown members are ignored and response enums are additive; malformed consumed fields fail without echoing values.
 These factories do not implement the library UI or complete issue 28.
 
@@ -103,7 +103,7 @@ Auto omits audio fields; explicit audio IDs use the selected file's audio-array 
 Zero explicitly starts over, while an omitted `start_position` retains server resume semantics for callers that need them.
 Start still declares `retry:"never"`; only the controller resends its identical body and identity through its existing bounded domain retry.
 No per-content preference writes, subtitle start fields or renderer claims are added.
-See [preplay behavior](../../../docs/skyline-browse-shell.md#preplay-audio-and-resume).
+See [preplay behavior](../../../docs/features/skyline-browse-shell.md#preplay-audio-and-resume).
 
 ## Seek preview reads
 
@@ -112,14 +112,14 @@ The exact public fixtures are `get_watch_state_ok` and `get_watch_trickplay_ok`.
 `getWatchState` and `getWatchTrickplay` are profile-scoped reads using the existing safe transport retry.
 Playback capability `features` is retained for the independent `trickplay_v1` gate.
 Signed JPEG URLs bypass the authenticated API transport and remain unchanged.
-See [seek thumbnails](../../../docs/seek-thumbnails.md) for lifecycle and browser proof limits.
+See [seek thumbnails](../../../docs/playback/seek-thumbnails.md) for lifecycle and browser proof limits.
 
 ## Person hero
 
 `decodePerson` reads optional `photo_thumbhash` from the pinned Person schema.
 A present non-string fails the person read. Absence stays absent, and an empty string is preserved for the portrait to ignore.
 Birth and death dates stay calendar strings. The hero formats valid `YYYY-MM-DD` values and leaves any other text unchanged.
-See [person hero](../../../docs/person-hero.md).
+See [person hero](../../../docs/features/person-hero.md).
 
 ## Playback markers
 

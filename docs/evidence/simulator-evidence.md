@@ -46,7 +46,7 @@ Remote debugging is for local inspection; close its clients when finished and do
 
 ## Transport and playback limits
 
-The current app uses native `/api/v2`; the Jellyfin-compatible implementation is retired.
+The app uses Silo's native `/api/v2`.
 At the audited baseline, server entry accepts HTTPS with normal certificate validation.
 Use a valid HTTPS route for that baseline rather than changing the app or disabling certificate checks for a test.
 Later transport changes must be tested as their own candidate.

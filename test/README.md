@@ -40,7 +40,6 @@ Player tests cover explicit Play/Pause idempotency, visible transport focus, see
 Profile seek tests save 15/45 through Settings and consume them through the real controller and screen, including numeric enum boundaries, independent DELETE resets, unbatched reads, unsupported servers, malformed responses, Retry and authority replacement.
 Browse and composition tests also cover bounded type tabs, menu dwell and dismissal, server/profile-scoped library persistence, intermediate scroll frames, debounced previews and full synopsis access.
 
-The retired Jellyfin adapter and its legacy browser/layout fixtures are no longer part of the app or test gate.
 Native transport tests cover headers, timeouts, HTTPS and logout, while native browse and composed-app tests cover the current focus and return behavior.
 Desktop Chromium and fake AVPlay do not prove real video/audio, TV keyboard behavior or Tizen 8.0's Chromium 108 rendering.
 The signed-TV app journey and the remaining hardware matrix must be checked separately.

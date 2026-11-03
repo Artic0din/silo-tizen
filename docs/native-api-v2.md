@@ -12,8 +12,6 @@ The contract file itself is not in this repository, so this page does not re-ver
 
 ## Boundaries
 
-The earlier Jellyfin-compatible client is retired.
-Do not reintroduce its endpoints or its authorization header.
 Every request path in `src/api/` is relative to `/api/v2`.
 No path outside `/api/v2` is requested by the API modules.
 Server operations and response decoding stay in `src/api/` and `src/contracts/v2/`.
@@ -166,7 +164,6 @@ Per-slot widths are added only when the image capability probe succeeded.
 ### Auth and sessions
 
 Sign-in is a device code (`src/session/deviceLogin.ts`), with a password fallback through the native `/auth/login` route when the server offers it.
-The retired Jellyfin Quick Connect and password endpoints are never used.
 
 | Operation | Method and path | Auth | Retry | Notes |
 | --- | --- | --- | --- | --- |

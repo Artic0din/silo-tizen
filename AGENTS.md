@@ -53,7 +53,7 @@ boundaries.
 
 [Native API v2](docs/native-api-v2.md) lists every operation the app calls, with its auth, gating and error handling.
 
-- The packaged app uses Silo's native `/api/v2` through `src/api/`, `src/contracts/v2/` and the session owners. The earlier Jellyfin-compatible client is retired; do not reintroduce its endpoints or authorization header.
+- The packaged app uses only Silo's native `/api/v2`, through `src/api/`, `src/contracts/v2/` and the session owners.
 - Keep server operations and response decoding in the existing API and contract modules. UI and player controllers use the existing session transport and active profile authority rather than assembling separate authorization paths.
 - Server CORS behavior and platform origin restrictions must be checked on the runtime being claimed.
 - `DeviceId` is generated once per install and stored locally; never derive it from a server URL or account.
@@ -61,7 +61,7 @@ boundaries.
 
 ### Auth and discovery
 
-- Sign-in uses native device-code approval, followed by household profile selection and PIN verification when required. Add another sign-in method only against the native server contract; do not use Jellyfin Quick Connect or password endpoints.
+- Sign-in uses native device-code approval, followed by household profile selection and PIN verification when required. Add another sign-in method only against the native server contract.
 - Manual HTTPS server entry uses the native discovery and capability flow. Do not treat the web simulator as evidence that LAN discovery or pinned local certificates work on a TV.
 
 ### Playback

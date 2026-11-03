@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { decodeRating, ratingOperations, RatingState } from "../../src/ui/ratingState.ts";
 import { connected, signIn } from "./support/harness.ts";
 import { FakeDetails } from "./support/fakeDetails.ts";
-import { problem } from "./support/fakeSilo.ts";
+import { problem, type Reply } from "./support/fakeSilo.ts";
 
 test("rating contract checks identity, integer scale, and non-retryable writes", () => {
     assert.equal(decodeRating({ item_id: "a/b", rating: 4 }, "a/b"), 4);
@@ -95,4 +95,39 @@ test("Clear sends a DELETE and the server rating is gone", async () => {
     assert.equal(state.value, null);
     assert.equal(catalog.mutations[catalog.mutations.length - 1], "DELETE /ratings/movie%3Am0001");
     assert.equal(catalog.ratings.size, 0);
+});
+
+/** The server stores a PUT only when commit() runs, so a read before it sees the old rating. */
+class LateCommitDetails extends FakeDetails {
+    private commitWrite: (() => void) | undefined;
+    override route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): Reply | undefined {
+        if (method !== "PUT" || !path.startsWith("/ratings/")) return super.route(method, path, profileId, body);
+        this.commitWrite = () => { super.route(method, path, profileId, body); };
+        return { status: 204 };
+    }
+    commit(): void { this.commitWrite?.(); this.commitWrite = undefined; }
+}
+
+test("a rating write that lands after the page stops and restarts is reconciled, never shown stale", async () => {
+    const h = await connected();
+    await signIn(h);
+    const catalog = new LateCommitDetails();
+    h.fake.catalog = catalog;
+    h.core.profiles.select({ id: "p-owner", name: "Owner", hasPin: false, isPrimary: true, isChild: false, avatarUrl: undefined });
+    const state = new RatingState(h.core.session, "movie:m0001", () => undefined, () => false);
+    state.start(); await h.clock.advance(0);
+    assert.equal(state.value, null);
+    const held = h.fake.hold("/ratings/movie%3Am0001");
+    state.save(4); await h.clock.advance(0);
+    assert.equal(state.pending, true);
+    state.stop(); state.start(); await h.clock.advance(0);
+    assert.equal(state.pending, false);
+    assert.equal(state.value, null, "the old confirmed value stays until the write has settled");
+    assert.equal(state.loading, true, "the restart read waits for the write in flight");
+    assert.equal(h.fake.requests.filter(request => request.method === "GET" && request.path === "/ratings/movie%3Am0001").length, 1, "no read before the write can commit");
+    catalog.commit(); held.release(); await h.clock.advance(0);
+    assert.equal(state.loading, false);
+    assert.equal(state.failed, false);
+    assert.equal(state.value, 4, "the page shows what the server stored");
+    state.stop();
 });

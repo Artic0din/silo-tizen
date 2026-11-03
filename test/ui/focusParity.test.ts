@@ -115,7 +115,7 @@ async function focusClip(tv: Tv): Promise<{ key: string; transform: string; insi
         const rect = art.getBoundingClientRect();
         let inside = true;
         const clippedBy: string[] = [];
-        for (let node = card.parentElement; node !== null; node = node.parentElement) {
+        for (let node: HTMLElement | null = card; node !== null; node = node.parentElement) {
             const style = getComputedStyle(node);
             if (!/hidden|clip|auto|scroll/.test(`${style.overflowX} ${style.overflowY}`)) continue;
             const bounds = node.getBoundingClientRect();
@@ -173,13 +173,26 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
                     const title = card?.querySelector(".browse-card-title");
                     const neighbor = card?.parentElement?.querySelector(".browse-card:not(:focus) .browse-card-title");
                     if (art == null || title == null || neighbor == null) throw new Error("shelf captions missing");
-                    return { focused: getComputedStyle(title).color, unfocused: getComputedStyle(neighbor).color, cue: getComputedStyle(art).boxShadow };
+                    const captions = [...card?.querySelectorAll(".browse-card-title, .browse-card-subtitle") ?? []];
+                    return {
+                        focused: getComputedStyle(title).color, unfocused: getComputedStyle(neighbor).color, cue: getComputedStyle(art).boxShadow,
+                        captions: captions.map(node => {
+                            const style = getComputedStyle(node), matrix = new DOMMatrixReadOnly(style.transform);
+                            return { linear: [matrix.a, matrix.b, matrix.c, matrix.d], scale: style.scale };
+                        }),
+                        transitions: [art, ...captions].map(node => getComputedStyle(node).transitionDuration),
+                    };
                 });
                 assert.equal(style.focused, "rgb(255, 255, 255)");
                 assert.equal(style.unfocused, "rgba(237, 237, 237, 0.45)");
+                for (const caption of style.captions) {
+                    assert.deepEqual(caption.linear, [1, 0, 0, 1], "captions translate without scaling");
+                    assert.equal(caption.scale, "none", "captions have no independent scale");
+                }
                 if (reducedMotion === "reduce") {
                     assert.equal(focused.artGrowth, 0);
-                    assert.ok(style.cue.includes("4px"), "reduced motion keeps an artwork focus ring");
+                    assert.equal(style.cue, "rgba(255, 255, 255, 0.9) 0px 0px 0px 4px", "reduced motion keeps a zero-offset, zero-blur 4px ring");
+                    assert.deepEqual(style.transitions, ["0s", "0s", "0s"], "reduced motion disables artwork and caption transitions");
                 }
             }
             assert.equal(tv.fake.requests.length, reads, "shelf focus movement makes no requests");

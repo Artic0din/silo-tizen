@@ -1,3 +1,20 @@
+Profile avatar artwork — https://www.dicebear.com/licenses/
+
+Fun Emoji is a DiceBear remix of Fun Emoji Set by Davis Uche.
+Source: https://www.figma.com/community/file/968125295144990435
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+
+Bottts Neutral uses Bottts by Pablo Stanley, via DiceBear.
+Source and terms: https://bottts.com/
+Style terms: https://www.dicebear.com/styles/bottts-neutral/
+
+Identicon and Pixel Art Neutral are by DiceBear, under CC0 1.0.
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Avatars are generated from preset seeds and displayed with circular or
+rounded cropping. No DiceBear software is bundled with this app.
+
 ThumbHash decoder — https://github.com/evanw/thumbhash
 
 Copyright (c) 2023 Evan Wallace

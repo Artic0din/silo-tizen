@@ -48,7 +48,7 @@ test("vendored contract fixtures decode with the production decoders", () => {
     assert.equal(decodeDeviceLoginCancel(fixture("cancel_device_login_ok")), "canceled");
     assert.deepEqual(decodeRefreshedTokens(fixture("refresh_session_ok")), { accessToken: "acc2", refreshToken: "ref2", expiresInSeconds: 3600 });
     assert.deepEqual(decodeProfileCollection(fixture("list_profiles_ok")), [
-        { id: "p-owner", name: "Laura", hasPin: false, isPrimary: true, isChild: false, avatarUrl: "/avatars/presets/fox.png" },
+        { id: "p-owner", name: "Laura", hasPin: false, isPrimary: true, isChild: false, avatarUrl: "/avatars/presets/fox.png", avatar: "preset:fox" },
     ]);
     assert.deepEqual(decodeProfileVerification(fixture("verify_profile_pin_ok")), {
         valid: true,

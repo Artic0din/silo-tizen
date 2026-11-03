@@ -11,6 +11,8 @@ import {
     decodeDeviceLoginPoll,
     decodeDeviceLoginStart,
     decodeProfileCollection,
+    decodeProfileSummary,
+    type ProfileCreateBody,
     decodeProfileVerification,
     decodeRefreshedTokens,
     decodeServerIdentity,
@@ -184,6 +186,14 @@ export const operations = {
         path: "/profiles",
         retry: "safe",
         decode: decodeProfileCollection,
+    }),
+    /** createProfile: non_retryable; a lost answer may already have created it. */
+    createProfile: (body: ProfileCreateBody): Spec<ReturnType<typeof decodeProfileSummary>> => ({
+        method: "POST",
+        path: "/profiles",
+        retry: "never",
+        body: { ...body },
+        decode: decodeProfileSummary,
     }),
     /** verifyProfilePIN: non_retryable, every check counts toward the lockout. */
     verifyProfilePin: (profileId: string, pin: string): Spec<ReturnType<typeof decodeProfileVerification>> => ({

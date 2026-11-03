@@ -60,6 +60,7 @@ export class ProfileLaunch {
 
     get needsOffer(): boolean { return this.choice() === undefined; }
     get remembered(): boolean { return this.choice()?.remember === true; }
+    get rememberedProfileId(): string | undefined { const choice = this.choice(); return choice?.remember === true ? choice.profileId : undefined; }
 
     continueWithoutSaving(): void {
         const key = this.key();

@@ -1,0 +1,145 @@
+name: Promote
+
+# Turns a tester build into a store release without rebuilding it: drafts the
+# GitHub release vX.Y.Z on the same commit with the same .wgt, and writes the
+# store notes. Samsung TV Seller Office has no upload API, so a maintainer
+# uploads that .wgt in Seller Office, and publishes the GitHub release once
+# Samsung approves it. The draft already carries silo-tizen-latest.wgt, so
+# releases/latest/download/silo-tizen-latest.wgt serves it once published.
+# See docs/releasing.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tester build to release, for example v1.1.0-beta.22"
+        required: true
+        type: string
+
+# Shares release.yml's group, so a tester build and a promotion never overlap.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  promote:
+    name: Promote ${{ inputs.tag }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # draft the release
+    env:
+      # GitHub refuses GITHUB_TOKEN a release on a commit whose workflow files differ from
+      # main's. RELEASE_TOKEN, a token with Contents and Workflows write, lifts that limit.
+      GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+      HAS_RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN != '' }}
+      BETA_TAG: ${{ inputs.tag }}
+    steps:
+      # Runs with contents: write, so only main's reviewed scripts may run here.
+      - name: Require main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Promote runs from main."
+          exit 1
+
+      - name: Check out sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the tester build
+        id: build
+        run: |
+          python3 scripts/release-version.py beta "${BETA_TAG}" > build.txt
+          cat build.txt >> "${GITHUB_OUTPUT}"
+          release_tag="$(sed -n 's/^release_tag=//p' build.txt)"
+          # A failed upload leaves the tester build as a draft, which testers never got.
+          if [[ "$(gh release view "${BETA_TAG}" --json isPrerelease,isDraft --jq '"\(.isPrerelease) \(.isDraft)"' 2>/dev/null || true)" != "true false" ]]; then
+            echo "::error::${BETA_TAG} has no published tester build on GitHub."
+            exit 1
+          fi
+          if gh release view "${release_tag}" > /dev/null 2>&1; then
+            echo "::error::${release_tag} already exists (possibly as a draft). Delete the draft to promote again."
+            exit 1
+          fi
+          # gh release create would reuse an existing tag's commit instead of the tester build's.
+          if gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${release_tag}" > /dev/null 2>&1; then
+            echo "::error::The tag ${release_tag} already exists without a release. Delete it to promote again."
+            exit 1
+          fi
+          commit="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${BETA_TAG}" --jq .sha)"
+          echo "commit=${commit}" >> "${GITHUB_OUTPUT}"
+          if [[ "${HAS_RELEASE_TOKEN}" != "true" ]]; then
+            changed="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${commit}...${GITHUB_SHA}" \
+              --jq '[.files[].filename | select(startswith(".github/workflows/"))] | length')"
+            if [[ "${changed}" != "0" ]]; then
+              echo "::error::Workflow files changed on main since ${BETA_TAG}, so GITHUB_TOKEN cannot release that commit. Add a RELEASE_TOKEN secret (Contents and Workflows write) or promote a newer tester build. See docs/releasing.md."
+              exit 1
+            fi
+          fi
+          # Notes cover everything since the last store release, or every
+          # change when there is none yet.
+          previous_release="$(gh release view --json tagName --jq .tagName 2>/dev/null || true)"
+          echo "previous_release=${previous_release}" >> "${GITHUB_OUTPUT}"
+
+      - name: Write release notes
+        env:
+          RELEASE_TAG: ${{ steps.build.outputs.release_tag }}
+          COMMIT: ${{ steps.build.outputs.commit }}
+          PREVIOUS_RELEASE: ${{ steps.build.outputs.previous_release }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+            -f tag_name="${RELEASE_TAG}" -f target_commitish="${COMMIT}" \
+            ${PREVIOUS_RELEASE:+-f previous_tag_name="${PREVIOUS_RELEASE}"} --jq .body > notes.md
+          python3 scripts/release-version.py store-notes 500 < notes.md > store-notes.txt
+          cat store-notes.txt
+
+      - name: Draft the GitHub release
+        env:
+          VERSION: ${{ steps.build.outputs.version }}
+          BUILD: ${{ steps.build.outputs.build }}
+          RELEASE_TAG: ${{ steps.build.outputs.release_tag }}
+          COMMIT: ${{ steps.build.outputs.commit }}
+        run: |
+          name="silo-tizen-${VERSION}-${BUILD}.wgt"
+          # Seller Office refuses package file names with characters other than letters,
+          # digits, spaces and underscores, so the draft also carries the same bytes as Silo_X_Y_Z_B.wgt.
+          upload="Silo_${VERSION//./_}_${BUILD}.wgt"
+          gh release download "${BETA_TAG}" --dir wgt --pattern "${name}" --pattern "${name}.sha256"
+          (cd wgt && sha256sum --check "${name}.sha256")
+          cp "wgt/${name}" "wgt/${upload}"
+          # A release event would run the tester commit's workflows, which can predate any
+          # handler, so the fixed latest name is attached here rather than on publication.
+          cp "wgt/${name}" wgt/silo-tizen-latest.wgt
+          {
+            echo "Silo for Tizen ${VERSION}, build ${BUILD}: the tester build ${BETA_TAG}, on the Samsung TV store."
+            echo
+            cat notes.md
+            echo
+            echo "### Install"
+            echo
+            echo "Get Silo from the Apps store on your Samsung TV."
+            echo "To install the package yourself: \`${name}\`, checked with its \`.sha256\` file."
+          } > body.md
+          gh release create "${RELEASE_TAG}" --draft --target "${COMMIT}" \
+            --title "Silo for Tizen ${VERSION}" --notes-file body.md "wgt/${name}" "wgt/${name}.sha256" "wgt/${upload}" wgt/silo-tizen-latest.wgt
+          {
+            echo "Drafted ${RELEASE_TAG} with \`${name}\`."
+            echo
+            echo "Next, in [TV Seller Office](https://seller.samsungapps.com/tv/):"
+            echo
+            echo "1. **Applications > App Package > Upload**: upload \`${upload}\` from the ${RELEASE_TAG} draft (the same bytes as \`${name}\`)."
+            echo "2. Paste the store notes below into the release notes and submit the version for certification."
+            echo "3. Publish the ${RELEASE_TAG} GitHub release once Samsung approves it."
+            echo
+            echo "### Store notes"
+            echo
+            # Indented, so the text shows as a code block whatever it contains.
+            sed 's/^/    /' store-notes.txt
+          } >> "${GITHUB_STEP_SUMMARY}"

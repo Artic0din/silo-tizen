@@ -19,6 +19,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added Silo issue forms, contact links, a pull request template, evidence paths, release-note categories and the Discord commit feed, matching the Apple and Android apps.
 - Added a separate library Browse grid with continuous loading, sort and filter panels, an A–Z prefix rail, remembered preferences and server-owned Shuffle, while keeping Recommended and the existing library destinations.
 - Connected to plain-HTTP Silo servers like the Apple TV app: a typed `http://` address connects directly, and an address without a scheme tries HTTPS first, then asks "Connect without encryption?" before sending anything unencrypted.
 - Added "Sign in with a password" beside the sign-in code, as on the Apple TV app; servers without code sign-in open on the password screen, and servers that turned passwords off hide it.

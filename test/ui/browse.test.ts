@@ -1197,7 +1197,16 @@ browseTest("Browse keeps Down in the final grid row while the next page is pendi
     await press(tv, "ArrowLeft", "ArrowRight"); await tv.jump(300);
     await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length === before + 1, "pending Browse append");
     const focus = await tv.focused();
-    await press(tv, "ArrowDown");
+    const moves = await tv.page.evaluate(() => {
+        const focused = [document.activeElement?.getAttribute("data-focus")];
+        // Keep the key sequence together so a background redraw cannot repair stale focus memory.
+        for (const [key, keyCode] of [["ArrowLeft", 37], ["ArrowRight", 39], ["ArrowDown", 40]] as const) {
+            document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key, keyCode, bubbles: true, cancelable: true }));
+            focused.push(document.activeElement?.getAttribute("data-focus"));
+        }
+        return focused;
+    });
+    assert.deepEqual(moves, [focus, "movie:m0099", focus, focus]);
     assert.equal(await tv.focused(), focus);
     held.release();
     await tv.eventually(async () => await tv.page.locator('.catalog-grid .browse-card').count() === 200, "completed Browse append");

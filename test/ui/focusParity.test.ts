@@ -177,6 +177,8 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await signedIn(tv);
             await openLibrary(tv);
             await tv.jump(300);
+            const titles = await tv.page.locator('.home-section .browse-card:not(.skyline-explore)').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? ""));
+            await tv.eventually(async () => titles.every(id => tv.fake.requests.some(request => request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(id)}`)), "Recommended enrichment queue dispatched");
             const reads = tv.fake.requests.length;
             for (const moves of [0, 19]) {
                 for (let step = 0; step < moves; step++) await tv.remote(39);

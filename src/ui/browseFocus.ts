@@ -277,7 +277,7 @@ export class FocusHost {
             document.removeEventListener("keydown", this.onPress, true);
             document.removeEventListener("keyup", this.onRelease, true);
             document.removeEventListener("focusout", this.cancelPress);
-            this.container.removeEventListener("focusout", this.rememberContent);
+            this.container.removeEventListener("focusin", this.rememberContent);
             document.removeEventListener("visibilitychange", this.cancelPress);
             window.removeEventListener("blur", this.cancelPress);
             this.press = undefined;
@@ -301,7 +301,7 @@ export class FocusHost {
             document.addEventListener("keydown", this.onPress, true);
             document.addEventListener("keyup", this.onRelease, true);
             document.addEventListener("focusout", this.cancelPress);
-            this.container.addEventListener("focusout", this.rememberContent);
+            this.container.addEventListener("focusin", this.rememberContent);
             document.addEventListener("visibilitychange", this.cancelPress);
             window.addEventListener("blur", this.cancelPress);
             this.listening = true;

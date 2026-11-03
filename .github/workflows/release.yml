@@ -96,8 +96,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PREVIOUS_TAG: ${{ steps.version.outputs.previous_tag }}
         run: |
-          if [[ -n "${PREVIOUS_TAG}" ]] && ! gh release view "${PREVIOUS_TAG}" --repo "${GITHUB_REPOSITORY}" > /dev/null; then
-            echo "::error::${PREVIOUS_TAG} has no release, so its run failed. Re-run that run's failed jobs, or delete the tag if it never published."
+          if [[ -z "${PREVIOUS_TAG}" ]]; then
+            exit 0
+          fi
+          # A failed upload leaves the release as a draft, which testers never got.
+          is_draft="$(gh release view "${PREVIOUS_TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft --jq .isDraft 2>/dev/null || true)"
+          if [[ "${is_draft}" != "false" ]]; then
+            echo "::error::${PREVIOUS_TAG} has no published release, so its run failed. Re-run that run's failed jobs, or delete the tag if it never published."
             exit 1
           fi
 

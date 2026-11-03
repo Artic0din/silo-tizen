@@ -37,6 +37,13 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       BETA_TAG: ${{ inputs.tag }}
     steps:
+      # Runs with contents: write, so only main's reviewed scripts may run here.
+      - name: Require main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Promote runs from main."
+          exit 1
+
       - name: Check out sources
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -55,6 +62,11 @@ jobs:
           fi
           if gh release view "${release_tag}" > /dev/null 2>&1; then
             echo "::error::${release_tag} already exists (possibly as a draft). Delete the draft to promote again."
+            exit 1
+          fi
+          # gh release create would reuse an existing tag's commit instead of the tester build's.
+          if gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${release_tag}" > /dev/null 2>&1; then
+            echo "::error::The tag ${release_tag} already exists without a release. Delete it to promote again."
             exit 1
           fi
           commit="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${BETA_TAG}" --jq .sha)"

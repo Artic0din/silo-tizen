@@ -31,8 +31,8 @@ export interface FocusItem {
 }
 
 export interface Zone {
-    /** A screen's current root, used when entering its navigation row. */
-    readonly entry?: string;
+    /** An explicit entry target; clearing it returns the zone to remembered-item restoration. */
+    readonly entry?: string | undefined;
     readonly onLeft?: () => void;
     readonly id: string;
     readonly up?: string;

@@ -34,6 +34,8 @@ import { nextEpisode } from "./nextEpisode.ts";
 import { nextShuffle } from "./nextShuffle.ts";
 import { SubtitleAI, type SubtitleAIView } from "./subtitleAI.ts";
 import { DEFAULT_APPEARANCE, decodeCues, type SubtitleAppearance, type SubtitleCue } from "../contracts/v2/subtitles.ts";
+import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
+import { initialSubtitle } from "./preplaySubtitles.ts";
 import { PlaybackRecovery, recoveryVerdict, type RecoveryStep, type RecoveryVerdict, unanswered } from "./playbackRecovery.ts";
 
 /** What browse hands over: one file of one catalog item. */
@@ -41,6 +43,7 @@ export interface PlayRequest {
     readonly shuffleId?: string;
     readonly episode?: true;
     readonly audioTrackId?: string;
+    readonly subtitle?: SubtitleIntent;
     readonly allowAlternateVersions?: false;
     readonly contentId: string;
     readonly fileId: string;
@@ -837,7 +840,27 @@ export class PlaybackController implements PlayerControls {
             return;
         }
         this.scheduleProgress(attempt);
-        this.adopt(attempt, decision.plan, decision.serverFeatures);
+        await this.startSubtitles(attempt, decision.plan, decision.serverFeatures);
+    }
+
+    private async startSubtitles(attempt: Attempt, plan: PlaybackPlan, serverFeatures: readonly string[]): Promise<void> {
+        attempt.sourceSeconds = plan.timeline.sourceStartSeconds;
+        if (attempt.request.allowAlternateVersions === false && plan.effectiveMediaFileId !== attempt.request.fileId) {
+            this.fail(attempt, { kind: "terminal", reason: "version_unavailable", message: "The selected version is no longer available. Choose another version in Details.", retryable: false }, true);
+            return;
+        }
+        const intent = attempt.request.subtitle;
+        try {
+            if (intent === undefined) { this.adopt(attempt, plan, serverFeatures); return; }
+            const preferences = intent.kind === "auto" ? await this.deps.session.call({ ...operations.preplaySubtitlePreferences(attempt.request.contentId, plan.effectiveMediaFileId, plan.selectedTracks.audio?.id), profileScoped: true, signal: attempt.signal }) : undefined;
+            if (!attempt.live) return;
+            const subtitle = initialSubtitle(intent, plan.subtitle.inventory, preferences);
+            if (subtitle === plan.subtitle.trackId) this.adopt(attempt, plan, serverFeatures);
+            else this.changeTracks(attempt, plan, { ...(plan.selectedTracks.audio === undefined ? {} : { audio: plan.selectedTracks.audio }), ...(subtitle === undefined ? {} : { subtitle: { id: subtitle } }) });
+        } catch {
+            const message = intent?.kind === "track" ? "The selected subtitles are unavailable on this version. Choose another track in Details." : "Could not read subtitle preferences. Return to Details to retry or choose Off.";
+            if (attempt.live) this.fail(attempt, { kind: "terminal", reason: "subtitle_selection_unavailable", message, retryable: false }, true);
+        }
     }
 
     private async replan(
@@ -886,6 +909,10 @@ export class PlaybackController implements PlayerControls {
             if (!current()) {
                 return;
             }
+            if (operation === "track_change" && attempt.plan === undefined) {
+                this.fail(attempt, startFailure(error), true);
+                return;
+            }
             if ((operation === "track_change" || operation === "quality_change") && unanswered(error) && attempt.presented
                 && (attempt.recovery?.active === true || (error instanceof ApiError && error.transient))) {
                 attempt.change = { state: "failed" };
@@ -911,6 +938,7 @@ export class PlaybackController implements PlayerControls {
             return;
         }
         if ((operation === "track_change" || operation === "quality_change") && decision.outcome === "adaptation_unavailable") {
+            if (attempt.plan === undefined) { this.fail(attempt, decisionFailure(decision), true); return; }
             // The server rolled the change back; the current plan and transport keep playing.
             this.changeSettled(attempt, { state: "refused", message: decision.terminal.message });
             return;
@@ -919,6 +947,14 @@ export class PlaybackController implements PlayerControls {
         if (decision.outcome === "playable") {
             if (decision.sessionId !== sessionId) {
                 this.fail(attempt, { kind: "server" }, true);
+                return;
+            }
+            if (attempt.plan === undefined && operation === "track_change" && decision.plan.effectiveMediaFileId !== plan.effectiveMediaFileId) {
+                this.fail(attempt, { kind: "server" }, true);
+                return;
+            }
+            if (attempt.plan === undefined && operation === "track_change" && (selectedSubtitle(decision.plan) !== selected.subtitle?.id || decision.plan.subtitle.mode === "unknown")) {
+                this.fail(attempt, { kind: "terminal", reason: "subtitle_selection_unavailable", message: "The selected subtitles are no longer available. Choose another track in Details.", retryable: false }, true);
                 return;
             }
             if (operation === "quality_change") {

@@ -89,7 +89,7 @@ File pointers are repository-relative.
 | Feature | Tizen | Apple TV | Android TV | Notes |
 |---|:---:|:---:|:---:|---|
 | Movie and series details (artwork, facts, ratings, cast and crew, versions) | ✅ | ✅ | ✅ | Layout parity open (#92). Android: `TvItemDetailScreen` |
-| Series → seasons → episodes | ✅ | ✅ | ✅ | Separate episode page to be dropped for direct play (#93) |
+| Series → seasons → episodes | ✅ | ✅ | ✅ | Tizen uses season chips and an inline episode rail; episode activation still opens Details pending direct play (#93). Season information remains in More |
 | Related titles | 🟡 | ✅ | ✅ | Series page shows "Could not load related titles" (#90). Apple: `TVSimilarRail` |
 | Person page (bio, age, photo, filmography preview) | ✅ | ✅ | ✅ | Layout parity open (#102). Android: `TvPersonDetailScreen` |
 | Full filmography (All, Movies, Series) | ✅ | ✅ | ✅ | Server-filtered, paged. Android: filter chips on `TvPersonDetailScreen`. Apple: `TVPersonDetailContent` with `PersonFilterBar`, paged |
@@ -156,6 +156,7 @@ File pointers are repository-relative.
 |---|:---:|:---:|:---:|---|
 | In-player audio track switch | ✅ | ✅ | ✅ | Server replans. Audible change not confirmed on a TV (#11) |
 | Preplay audio and file-version picker | ✅ | ✅ | ✅ | Tizen choice lasts one attempt; Apple persists per title or series. Apple: `TVPlaybackSelectorRow`. Android: `TvPlaybackSelectorRow` |
+| Preplay subtitle selection and Auto | 🟡 | ✅ | ? | Tizen offers catalog tracks, Auto and Off, resolved against the authoritative initial playback inventory. Choices last for the Details visit; downloaded choices and persistence use the in-player menu. Android preplay subtitle policy not rechecked |
 | Text subtitles (VTT/SRT, ASS dialogue) in an app overlay | ✅ | ✅ | ✅ | Captions not yet verified on a TV or simulator (#80). Android: Media3 `SubtitleManager` |
 | Embedded subtitle burn-in | ✅ | ✅ | ✅ | Server burns in when transcoding is allowed. Android: server plans render, convert or burn-in. Apple: server burn-in (`needsBurnIn`) |
 | ASS styling, bitmap subtitles | ➖ | ✅ | ? | Apple: ASS renderer ([`docs/tvos-player/ass-subtitles.md`](https://github.com/Silo-Server/silo-apple/blob/main/docs/tvos-player/ass-subtitles.md)). Android: PGS bitmap cues handled (`PgsSupExtractor`); ASS styling not established |

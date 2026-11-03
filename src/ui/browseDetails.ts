@@ -11,10 +11,15 @@ import { personMetadataBadges, personPortrait } from "./personHero.ts";
 import { el } from "./screen.ts";
 import { SkylineScroll } from "./skylineScroll.ts";
 import { remoteKey } from "./keys.ts";
+import { detailAction, detailPanel, ratingControls } from "./detailsActions.ts";
+import { matchesSubtitle } from "../player/preplaySubtitles.ts";
+import type { SubtitleSignature } from "../contracts/v2/preplaySubtitles.ts";
+import { seriesEpisodesView } from "./seriesEpisodesView.ts";
 
 /** Browse owns the dialog across optional-data renders and stops it on route teardown. */
 export class Synopsis {
     private panel: HTMLElement | undefined;
+    private covered: { element: HTMLElement; inert: boolean; hidden: string | null }[] = [];
     private readonly scroll = new SkylineScroll();
     private readonly container: HTMLElement;
     private readonly closed: () => void;
@@ -30,10 +35,17 @@ export class Synopsis {
         this.scroll.stop();
         this.panel?.remove();
         this.panel = undefined;
+        for (const { element, inert, hidden } of this.covered) {
+            element.inert = inert;
+            if (hidden === null) element.removeAttribute("aria-hidden"); else element.setAttribute("aria-hidden", hidden);
+        }
+        this.covered = [];
     }
 
     show(text: string): void {
         this.destroy();
+        this.covered = Array.from(this.container.children).filter((node): node is HTMLElement => node instanceof HTMLElement).map(element => ({ element, inert: element.inert, hidden: element.getAttribute("aria-hidden") }));
+        for (const { element } of this.covered) { element.inert = true; element.setAttribute("aria-hidden", "true"); }
         const panel = el("div", "skyline-synopsis-dialog");
         this.panel = panel;
         panel.tabIndex = 0;
@@ -80,7 +92,7 @@ function metaLine(detail: ItemDetail): string {
     return [...parts, ...detail.genres.slice(0, 3)].join(" · ");
 }
 
-function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonly FocusItem[], state?: DetailsState): HTMLElement[] {
+function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonly FocusItem[], state?: DetailsState, summary?: string): HTMLElement[] {
     const nodes: HTMLElement[] = [];
     const label = episodeLabel(detail.seasonNumber, detail.episodeNumber);
     if (detail.type === "episode" && (detail.seriesTitle !== undefined || label !== undefined)) {
@@ -102,13 +114,14 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     }
     nodes.push(title);
     const meta = metaLine(detail);
-    if (meta !== "") {
-        nodes.push(el("p", "browse-meta", meta));
-    }
-    if (detail.extra?.ratings.length) nodes.push(el("p", "browse-meta", detail.extra.ratings.map((rating) => `${rating.name} ${rating.display}`).join(" · ")));
+    const ratings = detail.extra?.ratings.map(rating => `${rating.name} ${rating.display}`).join(" · ");
+    if (meta || ratings) nodes.push(el("p", "browse-meta", [meta, ratings].filter(Boolean).join(" · ")));
     if (detail.overview !== undefined && detail.overview !== "") {
         nodes.push(el("p", "browse-text browse-overview", detail.overview));
     }
+    const directors = detail.extra?.crew.filter(credit => credit.role.toLowerCase() === "director").map(credit => credit.name);
+    if (directors?.length) nodes.push(el("p", "details-director", `Director: ${directors.join(", ")}`));
+    if (summary !== undefined) nodes.push(el("p", "details-playback-summary", summary));
     const layout = el("div", "details-hero");
     layout.appendChild(artwork("details-backdrop", detail.backdropUrl ?? detail.posterUrl, context.baseUrl, ""));
     const info = el("div", "details-editorial");
@@ -126,7 +139,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     const choices = playChoices(detail, state?.selectedFileId);
     const choose = (request: PlayRequest): void => {
         const audioTrackId = state?.audioTrackId();
-        play({ ...request, ...(audioTrackId === undefined ? {} : { audioTrackId }) });
+        play({ ...request, ...(audioTrackId === undefined ? {} : { audioTrackId }), ...(state === undefined ? {} : { subtitle: state.subtitleIntent() }) });
     };
     if (choices?.resume !== undefined) {
         const resume = choices.resume;
@@ -141,11 +154,15 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     if ((detail.type === "series" || detail.type === "season") && next !== undefined) {
         actions.push(actionButton("next-episode", "Next episode", () => context.open({ kind: "item", id: next, title: detail.title })));
     }
-    const seasonItems = detail.type === "series" ? seasons.map((season) => seasonItem(detail.id, detail.title, season, context)) : [];
+    const series = state?.series === undefined ? undefined : seriesEpisodesView(state.series, context);
+    const seasonItems = series?.zones[0]?.items ?? (detail.type === "series" ? seasons.map((season) => seasonItem(detail.id, detail.title, season, context)) : []);
     const overview = detail.overview;
     const file = detail.versions.find(file => file.fileId === choices?.fromStart.fileId);
     const audio = file?.audio ?? [];
     const selectedAudio = state?.audioTrackId();
+    const subtitle = state?.subtitleIntent();
+    const subtitleLabel = (track: SubtitleSignature): string => [track.label || track.language?.toUpperCase() || "Unknown language", track.codec?.toUpperCase(), track.forced ? "Forced" : undefined, track.hearingImpaired ? "SDH" : undefined].filter(Boolean).join(" · ");
+    const selectedSubtitleLabel = subtitle?.kind === "track" ? subtitleLabel(subtitle.signature) : subtitle?.kind === "off" ? "Off" : "Auto";
     const audioLabel = (index: number): string => {
         const track = audio[index];
         return [track?.title || track?.language?.toUpperCase() || `Track ${index + 1}`, track?.codec?.toUpperCase(), track?.channels ? `${track.channels} ch` : undefined].filter(Boolean).join(" · ");
@@ -156,8 +173,11 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         trigger.element.setAttribute("aria-haspopup", "dialog");
         trigger.element.setAttribute("aria-expanded", String(state.audioOpen));
         actions.push(trigger);
+        const subtitles = actionButton("subtitles", `Subtitles: ${selectedSubtitleLabel}`, () => state.showPanel("subtitles"));
+        subtitles.element.setAttribute("aria-haspopup", "dialog");
+        subtitles.element.setAttribute("aria-expanded", String(state.panel === "subtitles"));
+        actions.push(subtitles);
     }
-    if (overview) actions.push(actionButton("synopsis", "Read synopsis", () => synopsis.show(overview)));
     if (detail.type === "series" && seasonItems.length === 0) {
         notes.push("This series has no seasons yet.");
     }
@@ -169,7 +189,22 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         const request = state.failedPlay;
         actions.push(actionButton("retry-play", "Try again", () => play(request)));
     }
-    const content = [...detailHeader(detail, context, actions, state), ...lines(notes)];
+    const personal = state === undefined ? undefined : personalControls(state);
+    const watchlist = personal?.items.find(item => item.key === "watchlist");
+    if (watchlist !== undefined) actions.push(watchlist);
+    if (state !== undefined) {
+        if (detail.versions.length > 0) {
+            const version = actionButton("version", `Version: ${file?.label || "Auto"}`, () => state.showPanel("version"));
+            version.element.setAttribute("aria-haspopup", "dialog");
+            actions.splice(actions.findIndex(item => item.key === "audio"), 0, version);
+        }
+        const more = actionButton("more", "More", () => state.showPanel("more"));
+        more.element.setAttribute("aria-haspopup", "dialog");
+        actions.push(more);
+    } else if (overview) actions.push(actionButton("synopsis", "Read synopsis", () => synopsis.show(overview)));
+    const ordinal = audio.findIndex((_track, index) => selectedAudio === `file:${file?.fileId}:audio:${index}`);
+    const summary = choices === undefined ? undefined : `Version: ${file?.label || "Auto"} · Audio: ${ordinal === -1 ? "Auto" : audioLabel(ordinal)} · Subtitles: ${selectedSubtitleLabel}`;
+    const content = [...detailHeader(detail, context, actions.map(detailAction), state, summary), ...lines(notes), ...personal?.notes ?? []];
     if (state?.preparingPlay) {
         const status = el("p", "browse-text", "Checking resume position…");
         status.setAttribute("role", "status");
@@ -180,49 +215,14 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         content.push(...lines(["Could not check resume position."], "error"));
     }
     if (state?.titleArtPolicy === "failed") content.push(...lines(["Could not load title-art settings."], "error"));
-    if (seasonItems.length > 0) {
+    if (series !== undefined) content.push(...series.content);
+    else if (seasonItems.length > 0) {
         content.push(el("h2", "browse-section-title", "Seasons"), zoneNode("browse-row", seasonItems));
     }
     const zones: Zone[] = [
         { id: "actions", layout: "row", items: actions },
-        { id: "seasons", layout: "row", items: seasonItems },
+        ...series?.zones ?? [{ id: "seasons", layout: "row" as const, items: seasonItems }],
     ];
-    if (state !== undefined) {
-        const versions = detail.versions.length > 1 ? detail.versions.map((file, index) => {
-            const item = actionButton(`version:${file.fileId}`, file.label || `Version ${index + 1}`, () => state.select(file.fileId));
-            item.element.setAttribute("aria-pressed", String(file.fileId === choices?.fromStart.fileId));
-            return item;
-        }) : [];
-        if (versions.length > 0) {
-            content.push(el("h2", "browse-section-title", "Versions"), zoneNode("browse-row details-versions", versions));
-            zones.push({ id: "versions", layout: "row", items: versions });
-        }
-        const personal = personalControls(state);
-        content.push(...personal.notes, zoneNode("browse-actions", personal.items));
-        zones.push({ id: "personal", layout: "row", items: personal.items });
-        if (["movie", "series"].includes(detail.type)) {
-            const rating = state.rating;
-            const items = [1, 2, 3, 4, 5].map(stars => {
-                const item = actionButton(`rating:${stars}`, `${stars} ${stars === 1 ? "star" : "stars"}`, () => rating.save(stars));
-                item.element.setAttribute("aria-pressed", String(rating.value === stars));
-                item.element.setAttribute("aria-disabled", String(state.busy || rating.loading || rating.value === undefined));
-                return item;
-            });
-            const clear = actionButton("rating:clear", "Clear rating", () => rating.save(null));
-            clear.element.setAttribute("aria-disabled", String(state.busy || rating.loading || rating.value === undefined));
-            items.push(clear);
-            if (rating.failed) {
-                const retry = actionButton("rating:retry", "Retry rating", () => rating.failedTarget === undefined ? rating.load() : rating.save(rating.failedTarget, true));
-                retry.element.setAttribute("aria-disabled", String(state.busy || rating.loading || rating.pending));
-                items.push(retry);
-            }
-            const status = rating.failed ? "Could not confirm rating." : rating.pending ? "Saving rating…" : rating.loading ? "Loading rating…" : rating.value == null ? "Your rating: Not rated" : `Your rating: ${rating.value} of 5 stars`;
-            const note = el("p", "browse-text", status);
-            note.setAttribute("role", rating.failed ? "alert" : "status");
-            content.push(note, zoneNode("browse-actions", items));
-            zones.push({ id: "rating", layout: "row", items });
-        }
-    }
     const credits: Credit[] = [];
     for (const credit of [...detail.extra?.cast ?? [], ...detail.extra?.crew ?? []]) {
         const index = credits.findIndex((previous) => credit.id ? previous.id === credit.id : previous.id === undefined && previous.name === credit.name);
@@ -267,26 +267,49 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         zones.push({ id: "facts", layout: "column", items });
     }
     const first = actions[0] ?? seasonItems[0];
-    if (state?.audioOpen) {
-        const panel = el("div", "skyline-selector details-audio-picker");
-        panel.setAttribute("role", "dialog");
-        panel.setAttribute("aria-modal", "true");
-        panel.setAttribute("aria-label", "Audio");
-        panel.appendChild(el("h2", "browse-section-title", "Audio"));
+    const view: View = { name: `item:${detail.id}`, content, zones, focus: first === undefined ? undefined : { zone: actions[0] === undefined ? "seasons" : "actions", key: first.key }, back };
+    if (state?.panel === "audio") {
         const options = [undefined, ...audio.map((_track, index) => index)].map(ordinal => {
             const item = actionButton(`audio:${ordinal ?? "auto"}`, ordinal === undefined ? "Auto" : audioLabel(ordinal), () => state.selectAudio(ordinal));
             item.element.setAttribute("role", "radio");
             item.element.setAttribute("aria-checked", String(ordinal === undefined ? selectedAudio === undefined : selectedAudio === `file:${file?.fileId}:audio:${ordinal}`));
             return item;
         });
-        panel.appendChild(zoneNode("details-audio-options", options));
-        const scrim = el("div", "skyline-dropdown-scrim");
-        scrim.addEventListener("click", () => state.closeAudio());
-        content.push(scrim, panel);
-        const selected = options.find(item => item.element.getAttribute("aria-checked") === "true") ?? options[0];
-        return { name: `item:${detail.id}:audio`, content, zones: [{ id: "audio", layout: "column", items: options }], focus: selected === undefined ? undefined : { zone: "audio", key: selected.key }, back: () => state.closeAudio() };
+        return detailPanel(view, state, "Audio", options);
     }
-    return { name: `item:${detail.id}`, content, zones, focus: first === undefined ? undefined : { zone: actions[0] === undefined ? "seasons" : "actions", key: first.key }, back };
+    if (state?.panel === "version") {
+        const options = [undefined, ...detail.versions].map((version, index) => {
+            const item = actionButton(`version:${version?.fileId ?? "auto"}`, version?.label || (version === undefined ? "Auto" : `Version ${index}`), () => { state.select(version?.fileId); state.closePanel(); });
+            item.element.setAttribute("role", "radio");
+            item.element.setAttribute("aria-checked", String(version?.fileId === state.selectedFileId));
+            return item;
+        });
+        return detailPanel(view, state, "Version", options);
+    }
+    if (state?.panel === "subtitles") {
+        const choices = [undefined, "off" as const, ...(file?.subtitles ?? []).map((_track, index) => index)];
+        const options = choices.map(choice => {
+            const track = typeof choice === "number" ? file?.subtitles?.[choice] : undefined;
+            const item = actionButton(`subtitle:${choice ?? "auto"}`, track === undefined ? choice === "off" ? "Off" : "Auto" : subtitleLabel(track), () => state.selectSubtitle(choice));
+            item.element.setAttribute("role", "radio");
+            item.element.setAttribute("aria-checked", String(track === undefined ? subtitle?.kind === (choice === "off" ? "off" : "auto") : subtitle?.kind === "track" && matchesSubtitle(track, subtitle.signature)));
+            return item;
+        });
+        return detailPanel(view, state, "Subtitles", options);
+    }
+    if (state?.panel === "more") {
+        const items = personal?.items.filter(item => item.key !== "watchlist") ?? [];
+        const season = seasons.find(season => season.seasonNumber === state.series?.seasonNumber);
+        if (season !== undefined) items.push(actionButton("season-info", `${season.title} details`, () => context.open({ kind: "season", id: season.id, seriesId: detail.id, seasonNumber: season.seasonNumber, title: `${detail.title} · ${season.title}` })));
+        if (overview) items.push(actionButton("synopsis", "Read synopsis", () => synopsis.show(overview)));
+        if (["movie", "series"].includes(detail.type)) items.push(actionButton("rate", "Rate title", () => state.showPanel("rating")));
+        return detailPanel(view, state, "More", items.length ? items : [actionButton("close-more", "Close", () => state.closePanel())], personal?.notes);
+    }
+    if (state?.panel === "rating") {
+        const rating = ratingControls(state);
+        return detailPanel(view, state, "Rate title", rating.items, [rating.note]);
+    }
+    return view;
 }
 
 export function personalControls(state: DetailsState): { items: FocusItem[]; notes: HTMLElement[] } {
@@ -385,6 +408,10 @@ export function seasonView(name: string, title: string, episodes: readonly Episo
     const fallback = items.length === 0 ? [actionButton("back", "Back", back)] : [];
     if (fallback.length > 0) {
         content.push(zoneNode("browse-actions", fallback));
+    }
+    if (header !== undefined && state?.panel !== undefined) {
+        for (const node of content) if (!node.matches(".skyline-selector, .skyline-dropdown-scrim")) { node.inert = true; node.setAttribute("aria-hidden", "true"); }
+        return { ...header, content };
     }
     const zones: Zone[] = [
         { id: "episodes", layout: "column", items },

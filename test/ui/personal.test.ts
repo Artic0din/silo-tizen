@@ -165,9 +165,11 @@ for (const source of ["watchlist", "favorites"]) test(`uncovering ${source} reco
             await tv.page.getByText(`Page ${page} of 3`, { exact: true }).waitFor();
         }
         await tv.page.locator('.browse [data-focus="movie:m0050"]').click();
+        if (source === "favorites") await tv.page.locator('[data-focus="more"]').click();
         await tv.page.getByRole("button", { name: source === "favorites" ? "Remove favorite" : "Remove from watchlist", exact: true }).click();
         await tv.page.getByRole("button", { name: source === "favorites" ? "Add favorite" : "Add to watchlist", exact: true }).waitFor();
         const innerRefresh = tv.fake.hold("/catalog/query", true);
+        if (source === "favorites") await tv.remote(10009);
         await tv.remote(10009);
         await tv.page.locator('[data-view^="personal:"]').waitFor();
         const cached = await tv.page.locator('.browse [data-focus="movie:m0050"]').elementHandle();
@@ -225,6 +227,7 @@ for (const source of ["watchlist", "favorites"]) test(`integrated Details remove
         }
         await tv.page.locator('.browse [data-focus="movie:m0050"]').click();
         await tv.page.locator('[data-view="item:movie:m0050"]').waitFor();
+        if (source === "favorites") await tv.page.locator('[data-focus="more"]').click();
         const remove = tv.page.getByRole("button", { name: source === "favorites" ? "Remove favorite" : "Remove from watchlist", exact: true });
         await tv.eventually(async () => await remove.count() === 1, "Details exposes authoritative list membership");
         const held = tv.fake.hold(`/${source}/movie%3Am0050/membership`, true);
@@ -233,6 +236,7 @@ for (const source of ["watchlist", "favorites"]) test(`integrated Details remove
         assert.equal(await tv.page.locator(`[data-focus="${source}"]`).getAttribute("aria-disabled"), "true");
         held.release();
         await tv.page.getByRole("button", { name: source === "favorites" ? "Add favorite" : "Add to watchlist", exact: true }).waitFor();
+        if (source === "favorites") await tv.remote(10009);
         await tv.remote(10009);
         await tv.eventually(async () => await tv.page.locator('.browse [data-focus="movie:m0050"]').count() === 0, "confirmed removal reconciles the current page");
         assert.equal(await tv.page.getByText("Page 3 of 3", { exact: true }).count(), 1);

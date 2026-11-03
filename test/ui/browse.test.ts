@@ -196,6 +196,17 @@ function cardIds(tv: Tv, selector = ".browse-card:not(.discovery-collection)"): 
     return tv.page.evaluate((query) => Array.from(document.querySelector(".browse")?.querySelectorAll(query) ?? []).map((node) => node.getAttribute("data-focus") ?? ""), selector);
 }
 
+async function detailsMore(tv: Tv): Promise<void> {
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.getByRole("dialog", { name: "More", exact: true }).waitFor();
+}
+
+async function seasonDetails(tv: Tv): Promise<void> {
+    await detailsMore(tv);
+    await tv.page.locator('[data-focus="season-info"]').click();
+    await showing(tv, "season:series:s1:1");
+}
+
 browseTest("richer Details: facts, versions, people, bounded filmography, related titles and Back focus", async (tv) => {
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
@@ -205,6 +216,7 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
         await tv.page.screenshot({ path: `${process.env.DETAILS_CAPTURE_DIR}/details.png` });
     }
     await shows(tv, "IMDb 8.1");
+    await tv.page.locator('[data-focus="version"]').click();
     await tv.page.locator('[data-focus="version:43"]').focus();
     await press(tv, "Enter");
     await tv.page.locator('[data-focus="play"]').focus();
@@ -215,7 +227,7 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
     await tv.page.evaluate(() => window.browseHarness.resume());
     await shows(tv, "Loading personal actions.");
     personal.release();
-    await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "refreshed related titles");
     await tv.page.locator('[data-focus="person:7"]').first().focus();
     const reads = tv.fake.requests.length;
@@ -236,6 +248,7 @@ browseTest("S-D1 synopsis keeps its dialog and focus while optional Details sett
     const capability = tv.fake.hold("/capabilities/personal-lists", true);
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
+    await detailsMore(tv);
     await tv.page.locator('[data-focus="synopsis"]').focus();
     await press(tv, "Enter");
     const dialog = tv.page.getByRole("dialog", { name: "Synopsis" });
@@ -263,9 +276,9 @@ browseTest("S-D2 aggregate watched reconciles visible episodes in both direction
     assert.ok(catalog instanceof FakeDetails);
     await press(tv, "ArrowDown", "Enter");
     await showing(tv, "item:series:s1");
-    await press(tv, "ArrowDown", "Enter");
-    await showing(tv, "season:series:s1:1");
+    await seasonDetails(tv);
     assert.equal(await tv.page.locator(".browse-episode", { hasText: "Watched" }).count(), 3);
+    await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Mark all unwatched", exact: true }).click();
     await tv.page.getByRole("button", { name: "Mark all watched", exact: true }).waitFor();
     assert.equal(catalog.watchedEpisodes.has("episode:s1e11"), false);
@@ -273,7 +286,7 @@ browseTest("S-D2 aggregate watched reconciles visible episodes in both direction
     await tv.page.getByRole("button", { name: "Mark all watched", exact: true }).click();
     await tv.page.getByRole("button", { name: "Mark all unwatched", exact: true }).waitFor();
     assert.equal(await tv.page.locator(".browse-episode", { hasText: "Watched" }).count(), 3);
-    assert.equal(browseReads(tv, "/catalog/series/series%3As1/seasons/1/episodes").length, 3);
+    assert.equal(browseReads(tv, "/catalog/series/series%3As1/seasons/1/episodes").length, 4);
 }, { catalog: new FakeDetails() });
 
 for (const kind of ["movie", "episode"]) {
@@ -285,6 +298,7 @@ for (const kind of ["movie", "episode"]) {
         catalog.watchedEpisodes.delete(id);
         await activateDetails(tv, id);
         await showing(tv, `item:${id}`);
+        await detailsMore(tv);
         await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
         assert.equal(await tv.page.getByRole("button", { name: "Mark watched", exact: true }).count(), 1, "no progress is a valid unwatched state");
         catalog.mutationFailure = problem(503, "unavailable", "Unavailable");
@@ -309,14 +323,17 @@ browseTest("S-D1 synopsis closes on browse destruction and optional failures rem
     const related = tv.fake.hold("/capabilities/personal-lists", true);
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
+    await detailsMore(tv);
     await tv.page.locator('[data-focus="synopsis"]').focus();
     await press(tv, "Enter");
     related.release();
     await tv.eventually(async () => tv.fake.requests.some((request) => request.path === "/favorites/movie%3Am0001/membership"), "membership answer");
-    assert.equal(await tv.page.getByRole("dialog").count(), 1);
+    assert.equal(await tv.page.getByRole("dialog", { name: "Synopsis" }).count(), 1);
+    await tv.remote(BACK);
     await tv.remote(BACK);
     await tv.page.getByRole("button", { name: "Retry related titles", exact: true }).waitFor();
-    await press(tv, "Enter");
+    await detailsMore(tv);
+    await tv.page.locator('[data-focus="synopsis"]').click();
     await tv.page.evaluate(() => window.browseHarness.destroy());
     assert.equal(await tv.page.getByRole("dialog").count(), 0);
     await tv.page.evaluate(() => window.browseHarness.mount());
@@ -336,9 +353,9 @@ browseTest("S-D2 failed episode reconciliation retries reads without another agg
     });
     await press(tv, "ArrowDown", "Enter");
     await showing(tv, "item:series:s1");
-    await press(tv, "ArrowDown", "Enter");
-    await showing(tv, "season:series:s1:1");
+    await seasonDetails(tv);
     fail = true;
+    await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Mark all unwatched", exact: true }).click();
     await shows(tv, "Could not update watched.");
     assert.equal(catalog.mutations.length, 1);
@@ -363,15 +380,20 @@ for (const aggregate of ["series", "season"]) {
             });
             await activateDetails(tv, episodeId);
             await showing(tv, `item:${episodeId}`);
+            await detailsMore(tv);
             await tv.page.getByRole("button", { name: played ? "Mark watched" : "Mark unwatched", exact: true }).waitFor();
+            await tv.remote(BACK);
             const related = tv.page.locator(`[data-detail-section="related"] [data-focus="${aggregateId}"]`);
             await related.focus();
             await press(tv, "Enter");
+            await detailsMore(tv);
             await tv.page.getByRole("button", { name: played ? "Mark all watched" : "Mark all unwatched", exact: true }).click();
             await tv.page.getByRole("button", { name: played ? "Mark all unwatched" : "Mark all watched", exact: true }).waitFor();
             assert.equal(catalog.watchedEpisodes.has(episodeId), played);
             await tv.remote(BACK);
+            await tv.remote(BACK);
             await showing(tv, `item:${episodeId}`);
+            await detailsMore(tv);
             await tv.eventually(async () => await tv.page.getByRole("button", { name: played ? "Mark unwatched" : "Mark watched", exact: true }).count() === 1, "covered episode reflects the aggregate change");
             assert.equal(browseReads(tv, "/catalog/items/episode%3As1e12").length, 3, "Home's one load-time read, then Details' read and its refresh");
             assert.equal(catalog.mutations.length, 1);
@@ -387,40 +409,45 @@ browseTest("S-D2 series aggregate invalidates a cached season before returning",
     });
     await press(tv, "ArrowDown", "Enter");
     await showing(tv, "item:series:s1");
-    await press(tv, "ArrowDown", "Enter");
-    await showing(tv, "season:series:s1:1");
+    await seasonDetails(tv);
     await tv.page.locator('[data-detail-section="related"] [data-focus="series:s1"]').focus();
     await press(tv, "Enter");
     await showing(tv, "item:series:s1");
+    await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Mark all unwatched", exact: true }).click();
     await tv.page.getByRole("button", { name: "Mark all watched", exact: true }).waitFor();
+    const beforeReturn = browseReads(tv, "/catalog/series/series%3As1/seasons/1/episodes").length;
+    await tv.remote(BACK);
     await tv.remote(BACK);
     await showing(tv, "season:series:s1:1");
     await tv.eventually(async () => await tv.page.locator(".browse-episode", { hasText: "Watched" }).count() === 0, "refreshed cached season");
-    assert.equal(browseReads(tv, "/catalog/series/series%3As1/seasons/1/episodes").length, 2);
+    assert.equal(browseReads(tv, "/catalog/series/series%3As1/seasons/1/episodes").length, beforeReturn + 1);
     await tv.page.locator('[data-detail-section="related"] [data-focus="series:s1"]').focus();
     await press(tv, "Enter");
     await showing(tv, "item:series:s1");
     const answer = tv.fake.hold("/watched/series%3As1", true);
+    await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Mark all watched", exact: true }).click();
     await tv.eventually(async () => catalog.mutations.length === 2, "committed aggregate before cancellation");
+    const beforeCancellation = browseReads(tv, "/catalog/series/series%3As1/seasons/1/episodes").length;
+    await tv.remote(BACK);
     await tv.remote(BACK);
     answer.release();
     await showing(tv, "season:series:s1:1");
     await tv.eventually(async () => await tv.page.locator(".browse-episode", { hasText: "Watched" }).count() === 3, "cached season after cancelling a committed answer");
     assert.equal(catalog.mutations.length, 2);
-    assert.equal(browseReads(tv, "/catalog/series/series%3As1/seasons/1/episodes").length, 3);
+    assert.equal(browseReads(tv, "/catalog/series/series%3As1/seasons/1/episodes").length, beforeCancellation + 1);
 }, { catalog: new FakeDetails() });
 
 browseTest("S-D2 aggregate reconciliation cannot paint after profile authority ends", async (tv, catalog) => {
     assert.ok(catalog instanceof FakeDetails);
     await press(tv, "ArrowDown", "Enter");
     await showing(tv, "item:series:s1");
-    await press(tv, "ArrowDown", "Enter");
-    await showing(tv, "season:series:s1:1");
+    await seasonDetails(tv);
     const episodes = tv.fake.hold("/catalog/series/series%3As1/seasons/1/episodes", true);
+    await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Mark all unwatched", exact: true }).click();
-    await tv.eventually(async () => browseReads(tv, "/catalog/series/series%3As1/seasons/1/episodes").length === 2, "reconciliation read");
+    await tv.eventually(async () => browseReads(tv, "/catalog/series/series%3As1/seasons/1/episodes").length === 3, "reconciliation read");
     await tv.page.evaluate(() => window.browseHarness.clearProfile());
     episodes.release();
     await tv.jump(30000);
@@ -434,6 +461,7 @@ browseTest("S-D3 unknown or mismatched watched postconditions remain errors", as
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     let unknown = false;
+    await detailsMore(tv);
     await tv.page.route("**/api/v2/catalog/items/movie%3Am0001?**", async (route) => {
         await route.fulfill({ status: 200, json: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", user_data: undefined, user_state: unknown ? undefined : { played: false } } });
     });
@@ -449,7 +477,7 @@ browseTest("S-D3 unknown or mismatched watched postconditions remain errors", as
 browseTest("Details portraits keep their circular geometry and combine one person's roles", async (tv) => {
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
-    await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "related titles");
     await tv.jump(240);
     assert.deepEqual(await tv.page.locator(".details-photo").first().evaluate((node) => ({ width: node.clientWidth, height: node.clientHeight })), { width: 200, height: 200 });
@@ -467,7 +495,7 @@ browseTest("long Details facts remain reachable with the remote", async (tv) => 
     });
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
-    await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "related titles");
     const reached = new Set<string>();
     for (let index = 0; index < 45; index++) {
@@ -491,11 +519,13 @@ browseTest("personal writes require confirmed state and discard late replies aft
     await tv.page.route("**/api/v2/favorites/movie%3Am0001/membership", async (route) => {
         await route.fulfill({ status: 200, json: { item_id: "movie:m0001", is_member: false } });
     });
+    await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Add favorite", exact: true }).click();
     await shows(tv, "Could not update favorites.");
     assert.equal(await tv.page.locator('[data-focus="favorites"]').getAttribute("aria-pressed"), "false");
     assert.equal(catalog.mutations.length, 1);
     const held = tv.fake.hold("/watchlist/movie%3Am0001", true);
+    await tv.remote(BACK);
     await tv.page.getByRole("button", { name: "Add to watchlist", exact: true }).click();
     await shows(tv, "Updating watchlist…");
     await tv.page.evaluate(() => window.browseHarness.clearProfile());
@@ -558,8 +588,10 @@ browseTest("person, related and personal reads recover with explicit retries", a
     await shows(tv, "Could not load personal actions.");
     relatedFail = false; personalFail = false;
     await tv.page.getByRole("button", { name: "Retry related titles", exact: true }).click();
+    await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Retry personal actions", exact: true }).click();
     await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
+    await tv.remote(BACK);
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "related retry");
     const person = tv.fake.hold("/catalog/people/7", true);
     await tv.page.locator('[data-focus="person:7"]').focus();
@@ -586,10 +618,12 @@ for (const scenario of [{ outcome: "completed", played: false }, { outcome: "los
         const path = "/watched/movie%3Am0001";
         const held = scenario.outcome === "cancelled" ? tv.fake.hold(path, true) : undefined;
         if (scenario.outcome === "lost") tv.fake.dropNextAnswer(path);
+        await detailsMore(tv);
         await tv.page.getByRole("button", { name: scenario.played ? "Mark unwatched" : "Mark watched", exact: true }).click();
         await tv.eventually(async () => catalog.mutations.length === 1, "watched mutation committed");
         if (scenario.outcome === "completed") await tv.page.getByRole("button", { name: scenario.played ? "Mark watched" : "Mark unwatched", exact: true }).waitFor();
         if (scenario.outcome === "lost") await tv.page.getByRole("button", { name: "Retry watched", exact: true }).waitFor();
+        await tv.remote(BACK);
         await tv.remote(BACK);
         held?.release();
         await showing(tv, "home");
@@ -605,18 +639,21 @@ for (const kind of ["favorites", "watchlist"]) {
         assert.ok(catalog instanceof FakeDetails);
         await activateDetails(tv);
         await showing(tv, "item:movie:m0001");
-        await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
+        await tv.page.locator('[data-focus="watchlist"]').waitFor();
         await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "all optional reads finished");
         const path = `/${kind}/movie%3Am0001`;
         const held = tv.fake.hold(path, true);
+        if (kind === "favorites") await detailsMore(tv);
         await tv.page.getByRole("button", { name: kind === "favorites" ? "Add favorite" : "Add to watchlist", exact: true }).click();
         await tv.eventually(async () => catalog.mutations.length === 1, "personal mutation committed");
+        if (kind === "favorites") await tv.remote(BACK);
         await tv.page.locator('[data-focus="person:7"]').first().focus();
         await press(tv, "Enter");
         await showing(tv, "person:7");
         await tv.remote(BACK);
         held.release();
         await showing(tv, "item:movie:m0001");
+        if (kind === "favorites") await detailsMore(tv);
         await tv.eventually(async () => await tv.page.getByRole("button", { name: `Retry ${kind}`, exact: true }).count() === 1, "cancelled action becomes visibly retryable");
         assert.equal(await tv.page.locator(`[data-focus="${kind}"]`).getAttribute("aria-disabled"), "false");
         assert.equal(tv.fake.requests.filter(request => request.path === `${path}/membership`).length, 1);
@@ -632,6 +669,7 @@ browseTest("a lost watched answer is reconciled on Retry without repeating the n
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     tv.fake.dropNextAnswer("/watched/movie%3Am0001");
+    await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Mark watched", exact: true }).click();
     await shows(tv, "Could not update watched.");
     assert.equal(catalog.watched, true, "server committed the lost answer");
@@ -646,10 +684,11 @@ browseTest("season Details keeps episodes first, exposes real facts and restores
     const personal = tv.fake.hold("/favorites/series%3As1/membership");
     await press(tv, "ArrowDown", "Enter");
     await showing(tv, "item:series:s1");
-    await press(tv, "ArrowDown");
+    await detailsMore(tv);
+    await tv.page.locator('[data-focus="season-info"]').focus();
     await tv.page.keyboard.down("Enter");
     personal.release();
-    await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
+    await showing(tv, "season:series:s1:1");
     await tv.page.keyboard.up("Enter");
     await showing(tv, "season:series:s1:1");
     await shows(tv, "The first season follows the night shift at a coastal observatory.");
@@ -667,11 +706,12 @@ browseTest("season Details keeps watched available when the server rejects list 
     });
     await press(tv, "ArrowDown", "Enter");
     await showing(tv, "item:series:s1");
-    await press(tv, "ArrowDown", "Enter");
-    await showing(tv, "season:series:s1:1");
+    await seasonDetails(tv);
+    await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Mark all unwatched", exact: true }).waitFor();
     await tv.eventually(async () => !await tv.page.getByText("Loading personal actions.", { exact: true }).count(), "membership rejection");
     assert.equal(await tv.page.locator('[data-focus="watchlist"], [data-focus="favorites"]').count(), 0);
+    await tv.remote(BACK);
     await tv.page.locator('[data-focus="next-episode"]').focus();
     await press(tv, "Enter");
     await showing(tv, "item:episode:s1e11");
@@ -682,8 +722,7 @@ browseTest("season Details keeps watched available when the server rejects list 
     await tv.page.route("**/api/v2/catalog/items/series%3As1-S1?**", async (route) => {
         await route.fulfill({ status: 404, json: problem(404, "not_found", "Not found").body });
     });
-    await press(tv, "Enter");
-    await showing(tv, "season:series:s1:1");
+    await seasonDetails(tv);
     assert.equal(await tv.focused(), "episode:s1e11");
     assert.equal(await tv.page.locator(".browse-episode").count(), 3);
 }, { catalog: new FakeDetails() });
@@ -712,6 +751,7 @@ browseTest("personal failure never repeats a write automatically and explicit re
     await tv.page.getByRole("button", { name: "Retry watchlist", exact: true }).click();
     await tv.page.getByRole("button", { name: "Remove from watchlist", exact: true }).waitFor();
     assert.equal(catalog.mutations.length, 2);
+    await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Mark watched", exact: true }).click();
     await tv.page.getByRole("button", { name: "Mark unwatched", exact: true }).waitFor();
     assert.equal(await tv.page.locator('[data-focus="resume"]').count(), 0, "server refresh clears resume after watched");
@@ -1093,8 +1133,10 @@ for (const [kind, value, label, lost] of [["favorites", "favorited", "favorite",
         await tv.eventually(async () => await tv.page.locator('.catalog-grid .browse-card').count() === 1, "filtered member");
         await tv.page.locator('.catalog-grid .browse-card').click(); await showing(tv, "item:movie:m0001");
         if (lost) tv.fake.dropNextAnswer(`/favorites/movie%3Am0001`);
+        if (kind === "favorites") await detailsMore(tv);
         await tv.page.getByRole("button", { name: `Remove ${label}`, exact: true }).click();
         await tv.page.getByRole("button", { name: lost ? "Retry favorites" : kind === "favorites" ? "Add favorite" : "Add to watchlist", exact: true }).waitFor();
+        if (kind === "favorites") await tv.remote(BACK);
         await tv.remote(BACK);
         await tv.eventually(async () => await tv.page.getByText("No titles match your filters", { exact: true }).isVisible(), "membership removal refreshes Browse");
         assert.equal(await tv.page.locator('.catalog-grid .browse-card').count(), 0);
@@ -1722,6 +1764,7 @@ browseTest("long synopsis expands and scrolls accessibly; empty search omits Pag
     catalog.failNext("/catalog/items/movie%3Am0001", { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", overview: "A long synopsis. ".repeat(900) } });
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
+    await detailsMore(tv);
     await tv.page.locator('[data-focus="synopsis"]').focus();
     await press(tv, "Enter");
     const dialog = tv.page.getByRole("dialog", { name: "Synopsis" });
@@ -1731,6 +1774,7 @@ browseTest("long synopsis expands and scrolls accessibly; empty search omits Pag
     assert.ok(await dialog.evaluate((node) => node.scrollTop > 0));
     await tv.remote(BACK);
     assert.equal(await tv.focused(), "synopsis");
+    await tv.remote(BACK);
     await tv.remote(BACK);
     await showing(tv, "home");
     await tv.page.locator('[data-focus="search"]').click();
@@ -1861,7 +1905,7 @@ browseTest("details hand the player the file and resume point; returning restore
     await press(tv, "Enter");
     await tv.eventually(async () => (await tv.page.evaluate(() => window.browseHarness.plays.length)) === 1, "fresh Resume handoff");
     assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays), [
-        { contentId: "movie:m0001", fileId: "f-movie:m0001", title: "Movie 0001", startSeconds: 1200 },
+        { contentId: "movie:m0001", fileId: "f-movie:m0001", title: "Movie 0001", startSeconds: 1200, subtitle: { kind: "auto" } },
     ]);
     assert.equal(await tv.page.evaluate(() => document.querySelector<HTMLElement>(".browse")?.hidden), true, "browse hides for the player");
     await tv.remote(BACK);
@@ -1892,6 +1936,8 @@ browseTest("series open seasons, seasons list episodes, and Back retraces each s
     await press(tv, "ArrowDown", "ArrowRight");
     assert.equal(await tv.focused(), "season:2");
     await press(tv, "Enter");
+    await detailsMore(tv);
+    await tv.page.locator('[data-focus="season-info"]').click();
     await showing(tv, "season:series:s1:2");
     await shows(tv, "Harbor Lights · Season 2");
     assert.equal(await tv.focused(), "episode:s1e21");
@@ -1905,6 +1951,7 @@ browseTest("series open seasons, seasons list episodes, and Back retraces each s
         fileId: "f-episode:s1e22",
         title: "Harbor Lights chapter 2.2",
         startSeconds: 0,
+        subtitle: { kind: "auto" },
     });
     await tv.page.evaluate(() => window.browseHarness.resume());
     await tv.remote(BACK);
@@ -1912,7 +1959,7 @@ browseTest("series open seasons, seasons list episodes, and Back retraces each s
     assert.equal(await tv.focused(), "episode:s1e22");
     await tv.remote(BACK);
     await showing(tv, "item:series:s1");
-    assert.equal(await tv.focused(), "season:2");
+    assert.equal(await tv.focused(), "more");
     await tv.remote(BACK);
     await showing(tv, "home");
     assert.equal(await tv.focused(), "series:s1");
@@ -1941,7 +1988,7 @@ browseTest("episode-aware text Search returns an episode-only match and preserve
     await tv.page.getByRole("button", { name: /^Resume/ }).click();
     await tv.eventually(async () => (await tv.page.evaluate(() => window.browseHarness.plays.length)) === 1, "fresh episode Resume handoff");
     assert.deepEqual((await tv.page.evaluate(() => window.browseHarness.plays))[0], {
-        contentId: "episode:s1e12", fileId: "f-episode:s1e12", title: "Harbor Lights chapter 1.2", startSeconds: 420, episode: true,
+        contentId: "episode:s1e12", fileId: "f-episode:s1e12", title: "Harbor Lights chapter 1.2", startSeconds: 420, episode: true, subtitle: { kind: "auto" },
     });
     await tv.page.evaluate(() => window.browseHarness.resume());
     await showing(tv, "item:episode:s1e12");

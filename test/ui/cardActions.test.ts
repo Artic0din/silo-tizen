@@ -243,8 +243,10 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) for (const out
             pending?.release();
             await origin(tv).click();
             await tv.page.locator('.browse[data-view="item:movie:m0001"]').waitFor();
+            await tv.page.locator('[data-focus="more"]').click();
             await tv.page.getByRole("button", { name: "Mark watched", exact: true }).click();
             await tv.page.getByRole("button", { name: "Mark unwatched", exact: true }).waitFor();
+            await tv.remote(10009);
             await tv.page.getByRole("button", { name: "Add to watchlist", exact: true }).click();
             await tv.page.getByRole("button", { name: "Remove from watchlist", exact: true }).waitFor();
             await tv.remote(10009);
@@ -280,7 +282,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await tv.down(13);
             await tv.jump(400);
             personal.release();
-            await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
+            await tv.page.locator('[data-focus="watchlist"]').waitFor();
             await tv.jump(249);
             assert.equal(await menu(tv).count(), 0);
             await tv.jump(1);
@@ -350,7 +352,7 @@ for (const surface of ["library-shelf", "library-grid", "collection", "search", 
             if (surface === "episode") await tv.page.locator('[data-focus="season:1"]').click();
             if (surface === "related") await tv.page.locator('[data-detail-section="related"] .browse-card').first().waitFor();
         }
-        const card = surface === "season" ? tv.page.locator('[data-focus="season:1"]') : surface === "episode" ? tv.page.locator('.browse .browse-episode').first() : surface === "related" ? tv.page.locator('.browse [data-detail-section="related"] .browse-card').first() : tv.page.locator('.browse .browse-card:not(.discovery-collection)').first();
+        const card = surface === "season" ? tv.page.locator('[data-focus="season:1"]') : surface === "episode" ? tv.page.locator('.details-episodes .browse-card').first() : surface === "related" ? tv.page.locator('.browse [data-detail-section="related"] .browse-card').first() : tv.page.locator('.browse .browse-card:not(.discovery-collection)').first();
         const id = surface === "season" ? "series:s1-S1" : await card.getAttribute("data-focus");
         const before = tv.fake.requests.length;
         await card.focus(); await tv.down(13); await tv.jump(650); await tv.up(13);
@@ -447,10 +449,10 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await tv.page.emulateMedia({ reducedMotion });
             const catalog = await start(tv);
             await origin(tv).click();
-            const favorite = tv.page.locator('.browse [data-focus="favorites"]').first();
-            await favorite.waitFor({ timeout: 1500 });
-            const first = tv.fake.hold("/favorites/movie%3Am0001", true);
-            await favorite.click();
+            const watchlist = tv.page.locator('.browse [data-focus="watchlist"]').first();
+            await watchlist.waitFor({ timeout: 1500 });
+            const first = tv.fake.hold("/watchlist/movie%3Am0001", true);
+            await watchlist.click();
             await tv.eventually(() => Promise.resolve(catalog.mutations.length === 1), "Details write dispatched");
             const related = tv.page.locator('[data-detail-section="related"] [data-focus="movie:m0002"]');
             await related.focus();
@@ -461,14 +463,14 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await watched.waitFor();
             assert.equal(await watched.getAttribute("aria-disabled"), "true", "Details' pending write disables the menu actions");
             for (const key of ["watched", "favorites", "watchlist"]) await menu(tv).locator(`[data-focus="${key}"]`).dispatchEvent("click");
-            assert.deepEqual(catalog.mutations, ["PUT /favorites/movie%3Am0001"]);
+            assert.deepEqual(catalog.mutations, ["PUT /watchlist/movie%3Am0001"]);
             first.release();
             await tv.eventually(async () => await watched.getAttribute("aria-disabled") === "false", "Details completion enables menu actions");
             const second = tv.fake.hold("/watched/movie%3Am0002", true);
             await watched.click();
             await tv.eventually(() => Promise.resolve(catalog.mutations.length === 2), "menu write dispatched");
-            await favorite.dispatchEvent("click");
-            assert.deepEqual(catalog.mutations, ["PUT /favorites/movie%3Am0001", "POST /watched/movie%3Am0002"], "the menu's pending write also blocks the underlying Details handler");
+            await watchlist.dispatchEvent("click");
+            assert.deepEqual(catalog.mutations, ["PUT /watchlist/movie%3Am0001", "POST /watched/movie%3Am0002"], "the menu's pending write also blocks the underlying Details handler");
             second.release();
             await menu(tv).getByRole("button", { name: "Mark unwatched", exact: true }).waitFor();
             await tv.remote(10009);

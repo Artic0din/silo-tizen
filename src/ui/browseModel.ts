@@ -3,6 +3,7 @@
 import type { BrowseScope } from "../api/operations.ts";
 import { isPermittedUrl } from "../api/serverUrl.ts";
 import type { Card, ItemDetail, UserLibrary } from "../contracts/v2/catalog.ts";
+import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
 
 /** What the player needs to call startPlayback: the item, one file and where to start. */
 export interface PlayRequest {
@@ -13,6 +14,7 @@ export interface PlayRequest {
     readonly fileId: string;
     readonly title: string;
     readonly audioTrackId?: string;
+    readonly subtitle?: SubtitleIntent;
     readonly allowAlternateVersions?: false;
     /** Source seconds; zero starts over, omission lets the server resume. */
     readonly startSeconds: number | undefined;

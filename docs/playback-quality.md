@@ -33,7 +33,7 @@ Apple autoplay parity remains open.
 
 The source contracts are pinned to [server cc85149](https://github.com/Artic0din/silo-server/tree/cc8514943289045e7b9f7ac8d36d4968bfe93926), including WatchDetail, WatchFileVersion, Season, Episode and PlaybackMutation in OpenAPI and the stop finalization handler.
 Behavioral tests use synthetic server data and fake AVPlay.
-This source candidate does not close issue #12: signed packaging, real-TV movie EOF and cross-episode playback, AVPlay teardown/start recording, 2021 hardware and store acceptance remain parent-owned validation gates.
+This source candidate does not close issue #12: signed packaging, real-TV movie EOF and cross-episode playback, AVPlay teardown/start recording, Tizen 8.0 hardware and store acceptance remain parent-owned validation gates.
 
 ## Quality and seek controls
 
@@ -124,7 +124,7 @@ Hiding during next-episode resolution still cancels continuation; recovery does 
 
 Native fake-server and desktop tests establish the state, identity, timing and cancellation rules above.
 Actual Samsung suspend/restore, audible recovery, decoded frames, live-server restart behavior and the cross-device acceptance matrix remain unverified.
-The existing Skyline tokens and Chrome 76-compatible list layout are reused.
+The existing Skyline tokens and Chrome 108-compatible list layout are reused.
 
 ## Saved profile defaults
 
@@ -155,6 +155,6 @@ The selected fixture definitions remain an exact subset of the pinned public man
 
 Native tests write and read back Settings, then start the real PlaybackController repeatedly and assert exact quality and bandwidth request fields.
 The player reads these defaults before every start and publishes the confirmed seek pair through its existing view.
-Native fake-server tests and synthetic desktop captures do not prove real server playback, Chromium 76 rendering, Tizen software emulator behaviour or Samsung TV playback.
+Native fake-server tests and synthetic desktop captures do not prove real server playback, Chromium 108 rendering, Tizen software emulator behaviour or Samsung TV playback.
 Device override editing, automatic subtitle resolution, trickplay and playback-planner redesign remain outside this slice.
 Issue 29 and whole-app acceptance remain incomplete.

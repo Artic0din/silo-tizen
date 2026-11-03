@@ -49,13 +49,11 @@ function showStatus(value: string | undefined): string | undefined {
     return lowered === "upcoming" || lowered === "planned" ? "Upcoming" : raw;
 }
 
-function languageName(value: string | undefined): string | undefined {
+export function languageName(value: string | undefined): string | undefined {
     const trimmed = value?.trim();
     if (trimmed === undefined || trimmed === "") return undefined;
-    // shortcut: Intl.DisplayNames is missing on the Chromium 76 TV engine, which shows the code; Apple shows CLDR's English name.
-    const names = (Intl as { DisplayNames?: new (locales: string[], options: { type: string }) => { of(code: string): string | undefined } }).DisplayNames;
     try {
-        const name = names === undefined ? undefined : new names(["en"], { type: "language" }).of(trimmed);
+        const name = new Intl.DisplayNames(["en"], { type: "language" }).of(trimmed);
         if (name !== undefined && name !== trimmed) return name.replace(/\b\w/g, letter => letter.toUpperCase());
     } catch { /* an invalid tag falls back to its code */ }
     return trimmed.toUpperCase();

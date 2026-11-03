@@ -1,7 +1,8 @@
 // What this client tells the server it can play. The server plans the route from it
 // (protocol v3 §3, §4); the client never chooses direct, remux or transcode itself.
 //
-// Conservative for every 2021-or-later Samsung TV: Samsung's 2021 TV video specification lists
+// Conservative for every Samsung TV on Tizen 8.0 or later. The OS version does not fix the panel's
+// decoder generation, so this keeps to Samsung's 2021 TV video specification, which lists
 // H.264 and HEVC (MP4, MKV and TS), AAC, AC3, E-AC3 and MP3, and no DTS. Tizen offers no decoder
 // enumeration, so the evidence tier is `declared`, capped at 1080p SDR because panel size and
 // HDR output are not probed. Audio passthrough is never claimed. Every subtitle capability

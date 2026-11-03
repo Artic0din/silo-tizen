@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseOverlayPrefs } from "../../src/ui/cardOverlays.ts";
+import { languageName, parseOverlayPrefs } from "../../src/ui/cardOverlays.ts";
 
 const enabled = (raw: unknown): string[] => [...parseOverlayPrefs(raw).items].filter(([, config]) => config.enabled).map(([id]) => id);
 
@@ -34,4 +34,13 @@ test("a version 1 flat document migrates and ignores preset and order", () => {
     assert.equal(prefs.preset, "classic");
     assert.deepEqual(prefs.order, []);
     assert.deepEqual(enabled({ year: { enabled: true, position: "top-right" }, audio: { enabled: false, position: "top-left" } }), ["resolution", "hdr", "release_type", "year"]);
+});
+
+test("an original language shows its English name, and an unknown or invalid tag its code", () => {
+    assert.equal(languageName("ja"), "Japanese");
+    assert.equal(languageName(" pt-BR "), "Brazilian Portuguese");
+    assert.equal(languageName("zz"), "ZZ");
+    assert.equal(languageName("not a tag"), "NOT A TAG");
+    assert.equal(languageName("  "), undefined);
+    assert.equal(languageName(undefined), undefined);
 });

@@ -7,6 +7,7 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - Rebuilt the profile picker with circular avatars, the signed-in account, Change server and TV profile creation with primary-profile verification, optional PIN and child restrictions.
+- Aligned type checks, docs and tests with the Tizen 8.0 minimum (Chromium 108), and named original languages in English with the browser's built-in language names.
 - Aligned the top navigation with Apple TV: saved TV menu order, centered Search and roots, anchored menus, profile images, For You shelves, server switching and sign-out confirmation.
 - Kept loaded expanded-row cards available when a later page reported the row missing.
 - Replaced expanded Home and library row paging with a scrolling catalog that retained loaded cards and focus, followed poster-size preferences, and refreshed changed personal state.
@@ -20,6 +21,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a Promote workflow that turns a tester build into a draft store release with the same `.wgt` and store notes, with a fixed `silo-tizen-latest.wgt` that the `releases/latest` link serves once the store release is published.
+- Added a Release workflow that tags a numbered tester build, signs its `.wgt` and publishes it on a GitHub prerelease, plus a fixed "latest tester build" link.
+- Added a Tizen Builds CI job that packages the `.wgt` on every pull request and signs it with the maintainer's Samsung certificate on main and same-repository pull requests.
 - Added Silo issue forms, contact links, a pull request template, evidence paths, release-note categories and the Discord commit feed, matching the Apple and Android apps.
 - Added a separate library Browse grid with continuous loading, sort and filter panels, an A–Z prefix rail, remembered preferences and server-owned Shuffle, while keeping Recommended and the existing library destinations.
 - Connected to plain-HTTP Silo servers like the Apple TV app: a typed `http://` address connects directly, and an address without a scheme tries HTTPS first, then asks "Connect without encryption?" before sending anything unencrypted.

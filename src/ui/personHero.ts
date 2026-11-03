@@ -72,7 +72,7 @@ export function personInitials(name: string): string {
 }
 
 function firstGrapheme(word: string): string {
-    // Chromium 76 has no Intl.Segmenter; use the same complete rules on every TV.
+    // Chromium 108's Intl.Segmenter (ICU 72) lacks the Unicode 15.1 Indic conjunct rule.
     return graphemeSegments(word).next().value?.segment ?? "";
 }
 

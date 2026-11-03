@@ -36,4 +36,4 @@ No new fetch, router, cache, auth or player owner is introduced.
 This bounded journey does not complete Person parity or issue 28.
 Age, initials, and the photo thumbhash are the separate [person hero](person-hero.md). Metadata enrichment dispatch and polling remain separate work.
 No explicit RefreshPerson POST is sent automatically.
-Synthetic desktop tests and captures do not prove a live backend, Chromium 76 runtime, AVPlay, signed WGT, emulator or real TV.
+Synthetic desktop tests and captures do not prove a live backend, Chromium 108 runtime, AVPlay, signed WGT, emulator or real TV.

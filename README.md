@@ -1,88 +1,66 @@
-# silo-tizen
+# Silo Tizen
 
-Silo client for Samsung TVs running Tizen 8.0 or later.
-Earlier Tizen versions are no longer supported; the installed OS version, rather than the TV's original model year, determines compatibility.
+Samsung TV client for the [Silo](https://github.com/Silo-Server/silo-server) self-hosted media server.
 
-## Native app
+This repo builds a Tizen web app (`.wgt`) for Samsung TVs running Tizen 8.0 or later.
+The installed OS version, not the TV's model year, decides compatibility; earlier Tizen versions are not supported.
+It talks to Silo's native `/api/v2` and plays through Samsung's AVPlay.
 
-The packaged app uses Silo's native `/api/v2`: server entry, device-code sign-in with a password fallback, household profiles and PINs, Movies and Series browsing, and AVPlay playback with audio and subtitle selection.
+## Tester builds
 
-The [Requests journeys](docs/requests.md) appear when the server enables Requests for the active viewer.
-The earlier Jellyfin-compatible client is retired.
-Sign-in uses an eight-digit device code approved on Silo's web page, with "Sign in with a password" one press away as on the Apple TV app.
-The password is sent only in the body of `login` and is never stored; only the issued tokens are kept.
-The server address is remembered publicly; credentials use Tizen KeyManager or the explicit session-only mode when protected storage is unavailable.
+The newest tester build is always at [`silo-tizen-latest-beta.wgt`](https://github.com/Silo-Server/silo-tizen/releases/download/beta-latest/silo-tizen-latest-beta.wgt), with versioned builds and checksums on [Releases](https://github.com/Silo-Server/silo-tizen/releases).
+A tester build installs only on TVs listed in its signing certificate; see [Releasing](docs/releasing.md#installing-a-tester-build).
 
-`src/main.ts` boots the app through `src/bootstrap.ts` and `src/platform.ts`.
-`src/app.ts` composes the screen controllers without owning their network or credential logic.
-The profile controller remains active while browsing and playback use its profile authority.
-When that authority ends, the app removes the old content before the profile controller takes the screen back.
-Player Back, movie completion and dismissed errors return to the same browse view and focus.
-Natural episode completion waits for the final STOP receipt and fresh authorized watch data, then offers manual Play next or Back.
-See [playback completion](docs/playback-quality.md#manual-episode-completion) for ordering and validation limits.
-Back from Home or library content returns to the navigation bar, then selects Home, then opens an Exit/Cancel dialog.
-Modal keys do not reach the screen underneath.
+## Screenshots
+
+<p>
+  <img src="docs/screenshots/readme/for-you.png" width="800" alt="For You in the signed build, on the Samsung TV simulator" />
+</p>
 
 ## Layout
 
-The TV interface follows the [Skyline design guide](https://github.com/Silo-Server/silo-apple/blob/main/docs/skyline-design-guide.md).
-`src/theme.css` owns the shared OLED palette, type family and motion durations.
-Sign-in, profiles, dialogs and playback use monochrome focus states and respect the system Reduced Motion preference.
-The launcher uses the existing Silo app artwork.
-Samsung's supported Play/Pause, Play, Pause, Stop, Rewind and Fast Forward keys are registered independently; Enter remains available on every remote.
-Player Up focuses the visible transport controls.
-Left and Right preview a seek without changing playback; Enter commits the source position and Back cancels.
-Dedicated Rewind and Fast Forward keys use the separate profile-saved video intervals, also used by transport buttons and Left/Right previews.
-Supported servers inherit 10 seconds backward and 30 seconds forward; unsupported servers retain ten seconds in each direction.
-The mounted Skyline bar groups visible libraries into Movies and Series tabs, with anchored library and profile menus.
-Library scope is remembered per server, profile and content type.
-Card focus drives a passive preview without fetching details; scrolling retargets immediately and respects Reduced Motion.
-See [Skyline browse behavior](docs/skyline-browse-shell.md) for the implemented section boundary.
+- `app/` - package manifest (`config.xml`), HTML entry, icon, fonts and third-party marks
+- `src/api/`, `src/session/`, `src/contracts/v2/` - native transport, sessions, profile authority and contract decoders
+- `src/ui/` - sign-in, profile/PIN, browse and settings screens, and remote focus
+- `src/player/` - server playback plan, AVPlay transport, progress, final stop and track changes
+- `scripts/` - build, packaging and release scripts
+- `test/` - native contract tests and Playwright screen tests
+- `docs/` - behaviour, design and validation notes; start with [App behaviour](docs/app-behaviour.md)
 
-- `app/` holds the package manifest, HTML entry and icon.
-- `src/api/`, `src/session/` and `src/contracts/v2/` own native transport, sessions, profile authority and contract decoders.
-- `src/ui/` owns sign-in, profile/PIN and browse screens and remote focus.
-- `src/player/` owns the server playback plan, AVPlay transport, progress, final stop and track changes.
-- `scripts/build.mjs` stages `app/` into `dist/wgt/` and emits `js/main.js` and `js/main.css`.
-  The bundle's app version comes from `app/config.xml`.
+## Prerequisites
 
-## Validation limits
+- Node.js 26 or later
+- Tizen Studio Web CLI and a Certificate Manager security profile, for packaging
+- A running Silo server for sign-in, browsing and playback validation
+- A Samsung TV in Developer Mode, or the Samsung TV simulator, for runtime checks
 
-The composed app is covered in desktop Chromium with fake Silo and AVPlay implementations, including the actual production bootstrap.
-This is not TV playback or IME proof.
-Earlier signed diagnostics on the S95C running Tizen 9 proved normal-HTTPS discovery/authenticated reads and direct playback with picture, dialogue, a 60-second resume, forward seek and progress.
-The composed debug-signed app was then checked on the same S95C: device-code approval, real profile and catalog reads, account restoration after a full exit/relaunch, AVPlay start/pause/forward and backward seeking, an audio-track replan, return to the title, and sign-out with server revocation.
-AVPlay state and server responses were observed; picture, dialogue and audible track differences were not independently confirmed during that composed-app run.
-The TV keyboard, minimum-version Tizen 8.0 hardware, store builds, full remux/transcode acceptance and audible/visible track acceptance remain open.
-
-The client declares no subtitle renderer.
-Movie and episode Details offer Audio Auto or an explicit track from the displayed file, for this attempt only.
-Changing version clears that track choice; explicitly choosing a version pins its source through playback.
-Resume checks fresh profile progress for up to three seconds; Play from start sends source position zero.
-See [preplay behavior](docs/skyline-browse-shell.md#preplay-audio-and-resume) for fallback, cancellation and persistence limits.
-The server can burn embedded subtitles into video when transcoding is allowed; external and downloaded subtitles receive an explicit unsupported result.
-Visibility changes suspend the active pipeline and revalidate authority and media authorization before restoring it.
-Mid-stream connection loss pauses playback and retries at the saved source position with bounded backoff, preserving playing or paused intent.
-Cold launches use the normal server resume flow; they do not restore an in-memory pipeline.
-See [playback recovery](docs/playback-quality.md#lifecycle-and-connection-recovery) for cancellation, terminal errors and remaining hardware acceptance under [#13](https://github.com/Artic0din/silo-tizen/issues/13).
-
-## Build and package
+## Build
 
 Tizen 8.0 uses Chromium 108 ([Samsung web engine specifications](https://developer.samsung.com/smarttv/develop/specifications/web-engine-specifications.html)).
-TypeScript checks ES2019 and DOM code in strict mode; tests additionally load Node types.
+TypeScript checks ES2022 and DOM code in strict mode; tests additionally load Node types.
 esbuild emits a classic script targeting `chrome108`.
 Neither step supplies missing browser APIs or CSS support.
-Node.js 26 or later is required.
 
-```bash
+```sh
 npm ci
+npx playwright install chromium   # browser for the screen tests
 npm run build
 ```
 
-Packaging needs the Tizen Studio Web CLI and a Certificate Manager security profile.
+`scripts/build.mjs` stages `app/` into `dist/wgt/` and emits `js/main.js` and `js/main.css`.
+The bundle's app version comes from `app/config.xml`.
+
+## Test
+
+`npm test` runs both strict type checks, the production build, native contract/session/player tests and Playwright screen/composition tests.
+See [test/README.md](test/README.md) for the test boundaries, and [Samsung simulator evidence](docs/simulator-evidence.md) for the simulator recipe, signed-package identity checks and Apple TV comparisons.
+
+## Signing
+
+Packaging signs with a Tizen Studio Certificate Manager security profile.
 Never commit certificates, profile XML or passwords.
 
-```bash
+```sh
 export TIZEN_SECURITY_PROFILE="YourProfileName"
 ./scripts/build-wgt.sh
 ```
@@ -92,10 +70,38 @@ The script builds the package staging directory and writes `dist/Silo.wgt`.
 CI builds the same package on every pull request and push to main (`.github/workflows/tizen-build.yml`).
 On main and same-repository pull requests it signs with the maintainer's Samsung certificate from repository secrets and uploads `Silo.wgt` with its SHA-256 as the `silo-tizen-wgt` artifact.
 That certificate lists the TVs it may install on, so a CI-signed package installs only on those TVs.
-Tester builds and store releases are made by the Release and Promote workflows; see [Releasing](docs/releasing.md).
 
-## Test
+## Release Flow
 
-`npm test` runs both strict type checks, the production build, native contract/session/player tests and Playwright screen/composition tests.
-See [test/README.md](test/README.md) for the test boundaries.
-See [Samsung simulator evidence](docs/simulator-evidence.md) for the macOS launch recipe, signed-package identity checks and Apple TV comparison requirements.
+Tester builds and store releases are made by the Release and Promote workflows from `main`; see [Releasing](docs/releasing.md).
+Samsung TV Seller Office has no upload API, so store submission is a manual step.
+
+## Contributing
+
+Right now, the most helpful way to contribute is a clear, accurate issue. We
+implement and review changes through our own workflow, and pull request volume
+has outgrown what we can review carefully, so a good issue usually helps us
+more than a pull request.
+
+Pull requests are still welcome from contributors who've had one merged in a
+Silo repository, or when a maintainer asks for one. We close other pull
+requests without review. [CONTRIBUTING.md](CONTRIBUTING.md) explains what makes
+an issue useful.
+
+## License & Trademarks
+
+Silo Tizen is licensed under `AGPL-3.0-or-later` with an additional
+permission under AGPL section 7 allowing distribution through the Samsung TV
+Apps store despite its signing, DRM, and redistribution terms. See
+[LICENSE](LICENSE) and [APPSTORE-EXCEPTION.md](APPSTORE-EXCEPTION.md). A second
+additional permission allows combining it with platform SDKs; see
+[PLATFORM-EXCEPTION.md](PLATFORM-EXCEPTION.md).
+
+The **Silo name, logo, and wordmark are trademarks of Silo Media L.L.C.** and
+are **not** covered by the AGPL. You're free to fork and redistribute the code,
+but forks and redistributions must not use the Silo brand as their identity and
+must remove or replace the brand assets. Publishing a Silo-branded app to an app
+store requires written permission. See [TRADEMARK.md](TRADEMARK.md) for what's
+permitted — including referential use like "compatible with Silo."
+
+Third-party code, fonts and marks retain their own licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

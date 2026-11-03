@@ -7,7 +7,7 @@ Serialize simulator work on the Mac that also runs Xcode; coordinate ownership b
 
 ## Build the candidate
 
-Use the branch being reviewed, with Node and browser dependencies installed as described in the [README](../README.md#build-and-package).
+Use the branch being reviewed, with Node and browser dependencies installed as described in the [README](../README.md#build).
 Keep the developer security profile and certificates outside the repository.
 
 ```bash

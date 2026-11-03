@@ -10,6 +10,8 @@ A failed Recommended collections read leaves media shelves usable and exposes an
 Hero enrichment uses the existing bounded queue after accepted loads and cached re-entry, never on focus movement.
 Known artwork capabilities size the initial section read; a late improving answer rereads sections only and merges artwork by retained section/card identity.
 That optional upgrade preserves membership, metadata, collections, focus and scroll, and an expected failure leaves the current screen usable.
+Shared row cards reserve 20px above their buttons during edge reveal, covering the approximately 19px artwork overhang and rounding.
+The existing scroll owner reads that CSS scroll margin; other controls keep its 12px minimum.
 Browse is a separate whole-library Movies/Series grid, matching the split in Apple's `TVLibraryTypeTabView`.
 It requests 100 cards at a time and prefetches when a card in the last eight rows becomes visible.
 The seven video sorts, typed facet groups and transient A–Z prefix share one query; moving focus alone sends no request.

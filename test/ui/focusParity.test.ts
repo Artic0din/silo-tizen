@@ -153,6 +153,23 @@ async function openLibrary(tv: Tv): Promise<void> {
 }
 
 for (const reducedMotion of ["no-preference", "reduce"] as const) {
+    test(`returning up from Collections keeps the shared shelf artwork inside ${reducedMotion}`, async () => {
+        const tv = await openTv(browser, { app: "browse" });
+        try {
+            await tv.page.emulateMedia({ reducedMotion });
+            await signedIn(tv);
+            await openLibrary(tv);
+            await tv.remote(40);
+            assert.equal(await tv.focused(), "collection:highlights");
+            await tv.jump(300);
+            await tv.remote(38);
+            await tv.jump(300);
+            await settleFocusMotion(tv);
+            assert.equal(await tv.focused(), "movie:m0001");
+            const focused = await focusClip(tv);
+            assert.equal(focused.inside, true, focused.clippedBy.join("; "));
+        } finally { await tv.page.context().close(); }
+    });
     test(`library shelf focus keeps captions and edge artwork clear ${reducedMotion}`, async () => {
         const tv = await openTv(browser, { app: "browse" });
         try {

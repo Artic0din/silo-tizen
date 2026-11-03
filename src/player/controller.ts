@@ -2331,7 +2331,16 @@ function selectedSubtitle(plan: PlaybackPlan): string | undefined {
 }
 
 function languageText(language: string | undefined): string | undefined {
-    return language === undefined || language === "" || language === "und" ? undefined : language.toUpperCase();
+    if (language === undefined || language === "" || language === "und") {
+        return undefined;
+    }
+    try {
+        const name = new Intl.DisplayNames(["en"], { type: "language" }).of(language);
+        if (name !== undefined && name !== language) {
+            return name;
+        }
+    } catch { /* a malformed tag shows as its code */ }
+    return language.toUpperCase();
 }
 
 function audioLabel(track: AudioTrackInfo, ordinal: number): string {
@@ -2350,7 +2359,7 @@ function textSubtitle(codec: string | undefined): boolean {
     return codec !== undefined && ["srt", "subrip", "webvtt", "vtt", "ass", "ssa", "mov_text", "text"].includes(codec.toLowerCase());
 }
 
-function subtitleLabel(entry: SubtitleTrack): string {
+export function subtitleLabel(entry: SubtitleTrack): string {
     const parts = [entry.label ?? languageText(entry.language) ?? `Subtitles ${entry.combinedIndex + 1}`];
     if (entry.forced) {
         parts.push("Forced");

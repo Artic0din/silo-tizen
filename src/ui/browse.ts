@@ -672,7 +672,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     if (detail.id !== current.id || (detail.type !== "movie" && detail.type !== "episode") || (current.episode === true && detail.type !== "episode")) throw new ApiError({ kind: "invalid_response", path: "resume.item" });
                     const choices = playChoices(detail);
                     if (choices === undefined) return undefined;
-                    const request = current.startOver === true ? choices.fromStart : choices.resume ?? choices.fromStart;
+                    let request = current.startOver === true ? choices.fromStart : choices.resume ?? choices.fromStart;
+                    if (detail.type === "episode") request = { ...request, subtitle: { kind: "auto" } };
                     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
                     return detail.type === "episode" && current.startOver !== true ? { ...request, startSeconds: await freshPlayPosition(session, request, clock, signal) } : request;
                 }, request => {

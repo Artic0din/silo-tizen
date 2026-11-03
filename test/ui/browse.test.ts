@@ -1956,6 +1956,7 @@ browseTest("series open seasons, episode Select plays directly, and playback ret
         fileId: "f-episode:s1e22",
         title: "Harbor Lights chapter 2.2",
         startSeconds: 0,
+        subtitle: { kind: "auto" },
     });
     await tv.page.evaluate(() => window.browseHarness.resume());
     await showing(tv, "season:series:s1:2");
@@ -1985,7 +1986,7 @@ browseTest("episode-aware Search plays directly and preserves explicit informati
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), "direct Search episode handoff");
     assert.equal(await tv.page.locator('[data-view="item:episode:s1e12"]').count(), 0);
     assert.deepEqual((await tv.page.evaluate(() => window.browseHarness.plays))[0], {
-        contentId: "episode:s1e12", fileId: "f-episode:s1e12", title: "Harbor Lights chapter 1.2", startSeconds: 420, episode: true,
+        contentId: "episode:s1e12", fileId: "f-episode:s1e12", title: "Harbor Lights chapter 1.2", startSeconds: 420, episode: true, subtitle: { kind: "auto" },
     });
     await tv.page.evaluate(() => window.browseHarness.resume());
     await showing(tv, "search");

@@ -252,6 +252,10 @@ export interface CatalogPage {
     readonly totalExact: boolean;
 }
 
+export function decodeCatalogCollection(value: unknown): { readonly items: readonly Card[] } {
+    return { items: items(value, "catalog_collection", decodeCard) };
+}
+
 export function decodeCatalogPage(value: unknown): CatalogPage {
     const path = "catalog_page";
     const obj = object(value, path);

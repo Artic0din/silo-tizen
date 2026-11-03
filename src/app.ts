@@ -52,6 +52,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
                 signIn = undefined;
                 profiles = mountProfiles(root, {
                     server,
+                    onChangeServer: () => switchServer(server),
                     launch: server.profileLaunch,
                     onSelected: (active) => showBrowse(server, active),
                     onSignedOut: (result) => {
@@ -62,6 +63,14 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
             },
             ...(notice === undefined ? {} : { signedOut: notice }),
         });
+    };
+
+    const switchServer = (server: ConnectedServer): void => {
+        stopContent();
+        profiles?.destroy();
+        profiles = undefined;
+        server.session.setProfile(undefined, "profile_cleared");
+        showSignIn(undefined, true);
     };
 
     const showBrowse = (server: ConnectedServer, active: ProfileHandoff): void => {
@@ -81,13 +90,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
                 stopContent();
                 profiles?.signOut();
             },
-            onSwitchServer: () => {
-                stopContent();
-                profiles?.destroy();
-                profiles = undefined;
-                server.session.setProfile(undefined, "profile_cleared");
-                showSignIn(undefined, true);
-            },
+            onSwitchServer: () => switchServer(server),
             onChooseProfile: () => {
                 stopContent();
                 profiles?.switchProfile();

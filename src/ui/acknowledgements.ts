@@ -26,6 +26,7 @@ const CREDITS: readonly Credit[] = [
     { name: "IMDb", use: "Ratings shown on titles, when your server provides them." },
     { name: "Rotten Tomatoes", use: "Critic and audience scores shown on titles, when your server provides them." },
     { name: "Common Sense Media and MDBList", use: "Suggested minimum viewer ages, when your server provides them." },
+    { name: "Profile avatars", use: "Fun Emoji remixes Fun Emoji Set by Davis Uche, via DiceBear, under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Artwork source: https://www.figma.com/community/file/968125295144990435. Bottts Neutral uses Bottts by Pablo Stanley (https://bottts.com/), via DiceBear. Identicon and Pixel Art Neutral are by DiceBear, under CC0 1.0. Styles and terms: https://www.dicebear.com/licenses/. Generated avatars are displayed with circular or rounded cropping." },
 ];
 
 const TRADEMARK_NOTICE = "These names and logos belong to their owners. Silo is not affiliated with or endorsed by them.";

@@ -348,6 +348,8 @@ test("Server settings open Acknowledgements with TMDB's logo and required notice
         assert.equal(await logo.getAttribute("alt"), "TMDB");
         await tv.eventually(async () => await logo.evaluate(image => (image as HTMLImageElement).naturalWidth > 0), "TMDB logo");
         await credits.getByText("This application uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by TMDB.", { exact: true }).waitFor();
+        await credits.getByText("Profile avatars", { exact: true }).waitFor();
+        assert.match(await credits.textContent() ?? "", /Davis Uche.*creativecommons\.org\/licenses\/by\/4\.0/);
         await credits.getByText("These names and logos belong to their owners. Silo is not affiliated with or endorsed by them.", { exact: true }).waitFor();
         await tv.page.keyboard.press("ArrowUp");
         assert.equal(await tv.focused(), "done", "Up from the top of the document reaches Done");

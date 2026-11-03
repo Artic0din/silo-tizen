@@ -20,6 +20,50 @@ async function selectKid(tv: Tv): Promise<void> {
     await tv.page.locator('[data-focus="unlock"]').click();
 }
 
+test("Change server from the composed picker preserves saved credentials and retires its screen", async () => {
+    const browser = await launchBrowser();
+    const tv = await openTv(browser, { app: "application" });
+    try {
+        await picker(tv);
+        const saved = await tv.page.evaluate(() => window.appHarness.keyManager.items.size);
+        assert.ok(saved > 0);
+        await tv.page.getByRole("button", { name: "Change server", exact: true }).click();
+        await tv.page.locator('[data-screen="entry"]').waitFor();
+        assert.equal(await tv.focused(), "connect");
+        assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 0);
+        assert.equal(await tv.page.evaluate(() => window.appHarness.keyManager.items.size), saved);
+        assert.equal(tv.fake.revokedSessions.size, 0);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); await browser.close(); }
+});
+
+test("temporary creation from a remembered profile preserves its launch choice and picker badge", async () => {
+    const browser = await launchBrowser();
+    const tv = await openTv(browser, { app: "application" });
+    tv.fake.catalog = new FakeDetails();
+    try {
+        await picker(tv); await selectKid(tv);
+        await tv.page.locator('[data-screen="remember-profile"]').waitFor();
+        await tv.page.keyboard.press("Enter");
+        await tv.page.locator('[data-view="home"]').waitFor();
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.locator('[data-focus="switch-profile"]').click();
+        await tv.page.locator('[data-screen="profiles"]').waitFor();
+        await tv.page.locator('[data-focus="profile:p-kid"] .profile-remembered').waitFor();
+        await tv.page.getByRole("button", { name: "Add profile", exact: true }).click();
+        await tv.page.locator('[data-screen="profile-create"]').waitFor();
+        await tv.remote(10009);
+        await tv.page.locator('[data-screen="profiles"]').waitFor();
+        assert.equal(await tv.focused(), "add-profile");
+        await tv.page.locator('[data-focus="profile:p-kid"] .profile-remembered').waitFor();
+        const attempts = tv.fake.pinAttempts;
+        await tv.page.evaluate(() => window.appHarness.mount());
+        await tv.page.locator('[data-view="home"]').waitFor();
+        assert.equal(tv.fake.pinAttempts, attempts);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); await browser.close(); }
+});
+
 test("fresh TV offers remember; protected restart skips PIN; Settings opt-out restores picker", async () => {
     const browser = await launchBrowser();
     const tv = await openTv(browser, { app: "application" });

@@ -319,6 +319,17 @@ export interface ProfileSummary {
     readonly isChild: boolean;
     /** uri-reference, relative to the server base when not absolute. */
     readonly avatarUrl: string | undefined;
+    readonly avatar?: string;
+}
+
+export interface ProfileCreateBody {
+    readonly name: string;
+    readonly avatar?: string;
+    readonly pin?: string;
+    readonly is_child?: boolean;
+    readonly max_content_rating?: string;
+    readonly library_restrictions_enabled?: boolean;
+    readonly allowed_library_ids?: readonly string[];
 }
 
 export function decodeProfileCollection(value: unknown): ProfileSummary[] {
@@ -327,18 +338,21 @@ export function decodeProfileCollection(value: unknown): ProfileSummary[] {
     if (!Array.isArray(items)) {
         throw new WireError("profiles.items", "an array");
     }
-    return items.map((entry: unknown, index: number) => {
-        const path = `profiles.items[${index}]`;
-        const item = object(entry, path);
-        return {
-            id: nonEmptyString(item, "id", path),
-            name: string(item, "name", path),
-            hasPin: boolean(item, "has_pin", path),
-            isPrimary: boolean(item, "is_primary", path),
-            isChild: boolean(item, "is_child", path),
-            avatarUrl: optionalString(item, "avatar_url", path),
-        };
-    });
+    return items.map((entry: unknown, index: number) => decodeProfileSummary(entry, `profiles.items[${index}]`));
+}
+
+export function decodeProfileSummary(value: unknown, path = "profile"): ProfileSummary {
+    const item = object(value, path);
+    const avatar = optionalString(item, "avatar", path);
+    return {
+        id: nonEmptyString(item, "id", path),
+        name: string(item, "name", path),
+        hasPin: boolean(item, "has_pin", path),
+        isPrimary: boolean(item, "is_primary", path),
+        isChild: boolean(item, "is_child", path),
+        avatarUrl: optionalString(item, "avatar_url", path),
+        ...(avatar === undefined ? {} : { avatar }),
+    };
 }
 
 export type ProfileVerification =

@@ -1,0 +1,90 @@
+{
+  "capturedAt": "2026-11-03T01:41:24.896Z",
+  "runtime": {
+    "protocolVersion": "1.3",
+    "product": "Chrome/137.0.7151.69",
+    "revision": "@0000000000000000000000000000000000000000",
+    "userAgent": "Mozilla/5.0 (SMART-TV; Linux; Tizen) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/55.0.2883.75 Safari/537.36 Tizen",
+    "jsVersion": "13.7.152.13"
+  },
+  "resources": [
+    {
+      "name": "main.js",
+      "sha256": "472331a7810b9953256d4bf72a347f93306b28aea07328b090f1b02b31b9f0b8"
+    },
+    {
+      "name": "main.css",
+      "sha256": "464622210d57fb46d4f5933f8a83977f11a8b86040b40c954187c51e7809e810"
+    }
+  ],
+  "ui": {
+    "screen": "profiles",
+    "focused": "profile",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "dpr": 2,
+    "geometry": [
+      {
+        "kind": "profile-picker-title",
+        "box": [
+          702.34375,
+          242.1015625,
+          515.3125,
+          76.796875
+        ]
+      },
+      {
+        "kind": "profile-account",
+        "box": [
+          849.7578125,
+          332.8984375,
+          220.4765625,
+          34
+        ]
+      },
+      {
+        "kind": "profile-face",
+        "box": [
+          694.7999877929688,
+          437.69842529296875,
+          246.4000244140625,
+          246.4000244140625
+        ]
+      },
+      {
+        "kind": "profile-add-circle",
+        "box": [
+          992,
+          450.8984375,
+          220,
+          220
+        ]
+      },
+      {
+        "kind": "signin-button",
+        "box": [
+          724.46875,
+          903,
+          262.359375,
+          57
+        ]
+      },
+      {
+        "kind": "signin-button",
+        "box": [
+          1006.828125,
+          903,
+          188.703125,
+          57
+        ]
+      }
+    ]
+  },
+  "limits": [
+    "Samsung NW.js software simulator, not physical Tizen 8",
+    "No real-server create submission",
+    "Historical Apple picker only; no current Apple creation capture"
+  ]
+}

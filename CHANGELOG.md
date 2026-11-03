@@ -24,6 +24,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added the Macroscope visible-change evidence check that silo-apple and silo-android run, tailored to the Samsung TV and its Apple TV comparison.
 - Added FEATURES.md, a feature inventory that tracks parity with the Apple TV and Android TV apps, as silo-android's does.
 - Added `scripts/sync-apiv2-fixtures.sh`, which re-vendors the API v2 contract fixtures and Settings subset from a silo-server commit, with a test in the CI scripts job.
 - Added a weekly Parity drift workflow that opens an issue when the Apple TV or Android TV apps change features since FEATURES.md was last reviewed.

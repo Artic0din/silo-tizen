@@ -238,6 +238,7 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
     assert.equal(tv.fake.requests.length, reads, "focus performs no reads");
     await press(tv, "Enter");
     await showing(tv, "person:7");
+    await tv.eventually(async () => await tv.page.locator(".browse-grid .browse-card").count() === 24, "inline Person first page");
     assert.equal(await tv.page.locator(".browse-card").count(), 24);
     await tv.remote(BACK);
     await showing(tv, "item:movie:m0001");
@@ -563,7 +564,8 @@ browseTest("optional Details reads load independently, fail, retry and report em
     await tv.page.locator('[data-focus="person:7"]').focus();
     await press(tv, "Enter");
     await showing(tv, "person:7");
-    await shows(tv, "No available titles for this person.");
+    await shows(tv, "No available titles for this filter.");
+    await shows(tv, "0 titles");
     await tv.remote(BACK);
     await showing(tv, "item:movie:m0001");
     await tv.remote(BACK);

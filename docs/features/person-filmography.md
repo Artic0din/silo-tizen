@@ -1,39 +1,39 @@
 # Person filmography
 
-Person retains its metadata and a 24-title preview.
-See all pushes a Filmography grid with All, Movies and Series filters.
-All explicitly requests `video` (movies and series), and filters apply to the whole server population before paging.
-The preview uses the verified GET `sort=-year`; full pages use the existing safe POST query with `sort: "year"`, `order: "desc"` and `limit: 24`.
-Their opaque continuations belong to different operation scopes and are never shared.
-There is no person capability probe or focus-triggered request.
+Person retains its hero and metadata above a title count, All/Movies/Series chips and the existing paged grid.
+The ready page has no Back, See all or Read synopsis buttons; remote Back returns directly to the originating credit.
+The metadata failure state retains explicit Retry and Back.
+All requests `video`, Movies requests `movie`, and Series requests `series` across the whole server population before paging.
+Every page uses `personQuery`: a safe POST with an opaque string person ID, `sort: "year"`, `order: "desc"`, `limit: 24` and opaque continuations.
+The Person page no longer uses GET preview continuations or a separate Filmography route.
+No names are deduplicated and no extra media types are introduced.
+
+The count uses the server total, with `About` when `totalExact` is false and singular `title` for one.
+All three chips remain usable, including empty and failed filters; no availability probes are required to enter a filter.
+Metadata loads once per Person visit and survives filter changes, paging, failed reads, cursor recovery, Details and playback return.
+A first works failure retains the hero and filter controls.
 
 Previous and Next replace the visible page; only that page's cards and cursor history are retained.
 Page, index and continuation history commit together after a valid response.
 A failed turn retains the visible page and its requested target for explicit Try again.
-A missing or empty continuation when `has_more` is true is a protocol error at the shared catalog decoder; bounded collections can still omit `page`.
-A continuation repeating this route's earlier page cursors is a recoverable protocol error before committing the response.
-An `invalid_cursor` discards only the current route's paging state; explicit Try again starts page one without an automatic loop.
+A missing, empty or repeated continuation is a recoverable protocol error.
+An `invalid_cursor` discards only paging state; explicit Try again starts page one without an automatic loop.
+Opening Details or CardActions abandons an in-flight page target.
+CardActions changes refresh the committed page with the same person, filter and cursor.
+Details Back restores the same Person card, filter, page and viewport, with nearby identity fallback when a card disappeared.
+The existing FocusHost owns viewport restoration and modal isolation; the session owns authority teardown and cancellation.
+Moving focus never fetches.
 
-Cards use the existing title Details, seasons, episodes and file/resume handoff.
-The preview and full grid also share the bounded [card actions](skyline-browse-shell.md).
-Closing after a personal change refreshes the committed Filmography page with the same person, filter and continuation, retaining identity or nearby focus.
-Opening Details abandons an in-flight page target.
-Back refreshes the committed page while retaining cached cards, restoring focus by content ID with a nearby fallback if that ID disappeared.
-Person metadata survives filters, paging and playback refresh; Back restores See all and then the originating credit.
-The existing FocusHost owns horizontal rail and vertical viewport restoration.
-The existing session owns all profile, PIN, refresh, replay and cancellation rules.
-The client does not deduplicate names, filter server access decisions or project jobs and characters into catalog cards.
+Person-only geometry starts from Apple horizontal 80, top 48, hero-to-filmography 48, section 28 and heading-to-chips 20 px.
+Global browse and card geometry are unchanged.
+These are source starting constants, not native calibration or acceptance of the historical 72 px offset.
+The [hero](person-hero.md) preserves portrait, ThumbHash, Unicode, age, image fallback, reduced motion and late-event handling.
+Dates retain the device region.
 
-Primary sources are canonical Apple commit `f33479404712737499b22365430db1885cf6c6ab` (the distinct tvOS Person view and person query factory), server commit `cc8514943289045e7b9f7ac8d36d4968bfe93926` (OpenAPI, handlers, parser, query definition, person membership and access resolver), and Skyline guide SHA-256 `2d42d292e01ab6ee539278b63c286756fc432edf876a9286a33c9e853672cac2`.
-Apple loads more near the grid's end; Tizen deliberately requires an explicit page action to preserve the no-fetch-on-focus rule.
-Server IDs remain strings; realistic person fixtures use a positive canonical integer string, and slash-containing IDs test escaping only.
-An empty filtered membership result does not imply missing person metadata.
+Sources: Apple `PersonDetailView.swift` at `1a7cceeaf3b2bfc4f889c00487d19b2c6f843940`, server native query contract at `cc8514943289045e7b9f7ac8d36d4968bfe93926`, and Android Person detail design at default-branch SHA `6f3e36820e573cd63d73f200fb2beb160ff09f85`.
+Tizen uses explicit page actions to preserve no-fetch-on-focus, rather than Apple's near-end loading.
+There is no new fetch, router, cache, auth or player owner, and no metadata refresh dispatch or polling.
 
-`personFilmography.ts` exports `personQuery` and `personFilmographyView`.
-Shared additions are the `person` query source, optional `person_id`, `personFilmography` route, `RouteHandlers.personFilter`, and the Person view's See all callback.
-No new fetch, router, cache, auth or player owner is introduced.
-
-This bounded journey does not complete Person parity or issue 28.
-Age, initials, and the photo thumbhash are the separate [person hero](person-hero.md). Metadata enrichment dispatch and polling remain separate work.
-No explicit RefreshPerson POST is sent automatically.
-Synthetic desktop tests and captures do not prove a live backend, Chromium 108 runtime, AVPlay, signed WGT, emulator or real TV.
+Desktop tests prove synthetic behavior only.
+Signed WGT, native layout calibration, matched Apple TV evidence, AVPlay and physical-TV acceptance remain parent validation gates.
+This source change does not establish whole-feature parity or close the discovery umbrella.

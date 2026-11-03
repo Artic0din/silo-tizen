@@ -730,3 +730,11 @@
 
 /* Shuffle stays focusable while it starts (a disabled button loses focus); it dims to 60%. */
 .browse .browse-controls .browse-control-starting { opacity: .6; }
+
+.browse[data-view^="person:"] { padding: 48px 80px; }
+.browse[data-view^="person:"] .details-person-hero { margin: 0 0 48px; }
+.person-filmography-heading { display: flex; align-items: baseline; gap: 20px; margin-bottom: 20px; }
+.person-filmography-heading .browse-section-title { margin: 0; }
+.person-title-count { color: var(--silo-secondary); font-size: 24px; }
+.browse[data-view^="person:"] .person-filmography-filters { margin: 0 0 28px; }
+.browse[data-view^="person:"] .browse-grid { margin-top: 0; }

@@ -185,7 +185,7 @@ test("thumbhash stays under a held photo, focus does not fetch, and the loaded i
         assert.equal(request.headers()["referer"], undefined);
         const reads = tv.fake.requests.length;
         const photos = held.requests.length;
-        await tv.page.locator('[data-focus="see-all"]').focus();
+        await tv.page.locator('[data-focus="filter:video"]').focus();
         await tv.page.keyboard.press("ArrowLeft");
         await tv.page.keyboard.press("ArrowRight");
         assert.equal(tv.fake.requests.length, reads, "focus movement must not fetch");

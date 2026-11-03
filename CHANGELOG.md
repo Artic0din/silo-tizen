@@ -11,6 +11,8 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Showed the title count, All/Movies/Series filters and paged filmography beneath the Person hero, with one Back returning to the originating credit.
+
 - Played episodes directly from cards and season lists with fresh resume progress, added numbered Play/Resume series actions, and kept episode information available in Card actions.
 - Consolidated Details actions into one row, added version and subtitle dialogs, kept rating and personal actions in More, and showed season chips with an inline episode rail and clearer cast and synopsis layouts.
 - Settled every unknown Android TV cell in FEATURES.md and added nine parity rows found in the upstream TV parity audits.

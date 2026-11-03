@@ -142,7 +142,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         loading?.abort();
         loading = undefined;
         cancelSlow();
-        if (current.kind === "homeSection" || current.kind === "personFilmography" || current.kind === "personal") current.pendingIndex = undefined;
+        if (current.kind === "homeSection" || current.kind === "person" || current.kind === "personal") current.pendingIndex = undefined;
         menuOrigin = { route: current, focus: host.focused() };
         cardActions.open(card);
     } };
@@ -374,7 +374,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const controller = new AbortController();
         loading = controller;
         const entryRevision = inputRevision;
-        const enterResults = !quiet && (current.kind === "personal" || current.kind === "personFilmography" || (current.kind === "library" && host.focused()?.key !== "sort"));
+        const enterResults = !quiet && (current.kind === "personal" || current.kind === "person" || (current.kind === "library" && host.focused()?.key !== "sort"));
         current.slow = false;
         if (!quiet) {
             cancelSlow = clock.schedule(() => {
@@ -397,7 +397,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (top() === current) {
                     const enterContent = enterResults && inputRevision === entryRevision;
                     const lateCalendarContext = (current.kind === "item" && current.seriesContext !== undefined) || (current.kind === "season" && current.episodeId !== undefined);
-                    const nextFocus = lateCalendarContext && inputRevision !== entryRevision ? host.focused() : (current.kind === "library" || ((current.kind === "personal" || current.kind === "personFilmography") && !quiet)) && !enterContent ? host.focused() : focus;
+                    const nextFocus = lateCalendarContext && inputRevision !== entryRevision ? host.focused() : (current.kind === "library" || ((current.kind === "personal" || current.kind === "person") && !quiet)) && !enterContent ? host.focused() : focus;
                     render(nextFocus === undefined ? undefined : nextFocus);
                     if (enterContent) host.focusDefault();
                 }
@@ -408,10 +408,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }
                 loading = undefined;
                 cancelSlow();
-                if (error instanceof ApiError && error.problemId === "invalid_cursor" && (current.kind === "homeSection" || current.kind === "personFilmography" || current.kind === "personal" || current.kind === "library" || current.kind === "libraryResults" || current.kind === "search") && current.pages !== undefined) {
+                if (error instanceof ApiError && error.problemId === "invalid_cursor" && (current.kind === "homeSection" || current.kind === "person" || current.kind === "personal" || current.kind === "library" || current.kind === "libraryResults" || current.kind === "search") && current.pages !== undefined) {
                     Object.assign(current.pages, newPages());
                     current.focus = undefined;
-                    if (current.kind === "personal" || current.kind === "homeSection" || current.kind === "personFilmography") current.pendingIndex = undefined;
+                    if (current.kind === "personal" || current.kind === "homeSection" || current.kind === "person") current.pendingIndex = undefined;
                     if (current.kind === "library" && current.discovery !== undefined) {
                         current.discovery.windowCursor = undefined;
                         current.discovery.seek = undefined;
@@ -684,8 +684,15 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     handoff(request);
                 });
                 return;
+            case "person":
+                if (current.data === undefined) {
+                    load(current, signal => read(detailOperations.person(current.id), signal), person => {
+                        current.data = { person };
+                        loadPage(current, current.pages, current.pendingIndex ?? current.pages.index, quiet);
+                    }, quiet);
+                } else loadPage(current, current.pages, current.pendingIndex ?? current.pages.index, quiet);
+                return;
             case "homeSection":
-            case "personFilmography":
                 loadPage(current, current.pages, current.pendingIndex ?? current.pages.index, quiet);
                 return;
             case "personal":
@@ -789,11 +796,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     if (current.focus === undefined && season !== undefined && data.seasons.some(item => item.seasonNumber === season)) return { zone: "seasons", key: `season:${season}` };
                 }, quiet);
                 return;
-            case "person":
-                load(current, (signal) => Promise.all([current.data?.person ?? read(detailOperations.person(current.id), signal), read(detailOperations.filmography(current.id), signal)]), ([person, titles]) => {
-                    current.data = { person, titles };
-                }, quiet);
-                return;
             case "season":
                 stopDetails();
                 load(current, async (signal) => {
@@ -819,7 +821,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     const loadPage = (current: Route, pages: Pages, index: number, quiet = false): void => {
-        if (current.kind === "personFilmography") {
+        if (current.kind === "person") {
             current.pendingIndex = index;
             load(current, async signal => {
                 const page = await read(operations.queryCatalogItems(personQuery(current.id, current.filter, pages.cursors[index])), signal);
@@ -981,8 +983,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         stack.pop();
         const current = top();
         if (current !== undefined) {
-            if (current.kind === "personal" || current.kind === "personFilmography" || current.kind === "calendar" || current.kind === "requests") {
-                if (current.kind === "personal" || current.kind === "personFilmography") current.pendingIndex = undefined;
+            if (current.kind === "personal" || current.kind === "person" || current.kind === "calendar" || current.kind === "requests") {
+                if (current.kind === "personal" || current.kind === "person") current.pendingIndex = undefined;
                 current.stale = true;
             }
             showRoute(current, current.focus);
@@ -996,7 +998,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         stopDetails();
         if (current !== undefined) {
             current.focus = panel === undefined ? host.focused() : { zone: "actions", key: panel === "rating" ? "more" : panel };
-            if (current.kind === "homeSection" || current.kind === "personFilmography") current.pendingIndex = undefined;
+            if (current.kind === "homeSection" || current.kind === "person") current.pendingIndex = undefined;
         }
         loading?.abort();
         loading = undefined;
@@ -1035,7 +1037,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const open = (destination: Destination): void => {
         push(destination.kind === "item"
             ? newRoute({ kind: "item", id: destination.id, title: destination.title, ...(destination.seriesContext === undefined ? {} : { seriesContext: destination.seriesContext }), data: undefined })
-            : destination.kind === "person" ? newRoute({ kind: "person", id: destination.id, title: destination.title, data: undefined })
+            : destination.kind === "person" ? newRoute({ kind: "person", id: destination.id, title: destination.title, data: undefined, filter: "video", pages: newPages(), pendingIndex: undefined })
             : newRoute({ kind: "season", ...(destination.id === undefined ? {} : { id: destination.id }), ...(destination.episodeId === undefined ? {} : { episodeId: destination.episodeId }), seriesId: destination.seriesId, seasonNumber: destination.seasonNumber, title: destination.title, data: undefined }));
     };
 
@@ -1225,7 +1227,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         render({ zone: "filters", key: `filter:${filter}` });
     };
 
-    const personFilter = (current: Extract<Route, { kind: "personFilmography" }>, filter: MediaScope): void => {
+    const personFilter = (current: Extract<Route, { kind: "person" }>, filter: MediaScope): void => {
         if (current.filter === filter) return;
         current.filter = filter;
         current.pages = newPages();

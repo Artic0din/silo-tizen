@@ -33,3 +33,16 @@ Thumbs.db
 
 # Python
 __pycache__/
+
+# Local agent/tooling state
+/.agents/
+/.claude/
+.codex/
+.cursor/
+.worktrees/
+.playwright-mcp/
+.playwright-cli/
+
+# Logs
+*.log
+logs/

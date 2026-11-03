@@ -44,7 +44,7 @@ export class SkylineScroll {
         }
         const rect = element.getBoundingClientRect();
         const bounds = viewport.getBoundingClientRect();
-        const topEdge = bounds.top + 12;
+        const topEdge = bounds.top + Math.max(12, parseFloat(getComputedStyle(element).scrollMarginTop));
         const bottomEdge = bounds.bottom - 32;
         const delta = rect.top < topEdge ? rect.top - topEdge : rect.bottom > bottomEdge ? rect.bottom - bottomEdge : 0;
         // Opening selectors scale their rectangles, while scrollTop stays in unscaled CSS pixels.

@@ -1,0 +1,70 @@
+{
+  "source": "30ed08c5c0e45261beef0ae6133e72089c15ce89",
+  "capturedDate": "2026-11-03",
+  "runtime": {
+    "kind": "Samsung TV software simulator, NW.js",
+    "sdkVersion": "10.0.6",
+    "chromium": "137.0.7151.69",
+    "viewport": [1920, 1080],
+    "devicePixelRatio": 2,
+    "focusEmulation": true,
+    "physicalTV": false
+  },
+  "package": {
+    "sha256": "f03e8286e16ff59eb3b49e16f1ebcdd34aadbee405ef8f2d7930e632a009c07b",
+    "archiveFiles": 15,
+    "allInstalledFilesMatched": true,
+    "loadedResources": {
+      "main.js": "dfc1fff9cdb4eb75538e149c4e600348dfef784539b412a1168c850a7058215a",
+      "main.css": "d15a883d582c0a34e5549b43e83c1f4b66b9639acc8d8221f47719dd9b5f8309"
+    }
+  },
+  "geometry": {
+    "preference": "Compact",
+    "viewportTop": 596,
+    "viewportHeight": 484,
+    "beforeArtworkTop": 589.1953735351562,
+    "afterArtworkTop": 597.1953735351562,
+    "beforeScrollTop": 65,
+    "afterScrollTop": 57,
+    "normalArtwork": [176.692626953125, 265.0389404296875],
+    "reducedArtwork": [151.359375, 227.0390625],
+    "reducedCue": "rgba(255, 255, 255, 0.9) 0px 0px 0px 4px",
+    "buttonTransform": "none"
+  },
+  "artwork": {
+    "requested": {"image_size": "medium", "logo_width": 1760, "backdrop_width": 2688},
+    "decodedBackdrop": [3840, 2160],
+    "decodedLogo": [1998, 466]
+  },
+  "journeys": {
+    "detailsBack": {"sameCard": true, "scrollTop": 57, "rowScrollLeft": 0, "catalogOrSectionReads": 0},
+    "moviesExploreAllBack": {"loadedCards": 60, "scope": "library", "sameControl": true, "scrollTop": 57, "rowScrollLeft": 2218.5, "returnCatalogOrSectionReads": 0},
+    "seriesExploreAllBack": {"loadedCards": 60, "scope": "library", "sameControl": true, "rowScrollLeft": 5541.5, "returnCatalogOrSectionReads": 0},
+    "settledCardMovement": {"catalogReads": 0, "detailReads": 0},
+    "modeMenu": ["Recommended", "Collections", "Browse", "Genres", "A–Z", "Recently Added"],
+    "duplicateRecommendedModePills": 0,
+    "focusableSectionHeadings": 0
+  },
+  "failureFixture": {
+    "kind": "Local CDP Fetch response override; not a live backend failure",
+    "status": 403,
+    "interceptedResponses": 1,
+    "mediaShelvesRetained": true,
+    "retryFocused": true,
+    "overrideDisabledBeforeRetry": true,
+    "liveRetryRemovedAlert": true,
+    "restoredInlineCollectionBlocks": 1,
+    "serverContentOrPreferenceWrites": 0
+  },
+  "recording": {"frames": 24, "elapsedMs": 7305, "size": [960, 540], "nativeTimingProof": false},
+  "automated": {"fullExit": 0, "nativePassed": 565, "uiPassed": 654, "failures": 0, "cancelled": 0, "releasePassed": 17, "focusedPassed": 34},
+  "limits": [
+    "Historical Apple frame; catalog order differs and comparison scroll was controlled",
+    "Compact measured natively; other size and optional-work states use automated coverage",
+    "SDK disables web security; no packaged-origin CORS acceptance",
+    "No physical Tizen 8, AVPlay or native visibility acceptance",
+    "No whole-screen or whole-app parity claim; see README for retained differences",
+    "Calendar revalidation flake remains tracked under issue 119"
+  ]
+}

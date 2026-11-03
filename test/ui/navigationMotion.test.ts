@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { selectLibraryMode } from "./support/library.ts";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
@@ -93,7 +94,7 @@ test("the structural snapshot retains viewport and shelf scroll without per-card
         assert.ok(snapshot.expected.top > 0 && snapshot.expected.left > 0);
         assert.equal(snapshot.cards, 126, "120 media cards and six Explore all cards survive the snapshot");
         assert.equal(snapshot.reads, 0);
-        assert.equal(snapshot.focus, "mode:Recommended", "focus is assigned in the switching task");
+        assert.equal(snapshot.focus, "movies", "the root owns focus until its sections arrive");
         held.release();
         await ready(tv, "library:12");
     } finally { await tv.page.context().close(); }
@@ -154,11 +155,13 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             assert.deepEqual(await panel.locator('[role="menuitem"]').allTextContents(), ["Recommended", "Collections", "Browse"]);
             const reads = tv.fake.requests.length;
             held.release();
-            await tv.page.locator('.browse .skyline-pills [data-focus="mode:Genres"]').waitFor();
+            await panel.locator('[data-focus="section:Genres"]').waitFor();
             assert.deepEqual(await panel.locator('[role="menuitem"]').allTextContents(), ["Recommended", "Collections", "Browse", "Genres", "A–Z", "Recently Added"]);
             assert.equal(await tv.focused(), "section:Recommended");
             assert.equal(await tv.page.locator('.skyline-route-outgoing, .skyline-content-drift, .skyline-content-enter').count(), 0);
-            assert.deepEqual(tv.fake.requests.slice(reads).map(request => request.path.split("?")[0]), ["/library/12/collections"], "only the existing discovery read continues");
+            assert.deepEqual(tv.fake.requests.slice(reads).map(request => request.path.split("?")[0]).filter(path => !path?.startsWith("/catalog/items/")), ["/library/12/collections"], "only discovery and bounded hero enrichment continue");
+            const titles = await tv.page.locator('.home-section .browse-card:not(.skyline-explore)').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? ""));
+            await tv.eventually(async () => titles.every(id => tv.fake.requests.some(request => request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(id)}`)), "accepted library hero reads dispatched");
             const loadedReads = tv.fake.requests.length;
             await keys(tv, 40, 40, 40);
             assert.equal(await tv.focused(), "section:Genres");
@@ -176,8 +179,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await ready(tv, "library:12");
             await tv.jump(200);
             const held = tv.fake.hold("/library/12/collections", true);
-            await tv.page.locator('[data-focus="mode:Collections"]').focus();
-            await tv.page.keyboard.press("Enter");
+            await selectLibraryMode(tv, "Collections");
             assert.equal(await tv.focused(), "mode:Collections");
             const layers = reducedMotion === "reduce" ? 0 : 1;
             assert.equal(await tv.page.locator(".skyline-route-outgoing").count(), layers, "same-name library mode must animate its deliberate switch");
@@ -239,6 +241,8 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await tv.page.keyboard.press("Enter");
             await ready(tv, "library:12");
             await tv.jump(200);
+            const titles = await tv.page.locator('.home-section .browse-card:not(.skyline-explore)').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? ""));
+            await tv.eventually(async () => titles.every(id => tv.fake.requests.some(request => request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(id)}`)), "Recommended enrichment queue dispatched");
             const cachedReads = tv.fake.requests.length;
             await tv.page.locator('[data-focus="movies"]').focus();
             await tv.jump(250);
@@ -262,6 +266,8 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await tv.page.locator('[data-focus="movies"]').click();
             await ready(tv, "library:12");
             await tv.jump(200);
+            await selectLibraryMode(tv, "Collections");
+            await ready(tv, "library:12");
             const state = await tv.page.evaluate(() => {
                 for (const key of ["mode:Collections", "mode:Genres", "mode:A–Z"]) {
                     document.querySelector<HTMLButtonElement>(`[data-focus="${key}"]`)?.click();

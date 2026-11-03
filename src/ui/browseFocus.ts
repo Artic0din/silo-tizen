@@ -13,6 +13,7 @@ const SELECT_HOLD_MS = 650;
 interface VisitSnapshot {
     memory: Map<string, string>;
     lastZone: string | undefined;
+    contentZone: string | undefined;
     top: number;
     rows: Map<string, number>;
     panels: Map<string, number>;
@@ -71,6 +72,7 @@ export class FocusHost {
     /** zone id -> key last focused there, for the current view name. */
     private memory = new Map<string, string>();
     private lastZone: string | undefined;
+    private contentZone: string | undefined;
     private listening = false;
     private readonly scroll = new SkylineScroll();
     private readonly visits = new Map<string, VisitSnapshot>();
@@ -94,7 +96,7 @@ export class FocusHost {
     focusDefault(): void {
         const view = this.view;
         const visit = view === undefined || !/^library:[^:]+$/.test(view.name) ? undefined : this.visits.get(visitKey(view));
-        const zone = view?.zones.find(candidate => candidate.id === visit?.lastZone && !["nav", "selector", "flyout", "pills"].includes(candidate.id));
+        const zone = view?.zones.find(candidate => candidate.id === visit?.contentZone);
         const item = zone?.items.find(candidate => candidate.key === visit?.memory.get(zone.id));
         if (view?.ready !== false && visit !== undefined && zone !== undefined && item !== undefined) {
             this.applyVisit(visit);
@@ -174,6 +176,7 @@ export class FocusHost {
             this.scroll.stop();
             this.memory = new Map(visit?.memory);
             this.lastZone = visit?.lastZone;
+            this.contentZone = visit?.contentZone;
         }
         this.view = view;
         this.container.setAttribute("data-view", view.name);
@@ -230,10 +233,11 @@ export class FocusHost {
         if (focused !== undefined) {
             this.memory.set(focused.zone.id, focused.item.key);
             this.lastZone = focused.zone.id;
+            if (!["nav", "selector", "flyout", "pills"].includes(focused.zone.id)) this.contentZone = focused.zone.id;
         }
         const panels = new Map(this.visits.get(key)?.panels);
         this.container.querySelectorAll<HTMLElement>(".browse-panel-list[data-scroll-key]").forEach(panel => panels.set(panel.dataset.scrollKey ?? "", panel.scrollTop));
-        this.visits.set(key, { memory: new Map(this.memory), lastZone: this.lastZone, top: this.viewport().scrollTop, rows: new Map(Array.from(this.container.querySelectorAll<HTMLElement>(".browse-row")).map((row, index) => [this.rowKey(row, index), row.scrollLeft])), panels });
+        this.visits.set(key, { memory: new Map(this.memory), lastZone: this.lastZone, contentZone: this.contentZone, top: this.viewport().scrollTop, rows: new Map(Array.from(this.container.querySelectorAll<HTMLElement>(".browse-row")).map((row, index) => [this.rowKey(row, index), row.scrollLeft])), panels });
     }
 
     private applyVisit(visit: VisitSnapshot | undefined): void {
@@ -273,6 +277,7 @@ export class FocusHost {
             document.removeEventListener("keydown", this.onPress, true);
             document.removeEventListener("keyup", this.onRelease, true);
             document.removeEventListener("focusout", this.cancelPress);
+            this.container.removeEventListener("focusin", this.rememberContent);
             document.removeEventListener("visibilitychange", this.cancelPress);
             window.removeEventListener("blur", this.cancelPress);
             this.press = undefined;
@@ -296,6 +301,7 @@ export class FocusHost {
             document.addEventListener("keydown", this.onPress, true);
             document.addEventListener("keyup", this.onRelease, true);
             document.addEventListener("focusout", this.cancelPress);
+            this.container.addEventListener("focusin", this.rememberContent);
             document.addEventListener("visibilitychange", this.cancelPress);
             window.addEventListener("blur", this.cancelPress);
             this.listening = true;
@@ -309,6 +315,7 @@ export class FocusHost {
         this.visits.clear();
         this.visitHeld = false;
         this.lastZone = undefined;
+        this.contentZone = undefined;
         while (this.container.firstChild !== null) {
             this.container.removeChild(this.container.firstChild);
         }
@@ -326,6 +333,13 @@ export class FocusHost {
         }
         return undefined;
     }
+
+    private readonly rememberContent = (event: FocusEvent): void => {
+        const focused = this.locate(event.target instanceof Element ? event.target : null);
+        if (focused === undefined || ["nav", "selector", "flyout", "pills"].includes(focused.zone.id)) return;
+        this.memory.set(focused.zone.id, focused.item.key);
+        this.contentZone = focused.zone.id;
+    };
 
     private focusFirst(candidates: readonly (FocusTarget | undefined)[]): void {
         const zones = this.view?.zones ?? [];
@@ -369,6 +383,8 @@ export class FocusHost {
         }
         this.memory.set(zone.id, item.key);
         this.lastZone = zone.id;
+        // Opening the cascade must not replace the content return target.
+        if (!["nav", "selector", "flyout", "pills"].includes(zone.id)) this.contentZone = zone.id;
         item.element.focus({ preventScroll: true });
         this.scroll.reveal(item.element, this.container);
     }

@@ -1,0 +1,40 @@
+{
+  "source": "f7528ecc8c31e449f1f7d4ac4d7df489a25750c8",
+  "date": "2026-11-03",
+  "runtime": "Samsung SDK 10.0.6 / NW.js Chromium 137.0.7151.69",
+  "packageSha256": "54ff19bfac33ede966cfcbbe1689d79634d2f0c05f6c6321eb416c73f621c189",
+  "installedFilesMatched": 15,
+  "loadedResources": {
+    "main.js": "b60dbcbba752b88d976a340b2350edd49890d520431b107af2cefefcd0dd9dd9",
+    "main.css": "d15a883d582c0a34e5549b43e83c1f4b66b9639acc8d8221f47719dd9b5f8309"
+  },
+  "currentNativeSmoke": {
+    "viewport": [1920, 1080],
+    "devicePixelRatio": 2,
+    "preference": "Compact",
+    "focusedTitle": "Masterplan",
+    "artworkTop": 597.1953735351562,
+    "viewportTop": 596,
+    "scrollTop": 57,
+    "rowScrollLeft": 0,
+    "collectionsUpRestoredCard": true,
+    "detailsBackRestoredCard": true,
+    "returnCatalogAndDetailReads": 0
+  },
+  "automated": {
+    "controlledChecksPassed": 8,
+    "nativePassed": 565,
+    "uiPassed": 654,
+    "failures": 0,
+    "cancelled": 0,
+    "fullExit": 0,
+    "releaseChecksPassed": 17
+  },
+  "limits": [
+    "Current smoke covers focus and return behavior; r2 remains the presentation artifact set",
+    "Native pending-grid probe setup was not established and is excluded",
+    "Grid-edge proof is the controlled automated RED/GREEN regression",
+    "No physical TV, native visibility, AVPlay or ordinary packaged-origin CORS proof",
+    "No whole-screen parity claim"
+  ]
+}

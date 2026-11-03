@@ -1,3 +1,4 @@
+import { selectLibraryMode } from "./support/library.ts";
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
@@ -324,7 +325,7 @@ for (const surface of ["library-shelf", "library-grid", "collection", "search", 
             await tv.page.locator('[data-focus="movies"]').click();
             await tv.page.locator('.browse[data-view="library:12"] .browse-card:not(.discovery-collection)').first().waitFor();
             if (surface === "library-grid") {
-                await tv.page.locator('[data-focus="mode:Recently Added"]').click();
+                await selectLibraryMode(tv, "Recently Added");
                 await tv.page.locator('.browse .browse-grid .browse-card').first().waitFor();
             }
             if (surface === "collection") {

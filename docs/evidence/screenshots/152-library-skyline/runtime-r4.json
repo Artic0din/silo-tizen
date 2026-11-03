@@ -1,0 +1,37 @@
+{
+  "source": "bf8e03b94f48d33432029af30fb273fa08d0343c",
+  "date": "2026-11-03",
+  "runtime": "Samsung SDK 10.0.6 / NW.js Chromium 137.0.7151.69",
+  "packageSha256": "3d115a66bb24abc5c70b1cf01ec3f63e4354b2e0e01c08485c6ccae6b6676db6",
+  "installedFilesMatched": 15,
+  "loadedResources": {
+    "main.js": "8ef5a47b0092a18ba92e472c0cf9c2bfc86b0eb73449fb90ee49198192578699",
+    "main.css": "d15a883d582c0a34e5549b43e83c1f4b66b9639acc8d8221f47719dd9b5f8309"
+  },
+  "currentModeJourney": {
+    "reselectedRecommended": true,
+    "restoredCollectionFocus": true,
+    "menuClosedBeforeUp": true,
+    "upwardKeys": ["ArrowUp", "ArrowUp"],
+    "finalFocus": "movies",
+    "catalogOrDetailRequestsDuringUpwardJourney": 0,
+    "normalAnchorDwellOpenedMenuAfterReturn": true
+  },
+  "automated": {
+    "focusedPassed": 7,
+    "nativePassed": 565,
+    "uiPassed": 654,
+    "parityDriftChecksPassed": 7,
+    "releaseChecksPassed": 17,
+    "fullExit": 0,
+    "failures": 0,
+    "cancelled": 0
+  },
+  "limits": [
+    "Earlier r2/r3 artifacts are retained for their original scope",
+    "First install check preceded copy completion and is excluded",
+    "No sixth delegated review; parent fixed the verified landing-review finding",
+    "No physical TV, AVPlay, native visibility or ordinary packaged-origin CORS proof",
+    "No whole-screen or whole-app parity claim"
+  ]
+}

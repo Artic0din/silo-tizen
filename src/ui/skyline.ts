@@ -108,6 +108,7 @@ export class Skyline {
     private previewId: string | undefined;
     private readonly tints = new Map<string, Tints>();
     private selected = "home";
+    private sharedScene = false;
     private scopes = new Map<VideoTab, string>();
     private visible = false;
     private immediatePreview = true;
@@ -255,6 +256,8 @@ export class Skyline {
         this.visible = true;
         if (this.selected !== selected) this.immediatePreview = true;
         this.selected = selected;
+        this.sharedScene = preview && (libraryRoot || selected === "home" || selected === "for_you");
+        if (preview && libraryRoot && view.focus === undefined) view = { ...view, focus: { zone: "nav", key: selected } };
         for (const item of this.items) {
             item.element.setAttribute("aria-current", item.key === selected ? "page" : "false");
             if (item.element.getAttribute("role") === "tab") item.element.setAttribute("aria-selected", String(item.key === selected));
@@ -265,8 +268,8 @@ export class Skyline {
         const prepare = (): void => {
             this.container.classList.add("skyline-root");
             this.container.classList.toggle("skyline-preview", preview);
-            this.container.classList.toggle("skyline-home", preview && (selected === "home" || selected === "for_you"));
-            this.container.classList.toggle("skyline-library", preview && libraryRoot);
+            this.container.classList.toggle("skyline-home", this.sharedScene);
+            this.container.classList.toggle("skyline-library", preview && libraryRoot && !this.sharedScene);
             this.container.classList.toggle("skyline-grid", !preview && (libraryRoot || selected === "profiles" || view.name.startsWith("personal:")));
             view.content.forEach((node, index) => {
                 const existing = this.body.children[index];
@@ -337,7 +340,7 @@ export class Skyline {
         this.fillDetails(layer, card, continuing);
         const seriesArt = card.type === "episode" && card.seriesBackdropUrl !== undefined;
         const background = artworkUrl(seriesArt ? card.seriesBackdropUrl : card.backdropUrl, this.baseUrl);
-        if (background !== undefined && (this.selected === "home" || this.selected === "for_you")) {
+        if (background !== undefined && this.sharedScene) {
             layer.prepend(heroBackdrop(background, seriesArt ? undefined : card.backdropThumbhash, this.tints));
         } else if (background !== undefined) {
             const image = el("img", "skyline-backdrop");

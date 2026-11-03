@@ -12,6 +12,9 @@ import { pinProblem, pinScreen } from "./pinScreen.ts";
 import { actions, button, type Control, el, type Note, type Screen, ScreenHost } from "./screen.ts";
 import { logoutCollectedAccount } from "./signIn.ts";
 import * as text from "./signInText.ts";
+import { MarqueeBackdrop } from "./marqueeBackdrop.ts";
+import { profilePickerScreen } from "./profilePicker.ts";
+import { createProfileFlow, type ProfileCreateFlow } from "./profileCreate.ts";
 
 export interface ProfileHandoff {
     readonly profile: ProfileSummary;
@@ -25,6 +28,7 @@ export interface ProfileHandoff {
 }
 
 export interface ProfileOptions {
+    readonly onChangeServer: () => void;
     readonly server: ConnectedServer;
     readonly clock?: Clock;
     readonly launch?: ProfileLaunch;
@@ -41,7 +45,6 @@ export interface ProfileScreens {
     destroy(): void;
 }
 
-const PER_ROW = 5;
 const TITLE = "Who's watching?";
 const PROOF_ENDED = "The PIN for this profile changed, or its unlock ended. Enter the PIN again.";
 
@@ -50,6 +53,8 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
     const clock = options.clock ?? systemClock;
     const session = server.session;
     let host: ScreenHost | undefined;
+    let backdrop: MarqueeBackdrop | undefined;
+    let creation: ProfileCreateFlow | undefined;
     /** Increases whenever the screens move on; an answer for an older view is dropped. */
     let view = 0;
     let pending: AbortController | undefined;
@@ -58,12 +63,17 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
     let destroyed = false;
     let restoring = false;
 
-    const show = (screen: Screen): void => {
+    const show = (screen: Screen, focus?: string): void => {
         if (host === undefined) {
             root.classList.add("signin");
-            host = new ScreenHost(root);
+            root.classList.add("profiles-flow");
+            backdrop = new MarqueeBackdrop(clock);
+            backdrop.setStage(2);
+            host = new ScreenHost(root, undefined, backdrop.element);
         }
-        host.show(screen);
+        root.classList.toggle("profile-picker", screen.name === "profiles");
+        root.classList.toggle("profile-editor", screen.name === "profile-create");
+        host.show(screen, focus);
     };
 
     const release = (): void => {
@@ -71,11 +81,17 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             host.destroy();
             host = undefined;
             root.classList.remove("signin");
+            root.classList.remove("profiles-flow", "profile-picker", "profile-editor");
+            backdrop?.destroy();
+            backdrop = undefined;
         }
     };
 
     /** Starts a new view: the previous one's request is abandoned and its answer ignored. */
     const begin = (): number => {
+        const oldCreation = creation;
+        creation = undefined;
+        oldCreation?.destroy();
         restoring = false;
         pending?.abort();
         pending = undefined;
@@ -155,32 +171,23 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
 
     const picker = (list: readonly ProfileSummary[], focus?: string): void => {
         begin();
-        if (list.length === 0) {
-            const lines = ["This account has no profiles to choose from. Add one in Silo on the web, then try again."];
-            message("profiles-empty", "No profiles", lines, [button("retry", "Try again", () => showList()), signOutButton()], resume());
-            return;
-        }
-        const grid = el("div", "profile-grid");
-        const controls: Control[] = list.map((profile, index) => {
-            const tile = el("button", "profile-tile");
-            tile.type = "button";
-            tile.setAttribute("data-focus", `profile:${profile.id}`);
-            tile.appendChild(el("span", "profile-initial", (Array.from(profile.name)[0] ?? "?").toUpperCase()));
-            tile.appendChild(el("span", "profile-name", profile.name));
-            if (profile.hasPin) {
-                const lock = el("span", "profile-lock");
-                lock.setAttribute("aria-hidden", "true");
-                tile.setAttribute("aria-label", `${profile.name}, PIN protected`);
-                tile.appendChild(lock);
-            }
-            tile.addEventListener("click", () => choose(profile));
-            grid.appendChild(tile);
-            return { key: `profile:${profile.id}`, element: tile, row: Math.floor(index / PER_ROW) };
-        });
-        const out = signOutButton();
-        controls.push({ ...out, row: Math.ceil(list.length / PER_ROW) });
-        const first = `profile:${focus ?? current?.id ?? list[0]?.id ?? ""}`;
-        show({ name: "profiles", content: [el("h1", "signin-title", TITLE), grid, actions([out])], controls, focus: first, back: resume() });
+        const preferred = focus ?? current?.id ?? options.launch?.rememberedProfileId ?? list[0]?.id;
+        show(profilePickerScreen({ profiles: list, baseUrl: server.server.http.base.baseUrl,
+            accountName: session.account?.username, rememberedId: options.launch?.rememberedProfileId,
+            focus: preferred === undefined || preferred === "add-profile" ? "add-profile" : `profile:${preferred}`,
+            choose, changeServer: options.onChangeServer, signOut, back: resume(), add: () => {
+                const token = begin();
+                const flow = createProfileFlow({ server, profiles: list,
+                    show: (screen, focus) => { if (!destroyed && token === view) show(screen, focus); }, finished: (id, uncertain) => {
+                    if (destroyed || token !== view) return;
+                    creation = undefined;
+                    if (uncertain) message("profile-create-uncertain", "Check profiles", ["A creation request was sent. Check the profile list before trying again."], [button("retry", "Check profiles", () => showList("add-profile"))], () => showList("add-profile"));
+                    else showList(id ?? "add-profile");
+                } });
+                if (!destroyed && token === view) creation = flow;
+                else flow.destroy();
+            },
+        }));
     };
 
     const listFailed = (error: unknown, focus?: string): void => {

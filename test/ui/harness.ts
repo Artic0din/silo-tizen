@@ -149,7 +149,12 @@ const harness: SignInHarness = {
                     rootChildren: root.childElementCount,
                 });
                 if (profileFlow) {
-                    profileScreens = mountProfiles(root, { server, onSelected: browse, onSignedOut: backToSignIn });
+                    profileScreens = mountProfiles(root, { server, onSelected: browse, onSignedOut: backToSignIn, onChangeServer: () => {
+                        profileScreens?.destroy(); profileScreens = undefined;
+                        server.session.setProfile(undefined, "profile_cleared");
+                        const screen = document.createElement("section"); screen.setAttribute("data-screen", "server-selection");
+                        root.replaceChildren(screen);
+                    } });
                 }
             },
             ...(signedOut === undefined ? {} : { signedOut }),

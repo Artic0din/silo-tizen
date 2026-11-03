@@ -1,0 +1,17 @@
+{
+  "r5WgtSha256": "110cf2ddeac717d46402f6390954f0a9bd62c77458019bb9d8269cf38dd44ead",
+  "r6WgtSha256": "0f54749be8518c3ac20fe6d737c7f87f1b9526292b7ced3595d545f6d359ba3f",
+  "identicalSharedPayloadFiles": 12,
+  "addedPayload": [
+    "NOTICE"
+  ],
+  "changedExistingFiles": [
+    "author-signature.xml",
+    "signature1.xml"
+  ],
+  "limits": [
+    "R5 media are retained with their original labels",
+    "R6 returned to server entry during recapture; cause unproven"
+  ],
+  "signingCertificatesUnchanged": true
+}

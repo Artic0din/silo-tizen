@@ -15,6 +15,7 @@ import { detailAction, detailPanel, ratingControls } from "./detailsActions.ts";
 import { matchesSubtitle } from "../player/preplaySubtitles.ts";
 import type { SubtitleSignature } from "../contracts/v2/preplaySubtitles.ts";
 import { seriesEpisodesView } from "./seriesEpisodesView.ts";
+import { languageName } from "./cardOverlays.ts";
 
 /** Browse owns the dialog across optional-data renders and stops it on route teardown. */
 export class Synopsis {
@@ -161,7 +162,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     const audio = file?.audio ?? [];
     const selectedAudio = state?.audioTrackId();
     const subtitle = state?.subtitleIntent();
-    const subtitleLabel = (track: SubtitleSignature): string => [track.label || track.language?.toUpperCase() || "Unknown language", track.codec?.toUpperCase(), track.forced ? "Forced" : undefined, track.hearingImpaired ? "SDH" : undefined].filter(Boolean).join(" · ");
+    const subtitleLabel = (track: SubtitleSignature): string => [...new Set([languageName(track.language) ?? "Unknown language", track.label, track.codec?.toUpperCase(), track.forced ? "Forced" : undefined, track.hearingImpaired ? "SDH" : undefined].filter(Boolean))].join(" · ");
     const selectedSubtitleLabel = subtitle?.kind === "track" ? subtitleLabel(subtitle.signature) : subtitle?.kind === "off" ? "Off" : "Auto";
     const audioLabel = (index: number): string => {
         const track = audio[index];

@@ -54,6 +54,19 @@ detailTest("movie Details keeps playback and personal controls in one row with c
         assert.equal(await tv.focused(), "more");
 });
 
+detailTest("subtitle choices retain their language when stream titles repeat the codec", async tv => {
+    const catalog = tv.fake.catalog;
+    assert.ok(catalog instanceof FakeDetails);
+    catalog.subtitleFiles.set("42", [
+        { language: "eng", codec: "subrip", title: "SUBRIP", external: false },
+        { language: "fra", codec: "subrip", title: "SUBRIP", external: false },
+    ]);
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.page.locator('[data-focus="subtitles"]').click();
+    assert.equal(await tv.page.locator('[data-focus="subtitle:0"]').textContent(), "English · SUBRIP");
+    assert.equal(await tv.page.locator('[data-focus="subtitle:1"]').textContent(), "French · SUBRIP");
+});
+
 detailTest("More owns accessible personal-action loading and failure announcements", async tv => {
     const held = tv.fake.hold("/capabilities/personal-lists", true);
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();

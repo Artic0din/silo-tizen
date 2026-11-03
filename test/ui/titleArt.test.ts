@@ -85,6 +85,8 @@ test("detailed seasons use the same false policy and leave episode navigation us
         await tv.page.locator('[data-focus="series"][role="tab"]').click();
         await tv.page.locator('[data-focus="series:s1"]').first().click();
         await tv.page.locator('[data-focus="season:1"]').click();
+        await tv.page.locator('[data-focus="more"]').click();
+        await tv.page.locator('[data-focus="season-info"]').click();
         await tv.page.locator('[data-view="season:series:s1:1"]').waitFor();
         await tv.jump(240);
         assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "Harbor Lights · Season 1");
@@ -277,6 +279,7 @@ test("title-art policy settling preserves the open synopsis and its remote focus
     const hold = tv.fake.hold(`/settings/values/effective?keys=${TITLE}`, true);
     try {
         await details(tv, catalog);
+        await tv.page.locator('[data-focus="more"]').click();
         await tv.page.locator('[data-focus="synopsis"]').click();
         const dialog = tv.page.getByRole("dialog", { name: "Synopsis" });
         await dialog.getByRole("button", { name: "Close synopsis" }).focus();

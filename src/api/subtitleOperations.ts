@@ -1,8 +1,10 @@
 import type { RequestSpec } from "./http.ts";
 import { decodeAppearance, type SubtitleAppearance } from "../contracts/v2/subtitles.ts";
 import type { SubtitleTrack } from "../contracts/v2/playback.ts";
+import { decodeSubtitlePreferences, type SubtitlePreferences } from "../contracts/v2/preplaySubtitles.ts";
 
 export const subtitleOperations = {
+    preplaySubtitlePreferences: (contentId: string, fileId: string, audioId: string | undefined): RequestSpec<SubtitlePreferences> => ({ method: "GET", path: `/watch/${encodeURIComponent(contentId)}?file_id=${encodeURIComponent(fileId)}`, retry: "safe", decode: value => decodeSubtitlePreferences(value, contentId, fileId, audioId) }),
     subtitleAppearance: (profile: string): RequestSpec<SubtitleAppearance> => ({ method: "GET", path: "/settings/subtitle-appearance/effective", retry: "safe", decode: value => decodeAppearance(value, profile) }),
     subtitleSync: (): RequestSpec<number> => ({ method: "GET", path: "/settings/values/effective?keys=player.subtitle_sync_ms", retry: "safe", decode: value => {
         if (typeof value !== "object" || value === null || !("items" in value) || !Array.isArray(value.items)) throw new Error("Invalid subtitle timing");

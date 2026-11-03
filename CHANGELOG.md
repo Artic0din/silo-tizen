@@ -10,6 +10,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Consolidated Details actions into one row, added version and subtitle dialogs, kept rating and personal actions in More, and showed season chips with an inline episode rail and clearer cast and synopsis layouts.
 - Settled every unknown Android TV cell in FEATURES.md and added nine parity rows found in the upstream TV parity audits.
 - Shared Home's Skyline presentation with Library Recommended, replaced heading controls with Explore All tiles, retained usable shelves when collections failed, kept lifted artwork visible when returning between rows, and preserved the current card at grid edges.
 - Lifted Library Recommended artwork independently of its captions, with dimmed unfocused labels and a reduced-motion focus ring.

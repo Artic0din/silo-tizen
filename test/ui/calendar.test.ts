@@ -43,7 +43,8 @@ test("Calendar root opens a weekly catalog journey by remote", async () => {
 });
 
 async function activate(tv: Tv, key: string): Promise<void> {
-    await tv.page.locator(".browse").locator("[data-focus]").evaluateAll((nodes, key) => {
+    await tv.page.evaluate(key => {
+        const nodes = Array.from(document.querySelectorAll(".browse [data-focus]"));
         const node = nodes.find(node => node.getAttribute("data-focus") === key);
         if (!(node instanceof HTMLElement)) {
             const state = {
@@ -152,14 +153,15 @@ calendarTest("Calendar complete remote journey retains every event and restores 
     await tv.page.keyboard.press("Enter");
     await tv.eventually(async () => await tv.focused() === "season:2", "Calendar focuses the relevant series season");
     await tv.page.keyboard.press("Enter");
-    await tv.eventually(async () => await tv.focused() === "episode:s1e22", "Calendar focuses the relevant episode");
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e22"]').waitFor();
+    await tv.remote(40);
+    assert.equal(await tv.focused(), "episode:s1e22", "Calendar focuses the relevant episode");
     await tv.page.keyboard.press("Enter");
     await tv.eventually(async () => await tv.page.locator('.browse[data-view="item:episode:s1e22"]').count() === 1, "episode Details");
     await activate(tv, "play");
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.slice(-1)[0]?.contentId), "episode:s1e22");
     await tv.page.evaluate(() => window.browseHarness.resume());
     await tv.remote(10009); await tv.eventually(async () => await tv.focused() === "episode:s1e22", "episode return");
-    await tv.remote(10009); await tv.eventually(async () => await tv.focused() === "season:2", "season return");
     await tv.remote(10009); await ready(tv, 32);
     await tv.page.clock.runFor(260); assert.deepEqual(await position(), episodeScroll, "vertical and shelf scroll survive Details and playback");
     assert.equal(await tv.page.locator(":focus").getAttribute("data-content-id"), "episode:s1e22");
@@ -262,12 +264,18 @@ calendarTest("Calendar metadata-only and missing targets retain safe Details and
 calendarTest("Calendar return revalidates mutations and preserves nearby identity when the origin disappears", async (tv, catalog) => {
     await activate(tv, "calendar"); await ready(tv, 3);
     await activate(tv, "day:2025-12-29"); await tv.page.keyboard.press("Enter");
-    await tv.eventually(async () => await tv.page.locator('[data-focus="watched"]').count() === 1, "personal actions");
+    await tv.page.locator('[data-focus="more"]').waitFor();
+    await activate(tv, "more");
+    assert.equal(await tv.page.getByRole("dialog", { name: "More", exact: true }).count(), 1, "More opened before waiting for personal actions");
+    await tv.eventually(async () => await tv.page.locator('[data-focus="watched"]').count() === 1, "personal actions").catch(async error => {
+        const state = await tv.page.evaluate(() => ({ view: document.querySelector(".browse")?.getAttribute("data-view"), focus: document.activeElement?.getAttribute("data-focus"), targets: [...document.querySelectorAll(".browse [data-focus]")].map(node => node.getAttribute("data-focus")), alerts: [...document.querySelectorAll('[role="alert"]')].map(node => node.textContent) }));
+        throw new Error(JSON.stringify(state), { cause: error });
+    });
     await tv.page.getByText("Loading personal actions.", { exact: true }).waitFor({ state: "hidden" });
     await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
     await activate(tv, "watched");
     await tv.eventually(async () => catalog.watched, "watched mutation");
-    await tv.remote(10009); await ready(tv, 3);
+    await tv.remote(10009); await tv.remote(10009); await ready(tv, 3);
     assert.match(await tv.page.locator('.calendar-event[data-content-id="movie:m0001"]').textContent() ?? "", /Watched/);
     await tv.page.keyboard.press("Enter");
     await tv.eventually(async () => await tv.page.locator('.browse[data-view="item:movie:m0001"]').count() === 1, "details again");
@@ -370,8 +378,11 @@ calendarTest("Calendar premiere, episode context fallback, badges and distinct e
     assert.doesNotMatch(await episodes.nth(1).textContent() ?? "", /function/);
     await tv.page.locator('.calendar-event[data-content-id="season:s1:2"]').focus(); await tv.page.keyboard.press("Enter");
     await tv.eventually(async () => await tv.focused() === "season:2", "premiere season focus");
-    await tv.page.keyboard.press("Enter"); await tv.eventually(async () => await tv.focused() === "episode:s1e21", "premiere episode list");
-    await tv.remote(10009); await tv.remote(10009); await ready(tv, 4);
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e21"]').waitFor();
+    await tv.remote(40);
+    assert.equal(await tv.focused(), "episode:s1e21", "premiere episode list");
+    await tv.remote(10009); await ready(tv, 4);
     catalog.events = catalog.events.map(event => event.type === "episode" ? { ...event, season_number: undefined } : event).map(event => {
         const { season_number, ...rest } = event;
         return season_number === undefined ? rest : { ...rest, season_number };
@@ -379,7 +390,35 @@ calendarTest("Calendar premiere, episode context fallback, badges and distinct e
     await activate(tv, "filter:trending"); await ready(tv, 3);
     await tv.page.locator('.calendar-event[data-content-id="episode:s1e22"]').first().focus(); await tv.page.keyboard.press("Enter");
     await tv.eventually(async () => await tv.focused() === "season:2", "missing season number resolved through existing item detail");
-    await tv.page.keyboard.press("Enter"); await tv.eventually(async () => await tv.focused() === "episode:s1e22", "resolved episode focus");
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e22"]').waitFor();
+    await tv.remote(40);
+    assert.equal(await tv.focused(), "episode:s1e22", "resolved episode focus");
+});
+
+calendarTest("Calendar-origin series refresh preserves a subsequently selected season and episode", async (tv, catalog) => {
+    await activate(tv, "calendar"); await ready(tv, 3);
+    await tv.page.locator('.calendar-event[data-content-id="season:s1:2"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e21"]').waitFor();
+    await activate(tv, "season:1");
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e11"]').click();
+    await tv.page.locator('[data-view="item:episode:s1e11"]').waitFor();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.locator('[data-focus="watched"]').click();
+    await tv.eventually(async () => catalog.mutations.length === 1 && await tv.page.getByRole("button", { name: "Mark watched", exact: true }).count() === 1, "episode mutation confirmed");
+    const refresh = tv.fake.hold("/catalog/items/series%3As1", true);
+    await tv.remote(10009); await tv.remote(10009);
+    await tv.page.locator('[data-view="item:series:s1"]').waitFor();
+    const rail = await tv.page.locator('.details-episodes').elementHandle();
+    assert.ok(rail);
+    refresh.release();
+    await tv.eventually(async () => await rail.evaluate(node => !node.isConnected), "accepted series refresh replaced the cached rail");
+    await tv.page.getByText("Loading episodes…", { exact: true }).waitFor({ state: "hidden" });
+    await tv.page.getByText("Refreshing episodes…", { exact: true }).waitFor({ state: "hidden" });
+    assert.equal(await tv.page.locator('[data-focus="season:1"]').getAttribute("aria-pressed"), "true", "refresh retains the user's selected season");
+    assert.equal(await tv.page.locator('.details-episodes [data-focus="episode:s1e11"]').count(), 1);
+    assert.equal(await tv.focused(), "episode:s1e11");
 });
 
 calendarTest("Calendar loading status leaves the origin shelf geometry unchanged on return", async (tv) => {
@@ -423,7 +462,7 @@ async function homeDetails(tv: Tv, id = "movie:m0001"): Promise<void> {
     await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).focus();
     await tv.page.keyboard.press("Enter");
     await tv.eventually(async () => await tv.page.locator(`.browse[data-view="item:${id}"]`).count() === 1
-        && await tv.page.locator('[data-focus="watched"]').count() === 1
+        && await tv.page.locator('[data-focus="watchlist"]').count() === 1
         && await tv.page.getByText("Loading personal actions.", { exact: true }).count() === 0
         && await tv.page.getByText("Loading related titles.", { exact: true }).count() === 0, "Home item Details");
 }
@@ -432,8 +471,10 @@ calendarTest("S-C2 Calendar re-entry refreshes watched changes made through Home
     await activate(tv, "calendar"); await ready(tv, 3);
     assert.equal(reads(tv).length, 1);
     await homeDetails(tv);
+    await activate(tv, "more");
     await activate(tv, "watched");
     await tv.eventually(async () => catalog.watched && await tv.page.getByRole("button", { name: "Mark unwatched", exact: true }).count() === 1, "confirmed watched state");
+    await tv.remote(10009);
     await tv.remote(10009);
     await activate(tv, "calendar"); await ready(tv, 3);
     assert.equal(reads(tv).length, 2);
@@ -445,10 +486,12 @@ for (const [action, id, expected] of [["favorites", "movie:m0001", 2], ["watchli
         if (action === "favorites") catalog.progress.delete(id);
         await activate(tv, "calendar"); await ready(tv, 3);
         await homeDetails(tv, id);
+        if (action === "favorites") await activate(tv, "more");
         await tv.page.getByRole("button", { name: action === "favorites" ? "Remove favorite" : "Remove from watchlist", exact: true }).waitFor();
         await activate(tv, action);
         await tv.eventually(async () => !(action === "favorites" ? catalog.favoriteIds : catalog.watchlistIds).has(id) && await tv.page.getByRole("button", { name: action === "favorites" ? "Add favorite" : "Add to watchlist", exact: true }).count() === 1, "confirmed membership removal");
         await tv.remote(10009);
+        if (action === "favorites") await tv.remote(10009);
         await activate(tv, "calendar"); await ready(tv);
         assert.equal(reads(tv).length, 2);
         assert.equal(await tv.page.locator(".calendar-event").count(), expected);

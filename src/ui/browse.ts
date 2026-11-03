@@ -17,6 +17,7 @@ import { operations } from "../api/operations.ts";
 import { detailOperations } from "../api/detailOperations.ts";
 import type { ItemDetail } from "../contracts/v2/catalog.ts";
 import { DetailsState } from "./detailsState.ts";
+import { SeriesEpisodes } from "./seriesEpisodes.ts";
 import { CardActions } from "./cardActions.ts";
 import { Synopsis } from "./browseDetails.ts";
 import type { ConnectedServer } from "../session/core.ts";
@@ -178,7 +179,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             render(origin.focus);
         }
     }, personalPending);
-    const synopsis = new Synopsis(container, () => render({ zone: "actions", key: "synopsis" }));
+    const synopsis = new Synopsis(container, () => {
+        const current = top();
+        const more = (current?.kind === "item" || current?.kind === "season") && current.data?.details?.panel === "more";
+        render({ zone: more ? "more" : "actions", key: "synopsis" });
+    });
     const stopDetails = (): void => { synopsis.destroy(); detailWork?.stop(); detailWork = undefined; };
     let inputRevision = 0;
     const recordInput = (): void => { inputRevision++; };
@@ -442,7 +447,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (calendar !== undefined) calendar.stale = true;
     };
 
-    const detailsChanged = (current: Route, audioClosed = false): void => {
+    const detailsChanged = (current: Route, returnKey?: string): void => {
         if (current.kind === "item" || current.kind === "season") {
             const changes = current.data?.details?.changes;
             if (changes !== undefined && [...changes.values()].some(change => change.pending)) {
@@ -457,7 +462,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
         if (top() === current) {
             if (cardActions.active) cardActions.render();
-            else render(audioClosed ? { zone: "actions", key: "audio" } : undefined);
+            else render(returnKey === undefined ? undefined : { zone: returnKey === "rate" ? "more" : "actions", key: returnKey });
         }
     };
 
@@ -484,6 +489,15 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const episodes = await read(operations.listSeasonEpisodes(current.seriesId, current.seasonNumber), signal);
             if (signal.aborted || top() !== current || current.data === undefined) return;
             current.data.episodes = episodes;
+        }
+        if (current.kind === "item" && current.data?.details?.series !== undefined) {
+            const series = current.data.details.series;
+            const season = series.seasonNumber;
+            if (season !== undefined) {
+                const episodes = await read(operations.listSeasonEpisodes(current.id, season), signal);
+                if (signal.aborted || top() !== current) return;
+                series.replace(season, episodes);
+            }
         }
         current.stale = false;
     };
@@ -756,6 +770,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     const previous = current.data?.details;
                     const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending);
                     details.restore(previous);
+                    if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, () => detailsChanged(current), previous?.series?.seasonNumber ?? data.contextSeason, current.seriesContext?.episodeId);
+                    details.series?.restore(previous?.series);
                     details.related = quiet ? previous?.related : undefined;
                     current.data = { ...data, details };
                     detailWork = details;
@@ -967,10 +983,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const push = (next: Route): void => {
         shuffleGeneration++;
-        stopDetails();
         const current = top();
+        const panel = (current?.kind === "item" || current?.kind === "season") ? current.data?.details?.panel : undefined;
+        stopDetails();
         if (current !== undefined) {
-            current.focus = host.focused();
+            current.focus = panel === undefined ? host.focused() : { zone: "actions", key: panel === "rating" ? "more" : panel };
             if (current.kind === "homeSection" || current.kind === "personFilmography") current.pendingIndex = undefined;
         }
         loading?.abort();

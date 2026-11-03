@@ -9,6 +9,8 @@ import type { Clock } from "../api/clock.ts";
 import type { NativeSession } from "../session/session.ts";
 import { readSettingsCapability, readTitleArt } from "./presentationSettings.ts";
 import { RatingState } from "./ratingState.ts";
+import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
+import { SeriesEpisodes } from "./seriesEpisodes.ts";
 
 export interface PersonalChange {
     readonly target: boolean;
@@ -18,12 +20,15 @@ export interface PersonalChange {
 
 export class DetailsState {
     readonly rating: RatingState;
+    series: SeriesEpisodes | undefined;
     detail: ItemDetail;
     selectedFileId: string | undefined;
-    audioOpen = false;
+    panel: "audio" | "version" | "subtitles" | "more" | "rating" | undefined;
+    get audioOpen(): boolean { return this.panel === "audio"; }
     preparingPlay = false;
     failedPlay: PlayRequest | undefined;
     private audioPick: { fileId: string; ordinal: number; inventory: string } | undefined;
+    private subtitlePick: { fileId: string; inventory: string; intent: SubtitleIntent } | undefined;
     related: readonly Card[] | undefined;
     relatedFailed = false;
     personalSupported: boolean | undefined;
@@ -35,11 +40,11 @@ export class DetailsState {
     private controller: AbortController | undefined;
     private stopAuthority: (() => void) | undefined;
     private readonly session: NativeSession;
-    private readonly changed: (audioClosed?: boolean) => void;
+    private readonly changed: (returnKey?: string) => void;
     private readonly watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>;
     private readonly pendingElsewhere: () => boolean;
 
-    constructor(detail: ItemDetail, session: NativeSession, changed: (audioClosed?: boolean) => void, watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>, pendingElsewhere: () => boolean = () => false) {
+    constructor(detail: ItemDetail, session: NativeSession, changed: (returnKey?: string) => void, watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>, pendingElsewhere: () => boolean = () => false) {
         this.detail = detail;
         this.session = session;
         this.changed = changed;
@@ -57,6 +62,7 @@ export class DetailsState {
         this.controller = new AbortController();
         if (mode === "full" && ["movie", "series"].includes(this.detail.type)) this.rating.start();
         this.stopAuthority = this.session.onAuthorityChange(() => { this.stop(); this.changed(); });
+        if (mode === "full") this.series?.start();
         if (mode === "full") this.loadTitleArt();
         let interrupted = false;
         for (const [kind, change] of this.changes) {
@@ -72,13 +78,14 @@ export class DetailsState {
 
     stop(): void {
         this.rating.stop();
+        this.series?.stop();
         this.controller?.abort();
         this.controller = undefined;
         this.stopAuthority?.();
         this.stopAuthority = undefined;
         this.titleArt = undefined;
         this.titleArtPolicy = "pending";
-        this.audioOpen = false;
+        this.panel = undefined;
         this.preparingPlay = false;
     }
 
@@ -109,8 +116,8 @@ export class DetailsState {
         });
     }
 
-    select(fileId: string): void {
-        if (!this.detail.versions.some((file) => file.fileId === fileId)) return;
+    select(fileId: string | undefined): void {
+        if (fileId !== undefined && !this.detail.versions.some((file) => file.fileId === fileId)) return;
         if (fileId !== playChoices(this.detail, this.selectedFileId)?.fromStart.fileId) this.audioPick = undefined;
         this.selectedFileId = fileId;
         this.changed();
@@ -120,7 +127,9 @@ export class DetailsState {
         if (previous === undefined) return;
         if (this.detail.versions.some(file => file.fileId === previous.selectedFileId)) this.selectedFileId = previous.selectedFileId;
         this.audioPick = previous.audioPick;
+        this.subtitlePick = previous.subtitlePick;
         this.audioTrackId();
+        this.subtitleIntent();
     }
 
     audioTrackId(): string | undefined {
@@ -135,8 +144,14 @@ export class DetailsState {
         return `file:${pick.fileId}:audio:${pick.ordinal}`;
     }
 
-    showAudio(): void { this.audioOpen = true; this.changed(); }
-    closeAudio(): void { this.audioOpen = false; this.changed(true); }
+    showPanel(panel: NonNullable<DetailsState["panel"]>): void { this.panel = panel; this.changed(); }
+    closePanel(): void {
+        const panel = this.panel;
+        this.panel = panel === "rating" ? "more" : undefined;
+        this.changed(panel === "rating" ? "rate" : panel);
+    }
+    showAudio(): void { this.showPanel("audio"); }
+    closeAudio(): void { this.closePanel(); }
 
     selectAudio(ordinal: number | undefined): void {
         const fileId = playChoices(this.detail, this.selectedFileId)?.fromStart.fileId;
@@ -144,6 +159,32 @@ export class DetailsState {
         if (file === undefined || (ordinal !== undefined && file.audio?.[ordinal] === undefined)) return;
         this.audioPick = ordinal === undefined ? undefined : { fileId: file.fileId, ordinal, inventory: JSON.stringify([file.audio, file.audioMetadata]) };
         this.closeAudio();
+    }
+
+    subtitleIntent(): SubtitleIntent {
+        const pick = this.subtitlePick;
+        if (pick?.intent.kind === "off") return pick.intent;
+        const fileId = playChoices(this.detail, this.selectedFileId)?.fromStart.fileId;
+        const file = this.detail.versions.find(file => file.fileId === fileId);
+        if (pick === undefined || pick.fileId !== fileId || pick.inventory !== JSON.stringify(file?.subtitles)) {
+            this.subtitlePick = undefined;
+            return { kind: "auto" };
+        }
+        return pick.intent;
+    }
+
+    selectSubtitle(choice: number | "off" | undefined): void {
+        const fileId = playChoices(this.detail, this.selectedFileId)?.fromStart.fileId;
+        const file = this.detail.versions.find(file => file.fileId === fileId);
+        if (file === undefined) return;
+        let intent: SubtitleIntent;
+        if (typeof choice === "number") {
+            const track = file.subtitles?.[choice];
+            if (track === undefined) return;
+            intent = { kind: "track", signature: track };
+        } else intent = { kind: choice === "off" ? "off" : "auto" };
+        this.subtitlePick = choice === undefined ? undefined : { fileId: file.fileId, inventory: JSON.stringify(file.subtitles), intent };
+        this.closePanel();
     }
 
     preparePlay(request: PlayRequest, clock: Clock, handoff: (request: PlayRequest) => void): void {

@@ -206,7 +206,7 @@ journey("interrupted Next cannot advance after visible-card Details, one resume 
     await tv.page.locator('.browse-grid [data-focus="movie:m0001"]').click();
     await tv.page.locator('[data-focus="resume"]').click();
     await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "fresh Resume handoff");
-    assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays), [{ contentId: "movie:m0001", fileId: "42", title: "The Last Signal", startSeconds: 1200 }]);
+    assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays), [{ contentId: "movie:m0001", fileId: "42", title: "The Last Signal", startSeconds: 1200, subtitle: { kind: "auto" } }]);
     await tv.page.evaluate(() => window.browseHarness.resume());
     await tv.page.locator('[data-focus="resume"]').waitFor();
     await tv.remote(BACK);
@@ -326,7 +326,7 @@ journey("Series filmography retains season, episode, and authorized playback own
     assert.equal(plays[0]?.contentId, "episode:s1e11");
     assert.ok(plays[0]?.fileId);
     await tv.page.evaluate(() => window.browseHarness.resume());
-    await tv.remote(BACK); await tv.remote(BACK); await tv.remote(BACK);
+    await tv.remote(BACK); await tv.remote(BACK);
     await tv.eventually(async () => await grid(tv).count() === 3, "Series filmography after playback");
     assert.equal(await tv.focused(), "series:s1");
     assert.equal(metadataReads(tv), 1);

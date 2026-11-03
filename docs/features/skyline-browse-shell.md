@@ -6,7 +6,24 @@ Only visible video library types appear, and mixed libraries can be scoped to ei
 Detail, season and playback routes remove the root chrome.
 Library destinations follow the available discovery capabilities: Browse, Collections, Genres, A–Z and Recently Added.
 
-## Preplay audio and resume
+## Details layout and selection
+
+Movie and episode Details place Play/Resume, Start Over when available, Version, Audio, Subtitles, Watchlist and More in one row.
+A passive line shows the selected version, audio and subtitle intent.
+More retains watched/favorite actions, the full-synopsis dialog and the movie/series rating dialog.
+Each dialog owns focus, hides the underlying page from accessibility, and restores its initiating control on Back.
+The inline synopsis clamps to three lines with ellipsis; the full text remains available in More.
+Cast portraits remain 200 px circles, with 60 px gaps and centered two-line names.
+
+Series Details use season chips and an inline landscape episode rail.
+The accepted initial season loads independently; subsequent season reads require explicit selection and replace obsolete reads.
+Re-selecting a loading chip keeps the same request and Calendar episode context.
+Moving focus makes no request.
+Ordinary episode Details/Back retains the selected season, loaded rail and focused episode.
+The existing season-information destination remains available in More.
+Episode activation still opens episode Details; direct play and the corresponding Play S#:E# series action remain tracked by #93.
+
+## Preplay audio, subtitles and resume
 
 Movie and episode Details offer Auto plus the displayed file's listed audio tracks in an anchored, remote-operable picker.
 Closing the picker restores its Audio trigger.
@@ -18,7 +35,7 @@ An audio-only choice does not invent an explicit version pin.
 Selecting a version sends `allow_alternate_versions:false`, and changing file clears the explicit audio choice.
 An identical quiet Details refresh preserves valid choices; changed audio metadata or a missing file resets audio to Auto.
 
-Resume captures file, audio, explicit version pin and initiating focus at the press, before a fresh profile-scoped `GET /api/v2/watch/{id}?file_id=…`.
+Resume captures file, audio, subtitle intent, explicit version pin and initiating focus at the press, before a fresh profile-scoped `GET /api/v2/watch/{id}?file_id=…`.
 A Play press cancels an obsolete quiet Details refresh so the visible controls remain usable while returning from playback.
 Fresh progress replaces cached progress, including on a rewatched title; a valid answer without progress starts at zero.
 The selected file's duration retains the existing five-second end margin.
@@ -27,13 +44,24 @@ Other refusals and malformed answers show an explicit Try again action and send 
 Back, route teardown, profile change and sign-out cancel resolution; late results cannot hand off.
 Repeated activation during resolution is ignored, and the existing app/player owner receives one captured request.
 Playback return restores the initiating Details action, or its existing fallback when that action disappeared.
-Play from start sends `start_position:0` without a watch read, even when the server has saved progress.
+Play from start sends `start_position:0` without a resume read, even when the server has saved progress.
+Subtitle Auto separately reads effective subtitle preferences before adopting the initial playable plan.
 Home Continue Watching keeps its existing direct-resolution journey.
 
 Audio choices last only in the current Details visit and playback attempt; no per-content audio preference PUT or DELETE is sent.
 This differs from Apple's persisted per-title/series audio override, which is deferred.
-There is no preplay subtitle selector, subtitle Auto resolution or new subtitle renderer claim.
-Both subtitle start fields stay absent; the existing in-player subtitle contract is unchanged.
+Subtitles offers Auto, Off and the selected version's catalog subtitle tracks.
+Auto resolves the watch answer's effective mode, language, saved signature and forced setting against the actual first plan's subtitle inventory and selected audio language.
+Explicit Off bypasses forced/default selection.
+An explicit catalog choice carries semantic metadata, never a container stream index or a manufactured playback ID.
+Before AVPlay opens, the controller matches it uniquely against the authoritative first plan and uses the existing track-change replan when needed.
+The initial start still omits both subtitle selector fields.
+Missing or ambiguous explicit tracks, failed Auto preparation and refused initial replans show an error and retire the session; they do not silently play a different subtitle choice.
+The existing cached-resume fallback remains usable with explicit subtitle Off when the watch endpoint is unreachable.
+Subtitle choices persist within the Details visit and attempt, with explicit tracks reset when file or inventory changes; Off survives a version change.
+No Details selection writes per-content or series subtitle preferences.
+This differs from Apple's persisted overrides; downloaded tracks remain available through the authoritative in-player menu.
+No subtitle renderer, AVPlay transport or capability declaration changed.
 The server's returned effective file, tracks, warnings and source/player timeline remain authoritative.
 The controller retains protocol 3, saved quality/cap settings, capability gates and bounded identical-body start resends with the same attempt identity.
 

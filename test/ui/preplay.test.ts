@@ -25,11 +25,12 @@ async function details(tv: Tv): Promise<void> {
     await tv.page.locator('[data-focus="resume"]').waitFor();
 }
 
-function preplay(name: string, body: (tv: Tv, catalog: FakeDetails, playback: FakePlayback) => Promise<void>, production = true, reduced = false): void {
+function preplay(name: string, body: (tv: Tv, catalog: FakeDetails, playback: FakePlayback) => Promise<void>, production = true, reduced = false, configure?: (catalog: FakeDetails) => void): void {
     test(name, async () => {
         const tv = await openTv(browser, { app: "application", production });
         const catalog = new FakeDetails();
         catalog.progress.set("movie:m0001", 1200.5);
+        configure?.(catalog);
         tv.fake.catalog = catalog;
         const playback = new FakePlayback(tv.fake);
         playback.items.set("movie:m0001", ["42", "43"]);
@@ -74,6 +75,7 @@ for (const reduced of [false, true]) {
         await tv.page.keyboard.press("Enter");
         await tv.page.getByRole("status").filter({ hasText: "Checking resume position" }).waitFor();
         await tv.page.keyboard.press("Enter");
+        await tv.page.locator('[data-focus="version"]').click();
         await tv.page.locator('[data-focus="version:43"]').click();
         await tv.page.locator('[data-focus="audio"]').click();
         await tv.page.getByRole("radio", { name: /English Dub/ }).click();
@@ -93,11 +95,11 @@ for (const reduced of [false, true]) {
     }, true, reduced);
 }
 
-preplay("Auto omits audio and subtitles while the returned menu adopts the nonzero server preference", async (tv) => {
+preplay("Auto keeps initial selectors omitted and resolves subtitles before adopting the server audio preference", async (tv) => {
     await tv.page.locator('[data-focus="audio"]').click();
     await tv.remote(10009);
     assert.equal(await tv.focused(), "audio");
-    assert.equal(await tv.page.locator('[data-focus*="subtitle"]').count(), 0);
+    assert.equal(await tv.page.locator('[data-focus="subtitles"]').count(), 1);
     await tv.page.locator('[data-focus="play"]').click();
     await prepare(tv);
     const body = starts(tv)[0]?.body;
@@ -109,6 +111,7 @@ preplay("Auto omits audio and subtitles while the returned menu adopts the nonze
 preplay("version change clears old audio, pins the new file and allows a fresh explicit pick", async (tv) => {
     await tv.page.locator('[data-focus="audio"]').click();
     await tv.page.getByRole("radio", { name: /Japanese/ }).click();
+    await tv.page.locator('[data-focus="version"]').click();
     await tv.page.locator('[data-focus="version:43"]').click();
     assert.equal(await tv.page.locator('[data-focus="audio"]').textContent(), "Audio: Auto");
     await tv.page.locator('[data-focus="audio"]').click();
@@ -120,6 +123,28 @@ preplay("version change clears old audio, pins the new file and allows a fresh e
     assert.equal(starts(tv)[0]?.body?.audio_track_id, "file:43:audio:1");
     assert.equal(starts(tv)[0]?.body?.allow_alternate_versions, false);
 });
+
+preplay("Details subtitles resolve a catalog stream choice through the server inventory and restore their trigger", async tv => {
+    await tv.page.locator('[data-focus="subtitles"]').focus();
+    await tv.page.keyboard.press("Enter");
+    assert.equal(await tv.focused(), "subtitle:auto");
+    await tv.remote(40); await tv.remote(40);
+    assert.equal(await tv.focused(), "subtitle:0");
+    await tv.page.keyboard.press("Enter");
+    assert.equal(await tv.focused(), "subtitles");
+    await tv.page.locator('[data-focus="play"]').click();
+    await prepare(tv);
+    assert.equal(starts(tv)[0]?.body?.subtitle_track_id, undefined);
+    const change = tv.fake.requests.find(request => request.path.endsWith("/replan"));
+    assert.deepEqual(change?.body?.selected_tracks, { audio: { id: "file:42:audio:2", index: 2 }, subtitle: { id: "file:42:subtitle:1" } });
+    await tv.remote(10009);
+    await tv.page.locator('[data-focus="subtitles"]').click();
+    assert.equal(await tv.page.locator('[data-focus="subtitle:0"]').getAttribute("aria-checked"), "true");
+    await tv.remote(10009);
+    await tv.page.locator('[data-focus="version"]').click();
+    await tv.page.locator('[data-focus="version:43"]').click();
+    assert.equal(await tv.page.locator('[data-focus="subtitles"]').getAttribute("aria-label"), "Subtitles: Auto");
+}, true, false, catalog => catalog.subtitleFiles.set("42", [{ index: 97, external: false, language: "eng", codec: "ass", title: "English (Signs)", forced: true }]));
 
 preplay("fresh no-progress wins over cached Resume", async (tv, catalog) => {
     catalog.progress.delete("movie:m0001");
@@ -167,7 +192,9 @@ preplay("episode Details uses its file audio and restores the initiating Resume 
     assert.equal(await tv.focused(), "resume");
 });
 
-preplay("network-only watch failure uses the cached Resume without changing authority", async (tv) => {
+preplay("network-only watch failure uses cached Resume with explicit subtitle Off without changing authority", async (tv) => {
+    await tv.page.locator('[data-focus="subtitles"]').click();
+    await tv.page.locator('[data-focus="subtitle:off"]').click();
     await tv.page.route("**/api/v2/watch/movie%3Am0001?file_id=42", route => route.abort("internetdisconnected"));
     await tv.page.locator('[data-focus="resume"]').click();
     await tv.jump(3000);

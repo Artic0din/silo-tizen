@@ -111,6 +111,107 @@ async function playReplacement(r: Rig): Promise<void> {
     }
 }
 
+test("Details subtitle intent selects the authoritative first-plan track before opening AVPlay", async () => {
+    const r = await rig();
+    const plan = decodePlaybackDecision(fixture("playback_start_opaque_ids"));
+    assert.equal(plan.outcome, "playable");
+    if (plan.outcome !== "playable") return;
+    const track = plan.plan.subtitle.inventory[1];
+    assert.ok(track);
+    const request = { ...MOVIE, audioTrackId: "file:42:audio:1", subtitle: { kind: "track" as const, signature: { source: track.source, language: track.language, codec: track.codec, label: track.label, forced: track.forced, hearingImpaired: track.hearingImpaired } } };
+    try {
+        r.controller.play(request);
+        await settle(r);
+        const change = only(replans(r.h));
+        assert.deepEqual(change.selected_tracks, { audio: { id: "file:42:audio:1", index: 1 }, subtitle: { id: track.trackId } });
+        assert.equal(change.operation, "track_change");
+        assert.equal(change.position_seconds, 12.5);
+        assert.equal(r.avplay.calls.filter(call => call.startsWith("open")).length, 1);
+    } finally { r.controller.destroy(); }
+});
+
+function scriptSubtitlePreferences(r: Rig): void {
+    r.h.fake.script("/watch/movie-1?file_id=42", { status: 200, body: { content_id: "movie-1", versions: [{ file_id: "42", audio_tracks: r.server.files.get("42")?.audio }], effective_subtitle_mode: "always", effective_subtitle_language: "ja", effective_show_forced_subtitles: false } });
+}
+
+test("Details Auto resolves effective preferences before AVPlay; explicit Off performs no preference read", async () => {
+    for (const kind of ["auto", "off"] as const) {
+        const r = await rig();
+        scriptSubtitlePreferences(r);
+        try {
+            await playMovie(r, { ...MOVIE, subtitle: { kind } });
+            assert.equal(replans(r.h).length, kind === "auto" ? 1 : 0);
+            assert.equal(r.h.fake.requests.filter(request => request.path.startsWith("/watch/")).length, kind === "auto" ? 1 : 0);
+            assert.equal(tracks(r).selectedSubtitleId === undefined, kind === "off");
+            assert.equal(r.avplay.urls.length, 1);
+        } finally { r.controller.destroy(); }
+    }
+});
+
+for (const ending of ["back", "background", "authority", "destroy"] as const) {
+    test(`initial subtitle replan waits before AVPlay and ignores a late answer after ${ending}`, async () => {
+        const r = await rig();
+        scriptSubtitlePreferences(r);
+        const preferences = r.h.fake.hold("/watch/movie-1?file_id=42", true);
+        r.controller.play({ ...MOVIE, subtitle: { kind: "auto" } });
+        await settle(r);
+        const id = only([...r.server.sessions.keys()]);
+        assert.equal(r.avplay.urls.length, 0);
+        const held = r.h.fake.hold(`/playback/${id}/replan`, true);
+        preferences.release();
+        await settle(r);
+        assert.equal(replans(r.h).length, 1);
+        assert.equal(r.avplay.urls.length, 0);
+        if (ending === "back") r.controller.back();
+        else if (ending === "background") r.controller.background();
+        else if (ending === "authority") r.h.core.profiles.clear();
+        else r.controller.destroy();
+        await settle(r);
+        held.release();
+        await settle(r);
+        assert.equal(r.avplay.urls.length, 0);
+        if (ending !== "authority") assert.equal(only(requests(r.h, `/playback/${id}`).filter(request => request.method === "DELETE")).body?.position, 12.5);
+        r.controller.destroy();
+    });
+}
+
+for (const refusal of ["terminal", "validation"] as const) {
+    test(`initial subtitle ${refusal} refusal ends loading and retires its session`, async () => {
+        const r = await rig();
+        scriptSubtitlePreferences(r);
+        const held = r.h.fake.hold("/watch/movie-1?file_id=42", true);
+        r.controller.play({ ...MOVIE, subtitle: { kind: "auto" } });
+        await settle(r);
+        const id = only([...r.server.sessions.keys()]);
+        if (refusal === "terminal") r.server.next.push({ terminal: "subtitle_unavailable" });
+        else r.h.fake.script(`/playback/${id}/replan`, problem(422, "validation_failed", "Unavailable subtitle"));
+        held.release();
+        await settle(r);
+        assert.equal(last(r.views).phase, "error");
+        assert.equal(r.avplay.urls.length, 0);
+        assert.equal(requests(r.h, `/playback/${id}`).filter(request => request.method === "DELETE").length, 1);
+        r.controller.destroy();
+    });
+}
+
+test("a subtitle disappearing during initial reconciliation cannot silently start with subtitles Off", async () => {
+    const r = await rig();
+    scriptSubtitlePreferences(r);
+    const held = r.h.fake.hold("/watch/movie-1?file_id=42", true);
+    r.controller.play({ ...MOVIE, subtitle: { kind: "auto" } });
+    await settle(r);
+    const id = only([...r.server.sessions.keys()]);
+    const file = r.server.files.get("42");
+    assert.ok(file);
+    r.server.files.set("42", { ...file, inventory: file.inventory.slice(0, 2) });
+    held.release();
+    await settle(r);
+    assert.equal(last(r.views).phase, "error");
+    assert.equal(r.avplay.urls.length, 0);
+    assert.equal(requests(r.h, `/playback/${id}`).filter(request => request.method === "DELETE").length, 1);
+    r.controller.destroy();
+});
+
 test("preplay sends only the requested start deltas; Auto adopts a nonzero server preference", async () => {
     const baseline = await rig();
     baseline.h.fake.script(QUALITY_SETTINGS, { status: 200, body: { items: [{ key: "playback.preferred_quality", value: "1080p" }, { key: "playback.max_bitrate_kbps", value: 6000 }] } });

@@ -104,23 +104,30 @@ async function settleFocusMotion(tv: Tv): Promise<void> {
     });
 }
 
-async function focusClip(tv: Tv): Promise<{ key: string; transform: string; inside: boolean; scale: number }> {
+async function focusClip(tv: Tv): Promise<{ key: string; transform: string; inside: boolean; scale: number; artGrowth: number; captionClearance: number; border: string; clippedBy: string[] }> {
     return tv.page.evaluate(() => {
         const card = document.activeElement;
         if (!(card instanceof HTMLElement) || !card.classList.contains("browse-card")) throw new Error("focused browse card missing");
         const transform = getComputedStyle(card).transform;
-        const rect = card.getBoundingClientRect();
+        const art = card.querySelector<HTMLElement>(".browse-art");
+        const caption = card.querySelector<HTMLElement>(".browse-card-title");
+        if (art === null || caption === null) throw new Error("card artwork or caption missing");
+        const rect = art.getBoundingClientRect();
         let inside = true;
+        const clippedBy: string[] = [];
         for (let node = card.parentElement; node !== null; node = node.parentElement) {
             const style = getComputedStyle(node);
             if (!/hidden|clip|auto|scroll/.test(`${style.overflowX} ${style.overflowY}`)) continue;
             const bounds = node.getBoundingClientRect();
             if (bounds.width === 0 || bounds.height === 0) continue;
-            if (rect.left < bounds.left - 0.5 || rect.top < bounds.top - 0.5 || rect.right > bounds.right + 0.5 || rect.bottom > bounds.bottom + 0.5) inside = false;
+            if (rect.left < bounds.left - 0.5 || rect.top < bounds.top - 0.5 || rect.right > bounds.right + 0.5 || rect.bottom > bounds.bottom + 0.5) {
+                inside = false;
+                clippedBy.push(`${node.className}: art ${rect.x},${rect.y},${rect.right},${rect.bottom}; clip ${bounds.x},${bounds.y},${bounds.right},${bounds.bottom}`);
+            }
         }
         const matrix = /^matrix\(([^)]+)\)$/.exec(transform)?.[1]?.split(",").map(part => Number(part.trim())) ?? [];
         const scale = matrix.length === 6 ? matrix[0] ?? 1 : transform === "none" ? 1 : Number.NaN;
-        return { key: card.getAttribute("data-focus") ?? "", transform, inside, scale };
+        return { key: card.getAttribute("data-focus") ?? "", transform, inside, scale, artGrowth: rect.height - art.offsetHeight, captionClearance: caption.getBoundingClientRect().top - rect.bottom, border: getComputedStyle(card).borderTopColor, clippedBy };
     });
 }
 
@@ -145,6 +152,41 @@ async function openLibrary(tv: Tv): Promise<void> {
 }
 
 for (const reducedMotion of ["no-preference", "reduce"] as const) {
+    test(`library shelf focus keeps captions and edge artwork clear ${reducedMotion}`, async () => {
+        const tv = await openTv(browser, { app: "browse" });
+        try {
+            await tv.page.emulateMedia({ reducedMotion });
+            await signedIn(tv);
+            await openLibrary(tv);
+            await tv.jump(300);
+            const reads = tv.fake.requests.length;
+            for (const moves of [0, 23]) {
+                for (let step = 0; step < moves; step++) await tv.remote(39);
+                await tv.jump(300);
+                await settleFocusMotion(tv);
+                const focused = await focusClip(tv);
+                assert.equal(focused.inside, true, focused.clippedBy.join("; "));
+                assert.ok(focused.captionClearance >= 7.5);
+                const style = await tv.page.evaluate(() => {
+                    const card = document.activeElement;
+                    const art = card?.querySelector(".browse-art");
+                    const title = card?.querySelector(".browse-card-title");
+                    const neighbor = card?.parentElement?.querySelector(".browse-card:not(:focus) .browse-card-title");
+                    if (art == null || title == null || neighbor == null) throw new Error("shelf captions missing");
+                    return { focused: getComputedStyle(title).color, unfocused: getComputedStyle(neighbor).color, cue: getComputedStyle(art).boxShadow };
+                });
+                assert.equal(style.focused, "rgb(255, 255, 255)");
+                assert.equal(style.unfocused, "rgba(237, 237, 237, 0.45)");
+                if (reducedMotion === "reduce") {
+                    assert.equal(focused.artGrowth, 0);
+                    assert.ok(style.cue.includes("4px"), "reduced motion keeps an artwork focus ring");
+                }
+            }
+            assert.equal(tv.fake.requests.length, reads, "shelf focus movement makes no requests");
+            assert.deepEqual(tv.console, []);
+        } finally { await tv.page.context().close(); }
+    });
+
     test(`library Back keeps committed scroll ${reducedMotion}`, async () => {
         const capture = process.env.FOCUS_PARITY_CAPTURE;
         const tv = await openTv(browser, { app: "browse", ...(capture === undefined ? {} : { video: `${capture}/${reducedMotion}` }) });
@@ -162,9 +204,12 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
                 assert.equal(entry.transform, "none", "reduced motion does not grow the focused card");
                 assert.equal(entry.inside, true, "reduced-motion focus border stays inside the clip on entry");
             } else {
-                assert.ok(Math.abs(entry.scale - 1.05) < 0.02, `normal motion keeps the 1.05 focus scale (${entry.transform})`);
-                assert.equal(entry.inside, true, "normal-motion focus border stays inside the clip on entry");
+                assert.equal(entry.transform, "none", "the shelf button and its caption do not scale");
+                assert.ok(Math.abs(entry.artGrowth - 38) < 1, `artwork alone gains the calibrated 38px (${entry.artGrowth})`);
+                assert.equal(entry.inside, true, `normal-motion artwork stays inside the clip on entry: ${entry.clippedBy.join("; ")}`);
             }
+            assert.equal(entry.border, "rgba(0, 0, 0, 0)", "the button has no visible border");
+            assert.ok(entry.captionClearance >= 7.5, "caption stays below the lifted artwork");
             for (let step = 0; step < 8; step++) await tv.remote(39);
             await tv.jump(300);
             const committed = await commitScroll(tv, 140);
@@ -207,7 +252,10 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             const afterReturn = await focusClip(tv);
             assert.equal(afterReturn.inside, true, "focus border stays inside the clip on return");
             if (reducedMotion === "reduce") assert.equal(afterReturn.transform, "none");
-            else assert.ok(Math.abs(afterReturn.scale - 1.05) < 0.02);
+            else {
+                assert.equal(afterReturn.transform, "none");
+                assert.ok(Math.abs(afterReturn.artGrowth - 38) < 1);
+            }
             if (capture !== undefined) await tv.page.screenshot({ path: `${capture}/${reducedMotion}/return.png` });
             assert.deepEqual(tv.console, []);
         } finally { await tv.page.context().close(); }

@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Lifted Library Recommended artwork independently of its captions, with dimmed unfocused labels and a reduced-motion focus ring.
 - Rebuilt the profile picker with circular avatars, the signed-in account, Change server and TV profile creation with primary-profile verification, optional PIN and child restrictions.
 - Aligned type checks, docs and tests with the Tizen 8.0 minimum (Chromium 108), and named original languages in English with the browser's built-in language names.
 - Aligned the top navigation with Apple TV: saved TV menu order, centered Search and roots, anchored menus, profile images, For You shelves, server switching and sign-out confirmation.

@@ -150,6 +150,11 @@ Episode cards are captioned with their series and an `S01E02 · Pilot` line.
 Unfocused captions dim; focus brightens and drops the caption below a lift of the artwork only.
 The lift size comes from Apple's measured native card lift (about 38 px of height), not from the tvOS system effect itself.
 With reduced motion the artwork does not grow and shows Apple's 4 px focus ring instead.
+Library Recommended media shelves apply that artwork-only focus treatment independently of their captions, retaining their existing 208×312 artwork.
+The 38 px added artwork height is the measured native-card substitute, not a universal Swift scale constant.
+The shelf viewport extends 16 px on each side while content keeps its resting horizontal position, allowing the lifted first and last artwork to remain unclipped.
+Unfocused shelf captions use the shared .45/.32 opacities; focused captions brighten and drop 15 px to clear the artwork above their existing 12 px gap.
+Collection tiles, section-heading controls, other legacy card owners, detail backgrounds and Home row alignment are outside this shelf correction.
 Continue Watching's heading carries a drawn play-circle mark; Apple's SF Symbol is not bundled.
 Watched titles show a check disc on every card.
 Home cards draw the profile's poster badges (Apple `CardOverlays`): the profile's `ui.card_overlays` document wins outright, else the administrator's baseline from `/settings/overlay-config`, else the registry defaults.

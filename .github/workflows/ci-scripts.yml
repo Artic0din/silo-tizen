@@ -1,0 +1,31 @@
+name: CI scripts
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test release version selection
+        run: python3 scripts/test-release-version.py
+      - name: Test setting the package version
+        run: |
+          cp app/config.xml "${RUNNER_TEMP}/config.xml"
+          scripts/ci/set-wgt-version.sh 1.2.30 "${RUNNER_TEMP}/config.xml"
+          grep -q '<widget [^>]* version="1.2.30"' "${RUNNER_TEMP}/config.xml"
+          grep -q '<?xml version="1.0"' "${RUNNER_TEMP}/config.xml"
+          if scripts/ci/set-wgt-version.sh 1.2 "${RUNNER_TEMP}/config.xml"; then
+            echo "::error::set-wgt-version.sh accepted 1.2"
+            exit 1
+          fi

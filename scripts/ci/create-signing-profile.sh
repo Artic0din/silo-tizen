@@ -36,6 +36,7 @@ java_bin="${sdk_root}/jdk/bin"
 if [[ ! -x "${java_bin}/javac" ]]; then
     java_bin="$(dirname "$(command -v javac)")"
 fi
+mkdir -p "${work_dir}/classes" # Java 8 javac does not create the -d directory.
 "${java_bin}/javac" -nowarn -cp "${common_jar}" -d "${work_dir}/classes" "${script_dir}/EncryptProfilePassword.java"
 
 encrypt_password() {

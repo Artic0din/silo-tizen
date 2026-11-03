@@ -239,8 +239,10 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             message("remember-saving", "Saving launch choice", [], [button("back", "Back", () => showList(profile.id))], () => showList(profile.id));
             launch.setRemember(remember, controller.signal).then(() => { if (token === view) handOff(profile); }, () => { if (token === view) offer(true); });
         };
+        // Switching to a different profile keeps the remembered one; re-selecting it refreshes its saved unlock.
         if (launch.needsOffer) offer();
-        else save(true);
+        else if (launch.rememberedProfileId === profile.id) save(true);
+        else handOff(profile);
     };
 
     const askPin = (profile: ProfileSummary, notes: readonly Note[]): void => {

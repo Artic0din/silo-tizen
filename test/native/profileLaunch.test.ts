@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { connected, signIn } from "./support/harness.ts";
 import { FakeDetails } from "./support/fakeDetails.ts";
+import { FakeSilo } from "./support/fakeSilo.ts";
 
 test("fresh TV asks; remembering stores a protected proof and restores without replaying PIN", async () => {
     const h = await connected();
@@ -88,4 +89,41 @@ test("restoring a server-revoked remembered proof fails closed without a PIN rep
     assert.equal(next.core.session.activeProfile, undefined);
     assert.equal(next.core.profileLaunch.remembered, false);
     assert.equal(h.fake.requests.filter(request => request.path.endsWith("/verify-pin")).length, requests);
+});
+
+async function rememberKid(h: Awaited<ReturnType<typeof connected>>) {
+    const list = await h.core.profiles.list();
+    const kid = list.find(profile => profile.id === "p-kid"); assert.ok(kid);
+    h.core.profiles.select(kid); await h.core.profiles.verifyPin(kid.id, "2468");
+    await h.core.profileLaunch.setRemember(true);
+    assert.ok([...h.keyManager?.items.values() ?? []].join("").includes("pvt-"));
+    return { list, kid };
+}
+
+test("sign-out removes the stored proof and the remembered choice", async () => {
+    const h = await connected(); await signIn(h); h.fake.catalog = new FakeDetails();
+    const { list } = await rememberKid(h);
+    await h.core.session.logout();
+    assert.ok(![...h.keyManager?.items.values() ?? []].join("").includes("pvt-"));
+    assert.equal(h.core.profileLaunch.remembered, false);
+    assert.equal(await h.core.profileLaunch.restore(list, new AbortController().signal), undefined);
+});
+
+test("a remembered profile that no longer exists is forgotten and its proof removed", async () => {
+    const h = await connected(); await signIn(h); h.fake.catalog = new FakeDetails();
+    const { list } = await rememberKid(h);
+    const owner = list.filter(profile => profile.id !== "p-kid");
+    assert.equal(await h.core.profileLaunch.restore(owner, new AbortController().signal), undefined);
+    assert.equal(h.core.profileLaunch.remembered, false);
+    assert.ok(![...h.keyManager?.items.values() ?? []].join("").includes("pvt-"));
+});
+
+test("a remembered profile on one server is not visible on another server", async () => {
+    const h = await connected(); await signIn(h); h.fake.catalog = new FakeDetails();
+    await rememberKid(h);
+    const other = await connected({ fake: new FakeSilo(h.clock, "7c1d2e3f-0a4b-4c5d-8e6f-9a0b1c2d3e4f", "https://other.example.test"), storage: h.storage, keyManager: h.keyManager, clock: h.clock });
+    await signIn(other);
+    assert.equal(other.core.profileLaunch.needsOffer, true);
+    assert.equal(other.core.profileLaunch.remembered, false);
+    assert.equal(h.core.profileLaunch.remembered, true);
 });

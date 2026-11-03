@@ -21,7 +21,8 @@ The portrait is the tvOS person size, 300 by 450, with a 12 px corner and 20 px 
 The page keeps the Skyline safe area already used by browse.
 There is no new cache.
 One portrait decodes its own thumbhash when it is drawn, rejecting inputs longer than 44 Base64 characters before decoding.
-`unicode-segmenter` provides Unicode grapheme boundaries on Chromium 76, which has no `Intl.Segmenter`, so initials preserve Hangul syllables and Indic conjuncts as well as emoji.
+`unicode-segmenter` provides current Unicode grapheme boundaries, so initials preserve Hangul syllables and Indic conjuncts as well as emoji.
+Chromium 108's `Intl.Segmenter` uses ICU 72 (Unicode 15.0), which lacks the Unicode 15.1 Indic conjunct rule and would split "क्षि" after "क्".
 The packaged third-party notices retain the ThumbHash and segmentation licenses; the ThumbHash permission notice is also preserved in the JavaScript bundle.
 
 Primary sources are Apple `PersonDetailView.swift` at `f33479404712737499b22365430db1885cf6c6ab`, the same hero at `1a7cceeaf3b2bfc4f889c00487d19b2c6f843940` (two commits ahead, with no hero change), server `cc8514943289045e7b9f7ac8d36d4968bfe93926` where OpenAPI declares `photo_thumbhash`, and Skyline guide SHA-256 `2d42d292e01ab6ee539278b63c286756fc432edf876a9286a33c9e853672cac2`.
@@ -29,4 +30,4 @@ Primary sources are Apple `PersonDetailView.swift` at `f33479404712737499b223654
 This does not complete Person parity or issue 28.
 Metadata refresh polling and further person filters remain separate.
 [Filmography](person-filmography.md) is unchanged by this slice.
-Synthetic desktop tests and captures do not prove a live server, Chromium 76, AVPlay, a signed package, the emulator, or a television.
+Synthetic desktop tests and captures do not prove a live server, Chromium 108, AVPlay, a signed package, the emulator, or a television.

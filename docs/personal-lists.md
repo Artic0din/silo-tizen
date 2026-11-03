@@ -48,4 +48,4 @@ The shared route additions are `personal`, `RouteHandlers.personalFilter`, the t
 
 This is the personal-pages portion of issue 29 only.
 It does not complete issue 29 or whole-app Apple TV parity.
-Desktop Chromium validates behavior, bounded DOM and focus geometry; it does not prove Chromium 76 runtime, signed WGT, emulator or real-TV acceptance.
+Desktop Chromium validates behavior, bounded DOM and focus geometry; it does not prove Chromium 108 runtime, signed WGT, emulator or real-TV acceptance.

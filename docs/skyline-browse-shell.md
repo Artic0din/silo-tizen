@@ -39,7 +39,7 @@ The controller retains protocol 3, saved quality/cap settings, capability gates 
 
 The contract is pinned to [server cc851494](https://github.com/Silo-Server/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/internal/apiv2/playback.go), with [Apple's fresh resume state at f334794](https://github.com/Silo-Server/silo-apple/blob/f33479404712737499b22365430db1885cf6c6ab/iosApp/iosApp/Screens/Detail/DetailResumeState.swift) as the interaction reference.
 Production-entry desktop Chromium tests use synthetic Silo, KeyManager and AVPlay ports in normal and reduced motion.
-They establish request, cancellation and focus behavior, not audible selection, decoded media, subtitles, a signed package, real Chromium 76 or 2021-plus TV acceptance.
+They establish request, cancellation and focus behavior, not audible selection, decoded media, subtitles, a signed package, real Chromium 108 or Tizen 8.0 TV acceptance.
 Those device and subtitle gates remain open under issue #11; this slice does not complete issues #28 or #29.
 
 ## Text Search
@@ -63,7 +63,7 @@ The 600 ms debounce, TV Done key, cancellation and profile-menu Back priority re
 
 Primary sources are the pinned [OpenAPI](https://github.com/Silo-Server/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/contracts/api/v2/openapi.json), its catalog handler/parser/resolver, and canonical [Apple SearchViewModel at f334794](https://github.com/Silo-Server/silo-apple/blob/f33479404712737499b22365430db1885cf6c6ab/iosApp/iosApp/Screens/Search/SearchViewModel.swift).
 The binding Skyline guide SHA-256 remains `2d42d292e01ab6ee539278b63c286756fc432edf876a9286a33c9e853672cac2`; section 6.7 retains the existing Search screen.
-Synthetic desktop tests and captures establish this Search slice only, not live-server, decoded playback, Chromium 76 runtime, Tizen or whole-app acceptance.
+Synthetic desktop tests and captures establish this Search slice only, not live-server, decoded playback, Chromium 108 runtime, Tizen or whole-app acceptance.
 The broader discovery and Details parity work remains tracked by issue #28.
 
 Focus never activates a route or starts a request.
@@ -269,7 +269,7 @@ A Samsung trailer handoff remains unverified, so this slice exposes no trailer c
 Apple's local extras, artwork preferences, automatic version quality ranking and complete person filters remain outside this slice.
 
 The shell uses the shared tokens in `src/theme.css` alongside Skyline's navigation, marquee and card dimensions.
-Desktop Chromium tests and synthetic captures do not prove actual Chromium 76, Tizen emulator, signed package or Samsung TV behavior.
+Desktop Chromium tests and synthetic captures do not prove actual Chromium 108, Tizen emulator, signed package or Samsung TV behavior.
 
 Settings uses the existing native session and HTTP owners.
 General contains Hidden libraries and the [title-art switches](title-art.md) with this-TV/all-devices scope; Playback contains the [saved profile defaults](playback-quality.md#saved-profile-defaults), including separate video seek intervals.

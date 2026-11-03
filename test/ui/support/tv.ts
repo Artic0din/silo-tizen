@@ -39,7 +39,7 @@ function svgArt(name: string): string {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="500" height="750" viewBox="0 0 500 750"><rect width="500" height="750" fill="hsl(${hue},45%,32%)"/><text x="250" y="400" font-family="sans-serif" font-size="40" fill="#fff" text-anchor="middle">${label}</text></svg>`;
 }
 
-/** The harness as the TV build bundles it: one classic script lowered to Chrome 76. */
+/** The harness as the TV build bundles it: one classic script lowered to Chrome 108. */
 export function harnessBundle(app: TvApp = "signIn"): Promise<string> {
     const cached = bundles.get(app);
     if (cached !== undefined) {

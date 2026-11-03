@@ -1,4 +1,4 @@
-/* Native player, 1920x1080. Chrome 76: no flex gap, inset, aspect-ratio or :focus-visible. */
+/* Native player, 1920x1080, Chromium 108. */
 
 .player-captions {
     position: absolute;

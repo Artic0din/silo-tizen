@@ -23,7 +23,7 @@ Lost track-change replies cannot leave an obsolete local plan playing; definitiv
 
 ## Screens and composed app
 
-`npm run test:ui` bundles the real TypeScript screens for Chrome 76 and runs them in desktop Chromium.
+`npm run test:ui` bundles the real TypeScript screens for Chrome 108, as the TV build does, and runs them in desktop Chromium.
 Playwright routes native API requests to the same fake Silo and serves synthetic SVG artwork.
 The fake server and browser clocks move together; polling and retry tests do not sleep.
 Unexpected page logs and errors fail the screen tests.

@@ -1,0 +1,116 @@
+{
+  "capturedAt": "2026-11-03T03:34:41.023Z",
+  "runtime": {
+    "protocolVersion": "1.3",
+    "product": "Chrome/137.0.7151.69",
+    "revision": "@0000000000000000000000000000000000000000",
+    "userAgent": "Mozilla/5.0 (SMART-TV; Linux; Tizen) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/55.0.2883.75 Safari/537.36 Tizen",
+    "jsVersion": "13.7.152.13"
+  },
+  "state": {
+    "view": "library:1",
+    "focus": "movie-tmdb-1101412",
+    "section": "146489431417690903",
+    "buttonTransform": "none",
+    "border": "rgba(0, 0, 0, 0)",
+    "art": [
+      85.33331298828125,
+      646.5,
+      233.3333740234375,
+      350
+    ],
+    "base": [
+      208,
+      312
+    ],
+    "captionTop": 1004.5,
+    "captionColor": "rgb(255, 255, 255)",
+    "viewport": [
+      72,
+      510,
+      1776,
+      570
+    ],
+    "scroll": 543.5,
+    "animations": 0,
+    "viewportSize": [
+      1920,
+      1080
+    ],
+    "dpr": 2
+  },
+  "resources": [
+    {
+      "name": "main.js",
+      "sha256": "1dd70e9c2db525053e850d492c98cf53dcfefe1f40f84b9860569ddd9c3889ed"
+    },
+    {
+      "name": "main.css",
+      "sha256": "34706abe8c33896edb876a76cf58686d520f5e462e75f7c3205c2168b51a0ecd"
+    }
+  ],
+  "recording": {
+    "frames": 32,
+    "elapsedMs": 9976,
+    "finalFocus": "movie-tmdb-1101412",
+    "apiRequests": [
+      {
+        "method": "GET",
+        "path": "/api/v2/artwork/tmdb/movies/1283515/backdrop/w300.806196fe22ead436fa9db0d8ac69914c956f011dfe3344575b380cc76f4db89f.webp"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v2/artwork/tmdb/movies/1283515/logo/w500.4961112522c974b61fa4a2409389a7f56ce3fb60b5eeb2955fe7ce6013883a8b.webp"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v2/artwork/tmdb/movies/1101412/backdrop/w300.132f4250643e7f2a360d9374be304db04ec6700f1e05ed2837a982a8112b5d98.webp"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v2/artwork/tmdb/movies/1101412/logo/w500.fc076e7a102a4cec336c029f3ba2b5bbe119f9432cdb7b4ce70cf57ab091471d.webp"
+      }
+    ],
+    "encodedFramesPerSecond": 3.2076984763432232,
+    "timingLimit": "Time-sampled screenshots at an average rate; not native animation timing proof",
+    "visibility": "Recorded while document.hidden was true; directional movement only"
+  },
+  "limits": [
+    "Samsung NW.js software simulator; not physical Tizen 8",
+    "No playback or mutation submitted",
+    "Native focus effect is a CSS substitute"
+  ],
+  "source": "30ccabf",
+  "packageSha256": "1f0b92547f9da445f47fcb6d9547d2621278d69501c4f2bd12ff4565ddce01dd",
+  "backReturn": {
+    "view": "library:1",
+    "focus": "movie-tmdb-1083381",
+    "left": 1096,
+    "top": 543.5,
+    "hidden": false
+  },
+  "reducedMotion": {
+    "reduced": true,
+    "focus": "movie-tmdb-1561726",
+    "art": [
+      570,
+      665.5,
+      208,
+      312
+    ],
+    "base": [
+      208,
+      312
+    ],
+    "ring": "rgba(255, 255, 255, 0.9) 0px 0px 0px 4px",
+    "button": "none",
+    "hidden": false
+  },
+  "navigationVisibility": "Details/Back and reduced-motion checks used CDP focus emulation because the locked desktop hid the page",
+  "appleReference": {
+    "source": "1a7cceeaf3b2bfc4f889c00487d19b2c6f843940",
+    "capture": "Historical 1 November 2026, 09-movies-library.png",
+    "sha256": "4d249850030bf2740ca42c06acbb46ce47b4d8501982f0ff1558b1eeb83b58ec",
+    "limits": "No Apple TV in device inventory; catalog membership/order and resting geometry differ"
+  }
+}

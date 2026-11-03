@@ -99,7 +99,7 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
             const item = cardItem(card, { ...handlers.context, preview: value => handlers.context.preview?.(value, section.title) });
             return item === undefined ? [] : [item];
         });
-        const block = el("section", "browse-section");
+        const block = el("section", "browse-section library-media-shelf");
         block.setAttribute("data-section", section.id);
         block.append(zoneNode("browse-actions", [more]), zoneNode("browse-row", cards));
         content.push(block);

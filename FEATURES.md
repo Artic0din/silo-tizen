@@ -7,14 +7,15 @@ Checked against the code on 3 Nov 2026; update a row in the pull request that ch
 
 Tizen status legend:
 
-- ✅ implemented
-- 🟡 partial, or built but not proven on a TV ("bones-level")
+- ✅ implemented and covered by tests; a gap still to prove on a physical TV is named in the row
+- 🟡 partial ("bones-level")
 - 🚧 planned (open issue, not built)
 - 🧪 experimental
 - ➖ not present on this platform
 
 Apple TV column: ✅ present in the tvOS source, 🟡 present but opt-in or limited, ➖ not found in the tvOS source, ? not established.
-Issue numbers refer to open issues in this repository.
+Issue numbers refer to open issues in this repository; a gap without its own issue is part of the Apple TV parity umbrella, #106.
+Apple names (`TVServerSetupView` and so on) are types or paths in [silo-apple](https://github.com/Silo-Server/silo-apple).
 File pointers are repository-relative.
 
 > **Validation note:** Almost every row is verified by native tests and desktop Chromium with fake Silo and AVPlay implementations, plus signed-package checks in Samsung's TV simulator.
@@ -129,10 +130,10 @@ File pointers are repository-relative.
 
 | Feature | Tizen | Apple TV | Notes |
 |---|:---:|:---:|---|
-| AVPlay engine, server-planned direct play | ✅ | ✅ | `src/player/`. Direct play proven on the S95C (Tizen 9); Tizen 8.0 open. Apple uses its own engine (`docs/tvos-player`) |
-| Remux / HLS transcode fallback | 🟡 | ✅ | Server-planned. Progressive class not advertised. Not yet validated on a TV |
+| AVPlay engine, server-planned direct play | ✅ | ✅ | `src/player/`. Direct play proven on the S95C (Tizen 9); Tizen 8.0 open. Apple uses its own engine ([silo-apple `docs/tvos-player`](https://github.com/Silo-Server/silo-apple/tree/main/docs/tvos-player)) |
+| Remux / HLS transcode fallback | ✅ | ✅ | Server-planned. Progressive class not advertised. Not yet validated on a TV |
 | Resume, progress every 10 s, final stop | ✅ | ✅ | Resume reads fresh progress for up to 3 s |
-| Recovery after suspend or connection loss | 🟡 | ? | Bounded backoff; real suspend/restore unverified (#13) |
+| Recovery after suspend or connection loss | ✅ | ? | Bounded backoff; real suspend/restore unverified (#13) |
 | In-player quality picker | ✅ | ✅ | Options come from the server plan |
 | Seek preview, Rewind/Fast Forward keys, profile seek intervals | ✅ | ✅ | Player panel and scrubber parity open (#103) |
 | Seek thumbnails | ✅ | ✅ | Needs server trickplay. Apple: `ServerTrickplay` |
@@ -145,17 +146,17 @@ File pointers are repository-relative.
 | HDR, Dolby Vision, 4K, audio passthrough | ➖ | ✅ | Capabilities declare SDR up to 1080p, H.264/HEVC, no DTS (`src/player/capabilities.ts`) |
 | Watch Party | 🚧 | 🟡 | #54. Apple: opt-in under Extra Features |
 | Phone "Play on TV" / remote control | ➖ | ✅ | Apple: `TVControlReceiver` |
-| Smart Hub / Top Shelf row | ➖ | ✅ | Apple: `iosApp/TopShelf` |
+| Smart Hub / Top Shelf row | ➖ | ✅ | Apple: [`iosApp/TopShelf`](https://github.com/Silo-Server/silo-apple/tree/main/iosApp/TopShelf) |
 
 ## Subtitles & audio
 
 | Feature | Tizen | Apple TV | Notes |
 |---|:---:|:---:|---|
-| In-player audio track switch | 🟡 | ✅ | Server replans. Audible change not confirmed on a TV (#11) |
+| In-player audio track switch | ✅ | ✅ | Server replans. Audible change not confirmed on a TV (#11) |
 | Preplay audio and file-version picker | ✅ | ✅ | Tizen choice lasts one attempt; Apple persists per title or series. Apple: `TVPlaybackSelectorRow` |
-| Text subtitles (VTT/SRT, ASS dialogue) in an app overlay | 🟡 | ✅ | Captions not yet verified on a TV or simulator (#80) |
+| Text subtitles (VTT/SRT, ASS dialogue) in an app overlay | ✅ | ✅ | Captions not yet verified on a TV or simulator (#80) |
 | Embedded subtitle burn-in | ✅ | ? | Server burns in when transcoding is allowed |
-| ASS styling, bitmap subtitles | ➖ | ✅ | Apple: ASS renderer (`docs/tvos-player/ass-subtitles.md`) |
+| ASS styling, bitmap subtitles | ➖ | ✅ | Apple: ASS renderer ([`docs/tvos-player/ass-subtitles.md`](https://github.com/Silo-Server/silo-apple/blob/main/docs/tvos-player/ass-subtitles.md)) |
 | Profile subtitle appearance and sync offset applied | ✅ | ✅ | Read-only; no editor (see Settings) |
 | Series subtitle choice (keep or Off) | ✅ | ? | |
 | Subtitle labels by language | 🟡 | ? | #77 |

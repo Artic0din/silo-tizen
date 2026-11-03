@@ -46,12 +46,12 @@ The composed debug-signed app was then checked on the same S95C: device-code app
 AVPlay state and server responses were observed; picture, dialogue and audible track differences were not independently confirmed during that composed-app run.
 The TV keyboard, minimum-version Tizen 8.0 hardware, store builds, full remux/transcode acceptance and audible/visible track acceptance remain open.
 
-The client declares no subtitle renderer.
+The player renders sidecar text subtitles (WebVTT, SRT and the dialogue text of ASS/SSA) in an app overlay; it declares no embedded or bitmap subtitle rendering.
 Movie and episode Details offer Audio Auto or an explicit track from the displayed file, for this attempt only.
 Changing version clears that track choice; explicitly choosing a version pins its source through playback.
 Resume checks fresh profile progress for up to three seconds; Play from start sends source position zero.
 See [preplay behavior](features/skyline-browse-shell.md#preplay-audio-and-resume) for fallback, cancellation and persistence limits.
-The server can burn embedded subtitles into video when transcoding is allowed; external and downloaded subtitles receive an explicit unsupported result.
+The server can burn embedded subtitles into video when transcoding is allowed.
 Visibility changes suspend the active pipeline and revalidate authority and media authorization before restoring it.
 Mid-stream connection loss pauses playback and retries at the saved source position with bounded backoff, preserving playing or paused intent.
 Cold launches use the normal server resume flow; they do not restore an in-memory pipeline.

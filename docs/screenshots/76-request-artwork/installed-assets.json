@@ -1,0 +1,38 @@
+{
+  "source": "b3f04f68b6d677c83602eec6df0c1a97daee43a2",
+  "wgt": "6cb55d62dbd17b560a699465ef3c7ba3564d3fa65ceb1c761fd9257e6b207ff5",
+  "files": {
+    "NOTICE": "276906e0992a5fc5b351f542d60e3ede362f060a8ef8431eb98242a9dcf07647",
+    "THIRD-PARTY-NOTICES.txt": "073845886fcd38da71a0cbd357b78937dbd1c7e44eb8ba2493619eb9438f1761",
+    "author-signature.xml": "5d42283a5d731e0d4e3c4dbb79e48146bf79cfe73bff38c068c175c71784cd5e",
+    "config.xml": "143680fada9942e9fdb632414255da1efb8db13e679ad63c6638775525e420d5",
+    "fonts/Inter-LICENSE.txt": "262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a",
+    "fonts/InterVariable.woff2": "693b77d4f32ee9b8bfc995589b5fad5e99adf2832738661f5402f9978429a8e3",
+    "fonts/README.md": "735901e3bc46096a3accfe0f84065fd0d465c6ea54ef149b5296bf8573fb382f",
+    "icon.png": "62f34cc4e6710da6c14702a68c6eecb9a4d2328170492be2d71176ee41fe853b",
+    "img/silo-wordmark.png": "d26edc566bcbc759fd149e2d02b8a149cd6f7610d11d75036eacbd413d3d122c",
+    "index.html": "298bd16a7de84cedcb3a9f203f01d09c07d06ebb6fccf0e7c83013d0d953239e",
+    "js/main.css": "9ac86649e61068163ed7825723489b1e30139b4020e4d30fafbdf7718f2f6aa2",
+    "js/main.js": "9d0f042b9ebac55e836d003ad3ad6cc2b7dd77daf0dbe564956de9b0ad693c6f",
+    "signature1.xml": "583363861a2ee0f2ca9524edf428466ea42eeac6e23ea0b79348a5bd98f00540",
+    "third-party/README.md": "623384124b1b8ca5d687d98157f9eed74c7f3ceca6172033001aaa9aac202ca3",
+    "third-party/tmdb-logo.svg": "8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c"
+  },
+  "installedMatches": {
+    "NOTICE": true,
+    "THIRD-PARTY-NOTICES.txt": true,
+    "author-signature.xml": true,
+    "config.xml": true,
+    "fonts/Inter-LICENSE.txt": true,
+    "fonts/InterVariable.woff2": true,
+    "fonts/README.md": true,
+    "icon.png": true,
+    "img/silo-wordmark.png": true,
+    "index.html": true,
+    "js/main.css": true,
+    "js/main.js": true,
+    "signature1.xml": true,
+    "third-party/README.md": true,
+    "third-party/tmdb-logo.svg": true
+  }
+}

@@ -1,0 +1,240 @@
+{
+  "source": "b3f04f68b6d677c83602eec6df0c1a97daee43a2",
+  "baselineSource": "13354eb564e23a90dcb44cadfb2f7be205376a45",
+  "runtime": {
+    "sdk": "10.0.6",
+    "chromium": "137",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "dpr": 2,
+    "focusEmulation": true
+  },
+  "video": {
+    "durationSeconds": 19.8,
+    "frames": 12,
+    "sourceFrames": 11,
+    "audioStreams": 0,
+    "codec": "h264",
+    "appCrop": [
+      1920,
+      1080,
+      3,
+      3
+    ],
+    "input": "remote arrows then pointer entry; Back observed separately"
+  },
+  "observations": {
+    "hubCards": 120,
+    "mineCards": 24,
+    "expandedCards": 20,
+    "decodedPoster": [
+      342,
+      513
+    ],
+    "apiReadsBeforeArrows": 134,
+    "apiReadsAfterArrows": 134,
+    "backRestoredFirstCard": true,
+    "injected404Fallback": true,
+    "injected404FocusRetained": true
+  },
+  "networkObservation": {
+    "source": "42573c7",
+    "transmittedImageSamples": 16,
+    "authorizationHeaders": 0,
+    "refererHeaders": 0,
+    "statuses": [
+      200
+    ],
+    "finalArtworkSourceUnchanged": true
+  },
+  "files": {
+    "after-request.png": {
+      "sha256": "dee0dcaff61bdb59314fe720640894538a104823a0219ae61cbec5c2ec9ca612",
+      "bytes": 217404,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "chunkTypes": [
+        "IDAT",
+        "IEND",
+        "IHDR",
+        "iCCP"
+      ]
+    },
+    "after-hub.png": {
+      "sha256": "73f548708e6247db72b82581f20eb5572f2087daa2c50577e6a4bdee38c96253",
+      "bytes": 738293,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "chunkTypes": [
+        "IDAT",
+        "IEND",
+        "IHDR",
+        "iCCP"
+      ]
+    },
+    "before-row.png": {
+      "sha256": "9ec7fc800e97b35140d82d0dbe476895216c983e1dcfeed44804c0fb38bf331f",
+      "bytes": 132927,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "chunkTypes": [
+        "IDAT",
+        "IEND",
+        "IHDR",
+        "iCCP"
+      ]
+    },
+    "before-media.png": {
+      "sha256": "435402ea804b0578893a007b30b3d221672abe19d1789140db14fa217b584e89",
+      "bytes": 52715,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "chunkTypes": [
+        "IDAT",
+        "IEND",
+        "IHDR",
+        "iCCP"
+      ]
+    },
+    "remote-artwork-entry.mp4": {
+      "sha256": "28c8c2680aacf92365f5dca517757070b66451150989290104cd2ebc2e7ec304",
+      "bytes": 237341
+    },
+    "before-search.png": {
+      "sha256": "d37a83e1fdc7e33ce6b18359b48166b209a732e079a04b0af5a41472e651d656",
+      "bytes": 117639,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "chunkTypes": [
+        "IDAT",
+        "IEND",
+        "IHDR",
+        "iCCP"
+      ]
+    },
+    "after-search.png": {
+      "sha256": "c390643857b616ed2b8e155c747b2cf511638904ef720943061520915b22de3b",
+      "bytes": 969556,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "chunkTypes": [
+        "IDAT",
+        "IEND",
+        "IHDR",
+        "iCCP"
+      ]
+    },
+    "before-mine.png": {
+      "sha256": "171e0ddb40430a31be84b491aa8141ad76c2889c6f8d5507ca8b4f540252a608",
+      "bytes": 115930,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "chunkTypes": [
+        "IDAT",
+        "IEND",
+        "IHDR",
+        "iCCP"
+      ]
+    },
+    "before-hub.png": {
+      "sha256": "111476e15e3cb6eecd2fadd12c9c544e79c772ff8c40ec57a76779ba06de3ce9",
+      "bytes": 140212,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "chunkTypes": [
+        "IDAT",
+        "IEND",
+        "IHDR",
+        "iCCP"
+      ]
+    },
+    "after-media.png": {
+      "sha256": "10f5b347c79886d90406b3fd8ada5c7d51c9c525cc544e2b0af79fe2ef15f853",
+      "bytes": 189269,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "chunkTypes": [
+        "IDAT",
+        "IEND",
+        "IHDR",
+        "iCCP"
+      ]
+    },
+    "before-request.png": {
+      "sha256": "1f7e4ca160d7e2aa96dc8fe87bf426f54ef5bc9ee58be55d8f10805db05e0b8f",
+      "bytes": 103977,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "chunkTypes": [
+        "IDAT",
+        "IEND",
+        "IHDR",
+        "iCCP"
+      ]
+    },
+    "error-fallback.png": {
+      "sha256": "269e5024bcb30bf9d0e9ba2ee0935d5b6f417e1f731ad535e5c0fabe8aade00f",
+      "bytes": 1062607,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "chunkTypes": [
+        "IDAT",
+        "IEND",
+        "IHDR",
+        "iCCP"
+      ]
+    },
+    "after-row.png": {
+      "sha256": "9a13b5ee044dfef2bc54e993cd17dbb9dbe8bd7bb4d1ca75fd8441b03732f08e",
+      "bytes": 996632,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "chunkTypes": [
+        "IDAT",
+        "IEND",
+        "IHDR",
+        "iCCP"
+      ]
+    },
+    "after-mine.png": {
+      "sha256": "19258a6caa08ed98ed5268a1a5c928c4f312cb2df3abfd8b57d12c4efa3395a6",
+      "bytes": 1153471,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "chunkTypes": [
+        "IDAT",
+        "IEND",
+        "IHDR",
+        "iCCP"
+      ]
+    }
+  }
+}

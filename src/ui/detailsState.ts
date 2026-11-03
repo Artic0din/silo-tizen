@@ -4,13 +4,14 @@ import type { RequestSpec } from "../api/http.ts";
 import { detailOperations, type PersonalAction } from "../api/detailOperations.ts";
 import { operations } from "../api/operations.ts";
 import type { Card, ItemDetail } from "../contracts/v2/catalog.ts";
-import { playChoices, resumeSeconds, type PlayRequest } from "./browseModel.ts";
+import { playChoices, type PlayRequest } from "./browseModel.ts";
 import type { Clock } from "../api/clock.ts";
 import type { NativeSession } from "../session/session.ts";
 import { readSettingsCapability, readTitleArt } from "./presentationSettings.ts";
 import { RatingState } from "./ratingState.ts";
 import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
 import { SeriesEpisodes } from "./seriesEpisodes.ts";
+import { freshPlayPosition } from "./playbackPreparation.ts";
 
 export interface PersonalChange {
     readonly target: boolean;
@@ -194,7 +195,7 @@ export class DetailsState {
         if (request.startSeconds === 0) { handoff(request); return; }
         this.preparingPlay = true;
         this.changed();
-        this.freshPosition(request, clock, controller.signal).then(position => {
+        freshPlayPosition(this.session, request, clock, controller.signal).then(position => {
             if (!this.current(controller)) return;
             this.preparingPlay = false;
             handoff({ ...request, startSeconds: position });
@@ -204,26 +205,6 @@ export class DetailsState {
             this.failedPlay = request;
             this.changed();
         });
-    }
-
-    private async freshPosition(request: PlayRequest, clock: Clock, signal: AbortSignal): Promise<number> {
-        const controller = new AbortController();
-        const abort = (): void => controller.abort();
-        signal.addEventListener("abort", abort, { once: true });
-        let cancel = (): void => undefined;
-        try {
-            const timeout = new Promise<never>((_resolve, reject) => {
-                cancel = clock.schedule(() => { reject(new ApiError({ kind: "timeout" })); controller.abort(); }, 3000);
-            });
-            const fresh = await Promise.race([this.read(detailOperations.resumePosition(request.contentId, request.fileId), controller), timeout]);
-            return resumeSeconds(fresh.position, fresh.duration) ?? 0;
-        } catch (error) {
-            if (!signal.aborted && error instanceof ApiError && (error.failure.kind === "network" || error.failure.kind === "timeout" || error.status === 501 || error.status === 503)) return request.startSeconds ?? 0;
-            throw error;
-        } finally {
-            cancel();
-            signal.removeEventListener("abort", abort);
-        }
     }
 
     private read<T>(spec: RequestSpec<T>, controller: AbortController): Promise<T> {

@@ -1,6 +1,6 @@
 # Silo Tizen Docs
 
-Start with the root [README](../README.md) for build, signing and release, [FEATURES](../FEATURES.md) for the feature inventory and Apple TV parity, and [AGENTS.md](../AGENTS.md) for the platform rules.
+Start with the root [README](../README.md) for build, signing and release, [FEATURES](../FEATURES.md) for the feature inventory and Apple TV and Android TV parity, and [AGENTS.md](../AGENTS.md) for the platform rules.
 [App behaviour](app-behaviour.md) describes what the packaged app does today and what has been proven on a TV.
 
 ## Current Product Truth

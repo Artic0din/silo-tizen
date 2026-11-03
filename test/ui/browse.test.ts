@@ -574,6 +574,13 @@ browseTest("optional Details reads load independently, fail, retry and report em
     assert.equal(await tv.page.locator('[data-focus="watchlist"], [data-focus="favorites"]').count(), 0);
 }, { catalog: new FakeDetails() });
 
+browseTest("series Details render related titles from the unpaginated server collection", async (tv) => {
+    await activateDetails(tv, "series:s1");
+    await showing(tv, "item:series:s1");
+    await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "series related collection");
+    assert.equal(await tv.page.getByRole("button", { name: "Retry related titles", exact: true }).count(), 0);
+}, { catalog: new FakeDetails() });
+
 browseTest("person, related and personal reads recover with explicit retries", async (tv) => {
     let relatedFail = true;
     let personalFail = true;

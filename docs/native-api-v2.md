@@ -253,6 +253,7 @@ Defined in `src/api/operations.ts` unless noted.
 
 Notes:
 
+- Related titles decode the endpoint's `items` collection without requiring the catalog listing's `total` or `total_exact` fields.
 - Pages continue with the opaque `next_cursor`.
 - `limit` is bounded client-side (1 to 200 for collection items, 1 to 100 for `catalog/query`), and out-of-range values throw `RangeError` before any request.
 - The two POST queries are marked `safe` in code ("natural_idempotent"), so the transport retry applies to them.

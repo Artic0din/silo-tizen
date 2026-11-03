@@ -19,6 +19,7 @@ Start with the root [README](../README.md) for build, signing and release, [FEAT
 - [Native API v2](native-api-v2.md) - every `/api/v2` operation the app calls, with its auth, gating and error handling
 - [TV focus](tv-focus.md) - read before changing navigation, menus, grids, dialogs or custom controls
 - [Releasing](releasing.md) - tester builds, store releases and installing a tester build
+- [Upstream design notes](upstream-design-notes.md) - the silo-apple and silo-android design specs that apply to a TV client; read the matching one before porting a feature
 - `parity/upstream-snapshot.json` - the Apple TV and Android TV state FEATURES.md was last reviewed against; the weekly Parity drift workflow opens an issue when upstream changes (`scripts/parity-drift.py`)
 
 ## Playback

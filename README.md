@@ -99,8 +99,10 @@ additional permission allows combining it with platform SDKs; see
 
 The **Silo name, logo, and wordmark are trademarks of Silo Media L.L.C.** and
 are **not** covered by the AGPL. You're free to fork and redistribute the code,
-but forks and redistributions must not use the Silo brand as their identity and
-must remove or replace the brand assets. Publishing a Silo-branded app to an app
+but forks and modified redistributions must not use the Silo brand as their
+identity and must remove or replace the brand assets. Official, unmodified
+builds may be redistributed under the Silo name with all notices kept intact.
+Publishing a Silo-branded app to an app
 store requires written permission. See [TRADEMARK.md](TRADEMARK.md) for what's
 permitted — including referential use like "compatible with Silo."
 

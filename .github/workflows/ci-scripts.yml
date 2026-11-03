@@ -19,6 +19,8 @@ jobs:
           persist-credentials: false
       - name: Test API v2 fixture sync
         run: bash scripts/sync-apiv2-fixtures.test.sh
+      - name: Test parity drift report
+        run: python3 scripts/test-parity-drift.py
       - name: Test release version selection
         run: python3 scripts/test-release-version.py
       - name: Test setting the package version

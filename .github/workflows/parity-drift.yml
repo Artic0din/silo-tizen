@@ -1,0 +1,55 @@
+name: Parity drift
+
+# FEATURES.md tracks parity with the Apple TV and Android TV apps. Each week,
+# compare those repositories with docs/parity/upstream-snapshot.json and keep
+# one open "Parity drift" issue listing what changed upstream, or close it when
+# nothing has. See scripts/parity-drift.py.
+
+on:
+  schedule:
+    - cron: "0 22 * * 0" # Monday 08:00 or 09:00 in Melbourne
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: parity-drift
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TITLE: "Parity drift: upstream feature changes to review"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Compare upstream with the snapshot
+        run: python3 scripts/parity-drift.py check --report "${RUNNER_TEMP}/drift.md"
+
+      - name: Open, update or close the drift issue
+        run: |
+          existing="$(gh issue list --repo "${GITHUB_REPOSITORY}" --state open --search "\"${TITLE}\" in:title" \
+            --json number,title --jq "[.[] | select(.title == env.TITLE)][0].number // empty")"
+          if [[ -s "${RUNNER_TEMP}/drift.md" ]]; then
+            cat "${RUNNER_TEMP}/drift.md" >> "${GITHUB_STEP_SUMMARY}"
+            if [[ -n "${existing}" ]]; then
+              gh issue edit "${existing}" --repo "${GITHUB_REPOSITORY}" --body-file "${RUNNER_TEMP}/drift.md"
+              echo "Updated #${existing}."
+            else
+              gh issue create --repo "${GITHUB_REPOSITORY}" --title "${TITLE}" --body-file "${RUNNER_TEMP}/drift.md"
+            fi
+          else
+            echo "No drift." >> "${GITHUB_STEP_SUMMARY}"
+            if [[ -n "${existing}" ]]; then
+              gh issue close "${existing}" --repo "${GITHUB_REPOSITORY}" --comment "Upstream now matches the snapshot."
+            fi
+          fi

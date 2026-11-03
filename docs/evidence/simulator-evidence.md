@@ -7,7 +7,7 @@ Serialize simulator work on the Mac that also runs Xcode; coordinate ownership b
 
 ## Build the candidate
 
-Use the branch being reviewed, with Node and browser dependencies installed as described in the [README](../README.md#build).
+Use the branch being reviewed, with Node and browser dependencies installed as described in the [README](../../README.md#build).
 Keep the developer security profile and certificates outside the repository.
 
 ```bash
@@ -102,4 +102,4 @@ Close the Xcode session and debugging clients you opened, and explicitly release
 Record each proof separately: automated tests, signed WGT, simulator, Apple TV comparison and real TV.
 For a product UI change, the affected result must match the Apple TV app; unresolved differences remain failed or unverified gates.
 A documentation-only PR should say that it changes no app behavior and should not claim new product acceptance.
-See the [PR template](../.github/PULL_REQUEST_TEMPLATE.md) for the Evidence section.
+See the [PR template](../../.github/PULL_REQUEST_TEMPLATE.md) for the Evidence section.

@@ -14,7 +14,7 @@ A tester build installs only on TVs listed in its signing certificate; see [Rele
 ## Screenshots
 
 <p>
-  <img src="docs/screenshots/readme/for-you.png" width="800" alt="For You in the signed build, on the Samsung TV simulator" />
+  <img src="docs/evidence/screenshots/readme/for-you.png" width="800" alt="For You in the signed build, on the Samsung TV simulator" />
 </p>
 
 ## Layout
@@ -53,7 +53,7 @@ The bundle's app version comes from `app/config.xml`.
 ## Test
 
 `npm test` runs both strict type checks, the production build, native contract/session/player tests and Playwright screen/composition tests.
-See [test/README.md](test/README.md) for the test boundaries, and [Samsung simulator evidence](docs/simulator-evidence.md) for the simulator recipe, signed-package identity checks and Apple TV comparisons.
+See [test/README.md](test/README.md) for the test boundaries, and [Samsung simulator evidence](docs/evidence/simulator-evidence.md) for the simulator recipe, signed-package identity checks and Apple TV comparisons.
 
 ## Signing
 

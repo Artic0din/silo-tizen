@@ -44,12 +44,14 @@ The proof bar: the `.wgt` builds; smoke-test in the Tizen TV software emulator
 or Samsung TV simulator when possible; real TV validation is the final gate.
 The simulator ships with `--disable-web-security`, so a successful simulator
 request does not establish ordinary-browser CORS or physical-TV acceptance. See
-[simulator evidence](docs/simulator-evidence.md) for launch, capture and proof
+[simulator evidence](docs/evidence/simulator-evidence.md) for launch, capture and proof
 boundaries.
 
 ## Platform Rules
 
 ### Backend: native `/api/v2`
+
+[Native API v2](docs/native-api-v2.md) lists every operation the app calls, with its auth, gating and error handling.
 
 - The packaged app uses Silo's native `/api/v2` through `src/api/`, `src/contracts/v2/` and the session owners. The earlier Jellyfin-compatible client is retired; do not reintroduce its endpoints or authorization header.
 - Keep server operations and response decoding in the existing API and contract modules. UI and player controllers use the existing session transport and active profile authority rather than assembling separate authorization paths.
@@ -79,6 +81,8 @@ boundaries.
 - Signing uses the developer's security profile; never commit `.p12`, profile XML, passwords or DUIDs.
 
 ### TV focus
+
+Read [TV focus](docs/tv-focus.md) before changing navigation, menus, grids, dialogs or custom controls.
 
 - Each screen zone has exactly one focus owner. D-pad focus must never get lost, and every screen has at least one clear focus target.
 - Restore focus by section id + item id, not by list position.

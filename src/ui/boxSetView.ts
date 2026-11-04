@@ -1,15 +1,21 @@
 // One movie box set, on the movie detail page's surfaces: hero, Play, then the member grid.
 
 import type { CatalogBoxSetDetail } from "../contracts/v2/boxSets.ts";
-import { boxSetFacts, boxSetNextMovie, boxSetPlayLabel } from "../contracts/v2/boxSets.ts";
+import { boxSetFacts, boxSetNextMovie, boxSetPlayVerb } from "../contracts/v2/boxSets.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { actionButton, artwork, cardItems, GRID_COLUMNS, heading, type ViewContext, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
 
 export function boxSetView(detail: CatalogBoxSetDetail, context: ViewContext, play: () => void, back: () => void): View {
-    const label = boxSetPlayLabel(detail);
+    const next = boxSetNextMovie(detail);
+    const verb = boxSetPlayVerb(detail);
     const actions: FocusItem[] = [];
-    if (label !== undefined && boxSetNextMovie(detail) !== undefined) actions.push(actionButton("play", label, play));
+    if (verb !== undefined && next !== undefined) {
+        const button = actionButton("play", verb, play);
+        button.element.classList.add("box-set-play");
+        button.element.replaceChildren(el("span", "box-set-play-verb", verb), el("span", "box-set-play-film", next.title));
+        actions.push(button);
+    }
     if (actions.length === 0) actions.push(actionButton("back", "Back", back));
     const layout = el("div", "details-hero");
     layout.appendChild(artwork("details-backdrop", detail.boxSet.backdropUrl ?? detail.boxSet.posterUrl, context.baseUrl, ""));
@@ -23,7 +29,7 @@ export function boxSetView(detail: CatalogBoxSetDetail, context: ViewContext, pl
     info.appendChild(zoneNode("browse-actions", actions));
     layout.appendChild(info);
     const movies = cardItems(detail.items, context);
-    const grid = zoneNode("browse-grid", movies);
+    const grid = zoneNode("browse-grid box-set-grid", movies);
     const content = [layout, el("h2", "browse-section-title", "Movies"), grid];
     const zones: Zone[] = [
         { id: "actions", layout: "row", items: actions },

@@ -51,20 +51,20 @@ class BoxSetCatalog extends SearchCatalog {
     override route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): Reply | undefined {
         const url = new URL(path, "https://fake.invalid");
         const detail = /^\/catalog\/box-sets\/([^/]+)$/.exec(url.pathname);
+        const membership = /^\/catalog\/items\/([^/]+)\/box-set$/.exec(url.pathname);
+        if (membership !== null) {
+            const queued = super.route(method, path, profileId, body);
+            if (queued !== undefined) return queued;
+            const id = decodeURIComponent(membership[1] ?? "");
+            if (id !== "movie:m0001" && id !== "movie:m0002") return { status: 200, body: {} };
+            return { status: 200, body: { box_set: this.boxSetBody() } };
+        }
         if (url.pathname === "/catalog/box-sets" || detail !== null) {
             const queued = super.route(method, path, profileId, body);
             if (queued !== undefined) return queued;
             if (detail !== null) {
                 if (detail[1] !== "1241") return problem(404, "not_found", "Not found");
-                return { status: 200, body: {
-                    id: "1241", library_id: "12", title: "Harry Potter Collection", overview: "Wizards.",
-                    poster_url: "/art/potter.svg", backdrop_url: "/art/potter-wide.svg",
-                    movie_count: 8, played_count: 3, first_year: 2001, last_year: 2011,
-                    items: [
-                        { content_id: "movie:m0001", type: "movie", title: "Philosopher's Stone", year: 2001, poster_url: "/art/hp1.svg", user_state: { played: true } },
-                        { content_id: "movie:m0002", type: "movie", title: "Chamber of Secrets", year: 2002, poster_url: "/art/hp2.svg", user_state: { played: false } },
-                    ],
-                } };
+                return { status: 200, body: this.boxSetBody() };
             }
             const q = (url.searchParams.get("q") ?? "").toLowerCase();
             const items = q.includes("potter") ? Array.from({ length: 6 }, (_, index) => ({
@@ -75,6 +75,18 @@ class BoxSetCatalog extends SearchCatalog {
             return { status: 200, body: { items } };
         }
         return super.route(method, path, profileId, body);
+    }
+
+    private boxSetBody(): Record<string, unknown> {
+        return {
+            id: "1241", library_id: "12", title: "Harry Potter Collection", overview: "Wizards.",
+            poster_url: "/art/potter.svg", backdrop_url: "/art/potter-wide.svg",
+            movie_count: 8, played_count: 3, first_year: 2001, last_year: 2011,
+            items: [
+                { content_id: "movie:m0001", type: "movie", title: "Philosopher's Stone", year: 2001, poster_url: "/art/hp1.svg", user_state: { played: true } },
+                { content_id: "movie:m0002", type: "movie", title: "Chamber of Secrets", year: 2002, poster_url: "/art/hp2.svg", user_state: { played: false } },
+            ],
+        };
     }
 }
 
@@ -429,6 +441,7 @@ browseTest("Search lists at most five box sets ahead of People for All and Movie
     assert.equal(await tv.page.locator(".search-box-sets-heading + .browse-grid .box-set-card").count(), 5, "the screen keeps five of a longer answer");
     assert.equal(await tv.page.locator('[data-focus="box-set:12:1241"] .browse-card-subtitle').textContent(), "3 / 8 watched");
     assert.equal(await tv.page.locator('[data-focus="box-set:12:1241"] .box-set-label').textContent(), "Box set");
+    assert.equal(await tv.page.locator(".box-set-card .box-set-sleeve").count(), 10, "each tvOS box set card has two sleeves");
     const order = await tv.page.locator(".search-box-sets-heading, .search-people-heading, .search-count").evaluateAll(nodes => nodes.map(node => node.className));
     assert.deepEqual(order, ["browse-section-title search-box-sets-heading", "browse-section-title search-people-heading"]);
     assert.equal(await tv.page.getByText("No results", { exact: true }).count(), 0);
@@ -473,13 +486,28 @@ browseTest("Search box set failure stays silent and a new query cancels the look
     void catalog;
 }, { catalog: new FailedBoxSetCatalog() });
 
+browseTest("Search keeps the previous box sets until the next lookup answers", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "potter"); await tv.remote(IME_DONE);
+    await tv.page.locator('[data-focus="box-set:12:1241"]').waitFor();
+    const held = tv.fake.hold("/catalog/box-sets", true);
+    await tv.page.fill("#browse-search", "heat"); await tv.remote(IME_DONE);
+    await tv.eventually(async () => browseReads(tv, "/catalog/box-sets").some(request => request.path.includes("q=heat")), "heat lookup held");
+    assert.equal(await tv.page.locator('[data-focus="box-set:12:1241"]').count(), 1, "the previous box set stays up");
+    held.release();
+    await tv.eventually(async () => await tv.page.locator(".search-box-sets-heading").count() === 0, "an empty answer removes the section");
+}, { catalog: new BoxSetCatalog() });
+
 browseTest("Opening a box set focuses Play, keeps member order, and Back returns", async (tv, catalog) => {
     await tv.page.locator('[data-focus="search"]').click();
     await tv.page.fill("#browse-search", "potter"); await tv.remote(IME_DONE);
     await tv.page.locator('[data-focus="box-set:12:1241"]').click();
     await showing(tv, "boxSet:12:1241");
     assert.equal(await tv.focused(), "play");
-    assert.equal(await tv.page.locator('[data-focus="play"]').textContent(), "Continue · Chamber of Secrets");
+    // The combined "Continue · title" string is the iPhone button. tvOS splits the verb and the film.
+    assert.equal(await tv.page.locator(".box-set-play-verb").textContent(), "Continue");
+    assert.equal(await tv.page.locator(".box-set-play-film").textContent(), "Chamber of Secrets");
+    assert.equal(await tv.page.locator(".box-set-grid .browse-card").first().evaluate(node => node.clientWidth), 220);
     assert.match(await tv.page.locator(".browse-meta").innerText(), /8 films/);
     assert.match(await tv.page.locator(".browse-meta").innerText(), /2001 – 2011/);
     assert.match(await tv.page.locator(".browse-meta").innerText(), /3 of 8 watched/);
@@ -491,6 +519,14 @@ browseTest("Opening a box set focuses Play, keeps member order, and Back returns
     await press(tv, "ArrowDown");
     assert.equal(await tv.focused(), "movie:m0001");
     await press(tv, "Enter"); await showing(tv, "item:movie:m0001");
+    await tv.page.locator(".box-set-row .box-set-current-label").waitFor();
+    assert.equal(await tv.page.locator(".box-set-current-label").textContent(), "This film");
+    assert.equal(await tv.page.locator('.box-set-row [data-focus="movie:m0001"]').count(), 1);
+    assert.equal(await tv.page.locator('.box-set-row [data-focus="box-set-explore"]').count(), 1);
+    for (let step = 0; step < 6 && await tv.page.locator(".box-set-row :focus").count() === 0; step += 1) await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "movie:m0001", "Down into the row lands on this film");
+    await tv.page.locator('.box-set-row [data-focus="movie:m0001"]').click();
+    await showing(tv, "item:movie:m0001");
     await tv.remote(BACK); await showing(tv, "boxSet:12:1241");
     assert.equal(await tv.focused(), "movie:m0001", "Back keeps the member");
     await tv.remote(BACK); await showing(tv, "search");

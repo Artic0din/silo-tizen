@@ -87,7 +87,7 @@ The public discovery fixtures are byte-identical copies of `contracts/api/v2/fix
 `list_library_sections_ok`, `get_library_section_items_ok`, `get_library_collections_ok`, `get_catalog_filters_ok`, `query_catalog_items_ok`, `query_catalog_letters_ok`, and `get_catalog_search_capabilities_ok`.
 Only consumed video facets and capability flags are decoded.
 Text Search also consumes optional `video_with_episodes_scope` as a strict boolean and negotiates the existing GET `listCatalogItems` request only after an allowed, available, true response.
-Optional `box_sets` is the same kind of boolean. When it is true, All and Movies search also calls `searchCatalogBoxSets`, and opening a result calls `getCatalogBoxSet`. Older servers omit the flag and get neither request. These two reads are not in the vendored fixtures; their bodies follow the server structs and are not hand-copied into `fixtures/`.
+Optional `box_sets` is the same kind of boolean. When it is true, All and Movies search also calls `searchCatalogBoxSets`, opening a result calls `getCatalogBoxSet`, and a movie page calls `getCatalogItemBoxSet`. Older servers omit the flag and get none of those requests. Library browse does not group box sets. These reads are not in the vendored fixtures; their bodies follow the server structs and are not hand-copied into `fixtures/`.
 Absent/false flags keep video-only searches; capability read/decode failures remain recoverable failures rather than unsupported facts.
 The episode-inclusive request type is limited to text Search and is not added to library, facet, letter or POST source types.
 See [Text Search](../../../docs/features/skyline-browse-shell.md#text-search) for route ownership, continuation and source evidence.

@@ -3,7 +3,7 @@
 // searchCatalogBoxSets does not take artwork sizing. getCatalogBoxSet does (ArtworkQuery).
 
 import type { CatalogBoxSet, CatalogBoxSetDetail } from "../contracts/v2/boxSets.ts";
-import { decodeCatalogBoxSetDetail, decodeCatalogBoxSetList } from "../contracts/v2/boxSets.ts";
+import { decodeCatalogBoxSetDetail, decodeCatalogBoxSetList, decodeCatalogItemBoxSet } from "../contracts/v2/boxSets.ts";
 import type { RequestSpec } from "./http.ts";
 
 /** Apple SearchViewModel.boxSetLimit. The server default is the same; the maximum is 20. */
@@ -30,5 +30,15 @@ export const boxSetOperations = {
             retry: "safe",
             decode: decodeCatalogBoxSetDetail,
         };
+    },
+    /**
+     * getCatalogItemBoxSet: the movie page's row. `box_set` is absent when the
+     * title is in no box set the viewer sees. 404 is a missing, hidden, or non-title id.
+     */
+    forItem: (id: string, libraryId?: string): RequestSpec<CatalogBoxSetDetail | undefined> => {
+        if (id.trim() === "") throw new RangeError("Box set identity is outside the contract");
+        const query = new URLSearchParams({ image_size: "medium" });
+        if (libraryId !== undefined && libraryId.trim() !== "") query.set("library_id", libraryId);
+        return { method: "GET", path: `/catalog/items/${encodeURIComponent(id)}/box-set?${query}`, retry: "safe", decode: decodeCatalogItemBoxSet };
     },
 };

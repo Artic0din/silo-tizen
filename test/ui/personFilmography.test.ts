@@ -142,7 +142,8 @@ journey("person full journey reaches third page, server filters whole population
         assert.equal(request.body?.person_id, "7");
         assert.equal(request.headers["x-profile-id"], "p-owner");
     }
-    assert.equal(tv.fake.requests.filter(request => /search\/capabilities/.test(request.path)).length, 0);
+    // This journey used to make no capability request. Opening the movie asks once whether box sets exist.
+    assert.equal(tv.fake.requests.filter(request => /search\/capabilities/.test(request.path)).length, 1);
 });
 
 journey("failed Next retains visible page and target for explicit Retry", async (tv, catalog) => {

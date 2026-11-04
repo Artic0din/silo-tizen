@@ -7,6 +7,7 @@ import type { DetailsState } from "./detailsState.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { artworkUrl, clockTime, episodeLabel, playChoices, type PlayRequest } from "./browseModel.ts";
 import { actionButton, artwork, cardItem, heading, lines, mediaItem, type ViewContext, zoneNode } from "./browseViews.ts";
+import { boxSetMovieRow, type BoxSetRowState } from "./boxSetRow.ts";
 import { personMetadataBadges, personPortrait } from "./personHero.ts";
 import { el } from "./screen.ts";
 import { SkylineScroll } from "./skylineScroll.ts";
@@ -134,7 +135,7 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     return [layout];
 }
 
-export function itemView(detail: ItemDetail, seasons: readonly Season[], context: ViewContext, play: (request: PlayRequest) => void, back: () => void, synopsis: Synopsis, state?: DetailsState): View {
+export function itemView(detail: ItemDetail, seasons: readonly Season[], context: ViewContext, play: (request: PlayRequest) => void, back: () => void, synopsis: Synopsis, state?: DetailsState, boxSet?: BoxSetRowState): View {
     const actions: FocusItem[] = [];
     const notes: string[] = [];
     const choices = playChoices(detail, state?.selectedFileId);
@@ -246,6 +247,11 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         const people = credits.slice(0, 24).map((credit) => creditCard(credit, context));
         content.push(el("h2", "browse-section-title", "Cast & Crew"), zoneNode("browse-row details-people", people));
         zones.push({ id: "people", layout: "row", items: people });
+    }
+    const movieRow = boxSet === undefined ? undefined : boxSetMovieRow(boxSet, detail.id, context);
+    if (movieRow !== undefined) {
+        content.push(...movieRow.content);
+        zones.push(movieRow.zone);
     }
     if (state !== undefined) {
         const related = titleCards(state.related ?? [], context);

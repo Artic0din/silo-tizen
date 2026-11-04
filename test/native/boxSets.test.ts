@@ -8,10 +8,13 @@ import {
     boxSetFacts,
     boxSetFilmCount,
     boxSetPlayLabel,
+    boxSetPlayVerb,
     boxSetYears,
     decodeCatalogBoxSetDetail,
     decodeCatalogBoxSetList,
+    decodeCatalogItemBoxSet,
 } from "../../src/contracts/v2/boxSets.ts";
+import { boxSetRowFilms, boxSetRowSlots, boxSetRowStart } from "../../src/ui/boxSetRow.ts";
 import { WireError } from "../../src/contracts/v2/wire.ts";
 
 const harryPotter = {
@@ -73,4 +76,31 @@ test("box set reads keep release order, Apple's captions, and the search capabil
     assert.throws(() => boxSetOperations.search("  ", 5), RangeError);
     assert.throws(() => boxSetOperations.search("potter", 21), RangeError);
     assert.throws(() => boxSetOperations.get("1241", ""), RangeError);
+});
+
+test("a movie page reads its box set, and the row keeps the film on screen", () => {
+    const detail = decodeCatalogBoxSetDetail({ ...harryPotter, items: [movie("hp1", "Philosopher's Stone", 2001, true), movie("hp2", "Chamber of Secrets", 2002, false)] });
+    assert.equal(decodeCatalogItemBoxSet({ box_set: { ...harryPotter, items: detail.items.map(item => movie(item.id, item.title, item.year ?? 0, item.played === true)) } })?.boxSet.id, "1241");
+    assert.equal(decodeCatalogItemBoxSet({}), undefined);
+    assert.equal(decodeCatalogItemBoxSet({ box_set: null }), undefined);
+    assert.equal(boxSetOperations.forItem("movie:m0001").path, "/catalog/items/movie%3Am0001/box-set?image_size=medium");
+    assert.equal(boxSetOperations.forItem("movie:m0001", "12").path, "/catalog/items/movie%3Am0001/box-set?image_size=medium&library_id=12");
+    assert.equal(boxSetOperations.forItem("movie:m0001").retry, "safe");
+    assert.equal(boxSetPlayVerb(detail), "Continue");
+    const finished = decodeCatalogBoxSetDetail({ ...harryPotter, movie_count: 2, played_count: 2, items: [movie("a", "Azkaban", 2004, true)] });
+    assert.equal(boxSetPlayVerb(finished), "Play");
+
+    const cases: { current: number | undefined; count: number; slots: number; start: number }[] = [
+        { current: 1, count: 8, slots: 2, start: 0 },
+        { current: 2, count: 8, slots: 2, start: 1 },
+        { current: 5, count: 10, slots: 5, start: 4 },
+        { current: 7, count: 8, slots: 2, start: 6 },
+        { current: 7, count: 8, slots: 5, start: 3 },
+        { current: 2, count: 3, slots: 5, start: 0 },
+        { current: undefined, count: 8, slots: 2, start: 0 },
+    ];
+    for (const sample of cases) assert.equal(boxSetRowStart(sample.current, sample.count, sample.slots), sample.start);
+    assert.equal(boxSetRowSlots(1744, 220, 44), 6);
+    const films = Array.from({ length: 8 }, (_, index) => ({ id: `hp${index}` }));
+    assert.deepEqual(boxSetRowFilms(films, "hp7", 6, true).map(film => film.id), ["hp3", "hp4", "hp5", "hp6", "hp7"]);
 });

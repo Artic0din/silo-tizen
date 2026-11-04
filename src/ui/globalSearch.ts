@@ -112,6 +112,9 @@ function boxSetSearchCard(set: CatalogBoxSet, baseUrl: string, open: () => void)
     item.element.className = "browse-card box-set-card";
     item.element.replaceChildren();
     item.element.setAttribute("aria-label", boxSetAccessibilityLabel(set));
+    const sleeves = el("span", "box-set-sleeves");
+    sleeves.setAttribute("aria-hidden", "true");
+    sleeves.append(el("span", "box-set-sleeve box-set-sleeve-back"), el("span", "box-set-sleeve box-set-sleeve-front"));
     const art = artwork("browse-art", set.posterUrl, baseUrl, set.title);
     const progress = boxSetWatchedProgress(set);
     if (progress !== undefined) {
@@ -126,6 +129,6 @@ function boxSetSearchCard(set: CatalogBoxSet, baseUrl: string, open: () => void)
     mark.setAttribute("aria-hidden", "true");
     count.setAttribute("aria-hidden", "true");
     art.append(mark, count);
-    item.element.append(art, el("span", "browse-card-title", set.title), el("span", "browse-card-subtitle", boxSetCardCaption(set)));
+    item.element.append(sleeves, art, el("span", "browse-card-title", set.title), el("span", "browse-card-subtitle", boxSetCardCaption(set)));
     return item;
 }

@@ -56,7 +56,7 @@ export function actionButton(key: string, label: string, onPress: () => void): F
 }
 
 /** SectionExploreAllCard keeps the current marquee while its row's trailing tile owns focus. */
-function exploreAllCard(rowTitle: string, key: string, continuing: boolean, onPress: () => void): FocusItem {
+export function exploreAllCard(rowTitle: string, key: string, continuing: boolean, onPress: () => void): FocusItem {
     const element = el("button", "browse-card skyline-explore");
     element.type = "button";
     element.setAttribute("data-focus", key);

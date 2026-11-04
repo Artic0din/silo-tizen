@@ -71,6 +71,18 @@ export function decodeCatalogBoxSetDetail(value: unknown): CatalogBoxSetDetail {
     };
 }
 
+/**
+ * `GET /catalog/items/{id}/box-set`: the movie page's row, or absent when the
+ * title is in no box set the viewer sees. A missing field and JSON null are
+ * the same answer.
+ */
+export function decodeCatalogItemBoxSet(value: unknown): CatalogBoxSetDetail | undefined {
+    const path = "catalog_item_box_set";
+    const obj = object(value, path);
+    if (obj.box_set === undefined || obj.box_set === null) return undefined;
+    return decodeCatalogBoxSetDetail(obj.box_set);
+}
+
 /** `GET /catalog/box-sets?q=`: best match first. `items` is empty, never null. */
 export function decodeCatalogBoxSetList(value: unknown): CatalogBoxSet[] {
     const path = "catalog_box_set_list";
@@ -125,6 +137,12 @@ export function boxSetNextMovie(detail: CatalogBoxSetDetail): Card | undefined {
 
 function boxSetStarted(detail: CatalogBoxSetDetail): boolean {
     return detail.boxSet.playedCount > 0 && detail.boxSet.playedCount < detail.boxSet.movieCount;
+}
+
+/** tvOS splits this from the film title. "Continue" once started, otherwise "Play". */
+export function boxSetPlayVerb(detail: CatalogBoxSetDetail): "Continue" | "Play" | undefined {
+    if (boxSetNextMovie(detail) === undefined) return undefined;
+    return boxSetStarted(detail) ? "Continue" : "Play";
 }
 
 /** "Continue · <title>" once started, otherwise "Play <title>"; undefined without movies. */

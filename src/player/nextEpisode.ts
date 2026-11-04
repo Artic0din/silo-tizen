@@ -5,6 +5,9 @@ import type { WatchDetail } from "../contracts/v2/catalog.ts";
 import { resumeSeconds } from "../ui/browseModel.ts";
 import type { PlayRequest } from "./controller.ts";
 
+/** Home rows Apple treats as On Deck (`PlayerViewModel.resolveOnDeckItems`). */
+const ON_DECK_SECTIONS = new Set(["continue_watching", "in_progress", "next_up"]);
+
 type Read = <T>(spec: RequestSpec<T>) => Promise<T>;
 
 function invalid(): never {
@@ -47,6 +50,51 @@ export async function nextEpisode(read: Read, contentId: string, effectiveFileId
             if (version === undefined) continue;
             const resume = detail.watch?.played === false ? resumeSeconds(detail.watch.positionSeconds, version.durationSeconds || undefined) : undefined;
             return { contentId: detail.id, fileId: version.fileId, title: detail.title, startSeconds: resume ?? 0, episode: true };
+        }
+    }
+    return undefined;
+}
+
+/**
+ * The first On Deck title when the series has no next episode. It is another
+ * title, so it plays only from Play next. A failed read offers nothing.
+ */
+export async function onDeckPlay(read: Read, contentId: string): Promise<PlayRequest | undefined> {
+    let seriesId: string | undefined;
+    try {
+        const current = await read(operations.watchDetail(contentId));
+        if (current.id !== contentId) return undefined;
+        seriesId = current.seriesId;
+    } catch {
+        return undefined;
+    }
+    let sections;
+    try {
+        sections = await read(operations.listHomeSections());
+    } catch {
+        return undefined;
+    }
+    for (const section of sections) {
+        if (!ON_DECK_SECTIONS.has(section.sectionType)) continue;
+        for (const card of section.items) {
+            if (card.id === contentId || card.type !== "movie" && card.type !== "episode") continue;
+            if (seriesId !== undefined && card.seriesId === seriesId) continue;
+            try {
+                const detail = await read(operations.watchDetail(card.id));
+                if (detail.id !== card.id || detail.type !== "movie" && detail.type !== "episode") continue;
+                const file = detail.versions.find((version) => version.fileId === detail.watch?.lastFileId) ?? detail.versions[0];
+                if (file === undefined) continue;
+                const start = resumeSeconds(detail.watch?.positionSeconds, file.durationSeconds > 0 ? file.durationSeconds : undefined);
+                return {
+                    contentId: detail.id,
+                    fileId: file.fileId,
+                    title: detail.title,
+                    startSeconds: start ?? 0,
+                    ...(detail.type === "episode" ? { episode: true as const } : {}),
+                };
+            } catch {
+                continue;
+            }
         }
     }
     return undefined;

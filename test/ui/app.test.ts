@@ -374,10 +374,14 @@ appTest("EOF read failure has remote Retry and Back without a second STOP", asyn
 appTest("the final episode has a focusable Back action and no cross-title start", async (tv, playback, catalog) => {
     await startEpisode(tv, playback, catalog, "episode:s1e23");
     await tv.page.evaluate(() => window.appHarness.avplay.listener?.onstreamcompleted());
-    await tv.page.getByText("No more playable episodes.", { exact: true }).waitFor();
+    // Old series end said "No more playable episodes." and offered no Play next. Focus stays on Back.
+    await tv.page.getByRole("heading", { name: "Up Next", exact: true }).waitFor();
+    await tv.page.locator(".player-error-text", { hasText: "Movie 0001" }).waitFor();
     assert.equal(await tv.focused(), "back");
-    assert.equal(await tv.page.getByRole("button", { name: "Play next", exact: true }).count(), 0);
-    await tv.remote(13);
+    assert.equal(await tv.page.getByRole("button", { name: "Play next", exact: true }).count(), 1);
+    await tv.remote(38);
+    assert.equal(await tv.focused(), "play-next");
+    await tv.remote(10009);
     await tv.page.locator('[data-view="home"]').waitFor();
     assert.equal(await tv.focused(), "episode:s1e23");
     assert.equal(tv.fake.requests.filter(r => r.path === "/playback/start").length, 1);

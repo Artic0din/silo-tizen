@@ -72,10 +72,11 @@ function exploreAllCard(rowTitle: string, key: string, continuing: boolean, onPr
 }
 
 /** An <img> for signed or presigned artwork, or the title as a placeholder when it is missing or fails. */
-export function artwork(className: string, reference: string | undefined, baseUrl: string, fallback: string): HTMLElement {
+export function artwork(className: string, reference: string | undefined, baseUrl: string, fallback: string | Node): HTMLElement {
     const box = el("div", className);
     const src = artworkUrl(reference, baseUrl);
-    const placeholder = el("span", "browse-art-fallback", fallback);
+    const placeholder = el("span", "browse-art-fallback");
+    placeholder.append(fallback);
     if (src === undefined) {
         box.classList.add("browse-art-missing");
         box.appendChild(placeholder);
@@ -322,4 +323,18 @@ export function searchView(head: readonly HTMLElement[], input: HTMLInputElement
             zones.push(...results.grid.zones);
     }
     return { name: "search", content, zones, focus: { zone: "field", key: "query" }, back };
+}
+
+export const FAILURE_ICON = '<svg viewBox="0 0 48 48"><path fill="currentColor" d="M20 5a4.6 4.6 0 0 1 8 0l19 33a4.6 4.6 0 0 1-4 7H5a4.6 4.6 0 0 1-4-7Z"/><path d="M24 16v12m0 7v1" stroke="#000" stroke-width="4" stroke-linecap="round"/></svg>';
+
+/** Apple EmptyStateView and ErrorView: an icon, a title and a line, sized by `className`. */
+export function searchState(title: string, subtitle: string, className: string, iconMarkup?: string): HTMLElement {
+    const state = el("div", `search-state ${className}`);
+    const icon = el("span", "search-state-icon");
+    icon.setAttribute("aria-hidden", "true");
+    icon.innerHTML = iconMarkup ?? (className === "search-failure"
+        ? FAILURE_ICON
+        : '<svg viewBox="0 0 48 48" fill="none"><circle cx="20" cy="20" r="13" stroke="currentColor" stroke-width="4"/><path d="m30 30 12 12" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></svg>');
+    state.append(icon, el("h2", "search-state-title", title), el("p", "search-state-description", subtitle));
+    return state;
 }

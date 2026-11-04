@@ -1,15 +1,27 @@
-import { boolean, integer, nonEmptyString, object, optionalString, string, WireError } from "./wire.ts";
+import { boolean, integer, nonEmptyString, object, optionalInstant, optionalString, string, WireError } from "./wire.ts";
 
 export interface RequestsCapability { readonly enabled: boolean; readonly follow: boolean }
 export interface RequestState {
+    readonly status?: string | undefined;
     readonly requestable: boolean; readonly following: boolean; readonly requestedByViewer: boolean;
     readonly id: string | undefined; readonly state: string | undefined; readonly reason: string | undefined;
 }
 export interface RequestTitle {
+    readonly libraryContentId?: string | undefined;
+    readonly year?: number | undefined; readonly runtime?: number | undefined; readonly voteAverage?: number | undefined;
+    readonly contentRating?: string | undefined; readonly director?: string | undefined;
+    readonly creators?: readonly string[] | undefined; readonly numberOfSeasons?: number | undefined;
+    readonly genres?: readonly string[] | undefined; readonly recommendations?: readonly RequestTitle[] | undefined;
+    readonly posterPath?: string | undefined; readonly backdropPath?: string | undefined;
     readonly mediaType: string; readonly tmdbId: number; readonly title: string;
     readonly overview: string | undefined; readonly availability: string; readonly request: RequestState;
 }
 export interface MediaRequest {
+    readonly libraryContentId?: string | undefined;
+    readonly year?: number | undefined;
+    readonly createdAt?: number | undefined;
+    readonly targets?: readonly { readonly quality: string | undefined; readonly status: string }[] | undefined;
+    readonly posterPath?: string | undefined; readonly backdropPath?: string | undefined;
     readonly id: string; readonly mediaType: string; readonly tmdbId: number; readonly title: string;
     readonly state: string; readonly status: string; readonly outcome: string;
     readonly profileId: string | undefined; readonly overview: string | undefined;
@@ -17,10 +29,24 @@ export interface MediaRequest {
 export interface RequestPage { readonly results: readonly RequestTitle[]; readonly page: number; readonly totalPages: number; readonly nextPage: number }
 export interface RequestSection extends RequestPage { readonly key: string; readonly title: string }
 export interface MyRequests { readonly items: readonly MediaRequest[]; readonly cursor: string | undefined }
+export interface RequestsHub { readonly sections: readonly RequestSection[]; readonly mine: MyRequests }
+
+function optionalNumber(o: Record<string, unknown>, key: string): number | undefined {
+    const value = o[key];
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "number" || !Number.isFinite(value)) throw new WireError(key, "a finite number");
+    return value;
+}
 
 function array(value: unknown): unknown[] {
     if (!Array.isArray(value)) throw new WireError("requests", "an array");
     return value;
+}
+function optionalStrings(o: Record<string, unknown>, key: string): readonly string[] | undefined {
+    return o[key] === undefined ? undefined : array(o[key]).map(value => {
+        if (typeof value !== "string") throw new WireError(key, "strings");
+        return value;
+    });
 }
 export function decodeRequestsCapability(value: unknown): RequestsCapability {
     const o = object(value, "requests.status");
@@ -28,20 +54,24 @@ export function decodeRequestsCapability(value: unknown): RequestsCapability {
 }
 export function decodeRequestState(value: unknown): RequestState {
     const o = object(value, "request");
-    return { requestable: boolean(o, "requestable", "requests"), following: boolean(o, "following", "requests"), requestedByViewer: boolean(o, "requested_by_viewer", "requests"), id: optionalString(o, "request_id", "requests"), state: optionalString(o, "state", "requests"), reason: optionalString(o, "reason", "requests") };
+    return { status: optionalString(o, "status", "requests"), requestable: boolean(o, "requestable", "requests"), following: boolean(o, "following", "requests"), requestedByViewer: boolean(o, "requested_by_viewer", "requests"), id: optionalString(o, "request_id", "requests"), state: optionalString(o, "state", "requests"), reason: optionalString(o, "reason", "requests") };
 }
-function identity(o: Record<string, unknown>): { mediaType: string; tmdbId: number; title: string; overview: string | undefined } {
+function identity(o: Record<string, unknown>): Pick<RequestTitle, "mediaType" | "tmdbId" | "title" | "overview" | "posterPath" | "backdropPath" | "libraryContentId"> {
     const tmdbId = integer(o, "tmdb_id", "requests");
     if (tmdbId < 1) throw new WireError("tmdb_id", "a positive integer");
-    return { mediaType: string(o, "media_type", "requests"), tmdbId, title: nonEmptyString(o, "title", "requests"), overview: optionalString(o, "overview", "requests") };
+    return { mediaType: string(o, "media_type", "requests"), tmdbId, title: nonEmptyString(o, "title", "requests"), overview: optionalString(o, "overview", "requests"), posterPath: optionalString(o, "poster_path", "requests"), backdropPath: optionalString(o, "backdrop_path", "requests"), libraryContentId: optionalString(o, "library_content_id", "requests") };
 }
 export function decodeRequestTitle(value: unknown): RequestTitle {
     const o = object(value, "request.title");
-    return { ...identity(o), availability: string(o, "availability", "requests"), request: decodeRequestState(o.request) };
+    return { ...identity(o), year: optionalNumber(o, "year"), runtime: optionalNumber(o, "runtime"), voteAverage: optionalNumber(o, "vote_average"), contentRating: optionalString(o, "content_rating", "requests"), director: optionalString(o, "director", "requests"), creators: optionalStrings(o, "creators"), numberOfSeasons: o.number_of_seasons === undefined ? undefined : integer(o, "number_of_seasons", "requests"), genres: optionalStrings(o, "genres"), recommendations: o.recommendations === undefined ? undefined : array(o.recommendations).map(decodeRequestTitle), availability: string(o, "availability", "requests"), request: decodeRequestState(o.request) };
 }
 export function decodeMediaRequest(value: unknown): MediaRequest {
     const o = object(value, "request");
-    return { ...identity(o), id: nonEmptyString(o, "id", "requests"), state: string(o, "state", "requests"), status: string(o, "status", "requests"), outcome: string(o, "outcome", "requests"), profileId: optionalString(o, "requested_by_profile_id", "requests") };
+    const targets = o.targets === undefined ? undefined : array(o.targets).map(value => {
+        const target = object(value, "requests.targets");
+        return { quality: optionalString(target, "quality", "requests.targets"), status: string(target, "status", "requests.targets") };
+    });
+    return { ...identity(o), year: optionalNumber(o, "year"), createdAt: optionalInstant(o, "created_at", "requests"), targets, id: nonEmptyString(o, "id", "requests"), state: string(o, "state", "requests"), status: string(o, "status", "requests"), outcome: string(o, "outcome", "requests"), profileId: optionalString(o, "requested_by_profile_id", "requests") };
 }
 export function decodeRequestPage(value: unknown): RequestPage {
     const o = object(value, "requests.page"), page = integer(o, "page", "requests"), totalPages = integer(o, "total_pages", "requests");
@@ -56,6 +86,7 @@ export function decodeRequestSection(value: unknown): RequestSection {
 export function decodeDiscover(value: unknown): RequestSection[] {
     const o = object(value, "requests.discover");
     const items = array(o.items).map(decodeRequestSection);
+    if (o.row_order === undefined) return items;
     return array(o.row_order).flatMap(value => {
         const row = object(value, "requests.row"), type = string(row, "type", "requests");
         if (!["tmdb_chart", "tmdb_discover", "tmdb_list", "mdblist"].includes(type)) return [];

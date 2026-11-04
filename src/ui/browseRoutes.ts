@@ -2,7 +2,7 @@
 // failed, or its data (with a note when a refresh or page turn failed). Loading lives in browse.ts.
 
 import { ApiError } from "../api/errors.ts";
-import { requestsView, type RequestsHandlers, type RequestsState } from "./requests.ts";
+import { requestsView, type RequestsHandlers, type RequestsState, type RequestWrite } from "./requests.ts";
 import type { TextSearchScope } from "../api/operations.ts";
 import type { CatalogPage, Episode, HomeSection, ItemDetail, Season, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { Person } from "../contracts/v2/details.ts";
@@ -47,7 +47,7 @@ export type RouteData =
     /** `resultsFor`: the query the shown page answers, which typing can move ahead of. */
     | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope }
     | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState } | undefined }
-    | { readonly kind: "person"; readonly id: string; readonly title: string; data: { person: Person } | undefined; filter: MediaScope; pages: Pages; pendingIndex: number | undefined }
+    | { readonly kind: "person"; readonly id: string; readonly title: string; data: { person: Person } | undefined; metadataLoading?: boolean; metadataFailure?: string | undefined; availabilityLoading?: boolean; availableFilters?: MediaScope[]; filter: MediaScope; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string; readonly episodeId?: string; data: { episodes: Episode[]; detail: ItemDetail | undefined; details?: DetailsState } | undefined };
 
 export type Route = RouteData & {
@@ -122,13 +122,13 @@ export interface RouteHandlers {
 
 export function routeView(current: Route, handlers: RouteHandlers): View {
     if (current.kind === "for_you" || current.kind === "recommendationSection") return recommendationsView(current, handlers);
-    if (current.kind === "requests") return requestsView(current.requests, handlers.requests(current));
+    if (current.kind === "requests") return requestsView(current.requests, handlers.requests(current), handlers.context.baseUrl);
     const { context, pop } = handlers;
     if (current.kind === "calendar") return calendarView(current.calendar, handlers.calendar(current));
     const back = current.kind === "home" ? undefined : pop;
     const escape = back === undefined ? actionButton("profiles", "Profiles", handlers.chooseProfile) : actionButton("back", "Back", back);
     if (current.kind === "personal") return personalView(current, handlers);
-    if (current.kind === "person" && current.data !== undefined) return personFilmographyView(current, handlers);
+    if (current.kind === "person") return personFilmographyView(current, handlers);
     if (current.kind === "library") {
         current.discovery ??= discoveryState();
         return discoveryView(current, current.discovery, handlers);
@@ -226,6 +226,61 @@ function withNote(view: View, failure: string | undefined): View {
     const note = el("p", "browse-text browse-error", failure);
     note.setAttribute("role", "alert");
     return { ...view, content: [note, ...view.content] };
+}
+
+export interface ErrorState { readonly headline: string; readonly message: string; readonly signIn: boolean }
+
+/** Apple ErrorState.humanize(statusCode:). */
+function statusMessage(status: number): string {
+    if (status === 401) return "Your session has expired. Sign in again to continue.";
+    if (status === 403) return "You don't have permission to do this. Ask your server admin if you need access.";
+    if (status === 404) return "We couldn't find what you were looking for. It may have been removed or moved.";
+    if (status === 408 || status === 504) return "The server took too long to respond. Try again in a moment.";
+    if (status === 429) return "Too many requests. Please wait a moment and try again.";
+    return status >= 500 && status <= 599 ? "The server ran into a problem. Try again in a moment." : "Something went wrong while talking to the server.";
+}
+
+/** Apple ErrorState and ErrorView.headline: a problem's own detail says more than its status, except where a headline already says it. */
+export function errorState(error: unknown): ErrorState {
+    const generic = (message: string): ErrorState => ({ headline: "Something went wrong", message, signIn: false });
+    const forStatus = (status: number, message = statusMessage(status)): ErrorState =>
+        status === 401 ? { headline: "Session expired", message, signIn: true }
+        : status === 403 ? { headline: "Not allowed", message, signIn: false }
+        : status === 404 ? { headline: "Not found", message, signIn: false }
+        : generic(message);
+    if (error instanceof SessionError) return forStatus(error.reason === "unavailable" ? 503 : 401);
+    if (!(error instanceof ApiError)) return generic(statusMessage(0));
+    const failure = error.failure;
+    if (failure.kind === "http") return forStatus(failure.status);
+    if (failure.kind === "invalid_response") return generic("The server response was in an unexpected format.");
+    if (failure.kind !== "problem") return generic("Can't reach the server. Check your connection and try again.");
+    const { status, id, title, detail } = failure.problem;
+    if (status === 401 || status === 404) return forStatus(status);
+    if (status === 403) return forStatus(403, id === "permission_denied" && detail?.trim() ? detail : statusMessage(403));
+    return forStatus(status, detail?.trim() ? detail : title);
+}
+
+/** Apple RequestMutationFailure.isUncertain: only an answer from the server, or a refusal before sending, rules out a write having landed. */
+export function writeMayHaveApplied(error: unknown): boolean {
+    if (error instanceof SessionError) return false;
+    return !(error instanceof ApiError) || (error.failure.kind !== "problem" && error.failure.kind !== "http");
+}
+
+/** Apple RequestErrorCopy.message(for:). */
+export function writeFailureMessage(error: unknown): string {
+    if (error instanceof ApiError && error.failure.kind === "problem") {
+        const { id, detail } = error.failure.problem;
+        if (id === "validation_failed") return "That request couldn't be submitted";
+        if (id === "capability_disabled" || id === "capability_not_configured" || id === "capability_unsupported") return "Requests are turned off";
+        if (detail?.trim()) return detail;
+    }
+    return errorState(error).message;
+}
+
+/** Apple RequestErrorCopy.unconfirmed*Message; Apple TV has no Follow, so it keeps this client's wording. */
+export function unconfirmedWriteMessage(action: RequestWrite): string {
+    if (action === "create") return "We couldn't confirm the request. Check My Requests before trying again.";
+    return action === "cancel" ? "We couldn't confirm the cancellation. Reopen My Requests to check it." : "Could not confirm the change. Refresh before trying again.";
 }
 
 /** What to tell the person; undefined for an error that is not a server or session answer (a defect). */

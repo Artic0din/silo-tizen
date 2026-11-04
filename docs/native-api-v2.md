@@ -240,7 +240,7 @@ Defined in `src/api/operations.ts` unless noted.
 | getWatch (detail) | `GET /watch/{id}` | safe |
 | resume position | `GET /watch/{id}?file_id=` (`src/api/detailOperations.ts`) | safe |
 | person | `GET /catalog/people/{id}` (`src/api/detailOperations.ts`) | safe |
-| filmography | `POST /catalog/query` with `source: "person"`, `person_id`, `type`, `sort: "year"`, `order: "desc"`, `limit: 24` and optional `cursor` (`src/ui/personFilmography.ts`) | safe |
+| filmography | `queryCatalogItems`: `POST /catalog/query?image_size=small`, body from `personQuery` (`src/ui/personFilmography.ts`) | safe |
 | similar | `GET /recommendations/similar/{id}?limit=24&image_size=small` (`src/api/detailOperations.ts`) | safe |
 | library sections | `GET /library/{id}/sections?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
 | section items | `GET /library/{id}/sections/{sectionId}/items?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
@@ -258,6 +258,7 @@ Notes:
 - `limit` is bounded client-side (1 to 200 for collection items, 1 to 100 for `catalog/query`), and out-of-range values throw `RangeError` before any request.
 - The two POST queries are marked `safe` in code ("natural_idempotent"), so the transport retry applies to them.
 - `queryCatalogItems` also serves the watchlist, favorites and history lists (`src/ui/personalLists.ts`).
+- Person works use that same POST through `personQuery`: `source: "person"`, `person_id`, `type` (`video`, `movie` or `series`), `sort: "year"`, `order: "desc"`, `limit: 24` and an optional opaque `cursor`. `detailOperations.filmography` (`GET /catalog?source=person...`) is not called.
 - The detail view reads the same `GET /catalog/items/{id}` for Home marquee fields (`marqueeDetail`).
 - Library search capabilities are probed with `GET /catalog/search/capabilities` (`src/ui/libraryDiscovery.ts`). Text Search sends the episode-inclusive request only after an allowed, available `video_with_episodes_scope: true` answer (`src/contracts/v2/README.md`, Text Search).
 

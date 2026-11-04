@@ -118,14 +118,18 @@ export function sampleThumbhash(encoded: string | undefined): Tints | undefined 
     return decoded === undefined ? undefined : samplePalette(rgbaPixels(decoded.rgba));
 }
 
-/** TVBackdropTintWash over black: base from the top-right, accent glow under the rows, shadow pooled bottom-left. */
-export function washBackground(tints: Tints | undefined): string {
-    if (tints === undefined) return "#000";
+/** Details keep TVDetailPageSurface's uniform base; root pages carry the diagonal tint beneath the same accent and shadow. */
+export function washBackground(tints: Tints | undefined, detail = false): string {
+    if (tints === undefined) {
+        if (!detail) return "#000";
+        const fallback = { r: 0.04, g: 0.12, b: 0.14 };
+        tints = { base: fallback, accent: fallback, shadow: fallback };
+    }
     // SwiftUI's topTrailing-to-bottomLeading axis is the 1920 x 1080 diagonal: 180deg + atan(1920 / 1080).
     return [
         `radial-gradient(806.4px 453.6px at 0% 100%, ${cssColor(tints.shadow, 0.55)}, ${cssColor(tints.shadow, 0)})`,
         `radial-gradient(576px 324px at 70% 100%, ${cssColor(tints.accent, 0.3)}, ${cssColor(tints.accent, 0)})`,
-        `linear-gradient(240.64deg, ${cssColor(tints.base)} 0%, ${cssColor(tints.base, 0.5)} 45%, ${cssColor(tints.base, 0.18)} 100%)`,
+        detail ? `linear-gradient(${cssColor(tints.base, 0.42)}, ${cssColor(tints.base, 0.42)})` : `linear-gradient(240.64deg, ${cssColor(tints.base)} 0%, ${cssColor(tints.base, 0.5)} 45%, ${cssColor(tints.base, 0.18)} 100%)`,
         "#000",
     ].join(", ");
 }
@@ -134,10 +138,10 @@ export function washBackground(tints: Tints | undefined): string {
  * The backdrop for one marquee selection: the tint wash, the masked art block and the top scrim. Tints
  * already sampled for the URL apply at once; otherwise they follow the image's load.
  */
-export function heroBackdrop(url: string, thumbhash: string | undefined, cache: Map<string, Tints>): HTMLElement {
+export function heroBackdrop(url: string, thumbhash: string | undefined, cache: Map<string, Tints>, detail = false): HTMLElement {
     const root = el("div", "skyline-hero-backdrop");
     const wash = el("div", "skyline-tint-wash");
-    const paint = (tints: Tints | undefined): void => { wash.style.background = washBackground(tints); };
+    const paint = (tints: Tints | undefined): void => { wash.style.background = washBackground(tints, detail); };
     paint(cache.get(url) ?? sampleThumbhash(thumbhash));
     const frame = el("div", "skyline-art-frame");
     const image = el("img", "skyline-backdrop");
@@ -162,6 +166,7 @@ export function heroBackdrop(url: string, thumbhash: string | undefined, cache: 
     image.addEventListener("error", () => { image.remove(); frame.remove(); root.querySelector(".skyline-top-scrim")?.remove(); });
     image.src = url;
     frame.appendChild(image);
-    root.append(wash, frame, el("div", "skyline-top-scrim"));
+    root.append(wash, frame);
+    if (!detail) root.appendChild(el("div", "skyline-top-scrim"));
     return root;
 }

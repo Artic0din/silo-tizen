@@ -42,6 +42,8 @@ export interface Zone {
     /** row: Left/Right move. column: Up/Down move. grid: both, `columns` items per row. */
     readonly layout: "row" | "column" | "grid";
     readonly columns?: number;
+    /** Apple's focus engine: between two such zones, Up and Down land on the item nearest the focused one's centre. */
+    readonly spatial?: boolean | "aligned";
     readonly items: readonly FocusItem[];
 }
 
@@ -64,6 +66,8 @@ export interface View {
     readonly focus: FocusTarget | undefined;
     /** Undefined: Back is not handled here and reaches the app's own handler (root exit). */
     readonly back: (() => boolean | void) | undefined;
+    /** Down from the top bar lands on `focus` rather than the item last focused in that zone. */
+    readonly barEntersDefault?: boolean;
 }
 
 export class FocusHost {
@@ -109,6 +113,11 @@ export class FocusHost {
             }
         }
         this.focusFirst([this.view?.focus]);
+    }
+
+    /** The next show of this view starts fresh: no remembered focus or scroll. */
+    forgetVisit(name: string): void {
+        this.visits.delete(name);
     }
 
     /** Save before hiding library chrome can resize and clamp the viewport. */
@@ -196,7 +205,7 @@ export class FocusHost {
             this.scroll.stop();
             this.applyVisit(visit);
             const element = this.locate(document.activeElement)?.item.element;
-            if ((this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse")) && element !== undefined) {
+            if ((this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub")) && element !== undefined) {
                 const viewport = element.closest<HTMLElement>(".browse-panel-list, .skyline-content") ?? this.container;
                 const card = element.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
                 if (card.top < bounds.top + 12 || card.bottom > bounds.bottom - 32) this.scroll.reveal(element, this.container);
@@ -364,13 +373,22 @@ export class FocusHost {
         this.focusItem(zone, zone?.items[0]);
     }
 
-    private enterZone(zoneIndex: number, step: -1 | 1): boolean {
+    private enterZone(zoneIndex: number, step: -1 | 1, from: FocusItem): boolean {
         const zones = this.view?.zones ?? [];
         for (let next = zoneIndex + step; next >= 0 && next < zones.length; next += step) {
             const zone = zones[next];
             if (zone !== undefined && zone.items.length > 0) {
                 const remembered = this.memory.get(zone.id);
-                this.focusItem(zone, zone.items.find(item => item.key === zone.entry) ?? zone.items.find((item) => item.key === remembered) ?? zone.items[0]);
+                const spatial = zone.spatial && zones[zoneIndex]?.spatial;
+                const candidates = zone.spatial === "aligned" ? zone.items.filter(item => {
+                    const origin = from.element.getBoundingClientRect();
+                    const target = item.element.getBoundingClientRect();
+                    const x = origin.left + origin.width / 2;
+                    return x >= target.left && x <= target.right;
+                }) : zone.items;
+                if (spatial && candidates.length === 0) return true;
+                const nearest = spatial ? nearestItem(candidates, from.element) : undefined;
+                this.focusItem(zone, zone.items.find(item => item.key === zone.entry) ?? nearest ?? zone.items.find((item) => item.key === remembered) ?? zone.items[0]);
                 return true;
             }
         }
@@ -476,13 +494,21 @@ export class FocusHost {
         const target = moveWithin(zone, zone.items.length, index, key);
         if (target !== undefined) {
             this.focusItem(zone, zone.items[target]);
+        } else if (key === "down" && zone.id === "nav" && view.barEntersDefault === true) {
+            this.focusFirst([view.focus]);
         } else {
             const destination = zone[key];
             const next = view.zones.find(candidate => candidate.id === destination && candidate.items.length > 0);
             if (next !== undefined) this.focusItem(next, next.items.find(item => item.key === this.memory.get(next.id)) ?? next.items[0]);
-            else if (key === "up" || key === "down") this.enterZone(zoneIndex, key === "up" ? -1 : 1);
+            else if (key === "up" || key === "down") this.enterZone(zoneIndex, key === "up" ? -1 : 1, found.item);
         }
     };
+}
+
+function nearestItem(items: readonly FocusItem[], from: HTMLElement): FocusItem | undefined {
+    const centre = (element: HTMLElement): number => { const rect = element.getBoundingClientRect(); return rect.left + rect.width / 2; };
+    const x = centre(from);
+    return items.reduce<FocusItem | undefined>((best, item) => best === undefined || Math.abs(centre(item.element) - x) < Math.abs(centre(best.element) - x) ? item : best, undefined);
 }
 
 /** The index the key moves to inside the zone, or undefined at its edge. */

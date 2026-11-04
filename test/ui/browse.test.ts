@@ -608,7 +608,8 @@ browseTest("person, related and personal reads recover with explicit retries", a
     const person = tv.fake.hold("/catalog/people/7", true);
     await tv.page.locator('[data-focus="person:7"]').focus();
     await press(tv, "Enter");
-    await showing(tv, "person:loading");
+    await showing(tv, "person:7");
+    await shows(tv, "Loading metadata");
     await tv.page.evaluate(() => window.browseHarness.clearProfile());
     person.release();
     await tv.jump(0);

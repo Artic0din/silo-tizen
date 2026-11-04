@@ -37,6 +37,7 @@ async function person(tv: Tv, body: Record<string, unknown>): Promise<void> {
     await tv.page.locator('[data-focus="person:7"]').first().focus();
     await tv.page.keyboard.press("Enter");
     await tv.page.locator('.browse[data-view="person:7"] .person-portrait').waitFor();
+    await tv.eventually(async () => await tv.page.getByText("Loading metadata", { exact: true }).count() === 0, "person metadata ready");
 }
 
 async function shot(tv: Tv, name: string): Promise<void> {

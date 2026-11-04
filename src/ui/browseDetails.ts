@@ -367,15 +367,20 @@ function titleCards(cards: readonly Card[], context: ViewContext): FocusItem[] {
     return items;
 }
 
-export function personHero(person: Person, baseUrl: string): HTMLElement {
+export function personHero(person: Person, baseUrl: string, metadataLoading = false): HTMLElement {
     const hero = el("div", "browse-detail details-person-hero");
     hero.appendChild(personPortrait(person, baseUrl));
     const info = el("div", "browse-detail-info");
     info.appendChild(heading(person.name));
     const facts = personMetadataBadges(person, new Date());
-    if (facts.length > 0) {
+    if (facts.length > 0 || metadataLoading) {
         const row = el("div", "person-facts");
         for (const fact of facts) row.appendChild(el("span", "person-fact", fact));
+        if (metadataLoading) {
+            const loading = el("span", "person-fact person-metadata-loading", "Loading metadata");
+            loading.setAttribute("role", "status");
+            row.appendChild(loading);
+        }
         info.appendChild(row);
     }
     if (person.bio) info.appendChild(el("p", "browse-text browse-overview", person.bio));

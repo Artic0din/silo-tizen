@@ -11,7 +11,7 @@ export const detailOperations = {
         decode: value => decodeResumePosition(value, id, fileId),
     }),
     person: (id: string): RequestSpec<ReturnType<typeof decodePerson>> => ({ method: "GET", path: `/catalog/people/${encodeURIComponent(id)}`, retry: "safe", decode: decodePerson }),
-    // The preview and full query start independently; GET and POST cursors have different scopes.
+    // Unused by the app. Person works call personQuery() through queryCatalogItems.
     filmography: (id: string): RequestSpec<ReturnType<typeof decodeCatalogPage>> => ({ method: "GET", path: `/catalog?source=person&person_id=${encodeURIComponent(id)}&type=video&sort=-year&limit=24&image_size=small`, retry: "safe", decode: decodeCatalogPage }),
     similar: (id: string): RequestSpec<ReturnType<typeof decodeCatalogCollection>> => ({ method: "GET", path: `/recommendations/similar/${encodeURIComponent(id)}?limit=24&image_size=small`, retry: "safe", decode: decodeCatalogCollection }),
     personalCapability: (): RequestSpec<boolean> => ({ method: "GET", path: "/capabilities/personal-lists", retry: "safe", decode: decodePersonalCapability }),

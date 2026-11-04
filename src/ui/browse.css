@@ -147,6 +147,12 @@
     display: none;
 }
 
+.search-state { text-align: center; margin: 80px auto; }
+.search-state-icon { display: block; width: 44px; height: 44px; margin: 0 auto 16px; color: var(--silo-secondary); }
+.search-state-title { margin: 0 0 12px; font-size: 28px; line-height: 34px; font-weight: 600; }
+.search-state-description { margin: 0; font-size: 22px; line-height: 27px; color: var(--silo-secondary); }
+@keyframes search-spin { to { transform: rotate(360deg); } }
+
 .browse *,
 .browse *::before,
 .browse *::after,
@@ -183,6 +189,176 @@
 
 .requests-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; margin-bottom: 40px; }
 .requests-grid .browse-button { margin: 0; border-radius: 16px; white-space: normal; min-height: 110px; text-align: left; }
+.requests-grid .requests-card { margin: 0; }
+.requests-card .browse-card-title { white-space: normal; }
+.requests-detail-art { float: right; margin: 0 0 24px 32px; }
+.browse.requests-hub { padding: 596px 0 0; overflow: hidden; }
+/* Apple's rowBand: the bottom padding lets the last row reach the band top. */
+.browse.requests-hub .skyline-content { top: 596px; left: 0; width: 1920px; height: 484px; overflow-y: auto; padding: 0 0 464px; }
+.requests-row + .requests-row { margin-top: 10px; }
+.requests-scene { font-family: var(--silo-font); font-weight: 400; }
+.requests-scene * { font-family: inherit; font-weight: inherit; }
+.requests-scene .requests-heading { margin: 0 88px; font-size: 30px; line-height: 36px; font-weight: 600; }
+.requests-scene .requests-discover { margin: 0 88px 4px; text-transform: uppercase; letter-spacing: 1.6px; font-size: 17px; line-height: 21px; font-weight: 700; color: rgba(237,237,237,.55); }
+.requests-scene .requests-rail { display: flex; gap: 40px; height: 403px; margin: 4px 0 0; padding: 26px 88px; overflow-x: auto; }
+.requests-scene .requests-rail .requests-card { flex: 0 0 176px; width: 176px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.requests-scene .requests-rail .requests-card:focus { transform: none; box-shadow: none; }
+.requests-scene .requests-rail .browse-art { width: 176px; height: 264px; border-radius: 16px; transform-origin: center; }
+.requests-scene .requests-rail .requests-card:focus .browse-art { transform: scale(1.1517); box-shadow: 0 12px 28px rgba(0,0,0,.5); }
+.requests-scene .requests-detail-hero ~ .requests-rail .requests-card:focus .browse-art { transform: scale(1.141); }
+/* The system .card focus effect at rest, measured against Apple's pair 02a: an upper-left sheen and a light edge, brightest along the top. tvOS moves its highlight with the remote; CSS cannot, see docs/features/requests.md. */
+.requests-scene .requests-rail .requests-card:focus .browse-art::after { content: ""; position: absolute; inset: 0; z-index: 1; border-radius: inherit; pointer-events: none; background: radial-gradient(ellipse 145% 70% at 25% 0, rgba(255,255,255,.1) 0%, rgba(255,255,255,.085) 25%, rgba(255,255,255,.03) 55%, rgba(255,255,255,0) 90%); box-shadow: inset 0 2px 2px rgba(255,255,255,.12), inset 0 0 3px rgba(255,255,255,.07), inset 0 -1px 2px rgba(255,255,255,.04); }
+.requests-scene .requests-rail .browse-card-title { display: block; margin: 22px 0 0; padding: 0; font-size: 27px; line-height: 34px; font-weight: 600; color: #ededed; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.requests-scene .requests-rail .browse-card-subtitle { display: block; margin: 4px 0 0; padding: 0; font-size: 22px; line-height: 27px; color: var(--silo-secondary); }
+.requests-scene .requests-rail .browse-card-title, .requests-scene .requests-rail .browse-card-subtitle { position: relative; z-index: 1; }
+/* Inter's calibrated tracking matches the native widths of Queued, Partly in library and Adding to library. */
+.requests-scene .requests-rail .browse-card-subtitle .requests-status-label { letter-spacing: -.6px; }
+.requests-preview { position: fixed; inset: 0; height: 596px; pointer-events: none; z-index: 0; }
+/* Apple TVRequestsPage.placeholder fills the 1920 x 1020 safe page behind the top bar. */
+.browse.requests-hub .skyline-content > .requests-state, .browse.requests-hub .skyline-content > .requests-loading, .requests-scene:not(.requests-hub) > .requests-failure { position: fixed; top: 0; left: 0; box-sizing: border-box; width: 1920px; height: 1020px; margin: 0; display: flex; flex-direction: column; outline: none; }
+.browse.requests-hub .skyline-content > .requests-state, .requests-scene:not(.requests-hub) > .requests-failure { align-items: center; justify-content: center; }
+.browse.requests-hub .skyline-content > .requests-loading { justify-content: space-between; padding: 188px 88px 34px; overflow: hidden; background: linear-gradient(242deg, rgb(15,17,20), rgb(9,10,13) 10%, rgb(4,4,6) 19%, rgb(1,1,2) 30%, #000 45%); }
+.requests-loading-marquee { display: flex; flex-direction: column; align-items: flex-start; gap: 20px; }
+.requests-loading-meta { display: flex; gap: 14px; }
+.requests-loading-copy { display: flex; flex-direction: column; gap: 13px; }
+.requests-loading-status { display: flex; align-items: center; gap: 14px; padding-top: 4px; }
+.requests-loading-spinner { display: block; width: 40px; height: 40px; color: #fff; animation: search-spin 1s steps(8) infinite; }
+.requests-loading-spinner svg { display: block; width: 40px; height: 40px; }
+.requests-scene .requests-loading-label { font-size: 20px; line-height: 24px; font-weight: 500; color: rgba(237,237,237,.72); }
+.requests-loading-rail { display: flex; flex-direction: column; gap: 20px; }
+.requests-loading-cards { display: flex; gap: 32px; }
+.requests-loading-card { display: flex; flex-direction: column; gap: 14px; }
+.requests-state .search-state-icon { display: flex; align-items: center; justify-content: center; }
+.requests-state .search-state-description { color: rgba(237,237,237,.6); }
+.requests-empty .search-state-icon { width: 51px; height: 45px; margin: 0 0 12px; color: rgba(237,237,237,.3); }
+.requests-empty .search-state-icon svg { flex: none; width: 51px; height: 37px; }
+.requests-scene .requests-empty .search-state-title { font-weight: 600; }
+.requests-failure .search-state-icon { width: 50px; height: 53px; margin: 0 0 48px; color: #b00020; }
+.requests-failure .search-state-icon svg { flex: none; width: 52px; height: 52px; }
+.requests-scene .requests-failure .search-state-title { margin: 0 0 48px; font-size: 36px; line-height: 43px; font-weight: 600; }
+.requests-failure .search-state-description { padding: 0 60px; font-size: 26px; line-height: 32px; }
+.requests-scene .requests-failure .browse-actions { display: flex; flex-direction: column; align-items: center; gap: 16px; margin: 64px 0 0; }
+.requests-scene .requests-failure .browse-button { box-sizing: border-box; width: 200px; height: 62px; margin: 0; padding: 0 18px; border: 0; border-radius: 31px; background: rgba(237,237,237,.72); color: #000; font-size: 28px; line-height: 34px; font-weight: 600; }
+.browse.requests-scene .requests-failure .browse-button:focus { background: #ededed; color: #000; transform: scale(1.055); box-shadow: inset 0 0 0 2px #fff, 0 0 0 2px #fff, 0 0 12px 8px rgba(255,255,255,.36), 0 8px 48px rgba(237,237,237,.48); }
+/* ErrorView's secondary recovery is a plain text button. */
+.requests-scene .requests-failure .browse-button + .browse-button { width: auto; height: auto; padding: 4px 24px; border-radius: 22px; background: transparent; color: rgba(237,237,237,.6); font-size: 26px; line-height: 32px; font-weight: 400; }
+.browse.requests-scene .requests-failure .browse-button + .browse-button:focus { background: #ededed; color: #000; }
+@media (prefers-reduced-motion: reduce) {
+    .requests-loading-spinner, .requests-action-spinner { animation: none; }
+    .browse.requests-scene .requests-failure .browse-button:focus { transform: none; }
+}
+.requests-hub .skyline-content > :not(.requests-preview) { position: relative; z-index: 1; }
+.requests-hero .skyline-hero-backdrop { position: fixed; inset: 0; z-index: -2; pointer-events: none; }
+.requests-hero .skyline-tint-wash { position: absolute; inset: 0; }
+.requests-hero .skyline-art-frame { position: absolute; left: 634px; top: 0; width: 1344px; height: 756px; mask-image: linear-gradient(to bottom, #000 0%, #000 38%, rgba(0,0,0,.88) 52%, rgba(0,0,0,.58) 68%, rgba(0,0,0,.24) 81%, transparent 90%); }
+.requests-hero .skyline-backdrop { position: absolute; width: 100%; height: 100%; object-fit: cover; mask-image: linear-gradient(to left, #000 0%, #000 32%, transparent 100%); }
+.requests-hero-copy { position: absolute; left: 88px; bottom: 60px; width: 780px; }
+/* marqueeContentWidth: a title may run 100 px past the 780 px synopsis. */
+.requests-hero-title { width: 880px; margin: 0 0 16px; color: #fff; font-size: 84px; line-height: 101px; font-weight: 800; letter-spacing: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.requests-metadata { margin: 0 0 15px; font-size: 20px; line-height: 24px; font-weight: 500; color: var(--silo-secondary); }
+.requests-synopsis { margin: 0 0 18px; font-size: 22px; line-height: 30px; font-weight: 400; color: var(--silo-secondary); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+/* lineSpacing(6) steps lines by 32 px while the block is 27 px taller per first line, 91 px for three and 59 px for two. */
+.requests-preview .requests-synopsis { margin: -2.5px 0; line-height: 32px; }
+.requests-preview .requests-metadata { display: flex; align-items: center; }
+.requests-preview .requests-tmdb { gap: 7px; }
+.requests-preview .requests-tmdb::before { content: "·"; width: 15px; margin-right: -7px; text-align: center; }
+.requests-preview .requests-tmdb img { width: 107px; height: 14px; }
+.requests-preview .requests-tmdb span { color: inherit; }
+.requests-progress { display: flex; gap: 22px; align-items: center; margin-top: 18px; font-size: 22px; line-height: 27px; }
+.requests-progress .requests-status-label { font-weight: 600; }
+.requests-track { width: 240px; display: flex; gap: 6px; }
+.requests-step { flex: 1; border-top: 6px solid rgba(255,255,255,.14); border-radius: 3px 3px 0 0; font-size: 18px; line-height: 22px; }
+.requests-step[data-state="complete"] { border-color: rgba(237,237,237,.82); }
+.requests-step[data-state="current"] { border-color: var(--request-tint); }
+[data-request-display] { --request-tint: rgba(237,237,237,.6); }
+[data-request-display="pending"] { --request-tint: #f59e0b; }
+[data-request-display="onTheWay"] { --request-tint: #38bdf8; }
+[data-request-display="inLibrary"] { --request-tint: #34d399; }
+[data-request-display="needsAttention"] { --request-tint: #fb7185; }
+.requests-status-label { display: inline-flex; align-items: baseline; gap: 10px; white-space: nowrap; }
+.requests-status-label::before { content: ""; flex: 0 0 10px; width: 10px; height: 10px; background: var(--request-tint); border-radius: 50%; }
+.requests-summary .requests-status-label { align-items: center; }
+.requests-summary .requests-status-label::before { flex-basis: 11px; width: 11px; height: 11px; }
+.requests-primary-action .requests-status-label { align-items: center; gap: 14px; }
+.requests-primary-action .requests-status-label::before { flex-basis: 14px; width: 14px; height: 14px; }
+.requests-status-badge { position: absolute; right: 14px; bottom: 14px; width: 36px; height: 36px; border-radius: 50%; background: var(--request-tint); box-shadow: 0 0 8px rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; }
+.requests-status-badge svg { width: 28px; height: 28px; fill: none; stroke: white; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+/* Apple's pageBottomPadding is 140; this rail box runs 26 px deeper than Apple's laid-out rail. */
+.browse[data-view="requests:media"], .browse[data-view="requests:request"] { padding: 0 0 114px; }
+/* TVDetailPageSurface keeps the tint behind the page; the artwork is 64% of the screen, flush right, and scrolls with the hero. */
+.requests-detail-hero .skyline-hero-backdrop { position: absolute; inset: 0; z-index: -1; }
+.requests-detail-hero .skyline-tint-wash { position: fixed; z-index: -1; }
+.requests-detail-hero .skyline-art-frame { left: 691.2px; width: 1228.8px; }
+.requests-detail-hero { position: relative; z-index: 0; height: 690px; }
+.requests-detail-hero[data-has-status="true"] { height: 810px; }
+/* Apple clips the hero at its height, so the copy column ends there. clip-path keeps focus from scrolling it and leaves the pill's focus growth and shadow free on the other sides. */
+.requests-detail-hero .requests-hero-copy { position: relative; top: 116px; bottom: auto; left: 100px; width: 1080px; height: calc(100% - 116px); clip-path: inset(0 -740px 0 -100px); }
+.requests-eyebrow { display: inline-block; border-radius: 30px; background: rgba(0,0,0,.55); box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); padding: 8px 16px; font-size: 18px; font-weight: 600; line-height: 22px; letter-spacing: 1.2px; }
+.requests-detail-title { margin: 16px 0 14px; text-transform: uppercase; color: white; }
+.requests-title-primary { display: block; font-size: 92px; line-height: 110px; font-weight: 900; letter-spacing: -3px; }
+.requests-title-secondary { display: block; margin-top: 4px; font-size: 40px; line-height: 48px; font-weight: 800; letter-spacing: 1.5px; }
+/* Inter's calibrated horizontal compression substitutes for Apple's licensed compressed title face. */
+.requests-title-primary, .requests-title-secondary { width: 147.0588%; transform: scaleX(.68); transform-origin: left; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.requests-detail-metadata { display: flex; align-items: center; gap: 14px; font-size: 24px; line-height: 29px; color: rgba(255,255,255,.9); margin: 0; white-space: nowrap; }
+.requests-detail-metadata > :not(:first-child)::before { content: "·"; margin-right: 14px; font-size: 22px; font-weight: 600; color: rgba(255,255,255,.45); }
+/* The rating row is itself a flex row, so its gap already counts toward Apple's 14 px after the divider. */
+.requests-detail-metadata > .requests-tmdb::before { margin-right: 6px; }
+.requests-detail-metadata > .requests-rating-chip + span::before { content: none; }
+.requests-rating-chip { outline: 1.5px solid rgba(255,255,255,.78); border-radius: 5px; padding: 4px 10px; font-size: 18px; line-height: 22px; font-weight: 700; }
+.requests-tmdb { display: inline-flex; align-items: center; gap: 8px; }
+.requests-tmdb img { width: 128px; height: 17px; object-fit: contain; }
+.requests-tmdb span { font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
+/* lineSpacing(4) steps lines by 36 px inside the same 102 px block. */
+.requests-detail-hero .requests-synopsis { margin: 11px 0 -3px; font-size: 26px; line-height: 36px; color: rgba(255,255,255,.92); }
+.requests-credit { margin: 14px 0 0; font-size: 23px; line-height: 28px; color: rgba(255,255,255,.7); }
+.requests-detail-progress { margin-top: 28px; }
+.requests-summary { display: flex; align-items: start; gap: 8px; }
+.requests-summary-field { width: 300px; }
+.requests-summary-label { font-size: 13px; line-height: 16px; font-weight: 700; letter-spacing: 1.1px; color: rgba(255,255,255,.42); margin-bottom: 6px; }
+.requests-summary-value, .requests-summary .requests-status-label { font-size: 22px; line-height: 27px; font-weight: 600; color: rgba(255,255,255,.9); }
+.requests-detail-progress .requests-track { width: 840px; margin-top: 18px; }
+.requests-track-labels .requests-step { padding-top: 10px; font-weight: 600; color: rgba(237,237,237,.45); }
+/* Apple's bars have gaps but its label row has none, so each label sits 1.5 px further back per step than its bar. */
+.requests-track-labels .requests-step:nth-child(2) { text-indent: -1.5px; }
+.requests-track-labels .requests-step:nth-child(3) { text-indent: -3px; }
+.requests-track-labels .requests-step:nth-child(4) { text-indent: -4.5px; }
+.requests-track-labels .requests-step[data-state="complete"] { color: #ededed; }
+.requests-track-labels .requests-step[data-state="current"] { color: var(--request-tint); }
+/* Apple's action row follows the copy: 14 spacing + hidden 44 playback summary + 18 action spacing + 2 action inset. */
+/* Apple's tvActions: HStack(spacing: 18). */
+.requests-detail-hero .requests-detail-actions { display: flex; align-items: center; gap: 18px; margin: 78px 0 0; }
+.requests-detail-hero .requests-detail-actions .browse-button { flex: none; margin: 0; }
+.requests-detail-actions .browse-button { min-width: 360px; height: 74px; padding: 18px 40px; border-radius: 50px; font-size: 28px; line-height: 34px; }
+/* TVPillButtonStyle at rest: secondary black .52, interactive primary white .10. */
+.requests-detail-actions .browse-button { background: rgba(0,0,0,.52); }
+.requests-detail-actions .requests-primary-action:not(:focus) { color: #fff; }
+.requests-detail-actions .requests-primary-action { display: inline-flex; align-items: center; justify-content: center; gap: 14px; min-width: 0; height: 76px; padding: 0 80px; border: 0; font-weight: 600; }
+.browse .requests-detail-actions .requests-primary-action:focus { transform: scale(1.025); box-shadow: 0 4px 20px rgba(0,0,0,.24); }
+.requests-action-spinner { flex: 0 0 32px; width: 32px; height: 32px; color: var(--silo-secondary); animation: search-spin 1s steps(8) infinite; }
+.requests-action-spinner svg { display: block; width: 32px; height: 32px; }
+.requests-scene .requests-detail-actions .requests-action-message { flex: 0 1 auto; min-width: 0; margin: 0; white-space: normal; font-size: 22px; line-height: 27px; color: var(--silo-secondary); }
+.requests-action-icon { flex: 0 0 24px; width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 3.5; stroke-linecap: round; }
+/* Apple's 60 and 110 px side padding around "Request" gives 270 and 370 px; the minimums restore Inter's narrower word. */
+.requests-detail-actions .requests-interactive-action { min-width: 270px; padding: 0 60px; background: rgba(255,255,255,.10); }
+.requests-detail-actions .requests-interactive-action:focus { min-width: 370px; padding: 0 110px; }
+.requests-detail-hero ~ .requests-heading { margin: 0 100px; }
+/* --reveal-end: Apple's focused poster stops 80 px inside the 1820 rail edge. Native reveal reaches the page's end, 140 px below the captions; the over-long margin clamps there, with or without a caption line. */
+.requests-detail-hero ~ .requests-rail { --reveal-end: 180px; gap: 32px; height: calc(330px * var(--poster-scale, 1) + 137px); margin-top: -4px; padding: 24px 100px; align-items: flex-start; }
+.requests-detail-hero ~ .requests-rail .requests-card { scroll-margin-bottom: 1080px; }
+.requests-detail-hero ~ .requests-rail .requests-card, .requests-detail-hero ~ .requests-rail .browse-art { width: calc(220px * var(--poster-scale, 1)); }
+.requests-detail-hero ~ .requests-rail .requests-card { flex-basis: calc(220px * var(--poster-scale, 1)); }
+.requests-detail-hero ~ .requests-rail .browse-art { height: calc(330px * var(--poster-scale, 1)); }
+.requests-detail-hero ~ .requests-heading, .requests-detail-hero ~ .requests-rail { position: relative; z-index: 1; }
+.requests-card-culled:not(:focus) { opacity: 0; }
+.requests-scene .browse-actions { margin-left: 88px; }
+.requests-scene:not(.requests-hub) .browse-actions { margin-left: 0; }
+/* A detail's recovery controls and notices sit on the page inset, above the fixed page tint. */
+.browse[data-view="requests:media"] > .browse-actions, .browse[data-view="requests:request"] > .browse-actions,
+.browse[data-view="requests:media"] > .browse-text, .browse[data-view="requests:request"] > .browse-text { position: relative; z-index: 1; margin-left: 100px; }
+@media (prefers-reduced-motion: reduce) {
+    .requests-rail .browse-art { transition: none; }
+    .requests-scene .requests-rail .requests-card:focus .browse-art { transform: none; box-shadow: 0 0 0 4px rgba(255,255,255,.9); }
+}
 
 .browse-button {
     display: inline-block;
@@ -400,17 +576,20 @@
 .skyline-wordmark { display: block; width: 96px; height: auto; }
 .skyline-tabs { position: absolute; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; max-width: calc(100% - 300px); }
 .skyline-roots { display: flex; gap: 8px; min-width: 0; overflow-x: hidden; }
-.skyline-roots .browse-button { flex-shrink: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Inter sets these labels about 2% wider than SF; the tracking keeps each tab on Apple's anchor. */
+.skyline-roots .browse-button { flex-shrink: 0; max-width: 260px; letter-spacing: -.28px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skyline-search-balance { width: 58px; height: 58px; flex-shrink: 0; }
 .browse-nav .skyline-tabs .browse-button { margin: 0; }
 .browse-nav .skyline-tabs .skyline-search { flex-shrink: 0; margin: 0; }
 .skyline-tools { margin-left: auto; display: flex; align-items: center; }
-.browse-nav .browse-button { height: 56px; margin: 0 8px 0 0; padding: 0 29px; border: 1px solid transparent; border-radius: 40px; background: transparent; color: rgba(237,237,237,.62); font-size: 26px; font-weight: 600; }
+/* Apple's 29 px tab inset includes the capsule edge. */
+.browse-nav .browse-button { height: 56px; margin: 0 8px 0 0; padding: 0 28px; border: 1px solid transparent; border-radius: 40px; background: transparent; color: rgba(237,237,237,.62); font-size: 26px; font-weight: 600; }
 .browse-nav .browse-button[aria-current="page"], .browse-nav .browse-button[aria-expanded="true"] { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.1); color: #ededed; }
 .browse .browse-button:focus { background: #fff; color: #000; box-shadow: none; border-color: #fff; }
 .browse-nav .skyline-search, .browse-nav .skyline-profile { position: relative; width: 58px; height: 58px; padding: 0; margin-left: 22px; margin-right: 0; }
-.skyline-search::before { content: ""; position: absolute; width: 18px; height: 18px; border: 2px solid currentColor; border-radius: 50%; top: 12px; left: 12px; }
-.skyline-search::after { content: ""; position: absolute; width: 12px; height: 2px; background: currentColor; transform: rotate(45deg); left: 29px; top: 33px; }
+/* Measured from Apple's 27 pt semibold magnifyingglass: 22 px ring, 3 px stroke, 4 px rounded handle. */
+.skyline-search::before { content: ""; position: absolute; box-sizing: border-box; width: 22px; height: 22px; border: 3px solid currentColor; border-radius: 50%; top: 15px; left: 16px; }
+.skyline-search::after { content: ""; position: absolute; width: 11.5px; height: 4px; border-radius: 2px; background: currentColor; transform: rotate(45deg); left: 31.75px; top: 34.5px; }
 .browse-nav .skyline-profile { border-radius: 50%; font-weight: 700; background: var(--silo-elevated); }
 .skyline-profile-name { margin: 8px 18px 16px; font-size: 23px; overflow-wrap: break-word; }
 .navigation-avatar { position: relative; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; overflow: hidden; }
@@ -515,7 +694,7 @@
 .skyline-home .skyline-tint-wash { position: absolute; inset: 0; background: #000; }
 .skyline-home .skyline-art-frame { position: absolute; top: 0; left: 691.2px; width: 1228.8px; height: 756px; overflow: hidden; mask-image: linear-gradient(to bottom, #000 0%, #000 38%, rgba(0,0,0,.88) 52%, rgba(0,0,0,.58) 68%, rgba(0,0,0,.24) 81%, transparent 90%); }
 .skyline-home .skyline-backdrop { position: static; display: block; width: 100%; height: 100%; object-fit: cover; mask-image: linear-gradient(to left, #000 0%, #000 32%, transparent 100%); }
-.skyline-home .skyline-top-scrim { position: absolute; top: 0; left: 0; width: 100%; height: 190px; background: linear-gradient(rgba(0,0,0,.5), transparent); }
+.skyline-home .skyline-top-scrim, .requests-preview .skyline-top-scrim { position: absolute; top: 0; left: 0; width: 100%; height: 190px; background: linear-gradient(rgba(0,0,0,.5), transparent); }
 .skyline-grid .skyline-content { top: 228px; height: 852px; }
 .skyline-grid .browse-grid { width: 1680px; }
 .browse-card, .browse-episode { color: #ededed; }
@@ -731,18 +910,22 @@
 /* Shuffle stays focusable while it starts (a disabled button loses focus); it dims to 60%. */
 .browse .browse-controls .browse-control-starting { opacity: .6; }
 
-.browse[data-view^="person:"] { padding: 48px 80px 72px; }
+/* tvOS adds its 80/60 safe area to the Swift page padding; measured in the signed comparison. */
+.browse[data-view^="person:"] { padding: 108px 160px 132px; }
 .browse[data-view^="person:"] .details-person-hero { margin: 0 0 48px; }
-.person-filmography-heading { display: flex; align-items: baseline; gap: 20px; margin-bottom: 20px; }
-.person-filmography-heading .browse-section-title { margin: 0; font-size: 36px; font-weight: 600; }
-.person-title-count { color: var(--silo-secondary); font-size: 22px; }
-.browse[data-view^="person:"] .person-filmography-filters { display: flex; gap: 8px; padding: 8px 0; margin: 0 0 28px; }
-.person-filmography-filters .browse-button { margin: 0; padding: 10px 22px; font-size: 22px; font-weight: 400; background: rgba(21,23,28,.55); color: var(--silo-secondary); border-color: rgba(255,255,255,.08); transition: transform 120ms ease-out; }
-.person-filmography-filters .browse-button[aria-pressed="true"] { background: #0e0f12; color: var(--silo-text); border-color: rgba(255,255,255,.16); }
-.person-filmography-filters .browse-button:focus { outline: none; background: rgba(14,15,18,.8); color: var(--silo-text); border-color: rgba(237,237,237,.85); box-shadow: inset 0 0 0 1px rgba(237,237,237,.85); transform: scale(1.06); }
-.person-filmography-filters .browse-button[aria-pressed="true"]:focus { background: #0e0f12; }
-.browse[data-view^="person:"] .browse-grid { margin-top: 0; grid-template-columns: repeat(var(--grid-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; }
-.browse[data-view^="person:"] .person-facts { display: flex; gap: 12px; margin: 0 0 22px; }
+.browse[data-view^="person:"] .browse-title { margin-bottom: 0; }
+.browse[data-view^="person:"] .person-facts { display: flex; gap: 12px; margin: 0; }
 .browse[data-view^="person:"] .person-fact { flex-shrink: 0; margin: 0; }
-.browse[data-view^="person:"] .browse-overview { margin-bottom: 0; }
-@media (prefers-reduced-motion: reduce) { .person-filmography-filters .browse-button { transition: none; } }
+.browse[data-view^="person:"] .browse-overview { margin: 0; color: rgba(237, 237, 237, 0.6); font-size: 26px; font-weight: 400; }
+.browse[data-view^="person:"] .browse-detail-info > * + * { margin-top: 22px; }
+.person-filmography-heading { display: flex; align-items: baseline; gap: 60px; margin: 0 0 20px; }
+.person-filmography-heading .browse-section-title { margin: 0; font-size: 36px; font-weight: 600; }
+.person-title-count { color: rgba(237, 237, 237, 0.6); font-size: 22px; font-weight: 400; }
+.browse[data-view^="person:"] .person-filmography-filters { display: flex; gap: 8px; padding: 8px 0; margin: 0 0 28px; }
+.browse[data-view^="person:"] .person-filmography-filters .browse-button { margin: 0; padding: 10px 22px; border-width: 1px; border-radius: 999px; font-size: 22px; font-weight: 400; background: rgba(21, 23, 28, 0.55); color: rgba(237, 237, 237, 0.6); border-color: rgba(255, 255, 255, 0.08); transition: transform var(--silo-fast) ease-out; }
+.browse[data-view^="person:"] .person-filmography-filters .browse-button[aria-pressed="true"] { background: #0e0f12; color: var(--silo-text); border-color: rgba(255, 255, 255, 0.16); }
+.browse[data-view^="person:"] .person-filmography-filters .browse-button:focus { outline: none; background: rgba(14, 15, 18, 0.8); color: var(--silo-text); border-color: rgba(237, 237, 237, 0.85); box-shadow: inset 0 0 0 1px rgba(237, 237, 237, 0.85); transform: scale(1.06); }
+.browse[data-view^="person:"] .person-filmography-filters .browse-button[aria-pressed="true"]:focus { background: #0e0f12; }
+.browse[data-view^="person:"] .browse-grid { width: auto; margin: 0; padding: 0; grid-template-columns: repeat(var(--grid-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; }
+/* The focus viewport also excludes tvOS's 60px vertical safe area. */
+.browse[data-view^="person:"] .browse-grid .browse-card { scroll-margin-top: 72px; scroll-margin-bottom: 92px; }

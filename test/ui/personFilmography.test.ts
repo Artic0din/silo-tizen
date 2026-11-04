@@ -3,6 +3,8 @@ import { mkdir } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
+import { FakeSettings } from "../native/support/fakeSettings.ts";
+import type { SettingsKey } from "../../src/contracts/v2/settings.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
@@ -11,7 +13,7 @@ before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
 const BACK = 10009;
 const grid = (tv: Tv) => tv.page.locator(".browse-grid .browse-card");
-const queries = (tv: Tv) => tv.fake.requests.filter(request => request.path.startsWith("/catalog/query") && request.body?.source === "person");
+const queries = (tv: Tv) => tv.fake.requests.filter(request => request.path.startsWith("/catalog/query") && request.body?.source === "person" && request.body?.limit !== 1);
 const lastQuery = (tv: Tv) => queries(tv)[queries(tv).length - 1];
 const metadataReads = (tv: Tv) => tv.fake.requests.filter(request => request.path === "/catalog/people/7").length;
 
@@ -26,8 +28,9 @@ function population(): FakeDetails {
     return catalog;
 }
 
-async function start(tv: Tv, catalog: FakeDetails): Promise<void> {
+async function start(tv: Tv, catalog: FakeDetails, statusOverlays = false): Promise<void> {
     tv.fake.catalog = catalog;
+    if (statusOverlays) new FakeSettings(tv.fake).profile().set("ui.card_overlays" as SettingsKey, { version: 2, items: { show_status: { enabled: true, position: "top-right" } } });
     await tv.page.evaluate(() => window.browseHarness.connect());
     await tv.eventually(async () => tv.fake.devices.size > 0, "device code");
     tv.fake.approve([...tv.fake.devices.keys()][0] ?? "");
@@ -97,16 +100,32 @@ journey("Person has count, filters and page two without extra ready controls", a
 
 journey("Person uses the Apple source geometry and remote zones", async tv => {
     const style = async (selector: string, property: string): Promise<string> => tv.page.locator(selector).first().evaluate((node, key) => getComputedStyle(node).getPropertyValue(key), property);
-    assert.equal(await style(".browse", "padding"), "48px 80px 72px");
+    assert.equal(await style(".browse", "padding"), "108px 160px 132px");
     assert.equal(await style(".details-person-hero", "margin-bottom"), "48px");
+    assert.equal(await style(".details-person-hero .browse-title", "margin-bottom"), "0px");
+    assert.equal(await style(".person-facts", "margin-top"), "22px");
+    assert.equal(await style(".person-facts", "column-gap"), "12px");
+    assert.equal(await style(".browse-overview", "margin-top"), "22px");
     assert.equal(await style(".person-title-count", "font-size"), "22px");
+    assert.equal(await style(".person-title-count", "color"), "rgba(237, 237, 237, 0.6)");
     assert.equal(await style(".person-filmography-heading h2", "font-size"), "36px");
+    assert.equal(await style(".person-filmography-heading h2", "font-weight"), "600");
     assert.equal(await style(".person-filmography-heading", "margin-bottom"), "20px");
+    assert.equal(await style(".person-filmography-heading", "column-gap"), "60px");
     assert.equal(await style(".person-filmography-filters", "padding-top"), "8px");
+    assert.equal(await style(".person-filmography-filters", "column-gap"), "8px");
     assert.equal(await style(".person-filmography-filters", "margin-bottom"), "28px");
     assert.equal(await style('[data-focus="filter:video"]', "font-size"), "22px");
+    assert.equal(await style('[data-focus="filter:video"]', "font-weight"), "400");
+    assert.equal(await style('[data-focus="filter:video"]', "padding"), "10px 22px");
+    assert.equal(await style('[data-focus="filter:video"]', "border-top-width"), "1px");
+    assert.equal(await style(".browse-grid", "width"), "1600px");
+    assert.equal(await style(".browse-overview", "font-weight"), "400");
+    assert.equal(await style(".browse-grid", "padding-left"), "0px");
+    assert.equal(await style(".browse-grid", "column-gap"), "40px");
     assert.equal(await style(".browse-grid", "row-gap"), "60px");
     assert.equal(await style(".browse-grid .browse-art", "width"), "260px");
+    assert.equal(await style(".browse-grid .browse-art", "height"), "390px");
     await tv.page.locator('[data-focus="filter:video"]').focus();
     const count = queries(tv).length;
     for (const key of ["ArrowLeft", "ArrowUp"]) {
@@ -118,12 +137,18 @@ journey("Person uses the Apple source geometry and remote zones", async tv => {
     await tv.page.keyboard.press("ArrowDown");
     const first = await grid(tv).first().getAttribute("data-focus");
     assert.equal(await tv.focused(), first);
+    await tv.jump(300);
+    assert.equal(await tv.page.locator(".browse").evaluate(node => node.scrollTop), 237, "grid reveal includes the tvOS bottom safe area");
     await tv.page.keyboard.press("ArrowLeft");
     assert.equal(await tv.focused(), first);
     await tv.page.keyboard.press("ArrowRight");
     assert.equal(await tv.focused(), await grid(tv).nth(1).getAttribute("data-focus"));
     await tv.page.keyboard.press("ArrowUp");
-    assert.equal(await tv.focused(), "filter:movie");
+    assert.equal(await tv.focused(), await grid(tv).nth(1).getAttribute("data-focus"), "no chip above this card");
+    await grid(tv).first().focus();
+    await tv.page.keyboard.press("ArrowUp");
+    await tv.jump(300);
+    assert.equal(await tv.page.locator(".browse").evaluate(node => node.scrollTop), 0);
     await grid(tv).last().focus();
     await tv.page.keyboard.press("ArrowRight");
     assert.equal(await tv.focused(), await grid(tv).last().getAttribute("data-focus"));
@@ -132,6 +157,82 @@ journey("Person uses the Apple source geometry and remote zones", async tv => {
     await tv.page.keyboard.press("ArrowUp");
     assert.equal(await tv.focused(), await grid(tv).last().getAttribute("data-focus"));
     assert.equal(queries(tv).length, count, "navigation never fetches");
+});
+
+journey("reopening Person starts on All while Details Back preserves its visit", async tv => {
+    await tv.page.locator('[data-focus="filter:series"]').click();
+    await tv.eventually(async () => await grid(tv).count() === 3, "Series");
+    await grid(tv).first().click();
+    await tv.page.locator(".details-hero").waitFor();
+    await tv.remote(BACK);
+    assert.equal(await tv.page.locator('[data-focus="filter:series"]').getAttribute("aria-pressed"), "true");
+    await tv.page.locator('[data-focus="filter:series"]').focus();
+    await tv.remote(BACK);
+    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.eventually(async () => await grid(tv).count() === 24, "reopened All");
+    assert.equal(await tv.focused(), "filter:video");
+    assert.equal(await tv.page.locator('[data-focus="filter:video"]').getAttribute("aria-pressed"), "true");
+});
+
+journey("failed availability probes keep filters visible and late metadata cannot replace Back", async (tv, catalog) => {
+    await tv.remote(BACK);
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => body?.limit === 1 ? problem(403, "permission_denied", "Synthetic probe failure") : read(method, path, profile, body);
+    const held = tv.fake.hold("/catalog/people/7", true);
+    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.eventually(async () => await grid(tv).count() === 24, "credits before metadata");
+    assert.equal(await tv.page.locator('[data-focus^="filter:"]').count(), 3);
+    await tv.remote(BACK);
+    held.release();
+    await tv.jump(300);
+    assert.equal(await tv.focused(), "person:7");
+    assert.equal(await tv.page.locator(".details-person-hero").count(), 0);
+});
+
+journey("availability comes from server probes, not the loaded first page", async (tv, catalog) => {
+    catalog.personCredits.set("7", ["movie:m0001"]);
+    await tv.remote(BACK);
+    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.eventually(async () => await grid(tv).count() === 1, "movie-only person");
+    await tv.eventually(async () => await tv.page.locator('[data-focus="filter:series"]').count() === 0, "empty Series hidden");
+    assert.equal(await tv.page.locator('[data-focus="filter:movie"]').count(), 1);
+    assert.equal(await tv.page.locator(".browse-page-status").count(), 0, "no Page 1 of 1");
+});
+
+journey("credits and hero shell remain usable while metadata is pending", async tv => {
+    await tv.remote(BACK);
+    const held = tv.fake.hold("/catalog/people/7", true);
+    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.eventually(async () => await grid(tv).count() === 24, "independent credits");
+    assert.equal(await tv.page.locator(".details-person-hero").count(), 1);
+    await tv.page.getByText("Loading metadata", { exact: true }).waitFor();
+    await tv.page.getByText("Page 1 of 3", { exact: true }).waitFor();
+    await next(tv, 2);
+    assert.equal(await tv.page.locator(".details-person-hero").count(), 1);
+    await tv.page.getByText("Loading metadata", { exact: true }).waitFor();
+    await tv.page.locator('[data-focus="filter:series"]').click();
+    await tv.eventually(async () => await grid(tv).count() === 3, "filter during pending metadata");
+    assert.equal(metadataReads(tv), 2, "one completed visit plus one pending visit, not one per page or filter");
+    held.release();
+    await tv.eventually(async () => await tv.page.getByText("Loading metadata", { exact: true }).count() === 0, "metadata settled");
+});
+
+test("catalog Series cards use the shared configured status ribbons", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = population();
+        const read = catalog.route.bind(catalog);
+        catalog.route = (...args) => {
+            const response = read(...args);
+            const body = response?.body as { items?: Record<string, unknown>[] } | undefined;
+            if (body?.items !== undefined) body.items = body.items.map((item, index) => ({ ...item, ...(item.type === "series" ? { show_status: index % 2 === 0 ? "returning series" : "ended" } : {}) }));
+            return response;
+        };
+        await start(tv, catalog, true);
+        await tv.page.locator('[data-focus="filter:series"]').click();
+        await tv.eventually(async () => await grid(tv).count() === 3, "Series cards");
+        assert.deepEqual(await tv.page.locator(".browse-grid .card-overlay").allTextContents(), ["Returning", "Ended", "Returning"]);
+    } finally { await tv.page.context().close(); }
 });
 
 journey("person full journey reaches third page, server filters whole population, restores Details/Person/origin", async tv => {
@@ -307,10 +408,11 @@ journey("filter race fences old answer; failed and empty filters keep controls r
 });
 
 for (const action of ["unchanged filter focus", "moved focus", "Back and menu", "profile", "logout"]) journey(`initial slow filmography answer respects ${action}`, async tv => {
+    const before = queries(tv).length;
     const held = tv.fake.hold("/catalog/query", true);
     await tv.remote(BACK);
     await tv.page.locator('[data-focus="person:7"]').first().click();
-    await tv.eventually(async () => queries(tv).length === 1, "initial read");
+    await tv.eventually(async () => queries(tv).length === before + 1, "new visit initial read");
     await tv.jump(5000);
     await tv.page.getByText("Still waiting for the server.", { exact: true }).waitFor();
     if (action === "moved focus") {

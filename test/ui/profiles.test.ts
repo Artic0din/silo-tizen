@@ -588,11 +588,23 @@ tvTest("Add uses the avatar focus footprint and respects reduced motion", async 
     assert.equal(await tv.focused(), "add-profile");
 });
 
+tvTest("an SVG avatar URL gives way to the preset's flat PNG, as Apple's resolver does", async tv => {
+    const seen: string[] = [];
+    await tv.page.route("https://api.dicebear.com/**", route => { seen.push(route.request().url()); return route.fulfill({ contentType: "image/png", body: Buffer.alloc(0) }); });
+    tv.fake.profiles = { ...tv.fake.profiles, items: [
+        { ...profile("preset", "Preset"), avatar_url: "https://api.dicebear.com/9.x/bottts-neutral/svg?backgroundType=gradientLinear&seed=robot&size=256", avatar: "preset:dicebear:bottts-neutral:robot" },
+    ] };
+    await picker(tv);
+    assert.equal(new URL(await tv.page.locator('[data-focus="profile:preset"] img').getAttribute("src") ?? "").pathname, "/9.x/bottts-neutral/png");
+    assert.equal(new URL(await tv.page.locator('[data-focus="profile:preset"] img').getAttribute("src") ?? "").searchParams.get("backgroundType"), null);
+    assert.equal(seen.some(url => url.includes("/svg")), false);
+});
+
 tvTest("picker images retain emoji and initials on error and remove fallback after transparent artwork loads", async tv => {
-    await tv.page.route("**/art/transparent-profile.svg", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220"/>' }));
+    await tv.page.route("**/art/transparent-profile.png", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220"/>' }));
     await tv.page.route("**/art/broken-profile.png", route => route.abort());
     tv.fake.profiles = { ...tv.fake.profiles, items: [
-        { ...profile("resolved", "Resolved"), avatar_url: "/art/transparent-profile.svg", avatar: "Fox" },
+        { ...profile("resolved", "Resolved"), avatar_url: "/art/transparent-profile.png", avatar: "Fox" },
         { ...profile("broken", "Broken"), avatar_url: "/art/broken-profile.png", avatar: "Fox" },
         { ...profile("upload", "Upload"), avatar: "upload:opaque" },
         { ...profile("blank", "   "), avatar: "" },

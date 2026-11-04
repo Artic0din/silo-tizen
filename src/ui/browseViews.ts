@@ -30,7 +30,7 @@ export interface ViewContext {
     readonly posterWidth?: number;
     /** The profile's poster badges, read when a Home row renders; undefined while unknown, failed or off. */
     readonly cardOverlays?: () => CardOverlayPrefs | undefined;
-    /** Home rows draw poster badges (Apple MediaRow and EpisodeThumbCard); other card screens do not. */
+    /** A row may provide a captured preference document; otherwise catalog cards read the shared preferences. */
     readonly overlays?: CardOverlayPrefs | undefined;
     /** Continue Watching badges for the file the viewer last played, once Home's detail reads know it. */
     readonly savedFileOverlay?: (card: Card) => CardOverlay | undefined;
@@ -72,10 +72,11 @@ function exploreAllCard(rowTitle: string, key: string, continuing: boolean, onPr
 }
 
 /** An <img> for signed or presigned artwork, or the title as a placeholder when it is missing or fails. */
-export function artwork(className: string, reference: string | undefined, baseUrl: string, fallback: string): HTMLElement {
+export function artwork(className: string, reference: string | undefined, baseUrl: string, fallback: string | Node): HTMLElement {
     const box = el("div", className);
     const src = artworkUrl(reference, baseUrl);
-    const placeholder = el("span", "browse-art-fallback", fallback);
+    const placeholder = el("span", "browse-art-fallback");
+    placeholder.append(fallback);
     if (src === undefined) {
         box.classList.add("browse-art-missing");
         box.appendChild(placeholder);
@@ -130,7 +131,8 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     // Badges sit under the progress bar and the watched tick, which win a shared corner.
     const saved = continuing ? context.savedFileOverlay?.(card) : undefined;
     const scale = context.homeCaptions === true ? context.posterScale?.() ?? 1 : 1;
-    const badges = context.overlays === undefined ? undefined : overlayLayer(saved === undefined ? card : { ...card, overlay: saved }, context.overlays, continuing ? "wide" : "poster", (continuing ? HOME_STILL_WIDTH : context.posterWidth ?? HOME_POSTER_WIDTH) * scale);
+    const overlays = context.overlays ?? context.cardOverlays?.();
+    const badges = overlays === undefined ? undefined : overlayLayer(saved === undefined ? card : { ...card, overlay: saved }, overlays, continuing ? "wide" : "poster", (continuing ? HOME_STILL_WIDTH : context.posterWidth ?? (context.homeCaptions === true ? HOME_POSTER_WIDTH : 260)) * scale);
     if (badges !== undefined) element.firstElementChild?.insertBefore(badges, element.firstElementChild.querySelector(".skyline-progress"));
     if (card.played === true) {
         const tick = el("span", "browse-watched");
@@ -322,4 +324,18 @@ export function searchView(head: readonly HTMLElement[], input: HTMLInputElement
             zones.push(...results.grid.zones);
     }
     return { name: "search", content, zones, focus: { zone: "field", key: "query" }, back };
+}
+
+export const FAILURE_ICON = '<svg viewBox="0 0 48 48"><path fill="currentColor" d="M20 5a4.6 4.6 0 0 1 8 0l19 33a4.6 4.6 0 0 1-4 7H5a4.6 4.6 0 0 1-4-7Z"/><path d="M24 16v12m0 7v1" stroke="#000" stroke-width="4" stroke-linecap="round"/></svg>';
+
+/** Apple EmptyStateView and ErrorView: an icon, a title and a line, sized by `className`. */
+export function searchState(title: string, subtitle: string, className: string, iconMarkup?: string): HTMLElement {
+    const state = el("div", `search-state ${className}`);
+    const icon = el("span", "search-state-icon");
+    icon.setAttribute("aria-hidden", "true");
+    icon.innerHTML = iconMarkup ?? (className === "search-failure"
+        ? FAILURE_ICON
+        : '<svg viewBox="0 0 48 48" fill="none"><circle cx="20" cy="20" r="13" stroke="currentColor" stroke-width="4"/><path d="m30 30 12 12" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></svg>');
+    state.append(icon, el("h2", "search-state-title", title), el("p", "search-state-description", subtitle));
+    return state;
 }

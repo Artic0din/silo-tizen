@@ -48,9 +48,10 @@ Before porting a feature, read its upstream design spec; [Upstream design notes]
   and session owners where their behaviour fits.
   Fix shared causes at their existing owner; do not rebuild these per screen.
 
-### Prove parity before committing
+### Prove parity before merging
 
-- Do not commit a user-facing parity change until same-state Apple/Samsung
+- Commit and open a pull request whenever the work is ready for review.
+  Do not merge a user-facing parity change until same-state Apple/Samsung
   comparison demonstrates the affected experience matches.
   Passing tests, source approval and publication approval are separate checks;
   none substitutes for native comparison.

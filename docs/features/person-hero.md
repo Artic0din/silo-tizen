@@ -18,7 +18,7 @@ Back and an authority change cancel a photo that has not arrived, so a late resp
 Moving focus does not fetch the person, the filmography, or the photo again.
 
 The portrait is the tvOS person size, 300 by 450, with a 12 px corner and 20 px metadata capsules.
-Person-only composition uses Apple's exact source padding: 80 px horizontally and 48 px from the top.
+Person-only composition includes tvOS's measured safe area: 160 px horizontally and 108 px from the top.
 The source trace and remaining native comparison boundaries are in [Filmography](person-filmography.md).
 There is no new cache.
 One portrait decodes its own thumbhash when it is drawn, rejecting inputs longer than 44 Base64 characters before decoding.

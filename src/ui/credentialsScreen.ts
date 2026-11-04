@@ -25,8 +25,6 @@ export interface CredentialsView {
     readonly error: string | undefined;
     /** A missing username outlines that field. Any other error outlines the password. */
     readonly errorField: "username" | undefined;
-    /** Set when the server emails reset links. */
-    readonly forgot: (() => void) | undefined;
     /** Shake the fields: a sign-in was just refused. */
     readonly shake: boolean;
     readonly submitting: boolean;
@@ -80,12 +78,6 @@ export function credentialsScreen(view: CredentialsView): CredentialsScreen {
     const hint = el("p", "signin-hint", view.hint ?? "");
     hint.hidden = view.hint === undefined || view.error?.includes(view.hint) === true;
     lines.push(hint);
-    const forgot = view.forgot === undefined ? undefined : marqueeButton("forgot", "Forgot password?", "plain", view.forgot);
-    if (forgot !== undefined) {
-        const forgotRow = el("div", "signin-forgot");
-        forgotRow.appendChild(forgot.element);
-        lines.push(forgotRow);
-    }
 
     const signIn = marqueeButton("signin", view.submitting ? "Signing in…" : "Sign in", "primary", view.submit, { loading: view.submitting });
     const row: Control[] = [signIn];
@@ -97,16 +89,11 @@ export function credentialsScreen(view: CredentialsView): CredentialsScreen {
     for (const control of row.slice(1)) {
         control.element.toggleAttribute("disabled", view.submitting);
     }
-    if (forgot !== undefined) {
-        forgot.element.toggleAttribute("disabled", view.submitting);
-    }
-    const actionRowIndex = forgot === undefined ? 2 : 3;
     const controls: Control[] = [
         { key: "username", element: username, row: 0 },
         { key: "secret", element: password, row: 1 },
         { ...toggle, row: 1 },
-        ...(forgot === undefined || forgot.element.hasAttribute("disabled") ? [] : [{ ...forgot, row: 2 }]),
-        ...row.filter((control) => !control.element.hasAttribute("disabled")).map((control) => ({ ...control, row: actionRowIndex, landing: control.key === "signin" })),
+        ...row.filter((control) => !control.element.hasAttribute("disabled")).map((control) => ({ ...control, row: 2, landing: control.key === "signin" })),
     ];
     const body = lead(text.passwordLead(view.serverName, view.passwordOnly));
     let back = view.back;

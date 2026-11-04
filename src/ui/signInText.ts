@@ -6,10 +6,7 @@ import type { ServerUrlProblem } from "../api/serverUrl.ts";
 import type { ConnectResult } from "../session/core.ts";
 import type { VaultClear } from "../session/credentialVault.ts";
 import type { DeviceLoginState } from "../session/deviceLogin.ts";
-import type { PasswordLimits } from "../session/passwordChange.ts";
 import type { LogoutResult, RestoreResult } from "../session/session.ts";
-
-export type { PasswordLimits };
 
 export function connectProblem(result: Exclude<ConnectResult, { readonly status: "connected" }>): string {
     switch (result.status) {
@@ -236,89 +233,11 @@ export function waitText(seconds: number): string {
     return `${Math.ceil(seconds / 60)} minutes`;
 }
 
-/** Why a new password can't be submitted, checked before the request spends an attempt. */
-export function newPasswordProblem(password: string, confirmation: string, limits: PasswordLimits): string | undefined {
-    if (password === "") {
-        return "Enter a new password.";
-    }
-    if (password !== confirmation) {
-        return "The new passwords don't match.";
-    }
-    if ([...password].length < limits.minimumLength) {
-        return `Use at least ${limits.minimumLength} characters.`;
-    }
-    if (new TextEncoder().encode(password).length > limits.maximumBytes) {
-        return "That password is too long. Use a shorter one.";
-    }
-    return undefined;
-}
-
-export const PASSWORD_CHANGE_TITLE = "Choose a new password";
-export const ENTER_TEMPORARY_PASSWORD = "Enter the temporary password.";
-export const PASSWORD_CHANGED_TITLE = "Password changed";
-export const PASSWORD_CHANGED_LEAD = "Your new password is saved, but signing you in didn't finish.";
-export const PASSWORD_UNCONFIRMED_TITLE = "Password not confirmed";
-export const PASSWORD_UNCONFIRMED_LEAD = "Silo couldn't check whether your new password was saved. Try again in a moment.";
-export const PASSWORD_NOT_CHANGED = "Your password wasn't changed. Try again.";
-
-/** The screen's lead, naming the account once it is known. */
-export function passwordChangeLead(account: string | undefined): string {
-    const name = account !== undefined && account !== "" ? account : "your account";
-    return `An admin set a temporary password for ${name}. Choose your own to continue.`;
-}
-
-export function passwordRequirementsHint(minimumLength: number): string {
-    return `At least ${minimumLength} characters`;
-}
-
-/** Copy for a failed change. A rejected new password keeps the local fallback; the server's detail is protocol text. */
-export function passwordChangeFailure(error: ApiError): string {
-    const problem = error.failure.kind === "problem" ? error.failure.problem : undefined;
-    const rejected = problem?.errors[0];
-    if (problem?.id === "validation_failed" && problem.status === 422 && rejected?.location === "body.current_password") {
-        return "That temporary password is incorrect.";
-    }
-    if (problem?.id === "validation_failed" && problem.status === 422) {
-        return "Choose a different password, then try again.";
-    }
-    if (error.status === 429) {
-        return "Too many attempts. Wait a moment, then try again.";
-    }
-    if (error.status === 409) {
-        return "This account doesn't sign in with a Silo password. Ask your server admin for help.";
-    }
-    if (error.status === 403) {
-        return "This session can't change the password. Sign in with your own account and try again.";
-    }
-    if (error.failure.kind === "network" || error.failure.kind === "timeout") {
-        return "Could not reach the server. Check the TV's internet connection, then try again.";
-    }
-    return "The server had a problem. Try again in a moment.";
-}
-
-export const FORGOT_TITLE = "Reset password";
-export const FORGOT_LEAD = "Enter your username or email. If it matches an account, we'll email that account a link to choose a new password.";
-export const FORGOT_EMPTY = "Enter your username or email.";
-export const FORGOT_SENT_TITLE = "Check your email";
-export const FORGOT_SENT_NOTE = "Nothing after a few minutes? Check your spam folder, then try again.";
-export const FORGOT_UNAVAILABLE_LEAD = "This server doesn't offer password resets from the sign-in screen. Ask your server admin to reset your password.";
-export const FORGOT_RATE_LIMITED = "Too many requests from this network. Wait a minute, then try again.";
-export const FORGOT_FAILED = "Couldn't send the request. Try again.";
-
-export function forgotSentLead(login: string): string {
-    return `If ${login} matches an account with an email address, we sent that address a link to choose a new password. Once you've chosen it, sign in here.`;
-}
-
-/** `unavailable` when the server stopped offering reset after the screen read its capability. */
-export function forgotFailure(error: ApiError): "unavailable" | string {
-    if (error.status === 409) {
-        return "unavailable";
-    }
-    if (error.status === 429) {
-        return FORGOT_RATE_LIMITED;
-    }
-    return FORGOT_FAILED;
-}
+/**
+ * `ErrorState.passwordChangeRequiredMessage` on tvOS (`ErrorState.swift`). Apple TV has no
+ * password change, so the profile picker shows this instead of the server's protocol detail.
+ */
+export const PASSWORD_CHANGE_REQUIRED_MESSAGE = "Your password needs to be reset. Use the Silo mobile app or website to set a new one, then come back.";
 
 // The Apple TV app's password screen (TVLoginView, LoginViewModel), word for word.
 export const PASSWORD_TITLE = "Sign in with\na password";

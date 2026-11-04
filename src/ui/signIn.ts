@@ -9,14 +9,11 @@ import { type AdvancedScheme, advancedAddress, plainHttpFallbacks, portFieldFaul
 import { resolveBrandingAsset } from "../contracts/v2/branding.ts";
 import { type ConnectedServer, type ConnectResult, connect, forgetStoredCredential, type SessionCoreDeps } from "../session/core.ts";
 import type { DeviceCodeView, DeviceLogin, DeviceLoginState } from "../session/deviceLogin.ts";
-import { DEFAULT_PASSWORD_LIMITS, passwordResetOffered, readPasswordLimits, replacePassword, requestPasswordReset, temporaryPasswordRemains } from "../session/passwordChange.ts";
 import { passwordLogin } from "../session/passwordLogin.ts";
 import type { LogoutResult } from "../session/session.ts";
 import { cachedBranding, storeBranding } from "./brandingCache.ts";
 import { codeScreen, type CodeScreen } from "./codeScreen.ts";
 import { credentialsScreen, type CredentialsScreen } from "./credentialsScreen.ts";
-import { forgotPasswordScreen } from "./forgotPasswordScreen.ts";
-import { passwordChangeForm, passwordChangeNotice } from "./passwordChangeScreen.ts";
 import { actionRow, chip, errorText, field, headline, keyboardCard, lead, marqueeButton, marqueeScreen, noteChips, setServerMark, textInput } from "./marquee.ts";
 import { MarqueeBackdrop } from "./marqueeBackdrop.ts";
 import { type Control, el, type Note, type Screen, ScreenHost } from "./screen.ts";
@@ -32,11 +29,6 @@ export interface SignInOptions {
     readonly signedOut?: LogoutResult;
     /** Told each server sign-in connects to before any account is handed over (diagnostics, tests). */
     readonly onConnected?: (server: ConnectedServer) => void;
-    /**
-     * An account already signed in that must replace a temporary password. The screens stay on
-     * that session instead of asking for a server again.
-     */
-    readonly passwordChange?: ConnectedServer;
 }
 
 export interface SignInScreens {
@@ -119,9 +111,6 @@ interface Active {
     error: string | undefined;
     /** A missing username. Any other error outlines the password. */
     errorField: "username" | undefined;
-    /** The server emails reset links, so the password form offers "Forgot password?". */
-    offersReset: boolean;
-    resetChecked: boolean;
 }
 
 export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInScreens {
@@ -142,20 +131,13 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     let advanced = false;
     let connecting: AbortController | undefined;
     let active: Active | undefined;
-    /** A signed-in account that still has to choose a password. Not a device-login attempt. */
-    let restricted: ConnectedServer | undefined;
     let destroyed = false;
 
     const destroy = (): void => {
         destroyed = true;
         connecting?.abort();
         connecting = undefined;
-        const held = restricted;
-        restricted = undefined;
         leaveSignIn();
-        if (held?.session.signedIn === true) {
-            void logoutCollectedAccount(held);
-        }
         document.removeEventListener("visibilitychange", onVisibility);
         backdrop.destroy();
         host.destroy();
@@ -200,7 +182,6 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     document.addEventListener("visibilitychange", onVisibility);
 
     const handOff = (server: ConnectedServer): void => {
-        restricted = undefined;
         leaveSignIn(true);
         destroy();
         options.onSignedIn(server);
@@ -474,7 +455,6 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         const current: Active = {
             server, login, stop, notes, code: undefined, typed: undefined, left: new AbortController(), options: undefined,
             credentials: false, submitting: false, username: "", password: "", shown: false, error: undefined, errorField: undefined,
-            offersReset: false, resetChecked: false,
             status: { kind: "getting_code" }, shownCode: undefined, renewed: false, windowStart: now, startedAt: now,
             sawCode: false, startStreak: undefined, cancelTimer: undefined, pendingStart: undefined,
             // ServerBrandingCache: the last answer shows at once; the server's new one replaces it.
@@ -808,7 +788,6 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
                 shown: current.shown,
                 error: current.error,
                 errorField: current.errorField,
-                forgot: current.offersReset ? () => openForgot(current) : undefined,
                 shake,
                 submitting: current.submitting,
                 onInput: (username, password) => {
@@ -826,22 +805,6 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             }),
             focus,
         );
-        if (!current.resetChecked) {
-            current.resetChecked = true;
-            void passwordResetOffered(current.server.server.http).then((offered) => {
-                if (destroyed || active !== current || !offered) {
-                    return;
-                }
-                current.offersReset = true;
-                if (current.credentials && host.name === "credentials") {
-                    showCredentials(current);
-                }
-            }, (error: unknown) => {
-                clock.schedule(() => {
-                    throw error;
-                }, 0);
-            });
-        }
     };
 
     const submitPassword = (current: Active): void => {
@@ -898,10 +861,6 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
      * sign-in, or the account's authority changing in that second cancels the move.
      */
     const approved = (current: Active, state: Extract<DeviceLoginState, { readonly phase: "signed_in" }>): void => {
-        if (state.passwordChangeRequired) {
-            signedIn(current, state);
-            return;
-        }
         const session = current.server.session;
         const generation = session.authorityGeneration;
         current.status = { kind: "approved", account: session.account?.username || undefined };
@@ -932,12 +891,6 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     const signedIn = (current: Active, state: Extract<DeviceLoginState, { readonly phase: "signed_in" }>): void => {
         const server = current.server;
         const kept = state.previousSession === "failed" ? [text.PREVIOUS_SESSION_KEPT] : [];
-        if (state.passwordChangeRequired) {
-            // The session stays: choosing a new password is the only thing it can do.
-            leaveSignIn(true);
-            showPasswordChange(server, kept);
-            return;
-        }
         const lines = [...(state.persistence === "session_only" ? [text.SESSION_ONLY] : []), ...kept];
         if (lines.length === 0) {
             handOff(server);
@@ -954,281 +907,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         show({ name, content: marqueeScreen(copy), controls, focus: controls[0]?.key ?? "", back });
     };
 
-    const signOutRestricted = (server: ConnectedServer): void => {
-        if (restricted === server) {
-            restricted = undefined;
-        }
-        showEntry([], false, "connect");
-        void logoutCollectedAccount(server).then((result) => {
-            if (!destroyed && host.name === "entry" && (result.storage === "failed" || result.server === "unreachable")) {
-                showEntry(text.signedOutNotice(result).map((line) => ({ text: line, tone: "info" })), result.storage === "failed");
-            }
-        });
-    };
-
-    const showPasswordChange = (server: ConnectedServer, notes: readonly string[]): void => {
-        restricted = server;
-        const draft = {
-            current: "",
-            next: "",
-            confirmation: "",
-            error: undefined as string | undefined,
-            shake: false,
-            busy: false,
-            limits: DEFAULT_PASSWORD_LIMITS,
-            editing: true,
-        };
-        const paint = (focus?: string): void => {
-            if (destroyed || restricted !== server || !draft.editing) {
-                return;
-            }
-            show(passwordChangeForm({
-                accountName: server.session.account?.username,
-                minimumLength: draft.limits.minimumLength,
-                current: draft.current,
-                next: draft.next,
-                confirmation: draft.confirmation,
-                error: draft.error,
-                shake: draft.shake,
-                busy: draft.busy,
-                notes,
-                onInput: (current, next, confirmation) => {
-                    draft.current = current;
-                    draft.next = next;
-                    draft.confirmation = confirmation;
-                },
-                save: () => void save(),
-                signOut: () => {
-                    if (!draft.busy) {
-                        signOutRestricted(server);
-                    }
-                },
-            }), focus);
-            draft.shake = false;
-        };
-        const retryRefresh = (busy: boolean): void => {
-            show(passwordChangeNotice(
-                "password-changed",
-                text.PASSWORD_CHANGED_TITLE,
-                text.PASSWORD_CHANGED_LEAD,
-                "Try again",
-                busy,
-                () => retryRefresh(true),
-                () => signOutRestricted(server),
-            ), "retry");
-            if (busy) {
-                void finishRefresh();
-            }
-        };
-        const finishRefresh = (): void => {
-            void server.session.refresh().then((outcome) => {
-                if (destroyed || restricted !== server) {
-                    return;
-                }
-                if (outcome.status === "refreshed") {
-                    handOff(server);
-                    return;
-                }
-                if (outcome.status === "session_ended" || outcome.status === "aborted") {
-                    restricted = undefined;
-                    showEntry([], false, "connect");
-                    return;
-                }
-                retryRefresh(false);
-            }, (error: unknown) => {
-                clock.schedule(() => {
-                    throw error;
-                }, 0);
-            });
-        };
-        const showUnconfirmed = (checking: boolean): void => {
-            draft.editing = false;
-            show(passwordChangeNotice(
-                "password-unconfirmed",
-                text.PASSWORD_UNCONFIRMED_TITLE,
-                text.PASSWORD_UNCONFIRMED_LEAD,
-                "Try again",
-                checking,
-                () => showUnconfirmed(true),
-                () => signOutRestricted(server),
-            ), "retry");
-            if (!checking) {
-                return;
-            }
-            void temporaryPasswordRemains(server.session).then((remains) => {
-                if (destroyed || restricted !== server) {
-                    return;
-                }
-                if (remains === true) {
-                    draft.editing = true;
-                    draft.busy = false;
-                    draft.error = text.PASSWORD_NOT_CHANGED;
-                    draft.shake = true;
-                    paint("current");
-                    return;
-                }
-                if (remains === false) {
-                    draft.current = "";
-                    draft.next = "";
-                    draft.confirmation = "";
-                    finishRefresh();
-                    return;
-                }
-                showUnconfirmed(false);
-            }, (error: unknown) => {
-                clock.schedule(() => {
-                    throw error;
-                }, 0);
-            });
-        };
-        const save = async (): Promise<void> => {
-            if (draft.busy || !draft.editing) {
-                return;
-            }
-            if (draft.current === "") {
-                draft.error = text.ENTER_TEMPORARY_PASSWORD;
-                draft.shake = true;
-                paint("current");
-                return;
-            }
-            const problem = text.newPasswordProblem(draft.next, draft.confirmation, draft.limits);
-            if (problem !== undefined) {
-                draft.error = problem;
-                draft.shake = true;
-                paint(problem === "The new passwords don't match." ? "confirm" : "new");
-                return;
-            }
-            draft.busy = true;
-            draft.error = undefined;
-            paint("save");
-            try {
-                await replacePassword(server.session, draft.current, draft.next);
-            } catch (error) {
-                if (!(error instanceof ApiError)) {
-                    clock.schedule(() => {
-                        throw error;
-                    }, 0);
-                    return;
-                }
-                const remains = await temporaryPasswordRemains(server.session);
-                if (destroyed || restricted !== server) {
-                    return;
-                }
-                if (remains === false) {
-                    draft.current = "";
-                    draft.next = "";
-                    draft.confirmation = "";
-                    finishRefresh();
-                    return;
-                }
-                if (remains === undefined) {
-                    showUnconfirmed(false);
-                    return;
-                }
-                draft.busy = false;
-                draft.error = text.passwordChangeFailure(error);
-                draft.shake = true;
-                const currentPassword = error.failure.kind === "problem" && error.failure.problem.errors[0]?.location === "body.current_password";
-                paint(currentPassword ? "current" : "new");
-                return;
-            }
-            if (destroyed || restricted !== server) {
-                return;
-            }
-            draft.current = "";
-            draft.next = "";
-            draft.confirmation = "";
-            draft.editing = false;
-            finishRefresh();
-        };
-        paint("current");
-        void readPasswordLimits(server.session).then((limits) => {
-            if (destroyed || restricted !== server || !draft.editing) {
-                return;
-            }
-            draft.limits = limits;
-            paint();
-        }, (error: unknown) => {
-            clock.schedule(() => {
-                throw error;
-            }, 0);
-        });
-    };
-
-    const openForgot = (current: Active): void => {
-        const draft = { login: current.username.trim(), phase: "editing" as "editing" | "sending" | "sent" | "unavailable", error: undefined as string | undefined };
-        const paint = (focus?: string): void => {
-            if (destroyed || active !== current) {
-                return;
-            }
-            show(forgotPasswordScreen({
-                login: draft.login,
-                phase: draft.phase,
-                error: draft.error,
-                onInput: (login) => {
-                    draft.login = login;
-                },
-                send: () => {
-                    void send();
-                },
-                done: () => {
-                    if (draft.phase === "sending") {
-                        return;
-                    }
-                    current.username = draft.login;
-                    showCredentials(current, "forgot");
-                },
-            }), focus);
-        };
-        const send = async (): Promise<void> => {
-            if (draft.phase !== "editing") {
-                return;
-            }
-            const login = draft.login.trim();
-            if (login === "") {
-                draft.error = text.FORGOT_EMPTY;
-                paint("login");
-                return;
-            }
-            draft.phase = "sending";
-            draft.error = undefined;
-            paint("send");
-            try {
-                await requestPasswordReset(current.server.server.http, login);
-            } catch (error) {
-                if (!(error instanceof ApiError)) {
-                    clock.schedule(() => {
-                        throw error;
-                    }, 0);
-                    return;
-                }
-                if (destroyed || active !== current) {
-                    return;
-                }
-                const failure = text.forgotFailure(error);
-                if (failure === "unavailable") {
-                    draft.phase = "unavailable";
-                    paint("done");
-                    return;
-                }
-                draft.phase = "editing";
-                draft.error = failure;
-                paint("login");
-                return;
-            }
-            if (destroyed || active !== current) {
-                return;
-            }
-            draft.login = login;
-            draft.phase = "sent";
-            paint("done");
-        };
-        paint(draft.login === "" ? "login" : "send");
-    };
-
-    if (options.passwordChange !== undefined) {
-        showPasswordChange(options.passwordChange, []);
-    } else if (options.signedOut !== undefined) {
+    if (options.signedOut !== undefined) {
         showEntry(text.signedOutNotice(options.signedOut).map((line) => ({ text: line, tone: "info" })), false);
     } else if (options.chooseServer === true) {
         showEntry([], false, "connect");

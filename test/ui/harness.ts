@@ -181,22 +181,6 @@ const backToSignIn = (notice: LogoutResult | undefined): void => {
     harness.mount(notice);
 };
 
-const signInCore = {
-    fetch: (url: string, init: RequestInit) => {
-        if (new URL(url).pathname.endsWith("/system/info")) {
-            harness.discoveryRequests++;
-        }
-        return window.fetch(url, init);
-    },
-    publicStorage: storage,
-    keyManager,
-    randomBytes: (bytes: Uint8Array) => {
-        bytes.set(crypto.getRandomValues(new Uint8Array(bytes.length)));
-    },
-    deviceName: "Living room TV",
-    devicePlatform: "tizen",
-};
-
 const continueSignedIn = (server: ConnectedServer): void => {
     last = server;
     harness.handoffs.push({
@@ -219,17 +203,6 @@ const continueSignedIn = (server: ConnectedServer): void => {
             const screen = document.createElement("section");
             screen.setAttribute("data-screen", "server-selection");
             root.replaceChildren(screen);
-        },
-        onPasswordChange: () => {
-            profileScreens = undefined;
-            screens = mountSignIn(root, {
-                core: signInCore,
-                passwordChange: server,
-                onConnected: (next) => {
-                    connected = next;
-                },
-                onSignedIn: continueSignedIn,
-            });
         },
     });
 };

@@ -731,25 +731,13 @@ tvTest("destroying a sign-in notice revokes the account instead of handing it ov
     assert.equal(await handoffs(tv), 0);
 }, { sessionOnly: true });
 
-tvTest("an account that must change its password chooses a new one here, then continues", async (tv) => {
+tvTest("an account that must reset its password still finishes sign-in, and the session stays", async (tv) => {
     await connectTo(tv);
-    const code = await codeScreen(tv);
     tv.fake.passwordChangeRequired = true;
-    tv.fake.approve(code);
-    await tv.jump(5000);
-    await tv.page.locator('[data-screen="password"]').waitFor();
-    // Previously this signed the account out and sent the person to the server's web page.
-    await shows(tv, "An admin set a temporary password for laura. Choose your own to continue.");
-    assert.equal(await tv.focused(), "current");
-    assert.equal(tv.fake.revokedSessions.size, 0, "the session stays until the password changes");
-    await tv.page.locator("#signin-current-password").fill(FAKE_PASSWORD);
-    await tv.page.locator("#signin-new-password").fill("replacement-for-tests");
-    await tv.page.locator("#signin-confirm-password").fill("replacement-for-tests");
-    await tv.page.getByRole("button", { name: "Save password", exact: true }).click();
-    await tv.eventually(async () => (await handoffs(tv)) === 1, "the handoff after the password change");
-    assert.equal(tv.fake.passwordChangeRequired, false);
-    assert.equal(tv.fake.paths().filter((path) => path === "POST /account/password").length, 1);
-    assert.equal(await tv.page.evaluate(() => window.harness.keyManager?.items.size), 1, "the new session stays stored");
+    await signIn(tv);
+    assert.equal(tv.fake.revokedSessions.size, 0, "the session stays; the profile picker shows the refusal");
+    assert.equal(await tv.page.evaluate(() => window.harness.keyManager?.items.size), 1);
+    assert.equal(tv.fake.paths().some((path) => path.includes("/password-resets") || path.includes("/account/password") || path.includes("/capabilities/password-reset")), false);
 });
 
 tvTest("signing out offline still clears the TV, and the address screen says what the server was not told", async (tv) => {
@@ -1099,57 +1087,15 @@ tvTest("a password sign-in without secure storage warns before continuing, as a 
     await tv.eventually(async () => (await handoffs(tv)) === 1, "the handoff");
 }, { sessionOnly: true });
 
-tvTest("a password account that must change its password stays signed in and chooses a new one", async (tv) => {
+tvTest("a password account that must reset its password is handed on, and the session stays", async (tv) => {
     tv.fake.passwordChangeRequired = true;
     await openPassword(tv);
     await tv.page.fill("#signin-username", "laura");
     await tv.page.fill("#signin-password", FAKE_PASSWORD);
     await tv.page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await tv.page.locator('[data-screen="password"]').waitFor();
-    // Previously the login session was revoked and the screen pointed at the web page.
-    assert.equal(tv.fake.revokedSessions.size, 0);
-    assert.equal(await handoffs(tv), 0);
-    await shows(tv, "At least 8 characters");
-    await tv.page.getByRole("button", { name: "Save password", exact: true }).click();
-    await shows(tv, "Enter the temporary password.");
-    assert.equal(await tv.focused(), "current");
-    await tv.page.locator("#signin-current-password").fill("wrong-temporary");
-    await tv.page.locator("#signin-new-password").fill("replacement-for-tests");
-    await tv.page.locator("#signin-confirm-password").fill("different-for-tests");
-    await tv.page.getByRole("button", { name: "Save password", exact: true }).click();
-    await shows(tv, "The new passwords don't match.");
-    assert.equal(await tv.focused(), "confirm");
-    assert.equal(tv.fake.paths().filter((path) => path === "POST /account/password").length, 0, "a mismatch is not sent");
-    await tv.page.getByRole("button", { name: "Sign out", exact: true }).click();
-    await tv.eventually(async () => tv.fake.revokedSessions.size === 1, "sign out ends the restricted session");
-    assert.equal(await tv.screen(), "entry");
-});
-
-tvTest("Forgot password? is offered when the server emails reset links, and the link is chosen elsewhere", async (tv) => {
-    tv.fake.passwordResetState = "available";
-    await openPassword(tv);
-    await tv.page.fill("#signin-username", "laura");
-    const forgot = tv.page.getByRole("button", { name: "Forgot password?", exact: true });
-    await forgot.waitFor();
-    assert.equal(await tv.focused(), "username", "the offer does not take focus");
-    await forgot.click();
-    await shows(tv, "Enter your username or email. If it matches an account, we'll email that account a link to choose a new password.");
-    assert.equal(await tv.page.inputValue("#signin-reset-login"), "laura");
-    await tv.page.fill("#signin-reset-login", "   ");
-    await tv.page.getByRole("button", { name: "Send reset link", exact: true }).click();
-    await shows(tv, "Enter your username or email.");
-    assert.equal(await tv.page.locator(".signin-field-error #signin-reset-login").count(), 1);
-    await tv.page.fill("#signin-reset-login", "laura");
-    await tv.page.getByRole("button", { name: "Send reset link", exact: true }).click();
-    await shows(tv, "Check your email");
-    await shows(tv, "If laura matches an account with an email address, we sent that address a link to choose a new password. Once you've chosen it, sign in here.");
-    const reset = tv.fake.requests.filter((request) => request.path === "/password-resets");
-    assert.equal(reset.length, 1);
-    assert.deepEqual(reset[0]?.body, { login: "laura" });
-    assert.equal(JSON.stringify(reset[0]?.body).includes(FAKE_PASSWORD), false);
-    await tv.page.getByRole("button", { name: "Back to sign in", exact: true }).click();
-    assert.equal(await tv.screen(), "credentials");
-    assert.equal(await tv.page.inputValue("#signin-username"), "laura");
+    await tv.eventually(async () => (await handoffs(tv)) === 1, "the handoff");
+    assert.equal(tv.fake.revokedSessions.size, 0, "the session stays; the profile picker shows the refusal");
+    assert.equal(await tv.page.evaluate(() => window.harness.keyManager?.items.size), 1);
 });
 
 tvTest("a server that turned password sign-in off shows no password button", async (tv) => {

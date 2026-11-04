@@ -176,11 +176,6 @@ Sign-in is a device code (`src/session/deviceLogin.ts`), with a password fallbac
 | login | `POST /auth/login` | Public | never | Body `username`, `password`. No `provider` field is sent. |
 | refreshSession | `POST /auth/refresh` | Public | never | Body `refresh_token`. |
 | logout | `POST /auth/logout` | Bearer | safe | 204. |
-| passwordResetCapability | `GET /capabilities/password-reset` | Public | safe | `state` `available` offers "Forgot password?". A 404 or any other failure offers nothing. |
-| requestPasswordReset | `POST /password-resets` | Public | never | Body `login`. 202 with no body, whether or not an account matched. 409 means the server stopped offering it. |
-| currentAccount | `GET /account/me` | Bearer | safe | Allowed while a temporary password is outstanding. `password_change_required` says whether it still is. |
-| accountPasswordCapability | `GET /account/password/capability` | Bearer | safe | Password limits. A failure keeps the documented defaults, 8 characters and 72 bytes. |
-| changePassword | `POST /account/password` | Bearer | never | Body `current_password`, `new_password`. 204. Not replayed. Refresh the session afterwards; the access token keeps the restriction until then. |
 
 All are defined in `src/api/operations.ts`.
 

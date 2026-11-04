@@ -207,11 +207,6 @@ export interface AccountSummary {
     readonly passwordChangeRequired: boolean;
 }
 
-/** `GET /account/me`: the account document. Members this client does not read are ignored. */
-export function decodeCurrentAccount(value: unknown): AccountSummary {
-    return decodeAccount(value, "account");
-}
-
 function decodeAccount(value: unknown, path: string): AccountSummary {
     const obj = object(value, path);
     return {

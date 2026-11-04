@@ -59,12 +59,12 @@ function oneOf<T extends string>(raw: string, known: readonly T[]): T | "unknown
 
 // --- listUserLibraries ---
 
-const LIBRARY_TYPES = ["movies", "series", "mixed"] as const;
+const LIBRARY_TYPES = ["movies", "series", "mixed", "music"] as const;
 
 export interface UserLibrary {
     readonly id: string;
     readonly name: string;
-    /** Only the video kinds this client browses; books, music and anything new are "unknown". */
+    /** Browsable library kinds; books and anything new are "unknown". */
     readonly type: (typeof LIBRARY_TYPES)[number] | "unknown";
     readonly sortOrder: number;
 }

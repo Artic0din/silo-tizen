@@ -331,6 +331,7 @@ for (const surface of ["library-shelf", "library-grid", "collection", "search", 
                 await tv.page.locator('.browse .browse-grid .browse-card').first().waitFor();
             }
             if (surface === "collection") {
+                await selectLibraryMode(tv, "Collections");
                 const fan = tv.page.locator('.browse .discovery-collection').first();
                 await fan.focus(); await tv.down(13); await tv.jump(700); await tv.up(13);
                 assert.equal(await menu(tv).count(), 0);
@@ -345,7 +346,7 @@ for (const surface of ["library-shelf", "library-grid", "collection", "search", 
             await tv.page.locator('.browse .browse-grid .browse-card').first().waitFor();
         } else {
             await tv.page.locator(`[data-section="recently_added"] [data-focus="${surface === "season" || surface === "episode" ? "series:s1" : "movie:m0001"}"]`).click();
-            if (surface === "season" || surface === "episode") await tv.eventually(async () => await tv.focused() === "episode:s1e11", "Series entry focus settles before targeting a chip or card");
+            if (surface === "season" || surface === "episode") await tv.eventually(async () => await tv.focused() === "next-episode", "Series Play entry focus settles before targeting a chip or card");
             if (surface === "person-preview") {
                 await tv.page.locator('[data-focus="person:7"]').first().click();
                 await tv.page.locator('.browse[data-view="person:7"] .browse-row .browse-card').first().waitFor();

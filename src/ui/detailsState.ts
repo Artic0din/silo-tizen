@@ -230,6 +230,7 @@ export class DetailsState {
         this.focusedEpisodeId = previous.focusedEpisodeId;
         this.episodePreferenceDirty = previous.episodePreferenceDirty;
         this.episodePreferenceSource = previous.episodePreferenceDirty ? previous.episodePreferenceSource : undefined;
+        for (const [id, state] of previous.previousEpisodeStates) this.previousEpisodeStates.set(id, state);
         for (const [id, state] of previous.episodeStates) this.previousEpisodeStates.set(id, state);
         this.audioPreference.restore(previous.audioPreference);
         this.subtitlePreference.restore(previous.subtitlePreference);
@@ -376,6 +377,10 @@ export class DetailsState {
     }
 
     warmSeriesEpisodes(): void {
+        if (!["series", "season"].includes(this.detail.type)) return;
+        if (this.series?.focusSelectedEpisode && this.series.episodes !== undefined) {
+            this.focusedEpisodeId = this.series.entryEpisode;
+        }
         if (this.detail.playContentId !== undefined) this.queueEpisode(this.detail.playContentId);
         if (this.series?.episodes !== undefined && this.focusedEpisodeId !== undefined && !this.series.episodes.some(episode => episode.id === this.focusedEpisodeId)) this.focusedEpisodeId = undefined;
         for (const episode of this.series?.episodes ?? []) this.queueEpisode(episode.id);
@@ -394,8 +399,9 @@ export class DetailsState {
 
     cachedEpisode(id: string): DetailsState | undefined { return this.episodeStates.get(id); }
 
-    noteEpisodePreference(id: string, external = false): void {
-        if (this.episodeStates.has(id) || this.previousEpisodeStates.has(id)) {
+    noteEpisodePreference(id: string, external = false, seriesId?: string): void {
+        const sharedSeries = external && ["series", "season"].includes(this.detail.type) && seriesId === (this.detail.seriesId || this.detail.id);
+        if (sharedSeries || this.episodeStates.has(id) || this.previousEpisodeStates.has(id)) {
             this.episodePreferenceDirty = true;
             this.episodePreferenceSource = external ? undefined : id;
         }
@@ -417,7 +423,7 @@ export class DetailsState {
         const id = this.playbackTargetId;
         this.nextEpisodeState = id === undefined ? undefined : this.episodeStates.get(id);
         this.nextEpisode = this.nextEpisodeState?.detail;
-        this.nextEpisodeFailed = id !== undefined && this.episodeFailures.has(id);
+        this.nextEpisodeFailed = ["series", "season"].includes(this.detail.type) && id !== undefined && this.episodeFailures.has(id);
         this.nextEpisodeLoading = id !== undefined && this.episodeReads.has(id);
     }
 

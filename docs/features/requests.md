@@ -1,10 +1,10 @@
 # Requests
 
-Requests appears in the browse navigation only after `/api/v2/requests/status` reports `requests_enabled`, `allowed` and `state=available`.
-Unknown or failed initial probes leave the root hidden.
+Requests appears in the profile menu only after `/api/v2/requests/status` reports `requests_enabled`, `allowed` and `state=available`.
+Unknown or failed initial probes leave the row hidden.
 A transient later probe failure preserves the last confirmed value.
 Status is checked on foreground return and before loading each Requests route.
-Capability and permission refusals trigger another status check; a confirmed unavailable feature removes its retained root and returns open Requests journeys to Home.
+Capability and permission refusals trigger another status check; a confirmed unavailable feature removes its menu row and returns open Requests journeys to Home.
 
 The hub reads My Requests in 50-record pages, with a 100-page bound and advancing cursors, alongside the server's ordered discovery title rows.
 It groups active requests before attention states and landed titles, sorts newest first within each group, and omits unavailable or cancelled records.
@@ -15,8 +15,9 @@ The passive hero previews the focused request using already loaded data; focus p
 Its copy stays anchored above the row band as title and synopsis heights change.
 A wrapped title reduces the synopsis to two lines; available provider ratings stay on the metadata line.
 Two-line titles fill the first line as Apple TV does, never leave one word alone on the second, and keep the server's title text unchanged.
-The shared topbar Search opens global Search and its independent Available to request rail.
-A new bar-owned Search starts empty; Back returns to the selected Requests tab, and Down re-enters the content.
+The root top bar opens global Search and its independent Available to request rail.
+A new bar-owned Search starts empty; Back returns to its originating root tab.
+Requests is pushed from the profile menu and has no Search button or top bar.
 Back from a request detail retains the Search query and restores its result after an invalidated supplement refresh, unless the person moved focus or edited the query.
 Search uses the existing state renderer for accessible progress, no-results copy and a centered catalog error with Try Again.
 A failed People lookup leaves usable title results without another error panel or retry control; a new query tries People again.
@@ -27,11 +28,12 @@ Discovery rows show only the first page the discover read returns, with no See a
 Rows are view-aligned to the band's top at y=596: a plain row's heading is at 596 with art at 662, and the row with the Discover eyebrow has the eyebrow at 596, heading at 621 and art at 687.
 Up and Down between rows land on the card nearest the focused card's centre, as Apple's focus engine does.
 Each hub read goes out once; Try Again is the retry.
-Selecting the Requests tab from another tab rebuilds the page: loading, a fresh read, then focus on the first card.
-Selecting it again while shown moves focus to the first card and scrolls the band to the top without a read or a loading page, as on Apple TV.
+Selecting Requests in the profile menu pushes a fresh page: loading, a fresh read, then focus on the first card.
+The pushed hub has no top bar; Back returns to the originating screen with its profile menu open and Requests focused.
 A hub with no rows shows one of Apple's three full pages: the loading skeleton, ErrorView with status-aware copy and Try Again (Sign In Again first for a 401), or Nothing here yet.
 The loading and empty pages hold focus with no highlight, and Try Again takes focus on entry and returns to the loading page.
-Up from any of them, or from the first row, reaches the Requests tab; Down from the top bar returns to the page or the first card of the first row.
+Up from the first row preserves its focused card; Up from loading, error and empty states stays on that state.
+There is no shown Requests tab to select; reopening the profile menu entry starts a fresh visit.
 Unknown discovery row types are skipped.
 Media detail uses server requestability, status and follow decisions.
 Request detail shows the server state and offers cancellation for the active profile's pending request.
@@ -87,8 +89,6 @@ The backdrop scrolls with the hero while the page tint stays.
 
 ## Accepted differences
 
-The focused poster's sheen and edge are a static CSS approximation of tvOS's system `.card` focus highlight, measured against Apple's pair 02a.
-tvOS moves that highlight as the remote's surface moves, and the web platform has no equivalent input, so the sheen stays still.
 The design of the Series destination page belongs to #92.
 A status detail whose copy is tall enough to pass the hero edge hides the action, as on Apple TV (decision: match Apple).
 
@@ -124,9 +124,9 @@ Search runs on Search or keyboard Done; editing cancels obsolete reads immediate
 
 `npm test` runs the production build, strict typechecking, native contracts and desktop Chromium journeys.
 There is no lint command in package.json or CI.
-Run `REQUESTS_EVIDENCE=artifacts/requests node --test --test-timeout=60000 test/ui/requests.test.ts` to capture matched Home, hub, search, detail, My Requests, empty, failure and loading screenshots from that same test run.
+Run `REQUESTS_EVIDENCE=artifacts/requests node --test --test-timeout=60000 test/ui/requests.test.ts` to capture matched Home, hub, detail, My Requests, empty, failure and loading screenshots from that same test run.
 Artifacts are intentionally ignored by Git.
 The harness bundles for Chrome 108 but runs desktop Chromium against a fake native server; it does not establish real-server deployment, Tizen software-emulator or Samsung TV acceptance.
 Signed packaging requires the Tizen CLI and a configured developer security profile via `scripts/build-wgt.sh`.
-For native artwork acceptance, capture matched discovery, search, My Requests and detail states, including missing and failed posters.
+For native artwork acceptance, capture matched discovery, My Requests and detail states, including missing and failed posters.
 Check caption readability, focus rings, Back restoration, scrolling and image loading without leaking the server address or authorization to the CDN.

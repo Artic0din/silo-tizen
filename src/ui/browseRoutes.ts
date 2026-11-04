@@ -134,6 +134,7 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
     if (current.kind === "personal") return personalView(current, handlers);
     if (current.kind === "personFilmography") return personFilmographyView(current, handlers);
     if (current.kind === "library") {
+        if (current.library.type === "music") return statusView(`library:${current.library.id}`, "Music", ["Music browsing is not available on this TV."], [escape], back);
         current.discovery ??= discoveryState();
         return discoveryView(current, current.discovery, handlers);
     }

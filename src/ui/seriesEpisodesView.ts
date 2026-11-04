@@ -8,11 +8,14 @@ import { episodeAirDate, episodeRuntime } from "./episodeCaption.ts";
 interface EpisodeView { content: HTMLElement[]; zones: Zone[] }
 const visits = new WeakMap<SeriesEpisodes, { context: ViewContext; episodes: readonly Episode[] | undefined; season: number | undefined; loading: boolean; failed: boolean; view: EpisodeView }>();
 
-export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, focusEpisode?: (id: string) => void): { content: HTMLElement[]; zones: Zone[] } {
+export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, focusEpisode?: (id: string) => void, currentEpisode?: string): { content: HTMLElement[]; zones: Zone[] } {
     const previous = visits.get(state);
     // A hero repaint must not detach the episode receiving a pointer press or held Select.
     if (previous !== undefined && previous.context.baseUrl === context.baseUrl && previous.episodes === state.episodes && previous.season === state.seasonNumber && previous.loading === state.loading && previous.failed === state.failed) {
         for (const node of previous.view.content) { node.inert = false; node.removeAttribute("aria-hidden"); }
+        for (const item of previous.view.zones[1]?.items ?? []) {
+            if (item.key === currentEpisode) item.element.setAttribute("aria-current", "true"); else item.element.removeAttribute("aria-current");
+        }
         return previous.view;
     }
     const seasons = state.seasons.map(season => {
@@ -21,8 +24,10 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, 
         return mediaItem(item, { id: season.id, title: season.title, type: "season" }, context);
     });
     const content = [zoneNode("browse-row details-season-chips", seasons)];
+    content[0]!.dataset.scrollEntry = `season:${state.seasonNumber}`;
     const episodes = (state.episodes ?? []).map(episode => {
         const item = episodeCard(episode, context);
+        if (episode.id === currentEpisode) item.element.setAttribute("aria-current", "true");
         item.element.addEventListener("focus", () => { state.entryEpisode = episode.id; delete row.dataset.scrollEntry; focusEpisode?.(episode.id); });
         return item;
     });
@@ -39,7 +44,7 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, 
     else if (episodes.length === 0) section.append(...lines(["This season has no episodes yet."]));
     section.appendChild(row);
     content.push(section);
-    const view: EpisodeView = { content, zones: [{ id: "seasons", layout: "row", items: seasons }, { id: "episodes", layout: "row", items: episodes, get entry() { return state.entryEpisode; } }] };
+    const view: EpisodeView = { content, zones: [{ id: "seasons", layout: "row", items: seasons, get entry() { return `season:${state.seasonNumber}`; } }, { id: "episodes", layout: "row", items: episodes, get entry() { return state.entryEpisode; } }] };
     visits.set(state, { context, episodes: state.episodes, season: state.seasonNumber, loading: state.loading, failed: state.failed, view });
     return view;
 }

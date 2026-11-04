@@ -127,14 +127,16 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const applyCardSize = (): void => {
         const scale = presentation.posterScale;
         container.style.setProperty("--poster-scale", String(scale));
-        container.style.setProperty("--row-lift", String((264 * scale + 38) / (264 * scale)));
-        container.style.setProperty("--request-lift", String((330 * scale + 40) / (330 * scale)));
-        // Apple's Compact still measures 199px focused: ~22px native lift plus EpisodeThumbCard's 1.025.
-        container.style.setProperty("--still-lift", String((200 * scale + 22) / (200 * scale) * 1.025));
     };
     applyCardSize();
     let shownOverlays: CardOverlayPrefs | undefined = presentation.cardOverlays;
-    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, cardOverlays: () => presentation.cardOverlays, posterScale: () => presentation.posterScale, savedFileOverlay: card => homeDetails.savedFile(card)?.overlay, open: (destination) => open(destination), preview: (card, row, continuing, featured) => shell.preview(card, row, continuing ?? false, featured === true), resume: (id, title) => {
+    const previews = new WeakMap<Route, () => void>();
+    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, cardOverlays: () => presentation.cardOverlays, posterScale: () => presentation.posterScale, savedFileOverlay: card => homeDetails.savedFile(card)?.overlay, open: (destination) => open(destination), preview: (card, row, continuing, featured) => {
+        const current = top();
+        const preview = (): void => shell.preview(card, row, continuing ?? false, featured === true);
+        if (current !== undefined) previews.set(current, preview);
+        preview();
+    }, resume: (id, title) => {
         if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title }));
     }, playEpisode: (id, title, startOver, selection) => {
         const current = top();
@@ -527,7 +529,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const details = current.data?.details;
             if (details?.detail.type === "episode" && (details.audioPreference.pending || details.subtitlePreference.pending)) {
                 for (const entry of stack) {
-                    if (entry.kind === "item" || entry.kind === "season") entry.data?.details?.noteEpisodePreference(details.detail.id, true);
+                    if (entry.kind === "item" || entry.kind === "season") entry.data?.details?.noteEpisodePreference(details.detail.id, true, details.detail.seriesId);
                 }
             }
             const changes = current.data?.details?.changes;
@@ -841,6 +843,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 return;
             }
             case "library":
+                if (current.library.type === "music") return;
                 current.discovery ??= discoveryState();
                 if (current.discovery.mode === "Recommended") presentation.ensure();
                 if (current.discovery.data !== undefined && (current.discovery.mode === "Recently Added" || current.discovery.mode === "A–Z" || current.discovery.genre !== undefined)) {
@@ -888,16 +891,17 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     return { detail, seasons, contextSeason: current.seriesContext?.seasonNumber ?? (episode?.seriesId === detail.id ? episode.seasonNumber : undefined) };
                 }, (data) => {
                     const previous = current.data?.details;
-                    const entryRevision = inputRevision;
-                    let enterEpisodes = previous === undefined && current.focus === undefined && current.seriesContext === undefined;
+                    let seasonFocus: { season: number | undefined; revision: number } | undefined;
                     const details = new DetailsState(data.detail, session, (audioClosed) => {
-                        const episode = details.series?.entryEpisode;
-                        if (enterEpisodes && episode !== undefined && details.series?.episodes !== undefined) {
-                            enterEpisodes = false;
-                            if (top() === current && inputRevision === entryRevision) {
-                                render({ zone: "episodes", key: episode });
-                                return;
-                            }
+                        if (details.series?.focusSelectedEpisode && seasonFocus?.season !== details.series.seasonNumber) {
+                            seasonFocus = { season: details.series.seasonNumber, revision: inputRevision };
+                        }
+                        if (details.series?.focusSelectedEpisode && details.series.episodes !== undefined) {
+                            details.series.focusSelectedEpisode = false;
+                            const episode = details.series.entryEpisode;
+                            const enter = seasonFocus?.revision === inputRevision;
+                            seasonFocus = undefined;
+                            if (top() === current && enter && episode !== undefined) { render({ zone: "episodes", key: episode }); return; }
                         }
                         detailsChanged(current, audioClosed);
                     }, (detail, signal) => refreshWatched(current, detail, signal), personalPending, translations);
@@ -1127,7 +1131,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (current.kind === "personal" || current.kind === "personFilmography") current.pendingIndex = undefined;
                 current.stale = true;
             }
-            showRoute(current, current.focus);
+            const fromProfileMenu = (active?.kind === "requests" && active.requests.source.kind === "hub") || (active?.kind === "personal" && active.anchor === "profiles");
+            showRoute(current, fromProfileMenu ? tabFocus(current) : current.focus);
         }
     };
 
@@ -1147,6 +1152,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         stack.push(next);
         showRoute(next, focus);
     };
+
+    const tabFocus = (current: Route): FocusTarget => ({ zone: "nav", key: current.kind === "library" ? (current.library.type === "music" ? "music" : current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? current.anchor ?? "profiles" : current.kind });
 
     const showRoute = (current: Route, focus: FocusTarget | undefined): void => {
         searchReturnFocus = current.kind === "search" && focus?.zone === "search-requests" && current.supplement?.requests === undefined
@@ -1277,12 +1284,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 searchPeople(route, route.filter ?? route.searchType);
                 render(host.focused());
             } });
-        const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || current.kind === "personal" || current.kind === "calendar" || (current.kind === "requests" && current.requests.source.kind === "hub");
+        const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || current.kind === "personal" || current.kind === "calendar";
         if (rootRoute) {
-            const selected = current.kind === "library" ? (current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? current.anchor ?? "profiles" : current.kind;
-            const preview = current.kind === "home" || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && (current.discovery?.mode ?? "Recommended") === "Recommended");
+            const selected = tabFocus(current).key;
+            const preview = current.kind === "home" || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
             const modal = browsing && (current.discovery?.panel !== undefined || shuffleFailure?.route === current);
             const decorated = shell.decorate(view, selected, preview, modal ? () => { view.back?.(); } : current.kind === "personal" || (current.kind === "library" && current.discovery?.genre !== undefined) ? pop : undefined, current.kind === "library" ? `library:${current.library.id}:${current.library.type}:${current.discovery?.mode ?? "Recommended"}` : undefined);
+            // A bar-focused return does not focus a card to restore this page's hero.
+            if (preview && host.name !== view.name) previews.get(current)?.();
             const nav = container.querySelector<HTMLElement>(".browse-nav");
             if (nav !== null) { nav.inert = modal || nav.inert; if (nav.inert) nav.setAttribute("aria-hidden", "true"); else nav.removeAttribute("aria-hidden"); }
             host.show({ ...decorated, ...(current.kind === "library" ? { ready: hasData(current), ...(current.discovery?.genre !== undefined ? { back: pop } : {}) } : {}), ...(modal ? { zones: view.zones, back: view.back } : {}) }, focus);
@@ -1501,7 +1510,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         let route = roots.get(key);
         if (route === undefined) {
             route = typeof target === "string"
-                ? target === "for_you" ? newRoute({ kind: "for_you", data: undefined }) : target === "requests" ? newRoute({ kind: "requests", requests: requestsState({ kind: "hub" }) }) : target === "calendar" ? newRoute({ kind: "calendar", calendar: calendarState() }) : newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
+                ? target === "for_you" ? newRoute({ kind: "for_you", data: undefined }) : target === "calendar" ? newRoute({ kind: "calendar", calendar: calendarState() }) : newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
                 : newRoute({ kind: "library", library: target, pages: newPages() });
             roots.set(key, route);
         }
@@ -1514,20 +1523,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             route = newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" });
             roots.set(key, route);
             push(route, { zone: "field", key: "query" });
-            if (current !== undefined) current.focus = { zone: "nav", key: current.kind === "library" ? current.library.type === "series" ? "series" : "movies" : current.kind === "personal" ? current.anchor ?? "profiles" : current.kind };
+            if (current !== undefined) current.focus = { zone: "nav", key: current.kind === "library" ? current.library.type === "music" ? "music" : current.library.type === "series" ? "series" : "movies" : current.kind === "personal" ? current.anchor ?? "profiles" : current.kind };
             return;
-        }
-        // Apple's shown tab hands focus to the first card and reads nothing (TVRequestsPage.requestEntryFocus).
-        if (route === current && route.kind === "requests") {
-            host.focusDefault();
-            route.focus = host.focused();
-            return;
-        }
-        // Apple rebuilds TVRequestsPage on each visit: loading, a fresh read, then the first card.
-        if (route.kind === "requests") {
-            route = newRoute({ kind: "requests", requests: requestsState({ kind: "hub" }) });
-            roots.set(key, route);
-            host.forgetVisit("requests:hub");
         }
         loading?.abort();
         loading = undefined;
@@ -1537,6 +1534,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         showRoute(route, route.focus?.zone === "nav" ? undefined : route.focus);
         if (hasData(route) && (route.focus === undefined || route.focus.zone === "nav")) host.focusDefault();
     }, {
+        requests: () => { host.forgetVisit("requests:hub"); openRequests({ kind: "hub" }); },
         name: options.profileName ?? "Profiles",
         serverName: () => cachedBranding(options.publicStorage, context.baseUrl)?.serverName,
         settings: () => {
@@ -1568,7 +1566,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }
                 host.listen();
                 const current = top();
-                if (current !== undefined) showRoute(current, { zone: "nav", key: "profiles" });
+                if (current !== undefined) showRoute(current, tabFocus(current));
             }, server.profileLaunch);
         },
         personal: (source, anchor = "profiles") => {

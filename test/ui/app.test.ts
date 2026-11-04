@@ -48,6 +48,57 @@ async function signIn(tv: Tv): Promise<void> {
     await homeDetailsRead(tv);
 }
 
+appTest("offline saved server offers Change account and restores a reachable saved account", async tv => {
+    await signIn(tv);
+    const devices = tv.fake.devices.size;
+    await tv.page.evaluate(() => {
+        window.appHarness.destroy();
+        const storage = window.appHarness.storage;
+        const saved = JSON.parse(storage.getItem("silo.native.accounts.v1")!);
+        const offline = { ...saved.accounts[0], id: "offline", baseUrl: "https://offline.invalid", accountId: "offline" };
+        storage.setItem("silo.native.accounts.v1", JSON.stringify({ accounts: [offline, ...saved.accounts], selected: offline.id }));
+        window.appHarness.mount();
+    });
+    await tv.page.locator('[data-screen="entry"]').waitFor();
+    const change = tv.page.getByRole("button", { name: "Change account", exact: true });
+    assert.equal(await change.count(), 1);
+    await change.click();
+    await tv.page.locator('.accounts-rail button').filter({ hasText: "silo.example.test" }).click();
+    await tv.page.locator('.account-card').first().click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    assert.equal(tv.fake.devices.size, devices);
+});
+
+for (const column of ["accounts-rail", "accounts-pane", "accounts-settings"]) appTest(`D-pad reveals overflowing ${column}`, async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => {
+        const storage = window.appHarness.storage;
+        const saved = JSON.parse(storage.getItem("silo.native.accounts.v1")!);
+        const first = saved.accounts[0];
+        saved.accounts.push(...Array.from({ length: 14 }, (_, i) => ({ ...first, id: `extra-${i}`, accountId: `extra-${i}`, username: `Extra ${i}` })));
+        saved.accounts.push(...Array.from({ length: 14 }, (_, i) => ({ ...first, id: `server-${i}`, baseUrl: `https://server-${i}.invalid` })));
+        storage.setItem("silo.native.accounts.v1", JSON.stringify(saved));
+    });
+    await tv.page.locator('[data-focus="profiles"]').click();
+    if (column === "accounts-settings") {
+        await tv.page.locator('[data-focus="settings"]').click();
+        await tv.page.locator('[data-focus="server"]').click();
+        await tv.page.getByRole("button", { name: "Accounts", exact: true }).click();
+    } else await tv.page.locator('[data-focus="switch-server"]').click();
+    const first = tv.page.locator(`.${column} button`).first();
+    await first.focus();
+    const count = await tv.page.locator(`.${column} button`).count();
+    for (let i = 1; i < count; i++) await tv.page.keyboard.press("ArrowDown");
+    await tv.jump(300);
+    const bounds = await tv.page.locator(`.${column}`).evaluate(node => {
+        const viewport = node.getBoundingClientRect();
+        const focused = document.activeElement!.getBoundingClientRect();
+        return { scroll: node.scrollTop, top: viewport.top, bottom: viewport.bottom, focusedTop: focused.top, focusedBottom: focused.bottom };
+    });
+    assert.ok(bounds.scroll > 0, "the overflowing column scrolls");
+    assert.ok(bounds.focusedTop >= bounds.top && bounds.focusedBottom <= bounds.bottom, JSON.stringify(bounds));
+});
+
 appTest("unreadable account storage shows recovery and preserves the saved bytes", async tv => {
     await tv.page.evaluate(() => { window.appHarness.destroy(); window.appHarness.storage.failGet = true; window.appHarness.mount(); });
     await tv.page.locator('[data-screen="accounts-storage-error"]').waitFor();

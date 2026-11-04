@@ -30,6 +30,7 @@ export interface SessionCoreDeps {
     readonly localAccountId?: string;
     readonly addAccount?: boolean;
     readonly beforeAccountSignIn?: (baseUrl: string, accountId: string) => Promise<void>;
+    readonly beforeAccountSignOut?: (baseUrl: string, accountId: string) => Promise<void>;
 }
 
 export interface ConnectedServer {
@@ -79,6 +80,7 @@ export async function connect(serverAddress: string, deps: SessionCoreDeps, sign
 
 /** Offline removal still clears local authority; reachable accounts also revoke their session. */
 export async function signOutSavedAccount(account: SavedAccount, deps: SessionCoreDeps): Promise<VaultClear> {
+    await deps.beforeAccountSignOut?.(account.baseUrl, account.accountId);
     try {
         const connected = await connect(account.baseUrl, { ...deps, addAccount: true });
         if (connected.status === "connected") {

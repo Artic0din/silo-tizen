@@ -243,6 +243,9 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             copy.push(options);
         }
         const row = [connect];
+        if (options.onChangeAccount) {
+            row.push(marqueeButton("change-account", "Change account", "plain", changeServer));
+        }
         if (offerForget) {
             row.push(marqueeButton("forget", "Remove saved sign-in", "plain", () => void forget()));
         }

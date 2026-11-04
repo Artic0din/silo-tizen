@@ -5,7 +5,7 @@ import { AccountVault } from "../../src/session/accounts.ts";
 import { CredentialVault } from "../../src/session/credentialVault.ts";
 import { keyManagerStore, memoryStore } from "../../src/session/secretStore.ts";
 import { connected, signIn } from "./support/harness.ts";
-import { connect, forgetStoredCredential } from "../../src/session/core.ts";
+import { connect, forgetStoredCredential, signOutSavedAccount } from "../../src/session/core.ts";
 import { MemoryPublicStorage } from "./support/keyManager.ts";
 
 test("unreadable retained legacy storage keeps the account's sign-out guard", async () => {
@@ -81,6 +81,26 @@ for (const legacy of [false, true]) test(`forget selected sign-in preserves anot
     assert.equal((await new CredentialVault(store, h.storage, h.fake.origin, id).load()).status, "none");
     assert.equal((await other.load()).status, "found");
     if (legacy) assert.equal((await new CredentialVault(store, h.storage, h.fake.origin).load()).status, "found");
+});
+
+test("removing an inactive cached account fences its late refresh writes", async () => {
+    const h = await connected(); await signIn(h);
+    const account = h.core.accounts.directory.list()[0]!;
+    const held = h.fake.hold("/auth/refresh", true);
+    const refreshing = h.core.session.refresh();
+    await h.clock.advance(0);
+    const deps = {
+        fetch: h.fake.fetch, publicStorage: h.storage, keyManager: h.keyManager,
+        randomBytes: (bytes: Uint8Array) => { bytes.fill(7); }, deviceName: "Test TV", devicePlatform: "tizen", clock: h.clock,
+        beforeAccountSignOut: async () => { await h.core.session.retire(); },
+    };
+    assert.equal(await signOutSavedAccount(account, deps), "cleared");
+    h.core.accounts.directory.remove(account.id);
+    const saved = [...h.keyManager!.items];
+    held.release(); await refreshing;
+    assert.deepEqual([...h.keyManager!.items], saved, "no credentials written after removal");
+    assert.deepEqual(h.core.accounts.directory.list(), []);
+    assert.equal(h.core.session.signedIn, false);
 });
 
 for (const refused of [false, true]) test(`replacing a saved account fences its old ${refused ? "refused" : "successful"} refresh`, async () => {

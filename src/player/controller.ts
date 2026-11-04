@@ -21,7 +21,7 @@ import { ApiError } from "../api/errors.ts";
 import { abortedError, type RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import { isPermittedUrl } from "../api/serverUrl.ts";
-import type { AudioTrackInfo, FileVersionTracks, PlaybackDecision, PlaybackDefaults, PlaybackMutation, PlaybackPlan, ReplanOperation, SelectedTracks, StartPlaybackBody, SubtitleTrack } from "../contracts/v2/playback.ts";
+import type { FileVersionTracks, PlaybackDecision, PlaybackDefaults, PlaybackMutation, PlaybackPlan, ReplanOperation, SelectedTracks, StartPlaybackBody } from "../contracts/v2/playback.ts";
 import type { RandomBytes } from "../session/deviceIdentity.ts";
 import type { NativeSession } from "../session/session.ts";
 import type { AVPlay, AVPlayListener } from "./avplay.ts";
@@ -37,6 +37,7 @@ import { DEFAULT_APPEARANCE, decodeCues, type SubtitleAppearance, type SubtitleC
 import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
 import { initialSubtitle } from "./preplaySubtitles.ts";
 import { PlaybackRecovery, recoveryVerdict, type RecoveryStep, type RecoveryVerdict, unanswered } from "./playbackRecovery.ts";
+import { audioRow, qualityMenuLabel, subtitleRow } from "./trackLabels.ts";
 
 /** What browse hands over: one file of one catalog item. */
 export interface PlayRequest {
@@ -81,7 +82,10 @@ export interface PlaybackExits {
 
 export interface TrackChoice {
     readonly id: string;
+    /** Language, else a meaningful title. The format line is `detail`. */
     readonly label: string;
+    /** Codec, layout and flags. Absent when the name already says everything. */
+    readonly detail?: string;
 }
 
 export type AudioTracks = { readonly state: "loading" } | { readonly state: "failed" } | { readonly state: "ready"; readonly choices: readonly TrackChoice[] };
@@ -2341,7 +2345,10 @@ function trackView(attempt: Attempt, plan: PlaybackPlan): TrackView {
         },
         audio: tracks === undefined || tracks.state !== "ready" ? { state: tracks?.state ?? "loading" } : { state: "ready", choices: audioChoices(attempt, plan) },
         selectedAudioId: plan.selectedTracks.audio?.id,
-        subtitles: plan.subtitle.inventory.map((entry) => ({ id: entry.trackId, label: attempt.ai?.view?.results.find(result => entry.syncKey === `stored-${result.id}`)?.label ?? subtitleLabel(entry) })),
+        subtitles: plan.subtitle.inventory.map((entry) => {
+            const generated = attempt.ai?.view?.results.find(result => entry.syncKey === `stored-${result.id}`)?.label;
+            return generated === undefined ? { id: entry.trackId, ...subtitleRow(entry, entry.combinedIndex) } : { id: entry.trackId, label: generated };
+        }),
         selectedSubtitleId: selectedSubtitle(plan),
         subtitleMode: plan.subtitle.mode,
         change: attempt.change,
@@ -2351,7 +2358,7 @@ function trackView(attempt: Attempt, plan: PlaybackPlan): TrackView {
 
 function qualityChoices(plan: PlaybackPlan): TrackChoice[] {
     const offered = plan.availableQualities.filter((quality) => quality.label !== "original" && quality.label !== "auto");
-    return offered.length === 0 ? [] : [{ id: "auto", label: "Auto" }, ...offered.map((quality) => ({ id: quality.label, label: quality.displayName || quality.label }))];
+    return offered.length === 0 ? [] : [{ id: "auto", label: "Auto" }, ...offered.map((quality) => ({ id: quality.label, label: qualityMenuLabel(quality) }))];
 }
 
 /** The effective edition's audio tracks; empty until the versions read answers. */
@@ -2359,7 +2366,7 @@ function audioChoices(attempt: Attempt, plan: PlaybackPlan): TrackChoice[] {
     const tracks = attempt.tracks;
     const fileId = plan.effectiveMediaFileId;
     const version = tracks?.state === "ready" ? tracks.versions.find((candidate) => candidate.fileId === fileId) : undefined;
-    return (version?.audio ?? []).map((track, ordinal) => ({ id: `file:${fileId}:audio:${ordinal}`, label: audioLabel(track, ordinal) }));
+    return (version?.audio ?? []).map((track, ordinal) => ({ id: `file:${fileId}:audio:${ordinal}`, ...audioRow(track, ordinal) }));
 }
 
 /** The shown subtitle; `off` means none even when the plan still names a track. */
@@ -2367,35 +2374,8 @@ function selectedSubtitle(plan: PlaybackPlan): string | undefined {
     return plan.subtitle.mode === "off" ? undefined : plan.subtitle.trackId;
 }
 
-function languageText(language: string | undefined): string | undefined {
-    return language === undefined || language === "" || language === "und" ? undefined : language.toUpperCase();
-}
-
-function audioLabel(track: AudioTrackInfo, ordinal: number): string {
-    const parts = [track.title ?? languageText(track.language) ?? `Track ${ordinal + 1}`];
-    const channels = track.channels;
-    if (channels !== undefined && channels > 0) {
-        parts.push(channels === 1 ? "Mono" : channels === 2 ? "Stereo" : channels === 6 ? "5.1" : channels === 8 ? "7.1" : `${channels} channels`);
-    }
-    if (track.codec !== undefined && track.codec !== "") {
-        parts.push(track.codec.toUpperCase());
-    }
-    return parts.join(" · ");
-}
-
 function textSubtitle(codec: string | undefined): boolean {
     return codec !== undefined && ["srt", "subrip", "webvtt", "vtt", "ass", "ssa", "mov_text", "text"].includes(codec.toLowerCase());
-}
-
-function subtitleLabel(entry: SubtitleTrack): string {
-    const parts = [entry.label ?? languageText(entry.language) ?? `Subtitles ${entry.combinedIndex + 1}`];
-    if (entry.forced) {
-        parts.push("Forced");
-    }
-    if (entry.hearingImpaired) {
-        parts.push("SDH");
-    }
-    return parts.join(" · ");
 }
 
 /** The session itself is gone or the request was abandoned: not a track change the viewer can retry. */

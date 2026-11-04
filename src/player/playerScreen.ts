@@ -82,12 +82,15 @@ function changeText(tracks: TrackView): string {
     }
 }
 
-function choice(id: string, label: string, current: boolean): HTMLButtonElement {
+function choice(id: string, label: string, current: boolean, detail?: string): HTMLButtonElement {
     const button = el("button", "player-choice");
     button.type = "button";
     button.setAttribute("data-focus", id);
     button.setAttribute("aria-pressed", String(current));
-    button.appendChild(el("span", "player-choice-label", label));
+    const copy = el("span", "player-choice-copy");
+    copy.appendChild(el("span", "player-choice-label", label));
+    if (detail !== undefined && detail !== "") copy.appendChild(el("span", "player-choice-detail", detail));
+    button.appendChild(copy);
     if (current) {
         button.className = "player-choice player-choice-current";
     }
@@ -95,7 +98,7 @@ function choice(id: string, label: string, current: boolean): HTMLButtonElement 
 }
 
 function fillAudio(list: HTMLElement, tracks: TrackView): void {
-    list.appendChild(el("h2", "player-menu-heading", "Audio"));
+    list.appendChild(el("h2", "player-menu-heading", "TRACKS"));
     const audio = tracks.audio;
     if (audio.state === "loading") {
         list.appendChild(el("p", "player-menu-note", "Loading audio tracks"));
@@ -106,13 +109,13 @@ function fillAudio(list: HTMLElement, tracks: TrackView): void {
         list.appendChild(el("p", "player-menu-note", "No audio tracks listed"));
     } else {
         for (const track of audio.choices) {
-            list.appendChild(choice(track.id, track.label, track.id === tracks.selectedAudioId));
+            list.appendChild(choice(track.id, track.label, track.id === tracks.selectedAudioId, track.detail));
         }
     }
 }
 
 function fillSubtitles(list: HTMLElement, tracks: TrackView, languages = false): void {
-    list.appendChild(el("h2", "player-menu-heading", "Subtitles"));
+    list.appendChild(el("h2", "player-menu-heading", "TRACKS"));
     const ai = tracks.ai;
     if (languages && ai !== undefined) {
         list.appendChild(choice("ai-language-back", "Back to subtitles", false));
@@ -121,7 +124,7 @@ function fillSubtitles(list: HTMLElement, tracks: TrackView, languages = false):
     }
     list.appendChild(choice(OFF, "Off", tracks.selectedSubtitleId === undefined));
     for (const track of tracks.subtitles) {
-        list.appendChild(choice(track.id, track.label, track.id === tracks.selectedSubtitleId));
+        list.appendChild(choice(track.id, track.label, track.id === tracks.selectedSubtitleId, track.detail));
     }
     if (tracks.seriesSubtitle !== undefined) {
         const save = choice(SERIES_SUBTITLE, tracks.selectedSubtitleId === undefined ? "Keep subtitles off for this series" : "Use this subtitle choice for this series", false);
@@ -140,7 +143,7 @@ function fillQuality(list: HTMLElement, tracks: TrackView): void {
     if (quality === undefined || quality.choices.length < 2) {
         return;
     }
-    list.appendChild(el("h2", "player-menu-heading", "Quality"));
+    list.appendChild(el("h2", "player-menu-heading", "PLAYBACK"));
     for (const qualityChoice of quality.choices) {
         list.appendChild(choice(`quality:${qualityChoice.id}`, qualityChoice.label, qualityChoice.id === quality.selectedId));
     }
@@ -183,27 +186,38 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     status.setAttribute("role", "status");
     const bar = el("div", "player-bar");
     bar.setAttribute("role", "slider");
-    bar.setAttribute("aria-label", "Playback position");
+    bar.setAttribute("aria-label", "Scrubber");
     bar.setAttribute("aria-valuemin", "0");
     bar.setAttribute("data-focus", "position");
     bar.tabIndex = -1;
+    const track = el("div", "player-bar-track");
     const fill = el("div", "player-bar-fill");
-    bar.appendChild(fill);
+    const puck = el("div", "player-puck");
+    track.appendChild(fill);
+    bar.append(track, puck);
     const time = el("p", "player-time");
-    const tracksButton = el("button", "player-button player-tracks-button", "Audio and subtitles");
+    const elapsed = el("span", "player-time-elapsed");
+    const remaining = el("span", "player-time-remaining");
+    time.append(elapsed, remaining);
+    const tracksButton = el("button", "player-button player-tracks-button");
     tracksButton.type = "button";
     tracksButton.tabIndex = -1;
     tracksButton.setAttribute("data-focus", "tracks");
+    tracksButton.setAttribute("aria-label", "Audio and subtitles");
+    tracksButton.appendChild(el("span", "player-glyph", "•••"));
+    tracksButton.firstElementChild?.setAttribute("aria-hidden", "true");
     tracksButton.addEventListener("click", () => openMenu());
     const transport = el("div", "player-transport");
     const backward = el("button", "player-button");
-    const pause = el("button", "player-button", "Pause");
+    const pause = el("button", "player-button player-button-primary");
     const forward = el("button", "player-button");
     const transportButtons = [backward, pause, forward, tracksButton];
     for (const [index, button] of transportButtons.entries()) {
         button.type = "button";
         button.tabIndex = -1;
         button.setAttribute("data-focus", ["backward", "pause", "forward", "tracks"][index] ?? "");
+        if (button !== tracksButton) button.appendChild(el("span", "player-glyph"));
+        button.firstElementChild?.setAttribute("aria-hidden", "true");
         transport.appendChild(button);
     }
     backward.addEventListener("click", () => previewSeek("backward"));
@@ -214,14 +228,28 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     overlay.appendChild(bar);
     overlay.appendChild(time);
     overlay.appendChild(transport);
+    const hud = el("div", "player-hud");
+    hud.hidden = true;
+    const tablist = el("div", "player-tabs");
+    tablist.setAttribute("role", "tablist");
+    tablist.setAttribute("aria-label", "Player options");
+    const tabs = (["Audio", "Subtitles", "Video"] as const).map((name) => {
+        const tab = el("button", "player-tab", name);
+        tab.type = "button";
+        tab.tabIndex = -1;
+        tab.setAttribute("role", "tab");
+        tab.setAttribute("aria-selected", "false");
+        return tab;
+    });
+    for (const tab of tabs) tablist.appendChild(tab);
     const menu = el("div", "player-menu");
+    const panes = el("div", "player-menu-panes");
     const lists = [el("div", "player-menu-list player-menu-audio"), el("div", "player-menu-list player-menu-subtitles"), el("div", "player-menu-list player-menu-quality")];
     const menuStatus = el("p", "player-menu-status");
     menuStatus.setAttribute("role", "status");
-    for (const list of lists) {
-        menu.appendChild(list);
-    }
-    menu.appendChild(menuStatus);
+    for (const list of lists) panes.appendChild(list);
+    menu.append(panes, menuStatus);
+    hud.append(tablist, menu);
     const failure = el("div", "player-error");
     failure.setAttribute("role", "alert");
     const failureTitle = el("h1", "player-title");
@@ -252,7 +280,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     section.appendChild(overlay);
     section.appendChild(skip);
     section.appendChild(failure);
-    section.appendChild(menu);
+    section.appendChild(hud);
     root.appendChild(section);
 
     let view: PlaybackView = { phase: "closed" };
@@ -271,12 +299,23 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         const all = buttons(index);
         return all.find((button) => button.className.indexOf("player-choice-current") !== -1) ?? all[0];
     };
+    const showPane = (index: number): void => {
+        column = index;
+        for (const [pane, list] of lists.entries()) {
+            list.classList.toggle("player-menu-pane-active", pane === index);
+        }
+        for (const [pane, tab] of tabs.entries()) {
+            const available = lists[pane]?.style.display !== "none";
+            tab.hidden = !available;
+            tab.setAttribute("aria-selected", String(pane === index && available));
+        }
+    };
     const focusList = (index: number): boolean => {
         const target = entry(index);
         if (target === undefined) {
             return false;
         }
-        column = index;
+        showPane(index);
         target.focus();
         return true;
     };
@@ -287,7 +326,6 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             drawn = key;
             const keep = focusedId();
             const hasQuality = (tracks.quality?.choices.length ?? 0) > 1;
-            menu.className = hasQuality ? "player-menu player-menu-with-quality" : "player-menu";
             for (const [index, list] of lists.entries()) {
                 list.textContent = "";
                 list.style.display = index === 2 && !hasQuality ? "none" : "";
@@ -310,6 +348,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             } else if (!focusList(column)) {
                 if (!focusList(0)) focusList(1);
             }
+            showPane(column);
         }
     };
 
@@ -328,7 +367,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         if (marker !== undefined && (view.phase === "playing" || view.phase === "paused")) {
             skip.textContent = `Skip ${marker.kind} · ${Math.ceil(marker.endSeconds - view.positionSeconds)} seconds`;
         }
-        if (skip.hidden && document.activeElement === skip) overlay.focus();
+        if (skip.hidden && document.activeElement === skip) bar.focus();
         if (seekPreview === undefined) thumbnail.clear();
         transport.hidden = !active;
         bar.setAttribute("aria-disabled", String(!active));
@@ -338,7 +377,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         if (menuOpen && view.phase !== "playing" && view.phase !== "paused") {
             closeMenu();
         }
-        menu.style.display = menuOpen ? "block" : "none";
+        hud.hidden = !menuOpen;
         tracksButton.setAttribute("aria-expanded", String(menuOpen));
         next.hidden = true;
         cancelAutoplay.hidden = view.phase !== "completion" || view.countdown === undefined;
@@ -368,33 +407,61 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         title.textContent = view.title;
         if (view.phase === "loading") {
             status.textContent = loadingText(view.detail);
-            time.textContent = "";
+            elapsed.textContent = "";
+            remaining.hidden = true;
+            remaining.textContent = "";
             tracksButton.hidden = true;
             fill.style.width = "0";
+            puck.style.left = "0";
         } else {
-            backward.textContent = `Back ${view.seekIntervals.backward} seconds`;
-            forward.textContent = `Forward ${view.seekIntervals.forward} seconds`;
+            const backwardSeconds = view.seekIntervals.backward;
+            const forwardSeconds = view.seekIntervals.forward;
+            labelGlyph(backward, backwardSeconds === 1 ? "Back 1 second" : `Back ${backwardSeconds} seconds`, String(backwardSeconds));
+            labelGlyph(forward, forwardSeconds === 1 ? "Forward 1 second" : `Forward ${forwardSeconds} seconds`, String(forwardSeconds));
             tracksButton.hidden = false;
-            tracksButton.textContent = (view.tracks.quality?.choices.length ?? 0) > 1 ? "Audio, subtitles and quality" : "Audio and subtitles";
-            pause.textContent = view.phase === "paused" ? "Play" : "Pause";
+            tracksButton.setAttribute("aria-label", (view.tracks.quality?.choices.length ?? 0) > 1 ? "Audio, subtitles and quality" : "Audio and subtitles");
+            labelGlyph(pause, view.phase === "paused" ? "Play" : "Pause", view.phase === "paused" ? "▶" : "❚❚");
             status.textContent = view.buffering ? "Buffering" : view.phase === "paused" ? "Paused" : "";
             const duration = view.durationSeconds;
             const position = seekPreview ?? view.positionSeconds;
-            time.textContent = duration === undefined ? clockText(position) : `${clockText(position)} / ${clockText(duration)}`;
+            elapsed.textContent = clockText(position);
+            if (duration === undefined || duration <= 0) {
+                remaining.hidden = true;
+                remaining.textContent = "";
+            } else {
+                remaining.hidden = false;
+                remaining.textContent = `−${clockText(Math.max(0, duration - position))}`;
+            }
             bar.setAttribute("aria-valuenow", String(position));
             bar.setAttribute("aria-valuetext", clockText(position));
             if (duration === undefined) bar.removeAttribute("aria-valuemax");
             else bar.setAttribute("aria-valuemax", String(duration));
             bar.className = seekPreview === undefined ? "player-bar" : "player-bar player-bar-preview";
-            fill.style.width = duration === undefined || duration <= 0 ? "0" : `${Math.min(100, (position / duration) * 100)}%`;
+            const fraction = duration === undefined || duration <= 0 ? 0 : Math.min(100, (position / duration) * 100);
+            fill.style.width = `${fraction}%`;
+            puck.style.left = `${fraction}%`;
         }
-        const hidden = view.phase === "playing" && !view.buffering && cancelHide === undefined && !menuOpen && seekPreview === undefined && document.activeElement === overlay;
+        const resting = document.activeElement === overlay || document.activeElement === bar;
+        const hidden = view.phase === "playing" && !view.buffering && cancelHide === undefined && !menuOpen && seekPreview === undefined && resting;
         overlay.className = hidden ? "player-overlay player-overlay-hidden" : "player-overlay";
         if (menuOpen && view.phase !== "loading") {
             drawMenu(view.tracks);
-        } else if ((!overlay.contains(document.activeElement) && document.activeElement !== skip) || (view.phase === "loading" && document.activeElement !== overlay)) {
-            overlay.focus();
+        } else if (view.phase === "loading") {
+            if (document.activeElement !== overlay) overlay.focus();
+        } else if (active) {
+            const focusedNode = document.activeElement;
+            const held = (menuOpen && menu.contains(focusedNode)) || transport.contains(focusedNode) || focusedNode === bar || (focusedNode === skip && !skip.hidden);
+            if (!held) {
+                if (!skip.hidden) skip.focus();
+                else bar.focus();
+            }
         }
+    };
+
+    const labelGlyph = (button: HTMLButtonElement, label: string, mark: string): void => {
+        button.setAttribute("aria-label", label);
+        const glyph = button.querySelector(".player-glyph");
+        if (glyph !== null) glyph.textContent = mark;
     };
 
     const previewSeek = (direction: "backward" | "forward"): void => {
@@ -518,7 +585,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             return;
         }
         if (key === "play_pause" || key === "play" || key === "pause" || key === "stop" || key === "rewind" || key === "fast_forward") {
-            if (seekPreview !== undefined) overlay.focus();
+            if (seekPreview !== undefined) bar.focus();
             seekPreview = undefined;
             if (key === "stop") {
                 controls.back();
@@ -542,7 +609,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             else if (key === "enter" || key === "back") {
                 const target = seekPreview;
                 seekPreview = undefined;
-                overlay.focus();
+                bar.focus();
                 if (key === "enter") controls.seekToSeconds(target);
             }
             render();
@@ -565,7 +632,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             return;
         }
         if (key === "back" && at >= 0) {
-            overlay.focus();
+            bar.focus();
             render();
             return;
         }

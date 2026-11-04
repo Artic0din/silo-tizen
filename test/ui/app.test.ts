@@ -339,6 +339,8 @@ appTest("EOF during a refused subtitle change still offers manual continuation",
     playback.next.push({ terminal: "adaptation_unavailable" });
     const response = tv.fake.hold(`/playback/${id}/replan`);
     await tv.remote(40);
+    // Old three-column menu showed this row beside audio. The tabbed panel keeps it on Subtitles.
+    await tv.remote(39);
     await tv.page.locator('.player-menu [data-focus="file:42:subtitle:0"]').click();
     await tv.page.evaluate(() => window.appHarness.avplay.listener?.onstreamcompleted());
     assert.equal(tv.fake.requests.filter(r => r.method === "DELETE").length, 0);

@@ -179,7 +179,8 @@ test("matched native-size seek journey: active JPEG, failure fallback and cancel
         }
         await capture(r.page, "02-active-preview");
         await remote(r.page, 10009);
-        assert.equal(await focus(r.page), "player");
+        // Old focus was "player". Cancelling a preview stays on the scrubber.
+        assert.equal(await focus(r.page), "position");
         assert.match(await r.page.locator(".player-time").innerText(), /^20:25/);
         assert.equal(await r.page.locator(".player-thumbnail:not([hidden])").count(), 0);
         await capture(r.page, "03-cancel");
@@ -197,7 +198,8 @@ test("matched native-size seek journey: active JPEG, failure fallback and cancel
         assert.equal(await focus(r.page), "position");
         assert.equal(await r.page.locator(".player-thumbnail:not([hidden])").count(), 0);
         await remote(r.page, 13);
-        assert.equal(await focus(r.page), "player");
+        // Old focus was "player". A committed seek leaves the scrubber focused.
+        assert.equal(await focus(r.page), "position");
         assert.equal(await r.page.evaluate(() => window.trickplay.avplay.calls.filter((call) => call === "seekTo 995000").length), 1);
         await r.page.evaluate(() => window.trickplay.avplay.finishSeek());
         await capture(r.page, "05-commit");
@@ -277,7 +279,8 @@ for (const failure of [401, 404, 503, "offline"] as const) {
             await failed;
             await secondImage;
             await remote(r.page, 10009);
-            assert.equal(await focus(r.page), "player");
+            // Old focus was "player". Cancelling a preview stays on the scrubber.
+            assert.equal(await focus(r.page), "position");
             await remote(r.page, 39);
             assert.match(await r.page.locator(".player-time").innerText(), /^20:35/);
             assert.equal(await focus(r.page), "position");
@@ -324,6 +327,7 @@ test("offset streams preview and cancel in source time, then commit through the 
         await remote(r.page, 13);
         assert.equal(await r.page.evaluate(() => window.trickplay.avplay.calls.filter((call) => call === "seekTo 12500").length), 1);
         await r.page.evaluate(() => window.trickplay.avplay.finishSeek());
-        assert.equal(await focus(r.page), "player");
+        // Old focus was "player". A committed seek leaves the scrubber focused.
+        assert.equal(await focus(r.page), "position");
     } finally { await r.close(); }
 });

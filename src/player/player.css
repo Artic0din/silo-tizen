@@ -60,10 +60,17 @@
     bottom: 0;
     left: 0;
     box-sizing: border-box;
-    padding: 120px 88px 64px;
-    background: linear-gradient(transparent, rgba(0, 0, 0, 0.94));
+    padding: 0 80px 48px;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0) 240px);
     outline: none;
     transition: opacity var(--silo-fast) ease-out;
+}
+
+.player-overlay {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 12px;
 }
 
 .player-overlay-hidden {
@@ -83,10 +90,11 @@
 }
 
 .player-title {
-    margin: 0 0 24px;
-    font-size: 48px;
-    font-weight: 700;
+    margin: 0;
+    font-size: 36px;
+    font-weight: 600;
     line-height: 1.1;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
 }
 
 .player-status {
@@ -97,20 +105,20 @@
 }
 
 .player-bar {
-    height: 6px;
-    margin: 0 0 20px;
-    border-radius: 6px;
-    background: var(--silo-boundary);
+    position: relative;
+    height: 56px;
+    margin: 0;
+    background: transparent;
 }
 
 .player-thumbnail {
     position: absolute;
-    left: 88px;
-    bottom: calc(100% - 96px);
+    left: 0;
+    bottom: calc(100% + 16px);
     overflow: hidden;
-    border-radius: 12px;
+    border-radius: 14px;
     pointer-events: none;
-    background: var(--silo-elevated);
+    background: rgba(26, 26, 26, 0.88);
 }
 
 .player-thumbnail img {
@@ -118,36 +126,68 @@
     max-width: none;
 }
 
+.player-bar-track {
+    position: absolute;
+    right: 0;
+    left: 0;
+    top: 50%;
+    height: 7px;
+    margin-top: -3.5px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.24);
+}
+
+.player-bar:focus .player-bar-track {
+    background: rgba(255, 255, 255, 0.35);
+}
+
+.player-bar-preview .player-bar-track {
+    height: 12px;
+    margin-top: -6px;
+    background: rgba(255, 255, 255, 0.48);
+}
+
 .player-bar-fill {
-    height: 6px;
-    border-radius: 6px;
-    background: var(--silo-text);
+    height: 100%;
+    border-radius: 999px;
+    background: #ffffff;
 }
 
 .player-bar:focus {
-    outline: 2px solid var(--silo-text);
-    outline-offset: 8px;
+    outline: none;
 }
 
-.player-bar-preview .player-bar-fill {
-    position: relative;
-}
-
-.player-bar-preview .player-bar-fill::after {
-    content: "";
+.player-puck {
+    display: none;
     position: absolute;
-    right: -9px;
-    top: -6px;
-    width: 18px;
-    height: 18px;
+    top: 50%;
+    width: 30px;
+    height: 30px;
+    margin-top: -15px;
+    margin-left: -15px;
     border-radius: 50%;
-    background: var(--silo-text);
+    background: #ffffff;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.48);
+}
+
+.player-bar:focus .player-puck,
+.player-bar-preview .player-puck {
+    display: block;
+}
+
+.player-bar-preview .player-puck {
+    width: 42px;
+    height: 42px;
+    margin-top: -21px;
+    margin-left: -21px;
+    box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.55), 0 3px 8px rgba(0, 0, 0, 0.48);
 }
 
 .player-transport {
     display: flex;
     align-items: center;
-    margin-top: 32px;
+    gap: 10px;
+    margin: 0;
 }
 
 .player-transport[hidden] {
@@ -155,13 +195,36 @@
 }
 
 .player-transport .player-button {
-    margin-right: 20px;
+    width: 66px;
+    height: 66px;
+    min-width: 66px;
+    margin: 0;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.35);
+    font-size: 25px;
+    line-height: 66px;
+}
+
+.player-transport .player-button-primary {
+    font-size: 30px;
+}
+
+.player-transport .player-button:focus {
+    border-color: transparent;
+    background: #ffffff;
+    color: #000000;
 }
 
 .player-time {
+    display: flex;
+    justify-content: space-between;
     margin: 0;
-    font-size: 23px;
-    color: var(--silo-secondary);
+    font-size: 28px;
+    font-weight: 600;
+    color: #ffffff;
+    font-variant-numeric: tabular-nums;
 }
 
 .player-error-text {
@@ -194,48 +257,91 @@
 
 .player-tracks-button {
     margin-left: auto;
-    margin-right: 0;
 }
 
-/* Audio and subtitles: two lists side by side on the right, over the video. */
-.player-menu {
+/* Apple TVPlayerInfoHUD: tab pills above a 1100x380 glass panel. */
+.player-hud {
     position: absolute;
-    top: 56px;
-    right: 88px;
-    bottom: 56px;
+    top: 32px;
+    right: 0;
+    left: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+}
+
+.player-hud[hidden] {
+    display: none;
+}
+
+.player-tabs {
+    display: flex;
+    gap: 12px;
+}
+
+.player-tab {
+    padding: 10px 24px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.45);
+    color: #ffffff;
+    font: inherit;
+    font-size: 22px;
+    font-weight: 600;
+}
+
+.player-tab[aria-selected="true"] {
+    border-color: transparent;
+    background: #ffffff;
+    color: #000000;
+}
+
+.player-menu {
+    position: relative;
     width: 1100px;
+    height: 380px;
     box-sizing: border-box;
-    padding: 40px;
-    border: 1px solid var(--silo-hairline);
-    border-radius: 18px;
-    background: rgba(21, 23, 28, 0.97);
-    animation: silo-page-enter var(--silo-page) ease-out;
+    display: flex;
+    flex-direction: column;
+    padding: 22px 28px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 28px;
+    background: rgba(26, 26, 26, 0.88);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
+}
+
+.player-menu-panes {
+    position: relative;
+    flex: 1;
+    min-height: 0;
 }
 
 .player-menu-list {
-    display: inline-block;
-    width: calc(50% - 20px);
-    height: calc(100% - 160px);
+    position: absolute;
+    inset: 0;
     box-sizing: border-box;
-    padding: 4px;
-    margin-right: 20px;
-    vertical-align: top;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.player-menu-list.player-menu-pane-active {
+    position: relative;
+    height: 100%;
     overflow-y: auto;
+    opacity: 1;
+    pointer-events: auto;
     scroll-behavior: smooth;
 }
 
-.player-menu-with-quality {
-    width: 1500px;
-}
-
-.player-menu-with-quality .player-menu-list {
-    width: calc(33.333% - 20px);
-}
-
 .player-menu-heading {
-    margin: 0 0 24px;
-    font-size: 30px;
-    font-weight: 700;
+    margin: 0 0 14px;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 1.6px;
+    color: rgba(255, 255, 255, 0.5);
 }
 
 .player-menu-note {
@@ -245,26 +351,45 @@
 }
 
 .player-choice {
-    display: block;
-    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 14px;
     width: 100%;
-    margin: 0 0 16px;
-    padding: 16px 48px 16px 24px;
-    border: 2px solid transparent;
-    border-radius: 12px;
+    margin: 0 0 2px;
+    padding: 11px 14px;
+    border: 0;
+    border-radius: 8px;
     background: transparent;
-    color: var(--silo-text);
+    color: #ffffff;
     font: inherit;
-    font-size: 26px;
+    font-size: 22px;
+    font-weight: 500;
     text-align: left;
     transition: background-color var(--silo-fast) ease-out, color var(--silo-fast) ease-out;
 }
 
+.player-choice-copy {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.player-choice-detail {
+    font-size: 17px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.55);
+}
+
 .player-choice:focus {
-    border-color: #ffffff;
     background: #ffffff;
     color: #000000;
     outline: none;
+}
+
+.player-choice:focus .player-choice-detail {
+    color: rgba(0, 0, 0, 0.62);
 }
 
 .player-choice-label {
@@ -272,28 +397,24 @@
 }
 
 .player-choice-current {
-    background: var(--silo-selected);
+    background: rgba(255, 255, 255, 0.14);
 }
 
 .player-choice-current::after {
     content: "\2713";
-    position: absolute;
-    right: 16px;
-    top: 16px;
+    font-size: 20px;
+    font-weight: 600;
 }
 
 .player-menu-status {
-    position: absolute;
-    right: 40px;
-    bottom: 40px;
-    left: 40px;
-    max-height: 136px;
+    flex: none;
+    max-height: 72px;
     overflow-y: auto;
-    min-height: 44px;
-    margin: 0;
-    font-size: 26px;
+    min-height: 28px;
+    margin: 8px 0 0;
+    font-size: 17px;
     line-height: 1.35;
-    color: var(--silo-text);
+    color: rgba(255, 255, 255, 0.7);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -147,13 +147,19 @@ test("captions paint above the overlay gradient but below its controls and the m
             return hits.map(element => element.className);
         });
         const order = await stack();
-        const at = (name: string): number => order.findIndex(className => className.split(" ").includes(name));
-        assert.ok(at("player-overlay") !== -1 && at("player-captions") < at("player-overlay"), order.join(" > "));
-        assert.ok(at("player-transport") !== -1 && at("player-transport") < at("player-captions"), order.join(" > "));
+        const at = (names: readonly string[], name: string): number => names.findIndex(className => className.split(" ").includes(name));
+        // Old overlap was the transport row on the full-height overlay. The clock row is the control over the default caption now.
+        assert.ok(at(order, "player-time") !== -1 && at(order, "player-time") < at(order, "player-captions"), order.join(" > "));
+        assert.ok(at(order, "player-overlay") !== -1 && at(order, "player-captions") < at(order, "player-overlay"), order.join(" > "));
         await remote(page, DOWN);
         await remote(page, RIGHT);
-        const menu = await stack();
-        assert.ok(menu.indexOf("player-menu") !== -1 && menu.indexOf("player-menu") < menu.findIndex(className => className === "player-captions"), menu.join(" > "));
+        const menu = await page.evaluate(() => {
+            const panel = document.querySelector(".player-menu");
+            if (panel === null) throw new Error("no panel");
+            const box = panel.getBoundingClientRect();
+            return document.elementsFromPoint(box.left + box.width / 2, box.top + box.height / 2).map(element => element.className);
+        });
+        assert.ok(at(menu, "player-menu") !== -1 && (at(menu, "player-captions") === -1 || at(menu, "player-menu") < at(menu, "player-captions")), menu.join(" > "));
     } finally { await page.close(); }
 });
 
@@ -214,7 +220,8 @@ test("Skip counts down, activates with Enter or Play, and returns focus without 
     const view = { ...playing(TRACKS), positionSeconds: 25, skipMarker: { kind: "intro" as const, startSeconds: 20, endSeconds: 60 } };
     try {
         await show(page, view);
-        assert.equal(await focused(page), "player");
+        // Old focus was "player". A visible skip pill takes first focus, as on Apple TV.
+        assert.equal(await focused(page), "skip");
         assert.equal(await text(page, ".player-skip"), "Skip intro · 35 seconds");
         await page.clock.runFor(6000);
         assert.equal(await page.locator(".player-skip").isVisible(), true);
@@ -243,7 +250,8 @@ test("Skip counts down, activates with Enter or Play, and returns focus without 
         await remote(page, UP);
         await show(page, { ...playing(TRACKS), positionSeconds: 60 });
         assert.equal(await page.locator(".player-skip").isVisible(), false);
-        assert.equal(await focused(page), "player");
+        // Old focus was "player" after the pill left. Focus returns to the scrubber.
+        assert.equal(await focused(page), "position");
         await remote(page, UP);
         assert.equal(await focused(page), "pause");
         assert.deepEqual(logs, []);
@@ -255,7 +263,8 @@ test("Enter on the default focus skips while a marker shows and pauses otherwise
     const view = { ...playing(TRACKS), positionSeconds: 25, skipMarker: { kind: "intro" as const, startSeconds: 20, endSeconds: 60 } };
     try {
         await show(page, view);
-        assert.equal(await focused(page), "player");
+        // Old focus was "player". The skip pill is the select target while it shows.
+        assert.equal(await focused(page), "skip");
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), ["seekToSeconds 60"]);
         await show(page, { ...playing(TRACKS), positionSeconds: 60 });
@@ -344,7 +353,8 @@ for (const [code, command] of [[415, "setPaused false"], [19, "setPaused true"],
         await remote(page, RIGHT);
         assert.equal(await focused(page), "position");
         await remote(page, code);
-        assert.equal(await focused(page), "player", "discarding the preview restores the playback surface");
+        // Old focus was "player". Cancelling a preview stays on the scrubber.
+        assert.equal(await focused(page), "position", "discarding the preview restores the playback surface");
         assert.deepEqual(await commands(page), [command], "discarded preview never commits an absolute seek");
         await show(page, playing(TRACKS));
         await page.clock.fastForward(5000);
@@ -364,7 +374,8 @@ test("seeking previews source time without commands until commit and Back cancel
         await remote(page, RIGHT);
         await remote(page, RIGHT);
         assert.deepEqual(await commands(page), [], "preview must not send a seek");
-        assert.equal(await page.getByRole("slider", { name: "Playback position" }).getAttribute("aria-valuenow"), "774");
+        // Old accessible name was "Playback position". Apple's scrubber label is "Scrubber".
+        assert.equal(await page.getByRole("slider", { name: "Scrubber" }).getAttribute("aria-valuenow"), "774");
         await show(page, { ...playing(TRACKS), positionSeconds: 760 });
         assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), "774", "live progress must not move the preview");
         await remote(page, ENTER);
@@ -460,7 +471,9 @@ test("loading, playing and paused are readable; the remote cancels a seek previe
         assert.equal(await focused(page), "player");
 
         await show(page, { phase: "playing", title: "The Movie", positionSeconds: 754, durationSeconds: 7200, buffering: false, seekIntervals: { backward: 10, forward: 10 }, tracks: NO_TRACKS });
-        assert.equal(await text(page, ".player-time"), "12:34 / 2:00:00");
+        // Old value was "12:34 / 2:00:00" (elapsed slash duration). Apple's time row is elapsed and a minus remaining.
+        assert.equal(await page.locator(".player-time-elapsed").innerText(), "12:34");
+        assert.equal(await page.locator(".player-time-remaining").innerText(), "−1:47:26");
         assert.equal(await page.locator(".player-overlay").getAttribute("class"), "player-overlay", "shown when playback starts");
         await page.clock.fastForward(5000);
         await show(page, { phase: "playing", title: "The Movie", positionSeconds: 759, durationSeconds: 7200, buffering: false, seekIntervals: { backward: 10, forward: 10 }, tracks: NO_TRACKS });
@@ -477,7 +490,8 @@ test("loading, playing and paused are readable; the remote cancels a seek previe
         await remote(page, BACK);
         await remote(page, BACK);
         assert.deepEqual(await commands(page), ["togglePause", "back"]);
-        assert.equal(await focused(page), "player");
+        // Old focus was "player", the empty overlay. Resting focus is the scrubber.
+        assert.equal(await focused(page), "position");
         assert.deepEqual(logs, []);
     } finally {
         await page.close();
@@ -536,6 +550,42 @@ const menuShown = (page: Page): Promise<boolean> => page.locator(".player-menu")
 /** innerText puts a blank line after paragraphs; compare lines only. */
 const lines = async (page: Page, selector: string): Promise<string> => (await text(page, selector)).replace(/\n+/g, "\n");
 
+test("the open panel is Apple's 1100 by 380 tabbed HUD and the clock is elapsed and remaining", async () => {
+    const { page } = await open();
+    try {
+        const quality = { choices: [{ id: "auto", label: "Auto" }, { id: "1080p-medium", label: "1080p Medium (6 Mbps)" }], selectedId: "auto" };
+        await show(page, playing({ ...TRACKS, quality }));
+        await remote(page, DOWN);
+        const panel = await page.locator(".player-menu").evaluate((node) => {
+            const style = getComputedStyle(node);
+            const box = node.getBoundingClientRect();
+            return { width: box.width, height: box.height, radius: style.borderTopLeftRadius, border: style.borderTopColor, shadow: style.boxShadow };
+        });
+        assert.equal(panel.width, 1100);
+        assert.equal(panel.height, 380);
+        assert.equal(panel.radius, "28px");
+        assert.equal(panel.border, "rgba(255, 255, 255, 0.14)");
+        assert.match(panel.shadow, /rgba\(0, 0, 0, 0\.5\)/);
+        assert.deepEqual(await page.locator(".player-tab").allTextContents(), ["Audio", "Subtitles", "Video"]);
+        const elapsed = page.locator(".player-time-elapsed");
+        const remaining = page.locator(".player-time-remaining");
+        assert.equal(await elapsed.innerText(), "12:34");
+        assert.equal(await remaining.innerText(), "−1:47:26");
+        await page.locator(".player-bar").focus();
+        const puck = await page.locator(".player-puck").evaluate((node) => {
+            const style = getComputedStyle(node);
+            const box = node.getBoundingClientRect();
+            return { width: box.width, height: box.height, color: style.backgroundColor, shown: style.display !== "none" };
+        });
+        assert.equal(puck.shown, true);
+        assert.equal(puck.width, 30);
+        assert.equal(puck.height, 30);
+        assert.equal(puck.color, "rgb(255, 255, 255)");
+    } finally {
+        await page.close();
+    }
+});
+
 test("Down opens audio and subtitles with focus on the current track; the menu keeps every key to itself", async () => {
     const { page, logs } = await open();
     try {
@@ -550,7 +600,8 @@ test("Down opens audio and subtitles with focus on the current track; the menu k
         await remote(page, DOWN);
         assert.equal(await menuShown(page), true);
         assert.equal(await focused(page), "file:42:audio:0");
-        assert.equal(await text(page, ".player-menu-audio"), "Audio\nEnglish · 5.1 · EAC3\nJapanese · Stereo · AAC");
+        // Old heading was "Audio" on the three-column dialog. Apple's column header is TRACKS.
+        assert.equal(await text(page, ".player-menu-audio"), "TRACKS\nEnglish · 5.1 · EAC3\nJapanese · Stereo · AAC");
         assert.equal(await page.locator('[data-focus="file:42:audio:0"]').getAttribute("aria-pressed"), "true");
         await capture(page, "player-tracks-menu");
 
@@ -572,7 +623,8 @@ test("Down opens audio and subtitles with focus on the current track; the menu k
         assert.equal(await focused(page), "file:42:audio:0", "a list is entered at its current track");
         await remote(page, BACK);
         assert.equal(await menuShown(page), false);
-        assert.equal(await focused(page), "player");
+        // Old focus was "player". Closing the panel returns to the scrubber.
+        assert.equal(await focused(page), "position");
         assert.deepEqual(await commands(page), ["selectAudio file:42:audio:1", "selectSubtitle file:42:subtitle:1", "selectSubtitle off"]);
 
         await remote(page, ENTER);
@@ -589,11 +641,13 @@ test("the menu says what is happening: loading, a failed list with Retry, a chan
     try {
         await show(page, playing({ ...TRACKS, audio: { state: "loading" } }));
         await remote(page, DOWN);
-        assert.equal(await lines(page, ".player-menu-audio"), "Audio\nLoading audio tracks");
+        // Old heading was "Audio".
+        assert.equal(await lines(page, ".player-menu-audio"), "TRACKS\nLoading audio tracks");
         assert.equal(await focused(page), "subtitles-off", "with no audio choice, focus starts in subtitles");
 
         await show(page, playing({ ...TRACKS, audio: { state: "failed" } }));
-        assert.equal(await lines(page, ".player-menu-audio"), "Audio\nCouldn't load audio tracks.\nRetry");
+        // Old heading was "Audio".
+        assert.equal(await lines(page, ".player-menu-audio"), "TRACKS\nCouldn't load audio tracks.\nRetry");
         await remote(page, LEFT);
         assert.equal(await focused(page), "audio-retry");
         await remote(page, ENTER);
@@ -703,7 +757,8 @@ test("hiding suspends playback and showing restores it, without a restart notice
             document.dispatchEvent(new Event("visibilitychange"));
         });
         assert.deepEqual(await commands(page), ["suspend", "restore"]);
-        assert.equal(await focused(page), "player");
+        // Old focus was "player". Playback focus stays on the scrubber across suspend.
+        assert.equal(await focused(page), "position");
         await show(page, { phase: "loading", title: "The Movie", detail: "restoring" });
         assert.equal(await text(page, ".player-status"), "Restoring");
         await hold();
@@ -777,7 +832,8 @@ test("quality is server-gated, remote reachable and reports pending/refused stat
         await show(page, playing({ ...TRACKS, quality: { choices: [], selectedId: undefined } }));
         assert.equal(await focused(page), "file:42:audio:0", "disappearing quality hands focus to a usable list");
         await remote(page, BACK);
-        assert.equal(await focused(page), "player");
+        // Old focus was "player". Closing the panel returns to the scrubber.
+        assert.equal(await focused(page), "position");
         assert.deepEqual(logs, []);
     } finally {
         await page.close();

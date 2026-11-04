@@ -97,7 +97,7 @@ export interface RouteHandlers {
     readonly more: (route: Extract<Route, { kind: "library" }>) => void;
     readonly preserve: (route: Extract<Route, { kind: "library" }>) => boolean;
     readonly gridColumns: number;
-    readonly shuffle: { readonly starting: boolean; readonly failure: string | undefined; readonly start: (route: Extract<Route, { kind: "library" }>) => void; readonly dismiss: () => void } | undefined;
+    readonly shuffle: { readonly starting: boolean; readonly failure: string | undefined; readonly start: (route: Extract<Route, { kind: "library" | "libraryResults" }>) => void; readonly dismiss: () => void } | undefined;
     readonly requests: (route: Extract<Route, { kind: "requests" }>) => RequestsHandlers;
     readonly personFilter: (route: Extract<Route, { kind: "personFilmography" }>, filter: MediaScope) => void;
     readonly calendar: (route: Extract<Route, { kind: "calendar" }>) => CalendarHandlers;
@@ -134,6 +134,7 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
     if (current.kind === "personal") return personalView(current, handlers);
     if (current.kind === "personFilmography") return personFilmographyView(current, handlers);
     if (current.kind === "library") {
+        if (current.library.type === "music") return statusView(`library:${current.library.id}`, "Music", ["Music browsing is not available on this TV."], [escape], back);
         current.discovery ??= discoveryState();
         return discoveryView(current, current.discovery, handlers);
     }
@@ -203,7 +204,7 @@ function grid(current: Route, pages: Pages, page: CatalogPage, handlers: RouteHa
         {
             page,
             index: pages.index,
-            pageSize: PAGE_SIZE,
+            pageSize: current.kind === "libraryResults" && current.source.kind === "collection" ? 60 : PAGE_SIZE,
             loading: handlers.busy,
             previous: () => handlers.turn(current, pages, -1),
             next: () => handlers.turn(current, pages, 1),

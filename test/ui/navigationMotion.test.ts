@@ -130,7 +130,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             const loadedReads = tv.fake.requests.length;
             await tv.page.locator('[data-focus="movies"]').focus();
             await tv.jump(250);
-            assert.deepEqual(await tv.page.locator('.skyline-selector:not(.skyline-flyout) [role="menuitem"]').allTextContents(), ["Recommended", "Collections", "Browse", "Genres", "A–Z", "Recently Added"]);
+            assert.deepEqual(await tv.page.locator('.skyline-selector:not(.skyline-flyout) [role="menuitem"]').allTextContents(), ["Recommended", "Collections", "Browse"]);
             await keys(tv, 40, 40, 10009);
             assert.equal(await tv.focused(), "movies");
             assert.equal(tv.fake.requests.length, loadedReads);
@@ -139,7 +139,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
         } finally { await tv.page.context().close(); }
     });
 
-    test(`an open single-library panel gains loaded modes without moving focus (${reducedMotion})`, async () => {
+    test(`an open single-library panel retains its three modes without moving focus (${reducedMotion})`, async () => {
         const tv = await openTv(browser, { app: "browse" });
         try {
             await tv.page.emulateMedia({ reducedMotion });
@@ -155,16 +155,16 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             assert.deepEqual(await panel.locator('[role="menuitem"]').allTextContents(), ["Recommended", "Collections", "Browse"]);
             const reads = tv.fake.requests.length;
             held.release();
-            await panel.locator('[data-focus="section:Genres"]').waitFor();
-            assert.deepEqual(await panel.locator('[role="menuitem"]').allTextContents(), ["Recommended", "Collections", "Browse", "Genres", "A–Z", "Recently Added"]);
+            await tv.page.locator('.home-section .browse-card').first().waitFor();
+            assert.deepEqual(await panel.locator('[role="menuitem"]').allTextContents(), ["Recommended", "Collections", "Browse"]);
             assert.equal(await tv.focused(), "section:Recommended");
             assert.equal(await tv.page.locator('.skyline-route-outgoing, .skyline-content-drift, .skyline-content-enter').count(), 0);
-            assert.deepEqual(tv.fake.requests.slice(reads).map(request => request.path.split("?")[0]).filter(path => !path?.startsWith("/catalog/items/")), ["/library/12/collections"], "only discovery and bounded hero enrichment continue");
+            assert.deepEqual(tv.fake.requests.slice(reads).map(request => request.path.split("?")[0]).filter(path => !path?.startsWith("/catalog/items/")), [], "only bounded hero enrichment continues");
             const titles = await tv.page.locator('.home-section .browse-card:not(.skyline-explore)').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? ""));
             await tv.eventually(async () => titles.every(id => tv.fake.requests.some(request => request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(id)}`)), "accepted library hero reads dispatched");
             const loadedReads = tv.fake.requests.length;
-            await keys(tv, 40, 40, 40);
-            assert.equal(await tv.focused(), "section:Genres");
+            await keys(tv, 40, 40);
+            assert.equal(await tv.focused(), "section:browse");
             assert.equal(tv.fake.requests.length, loadedReads, "focus movement makes no requests");
             assert.deepEqual(tv.console, []);
         } finally { await tv.page.context().close(); }

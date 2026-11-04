@@ -49,6 +49,26 @@ function row(key: string, parts: readonly (HTMLElement | string)[], onPress: () 
     return item;
 }
 
+export function shuffleAlert(content: HTMLElement[], zones: Zone[], handlers: RouteHandlers): BrowsePage | undefined {
+    const failure = handlers.shuffle?.failure;
+    if (failure === undefined || handlers.shuffle === undefined) return undefined;
+    for (const node of content) { node.inert = true; node.setAttribute("aria-hidden", "true"); }
+    // ShuffleFailureAlert: a modal "Couldn't Shuffle" with the reason and one OK; Back also closes it.
+    const dismiss = handlers.shuffle.dismiss;
+    const ok = actionButton("alert-ok", "OK", dismiss);
+    const box = el("div", "browse-panel browse-alert");
+    box.setAttribute("role", "alertdialog");
+    box.setAttribute("aria-modal", "true");
+    const title = el("h2", "browse-alert-title", "Couldn't Shuffle");
+    title.id = "browse-alert-title";
+    const message = el("p", "browse-alert-message", failure);
+    message.id = "browse-alert-message";
+    box.setAttribute("aria-labelledby", title.id);
+    box.setAttribute("aria-describedby", message.id);
+    box.append(title, message, zoneNode("browse-alert-actions", [ok]));
+    return { content: [...content, el("div", "browse-panel-scrim"), box], zones: [...zones.map(zone => ({ ...zone, items: [] })), { id: "panel", layout: "row", up: "panel", down: "panel", left: "panel", right: "panel", items: [ok] }], back: dismiss };
+}
+
 export interface BrowsePage {
     readonly content: HTMLElement[];
     readonly zones: Zone[];
@@ -119,22 +139,8 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
         node.inert = modal;
         if (modal) node.setAttribute("aria-hidden", "true"); else node.removeAttribute("aria-hidden");
     }
-    if (failure !== undefined && handlers.shuffle !== undefined) {
-        // ShuffleFailureAlert: a modal "Couldn't Shuffle" with the reason and one OK; Back also closes it.
-        const dismiss = handlers.shuffle.dismiss;
-        const ok = actionButton("alert-ok", "OK", dismiss);
-        const box = el("div", "browse-panel browse-alert");
-        box.setAttribute("role", "alertdialog");
-        box.setAttribute("aria-modal", "true");
-        const title = el("h2", "browse-alert-title", "Couldn't Shuffle");
-        title.id = "browse-alert-title";
-        const message = el("p", "browse-alert-message", failure);
-        message.id = "browse-alert-message";
-        box.setAttribute("aria-labelledby", title.id);
-        box.setAttribute("aria-describedby", message.id);
-        box.append(title, message, zoneNode("browse-alert-actions", [ok]));
-        return { content: [...content, el("div", "browse-panel-scrim"), box], zones: [...zones.map(zone => ({ ...zone, items: [] })), { id: "panel", layout: "row", up: "panel", down: "panel", left: "panel", right: "panel", items: [ok] }], back: dismiss };
-    }
+    const alert = shuffleAlert(content, zones, handlers);
+    if (alert !== undefined) return alert;
     const panel = state.panel;
     if (panel === undefined) return { content, zones, back: undefined };
     const scrim = el("div", "browse-panel-scrim");

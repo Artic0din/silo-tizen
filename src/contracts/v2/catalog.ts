@@ -58,12 +58,12 @@ function oneOf<T extends string>(raw: string, known: readonly T[]): T | "unknown
 
 // --- listUserLibraries ---
 
-const LIBRARY_TYPES = ["movies", "series", "mixed"] as const;
+const LIBRARY_TYPES = ["movies", "series", "mixed", "music"] as const;
 
 export interface UserLibrary {
     readonly id: string;
     readonly name: string;
-    /** Only the video kinds this client browses; books, music and anything new are "unknown". */
+    /** Browsable library kinds; books and anything new are "unknown". */
     readonly type: (typeof LIBRARY_TYPES)[number] | "unknown";
     readonly sortOrder: number;
 }
@@ -248,7 +248,7 @@ export interface CatalogPage {
     /** Absent on the last page. */
     readonly nextCursor: string | undefined;
     /** Items in the whole result; an estimate unless `totalExact`. */
-    readonly total: number;
+    readonly total: number | undefined;
     readonly totalExact: boolean;
 }
 
@@ -257,6 +257,15 @@ export function decodeCatalogCollection(value: unknown): { readonly items: reado
 }
 
 export function decodeCatalogPage(value: unknown): CatalogPage {
+    return decodePage(value, false);
+}
+
+/** Collection paging does not promise catalog totals. */
+export function decodeCollectionItemsPage(value: unknown): CatalogPage {
+    return decodePage(value, true);
+}
+
+function decodePage(value: unknown, optionalTotals: boolean): CatalogPage {
     const path = "catalog_page";
     const obj = object(value, path);
     const page = obj.page === undefined ? undefined : object(obj.page, `${path}.page`);
@@ -266,8 +275,8 @@ export function decodeCatalogPage(value: unknown): CatalogPage {
     return {
         items: array(obj, "items", path).map((entry, index) => decodeCard(entry, `${path}.items[${index}]`)),
         nextCursor,
-        total: integer(obj, "total", path),
-        totalExact: boolean(obj, "total_exact", path),
+        total: optionalTotals ? optionalInteger(obj, "total", path) : integer(obj, "total", path),
+        totalExact: optionalTotals ? optionalBoolean(obj, "total_exact", path) ?? false : boolean(obj, "total_exact", path),
     };
 }
 

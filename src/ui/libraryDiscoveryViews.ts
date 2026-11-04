@@ -4,7 +4,7 @@ import { newPages, newRoute, type Route, type RouteHandlers } from "./browseRout
 import { actionButton, artwork, homeView, homeRows, lines, pagedGrid, zoneNode } from "./browseViews.ts";
 import { LIBRARY_MODES, type DiscoveryState, type LibrarySource } from "./libraryDiscovery.ts";
 import { el } from "./screen.ts";
-import { browsePage, panelFocus } from "./libraryBrowseViews.ts";
+import { browsePage, panelFocus, shuffleAlert } from "./libraryBrowseViews.ts";
 
 type LibraryRoute = Extract<Route, { kind: "library" }>;
 export function availableModes(caps: DiscoveryState["capabilities"]): readonly import("./libraryDiscovery.ts").LibraryMode[] {
@@ -12,12 +12,22 @@ export function availableModes(caps: DiscoveryState["capabilities"]): readonly i
     return LIBRARY_MODES.filter(mode => mode === "Recommended" || mode === "Browse" || mode === "Collections" || (available && (mode === "Recently Added" || (mode === "Genres" ? caps.extendedQueryRules === true : caps.letterIndex === true))));
 }
 export function discoveryView(route: LibraryRoute, state: DiscoveryState, handlers: RouteHandlers): View {
-    const content: HTMLElement[] = [];
-    const zones: Zone[] = [];
+    const pills = availableModes(state.data?.capabilities ?? state.capabilities).map(mode => {
+        const item = actionButton(`mode:${mode}`, mode, () => handlers.mode(route, mode));
+        item.element.setAttribute("aria-pressed", String(state.mode === mode));
+        return item;
+    });
+    const pillRow = zoneNode("skyline-pills", pills);
+    pillRow.appendChild(el("span", "skyline-scope", route.library.name));
+    const primary = state.mode === "Recommended" || state.mode === "Collections" || state.genre !== undefined;
+    const content: HTMLElement[] = primary ? [] : [pillRow];
+    const zones: Zone[] = primary ? [] : [{ id: "pills", layout: "row", items: pills, ...(state.mode === "A–Z" ? { down: "grid" } : {}) }];
     const open = (title: string, source: LibrarySource): void => handlers.push(newRoute({ kind: "libraryResults", library: route.library, title, source, pages: newPages(), descending: false }));
     if (state.mode === "Browse") {
         const page = browsePage(route, state, handlers);
-        return { name: `library:${route.library.id}`, ...page, focus: panelFocus(state) ?? { zone: "controls", key: "sort" }, back: page.back ?? handlers.pop, ready: state.snapshot !== undefined };
+        const modal = state.panel !== undefined || handlers.shuffle?.failure !== undefined;
+        if (modal) { pillRow.setAttribute("aria-hidden", "true"); pillRow.setAttribute("inert", ""); }
+        return { name: `library:${route.library.id}`, content: [pillRow, ...page.content], zones: [...(modal ? [] : zones), ...page.zones], focus: panelFocus(state) ?? { zone: "controls", key: "sort" }, back: page.back ?? handlers.pop, ready: state.snapshot !== undefined };
     }
     if (route.failure !== undefined) {
         const retry = actionButton("retry", "Try again", () => handlers.retry(route));
@@ -30,7 +40,7 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
         content.push(skeleton);
     } else if (state.mode === "Recommended") {
         const rows = homeRows(state.data.sections.filter(section => section.featured !== true)).filter(row => row.cards.length > 0);
-        rows.forEach(({ section }, index) => {
+        rows.forEach(({ section }) => {
             const row = homeView([], [section], handlers.context, {
                 expand: value => open(value.title, { kind: "section", id: value.id }),
                 search: () => handlers.push(newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })),
@@ -39,9 +49,7 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
             });
             content.push(...row.content);
             zones.push(...row.zones);
-            if (index === 0) inlineCollections();
         });
-        if (rows.length === 0) inlineCollections();
     } else if (state.mode === "Collections") {
         const collections = state.data.collections;
         const groups = collections?.groups ?? [];
@@ -71,7 +79,7 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
                 return item;
             });
             content.push(zoneNode("discovery-letters", letters));
-            zones.push({ id: "letters", layout: "column", left: "grid", items: letters });
+            zones.push({ id: "letters", layout: "column", left: "grid", up: "nav", items: letters });
         }
         if (route.pages.page !== undefined) {
             if (route.pages.page.items.length === 0) content.push(...lines(["No titles"]));
@@ -86,20 +94,10 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
         }
     }
     if (state.data !== undefined && route.failure === undefined && zones.every(zone => zone.items.length === 0)) content.push(...lines(state.mode === "Collections" ? ["No collections yet", "Collections created on the server will appear here."] : ["No titles"]));
-    const firstZone = zones.find(zone => (zone.id === "grid" || zone.id.startsWith("section:")) && zone.items.length > 0) ?? zones.find(zone => zone.items.length > 0);
+    const firstZone = zones.find(zone => (zone.id === "grid" || zone.id.startsWith("section:")) && zone.items.length > 0) ?? zones.find(zone => zone.id !== "pills" && zone.items.length > 0) ?? zones.find(zone => zone.items.length > 0);
     const first = firstZone?.items[0];
     return { name: state.data === undefined && route.failure === undefined ? "library:loading" : `library:${route.library.id}`, content, zones, focus: first === undefined ? { zone: "nav", key: route.library.type === "series" ? "series" : "movies" } : { zone: firstZone?.id ?? "nav", key: first.key }, back: handlers.pop };
 
-    function inlineCollections(): void {
-        if (state.data?.collectionsFailure !== undefined) {
-            const retry = actionButton("retry-collections", "Try again", () => handlers.retry(route));
-            content.push(...lines([state.data.collectionsFailure], "error"), zoneNode("browse-actions", [retry]));
-            zones.push({ id: "collections-error", layout: "row", items: [retry] });
-            return;
-        }
-        const collections = [...(state.data?.collections?.collections ?? [])].sort((a, b) => b.itemCount - a.itemCount).slice(0, 8);
-        collectionRow("inline", "Collections", collections, "admin", false, new Map());
-    }
     function collectionRow(id: string, title: string, collections: readonly CollectionSummary[], groupKind: "admin" | "user_collections", grid: boolean, types: ReadonlyMap<string, string | undefined>): void {
         if (collections.length === 0) return;
         const items = collections.map(collection => {
@@ -158,6 +156,32 @@ function countLine(count: number, type: string | undefined): string {
 }
 
 export function resultsView(route: Extract<Route, { kind: "libraryResults" }>, grid: { content: HTMLElement[]; zones: Zone[] }, handlers: RouteHandlers): View {
+    if (route.source.kind === "collection" && route.failure === undefined && (route.pages.page?.items.length ?? 0) > 0) {
+        const shuffle = handlers.shuffle;
+        const button = shuffle === undefined ? undefined : actionButton("shuffle", "Shuffle", () => shuffle.start(route));
+        if (button !== undefined) {
+            button.element.classList.add("browse-shuffle");
+            button.element.setAttribute("aria-busy", String(shuffle?.starting === true));
+        }
+        const page = route.pages.page;
+        const count = page?.totalExact && page.total !== undefined && page.nextCursor === undefined ? page.total : route.pages.index * 60 + (page?.items.length ?? 0);
+        const more = page?.nextCursor !== undefined;
+        const controls = button === undefined ? [] : [button];
+        const actions = zoneNode("browse-actions collection-detail-actions", controls);
+        actions.append(el("span", "browse-text", `${count}${more ? "+" : ""} ${count === 1 && !more ? "item" : "items"}`));
+        for (const node of grid.content) if (node.classList.contains("browse-grid")) {
+            node.classList.add("collection-detail-grid");
+            node.style.setProperty("--collection-detail-columns", String(handlers.gridColumns));
+        }
+        grid.zones = grid.zones.map(zone => zone.id === "grid" ? { ...zone, columns: handlers.gridColumns } : zone);
+        const content = [el("h1", "browse-title collection-detail-title", route.title), actions, ...grid.content];
+        const zones: Zone[] = [{ id: "controls", layout: "row", items: controls }, ...grid.zones];
+        const alert = shuffleAlert(content, zones, handlers);
+        if (alert !== undefined) return { name: `results:${route.library.id}:${route.title}`, ...alert, focus: { zone: "panel", key: "alert-ok" }, back: alert.back ?? handlers.pop };
+        return { name: `results:${route.library.id}:${route.title}`, content: [el("h1", "browse-title collection-detail-title", route.title), actions, ...(shuffle?.failure === undefined ? [] : lines([shuffle.failure], "error")), ...grid.content],
+            zones: [{ id: "controls", layout: "row", items: controls }, ...grid.zones],
+            focus: button === undefined ? { zone: "grid", key: grid.zones[0]?.items[0]?.key ?? "" } : { zone: "controls", key: "shuffle" }, back: handlers.pop };
+    }
     const back = actionButton("back", "Back", handlers.pop);
     const controls = [back];
     if (route.source.kind === "genre") controls.push(actionButton("sort", route.descending ? "Title Z–A" : "Title A–Z", () => handlers.sort(route)));

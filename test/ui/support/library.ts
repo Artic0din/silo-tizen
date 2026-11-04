@@ -3,6 +3,9 @@ import type { LibraryMode } from "../../../src/ui/libraryDiscovery.ts";
 
 /** Library destinations share the navigation cascade. */
 export async function selectLibraryMode(tv: Tv, mode: LibraryMode): Promise<void> {
+    if (!["Recommended", "Collections", "Browse"].includes(mode) && await tv.page.locator('.browse .skyline-pills').count() === 0) await selectLibraryMode(tv, "Browse");
+    const strip = tv.page.locator(`.browse .skyline-pills [data-focus="mode:${mode}"]`);
+    if (await strip.count() > 0) { await strip.click(); return; }
     await tv.page.locator('.skyline-roots [aria-current="page"]').evaluate(node => {
         // Keep synthetic focus and remote input in one task so a load cannot enter content between them.
         (node as HTMLElement).focus({ preventScroll: true });

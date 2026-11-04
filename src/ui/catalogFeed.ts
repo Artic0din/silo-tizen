@@ -43,7 +43,6 @@ export function feedGrid(owner: object, page: CatalogPage, context: ViewContext,
     }
     feed.node.style.setProperty("--grid-columns", String(columns));
     feed.node.style.width = `${Math.max(1710, columns * 260 * scale + (columns - 1) * 40)}px`;
-    feed.node.style.setProperty("--grid-lift", String((390 * scale + 38) / (390 * scale)));
     feed.more = more;
     const added = page.items.slice(feed.cards.length);
     for (const card of added) {

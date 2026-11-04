@@ -233,7 +233,7 @@ Defined in `src/api/operations.ts` unless noted.
 | listUserLibraries | `GET /user/libraries[?include_hidden=true]` | safe |
 | listHomeSections | `GET /home/sections?image_size=small[&slot widths]` | safe |
 | listCatalogItems | `GET /catalog?library_id&q&type&limit&cursor&image_size` | safe |
-| getCatalogItem | `GET /catalog/items/{id}?image_size=medium` | safe |
+| getCatalogItem | `GET /catalog/items/{id}?image_size=large` (Details overrides with the negotiated hero slots when known) | safe |
 | listCatalogItemVersions | `GET /catalog/items/{id}/versions` | safe |
 | listSeriesSeasons | `GET /catalog/series/{id}/seasons` | safe |
 | listSeasonEpisodes | `GET /catalog/series/{id}/seasons/{n}/episodes` | safe |
@@ -255,6 +255,8 @@ Defined in `src/api/operations.ts` unless noted.
 Notes:
 
 - Related titles decode the endpoint's `items` collection without requiring the catalog listing's `total` or `total_exact` fields.
+- Collection members decode `CatalogItemCollection` with optional totals and cursor pagination.
+  The test fixture follows the server schema and handler at `6d1562473336738009a91475ed3f33143670c249`; catalog queries and filmography retain their required totals.
 - Pages continue with the opaque `next_cursor`.
 - `limit` is bounded client-side (1 to 200 for collection items, 1 to 100 for `catalog/query`), and out-of-range values throw `RangeError` before any request.
 - The two POST queries are marked `safe` in code ("natural_idempotent"), so the transport retry applies to them.

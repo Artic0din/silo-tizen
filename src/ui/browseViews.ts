@@ -23,6 +23,8 @@ export interface ViewContext {
     readonly open: (destination: Destination) => void;
     readonly preview?: (card: Card, row: string, continuing?: boolean) => void;
     readonly continueWatching?: boolean;
+    /** Apple `SectionRow.layout` on tvOS. Unset keeps the Continue Watching still and poster otherwise. */
+    readonly cardLayout?: "poster" | "thumbnail";
     /** Home captions episodes with their series and an `S01E02 · Pilot` line, as Apple TV does. */
     readonly homeCaptions?: boolean;
     readonly posterScale?: () => number;
@@ -56,12 +58,12 @@ export function actionButton(key: string, label: string, onPress: () => void): F
 }
 
 /** SectionExploreAllCard keeps the current marquee while its row's trailing tile owns focus. */
-function exploreAllCard(rowTitle: string, key: string, continuing: boolean, onPress: () => void): FocusItem {
+function exploreAllCard(rowTitle: string, key: string, wide: boolean, onPress: () => void): FocusItem {
     const element = el("button", "browse-card skyline-explore");
     element.type = "button";
     element.setAttribute("data-focus", key);
     element.setAttribute("aria-label", `Explore all, ${rowTitle}`);
-    if (continuing) element.classList.add("skyline-continue");
+    if (wide) element.classList.add("skyline-continue");
     const tile = el("span", "browse-art skyline-explore-tile");
     const icon = el("span", "skyline-explore-icon");
     icon.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 12h15M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -109,10 +111,11 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     element.type = "button";
     element.setAttribute("data-focus", card.id);
     const continuing = context.continueWatching === true;
-    element.appendChild(artwork("browse-art", continuing ? card.backdropUrl ?? card.posterUrl : card.posterUrl, context.baseUrl, card.title));
-    if (continuing) {
+    const thumbnail = context.cardLayout === "thumbnail" || (context.cardLayout === undefined && continuing);
+    element.appendChild(artwork("browse-art", thumbnail ? card.backdropUrl ?? card.posterUrl : card.posterUrl, context.baseUrl, card.title));
+    if (thumbnail) {
         element.classList.add("skyline-continue");
-        if (card.positionSeconds !== undefined && card.durationSeconds !== undefined && card.durationSeconds > 0) {
+        if (card.positionSeconds !== undefined && card.durationSeconds !== undefined && card.durationSeconds > 0 && card.positionSeconds > 0) {
             const progress = el("span", "skyline-progress");
             const fill = el("span", "skyline-progress-fill");
             fill.style.width = `${Math.min(100, Math.max(0, card.positionSeconds / card.durationSeconds * 100))}%`;
@@ -123,7 +126,7 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     // Badges sit under the progress bar and the watched tick, which win a shared corner.
     const saved = continuing ? context.savedFileOverlay?.(card) : undefined;
     const scale = context.homeCaptions === true ? context.posterScale?.() ?? 1 : 1;
-    const badges = context.overlays === undefined ? undefined : overlayLayer(saved === undefined ? card : { ...card, overlay: saved }, context.overlays, continuing ? "wide" : "poster", (continuing ? HOME_STILL_WIDTH : context.posterWidth ?? HOME_POSTER_WIDTH) * scale);
+    const badges = context.overlays === undefined ? undefined : overlayLayer(saved === undefined ? card : { ...card, overlay: saved }, context.overlays, thumbnail ? "wide" : "poster", (thumbnail ? HOME_STILL_WIDTH : context.posterWidth ?? HOME_POSTER_WIDTH) * scale);
     if (badges !== undefined) element.firstElementChild?.insertBefore(badges, element.firstElementChild.querySelector(".skyline-progress"));
     if (card.played === true) {
         const tick = el("span", "browse-watched");
@@ -196,23 +199,62 @@ export interface HomeHandlers {
     readonly chooseProfile: () => void;
 }
 
+/** Resume rows. Apple `ResolvedSection.isContinueWatchingSection`: the server type, not the title. */
+function isContinueWatching(sectionType: string): boolean {
+    const type = sectionType.toLowerCase();
+    return type === "continue_watching" || type === "in_progress";
+}
+
+function isTvItem(type: Card["type"]): boolean {
+    switch (type) {
+        case "episode":
+        case "series":
+        case "season":
+            return true;
+        case "movie":
+        case "unknown":
+            return false;
+        default: {
+            const exhaustive: never = type;
+            return exhaustive;
+        }
+    }
+}
+
+/**
+ * Apple `SectionRow.layout(for:)` on tvOS (`SectionRow.swift`). The server sends the row type and
+ * items; it does not send a card shape. A type containing "next", and Continue Watching, are
+ * stills. Any other row is a still only when it contains an episode and every browsable item is
+ * TV, so one episode does not turn a shared movie row into stills. An all-audiobook row is square
+ * on Apple; this client does not browse audiobooks, so that row is omitted before layout.
+ */
+export function homeRowLayout(sectionType: string, cards: readonly Pick<Card, "type">[]): "poster" | "thumbnail" {
+    const type = sectionType.toLowerCase();
+    if (type.includes("next") || isContinueWatching(type)) return "thumbnail";
+    if (cards.some(card => card.type === "episode") && cards.every(card => isTvItem(card.type))) return "thumbnail";
+    return "poster";
+}
+
 /** SectionRowLimit.cards caps each Home shelf without changing the server's order. */
-export function homeRows(sections: readonly HomeSection[]): { section: HomeSection; continuing: boolean; cards: Card[] }[] {
-    return sections.map(section => ({ section, continuing: section.sectionType === "continue_watching", cards: section.items.filter(card => destinationOf(card) !== undefined).slice(0, HOME_ROW_CARDS) }));
+export function homeRows(sections: readonly HomeSection[]): { section: HomeSection; continuing: boolean; layout: "poster" | "thumbnail"; cards: Card[] }[] {
+    return sections.map(section => {
+        const cards = section.items.filter(card => destinationOf(card) !== undefined).slice(0, HOME_ROW_CARDS);
+        return { section, continuing: isContinueWatching(section.sectionType), layout: homeRowLayout(section.sectionType, cards), cards };
+    });
 }
 
 export function homeView(libraries: readonly UserLibrary[], sections: readonly HomeSection[], context: ViewContext, handlers: HomeHandlers): View {
     const zones: Zone[] = [];
     const content: HTMLElement[] = [];
     // Server order is the profile's order; featured rows render as ordinary rows (Apple HomeViewModel).
-    for (const { section, continuing, cards: titles } of homeRows(sections)) {
-        const cards = cardItems(titles, { ...context, continueWatching: continuing, homeCaptions: true, overlays: context.cardOverlays?.(), preview: (card) => context.preview?.(card, section.title, continuing) });
+    for (const { section, continuing, layout, cards: titles } of homeRows(sections)) {
+        const cards = cardItems(titles, { ...context, continueWatching: continuing, cardLayout: layout, homeCaptions: true, overlays: context.cardOverlays?.(), preview: (card) => context.preview?.(card, section.title, continuing) });
         // A row of only books, podcasts or other media this client does not browse is left out.
         if (cards.length === 0) {
             continue;
         }
         const id = `section:${section.id}`;
-        if (handlers.canExpand?.(section) !== false) cards.push(exploreAllCard(section.title, `expand:${section.id}`, continuing, () => handlers.expand(section)));
+        if (handlers.canExpand?.(section) !== false) cards.push(exploreAllCard(section.title, `expand:${section.id}`, layout === "thumbnail", () => handlers.expand(section)));
         zones.push({ id, layout: "row", items: cards });
         const block = el("section", "browse-section home-section");
         block.setAttribute("data-section", section.id);
@@ -253,10 +295,10 @@ export function pagedGrid(state: PagerState, context: ViewContext): { content: H
     if (state.page.nextCursor !== undefined) {
         pager.push(actionButton("next", "Next page", state.next));
     }
-    const pages = Math.max(1, Math.ceil(state.page.total / state.pageSize));
+    const pages = Math.max(1, Math.ceil((state.page.total ?? state.page.items.length) / state.pageSize));
     const position = state.loading
         ? "Loading the page."
-        : `Page ${state.index + 1} of ${state.page.totalExact ? pages : `about ${pages}`}`;
+        : state.page.total === undefined ? `Page ${state.index + 1}` : `Page ${state.index + 1} of ${state.page.totalExact ? pages : `about ${pages}`}`;
     const status = el("p", "browse-text browse-page-status", position);
     status.setAttribute("role", "status");
     return {

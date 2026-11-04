@@ -21,10 +21,39 @@ async function start(tv: Tv, fake = new FakeRequests(), offerSignOut = false): P
     return fake;
 }
 const button = (tv: Tv, key: string) => tv.page.locator(`[data-focus="${key}"]`).last();
-/** Selecting the shown tab reads nothing; a fresh read comes from leaving and returning, as on Apple TV. */
-const revisitRequests = async (tv: Tv): Promise<void> => {
-    await button(tv, "home").click(); await tv.page.locator('.browse[data-view="home"]').waitFor();
+test("profile Requests is gated, pushed without chrome, contains Up, and Back restores the selected tab", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = await start(tv, new FakeRequests(), true);
+        assert.equal(await tv.page.locator('.browse-nav [data-focus="requests"]').count(), 0);
+        await button(tv, "profiles").click();
+        assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["Switch Profile", "History", "Requests", "Settings", "Sign Out"]);
+        await openRequests(tv);
+        await button(tv, "movie:949").waitFor();
+        assert.equal(await tv.page.locator('.browse-nav').count(), 0);
+        await tv.remote(38);
+        assert.equal(await tv.focused(), "movie:949");
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "home");
+        assert.equal(await button(tv, "profiles").getAttribute("aria-expanded"), "false");
+        fake.enabled = false;
+        await tv.page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+        await tv.eventually(async () => await button(tv, "requests").count() === 0, "disabled Requests row disappears");
+        assert.ok(await tv.focused());
+    } finally { await tv.page.context().close(); }
+});
+async function leaveRequests(tv: Tv): Promise<void> {
+    while (await tv.page.locator('.browse-nav').count() === 0) await tv.remote(10009);
+}
+async function openRequests(tv: Tv): Promise<void> {
+    await leaveRequests(tv);
+    if (!(await button(tv, "requests").isVisible())) await button(tv, "profiles").click();
     await button(tv, "requests").click();
+}
+/** Reopening the profile entry rebuilds the pushed page, as on Apple TV. */
+const revisitRequests = async (tv: Tv): Promise<void> => {
+    await leaveRequests(tv); await button(tv, "home").click(); await tv.page.locator('.browse[data-view="home"]').waitFor();
+    await openRequests(tv);
 };
 test("dense request captions retain the matched native title words", async () => {
     const tv = await openTv(browser, { app: "browse" });
@@ -34,7 +63,7 @@ test("dense request captions retain the matched native title words", async () =>
             { ...fake.record, id: "street", title: "Street Fighter" },
             { ...fake.record, id: "neuro", title: "Neuromancer" },
         ], page: { has_more: false } } });
-        await start(tv, fake); await button(tv, "requests").click();
+        await start(tv, fake); await openRequests(tv);
         await button(tv, "street").waitFor();
         await tv.page.evaluate(async () => document.fonts.ready);
         for (const key of ["street", "neuro"]) assert.ok(await button(tv, key).locator(".browse-card-title").evaluate(node => {
@@ -49,7 +78,7 @@ test("Requests backdrop leaves shelf headings and captions painted above it", as
         await tv.page.route("https://image.tmdb.org/**", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080"><rect width="1920" height="1080" fill="#111"/></svg>' }));
         const fake = new FakeRequests(); fake.created = true;
         Object.assign(fake.record, { backdrop_path: "/backdrop.svg" });
-        await start(tv, fake); await button(tv, "requests").click();
+        await start(tv, fake); await openRequests(tv);
         await button(tv, "request-one").waitFor();
         await tv.page.locator(".requests-preview img").evaluate(async node => { await (node as HTMLImageElement).decode(); });
         assert.equal(await tv.page.locator(".requests-preview .skyline-top-scrim").evaluate(node => node.getBoundingClientRect().height), 190, "bright Requests artwork keeps the shared native top-menu scrim");
@@ -78,7 +107,7 @@ test("Requests hub has mine first, horizontal rails and a passive loaded preview
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); fake.created = true;
-        await start(tv, fake); await button(tv, "requests").click();
+        await start(tv, fake); await openRequests(tv);
         await button(tv, "movie:949").waitFor();
         await tv.page.addStyleTag({ content: "* { font-family: SamsungOne; font-weight: 600; }" });
         const synopsis = await tv.page.locator(".requests-preview .requests-synopsis").evaluate(node => {
@@ -112,7 +141,7 @@ test("wrapped request titles limit synopsis to two lines and retain the provider
     try {
         const fake = new FakeRequests(), title = fake.title.bind(fake);
         fake.title = () => ({ ...title(), title: "Apocalypse Z: New World", overview: "A long overview describing the world and the characters. ".repeat(12), vote_average: 6.1 });
-        await start(tv, fake); await button(tv, "requests").click();
+        await start(tv, fake); await openRequests(tv);
         await tv.page.locator(".requests-preview h1").waitFor();
         await tv.page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
         assert.equal(await tv.page.locator(".requests-preview .requests-synopsis").evaluate(node => getComputedStyle(node).webkitLineClamp), "2");
@@ -133,7 +162,7 @@ test("a wrapped hero title fills its first line like Apple TV", async () => {
     try {
         const fake = new FakeRequests(), title = fake.title.bind(fake);
         fake.title = () => ({ ...title(), title: "Law & Order: Special Victims Unit" });
-        await start(tv, fake); await button(tv, "requests").click();
+        await start(tv, fake); await openRequests(tv);
         await tv.page.locator(".requests-preview h1").waitFor();
         await tv.page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
         assert.deepEqual(await tv.page.locator(".requests-preview h1").evaluate(node => {
@@ -151,7 +180,7 @@ test("a cancelled request can be requested again from its page, as on Apple TV",
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); fake.created = true;
-        await start(tv, fake); await button(tv, "requests").click();
+        await start(tv, fake); await openRequests(tv);
         await button(tv, "request-one").click(); await button(tv, "cancel").click();
         await button(tv, "create").waitFor();
         assert.equal(await tv.page.locator(".requests-eyebrow").textContent(), "Not in your library");
@@ -170,7 +199,7 @@ test("an unrequested title that cannot be requested is not labelled Requested", 
     try {
         const fake = new FakeRequests(), title = fake.title.bind(fake);
         fake.title = () => ({ ...title(), request: { requestable: false, following: false, requested_by_viewer: false } });
-        await start(tv, fake); await button(tv, "requests").click();
+        await start(tv, fake); await openRequests(tv);
         await button(tv, "movie:949").click();
         await button(tv, "status").waitFor();
         assert.equal(await button(tv, "status").textContent(), "Unavailable");
@@ -182,7 +211,7 @@ test("a first request keeps the originating card visible and each row's own scro
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = await start(tv);
-        await button(tv, "requests").click(); await view(tv, "hub");
+        await openRequests(tv); await view(tv, "hub");
         await button(tv, "movie:949").click(); await view(tv, "media");
         await button(tv, "create").click();
         await tv.eventually(async () => fake.created && await button(tv, "create").count() === 0, "created");
@@ -204,7 +233,7 @@ test("Requests loads its complete bounded mine list and groups active requests b
         const record = (id: string, state: string, created: string) => ({ ...fake.record, id, title: id, state, created_at: created });
         tv.fake.script("/requests/mine?limit=50", { status: 200, body: { items: [record("landed", "available", "2026-01-03T12:00:00Z"), record("older", "pending", "2026-01-01T12:00:00Z")], page: { has_more: true, next_cursor: "next/+" } } });
         tv.fake.script("/requests/mine?limit=50&cursor=next%2F%2B", { status: 200, body: { items: [record("newer", "pending", "2026-01-02T12:00:00Z"), record("cancelled", "cancelled", "2026-01-04T12:00:00Z")], page: { has_more: false } } });
-        await start(tv, fake); await button(tv, "requests").click();
+        await start(tv, fake); await openRequests(tv);
         await button(tv, "movie:949").waitFor();
         assert.deepEqual(await tv.page.locator('.requests-heading').first().locator('xpath=following-sibling::*[1]').locator('.requests-card').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus"))), ["newer", "older", "landed"]);
     } finally { await tv.page.context().close(); }
@@ -214,7 +243,7 @@ test("either failed hub read fails a first load, and a later failed refresh keep
     try {
         const fake = new FakeRequests(); fake.created = true;
         tv.fake.script("/requests/discover", problem(400, "validation_failed", "Unavailable"));
-        await start(tv, fake); await button(tv, "requests").click();
+        await start(tv, fake); await openRequests(tv);
         await tv.page.getByRole("button", { name: "Try Again", exact: true }).waitFor();
         await tv.page.getByText("Unavailable", { exact: true }).waitFor();
         assert.equal(await button(tv, "request-one").count(), 0, "Apple reads both sections together (RequestsHubViewModel.load)");
@@ -244,13 +273,13 @@ test("Requests catalog routing follows displayed state and a nonempty catalog id
         const fake = new FakeRequests(); const original = fake.title.bind(fake);
         let state = "processing", catalogId = "movie:m0002";
         fake.title = () => ({ ...original(), availability: "available", library_content_id: catalogId, request: { requestable: false, following: false, requested_by_viewer: false, state, status: "queued" } });
-        await start(tv, fake); await button(tv, "requests").click(); await button(tv, "movie:949").click();
+        await start(tv, fake); await openRequests(tv); await button(tv, "movie:949").click();
         await view(tv, "media"); await tv.remote(10009);
-        state = "available"; await button(tv, "requests").click();
+        state = "available"; await openRequests(tv);
         await tv.page.getByText("Loading requests…").waitFor({ state: "detached" });
         await button(tv, "movie:949").click();
         await tv.page.locator('.browse[data-view="item:movie:m0002"]').waitFor();
-        await tv.remote(10009); catalogId = ""; await button(tv, "requests").click();
+        await tv.remote(10009); catalogId = ""; await openRequests(tv);
         await tv.page.getByText("Loading requests…").waitFor({ state: "detached" });
         await button(tv, "movie:949").click(); await view(tv, "media");
         assert.equal(tv.fake.paths().filter(path => path.startsWith("POST /requests")).length, 0);
@@ -263,7 +292,7 @@ test("request record detail reads verified title metadata and recommendations", 
         const original = fake.title.bind(fake);
         Object.assign(fake.record, { created_at: "2026-01-02T12:00:00Z", targets: [{ quality: "1080p", status: "queued" }, { quality: "4K", status: "completed" }] });
         fake.title = () => ({ ...original(), year: 1995, runtime: 170, director: "Michael Mann", recommendations: [{ ...original(), tmdb_id: 950, title: "Related title" }] });
-        await start(tv, fake); await button(tv, "requests").click(); await button(tv, "request-one").click();
+        await start(tv, fake); await openRequests(tv); await button(tv, "request-one").click();
         await view(tv, "request");
         await tv.page.getByText("Directed by Michael Mann", { exact: true }).waitFor();
         assert.equal(await tv.page.locator(".requests-detail-hero .requests-synopsis").evaluate(node => getComputedStyle(node).color), "rgba(255, 255, 255, 0.92)");
@@ -288,7 +317,7 @@ test("series request details show seasons and creators and open a newly availabl
         Object.assign(fake.record, { media_type: "series" });
         const title = fake.title.bind(fake);
         fake.title = () => ({ ...title(), media_type: "series", number_of_seasons: 3, creators: ["Creator One", "Creator Two", "Creator Three"] });
-        await start(tv, fake); await button(tv, "requests").click(); await button(tv, "request-one").click();
+        await start(tv, fake); await openRequests(tv); await button(tv, "request-one").click();
         await tv.page.locator(".requests-detail-title").waitFor();
         assert.equal(await tv.page.getByText("3 seasons", { exact: true }).count(), 1);
         await tv.page.getByText("Created by Creator One, Creator Two", { exact: true }).waitFor();
@@ -310,14 +339,14 @@ test("a hub section capability refusal rechecks permission and retires Requests"
         const fake = await start(tv);
         const held = tv.fake.hold("/requests/discover", true);
         tv.fake.script("/requests/discover", problem(409, "capability_disabled", "Disabled"));
-        await button(tv, "requests").click();
+        await openRequests(tv);
         await tv.eventually(async () => tv.fake.paths().includes("GET /requests/discover"), "hub read started");
         fake.enabled = false; held.release();
         await tv.page.locator('.browse[data-view="home"]').waitFor();
         assert.equal(await button(tv, "requests").count(), 0);
     } finally { await tv.page.context().close(); }
 });
-test("Requests artwork spans discover, rows, search, mine and both details with accessible fallback", async () => {
+test("Requests artwork spans discover, rows, mine and both details with accessible fallback", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests();
@@ -337,18 +366,15 @@ test("Requests artwork spans discover, rows, search, mine and both details with 
             await image.scrollIntoViewIfNeeded();
             await image.evaluate(image => (image as HTMLImageElement).decode());
         };
-        await button(tv, "requests").click();
+        await openRequests(tv);
         await check('[data-focus="movie:949"]');
         await tv.page.getByRole("button", { name: "Heat · Not requested", exact: true }).waitFor();
         assert.equal(await button(tv, "more").count(), 0, "a paginated row has no See all tile, as on Apple TV");
-        await button(tv, "search").click();
-        await tv.page.getByRole("searchbox").fill("Heat"); await tv.page.getByRole("searchbox").press("Enter");
-        await check('[data-focus="movie:949"]');
         await button(tv, "movie:949").click(); await view(tv, "media");
         await tv.page.locator('.requests-detail-hero .skyline-backdrop').waitFor();
         await button(tv, "create").click();
         await tv.eventually(async () => fake.created && await button(tv, "create").count() === 0, "created");
-        await tv.remote(10009); await tv.remote(10009); await button(tv, "request-one").waitFor();
+        await tv.remote(10009); await button(tv, "request-one").waitFor();
         await check('[data-focus="request-one"]');
         await button(tv, "request-one").click(); await view(tv, "request");
         await tv.page.locator('.requests-detail-hero .skyline-backdrop').waitFor();
@@ -360,7 +386,7 @@ test("Requests artwork spans discover, rows, search, mine and both details with 
         await tv.remote(10009);
         for (const poster of [undefined, "", "bad-path", "http://images.example.test/poster.jpg"]) {
             fake.title = () => ({ ...title(), poster_path: poster });
-            await button(tv, "requests").click(); await button(tv, "movie:949").waitFor();
+            await openRequests(tv); await button(tv, "movie:949").waitFor();
             await tv.page.getByText("Loading requests…").waitFor({ state: "detached" });
             await button(tv, "movie:949").locator(".browse-art-missing").getByText("Heat", { exact: true }).waitFor();
             assert.equal(await button(tv, "movie:949").locator("img").count(), 0);
@@ -374,41 +400,21 @@ async function evidence(tv: Tv, name: string): Promise<void> {
     await mkdir(process.env.REQUESTS_EVIDENCE, { recursive: true });
     await tv.page.screenshot({ path: `${process.env.REQUESTS_EVIDENCE}/${name}.png` });
 }
-test("Requests hub, shared search, create, Your requests and cancel preserve return focus", async () => {
+test("Requests hub, create, Your requests and cancel preserve return focus", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = await start(tv); await evidence(tv, "home");
-        await button(tv, "requests").click(); await view(tv, "hub");
+        await openRequests(tv); await view(tv, "hub");
         await button(tv, "movie:949").waitFor(); await evidence(tv, "hub");
         const count = tv.fake.requests.length; await button(tv, "movie:949").focus(); await tv.remote(40);
         assert.equal(tv.fake.requests.length, count, "focus never fetches");
-        await button(tv, "search").click(); await tv.page.getByRole("searchbox").waitFor();
-        await tv.page.getByRole("searchbox").fill("Heat");
-        await tv.page.getByRole("searchbox").press("Enter"); await button(tv, "movie:949").waitFor();
-        await evidence(tv, "search"); await button(tv, "movie:949").click(); await view(tv, "media");
+        await button(tv, "movie:949").click(); await view(tv, "media");
         await button(tv, "create").waitFor(); await evidence(tv, "detail");
         await button(tv, "create").click();
         await tv.eventually(async () => fake.created && await button(tv, "create").count() === 0, "created");
-        const searchReads = tv.fake.paths().filter(path => path.startsWith("GET /requests/search?")).length;
-        const refreshed = tv.fake.hold("/requests/search", true);
-        await tv.remote(10009); await tv.page.getByRole("searchbox").waitFor();
-        assert.equal(await tv.page.getByRole("searchbox").inputValue(), "Heat");
-        await tv.eventually(async () => tv.fake.paths().filter(path => path.startsWith("GET /requests/search?")).length > searchReads, "return refresh held");
-        refreshed.release();
-        await button(tv, "movie:949").waitFor();
-        assert.equal(await tv.focused(), "movie:949", "Search restores its request result after the write refresh");
-        const mineReads = tv.fake.paths().filter(path => path.startsWith("GET /requests/mine?")).length;
-        const heldMine = tv.fake.hold("/requests/mine", true);
         await tv.remote(10009); await view(tv, "hub");
-        await tv.eventually(async () => tv.fake.paths().filter(path => path.startsWith("GET /requests/mine?")).length > mineReads, "returned hub mine read is held");
-        assert.equal(await tv.focused(), "requests", "Search returns to the selected Requests tab");
-        assert.equal(await button(tv, "request-one").count(), 0, "Your requests waits for the held mine answer");
-        assert.equal(await button(tv, "movie:949").count(), 1, "the refresh retains the cached discover row");
-        heldMine.release();
         await button(tv, "request-one").waitFor();
-        assert.equal(await tv.focused(), "requests", "the late mine row keeps bar-owned focus");
-        await tv.remote(40);
-        assert.equal(await tv.focused(), "request-one", "Down enters Your requests after the bar-owned Search return");
+        assert.equal(await tv.focused(), "movie:949", "Back from a detail restores its originating card after the write refresh");
         await button(tv, "request-one").click(); await view(tv, "request"); await button(tv, "cancel").waitFor();
         await evidence(tv, "my-request"); await button(tv, "cancel").click();
         await tv.eventually(async () => fake.cancelled && await button(tv, "cancel").count() === 0, "cancelled");
@@ -421,7 +427,7 @@ test("a returning Search supplement preserves focus moved during its refresh", a
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = await start(tv);
-        await button(tv, "search").click();
+        await leaveRequests(tv); await button(tv, "search").click();
         await tv.page.getByRole("searchbox").fill("Heat"); await tv.page.getByRole("searchbox").press("Enter");
         await button(tv, "movie:949").click(); await button(tv, "create").click();
         await tv.eventually(async () => fake.created && await button(tv, "create").count() === 0, "created");
@@ -442,7 +448,7 @@ test("Requests disabled, empty, failure, Try Again and capability removal", asyn
         assert.equal(await button(tv, "requests").count(), 0);
         fake.enabled = true;
         await tv.page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-        await button(tv, "requests").waitFor(); await button(tv, "requests").click(); await view(tv, "hub");
+        await button(tv, "profiles").click(); await button(tv, "requests").waitFor(); await openRequests(tv); await view(tv, "hub");
         await tv.page.getByText("Loading requests…", { exact: true }).waitFor({ state: "detached" });
         await button(tv, "movie:949").waitFor();
         fake.requestsEmpty = true; await revisitRequests(tv);
@@ -463,7 +469,7 @@ test("follow and unfollow never replay lost answers; refresh reconciles create",
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = await start(tv); fake.following = true; fake.requestedByOther = true;
-        await button(tv, "requests").click(); await button(tv, "movie:949").click(); await button(tv, "follow").waitFor();
+        await openRequests(tv); await button(tv, "movie:949").click(); await button(tv, "follow").waitFor();
         await button(tv, "follow").click();
         await tv.eventually(async () => !fake.following, "unfollowed");
         await tv.page.getByRole("button", { name: "Follow", exact: true }).waitFor();
@@ -495,7 +501,7 @@ test("late Requests answer cannot survive a profile switch", async () => {
     try {
         await start(tv);
         const held = tv.fake.hold("/requests/discover", true);
-        await button(tv, "requests").click(); await view(tv, "hub");
+        await openRequests(tv); await view(tv, "hub");
         await tv.eventually(async () => tv.fake.paths().includes("GET /requests/discover"), "held discovery");
         await evidence(tv, "loading");
         await tv.page.evaluate(() => window.browseHarness.selectProfile("p-kid"));
@@ -505,11 +511,38 @@ test("late Requests answer cannot survive a profile switch", async () => {
     } finally { await tv.page.context().close(); }
 });
 
+test("Search request writes restore the result, then Back returns to the root before the Requests menu journey", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = await start(tv);
+        await button(tv, "search").click();
+        const input = tv.page.getByRole("searchbox");
+        await input.fill("Heat"); await input.press("Enter");
+        await button(tv, "movie:949").click(); await view(tv, "media");
+        await button(tv, "create").click();
+        await tv.eventually(async () => fake.created && await button(tv, "create").count() === 0, "created");
+        const searchReads = tv.fake.paths().filter(path => path.startsWith("GET /requests/search?")).length;
+        const held = tv.fake.hold("/requests/search", true);
+        await tv.remote(10009);
+        assert.equal(await input.inputValue(), "Heat");
+        await tv.eventually(async () => tv.fake.paths().filter(path => path.startsWith("GET /requests/search?")).length > searchReads, "Search refresh held");
+        held.release(); await button(tv, "movie:949").waitFor();
+        assert.equal(await tv.focused(), "movie:949", "the refreshed Search request result regains focus");
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "home");
+        assert.equal(await tv.page.locator('.browse-nav [data-focus="requests"]').count(), 0);
+        await openRequests(tv); await button(tv, "request-one").waitFor();
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "home");
+        assert.equal(await tv.page.locator('.skyline-selector[data-menu-kind="profile"]').count(), 0);
+        assert.equal(tv.fake.paths().filter(path => path === "POST /requests").length, 1);
+    } finally { await tv.page.context().close(); }
+});
 test("cancel lost response is read back without replay and writes refuse refresh replay", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = await start(tv); fake.created = true;
-        await button(tv, "requests").click();
+        await openRequests(tv);
         await button(tv, "request-one").click(); await button(tv, "cancel").waitFor();
         tv.fake.script("/requests/request-one", { status: 400, text: "bad" });
         tv.fake.dropNextAnswer("/requests/request-one/cancel"); await button(tv, "cancel").click();
@@ -532,18 +565,10 @@ test("cancel lost response is read back without replay and writes refuse refresh
     } finally { await tv.page.context().close(); }
 });
 
-test("editing search fences late results and a held write fences profile changes", async () => {
+test("a held write fences profile changes", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
-        await start(tv); await button(tv, "requests").click(); await button(tv, "search").click();
-        const input = tv.page.getByRole("searchbox");
-        await input.fill("Heat");
-        const held = tv.fake.hold("/requests/search", true);
-        await tv.page.getByRole("searchbox").press("Enter");
-        await tv.eventually(async () => tv.fake.paths().includes("GET /requests/search?q=Heat&media_type=all&page=1"), "search held");
-        await input.fill("Other"); held.release(); await tv.jump(1);
-        assert.equal(await button(tv, "movie:949").count(), 0);
-        await tv.page.getByRole("searchbox").press("Enter"); await button(tv, "movie:949").click(); await button(tv, "create").waitFor();
+        await start(tv); await openRequests(tv); await button(tv, "movie:949").click(); await button(tv, "create").waitFor();
         const write = tv.fake.hold("/requests", true);
         await button(tv, "create").click();
         await tv.eventually(async () => tv.fake.paths().includes("POST /requests"), "write held");
@@ -554,12 +579,11 @@ test("editing search fences late results and a held write fences profile changes
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
-
 test("reopened detail reconciles after a background write settles", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = await start(tv);
-        await button(tv, "requests").click(); await button(tv, "movie:949").click(); await button(tv, "create").waitFor();
+        await openRequests(tv); await button(tv, "movie:949").click(); await button(tv, "create").waitFor();
         const held = tv.fake.hold("/requests", true);
         await button(tv, "create").click();
         await tv.eventually(async () => fake.created, "write processed");
@@ -574,43 +598,18 @@ test("reopened detail reconciles after a background write settles", async () => 
     } finally { await tv.page.context().close(); }
 });
 
-test("typing in shared Search from Requests keeps the field attached and focused", async () => {
+test("a late Requests read cannot steal focus after Back to the selected tab", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
-        await start(tv); await button(tv, "requests").click(); await button(tv, "search").click(); await tv.page.getByRole("searchbox").waitFor();
-        const input = tv.page.getByRole("searchbox");
-        await input.focus();
-        await tv.page.evaluate(() => {
-            const field = document.activeElement as HTMLInputElement & { blurs?: number };
-            field.blurs = 0; field.addEventListener("blur", () => { field.blurs = (field.blurs ?? 0) + 1; });
-        });
-        const blurs = () => tv.page.evaluate(() => (document.querySelector('input[type="search"]') as HTMLInputElement & { blurs?: number }).blurs);
-        await input.pressSequentially("Hea");
-        assert.equal(await blurs(), 0, "editing never detaches the field");
-        await input.press("Enter"); await button(tv, "movie:949").waitFor();
-        await input.pressSequentially("t");
-        assert.equal(await input.inputValue(), "Heat");
-        assert.equal(await blurs(), 0, "results and edits never detach the field");
-        assert.equal(await input.evaluate(field => field === document.activeElement), true);
-    } finally { await tv.page.context().close(); }
-});
-
-test("a late Requests read keeps focus the person moved meanwhile", async () => {
-    const tv = await openTv(browser, { app: "browse" });
-    try {
-        await start(tv); await button(tv, "requests").click(); await view(tv, "hub"); await button(tv, "movie:949").waitFor();
-        const reads = tv.fake.paths().filter(path => path === "GET /requests/discover").length;
-        const held = tv.fake.hold("/requests/discover");
-        await revisitRequests(tv);
-        await tv.eventually(async () => tv.fake.paths().filter(path => path === "GET /requests/discover").length > reads, "held refresh");
-        await tv.remote(38);
-        const moved = await tv.focused();
-        assert.equal(moved, "requests");
-        assert.notEqual(moved, "refresh");
-        held.release();
-        await button(tv, "movie:949").waitFor();
-        await tv.page.getByText("Loading requests…").waitFor({ state: "detached" });
+        await start(tv);
+        const held = tv.fake.hold("/requests/discover", true);
+        await openRequests(tv);
+        await tv.eventually(async () => tv.fake.paths().includes("GET /requests/discover"), "held read");
+        await tv.remote(10009);
+        const moved = await tv.focused(); assert.equal(moved, "home");
+        held.release(); await tv.jump(100);
         assert.equal(await tv.focused(), moved);
+        assert.equal(await tv.page.locator('.browse[data-view="requests:hub"]').count(), 0);
     } finally { await tv.page.context().close(); }
 });
 
@@ -618,17 +617,17 @@ test("a settled write refreshes the retained Requests hub", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = await start(tv);
-        await button(tv, "requests").click(); await button(tv, "movie:949").click(); await button(tv, "create").waitFor();
+        await openRequests(tv); await button(tv, "movie:949").click(); await button(tv, "create").waitFor();
         const held = tv.fake.hold("/requests", true);
         await button(tv, "create").click();
         await tv.eventually(async () => fake.created, "write processed");
         fake.created = false; await tv.remote(10009); await view(tv, "hub");
         await tv.page.getByRole("button", { name: "Heat · Not requested" }).waitFor();
-        await button(tv, "home").click(); await tv.page.locator('.browse[data-view="home"]').waitFor();
+        await leaveRequests(tv); await button(tv, "home").click(); await tv.page.locator('.browse[data-view="home"]').waitFor();
         fake.created = true;
         const answered = tv.page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/requests"));
         held.release(); await answered; await tv.jump(1);
-        await button(tv, "requests").click(); await view(tv, "hub");
+        await openRequests(tv); await view(tv, "hub");
         await tv.page.getByRole("button", { name: "Heat · Pending" }).last().waitFor();
     } finally { await tv.page.context().close(); }
 });
@@ -640,7 +639,7 @@ test("a paginated discovery row ends at its last title, as Apple's first-page ra
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); await start(tv, fake);
-        await button(tv, "requests").click(); await button(tv, "movie:949").waitFor();
+        await openRequests(tv); await button(tv, "movie:949").waitFor();
         assert.equal(await tv.page.locator(".requests-rail [data-focus]").count(), 1, "the server's page 1 of 2 shows its titles and no trailing tile");
         await button(tv, "movie:949").focus(); await tv.remote(39);
         assert.equal(await tv.focused(), "movie:949", "Right stops on the last title");
@@ -651,7 +650,7 @@ test("Request keeps focus on the action through submitting and settling, and mor
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); nativeDetail(fake, "Heat", 3); await start(tv, fake);
-        await button(tv, "requests").click(); await button(tv, "movie:949").click(); await view(tv, "media"); await button(tv, "create").waitFor();
+        await openRequests(tv); await button(tv, "movie:949").click(); await view(tv, "media"); await button(tv, "create").waitFor();
         const write = tv.fake.hold("/requests", true);
         await button(tv, "create").focus(); await tv.page.keyboard.press("Enter");
         await tv.eventually(async () => tv.fake.paths().includes("POST /requests"), "write held");
@@ -683,7 +682,7 @@ test("a refused Request stays focused and interactive with the server's message 
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); nativeDetail(fake, "Heat", 3); await start(tv, fake);
-        await button(tv, "requests").click(); await button(tv, "movie:949").click(); await view(tv, "media"); await button(tv, "create").waitFor();
+        await openRequests(tv); await button(tv, "movie:949").click(); await view(tv, "media"); await button(tv, "create").waitFor();
         await button(tv, "create").focus();
         tv.fake.script("/requests", problem(409, "conflict", "Already requested by you"));
         const reads = tv.fake.paths().length;
@@ -703,7 +702,7 @@ test("an unconfirmed Request holds the action, reads back and never resends", as
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); nativeDetail(fake, "Heat", 3); await start(tv, fake);
-        await button(tv, "requests").click(); await button(tv, "movie:949").click(); await view(tv, "media"); await button(tv, "create").waitFor();
+        await openRequests(tv); await button(tv, "movie:949").click(); await view(tv, "media"); await button(tv, "create").waitFor();
         await button(tv, "create").focus();
         tv.fake.script("/requests/detail/movie/949", { status: 400, text: "bad" });
         tv.fake.dropNextAnswer("/requests"); await tv.page.keyboard.press("Enter");
@@ -724,7 +723,7 @@ test("an unconfirmed Request whose read succeeds settles without a message", asy
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); await start(tv, fake);
-        await button(tv, "requests").click(); await button(tv, "movie:949").click(); await view(tv, "media"); await button(tv, "create").waitFor();
+        await openRequests(tv); await button(tv, "movie:949").click(); await view(tv, "media"); await button(tv, "create").waitFor();
         await button(tv, "create").focus();
         tv.fake.dropNextAnswer("/requests"); await tv.page.keyboard.press("Enter");
         await tv.eventually(async () => await button(tv, "status").count() === 1, "the automatic read settles it");
@@ -739,7 +738,7 @@ test("Cancel leaves focus on the action beside it through writing, settling and 
     try {
         const fake = new FakeRequests(); fake.created = true; nativeDetail(fake, "Heat", 3);
         Object.assign(fake.record, { state: "pending", status: "pending" });
-        await start(tv, fake); await button(tv, "requests").click(); await button(tv, "request-one").click(); await view(tv, "request"); await button(tv, "cancel").waitFor();
+        await start(tv, fake); await openRequests(tv); await button(tv, "request-one").click(); await view(tv, "request"); await button(tv, "cancel").waitFor();
         await button(tv, "cancel").focus();
         tv.fake.script("/requests/request-one/cancel", problem(409, "conflict", "This request can no longer be changed"));
         await tv.page.keyboard.press("Enter");
@@ -769,7 +768,7 @@ test("a failed detail read uses ErrorView's recovery order, and Back works by th
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); await start(tv, fake);
-        await button(tv, "requests").click(); await button(tv, "movie:949").waitFor();
+        await openRequests(tv); await button(tv, "movie:949").waitFor();
         await button(tv, "movie:949").focus();
         fake.requestFailure = problem(404, "not_found", "Hidden");
         await tv.page.keyboard.press("Enter");
@@ -798,7 +797,7 @@ test("a settling write keeps focus the person moved meanwhile", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); nativeDetail(fake, "Heat", 3); await start(tv, fake);
-        await button(tv, "requests").click(); await button(tv, "movie:949").click(); await button(tv, "create").waitFor();
+        await openRequests(tv); await button(tv, "movie:949").click(); await button(tv, "create").waitFor();
         let held = tv.fake.hold("/requests", true);
         fake.requestFailure = problem(400, "validation_failed", "Unavailable");
         await button(tv, "create").click();
@@ -825,55 +824,52 @@ test("ready Requests hub uses native shell controls only", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); fake.created = true;
-        await start(tv, fake); await button(tv, "requests").click();
+        await start(tv, fake); await openRequests(tv);
         await button(tv, "request-one").waitFor();
         for (const name of ["Search requests", "My Requests", "Refresh", "Back"]) {
             assert.equal(await tv.page.getByRole("button", { name, exact: true }).count(), 0, `${name} is not a ready-hub tool`);
         }
         assert.equal(await tv.page.locator('.requests-heading').first().textContent(), "Your requests");
-        assert.equal(await button(tv, "search").count(), 1);
+        assert.equal(await button(tv, "search").count(), 0);
     } finally { await tv.page.context().close(); }
 });
 
-test("Requests tab Select reads nothing, focus stays passive and leaving fences the rebuild's read", async () => {
+test("Requests card focus reads nothing and Back fences a fresh hub read", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
-        await start(tv); await button(tv, "requests").click(); await button(tv, "movie:949").waitFor();
+        await start(tv); await openRequests(tv); await button(tv, "movie:949").waitFor();
         const reads = () => tv.fake.paths().filter(path => path === "GET /requests/discover").length;
         const before = reads();
-        await button(tv, "requests").focus(); await tv.remote(39); await tv.remote(37);
-        assert.equal(reads(), before, "navigation focus does not refresh");
-        await button(tv, "requests").click();
-        assert.equal(reads(), before, "selecting the shown tab reads nothing, as on Apple TV");
+        await tv.remote(39); await tv.remote(37); await tv.remote(38);
+        assert.equal(reads(), before, "directional focus does not refresh");
         const held = tv.fake.hold("/requests/discover", true);
         await revisitRequests(tv);
-        await tv.eventually(async () => reads() === before + 1, "returning rebuilds with one read");
-        await button(tv, "requests").click();
-        assert.equal(reads(), before + 1, "pending read is neither replaced nor duplicated");
-        await button(tv, "home").click();
-        held.release();
+        await tv.eventually(async () => reads() === before + 1, "reopening reads once");
+        await tv.remote(38);
+        assert.equal(reads(), before + 1, "Up does not duplicate the pending read");
+        await tv.remote(10009); held.release();
         await tv.page.locator('.browse[data-view="home"] .browse-card').first().waitFor();
         assert.equal(await tv.page.locator('.browse[data-view="requests:hub"]').count(), 0);
         assert.equal(tv.fake.paths().filter(path => /^(POST|PUT|DELETE) \/requests/.test(path)).length, 0);
     } finally { await tv.page.context().close(); }
 });
 
-test("shared Search retains the Requests mine card and visit on Back", async () => {
+test("shared Search returns to Home and Requests reopens from its profile row", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); fake.created = true;
-        await start(tv, fake); await button(tv, "requests").click(); await button(tv, "request-one").waitFor();
+        await start(tv, fake); await openRequests(tv); await button(tv, "request-one").waitFor();
         await button(tv, "request-one").focus();
-        const scroll = await tv.page.locator('.browse[data-view="requests:hub"] > .skyline-content').evaluate(node => node.scrollTop);
-        await button(tv, "search").click();
+
+        await leaveRequests(tv); await button(tv, "search").click();
         await tv.page.getByRole("searchbox").fill("Heat"); await tv.page.getByRole("searchbox").press("Enter");
         await tv.page.locator('.search-request-rail [data-focus="movie:949"]').waitFor();
-        await tv.remote(10009); await view(tv, "hub"); await button(tv, "request-one").waitFor();
-        assert.equal(await tv.focused(), "requests");
-        await tv.remote(40);
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "home");
+        await openRequests(tv); await button(tv, "request-one").waitFor();
         assert.equal(await tv.focused(), "request-one");
-        assert.equal(await tv.page.locator('.browse[data-view="requests:hub"] > .skyline-content').evaluate(node => node.scrollTop), scroll);
-        await button(tv, "search").click();
+        assert.equal(await tv.page.locator('.browse-nav [data-focus="requests"]').count(), 0);
+        await leaveRequests(tv); await button(tv, "search").click();
         assert.equal(await tv.page.getByRole("searchbox").inputValue(), "", "a new bar-owned Search starts empty");
     } finally { await tv.page.context().close(); }
 });
@@ -894,7 +890,7 @@ test("status detail clips its action at the native 810 hero edge and starts post
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); fake.created = true; nativeDetail(fake, "Dune: Part Three", 3);
-        await start(tv, fake); await button(tv, "requests").click(); await button(tv, "request-one").click();
+        await start(tv, fake); await openRequests(tv); await button(tv, "request-one").click();
         await view(tv, "request"); await tv.page.getByText("Directed by Denis Villeneuve", { exact: true }).waitFor();
         await tv.page.evaluate(async () => document.fonts.ready);
         assert.equal(await tv.focused(), "status");
@@ -915,7 +911,7 @@ test("unrequested detail keeps its action whole with posters at 746 and native c
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); nativeDetail(fake, "Apocalypse Z: New World", 3);
-        await start(tv, fake); await button(tv, "requests").click(); await button(tv, "movie:949").click();
+        await start(tv, fake); await openRequests(tv); await button(tv, "movie:949").click();
         await view(tv, "media"); await tv.page.getByText("Directed by Denis Villeneuve", { exact: true }).waitFor();
         await tv.page.evaluate(async () => document.fonts.ready);
         assert.equal(await tv.focused(), "create");
@@ -944,10 +940,11 @@ test("request status dots, hub captions, poster badges and the magnifier use nat
             { ...fake.record, id: "partly", title: "Road Wars", state: "partially_available", status: "queued" },
             { ...fake.record, title: "Neuromancer" },
         ], page: { has_more: false } } });
-        await start(tv, fake); await button(tv, "requests").click(); await button(tv, "adding").waitFor();
+        await start(tv, fake);
         await tv.page.evaluate(async () => document.fonts.ready);
         assert.deepEqual(await pseudo(tv, ".skyline-search", "::before", "width", "border-top-width", "left", "top"), ["22px", "3px", "16px", "15px"], "magnifier ring");
         assert.deepEqual((await pseudo(tv, ".skyline-search", "::after", "height", "border-top-left-radius")), ["4px", "2px"], "magnifier handle");
+        await openRequests(tv); await button(tv, "adding").waitFor();
         for (const [key, text] of [["adding", "Adding to library"], ["partly", "Partly in library"]] as const) assert.ok(await button(tv, key).locator(".requests-status-label").evaluate((node, text) => {
             const range = document.createRange(); range.selectNodeContents(node);
             const card = node.closest(".requests-card")?.getBoundingClientRect();
@@ -977,7 +974,7 @@ test("More like this draws only cards inside the native rail bounds yet focus re
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); fake.created = true; nativeDetail(fake, "Dune: Part Three", 12);
-        await start(tv, fake); await button(tv, "requests").click(); await button(tv, "request-one").click();
+        await start(tv, fake); await openRequests(tv); await button(tv, "request-one").click();
         await view(tv, "request"); await button(tv, "movie:1011").waitFor();
         await tv.page.locator(".browse").evaluate(node => (node as HTMLElement).style.setProperty("--poster-scale", "0.86"));
         const rail = ".requests-detail-hero ~ .requests-rail .requests-card";
@@ -1013,7 +1010,7 @@ test("Requests loading is Apple's passive skeleton page and owns focus without a
     try {
         await start(tv);
         const held = tv.fake.hold("/requests/discover", true);
-        await button(tv, "requests").click();
+        await openRequests(tv);
         const page = tv.page.locator(".requests-loading");
         await page.waitFor();
         await tv.eventually(async () => hubReads(tv) === 1, "hub read started");
@@ -1027,10 +1024,8 @@ test("Requests loading is Apple's passive skeleton page and owns focus without a
         assert.equal(await tv.page.locator(".requests-loading-block").evaluate(node => getComputedStyle(node).borderRadius), "12px");
         assert.deepEqual(await tv.page.locator(".requests-loading-meta .requests-loading-bar").evaluateAll(nodes => nodes.map(node => { const rect = node.getBoundingClientRect(); return [Math.round(rect.left), Math.round(rect.top), rect.width, rect.height]; })), [[88, 280, 118, 22], [220, 280, 82, 22], [316, 280, 150, 22]]);
         assert.deepEqual(await tv.page.locator(".requests-loading-copy .requests-loading-bar").evaluateAll(nodes => nodes.map(node => { const rect = node.getBoundingClientRect(); return [Math.round(rect.left), Math.round(rect.top), rect.width, rect.height]; })), [[88, 322, 720, 18], [88, 353, 610, 18]]);
-        // The spinner steps through 45 degree turns, which changes its bounding box; measure it at rest.
         await tv.page.emulateMedia({ reducedMotion: "reduce" });
         near(await box(tv, ".requests-loading-spinner"), [88, 395, 40, 40], 0, "spinner");
-        await tv.page.emulateMedia({ reducedMotion: "no-preference" });
         const label = await tv.page.locator(".requests-loading-label").evaluate(node => { const style = getComputedStyle(node), rect = node.getBoundingClientRect(); return { left: rect.left, centre: rect.top + rect.height / 2, size: style.fontSize, weight: style.fontWeight, color: style.color }; });
         assert.deepEqual(label, { left: 142, centre: 415, size: "20px", weight: "500", color: "rgba(237, 237, 237, 0.72)" });
         near(await box(tv, ".requests-loading-rail > .requests-loading-bar"), [88, 614, 300, 28], 0, "rail header");
@@ -1040,7 +1035,7 @@ test("Requests loading is Apple's passive skeleton page and owns focus without a
         assert.deepEqual(cards[7], [1544, 662, 176, 264]);
         const reads = tv.fake.requests.length;
         await tv.remote(38);
-        assert.equal(await tv.focused(), "requests", "Up reaches the Requests tab");
+        assert.equal(await tv.focused(), "requests-page", "Up stays on the pushed loading page");
         await tv.remote(40);
         assert.equal(await tv.page.evaluate(() => document.activeElement?.classList.contains("requests-loading")), true, "Down returns to the placeholder");
         await tv.remote(37); await tv.remote(39);
@@ -1049,7 +1044,7 @@ test("Requests loading is Apple's passive skeleton page and owns focus without a
         await tv.remote(38);
         held.release();
         await button(tv, "movie:949").waitFor();
-        assert.equal(await tv.focused(), "requests", "an answer never pulls focus out of the bar");
+        assert.equal(await tv.focused(), "movie:949", "the answer replaces the loading owner with the first card");
         await tv.remote(40);
         assert.equal(await tv.focused(), "movie:949");
     } finally { await tv.page.context().close(); }
@@ -1060,14 +1055,14 @@ test("Requests failure uses Apple's ErrorView, its copy and Try Again shows load
     try {
         const fake = await start(tv);
         fake.requestFailure = { status: 503, text: "unavailable" };
-        await button(tv, "requests").click();
+        await openRequests(tv);
         const again = tv.page.getByRole("button", { name: "Try Again", exact: true });
         await again.waitFor();
         await tv.page.getByRole("heading", { name: "Something went wrong" }).waitFor();
         await tv.page.getByText("The server ran into a problem. Try again in a moment.", { exact: true }).waitFor();
         await tv.eventually(async () => await tv.focused() === "retry", "Try Again focused on entry");
         await tv.page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; animation: none !important; }" });
-        await button(tv, "requests").focus();
+        await tv.page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
         const heading = await tv.page.locator(".requests-failure h2").evaluate(node => { const style = getComputedStyle(node), rect = node.getBoundingClientRect(); return [style.fontSize, style.fontWeight, Math.round(rect.top), Math.round(rect.height)]; });
         assert.deepEqual(heading, ["36px", "600", 436, 43]);
         const body = await tv.page.locator(".requests-failure p").evaluate(node => { const style = getComputedStyle(node), rect = node.getBoundingClientRect(); return [style.fontSize, Math.round(rect.top), Math.round(rect.height), style.color]; });
@@ -1082,7 +1077,7 @@ test("Requests failure uses Apple's ErrorView, its copy and Try Again shows load
         const focused = await again.evaluate(node => { const style = getComputedStyle(node); return { background: style.backgroundColor, transform: style.transform, ring: style.boxShadow.includes("rgb(255, 255, 255) 0px 0px 0px 2px") }; });
         assert.deepEqual(focused, { background: "rgb(237, 237, 237)", transform: "matrix(1.055, 0, 0, 1.055, 0, 0)", ring: true });
         await tv.remote(38);
-        assert.equal(await tv.focused(), "requests", "Up from the error reaches the Requests tab");
+        assert.equal(await tv.focused(), "retry", "Up stays on the pushed error recovery");
         await tv.remote(40);
         const held = tv.fake.hold("/requests/discover", true);
         await tv.page.keyboard.press("Enter");
@@ -1108,7 +1103,7 @@ test("Requests 401 offers Sign In Again first, then Try Again", async () => {
     try {
         const fake = await start(tv, new FakeRequests(), true);
         fake.requestFailure = problem(401, "not_a_session_code", "Refused");
-        await button(tv, "requests").click();
+        await openRequests(tv);
         await tv.page.getByRole("heading", { name: "Session expired" }).waitFor();
         await tv.page.getByText("Your session has expired. Sign in again to continue.", { exact: true }).waitFor();
         await tv.eventually(async () => await tv.focused() === "sign-in", "Sign In Again is primary");
@@ -1125,7 +1120,7 @@ test("Requests failure follows Apple's status mapping with recovery the hub can 
     try {
         const fake = await start(tv);
         fake.requestFailure = problem(403, "forbidden", "Protocol text");
-        await button(tv, "requests").click();
+        await openRequests(tv);
         await tv.page.getByRole("heading", { name: "Not allowed" }).waitFor();
         await tv.page.getByText("You don't have permission to do this. Ask your server admin if you need access.", { exact: true }).waitFor();
         assert.equal(await tv.page.getByRole("button", { name: "Go Back", exact: true }).count(), 0, "the hub is a root, so it has no stack to go back through");
@@ -1149,7 +1144,7 @@ test("Requests empty is Apple's EmptyStateView and owns focus without a highligh
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = await start(tv); fake.requestsEmpty = true;
-        await button(tv, "requests").click();
+        await openRequests(tv);
         const page = tv.page.locator(".requests-empty");
         await page.waitFor();
         await tv.eventually(async () => await tv.page.evaluate(() => document.activeElement?.classList.contains("requests-empty") === true), "placeholder owns focus");
@@ -1166,69 +1161,52 @@ test("Requests empty is Apple's EmptyStateView and owns focus without a highligh
         assert.equal(await tv.page.locator(".requests-empty .search-state-icon").evaluate(node => getComputedStyle(node).color), "rgba(237, 237, 237, 0.3)");
         const reads = tv.fake.requests.length;
         await tv.remote(38);
-        assert.equal(await tv.focused(), "requests");
+        assert.equal(await tv.focused(), "requests-page");
         await tv.remote(40);
         assert.equal(await tv.page.evaluate(() => document.activeElement?.classList.contains("requests-empty")), true, "Down returns to the placeholder");
         assert.equal(tv.fake.requests.length, reads);
     } finally { await tv.page.context().close(); }
 });
 
-test("ready hub: Up reaches the tab, Down returns to the first card and tabs switch only on Select", async () => {
+test("ready pushed hub keeps Up in its first row and restores the selected tab on Back", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); fake.created = true;
-        await start(tv, fake); await button(tv, "requests").click();
-        await button(tv, "request-one").waitFor();
-        await tv.eventually(async () => await tv.focused() === "request-one", "Select enters the content");
-        const rows = await tv.page.locator(".requests-rail").count();
-        assert.ok(rows > 1);
-        await tv.remote(40);
-        const lower = await tv.focused();
-        assert.notEqual(lower, "request-one");
-        await tv.remote(38);
-        assert.equal(await tv.focused(), "request-one");
-        await tv.remote(40); await tv.remote(38); await tv.remote(38);
-        assert.equal(await tv.focused(), "requests", "Up from the first row reaches the Requests tab");
+        await start(tv, fake); await openRequests(tv); await button(tv, "request-one").waitFor();
+        assert.ok(await tv.page.locator(".requests-rail").count() > 1);
+        await tv.remote(40); assert.notEqual(await tv.focused(), "request-one");
+        await tv.remote(38); assert.equal(await tv.focused(), "request-one");
         const reads = tv.fake.requests.length;
-        await tv.remote(37);
-        assert.equal(await tv.focused(), "calendar", "moving across tabs");
-        assert.equal(await tv.page.locator('.browse[data-view="requests:hub"]').count(), 1, "does not switch them");
-        assert.equal(tv.fake.requests.length, reads, "or fetch");
-        await tv.remote(39); await tv.remote(40);
-        assert.equal(await tv.focused(), "request-one");
+        await tv.remote(38); assert.equal(await tv.focused(), "request-one");
+        assert.equal(tv.fake.requests.length, reads, "Up does not fetch");
+        assert.equal(await tv.page.locator('.browse[data-view="requests:hub"]').count(), 1);
+        await tv.remote(10009); assert.equal(await tv.focused(), "home");
     } finally { await tv.page.context().close(); }
 });
 
-test("Down from the bar returns to the first card, not the last-focused one", async () => {
+test("Up preserves the horizontal position in the first pushed hub row", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); fake.created = true;
         tv.fake.script("/requests/mine?limit=50", { status: 200, body: { items: ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"].map(id => ({ ...fake.record, id })), page: { has_more: false } } });
-        tv.fake.script("/requests/mine?limit=50", { status: 200, body: { items: ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"].map(id => ({ ...fake.record, id })), page: { has_more: false } } });
-        await start(tv, fake); await button(tv, "requests").click();
-        await button(tv, "a").waitFor();
-        await tv.eventually(async () => await tv.focused() === "a", "first card");
+        await start(tv, fake); await openRequests(tv); await button(tv, "a").waitFor();
         for (let press = 0; press < 10; press++) await tv.remote(39);
         assert.equal(await tv.focused(), "k");
-        await tv.remote(38);
-        assert.equal(await tv.focused(), "requests");
-        await tv.remote(40);
-        assert.equal(await tv.focused(), "a", "the first card, not the last-focused k");
-        await tv.eventually(async () => await tv.page.locator(".requests-rail").first().evaluate(node => node.scrollLeft) === 0, "the row returned to its start");
+        await tv.remote(38); assert.equal(await tv.focused(), "k");
     } finally { await tv.page.context().close(); }
 });
 
-test("returning to the Requests tab rebuilds the page, shows loading, then focuses the first card", async () => {
+test("reopening the Requests profile row rebuilds the page, shows loading, then focuses the first card", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); fake.created = true;
-        await start(tv, fake); await button(tv, "requests").click();
+        await start(tv, fake); await openRequests(tv);
         await button(tv, "request-one").waitFor();
         await tv.page.evaluate(() => { (document.querySelector('[data-focus="movie:949"]') as HTMLElement | null)?.focus(); });
-        await button(tv, "home").click(); await tv.page.locator('.browse[data-view="home"]').waitFor();
+        await leaveRequests(tv); await button(tv, "home").click(); await tv.page.locator('.browse[data-view="home"]').waitFor();
         const reads = hubReads(tv);
         const held = tv.fake.hold("/requests/discover", true);
-        await button(tv, "requests").click();
+        await openRequests(tv);
         await tv.page.locator(".requests-loading").waitFor();
         assert.equal(await button(tv, "request-one").count(), 0, "the earlier page is gone");
         await tv.eventually(async () => hubReads(tv) === reads + 1, "one fresh read");
@@ -1249,11 +1227,13 @@ test("top bar anchors follow the native row at 8 px gaps", async () => {
         assert.deepEqual(gaps, gaps.map(() => 8));
         const home = await button(tv, "home").evaluate(node => { const style = getComputedStyle(node); return parseFloat(style.paddingLeft) + parseFloat(style.borderLeftWidth); });
         assert.equal(home, 29, "Apple's 29 px tab inset includes the capsule edge");
-        // 11-error-http503 hierarchy. This fixture orders Movies before Series, which leaves every other anchor unchanged.
-        const frame = (key: string) => { const found = frames.find(entry => entry.key === key); assert.ok(found, key); return found; };
-        for (const [key, centre] of [["search", 461.5], ["home", 562.5], ["for_you", 999], ["calendar", 1162.5]] as const) assert.ok(Math.abs(frame(key).centre - centre) <= 1.5, `${key} centre ${frame(key).centre}, Apple ${centre}`);
-        const requests = frame("requests");
-        assert.ok(Math.abs(requests.left - 1253) <= 1.5 && Math.abs(requests.right - 1422) <= 1.5, `Requests pill ${requests.left}-${requests.right}, Apple 1253-1422`);
+        const first = frames.find(frame => frame.key === "home");
+        const last = frames.find(frame => frame.key === "calendar");
+        assert.ok(first && last);
+        assert.ok(Math.abs((first.left + last.right) / 2 - 960) < 1, "Apple centers the roots independently of Search");
+        assert.equal(frames.some(frame => frame.key === "requests"), false);
+        const search = frames[0]; assert.ok(search && Math.abs(search.right + 8 - first.left) < 1);
+
     } finally { await tv.page.context().close(); }
 });
 
@@ -1281,7 +1261,7 @@ test("hub rows align to the 596 band top, keep the heading visible and the eyebr
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); fake.created = true; manyRows(tv, fake);
-        await start(tv, fake); await button(tv, "requests").click(); await button(tv, "a").waitFor();
+        await start(tv, fake); await openRequests(tv); await button(tv, "a").waitFor();
         await tv.eventually(async () => await tv.focused() === "a", "first card");
         assert.deepEqual(await tv.page.locator(".requests-discover").evaluate(node => { const style = getComputedStyle(node), rect = node.getBoundingClientRect(); return [rect.top, rect.height, style.fontSize, style.letterSpacing, style.color]; }), [1049, 21, "17px", "1.6px", "rgba(237, 237, 237, 0.55)"], "the first row stops 10 px above DISCOVER");
         assert.equal(await top(tv, ".requests-row:nth-of-type(2) .requests-heading"), 1074);
@@ -1304,52 +1284,46 @@ test("hub rows align to the 596 band top, keep the heading visible and the eyebr
         assert.equal(await tv.focused(), "a");
         tops = await rowTops(tv);
         assert.equal(tops.heading, 596, "re-entering the first row shows its heading"); assert.equal(await untransformedArtTop(tv), 662);
-        await tv.remote(38); assert.equal(await tv.focused(), "requests");
-        await tv.remote(40); await settledScroll(tv);
+        await tv.remote(38); assert.equal(await tv.focused(), "a");
+        await settledScroll(tv);
         assert.equal(await tv.focused(), "a"); assert.equal(await untransformedArtTop(tv), 662);
     } finally { await tv.page.context().close(); }
 });
-test("Up and Down between hub rows keep the visual column; Down from the bar goes to the first card", async () => {
+test("Up and Down between pushed hub rows keep the visual column", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); fake.created = true; manyRows(tv, fake);
-        await start(tv, fake); await button(tv, "requests").click(); await button(tv, "a").waitFor();
+        await start(tv, fake); await openRequests(tv); await button(tv, "a").waitFor();
         await tv.eventually(async () => await tv.focused() === "a", "first card");
         await tv.remote(39); await tv.remote(39); assert.equal(await tv.focused(), "c");
         await tv.remote(40); assert.equal(await tv.focused(), "movie:2002", "third card below");
         await tv.remote(38); assert.equal(await tv.focused(), "c", "third card above");
-        await tv.remote(38); assert.equal(await tv.focused(), "requests");
-        await tv.remote(40); assert.equal(await tv.focused(), "a", "bar entry starts at the first card");
-        await tv.remote(40); assert.equal(await tv.focused(), "movie:2000", "the bar entry clears the previous third-card navigation axis");
-        await tv.remote(38); await tv.remote(39); await tv.remote(39); assert.equal(await tv.focused(), "c");
         await tv.remote(39); await tv.remote(40); assert.equal(await tv.focused(), "movie:2003", "the moved column wins over the remembered card");
         await tv.remote(38); assert.equal(await tv.focused(), "d");
         for (let press = 0; press < 3; press++) await tv.remote(37);
-        await tv.remote(38); assert.equal(await tv.focused(), "requests");
-        await tv.remote(40); assert.equal(await tv.focused(), "a");
+        await tv.remote(38); assert.equal(await tv.focused(), "a");
+        await tv.remote(40); assert.equal(await tv.focused(), "movie:2000");
     } finally { await tv.page.context().close(); }
 });
-test("Select on the shown Requests tab moves focus to the first card without a read or a loading page", async () => {
+test("Up on the pushed hub preserves focus without a read or loading page", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); fake.created = true; manyRows(tv, fake);
-        await start(tv, fake); await button(tv, "requests").click(); await button(tv, "a").waitFor();
-        await tv.eventually(async () => await tv.focused() === "a", "first card");
-        await tv.remote(38); assert.equal(await tv.focused(), "requests");
-        const reads = tv.fake.paths().length;
-        await tv.page.keyboard.press("Enter");
-        assert.equal(await tv.focused(), "a");
+        await start(tv, fake); await openRequests(tv); await button(tv, "a").waitFor();
+        const reads = hubReads(tv);
+        const requestReads = tv.fake.paths().filter(path => path.startsWith("GET /requests")).length;
+        await tv.remote(38); assert.equal(await tv.focused(), "a");
         assert.equal(await tv.page.locator(".requests-loading").count(), 0);
-        await tv.page.waitForTimeout(100); await tv.jump(1);
-        assert.equal(tv.fake.paths().filter(path => path.startsWith("GET /requests")).length, tv.fake.paths().slice(0, reads).filter(path => path.startsWith("GET /requests")).length, "selecting the shown tab reads nothing");
-        assert.equal(await tv.focused(), "a", "focus stays on the first card");
+        assert.equal(hubReads(tv), reads);
+        assert.equal(tv.fake.paths().filter(path => path.startsWith("GET /requests")).length, requestReads);
     } finally { await tv.page.context().close(); }
 });
+
 test("a ready detail has no focus stop below More like this, and every failure keeps a visible retry", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); nativeDetail(fake, "Apocalypse Z: New World", 3);
-        await start(tv, fake); await button(tv, "requests").click(); await button(tv, "movie:949").click();
+        await start(tv, fake); await openRequests(tv); await button(tv, "movie:949").click();
         await view(tv, "media"); await button(tv, "create").waitFor(); await button(tv, "movie:1000").waitFor();
         assert.equal(await button(tv, "refresh").count(), 0); assert.equal(await button(tv, "back").count(), 0);
         await tv.remote(40); assert.equal(await tv.focused(), "movie:1000");
@@ -1381,7 +1355,7 @@ test("record detail with a failed metadata read keeps Refresh, painted above the
         const fake = new FakeRequests(); fake.created = true;
         Object.assign(fake.record, { backdrop_path: "/backdrop.svg" });
         tv.fake.script("/requests/detail/movie/949", { status: 400, text: "bad" });
-        await start(tv, fake); await button(tv, "requests").click(); await button(tv, "request-one").click();
+        await start(tv, fake); await openRequests(tv); await button(tv, "request-one").click();
         await view(tv, "request");
         const refresh = button(tv, "refresh"); await refresh.waitFor();
         const notice = tv.page.getByText("Could not load title information. Refresh to try again.");
@@ -1400,7 +1374,7 @@ test("More like this scrolls the page to its end, enters under the action and of
         const fake = new FakeRequests(); fake.created = true; nativeDetail(fake, "Dune: Part Three", 12);
         Object.assign(fake.record, { backdrop_path: "/backdrop.svg" });
         const title = fake.title.bind(fake); fake.title = () => ({ ...title(), backdrop_path: "/backdrop.svg" });
-        await start(tv, fake); await button(tv, "requests").click(); await button(tv, "request-one").click();
+        await start(tv, fake); await openRequests(tv); await button(tv, "request-one").click();
         await view(tv, "request"); await button(tv, "movie:1000").waitFor();
         await tv.page.locator(".browse").evaluate(node => (node as HTMLElement).style.setProperty("--poster-scale", "0.86"));
         await tv.page.evaluate(async () => document.fonts.ready);
@@ -1427,7 +1401,7 @@ test("a short action enters the first poster, and pill backgrounds follow TVPill
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); nativeDetail(fake, "Apocalypse Z: New World", 3);
-        await start(tv, fake); await button(tv, "requests").click(); await button(tv, "movie:949").click();
+        await start(tv, fake); await openRequests(tv); await button(tv, "movie:949").click();
         await view(tv, "media"); await button(tv, "movie:1000").waitFor();
         await tv.page.locator(".browse").evaluate(node => (node as HTMLElement).style.setProperty("--poster-scale", "0.86"));
         await tv.remote(40); await settledScroll(tv);
@@ -1445,7 +1419,7 @@ test("a hub read fault goes out once, and an answer without row_order reaches th
     try {
         const fake = await start(tv);
         fake.requestFailure = { status: 503, text: "unavailable" };
-        await button(tv, "requests").click();
+        await openRequests(tv);
         await button(tv, "retry").waitFor();
         await tv.jump(3000);
         assert.equal(tv.fake.paths().filter(path => path === "GET /requests/discover").length, 1, "Apple's hub sends discover once");
@@ -1462,7 +1436,7 @@ test("hub marquee uses Apple's title width, synopsis rhythm, rating row and focu
     try {
         const fake = new FakeRequests(), title = fake.title.bind(fake);
         fake.title = () => ({ ...title(), title: "Heat", year: 1995, overview: "A long overview describing the world and the characters. ".repeat(12), vote_average: 7.5 });
-        await start(tv, fake); await button(tv, "requests").click(); await button(tv, "movie:949").waitFor();
+        await start(tv, fake); await openRequests(tv); await button(tv, "movie:949").waitFor();
         await tv.page.evaluate(async () => document.fonts.ready);
         // Apple 01: title 244, meta 361, synopsis 400 to 491, status 509; with no status the copy ends at 536 as well.
         assert.equal(await top(tv, ".requests-preview .requests-metadata") - await top(tv, ".requests-hero-title"), 117);
@@ -1472,8 +1446,54 @@ test("hub marquee uses Apple's title width, synopsis rhythm, rating row and focu
         assert.deepEqual(synopsis, ["32px", 780]);
         const row = await tv.page.locator(".requests-preview .requests-metadata").evaluate(node => { const text = node.querySelector("span")?.getBoundingClientRect(), logo = node.querySelector("img")?.getBoundingClientRect(), value = node.querySelector(".requests-tmdb span") as HTMLElement; return { dot: Math.round((logo?.left ?? 0) - (text?.right ?? 0)), gap: Math.round(value.getBoundingClientRect().left - (logo?.right ?? 0)), color: getComputedStyle(value).color, weight: getComputedStyle(value).fontWeight }; });
         assert.deepEqual(row, { dot: 15, gap: 7, color: "rgb(160, 160, 160)", weight: "700" });
-        assert.equal(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node, "::after").content !== "none" && getComputedStyle(node, "::after").boxShadow !== "none"), true, "the focused card carries Apple's light edge");
-        assert.match(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node, "::after").backgroundImage), /radial-gradient\(145% 70% at 25% 0(px|%)/, "the focused poster carries the upper-left sheen measured against Apple's pair 02a");
-        assert.equal((await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node, "::after").boxShadow)).split(/,\s*(?=rgba)/).length, 3, "top, even and bottom edge strokes");
+        await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => { for (const animation of node.getAnimations()) animation.finish(); });
+        assert.equal(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node).outline), "rgba(255, 255, 255, 0.7) solid 4px", "the focused card carries Apple's shared white outline");
+        assert.equal(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node, "::after").backgroundImage), "none", "the outlined focus treatment removes the system glass sheen");
+        assert.equal(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node).boxShadow), "rgba(0, 0, 0, 0.45) 0px 8px 36px 0px", "the focused poster uses Apple's shared shadow");
+    } finally { await tv.page.context().close(); }
+});
+
+test("typing in shared Search after leaving Requests keeps the field attached and focused", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv); await openRequests(tv); await leaveRequests(tv); await button(tv, "search").click(); await tv.page.getByRole("searchbox").waitFor();
+        const input = tv.page.getByRole("searchbox");
+        await input.focus();
+        await tv.page.evaluate(() => {
+            const field = document.activeElement as HTMLInputElement & { blurs?: number };
+            field.blurs = 0; field.addEventListener("blur", () => { field.blurs = (field.blurs ?? 0) + 1; });
+        });
+        const blurs = () => tv.page.evaluate(() => (document.querySelector('input[type="search"]') as HTMLInputElement & { blurs?: number }).blurs);
+        await input.pressSequentially("Hea");
+        assert.equal(await blurs(), 0, "editing never detaches the field");
+        await input.press("Enter"); await button(tv, "movie:949").waitFor();
+        await input.pressSequentially("t");
+        assert.equal(await input.inputValue(), "Heat");
+        assert.equal(await blurs(), 0, "results and edits never detach the field");
+        assert.equal(await input.evaluate(field => field === document.activeElement), true);
+    } finally { await tv.page.context().close(); }
+});
+
+
+test("editing search fences late results and a held write fences profile changes", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv); await openRequests(tv); await leaveRequests(tv); await button(tv, "search").click();
+        const input = tv.page.getByRole("searchbox");
+        await input.fill("Heat");
+        const held = tv.fake.hold("/requests/search", true);
+        await tv.page.getByRole("searchbox").press("Enter");
+        await tv.eventually(async () => tv.fake.paths().includes("GET /requests/search?q=Heat&media_type=all&page=1"), "search held");
+        await input.fill("Other"); held.release(); await tv.jump(1);
+        assert.equal(await button(tv, "movie:949").count(), 0);
+        await tv.page.getByRole("searchbox").press("Enter"); await button(tv, "movie:949").click(); await button(tv, "create").waitFor();
+        const write = tv.fake.hold("/requests", true);
+        await button(tv, "create").click();
+        await tv.eventually(async () => tv.fake.paths().includes("POST /requests"), "write held");
+        await tv.page.evaluate(() => window.browseHarness.selectProfile("p-kid"));
+        write.release(); await tv.jump(1);
+        assert.equal(await tv.page.locator(".browse").count(), 0);
+        assert.equal(tv.fake.paths().filter(path => path === "POST /requests").length, 1);
+        assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

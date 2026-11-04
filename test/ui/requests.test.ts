@@ -918,7 +918,10 @@ test("Requests loading is Apple's passive skeleton page and owns focus without a
         assert.equal(await tv.page.locator(".requests-loading-block").evaluate(node => getComputedStyle(node).borderRadius), "12px");
         assert.deepEqual(await tv.page.locator(".requests-loading-meta .requests-loading-bar").evaluateAll(nodes => nodes.map(node => { const rect = node.getBoundingClientRect(); return [Math.round(rect.left), Math.round(rect.top), rect.width, rect.height]; })), [[88, 280, 118, 22], [220, 280, 82, 22], [316, 280, 150, 22]]);
         assert.deepEqual(await tv.page.locator(".requests-loading-copy .requests-loading-bar").evaluateAll(nodes => nodes.map(node => { const rect = node.getBoundingClientRect(); return [Math.round(rect.left), Math.round(rect.top), rect.width, rect.height]; })), [[88, 322, 720, 18], [88, 353, 610, 18]]);
+        // The spinner steps through 45 degree turns, which changes its bounding box; measure it at rest.
+        await tv.page.emulateMedia({ reducedMotion: "reduce" });
         near(await box(tv, ".requests-loading-spinner"), [88, 395, 40, 40], 0, "spinner");
+        await tv.page.emulateMedia({ reducedMotion: "no-preference" });
         const label = await tv.page.locator(".requests-loading-label").evaluate(node => { const style = getComputedStyle(node), rect = node.getBoundingClientRect(); return { left: rect.left, centre: rect.top + rect.height / 2, size: style.fontSize, weight: style.fontWeight, color: style.color }; });
         assert.deepEqual(label, { left: 142, centre: 415, size: "20px", weight: "500", color: "rgba(237, 237, 237, 0.72)" });
         near(await box(tv, ".requests-loading-rail > .requests-loading-bar"), [88, 614, 300, 28], 0, "rail header");

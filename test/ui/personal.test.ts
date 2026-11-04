@@ -100,6 +100,70 @@ async function openList(tv: Tv, source: string): Promise<void> {
     await tv.page.locator(`[data-view="personal:${source}"] .browse-card`).first().waitFor();
 }
 
+test("watchlist and favorites use Apple's 8-column 176px grid without a Back button", async () => {
+    const { tv } = await setup();
+    try {
+        const frameOf = (source: string): Promise<{ columns: number; columnGap: string; rowGap: string; art: { width: number; height: number }; title: { size: string; weight: string; top: number; left: number }; content: { top: number; left: number; width: number }; back: number }> => tv.page.locator(`[data-view="personal:${source}"]`).evaluate(view => {
+            const grid = view.querySelector<HTMLElement>(".browse-grid");
+            const art = view.querySelector<HTMLElement>(".browse-art");
+            const title = view.querySelector<HTMLElement>(".browse-title");
+            const content = view.closest<HTMLElement>(".browse")?.querySelector<HTMLElement>(".skyline-content");
+            const gridStyle = grid === null ? undefined : getComputedStyle(grid);
+            const titleStyle = title === null ? undefined : getComputedStyle(title);
+            const titleBox = title?.getBoundingClientRect();
+            const contentBox = content?.getBoundingClientRect();
+            return {
+                columns: gridStyle?.gridTemplateColumns.split(" ").length ?? 0,
+                columnGap: gridStyle?.columnGap ?? "",
+                rowGap: gridStyle?.rowGap ?? "",
+                art: { width: art?.offsetWidth ?? 0, height: art?.offsetHeight ?? 0 },
+                title: { size: titleStyle?.fontSize ?? "", weight: titleStyle?.fontWeight ?? "", top: titleBox?.top ?? -1, left: titleBox?.left ?? -1 },
+                content: { top: contentBox?.top ?? -1, left: contentBox?.left ?? -1, width: contentBox?.width ?? 0 },
+                back: view.querySelectorAll('[data-focus="back"]').length,
+            };
+        });
+        await openList(tv, "watchlist");
+        const watchlist = await frameOf("watchlist");
+        assert.equal(watchlist.back, 0);
+        assert.equal(watchlist.columns, 8);
+        assert.equal(watchlist.columnGap, "40px");
+        assert.equal(watchlist.rowGap, "60px");
+        assert.deepEqual(watchlist.art, { width: 176, height: 264 });
+        assert.equal(watchlist.title.size, "64px");
+        assert.equal(watchlist.title.weight, "700");
+        assert.equal(watchlist.content.top, 188);
+        assert.equal(watchlist.content.left, 80);
+        assert.equal(watchlist.content.width, 1760);
+        assert.equal(watchlist.title.top, 188);
+        assert.equal(watchlist.title.left, 80);
+        for (let step = 0; step < 7; step++) await tv.page.keyboard.press("ArrowRight");
+        assert.equal(await tv.focused(), "movie:m0008");
+        await tv.page.keyboard.press("ArrowRight");
+        assert.equal(await tv.focused(), "movie:m0008");
+        for (let step = 0; step < 7; step++) await tv.page.keyboard.press("ArrowLeft");
+        await tv.page.keyboard.press("ArrowUp");
+        assert.equal(await tv.focused(), "profiles");
+        await openList(tv, "favorites");
+        assert.equal(await tv.focused(), "filter:movie");
+        const favorites = await frameOf("favorites");
+        assert.equal(favorites.back, 0);
+        assert.equal(favorites.columns, 8);
+        assert.deepEqual(favorites.art, { width: 176, height: 264 });
+        const pill = await tv.page.locator('[data-focus="filter:movie"]').evaluate(node => {
+            const style = getComputedStyle(node);
+            const row = node.parentElement === null ? undefined : getComputedStyle(node.parentElement);
+            return { size: style.fontSize, weight: style.fontWeight, padding: style.padding, gap: row?.gap ?? "" };
+        });
+        assert.deepEqual(pill, { size: "24px", weight: "600", padding: "12px 28px", gap: "14px" });
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "movie:m0001");
+        await tv.page.keyboard.press("ArrowUp");
+        assert.equal(await tv.focused(), "filter:movie");
+        await tv.page.keyboard.press("ArrowUp");
+        assert.equal(await tv.focused(), "profiles");
+    } finally { await tv.page.context().close(); }
+});
+
 for (const source of ["watchlist", "favorites"]) test(`card quick-actions remove from ${source} on the committed third page with nearby focus`, async () => {
     const { tv } = await setup();
     try {
@@ -131,7 +195,8 @@ for (const destination of ["unchanged", "navigation", "profile menu"]) test(`ini
         await tv.page.locator('[data-focus="profiles"]').click();
         await tv.page.locator('[data-focus="watchlist"]').click();
         await tv.eventually(async () => tv.fake.requests.some(r => r.path.startsWith("/catalog/query")), "initial personal read held");
-        assert.equal(await tv.focused(), "back");
+        assert.equal(await tv.focused(), "status");
+        assert.equal(await tv.page.locator('[data-focus="status"]').getAttribute("aria-label"), "Loading watchlist");
         if (destination === "navigation") {
             await tv.page.keyboard.press("ArrowUp");
             await tv.page.keyboard.press("ArrowLeft");
@@ -141,7 +206,7 @@ for (const destination of ["unchanged", "navigation", "profile menu"]) test(`ini
             await tv.page.keyboard.press("ArrowDown");
         }
         const focus = await tv.focused();
-        if (destination !== "unchanged") assert.notEqual(focus, "back");
+        if (destination !== "unchanged") assert.notEqual(focus, "status");
         held.release();
         await tv.page.locator('[data-view="personal:watchlist"] .browse-card').first().waitFor();
         assert.equal(await tv.focused(), destination === "unchanged" ? "movie:m0001" : focus);
@@ -242,7 +307,7 @@ for (const source of ["watchlist", "favorites"]) test(`integrated Details remove
         assert.equal(await tv.page.getByText("Page 3 of 3", { exact: true }).count(), 1);
         assert.equal(await tv.focused(), "movie:m0051");
         assert.equal(catalog.mutations.length, 1);
-        await tv.page.locator('[data-focus="back"]').click();
+        await tv.remote(10009);
         await tv.page.locator('[data-view="home"]').waitFor();
         await openList(tv, source === "watchlist" ? "favorites" : "watchlist");
         for (let page = 2; page <= 3; page++) {
@@ -301,7 +366,7 @@ test("personal destinations page on the server, restore Details focus and reconc
             await tv.remote(10009);
             await tv.eventually(async () => await tv.page.locator(`.browse-card[data-focus="${id}"]`).count() === 0, "membership refresh");
             catalog.excluded.clear();
-            await tv.page.locator('[data-focus="back"]').click();
+            await tv.remote(10009);
             try { await tv.page.locator('[data-view="home"]').waitFor(); }
             catch (error: unknown) {
                 const state = await tv.page.evaluate(() => ({ view: document.querySelector('.browse')?.getAttribute('data-view'), focus: document.activeElement?.getAttribute('data-focus'), alerts: [...document.querySelectorAll('[role="alert"]')].map(node => node.textContent), targets: [...document.querySelectorAll('.browse [data-focus]')].map(node => node.getAttribute('data-focus')) }));
@@ -369,13 +434,16 @@ test("capability failures are retryable errors, unsupported is explicit, empty r
         catalog.unavailable = true;
         await tv.page.locator('[data-focus="retry"]').click();
         await tv.page.getByText("Watchlist is unavailable.").waitFor();
-        await tv.page.locator('[data-focus="back"]').click();
+        await tv.remote(10009);
         catalog.unavailable = false;
         for (const id of catalog.titles.keys()) catalog.excluded.add(id);
         await tv.page.locator('[data-focus="profiles"]').click();
         await tv.page.locator('[data-focus="watchlist"]').click();
-        await tv.page.getByText("No watchlist", { exact: true }).waitFor();
-        assert.equal(await tv.focused(), "back");
+        await tv.page.getByText("Watchlist is empty", { exact: true }).waitFor();
+        await tv.page.getByText("Tap the bookmark icon on any item to add it here", { exact: true }).waitFor();
+        assert.equal(await tv.focused(), "status");
+        await tv.page.keyboard.press("ArrowUp");
+        assert.equal(await tv.focused(), "profiles");
     } finally { await tv.page.context().close(); }
 });
 
@@ -423,8 +491,8 @@ test("remote personal journey keeps scrolled focus visible with Reduced Motion a
         await step("Enter");
         await tv.page.locator('[data-view="personal:watchlist"] .browse-card').first().waitFor();
         if (output !== undefined) await tv.page.screenshot({ path: `${output}/watchlist.png` });
-        for (let i = 0; i < 3; i++) await step("ArrowDown");
-        for (let i = 0; i < 5; i++) await step("ArrowRight");
+        for (let i = 0; i < 2; i++) await step("ArrowDown");
+        for (let i = 0; i < 7; i++) await step("ArrowRight");
         assert.equal(await tv.focused(), "movie:m0024");
         const focus = await tv.page.evaluate(() => {
             const rect = document.activeElement?.getBoundingClientRect();

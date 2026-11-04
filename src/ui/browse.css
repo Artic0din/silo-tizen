@@ -730,3 +730,42 @@
 
 /* Shuffle stays focusable while it starts (a disabled button loses focus); it dims to 60%. */
 .browse .browse-controls .browse-control-starting { opacity: .6; }
+
+/* Apple tvOS WatchlistView and FavoritesView (silo-apple 9723df0): contentTopInset 188,
+   safePadding 80, title 64 bold, eight 176-point posters, column gap 40, row gap 60. */
+.personal-lists.skyline-grid .skyline-content { top: 188px; left: 80px; width: 1760px; height: 892px; }
+.personal-lists .personal-page { padding-bottom: 80px; }
+.personal-lists .browse-title { margin: 0 0 40px; font-size: 64px; font-weight: 700; line-height: 64px; color: #ededed; }
+.personal-lists .personal-filters { position: static; display: flex; gap: 14px; width: auto; margin: 0 0 40px; }
+.personal-lists .personal-filters .browse-button { margin: 0; padding: 12px 28px; border: 1px solid rgba(255,255,255,.09); border-radius: 999px; background: rgba(255,255,255,.07); color: #ededed; font-size: 24px; font-weight: 600; line-height: 1.2; transition: transform 120ms ease-out, opacity 120ms ease-out; }
+.personal-lists .personal-filters .browse-button[aria-pressed="true"] { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.1); color: #ededed; }
+.personal-lists .personal-filters .browse-button:focus { background: #ededed; color: #000; border-color: transparent; box-shadow: none; transform: scale(1.04); }
+.personal-lists .personal-filters .browse-button:active { opacity: .82; }
+.personal-lists .personal-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; width: 1760px; padding: 0; }
+.personal-lists .personal-grid .browse-card { width: 176px; margin: 0; padding: 0; border: 0; border-radius: 0; transition: none; }
+.personal-lists .personal-grid .browse-card:focus { transform: none; border-color: transparent; box-shadow: none; }
+.personal-lists .personal-grid .browse-art { width: 176px; height: 264px; border-radius: 12px; transition: transform 120ms ease-out, box-shadow 120ms ease-out; }
+.personal-lists .personal-grid .browse-card:focus .browse-art { transform: scale(1.05); box-shadow: 0 8px 18px rgba(0,0,0,.45), 0 0 0 4px rgba(255,255,255,.7); }
+.personal-lists .personal-grid .browse-card-title { margin: 16px 0 0; padding: 0; font: 500 24px/29px var(--silo-font); color: rgba(237,237,237,.45); text-align: center; transition: color 120ms ease-out, text-shadow 120ms ease-out; }
+.personal-lists .personal-grid .browse-card-subtitle { margin: 4px 0 0; padding: 0; font: 400 20px/24px var(--silo-font); color: rgba(237,237,237,.32); text-align: center; transition: color 120ms ease-out, text-shadow 120ms ease-out; }
+.personal-lists .personal-grid .browse-card:focus .browse-card-title { color: #fff; font-weight: 500; text-shadow: 0 0 8px rgba(255,255,255,.22), 0 0 3px rgba(255,255,255,.12); }
+.personal-lists .personal-grid .browse-card:focus .browse-card-subtitle { color: rgba(255,255,255,.92); font-weight: 400; text-shadow: 0 0 8px rgba(255,255,255,.22), 0 0 3px rgba(255,255,255,.12); }
+.personal-lists .personal-loading,
+.personal-lists .personal-status,
+.personal-lists .personal-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; min-height: 640px; margin: 0; padding: 0 60px; border: 0; background: transparent; color: #ededed; font: inherit; text-align: center; }
+.personal-lists .personal-loading:focus,
+.personal-lists .personal-status:focus,
+.personal-lists .personal-empty:focus { background: transparent; color: #ededed; border-color: transparent; box-shadow: none; transform: none; }
+.personal-lists .personal-empty { gap: 12px; }
+.personal-lists .personal-empty-icon { width: 44px; height: 44px; color: rgba(237,237,237,.3); }
+.personal-lists .personal-empty-title { font-size: 28px; font-weight: 600; }
+.personal-lists .personal-empty-subtitle { max-width: 1200px; font-size: 22px; font-weight: 400; color: rgba(237,237,237,.6); }
+.personal-lists .personal-section-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; min-height: 430px; text-align: center; }
+.personal-lists .personal-section-icon { width: 54px; height: 54px; color: rgba(237,237,237,.34); }
+.personal-lists .personal-section-title { margin: 0; font-size: 30px; font-weight: 600; color: #ededed; }
+.personal-lists .personal-section-subtitle { margin: 0; font-size: 22px; font-weight: 400; color: rgba(237,237,237,.6); }
+.personal-lists .personal-status { font-size: 30px; }
+@media (prefers-reduced-motion: reduce) {
+    .personal-lists .personal-grid .browse-card:focus .browse-art,
+    .personal-lists .personal-filters .browse-button:focus { transform: none; }
+}

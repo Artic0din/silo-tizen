@@ -1099,6 +1099,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         container.classList.toggle("section-catalog", isSectionRoute(current) || current.kind === "recommendationSection");
         const browsing = current.kind === "library" && current.discovery?.mode === "Browse";
         container.classList.toggle("library-browse", browsing);
+        container.classList.toggle("personal-lists", current.kind === "personal" && current.source !== "history");
         if (browsing) activeBrowse = current.pages;
         if (isSectionRoute(current)) activeSection = sectionCatalog(current);
         const view = activeSection !== undefined && isSectionRoute(current)

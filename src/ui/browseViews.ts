@@ -251,7 +251,7 @@ export interface PagerState {
 }
 
 /** One page of cards and the buttons that move between pages. */
-export function pagedGrid(state: PagerState, context: ViewContext): { content: HTMLElement[]; zones: Zone[] } {
+export function pagedGrid(state: PagerState, context: ViewContext, columns = GRID_COLUMNS): { content: HTMLElement[]; zones: Zone[] } {
     const cards = cardItems(state.page.items, context).slice(0, state.pageSize);
     const pager: FocusItem[] = [];
     if (state.index > 0) {
@@ -269,7 +269,7 @@ export function pagedGrid(state: PagerState, context: ViewContext): { content: H
     return {
         content: [zoneNode("browse-grid", cards), ...(cards.length === 0 && pager.length === 0 ? [] : [status]), zoneNode("browse-actions", pager)],
         zones: [
-            { id: "grid", layout: "grid", columns: GRID_COLUMNS, items: cards },
+            { id: "grid", layout: "grid", columns, items: cards },
             { id: "pager", layout: "row", items: pager },
         ],
     };

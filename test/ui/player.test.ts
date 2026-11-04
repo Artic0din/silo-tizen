@@ -505,6 +505,27 @@ test("an error is shown in words with Back focused; Back or Enter dismisses it, 
     }
 });
 
+test("a retryable start failure focuses Retry, moves to Back, and only Retry starts again", async () => {
+    const { page, logs } = await open();
+    try {
+        await show(page, { phase: "error", title: "The Movie", error: { kind: "server" }, retryable: true });
+        assert.equal(await text(page, ".player-error-text"), "The server couldn't start playback. Try again.");
+        assert.equal(await page.getByRole("button", { name: "Retry", exact: true }).isVisible(), true);
+        assert.equal(await page.getByRole("button", { name: "Back", exact: true }).isVisible(), true);
+        assert.equal(await focused(page), "settings-retry");
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "back");
+        await remote(page, LEFT);
+        assert.equal(await focused(page), "settings-retry");
+        await remote(page, ENTER);
+        await remote(page, BACK);
+        assert.deepEqual(await commands(page), ["retryCompletion", "dismissError"]);
+        assert.deepEqual(logs, []);
+    } finally {
+        await page.close();
+    }
+});
+
 test("the AVPlay object stays hidden so its browser placeholder cannot cover native video", async () => {
     const { page } = await open();
     try {

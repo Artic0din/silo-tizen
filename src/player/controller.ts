@@ -1474,7 +1474,10 @@ export class PlaybackController implements PlayerControls {
                 this.arm(attempt, true, step);
                 return;
             }
-            if (this.nextStart !== undefined && this.shownError !== undefined && retryableStart(this.shownError)) this.play(this.nextStart);
+            if (this.shownError !== undefined && retryableStart(this.shownError)) {
+                const next = this.nextStart ?? (attempt !== undefined && !attempt.started && this.shownError.kind !== "settings" ? sameStart(attempt) : undefined);
+                if (next !== undefined) this.play(next);
+            }
             return;
         }
         const view = this.current;
@@ -1593,7 +1596,7 @@ export class PlaybackController implements PlayerControls {
             return;
         }
         this.shownError = error;
-        this.show({ phase: "error", title: attempt.request.title, error, retryable: this.nextStart !== undefined && !attempt.started && retryableStart(error) });
+        this.show({ phase: "error", title: attempt.request.title, error, retryable: !attempt.started && retryableStart(error) && (error.kind !== "settings" || this.nextStart !== undefined) });
     }
 
     /** A failed progress or replan for the session. */
@@ -2314,6 +2317,13 @@ function keptTracks(plan: PlaybackPlan): SelectedTracks {
 
 function retryableStart(error: PlaybackError): boolean {
     return error.kind === "network" || error.kind === "server" || error.kind === "settings" || (error.kind === "terminal" && error.retryable);
+}
+
+/** The failed start again. A plan that already chose a position keeps that position. */
+function sameStart(attempt: Attempt): PlayRequest {
+    const request = attempt.request;
+    if (attempt.plan === undefined || request.startSeconds === attempt.sourceSeconds) return request;
+    return { ...request, startSeconds: attempt.sourceSeconds };
 }
 
 function trackView(attempt: Attempt, plan: PlaybackPlan): TrackView {

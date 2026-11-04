@@ -144,7 +144,7 @@ File pointers are repository-relative.
 | Skip intro, recap, credits | ✅ | ✅ | ✅ | Enter on Skip pauses instead of skipping (#73); on-screen buttons to remove (#87). Android: `TvIntroAutoSkipBanner` |
 | Autoplay next episode (10 s countdown, Cancel) | ✅ | ✅ | ✅ | Reads the server setting. Stale after the episode ends (#82) |
 | Up Next panel before the episode ends (Play Now, Keep Watching) | ➖ | ✅ | ✅ | Tizen offers Play next only after the episode ends. Apple: `PlayerView`, with a Show Next Up time setting. Android: `TvPlayerScreen` |
-| Retry after playback fails to start | 🟡 | ✅ | ✅ | Tizen offers Retry only for a next-episode start, a settings read and a lost connection; a failed first start offers Back (`src/player/controller.ts`). Apple: `PlayerViewModel.retry()`. Android: `TvPlayerScreen` |
+| Retry after playback fails to start | ✅ | ✅ | ✅ | A retryable first start (network, server, or a retryable terminal error) focuses Retry and replays that request at the same position. Back stays available. Apple: `PlayerViewModel.retry()`. Android: `TvPlayerScreen` |
 | Playback speed | ➖ | ✅ | ✅ | Apple: HUD Speed row, 0.75× to 2.0×. AVPlay `setSpeed` takes only whole-number rates (±1, 2, 4, 8, 16×), so Apple's range cannot be matched |
 | Sleep timer | ➖ | 🟡 | ✅ | Apple: audiobook player only (`AudioFullPlayerView`); the video HUD has no way to start it |
 | Chapters | ➖ | ✅ | ✅ | Apple: HUD Chapters tab. Android: scrubber markers |

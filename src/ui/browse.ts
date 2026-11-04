@@ -41,6 +41,7 @@ import { personQuery } from "./personFilmography.ts";
 import { mountSettings, type SettingsScreen } from "./settings.ts";
 import type { CardOverlayPrefs } from "./cardOverlays.ts";
 import { PresentationSettings } from "./presentationSettings.ts";
+import { EpisodeSpoilerPreferences } from "./episodeSpoilers.ts";
 import { NavigationSettings } from "./navigationSettings.ts";
 import { cachedBranding } from "./brandingCache.ts";
 import { getCalendar } from "../api/calendarOperations.ts";
@@ -132,7 +133,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
     applyCardSize();
     let shownOverlays: CardOverlayPrefs | undefined = presentation.cardOverlays;
-    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, cardOverlays: () => presentation.cardOverlays, posterScale: () => presentation.posterScale, savedFileOverlay: card => homeDetails.savedFile(card)?.overlay, open: (destination) => open(destination), preview: (card, row, continuing) => shell.preview(card, row, continuing), resume: (id, title) => {
+    let episodeSpoilers: EpisodeSpoilerPreferences | undefined;
+    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, cardOverlays: () => presentation.cardOverlays, posterScale: () => presentation.posterScale, spoilers: () => episodeSpoilers?.settings ?? { hidesImages: false, hidesOverviews: false }, savedFileOverlay: card => homeDetails.savedFile(card)?.overlay, open: (destination) => open(destination), preview: (card, row, continuing) => shell.preview(card, row, continuing), resume: (id, title) => {
         if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title }));
     }, playEpisode: (id, title, startOver) => {
         if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title, episode: true, startOver: startOver === true }));
@@ -405,6 +407,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         torn = true;
         stopSearchSupplement();
         presentation.stop();
+        episodeSpoilers?.stop();
         activeSection?.stop();
         if (activeBrowse !== undefined) stopFeed(activeBrowse);
         homeDetails.stop();
@@ -1537,7 +1540,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 host.listen();
                 const current = top();
                 if (current !== undefined) showRoute(current, { zone: "nav", key: "profiles" });
-            }, server.profileLaunch);
+            }, server.profileLaunch, episodeSpoilers);
         },
         personal: (source, anchor = "profiles") => {
             const origin = top();
@@ -1549,6 +1552,18 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
     }, focus => render(focus), options.publicStorage, `silo.skyline.scope:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`, context.baseUrl);
     shell.titleArt = () => presentation.showsTitleArt;
+    episodeSpoilers = new EpisodeSpoilerPreferences(session, options.publicStorage);
+    shell.spoilers = () => episodeSpoilers?.settings ?? { hidesImages: false, hidesOverviews: false };
+    let shownSpoilers = episodeSpoilers.settings;
+    episodeSpoilers.subscribe(() => {
+        const next = episodeSpoilers?.settings;
+        if (next === undefined || (next.hidesImages === shownSpoilers.hidesImages && next.hidesOverviews === shownSpoilers.hidesOverviews)) return;
+        shownSpoilers = next;
+        if (torn || playing || settingsScreen !== undefined) return;
+        render(host.focused());
+        shell.repaint();
+    });
+    episodeSpoilers.start();
     const enrichedScene = (): boolean => { const current = top(); return current?.kind === "home" || current?.kind === "for_you" || (current?.kind === "library" && current.discovery?.mode === "Recommended"); };
     shell.details = (card, continuing) => !enrichedScene() ? { line: undefined, badges: undefined } : { line: homeDetails.detailLine(card.id), badges: continuing ? homeDetails.savedFile(card)?.badges : undefined };
     shell.filled = card => enrichedScene() ? homeDetails.filled(card) : card;

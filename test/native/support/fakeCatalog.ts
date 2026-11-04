@@ -42,6 +42,8 @@ export class FakeCatalog implements CatalogRoutes {
     readonly playbackWatched = new Set<string>();
     readonly watchOverrides = new Map<string, Record<string, unknown>>();
     persistStops = true;
+    /** Episode cards and rows carry still artwork and a description the spoiler switches can hide. */
+    episodeStills = false;
     private readonly failures = new Map<string, Reply[]>();
     private readonly searchContinuations = new Map<string, { q: string; type: string | null; household: Household; offset: number }>();
 
@@ -258,6 +260,7 @@ export class FakeCatalog implements CatalogRoutes {
                         episode_number: episode.episode,
                         title: episode.title,
                         user_data: { ...toRecord(template.user_data), played: episode.episode === 1 },
+                        ...(this.episodeStills ? { still_url: `/art/${encodeURIComponent(episode.id)}-still.svg`, still_is_episode_still: true } : {}),
                         files: [{ file_id: this.fileIds.get(episode.id) ?? `f-${episode.id}`, resolution: "1080p", hdr: false, file_size: 1 }],
                     })),
                 },
@@ -330,6 +333,12 @@ export class FakeCatalog implements CatalogRoutes {
         if (series !== undefined) {
             Object.assign(card, { series_id: series.id, series_title: series.title, season_number: title.season, episode_number: title.episode });
         }
+        if (this.episodeStills && title.type === "episode") {
+            card.backdrop_url = `/art/${encodeURIComponent(id)}-still.svg`;
+            card.backdrop_is_episode_still = true;
+            card.poster_is_episode_still = true;
+            card.overview = "Secret chapter";
+        }
         const position = this.progress.get(id);
         if (position !== undefined) {
             card.position_seconds = position;
@@ -353,6 +362,8 @@ export class FakeCatalog implements CatalogRoutes {
         if (title.type === "series") {
             body.play_content_id = this.episodes(id)[0]?.id;
         }
+        // The catalog item fixture is a played movie. An episode still under test follows its own user_data.
+        if (this.episodeStills && title.type === "episode") body.user_state = { ...toRecord(body.user_state), played: this.playbackWatched.has(id) };
         return body;
     }
 

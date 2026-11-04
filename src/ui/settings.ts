@@ -7,6 +7,7 @@ import { remoteKey } from "./keys.ts";
 import { SettingsState } from "./settingsState.ts";
 import type { ProfileLaunch } from "../session/profileLaunch.ts";
 import { acknowledgementsDocument } from "./acknowledgements.ts";
+import type { EpisodeSpoilerPreferences } from "./episodeSpoilers.ts";
 
 type Category = "general" | "playback" | "server";
 const CATEGORY_LABELS = { general: "General", playback: "Playback", server: "Server" } as const;
@@ -17,7 +18,7 @@ const PICKER_KEYS = { hidden: HIDDEN_KEY, audio: AUDIO_KEY, quality: QUALITY_KEY
 const PICKER_LABELS = { hidden: "Hidden libraries", audio: "Preferred audio", quality: "Preferred quality", bitrate: "Maximum bitrate", "seek-back": "Video rewind interval", "seek-forward": "Video fast-forward interval" } as const;
 export interface SettingsScreen { destroy(): void }
 
-export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void, launch?: ProfileLaunch): SettingsScreen {
+export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void, launch?: ProfileLaunch, spoilers?: EpisodeSpoilerPreferences): SettingsScreen {
     const container = el("section", "browse settings");
     container.setAttribute("aria-label", "Settings");
     root.appendChild(container);
@@ -51,9 +52,11 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         });
     };
     const state = new SettingsState(session, () => render());
+    const stopSpoilers = spoilers?.subscribe(() => { if (!torn) render(host.focused()); }) ?? (() => undefined);
     const destroy = (): void => {
         if (torn) return;
         torn = true;
+        stopSpoilers();
         launchController.abort();
         stopAuthority();
         state.stop();
@@ -269,6 +272,21 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             const item = button(id, `${PICKER_LABELS[id]} · ${profileValue(key)}`, () => openPicker(id));
             rows.push(item);
             body.append(item.element, note(key));
+        }
+        if (category === "playback" && spoilers?.showsSettings === true) {
+            body.appendChild(el("h3", "settings-section-header", "SPOILERS"));
+            for (const [key, text, checked, setting] of [
+                ["spoiler-images", "Blur unwatched episode images", spoilers.settings.hidesImages, "images"],
+                ["spoiler-overviews", "Hide unwatched episode descriptions", spoilers.settings.hidesOverviews, "overviews"],
+            ] as const) {
+                const item = actionButton(key, text, () => spoilers.toggle(setting));
+                item.element.setAttribute("role", "switch");
+                item.element.setAttribute("aria-checked", String(checked));
+                item.element.setAttribute("aria-disabled", String(!spoilers.allowsEditing));
+                rows.push(item);
+                body.appendChild(item.element);
+            }
+            body.appendChild(el("p", "settings-value", spoilers.footer));
         }
         if (category === "general" && launch !== undefined) {
             const item = actionButton("remember-profile", launchPending ? "Saving launch choice…" : launch.remembered ? "Launch profile: Remember this profile" : "Launch profile: Ask who's watching", () => saveLaunch(!launch.remembered));

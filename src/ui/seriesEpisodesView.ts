@@ -1,6 +1,7 @@
 import type { Episode } from "../contracts/v2/catalog.ts";
 import type { FocusItem, Zone } from "./browseFocus.ts";
 import { actionButton, artwork, lines, mediaItem, type ViewContext, zoneNode } from "./browseViews.ts";
+import { blurEpisodeStill, hidesEpisodeListStill } from "./episodeSpoilers.ts";
 import { el } from "./screen.ts";
 import type { SeriesEpisodes } from "./seriesEpisodes.ts";
 
@@ -36,7 +37,9 @@ function episodeCard(episode: Episode, context: ViewContext): FocusItem {
     element.type = "button";
     element.tabIndex = -1;
     element.setAttribute("data-focus", episode.id);
-    element.append(artwork("browse-art browse-still", episode.stillUrl, context.baseUrl, episode.title), el("span", "browse-card-title", `${episode.episodeNumber}. ${episode.title}`));
+    const art = artwork("browse-art browse-still", episode.stillUrl, context.baseUrl, episode.title);
+    if (hidesEpisodeListStill(episode, context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false })) blurEpisodeStill(art);
+    element.append(art, el("span", "browse-card-title", `${episode.episodeNumber}. ${episode.title}`));
     element.appendChild(el("span", "browse-card-subtitle", [episode.runtimeMinutes > 0 ? `${episode.runtimeMinutes} min` : undefined, episode.played ? "Watched" : undefined].filter(Boolean).join(" · ")));
     element.addEventListener("click", () => context.playEpisode === undefined ? context.open({ kind: "item", id: episode.id, title: episode.title }) : context.playEpisode(episode.id, episode.title));
     return mediaItem({ key: episode.id, element }, { id: episode.id, title: episode.title, type: "episode" }, context);

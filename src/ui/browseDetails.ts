@@ -7,6 +7,7 @@ import type { DetailsState } from "./detailsState.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { artworkUrl, clockTime, episodeLabel, playChoices, type PlayRequest } from "./browseModel.ts";
 import { actionButton, artwork, cardItem, heading, lines, mediaItem, type ViewContext, zoneNode } from "./browseViews.ts";
+import { blurEpisodeStill, episodeDetailPresentation, hidesEpisodeListStill } from "./episodeSpoilers.ts";
 import { personMetadataBadges, personPortrait } from "./personHero.ts";
 import { el } from "./screen.ts";
 import { SkylineScroll } from "./skylineScroll.ts";
@@ -117,14 +118,17 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     const meta = metaLine(detail);
     const ratings = detail.extra?.ratings.map(rating => `${rating.name} ${rating.display}`).join(" · ");
     if (meta || ratings) nodes.push(el("p", "browse-meta", [meta, ratings].filter(Boolean).join(" · ")));
-    if (detail.overview !== undefined && detail.overview !== "") {
-        nodes.push(el("p", "browse-text browse-overview", detail.overview));
+    const presentation = episodeDetailPresentation(detail, context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false }, state?.values.get("watched"));
+    if (presentation.overview !== undefined && presentation.overview !== "") {
+        nodes.push(el("p", "browse-text browse-overview", presentation.overview));
     }
     const directors = detail.extra?.crew.filter(credit => credit.role.toLowerCase() === "director").map(credit => credit.name);
     if (directors?.length) nodes.push(el("p", "details-director", `Director: ${directors.join(", ")}`));
     if (summary !== undefined) nodes.push(el("p", "details-playback-summary", summary));
     const layout = el("div", "details-hero");
-    layout.appendChild(artwork("details-backdrop", detail.backdropUrl ?? detail.posterUrl, context.baseUrl, ""));
+    const backdrop = artwork("details-backdrop", detail.backdropUrl ?? detail.posterUrl, context.baseUrl, "");
+    if (presentation.hideBackdrop) blurEpisodeStill(backdrop);
+    layout.appendChild(backdrop);
     const info = el("div", "details-editorial");
     for (const node of nodes) {
         info.appendChild(node);
@@ -167,7 +171,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     }
     const series = state?.series === undefined ? undefined : seriesEpisodesView(state.series, context);
     const seasonItems = series?.zones[0]?.items ?? (detail.type === "series" ? seasons.map((season) => seasonItem(detail.id, detail.title, season, context)) : []);
-    const overview = detail.overview;
+    const overview = episodeDetailPresentation(detail, context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false }, state?.values.get("watched")).overview;
     const file = detail.versions.find(file => file.fileId === choices?.fromStart.fileId);
     const audio = file?.audio ?? [];
     const selectedAudio = state?.audioTrackId();
@@ -406,7 +410,9 @@ export function seasonView(name: string, title: string, episodes: readonly Episo
         const element = el("button", "browse-episode");
         element.type = "button";
         element.setAttribute("data-focus", episode.id);
-        element.appendChild(artwork("browse-art browse-still", episode.stillUrl, context.baseUrl, episode.title));
+        const art = artwork("browse-art browse-still", episode.stillUrl, context.baseUrl, episode.title);
+        if (hidesEpisodeListStill(episode, context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false })) blurEpisodeStill(art);
+        element.appendChild(art);
         const info = el("span", "browse-episode-info");
         info.appendChild(el("span", "browse-card-title", `${episode.episodeNumber}. ${episode.title}`));
         const runtime = episode.runtimeMinutes > 0 ? `${episode.runtimeMinutes} min` : "";

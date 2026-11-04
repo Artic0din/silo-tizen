@@ -7,6 +7,7 @@ import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { artworkUrl, type Destination, destinationOf } from "./browseModel.ts";
 import { type CardOverlayPrefs, overlayLayer } from "./cardOverlays.ts";
 import { homeCaption } from "./cardPresentation.ts";
+import { blurEpisodeStill, hidesCardImage, type EpisodeSpoilerSettings } from "./episodeSpoilers.ts";
 import { el } from "./screen.ts";
 
 /** Home artwork widths in browse.css (Apple SiloTheme poster and EpisodeThumbCard widths); badges scale from them. */
@@ -37,6 +38,12 @@ export interface ViewContext {
     readonly resume?: (id: string, title: string) => void;
     readonly playEpisode?: (id: string, title: string, startOver?: boolean) => void;
     readonly quickActions?: (card: Pick<Card, "id" | "title" | "type">) => void;
+    /** Profile spoiler switches. Absent reads as both off. */
+    readonly spoilers?: () => EpisodeSpoilerSettings;
+}
+
+function spoilerSettings(context: ViewContext): EpisodeSpoilerSettings {
+    return context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false };
 }
 
 /** Only catalog media receives hold/right-click actions; navigation tiles keep their clicks. */
@@ -109,7 +116,9 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     element.type = "button";
     element.setAttribute("data-focus", card.id);
     const continuing = context.continueWatching === true;
-    element.appendChild(artwork("browse-art", continuing ? card.backdropUrl ?? card.posterUrl : card.posterUrl, context.baseUrl, card.title));
+    const art = artwork("browse-art", continuing ? card.backdropUrl ?? card.posterUrl : card.posterUrl, context.baseUrl, card.title);
+    if (hidesCardImage(card, spoilerSettings(context), continuing)) blurEpisodeStill(art);
+    element.appendChild(art);
     if (continuing) {
         element.classList.add("skyline-continue");
         if (card.positionSeconds !== undefined && card.durationSeconds !== undefined && card.durationSeconds > 0) {

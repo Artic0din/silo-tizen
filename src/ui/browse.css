@@ -491,6 +491,15 @@
     object-fit: cover;
 }
 
+/* Apple EpisodeSpoilerBlur.radius is 24. The image grows by that radius on every side (48px) so the blur fringe falls outside the clip, matching SwiftUI blur(radius:opaque: true). */
+.episode-spoiler-blur > .browse-art-image {
+    filter: blur(24px);
+    width: calc(100% + 48px);
+    height: calc(100% + 48px);
+    max-width: none;
+    margin: -24px;
+}
+
 .browse-art-fallback {
     display: block;
     padding: 24px 20px;

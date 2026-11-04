@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Hid unwatched episode stills and descriptions from Playback when the server supports the profile spoiler settings.
+
 ### Fixed
 
 - Kept Home hero and detail backdrops sharp using Apple TV artwork sizes instead of small first-pass images.

@@ -284,9 +284,12 @@ test("quality controls remain absent for unsupported manifests and empty Playbac
         await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
         await tv.page.locator('[data-focus="remember-profile"]').waitFor();
         await tv.page.locator('[data-focus="playback"]').click();
-        await tv.page.getByText("No supported settings in this category.", { exact: true }).waitFor();
+        // Playback is no longer empty on a revision-24 server: the spoiler switches come from capabilities, not the emptied contract. The old assertion expected "No supported settings in this category."
+        await tv.page.locator('[data-focus="spoiler-images"]').waitFor();
+        assert.equal(await tv.page.getByText("No supported settings in this category.", { exact: true }).count(), 0);
         assert.equal(await tv.page.locator('[data-focus="quality"], [data-focus="bitrate"]').count(), 0);
         assert.equal(tv.fake.requests.slice(requests).filter(r => r.path.startsWith("/settings/values")).length, 0);
+        await tv.page.locator('[data-focus="settings-back"]').focus();
         await tv.page.keyboard.press("Enter");
         assert.equal(await tv.focused(), "playback");
     } finally { await tv.page.context().close(); }

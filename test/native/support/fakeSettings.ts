@@ -1,6 +1,6 @@
 import type { FakeSilo, Reply } from "./fakeSilo.ts";
 import { fixture, problem } from "./fakeSilo.ts";
-import { AUDIO_KEY, QUALITY_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SETTINGS_KEYS, type SettingsKey, type SettingValue } from "../../../src/contracts/v2/settings.ts";
+import { AUDIO_KEY, QUALITY_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SETTINGS_KEYS, SPOILER_IMAGE_KEY, SPOILER_OVERVIEW_KEY, type SettingsKey, type SettingValue } from "../../../src/contracts/v2/settings.ts";
 const TITLE = "ui.title_art" as SettingsKey;
 
 export class FakeSettings {
@@ -68,7 +68,7 @@ export class FakeSettings {
             return { status: 200, body: { items, revision: this.revision } };
         }
         const key = pathname.slice("/settings/values/".length) as SettingsKey;
-        if (!SETTINGS_KEYS.some(known => known === key) && key !== TITLE) return problem(422, "validation_failed", "Unknown setting");
+        if (!SETTINGS_KEYS.some(known => known === key) && key !== TITLE && key !== SPOILER_IMAGE_KEY && key !== SPOILER_OVERVIEW_KEY) return problem(422, "validation_failed", "Unknown setting");
         if (scope !== "profile" && !(key === TITLE && scope === "profile_device" && device)) return problem(422, "validation_failed", "Invalid scope");
         if (method === "DELETE") {
             if (!rows.delete(key)) return problem(404, "not_found", "Unset");

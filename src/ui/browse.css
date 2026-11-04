@@ -730,3 +730,19 @@
 
 /* Shuffle stays focusable while it starts (a disabled button loses focus); it dims to 60%. */
 .browse .browse-controls .browse-control-starting { opacity: .6; }
+
+.browse[data-view^="person:"] { padding: 48px 80px 72px; }
+.browse[data-view^="person:"] .details-person-hero { margin: 0 0 48px; }
+.person-filmography-heading { display: flex; align-items: baseline; gap: 20px; margin-bottom: 20px; }
+.person-filmography-heading .browse-section-title { margin: 0; font-size: 36px; font-weight: 600; }
+.person-title-count { color: var(--silo-secondary); font-size: 22px; }
+.browse[data-view^="person:"] .person-filmography-filters { display: flex; gap: 8px; padding: 8px 0; margin: 0 0 28px; }
+.person-filmography-filters .browse-button { margin: 0; padding: 10px 22px; font-size: 22px; font-weight: 400; background: rgba(21,23,28,.55); color: var(--silo-secondary); border-color: rgba(255,255,255,.08); transition: transform 120ms ease-out; }
+.person-filmography-filters .browse-button[aria-pressed="true"] { background: #0e0f12; color: var(--silo-text); border-color: rgba(255,255,255,.16); }
+.person-filmography-filters .browse-button:focus { outline: none; background: rgba(14,15,18,.8); color: var(--silo-text); border-color: rgba(237,237,237,.85); box-shadow: inset 0 0 0 1px rgba(237,237,237,.85); transform: scale(1.06); }
+.person-filmography-filters .browse-button[aria-pressed="true"]:focus { background: #0e0f12; }
+.browse[data-view^="person:"] .browse-grid { margin-top: 0; grid-template-columns: repeat(var(--grid-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; }
+.browse[data-view^="person:"] .person-facts { display: flex; gap: 12px; margin: 0 0 22px; }
+.browse[data-view^="person:"] .person-fact { flex-shrink: 0; margin: 0; }
+.browse[data-view^="person:"] .browse-overview { margin-bottom: 0; }
+@media (prefers-reduced-motion: reduce) { .person-filmography-filters .browse-button { transition: none; } }

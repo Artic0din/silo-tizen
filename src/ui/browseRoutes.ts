@@ -9,7 +9,7 @@ import type { Person } from "../contracts/v2/details.ts";
 import type { DetailsState } from "./detailsState.ts";
 import { SessionError } from "../session/session.ts";
 import type { FocusTarget, View } from "./browseFocus.ts";
-import { itemView, personView, seasonView, type Synopsis } from "./browseDetails.ts";
+import { itemView, seasonView, type Synopsis } from "./browseDetails.ts";
 import type { PlayRequest, SeriesContext } from "./browseModel.ts";
 import type { CalendarState } from "./calendarState.ts";
 import { calendarView, type CalendarHandlers } from "./calendarView.ts";
@@ -37,7 +37,6 @@ export type RouteData =
     | { readonly kind: "for_you"; data: RecommendationRow[] | undefined }
     | { readonly kind: "recommendationSection"; readonly locator: RecommendationLocator; readonly title: string; pages: Pages }
     | { readonly kind: "requests"; readonly requests: RequestsState }
-    | { readonly kind: "personFilmography"; readonly id: string; readonly title: string; filter: MediaScope; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "calendar"; readonly calendar: CalendarState }
     | { readonly kind: "personal"; readonly source: PersonalSource; readonly anchor?: "for_you" | "profiles"; filter: PersonalFilter; capability: PersonalListCapability | undefined; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "home"; data: { libraries: UserLibrary[]; sections: HomeSection[] } | undefined }
@@ -48,7 +47,7 @@ export type RouteData =
     /** `resultsFor`: the query the shown page answers, which typing can move ahead of. */
     | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope }
     | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState } | undefined }
-    | { readonly kind: "person"; readonly id: string; readonly title: string; data: { person: Person; titles: CatalogPage } | undefined }
+    | { readonly kind: "person"; readonly id: string; readonly title: string; data: { person: Person } | undefined; filter: MediaScope; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string; readonly episodeId?: string; data: { episodes: Episode[]; detail: ItemDetail | undefined; details?: DetailsState } | undefined };
 
 export type Route = RouteData & {
@@ -79,8 +78,8 @@ export function hasData(current: Route): boolean {
             return current.pages.page !== undefined || current.capability !== undefined;
         case "library":
             return current.discovery?.mode === "Browse" ? current.discovery.snapshot !== undefined : current.discovery?.data !== undefined && (!(current.discovery.mode === "A–Z" || current.discovery.mode === "Recently Added" || current.discovery.genre !== undefined) || current.pages.page !== undefined);
+        case "person": return current.data !== undefined;
         case "libraryResults":
-        case "personFilmography":
         case "homeSection":
         case "recommendationSection":
             return current.pages.page !== undefined;
@@ -98,7 +97,7 @@ export interface RouteHandlers {
     readonly gridColumns: number;
     readonly shuffle: { readonly starting: boolean; readonly failure: string | undefined; readonly start: (route: Extract<Route, { kind: "library" }>) => void; readonly dismiss: () => void } | undefined;
     readonly requests: (route: Extract<Route, { kind: "requests" }>) => RequestsHandlers;
-    readonly personFilter: (route: Extract<Route, { kind: "personFilmography" }>, filter: MediaScope) => void;
+    readonly personFilter: (route: Extract<Route, { kind: "person" }>, filter: MediaScope) => void;
     readonly calendar: (route: Extract<Route, { kind: "calendar" }>) => CalendarHandlers;
     readonly personalFilter: (route: Extract<Route, { kind: "personal" }>, filter: PersonalFilter) => void;
     readonly synopsis: Synopsis;
@@ -129,7 +128,7 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
     const back = current.kind === "home" ? undefined : pop;
     const escape = back === undefined ? actionButton("profiles", "Profiles", handlers.chooseProfile) : actionButton("back", "Back", back);
     if (current.kind === "personal") return personalView(current, handlers);
-    if (current.kind === "personFilmography") return personFilmographyView(current, handlers);
+    if (current.kind === "person" && current.data !== undefined) return personFilmographyView(current, handlers);
     if (current.kind === "library") {
         current.discovery ??= discoveryState();
         return discoveryView(current, current.discovery, handlers);
@@ -182,10 +181,6 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
                 }, handlers.play, pop, handlers.synopsis, current.data.details);
                 return withNote(view, current.failure);
             }
-            break;
-        case "person":
-            if (current.data !== undefined) return personView(current.data.person, current.data.titles.items, context, pop, handlers.synopsis,
-                () => handlers.push(newRoute({ kind: "personFilmography", id: current.id, title: current.data?.person.name ?? current.title, filter: "video", pages: newPages(), pendingIndex: undefined })));
             break;
         case "season":
             if (current.data !== undefined) {
@@ -254,7 +249,7 @@ export function failureText(error: unknown, current: Route): string | undefined 
               : current.kind === "person" ? "This person is no longer available." : "This title is no longer available.";
     }
     if (error.problemId === "invalid_cursor") {
-        if (current.kind === "homeSection" || current.kind === "personFilmography") return "The list changed. Try again.";
+        if (current.kind === "homeSection" || current.kind === "person") return "The list changed. Try again.";
         return "The list changed. Go back and open it again.";
     }
     if (kind === "invalid_response") {

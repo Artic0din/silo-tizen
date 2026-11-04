@@ -240,7 +240,7 @@ Defined in `src/api/operations.ts` unless noted.
 | getWatch (detail) | `GET /watch/{id}` | safe |
 | resume position | `GET /watch/{id}?file_id=` (`src/api/detailOperations.ts`) | safe |
 | person | `GET /catalog/people/{id}` (`src/api/detailOperations.ts`) | safe |
-| filmography | `GET /catalog?source=person&person_id&type=video&sort=-year&limit=24&image_size=small` (`src/api/detailOperations.ts`) | safe |
+| filmography | `POST /catalog/query` with `source: "person"`, `person_id`, `type`, `sort: "year"`, `order: "desc"`, `limit: 24` and optional `cursor` (`src/ui/personFilmography.ts`) | safe |
 | similar | `GET /recommendations/similar/{id}?limit=24&image_size=small` (`src/api/detailOperations.ts`) | safe |
 | library sections | `GET /library/{id}/sections?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
 | section items | `GET /library/{id}/sections/{sectionId}/items?image_size=small` (`src/api/discoveryOperations.ts`) | safe |

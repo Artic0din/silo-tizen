@@ -12,6 +12,8 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Kept focused Search requests visible when People arrived later and retried interrupted Requests refreshes after returning from details.
+
 - Required demonstrated Apple TV parity before merging parity changes, preserved regression checks, and clarified component reuse and simulator ownership for coding agents.
 - Added People results, All/Movies/Series filters, result counts, an idle prompt and an independent Available to request rail to Search, and opened Search above its originating page without the root navigation, starting empty on each visit.
 - Preset profile avatars showed the flat image Apple TV shows when the server supplied an SVG avatar address.

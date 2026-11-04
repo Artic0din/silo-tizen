@@ -219,13 +219,16 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         searchRequestsController?.abort();
         const controller = new AbortController(); searchRequestsController = controller;
         supplement.requestsFor = query;
+        controller.signal.onabort = () => { supplement.requestsFor = undefined; };
         const owns = (): boolean => !torn && !controller.signal.aborted && top() === current && current.supplement === supplement && current.query.trim() === query;
         void read(requestOperations.search(query, 1), controller.signal).then(page => {
             if (!owns()) return;
+            searchRequestsController = undefined;
             supplement.requests = page.results.filter(title => ["movie", "series"].includes(title.mediaType) && title.availability !== "available").slice(0, 12);
             render(host.focused());
         }, (error: unknown) => {
             if (!owns()) return;
+            searchRequestsController = undefined;
             supplement.requestsFor = undefined; supplement.requests = [];
             render(host.focused());
             if (error instanceof ApiError && ["capability_disabled", "capability_not_configured", "capability_unsupported", "permission_denied"].includes(error.problemId ?? "")) void probeRequests(false);

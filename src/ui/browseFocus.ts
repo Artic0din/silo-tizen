@@ -205,10 +205,10 @@ export class FocusHost {
             this.scroll.stop();
             this.applyVisit(visit);
             const element = this.locate(document.activeElement)?.item.element;
-            if ((this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub")) && element !== undefined) {
+            if ((this.container.dataset.view === "search" || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub")) && element !== undefined) {
                 const viewport = element.closest<HTMLElement>(".browse-panel-list, .skyline-content") ?? this.container;
                 const card = element.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
-                if (card.top < bounds.top + 12 || card.bottom > bounds.bottom - 32) this.scroll.reveal(element, this.container);
+                if (card.top < bounds.top + 12 || card.bottom > bounds.bottom - 32 || !this.insideRow(element)) this.scroll.reveal(element, this.container);
             }
         }
         if (animate) {

@@ -43,6 +43,36 @@ class SearchEdgeCatalog extends SearchCatalog {
 }
 
 for (const reduced of [false, true]) {
+    browseTest(`Search keeps a later request visible when People arrives: ${reduced ? "reduced" : "normal"} motion`, async tv => {
+        await tv.page.emulateMedia({ reducedMotion: reduced ? "reduce" : "no-preference" });
+        const people = tv.fake.hold("/catalog/people", true);
+        await tv.page.locator('[data-focus="search"]').click();
+        await tv.page.fill("#browse-search", "Tom"); await tv.remote(IME_DONE);
+        await tv.page.locator('[data-focus="movie:960"]').waitFor({ state: "attached" });
+        await press(tv, "ArrowDown", "ArrowDown");
+        for (let step = 0; step < 11; step++) await press(tv, "ArrowRight");
+        await tv.jump(250);
+        assert.equal(await tv.focused(), "movie:960");
+        const visible = (): Promise<boolean> => tv.page.locator('[data-focus="movie:960"]').evaluate(card => {
+            const row = card.closest('.browse-row')!.getBoundingClientRect();
+            const viewport = document.querySelector('.browse')!.getBoundingClientRect();
+            const rect = card.getBoundingClientRect();
+            return rect.left >= row.left && rect.right <= row.right && rect.top >= viewport.top && rect.bottom <= viewport.bottom - 64;
+        });
+        await tv.eventually(visible, "later request revealed before People");
+        const scroll = await tv.page.locator('.search-request-rail').evaluate(row => row.scrollLeft);
+        const reads = tv.fake.requests.length;
+        people.release();
+        await tv.page.locator('[data-focus="person:edge-0"]').waitFor({ state: "attached" });
+        assert.equal(await tv.focused(), "movie:960");
+        assert.equal(await tv.page.locator('.search-request-rail').evaluate(row => row.scrollLeft), scroll, "rail insertion preserves horizontal scroll");
+        await tv.jump(250);
+        await tv.eventually(visible, "same-identity repaint reveals vertically displaced request");
+        assert.equal(tv.fake.requests.length, reads);
+    }, { catalog: new SearchEdgeCatalog() });
+}
+
+for (const reduced of [false, true]) {
     browseTest(`Search rails paint complete edge cards and preserve remote endpoints: ${reduced ? "reduced" : "normal"} motion`, async tv => {
         await tv.page.emulateMedia({ reducedMotion: reduced ? "reduce" : "no-preference" });
         await tv.page.locator('[data-focus="search"]').click();
@@ -240,6 +270,30 @@ browseTest("Search People is scoped, activates real identities and does not fetc
 }, { catalog: peopleSearch });
 
 const slowRequests = new SearchCatalog();
+const interruptedRequests = new SearchCatalog();
+browseTest("Search retries a cancelled background Requests refresh with cached cards", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie 0001"); await tv.remote(IME_DONE);
+    await tv.page.locator('[data-focus="movie:949"]').click();
+    await tv.page.locator('[data-focus="create"]:enabled').waitFor();
+    const write = tv.fake.hold("/requests", true);
+    await tv.page.locator('[data-focus="create"]').click();
+    await tv.eventually(async () => interruptedRequests.created, "background write processed");
+    await tv.remote(BACK); await showing(tv, "search");
+    const reads = tv.fake.requests.filter(request => request.path.startsWith("/requests/search?")).length;
+    const refresh = tv.fake.hold("/requests/search", true);
+    write.release();
+    await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/requests/search?")).length === reads + 1, "refresh started with cached cards");
+    const cancelled = tv.page.waitForEvent("requestfailed", request => new URL(request.url()).pathname === "/api/v2/requests/search");
+    await tv.page.locator('.browse-grid [data-focus="movie:m0001"]').click();
+    await cancelled;
+    await showing(tv, "item:movie:m0001");
+    refresh.release();
+    await tv.remote(BACK); await showing(tv, "search");
+    await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/requests/search?")).length === reads + 2, "replacement Requests read after Back");
+    await tv.page.getByRole("button", { name: "Heat · Pending", exact: true }).waitFor();
+    assert.equal(tv.fake.requests.filter(request => request.method === "POST" && request.path === "/requests").length, 1);
+}, { catalog: interruptedRequests });
 for (const lost of [false, true]) {
     const catalog = new SearchCatalog();
     browseTest(`Search refreshes its Requests rail after a background ${lost ? "uncertain" : "settled"} write`, async tv => {

@@ -50,6 +50,7 @@ export function globalSearchView(view: View, route: Extract<Route, { kind: "sear
             return item;
         });
         const rail = searchRail("details-people search-people-rail", items);
+        rail.dataset.section = "search-people";
         requestAnimationFrame(() => {
             if (!rail.isConnected) return;
             for (const caption of rail.querySelectorAll<HTMLElement>(".browse-card-title")) balanceTwoLineText(caption);
@@ -79,8 +80,10 @@ export function globalSearchView(view: View, route: Extract<Route, { kind: "sear
         symbol.setAttribute("aria-hidden", "true");
         symbol.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="m14 0 2 9 6 3-6 3-2 9-2-9-6-3 6-3 2-9ZM4 1l1 3 3 1-3 1-1 3-1-3-3-1 3-1 1-3ZM4 16l1 3 3 1-3 1-1 3-1-3-3-1 3-1 1-3Z"/></svg>';
         heading.prepend(symbol);
+        const rail = searchRail("requests-rail search-request-rail", items);
+        rail.dataset.section = "search-requests";
         content.push(heading,
-            el("p", "search-requests-description", "Not in the library yet · tap to request"), searchRail("requests-rail search-request-rail", items));
+            el("p", "search-requests-description", "Not in the library yet · tap to request"), rail);
         zones.push({ id: "search-requests", layout: "row", items });
     }
     return { ...view, content, zones };

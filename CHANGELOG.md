@@ -10,6 +10,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Updated composed EOF checks for Apple TV's Play Now, On Deck and tail replay behavior, and isolated focus checks from background reads.
 - Kept focus on the selected On Deck title when more candidates arrived.
 - Restored full-screen playback after a paused seek left the Up Next window and offered Play Now before later On Deck lookups finished.
 - Kept media keys working during the pre-end Up Next prompt, cancelled pending scrub timers when it opened, and resolved On Deck artwork against the connected server.

@@ -170,7 +170,7 @@ test("General switches show source/scope, serialize edits and keep focus without
             ["PUT", `/settings/values/${TITLE}?scope=profile_device`], ["DELETE", `/settings/values/${TITLE}?scope=profile`],
         ]);
         await tv.remote(10009); await tv.remote(10009);
-        assert.equal(await tv.focused(), "profiles");
+        assert.equal(await tv.focused(), "home");
     } finally { await tv.page.context().close(); }
 });
 
@@ -223,7 +223,7 @@ for (const conflict of ["profile", "device"] as const) test(`Settings recovers a
         assert.equal(tv.fake.requests.filter(r => r.method === "PUT").length, 1);
         assert.equal(tv.fake.requests.filter(r => r.method === "DELETE").length, conflict === "profile" ? 0 : 1);
         await tv.remote(10009); await tv.remote(10009);
-        assert.equal(await tv.focused(), "profiles");
+        assert.equal(await tv.focused(), "home");
     } finally { await tv.page.context().close(); }
 });
 

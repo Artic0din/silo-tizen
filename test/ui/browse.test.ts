@@ -169,6 +169,10 @@ for (const reduced of [false, true]) {
             return rect.left >= row.left && rect.right <= row.right && rect.top >= viewport.top && rect.bottom <= viewport.bottom - 64;
         });
         await tv.eventually(visible, "later request revealed before People");
+        await tv.eventually(async () => {
+            await tv.jump(250);
+            return tv.page.locator('.search-request-rail').evaluate(row => row.scrollLeft > 0);
+        }, "later request horizontal reveal settled before snapshot");
         const scroll = await tv.page.locator('.search-request-rail').evaluate(row => row.scrollLeft);
         const reads = tv.fake.requests.length;
         people.release();

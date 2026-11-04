@@ -1474,8 +1474,9 @@ export class PlaybackController implements PlayerControls {
                 this.arm(attempt, true, step);
                 return;
             }
-            if (this.shownError !== undefined && retryableStart(this.shownError)) {
-                const next = this.nextStart ?? (attempt !== undefined && !attempt.started && this.shownError.kind !== "settings" ? sameStart(attempt) : undefined);
+            if (this.shownError !== undefined && (retryableStart(this.shownError) || this.shownError.kind === "playback_failed")) {
+                const replay = this.shownError.kind === "playback_failed" || (!attempt?.started && this.shownError.kind !== "settings");
+                const next = this.nextStart ?? (attempt !== undefined && replay ? sameStart(attempt) : undefined);
                 if (next !== undefined) this.play(next);
             }
             return;
@@ -1596,7 +1597,9 @@ export class PlaybackController implements PlayerControls {
             return;
         }
         this.shownError = error;
-        this.show({ phase: "error", title: attempt.request.title, error, retryable: !attempt.started && retryableStart(error) && (error.kind !== "settings" || this.nextStart !== undefined) });
+        const exhausted = error.kind === "playback_failed";
+        const retryable = exhausted || (!attempt.started && retryableStart(error) && (error.kind !== "settings" || this.nextStart !== undefined));
+        this.show({ phase: "error", title: attempt.request.title, error, retryable });
     }
 
     /** A failed progress or replan for the session. */

@@ -654,6 +654,29 @@ test("failure replans are bounded; then playback ends with an error and a stop",
     assert.deepEqual(r.exits, ["error:playback_failed"]);
 });
 
+test("route recovery that runs out of attempts offers Retry for a fresh start at the same position", async () => {
+    const r = await rig();
+    r.controller.play(MOVIE);
+    await r.h.clock.advance(0);
+    for (let failure = 0; failure < 4; failure++) {
+        r.avplay.finishPrepare("UnknownError");
+        await r.h.clock.advance(0);
+    }
+    const view = last(r.views);
+    assert.equal(view.phase, "error");
+    assert.deepEqual(view.phase === "error" ? view.error : undefined, { kind: "playback_failed" });
+    assert.equal(view.phase === "error" && view.retryable, true);
+    r.controller.retryCompletion();
+    await r.h.clock.advance(0);
+    const starts = bodies(r.h, "/start");
+    assert.equal(starts.length, 2);
+    assert.equal(starts[1]?.file_id, MOVIE.fileId);
+    assert.equal(starts[1]?.start_position, MOVIE.startSeconds);
+    assert.notEqual(starts[0]?.playback_attempt_id, starts[1]?.playback_attempt_id);
+    assert.equal(last(r.views).phase, "loading");
+    r.controller.destroy();
+});
+
 test("a terminal replan decision ends playback with the server's reason", async () => {
     const r = await rig();
     r.controller.play(MOVIE);

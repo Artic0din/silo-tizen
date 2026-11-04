@@ -1044,6 +1044,35 @@ async function episodeRig(): Promise<Rig & { catalog: FakeCatalog }> {
     return { ...r, catalog };
 }
 
+test("Retry after Play next preserves the position reached before exhausted recovery", async () => {
+    const r = await episodeRig();
+    await playMovie(r, EPISODE);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).state, "ready");
+    r.controller.playNext();
+    await r.h.clock.advance(0);
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    r.avplay.tick(120000);
+    r.server.next.push(...Array.from({ length: 3 }, () => ({ timeline: { source_start_seconds: 120, player_start_seconds: 120, timeline_offset_seconds: 0 } })));
+    r.avplay.listener?.onerror("PLAYER_ERROR_NOT_SUPPORTED_FORMAT");
+    await r.h.clock.advance(0);
+    for (let failure = 0; failure < 3; failure++) {
+        r.avplay.finishPrepare("UnknownError");
+        await r.h.clock.advance(0);
+    }
+    const view = last(r.views);
+    assert.ok(view.phase === "error" && view.error.kind === "playback_failed" && view.retryable);
+    r.controller.retryCompletion();
+    await r.h.clock.advance(0);
+    const starts = bodies(r.h, "/start");
+    assert.equal(starts.length, 3);
+    assert.equal(starts[2]?.file_id, "43");
+    assert.equal(starts[2]?.start_position, 120);
+    r.controller.destroy();
+});
+
 function completion(r: Rig): Extract<PlaybackView, { phase: "completion" }> {
     const view = last(r.views);
     assert.equal(view.phase, "completion");

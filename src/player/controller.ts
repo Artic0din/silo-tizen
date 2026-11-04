@@ -1476,7 +1476,7 @@ export class PlaybackController implements PlayerControls {
             }
             if (this.shownError !== undefined && (retryableStart(this.shownError) || this.shownError.kind === "playback_failed")) {
                 const replay = this.shownError.kind === "playback_failed" || (!attempt?.started && this.shownError.kind !== "settings");
-                const next = this.nextStart ?? (attempt !== undefined && replay ? sameStart(attempt) : undefined);
+                const next = attempt !== undefined && replay ? sameStart(attempt) : this.nextStart;
                 if (next !== undefined) this.play(next);
             }
             return;

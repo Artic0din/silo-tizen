@@ -1,4 +1,4 @@
-import { decodeDiscover, decodeMediaRequest, decodeMyRequests, decodeRequestPage, decodeRequestSection, decodeRequestState, decodeRequestsCapability, decodeRequestTitle, type RequestTitle } from "../contracts/v2/requests.ts";
+import { decodeDiscover, decodeMediaRequest, decodeMyRequests, decodeRequestPage, decodeRequestState, decodeRequestsCapability, decodeRequestTitle, type RequestTitle } from "../contracts/v2/requests.ts";
 import type { RequestSpec } from "./http.ts";
 
 function get<T>(path: string, decode: (value: unknown) => T): RequestSpec<T> { return { method: "GET", path: `/requests${path}`, retry: "safe", decode }; }
@@ -9,10 +9,9 @@ function media(title: Pick<RequestTitle, "mediaType" | "tmdbId">): string {
 export const requestOperations = {
     status: () => get("/status", decodeRequestsCapability),
     discover: () => get("/discover", decodeDiscover),
-    row: (key: string, page: number) => get(`/discover/rows/${encodeURIComponent(key)}?page=${page}`, decodeRequestSection),
     search: (query: string, page: number) => get(`/search?q=${encodeURIComponent(query)}&media_type=all&page=${page}`, decodeRequestPage),
     detail: (title: Pick<RequestTitle, "mediaType" | "tmdbId">) => get(`/detail/${media(title)}`, decodeRequestTitle),
-    mine: (cursor?: string) => get(`/mine?limit=24${cursor === undefined ? "" : `&cursor=${encodeURIComponent(cursor)}`}`, decodeMyRequests),
+    mine: (cursor?: string, limit = 24) => get(`/mine?limit=${limit}${cursor === undefined ? "" : `&cursor=${encodeURIComponent(cursor)}`}`, decodeMyRequests),
     request: (id: string) => get(`/${encodeURIComponent(id)}`, decodeMediaRequest),
     create: (title: RequestTitle): RequestSpec<unknown> => {
         media(title);

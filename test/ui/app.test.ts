@@ -47,6 +47,16 @@ async function signIn(tv: Tv): Promise<void> {
     await homeDetailsRead(tv);
 }
 
+appTest("the top bar shows a preset's flat PNG when the server's avatar URL is an SVG", async tv => {
+    await tv.page.route("https://api.dicebear.com/**", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="58" height="58"/>' }));
+    const items = (tv.fake.profiles.items as Record<string, unknown>[]).map(item => item.id === "p-owner" ? { ...item, avatar_url: "https://api.dicebear.com/9.x/bottts-neutral/svg?backgroundType=gradientLinear&seed=robot", avatar: "preset:dicebear:bottts-neutral:robot" } : item);
+    tv.fake.profiles = { ...tv.fake.profiles, items };
+    await signIn(tv);
+    const source = await tv.page.locator('[data-focus="profiles"] img').getAttribute("src") ?? "";
+    assert.equal(new URL(source).pathname, "/9.x/bottts-neutral/png");
+    assert.equal(new URL(source).searchParams.get("backgroundType"), null);
+});
+
 appTest("Sign Out confirmation traps focus and cancellation preserves the session", async tv => {
     await signIn(tv);
     await tv.page.evaluate(() => window.appHarness.storage.setItem("silo.native.serverBranding.v1", JSON.stringify({ "https://silo.example.test": { serverName: "Living room library" } })));

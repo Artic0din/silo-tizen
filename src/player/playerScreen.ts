@@ -497,6 +497,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             synopsis.textContent = candidate?.overview ?? "";
             const identity = cards.map(card => card.contentId).join("|");
             if (deck.dataset.items !== identity) {
+                const focusedCard = deck.contains(document.activeElement) ? document.activeElement?.getAttribute("data-focus") : undefined;
                 deck.dataset.items = identity;
                 deck.replaceChildren();
                 if (cards.length > 0) deck.appendChild(el("h2", "player-menu-heading", "On Deck"));
@@ -518,6 +519,9 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                         if (selected !== undefined) controls.playNext(selected);
                     });
                     deck.appendChild(button);
+                }
+                if (focusedCard !== undefined) {
+                    Array.from(deck.querySelectorAll<HTMLButtonElement>("button")).find(button => button.getAttribute("data-focus") === focusedCard)?.focus();
                 }
             }
             if (view.phase !== "completion") {

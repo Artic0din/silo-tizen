@@ -157,6 +157,26 @@ test("On Deck resolves relative artwork against the connected server", async () 
     } finally { await page.close(); }
 });
 
+for (const complete of [false, true]) {
+    test(`On Deck preserves the focused content when later candidates arrive (${complete ? "EOF" : "pre-end"})`, async () => {
+        const { page } = await open();
+        const first = { contentId: "first", fileId: "43", title: "First", startSeconds: 0, episode: true as const };
+        const second = { ...first, contentId: "second", title: "Second" };
+        const view = (deck: readonly typeof first[]): PlaybackView => complete
+            ? { phase: "completion", title: "Up Next", state: "ready", retryable: false, next: first, deck }
+            : { ...playing(TRACKS), upNext: { next: first, deck, countdown: 30, status: "Up Next" } };
+        try {
+            await show(page, view([first]));
+            for (let i = 0; i < 3 && await focused(page) !== "deck:first"; i++) await remote(page, DOWN);
+            assert.equal(await focused(page), "deck:first");
+            await show(page, view([{ ...first, fileId: "updated" }, second]));
+            assert.equal(await focused(page), "deck:first");
+            await remote(page, ENTER);
+            assert.deepEqual(await commands(page), ["playNext first updated"]);
+        } finally { await page.close(); }
+    });
+}
+
 test("Up Next captures remote input, preserves focus and exposes Keep Watching and On Deck", async () => {
     const { page } = await open();
     const candidate = { contentId: "next", fileId: "43", title: "Next episode", overview: "The next chapter.", startSeconds: 0, episode: true as const };

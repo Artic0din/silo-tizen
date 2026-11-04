@@ -1255,8 +1255,7 @@ export class PlaybackController implements PlayerControls {
         if (id === undefined) return true;
         const row = plan.subtitle.inventory.find((entry) => entry.trackId === id);
         if (row !== undefined && inStreamCandidate(plan, row) && this.applyStreamSubtitle(attempt, id)) return true;
-        if (plan.delivery !== "original_http") return true;
-        if (attempt.nativeSubtitleUnavailable) {
+        if (plan.delivery !== "original_http" || attempt.nativeSubtitleUnavailable) {
             this.fail(attempt, { kind: "playback_failed" }, true);
             return false;
         }

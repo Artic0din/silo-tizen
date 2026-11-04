@@ -10,8 +10,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept focus on the selected On Deck title when more candidates arrived.
 - Restored full-screen playback after a paused seek left the Up Next window and offered Play Now before later On Deck lookups finished.
 - Kept media keys working during the pre-end Up Next prompt, cancelled pending scrub timers when it opened, and resolved On Deck artwork against the connected server.
+- Reported an HLS subtitle alignment failure instead of showing a track that the native player could not select.
 - Allowed pause during subtitle reports, queued choices needing a new stream, and replanned subtitle tracks that the native stream could not identify.
 - Cleared sidecar captions when selecting embedded subtitles and restored the last confirmed subtitle after a queued choice was refused.
 - Resumed committed scrubs after a server reanchor, kept Skip reachable with the remote, and let navigation cross Audio while its choices loaded.

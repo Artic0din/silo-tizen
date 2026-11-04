@@ -143,19 +143,28 @@ With multiple libraries, Down enters the scoped library list, Right enters its m
 Back closes either panel without committing.
 Explicit activation commits one library, never a merged scope.
 Search precedes the centered roots and the profile avatar stays fixed at the right.
-`nav.primary_menu` is read separately from poster preferences through the existing profile-scoped adapter with client family `tv`.
-The default order follows `appleDefaultPrimaryMenuItems`: Home, Movies, Series, For You and Calendar, with Requests appended only when the server enables it.
-Saved order and omissions are preserved; unavailable libraries, unsupported Music/Audiobook roots and section/collection shortcuts are hidden.
-Supported library shortcuts retain their labels and open the existing library modes.
-Failed optional menu reads retain the last confirmed menu, and abandoned answers cannot repaint another profile.
-An updated menu waits for an open dropdown to close, then restores the explicitly chosen root so horizontal navigation keeps its focus.
-Whole-library shortcuts preserve mixed-video scope; Movies and Series category tabs still narrow their own routes.
+The fixed roots follow Apple TVRootDestination.visibleRoots: Home, Movies, Series, Music, For You and Calendar.
+Library types appear only when a matching visible library exists; mixed video libraries appear under Movies and Series.
+Music opens an explicit unavailable page because the existing catalog browser supports video queries only; it sends no library queries and offers Back.
+Saved menu order, omissions and library shortcuts no longer affect the bar.
+Audiobooks requires Apple's opt-in feature; Tizen has no audiobook feature and omits it.
+Watch Party requires both local opt-in and synchronized-party support; Tizen has neither and omits that profile row.
+Search is 58 px wide with an 8 px gap before the roots and an invisible equal-width balance after them, keeping the roots centered at x960.
+Labels retain Apple's 29 px horizontal inset (including the CSS border), 26 px semibold type and 8 px gaps.
+Removing Requests lets the shared flex row recalculate every horizontal anchor from the remaining labels.
 
 The avatar uses the server-resolved image through the existing artwork URL policy, keeping the initial visible until loading succeeds or if it fails.
-The anchored profile menu includes Switch Profile, personal lists, Settings, Switch Server and a red, unfocused Sign Out row.
+Its focused ring is opaque white, 3 px wide and inset within the avatar edge, matching Apple's `strokeBorder`.
+The anchored profile menu includes Switch Profile, History, capability-gated Requests, Settings, Change Account and a red, unfocused Sign Out row.
+Watchlist and Favorites remain under For You.
+Requests pushes a screen without the top bar.
+Back from Requests, History or Settings keeps the profile menu closed and restores the selected tab.
+Back from the open profile menu itself still restores avatar focus.
 The header uses the confirmed server branding name, falling back to the host when none is cached.
 Every focused menu row uses a white platter and black text, including Sign Out.
-Switch Server retires Browse and enters manual server entry without logging out or deleting saved sign-ins.
+Change Account currently opens the existing server selection without logging out or deleting saved sign-ins.
+The real Change Account screen and multi-account support are tracked in [#185](https://github.com/Artic0din/silo-tizen/issues/185).
+The header keeps the server name because Tizen has no multiple saved accounts per server.
 Sign Out requires confirmation; Cancel and Back preserve the session and restore avatar focus.
 Its two-action layout follows `TVSettingsConfirmationOverlay`: centered surface, 48/42 px padding, 38 px title, 22 px message, horizontal 260 px buttons with 16 px spacing and a 0.62 black backdrop.
 The existing focus host owns that row; Up/Down stay inside it, Left/Right select an action, and tapping the backdrop cancels without activating the covered page.

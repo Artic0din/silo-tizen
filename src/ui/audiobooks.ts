@@ -24,7 +24,6 @@ export class Audiobooks {
         this.libraries = libraries; this.read = read; this.changed = changed; this.play = play; this.exit = exit; this.baseUrl = baseUrl;
     }
     stop(): void { this.abort?.abort(); }
-    openLibrary(library: UserLibrary): void { this.open({ library }); }
     refresh(): void { if (this.stack.at(-1)?.detail !== undefined) void this.load(); }
     private open(page: Page): void { this.stack.push(page); void this.load(); }
     private back = (): void => {

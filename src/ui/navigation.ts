@@ -1,29 +1,16 @@
 import type { UserLibrary } from "../contracts/v2/catalog.ts";
-import type { MenuItem, PrimaryMenu } from "../contracts/v2/navigation.ts";
+import type { PrimaryMenu } from "../contracts/v2/navigation.ts";
 
-const DEFAULT_MENU: readonly MenuItem[] = (["home", "movies", "series", "audiobooks", "for_you", "calendar"] as const).map(destination => ({ type: "builtin", destination }));
-export type NavigationRoot =
-    | { readonly key: "home" | "movies" | "series" | "audiobooks" | "for_you" | "calendar" | "requests"; readonly title: string }
-    | { readonly key: `library:${string}`; readonly title: string; readonly library: UserLibrary };
+export type NavigationRoot = { readonly key: "home" | "movies" | "series" | "music" | "audiobooks" | "for_you" | "calendar"; readonly title: string };
 
-/** Apple TVPrimaryMenuProjection: preserve authored order and filter unavailable destinations. */
-export function navigationRoots(menu: PrimaryMenu | null, libraries: readonly UserLibrary[], requests: boolean, showAudiobooks = false): NavigationRoot[] {
-    const roots: NavigationRoot[] = [];
-    const labels = { home: "Home", movies: "Movies", series: "Series", audiobooks: "Audiobooks (Beta)", for_you: "For You", calendar: "Calendar" };
-    for (const item of menu?.items ?? DEFAULT_MENU) {
-        if (item.type === "library") {
-            const library = libraries.find(library => library.id === String(item.library_id) && library.type !== "unknown");
-            if (library !== undefined && (library.type !== "audiobooks" || showAudiobooks)) roots.push({ key: `library:${library.id}`, title: item.label, library });
-        } else if (item.type === "builtin") {
-            const key = item.destination;
-            if (key === "music") continue;
-            if (key === "audiobooks" && (!showAudiobooks || !libraries.some(library => library.type === "audiobooks"))) continue;
-            if ((key === "movies" || key === "series") && !libraries.some(library => library.type === key || library.type === "mixed")) continue;
-            roots.push({ key, title: labels[key] });
+/** Apple TVRootDestination.visibleRoots: fixed roots filtered by visible library types. */
+export function navigationRoots(_menu: PrimaryMenu | null, libraries: readonly UserLibrary[], _requests: boolean, showAudiobooks = false): NavigationRoot[] {
+    const roots: NavigationRoot[] = [{ key: "home", title: "Home" }];
+    for (const key of ["movies", "series", "music", "audiobooks"] as const) {
+        if (key === "audiobooks" && !showAudiobooks) continue;
+        if (libraries.some(library => library.type === key || ((key === "movies" || key === "series") && library.type === "mixed"))) {
+            roots.push({ key, title: { movies: "Movies", series: "Series", music: "Music", audiobooks: "Audiobooks (Beta)" }[key] });
         }
     }
-    if (!roots.some(root => root.key === "home")) roots.unshift({ key: "home", title: "Home" });
-    if (showAudiobooks && libraries.some(library => library.type === "audiobooks") && !roots.some(root => root.key === "audiobooks")) roots.push({ key: "audiobooks", title: labels.audiobooks });
-    if (requests) roots.push({ key: "requests", title: "Requests" });
-    return roots.filter((root, index) => roots.findIndex(other => other.key === root.key) === index);
+    return [...roots, { key: "for_you", title: "For You" }, { key: "calendar", title: "Calendar" }];
 }

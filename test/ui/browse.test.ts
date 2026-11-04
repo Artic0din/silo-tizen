@@ -74,12 +74,14 @@ browseTest("Audiobooks opt-in gates library, groups, detail retry and stitched c
     assert.equal(await tv.page.locator('[data-view^="audiobooks:"]').count(), 0);
 }, { catalog: new AudiobookCatalog() });
 
-browseTest("audiobook library shortcut opens its selected library directly", async tv => {
+browseTest("audiobooks follows the fixed native roots even when a menu authors a library shortcut", async tv => {
     await tv.page.locator('[data-focus="profiles"]').click();
     await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
     await tv.page.getByRole("switch", { name: "Show Audiobooks", exact: true }).click();
     await tv.remote(BACK); await tv.remote(BACK);
-    await tv.page.locator('[data-focus="library:99"]').click();
+    assert.equal(await tv.page.locator('[data-focus="library:99"]').count(), 0);
+    await tv.page.locator('[data-focus="audiobooks"]').click();
+    await tv.page.getByRole("button", { name: "Audio Library", exact: true }).click();
     await tv.page.getByRole("button", { name: "Test Book", exact: true }).waitFor();
     assert.equal(await tv.page.getByRole("button", { name: "Audio Library", exact: true }).count(), 0);
 }, { catalog: new AudiobookCatalog(), beforeConnect: tv => {

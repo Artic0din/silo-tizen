@@ -72,6 +72,7 @@ for (const reduced of [false, true]) {
         assert.equal(await tv.focused(), "movie:m0001");
         const offset = await tv.page.locator('.browse').evaluate(node => node.scrollTop);
         assert.ok(offset > 0);
+        assert.equal(await tv.page.locator('.search-navigation-title').evaluate(node => getComputedStyle(node).position), "absolute", "scrolling alone does not show the navigation title");
         assert.ok(await tv.page.locator('.browse-grid .browse-card').evaluate(node => node.getBoundingClientRect().bottom <= 978), "focused captions retain the native 103px bottom clearance");
         await press(tv, "Enter"); await showing(tv, "item:movie:m0001");
         await tv.remote(BACK); await showing(tv, "search"); await tv.jump(250);
@@ -98,10 +99,30 @@ browseTest("Search spatial People entry chooses the nearest title column", async
     assert.equal(await tv.focused(), "movie:m0002");
     await press(tv, "ArrowDown", "ArrowDown");
     assert.equal(await tv.focused(), "movie:950");
+    await tv.jump(250);
     await press(tv, "ArrowUp");
     assert.equal(await tv.focused(), "movie:m0008", "Up from Requests enters the adjacent bottom grid row");
+    await tv.jump(250);
+    const posterTop = await tv.page.locator('[data-focus="movie:m0008"] .browse-art').evaluate(node => node.getBoundingClientRect().top);
+    assert.ok(Math.abs(posterTop - 171) < 1, `Search upward reveal keeps the focused poster at 171px, got ${posterTop}`);
+    assert.equal(await tv.page.locator('.search-navigation-title').evaluate(node => getComputedStyle(node).position), "absolute", "deep directional navigation does not show the navigation title");
     assert.equal(tv.fake.requests.length, reads);
 }, { catalog: new SearchEdgeCatalog() });
+
+browseTest("Search retains the filter column through default People and ragged grid entry", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie 000"); await tv.remote(IME_DONE);
+    await tv.page.locator('.browse-grid [data-focus="movie:m0002"]').waitFor();
+    await tv.page.locator('[data-focus="search-filter:all"]').focus();
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "person:edge-0", "People owns its default entry");
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "movie:m0002", "default People entry keeps All's horizontal navigation axis");
+    await press(tv, "ArrowDown", "ArrowDown");
+    assert.equal(await tv.focused(), "movie:951", "ragged grid entry keeps the same axis into Requests");
+}, { catalog: new SearchEdgeCatalog(), beforeConnect: tv => {
+    new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" });
+} });
 
 browseTest("Search field and no-results spacing use the native presentation", async tv => {
     await tv.page.locator('[data-focus="search"]').click();

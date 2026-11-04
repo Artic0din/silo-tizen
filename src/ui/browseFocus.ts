@@ -77,6 +77,8 @@ export class FocusHost {
     private memory = new Map<string, string>();
     private lastZone: string | undefined;
     private contentZone: string | undefined;
+    private navigationX: number | undefined;
+    private navigationItem: FocusItem | undefined;
     private listening = false;
     private readonly scroll = new SkylineScroll();
     private readonly visits = new Map<string, VisitSnapshot>();
@@ -183,6 +185,7 @@ export class FocusHost {
         const visit = this.visits.get(visitKey(view));
         if (!sameVisit) {
             this.scroll.stop();
+            this.navigationX = undefined;
             this.memory = new Map(visit?.memory);
             this.lastZone = visit?.lastZone;
             this.contentZone = visit?.contentZone;
@@ -325,6 +328,8 @@ export class FocusHost {
         this.visitHeld = false;
         this.lastZone = undefined;
         this.contentZone = undefined;
+        this.navigationX = undefined;
+        this.navigationItem = undefined;
         while (this.container.firstChild !== null) {
             this.container.removeChild(this.container.firstChild);
         }
@@ -344,6 +349,7 @@ export class FocusHost {
     }
 
     private readonly rememberContent = (event: FocusEvent): void => {
+        if (event.target !== this.navigationItem?.element) this.navigationX = undefined;
         const focused = this.locate(event.target instanceof Element ? event.target : null);
         if (focused === undefined || ["nav", "selector", "flyout", "pills"].includes(focused.zone.id)) return;
         this.memory.set(focused.zone.id, focused.item.key);
@@ -382,7 +388,7 @@ export class FocusHost {
                 const columns = Math.max(1, zone.columns ?? 1);
                 const edge = step === 1 ? 0 : Math.floor((zone.items.length - 1) / columns) * columns;
                 const candidates = zone.layout === "grid" ? zone.items.slice(edge, edge + columns) : zone.items;
-                const nearest = zone.spatial === true && zones[zoneIndex]?.spatial === true ? nearestItem(candidates, from.element) : undefined;
+                const nearest = zone.spatial === true && zones[zoneIndex]?.spatial === true ? nearestItem(candidates, from.element, this.navigationX) : undefined;
                 this.focusItem(zone, zone.items.find(item => item.key === zone.entry) ?? nearest ?? zone.items.find((item) => item.key === remembered) ?? zone.items[0]);
                 return true;
             }
@@ -398,6 +404,7 @@ export class FocusHost {
         this.lastZone = zone.id;
         // Opening the cascade must not replace the content return target.
         if (!["nav", "selector", "flyout", "pills"].includes(zone.id)) this.contentZone = zone.id;
+        this.navigationItem = item;
         item.element.focus({ preventScroll: true });
         this.scroll.reveal(item.element, this.container);
     }
@@ -485,6 +492,12 @@ export class FocusHost {
         }
         event.preventDefault();
         const { zone, zoneIndex, index } = found;
+        if (key === "left" || key === "right" || this.navigationItem?.element !== found.item.element) this.navigationX = undefined;
+        if (key === "up" || key === "down") {
+            const rect = found.item.element.getBoundingClientRect();
+            // A default entry target must not pull a vertical navigation column sideways.
+            this.navigationX ??= rect.left + rect.width / 2;
+        }
         if (key === "left" && zone.onLeft !== undefined) { zone.onLeft(); return; }
         const target = moveWithin(zone, zone.items.length, index, key);
         if (target !== undefined) {
@@ -500,9 +513,9 @@ export class FocusHost {
     };
 }
 
-function nearestItem(items: readonly FocusItem[], from: HTMLElement): FocusItem | undefined {
+function nearestItem(items: readonly FocusItem[], from: HTMLElement, navigationX?: number): FocusItem | undefined {
     const centre = (element: HTMLElement): number => { const rect = element.getBoundingClientRect(); return rect.left + rect.width / 2; };
-    const x = centre(from);
+    const x = navigationX ?? centre(from);
     return items.reduce<FocusItem | undefined>((best, item) => best === undefined || Math.abs(centre(item.element) - x) < Math.abs(centre(best.element) - x) ? item : best, undefined);
 }
 

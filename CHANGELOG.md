@@ -12,6 +12,8 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Kept Search's horizontal navigation column through default entries, showed its faded title only on return, and gave posters the native clearance when moving up from Requests.
+
 - Applied Search filters on focus, followed nearby cards on vertical moves, restored native scroll and field presentation, and captioned episodes with their series and episode code.
 
 - Kept focused Search requests visible when People arrived later and retried interrupted Requests refreshes after returning from details.

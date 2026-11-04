@@ -199,7 +199,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     });
     const stopDetails = (): void => { synopsis.destroy(); detailWork?.stop(); detailWork = undefined; };
     let inputRevision = 0;
-    const recordInput = (): void => { inputRevision++; };
+    const recordInput = (): void => { inputRevision++; container.classList.remove("search-restored"); };
     document.addEventListener("keydown", recordInput, true);
     document.addEventListener("pointerdown", recordInput, true);
 
@@ -1095,6 +1095,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         stack.pop();
         const current = top();
         if (current !== undefined) {
+            container.classList.toggle("search-restored", current.kind === "search");
             if (current.kind === "personal" || current.kind === "personFilmography" || current.kind === "calendar" || current.kind === "requests") {
                 if (current.kind === "personal" || current.kind === "personFilmography") current.pendingIndex = undefined;
                 current.stale = true;

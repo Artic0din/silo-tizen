@@ -63,7 +63,7 @@ export async function onDeckPlay(read: Read, contentId: string): Promise<PlayReq
     return (await onDeckPlays(read, contentId))[0];
 }
 
-export async function onDeckPlays(read: Read, contentId: string): Promise<PlayRequest[]> {
+export async function onDeckPlays(read: Read, contentId: string, publish?: (items: readonly PlayRequest[]) => void): Promise<PlayRequest[]> {
     let seriesId: string | undefined;
     try {
         const current = await read(operations.watchDetail(contentId));
@@ -103,6 +103,7 @@ export async function onDeckPlays(read: Read, contentId: string): Promise<PlayRe
                     startSeconds: start ?? 0,
                     ...(detail.type === "episode" ? { episode: true as const } : {}),
                 });
+                publish?.(result.slice());
             } catch {
                 continue;
             }

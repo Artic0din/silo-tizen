@@ -1052,6 +1052,51 @@ test("late EOF preference answers cannot revive playback after Back or profile c
     }
 });
 
+test("a paused rewind out of the prompt window restores the full video rectangle", async () => {
+    const r = await autoplayRig(true);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    const duration = view.durationSeconds!;
+    r.avplay.tick((duration - 25) * 1000);
+    await r.h.clock.advance(0);
+    assert.ok("upNext" in last(r.views));
+    r.controller.setPaused(true);
+    r.controller.seekToSeconds(duration - 55);
+    r.avplay.finishSeek();
+    assert.equal(last(r.views).phase, "paused");
+    assert.equal("upNext" in last(r.views), false);
+    assert.deepEqual(r.avplay.displayRects.at(-1), [0, 0, 1920, 1080]);
+    r.controller.destroy();
+});
+
+for (const preEnd of [false, true]) {
+    test(`a playable On Deck choice is available before a later detail resolves (${preEnd ? "pre-end" : "EOF"})`, async () => {
+        const r = await autoplayRig(true);
+        const household = [...r.catalog.households.values()][0]!;
+        household.sections = [{ id: "deck", sectionType: "continue_watching", title: "On Deck", items: ["movie:m0001", "movie:m0002", "movie:m0003"] }];
+        r.catalog.fileIds.set("movie:m0001", "42");
+        r.catalog.fileIds.set("movie:m0002", "43");
+        r.server.items.set("movie:m0001", ["42"]);
+        r.server.items.set("movie:m0002", ["43"]);
+        const held = r.h.fake.hold(operations.watchDetail("movie:m0003").path);
+        await playMovie(r, { ...MOVIE, contentId: "movie:m0001" });
+        const view = last(r.views);
+        assert.ok(view.phase === "playing");
+        if (preEnd) r.avplay.tick((view.durationSeconds! - 20) * 1000);
+        else r.avplay.listener?.onstreamcompleted();
+        await r.h.clock.advance(0);
+        const ready = last(r.views);
+        if (preEnd) assert.ok("upNext" in ready);
+        else assert.equal(completion(r).state, "ready");
+        r.controller.playNext();
+        await r.h.clock.advance(0);
+        assert.equal(bodies(r.h, "/start").length, 2);
+        held.release();
+        r.controller.destroy();
+    });
+}
+
 test("Up Next appears at Apple's default 30 seconds and Keep Watching suppresses redisplay", async () => {
     const r = await autoplayRig(true);
     await playMovie(r, EPISODE);

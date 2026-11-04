@@ -7,9 +7,10 @@ import { remoteKey } from "./keys.ts";
 import { SettingsState } from "./settingsState.ts";
 import type { ProfileLaunch } from "../session/profileLaunch.ts";
 import { acknowledgementsDocument } from "./acknowledgements.ts";
+import { SettingsDiagnostics } from "./settingsDiagnostics.ts";
 
-type Category = "general" | "playback" | "server";
-const CATEGORY_LABELS = { general: "General", playback: "Playback", server: "Server" } as const;
+type Category = "general" | "playback" | "server" | "diagnostics";
+const CATEGORY_LABELS = { general: "General", playback: "Playback", server: "Server", diagnostics: "Diagnostics" } as const;
 /** Apple scrolls its Acknowledgements document by remote presses while the document holds focus. */
 const DOCUMENT_STEP = 160;
 type Picker = "hidden" | "audio" | "quality" | "bitrate" | "seek-back" | "seek-forward";
@@ -26,7 +27,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     const host = new FocusHost(container);
     let category: Category = "general";
     let picker: Picker | undefined;
-    let returnRow: Picker | "acknowledgements" = "hidden";
+    let returnRow: Picker | "acknowledgements" | "diagnostics-destination" = "hidden";
     let acknowledging = false;
     let confirmingSignOut = false;
     let choosingLaunch = false;
@@ -56,12 +57,14 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         });
     };
     const state = new SettingsState(session, () => render());
+    const diagnostics = new SettingsDiagnostics(session, () => render());
     const destroy = (): void => {
         if (torn) return;
         torn = true;
         launchController.abort();
         stopAuthority();
         state.stop();
+        diagnostics.stop();
         container.removeEventListener("keydown", onKey, true);
         host.destroy();
         container.remove();
@@ -277,8 +280,8 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         }
         if (acknowledging) { renderAcknowledgements(); return; }
         if (picker !== undefined) { renderPicker(); return; }
-        const categories = (["general", "playback", "server"] as const).map(id => {
-            const item = actionButton(id, CATEGORY_LABELS[id], () => { category = id; returnRow = id === "general" ? "hidden" : id === "playback" ? "quality" : "acknowledgements"; render(rowFocus()); });
+        const categories = (["general", "playback", "server", "diagnostics"] as const).map(id => {
+            const item = actionButton(id, CATEGORY_LABELS[id], () => { category = id; returnRow = id === "general" ? "hidden" : id === "playback" ? "quality" : id === "diagnostics" ? "diagnostics-destination" : "acknowledgements"; render(rowFocus()); });
             item.element.setAttribute("aria-current", id === category ? "page" : "false");
             item.element.addEventListener("focus", () => { if (category !== id) { category = id; render({ zone: "settings-categories", key: id }); } });
             return item;
@@ -289,7 +292,8 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         }
         const rows: FocusItem[] = [];
         const body = el("div", "settings-pane");
-        body.append(el("h2", "browse-section-title", CATEGORY_LABELS[category]), ...(category === "server" ? [] : feedback()));
+        body.append(el("h2", "browse-section-title", CATEGORY_LABELS[category]), ...(category === "server" || category === "diagnostics" ? [] : feedback()));
+        if (category === "diagnostics") rows.push(...diagnostics.render(body));
         const pickers: readonly Picker[] = category === "general" ? ["hidden"] : category === "playback" ? ["quality", "bitrate", "audio", "seek-back", "seek-forward"] : [];
         if (category === "server") {
             body.append(el("h3", "settings-section-header", "ACTIVE SERVER"), el("p", "settings-value", `Server: ${actions?.serverName ?? session.http.base.baseUrl}`));
@@ -348,7 +352,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         }
         if (state.loaded && rows.length === 0) body.appendChild(el("p", "browse-text", "No supported settings in this category."));
         const settingRows = rows.length;
-        if (category !== "server") rows.push(...retryButton());
+        if (category !== "server" && category !== "diagnostics") rows.push(...retryButton());
         rows.push(actionButton("settings-back", "Back", back));
         body.classList.add("settings-controls");
         body.appendChild(zoneNode("settings-controls", rows.slice(settingRows)));
@@ -364,6 +368,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     host.listen();
     render();
     void state.load();
+    void diagnostics.load();
     return { destroy };
 }
 

@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added Settings Diagnostics with private local capture and an explicit upload blocker while Silo Server lacks Tizen report support.
+
 ### Fixed
 
 - Corrected Playback Settings to edit this TV's supported overrides and restore profile inheritance without changing profile defaults (Apple/Samsung native parity pending).

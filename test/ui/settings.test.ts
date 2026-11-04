@@ -36,6 +36,52 @@ async function openSettings(tv: Tv): Promise<void> {
     await tv.page.getByRole("button", { name: /Hidden libraries/ }).waitFor();
 }
 
+test("Diagnostics keeps TV focus, blocks unsupported uploads and captures without sending", async () => {
+    const { tv } = await setup();
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="diagnostics"]').focus();
+        await tv.page.keyboard.press("Enter");
+        assert.equal(await tv.page.locator(":focus").getAttribute("data-focus"), "diagnostics-destination");
+        await tv.page.getByRole("button", { name: "Start Diagnostic Capture", exact: true }).click();
+        await tv.page.getByText("Diagnostic capture is running on this TV. Nothing has been sent.", { exact: true }).waitFor();
+        await tv.page.getByRole("button", { name: "Stop Diagnostic Capture", exact: true }).click();
+        await tv.page.getByRole("button", { name: "Send Diagnostics Now", exact: true }).focus();
+        await tv.page.keyboard.press("Enter");
+        await tv.page.getByText("This server does not accept Tizen diagnostics reports (#138). Nothing has been sent.", { exact: true }).waitFor();
+        assert.equal(await tv.page.locator(":focus").getAttribute("data-focus"), "diagnostics-send");
+        assert.equal(await tv.page.getByText("SENT HISTORY", { exact: true }).count(), 1);
+        assert.equal(await tv.page.getByRole("button", { name: "Copy ID" }).count(), 0);
+        assert.equal(tv.fake.requests.filter(request => request.method !== "GET" && request.path.startsWith("/diagnostics")).length, 0);
+        await tv.remote(10009);
+        assert.equal(await tv.page.locator(":focus").getAttribute("data-focus"), "diagnostics");
+    } finally { await tv.page.context().close(); }
+});
+
+test("Diagnostics handles unavailable and malformed capabilities without fetching on focus", async () => {
+    const { tv } = await setup();
+    try {
+        tv.fake.script("/diagnostics/capabilities", { status: 200, body: { allowed: true, state: "available" } }, { status: 200, body: { allowed: "private-value", state: "available" } }, { status: 200, body: { allowed: true, state: "available" } });
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="diagnostics"]').focus();
+        await tv.remote(39);
+        await tv.page.getByText("Status: Unavailable", { exact: true }).waitFor();
+        const count = tv.fake.requests.filter(request => request.path === "/diagnostics/capabilities").length;
+        await tv.remote(40); await tv.remote(40); await tv.remote(38);
+        assert.equal(tv.fake.requests.filter(request => request.path === "/diagnostics/capabilities").length, count);
+        await tv.remote(10009); await tv.remote(10009);
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="diagnostics"]').focus();
+        await tv.remote(39);
+        await tv.page.getByText("Status: Offline", { exact: true }).waitFor();
+        assert.equal(await tv.page.getByText("private-value", { exact: false }).count(), 0);
+        await tv.page.getByRole("button", { name: "Retry", exact: true }).click();
+        await tv.page.getByText("Status: Unavailable", { exact: true }).waitFor();
+        assert.ok(await tv.page.locator(":focus").isVisible());
+        assert.equal(tv.fake.requests.filter(request => request.method !== "GET" && request.path.startsWith("/diagnostics")).length, 0);
+    } finally { await tv.page.context().close(); }
+});
+
 test("Apple Settings rail enters the first row, shows separate values and restores modal focus", async () => {
     const { tv } = await setup(true);
     try {

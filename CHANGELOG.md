@@ -10,6 +10,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Restored saved-server pane focus, Back from Add server, and pending-removal focus on Samsung TV.
 - Renamed the profile menu's Switch Server row to Change Account, after Settings and before Sign Out.
 
 - Matched Apple TV’s fixed top menu and moved Requests into the profile menu with Back restoring its row.

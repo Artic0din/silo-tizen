@@ -23,6 +23,7 @@ export interface SignInOptions {
     readonly address?: string;
     readonly username?: string;
     readonly onChangeAccount?: () => void;
+    readonly onCancel?: () => void;
     /** Explicit server switching preserves saved sign-ins and starts at server entry. */
     readonly chooseServer?: boolean;
     readonly core: SessionCoreDeps;
@@ -243,6 +244,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             copy.push(options);
         }
         const row = [connect];
+        if (options.onCancel) row.push(marqueeButton("back", "Back", "plain", () => { destroy(); options.onCancel?.(); }));
         if (offerForget) {
             row.push(marqueeButton("forget", "Remove saved sign-in", "plain", () => void forget()));
         }
@@ -262,7 +264,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             controls: busy ? controls.filter((control) => control.key === "connect") : controls,
             focus: address === "" ? "address" : "connect",
             // Leaving mid-probe would let a late connect pull the app on, so Back waits for it.
-            back: busy ? () => undefined : undefined,
+            back: busy ? () => undefined : options.onCancel ? () => { destroy(); options.onCancel?.(); } : undefined,
         };
     };
 

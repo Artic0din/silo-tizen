@@ -19,6 +19,7 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
     const host = new FocusHost(container);
     const directory = current?.accounts.directory ?? new AccountDirectory(core.publicStorage, core.randomBytes);
     let selected = current?.server.http.base.baseUrl ?? directory.list()[0]?.baseUrl;
+    let paneEntry: string | undefined;
     let destroyed = false;
     const destroy = (): void => { destroyed = true; host.destroy(); backdrop.destroy(); container.remove(); };
     const go = (account: SavedAccount | undefined, address?: string): void => { destroy(); open(account, address); };
@@ -27,10 +28,16 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
         host.show({ name: "accounts-error", content: [el("h1", "accounts-title", message), retry.element], zones: [{ id: "error", layout: "column", items: [retry] }], focus: { zone: "error", key: "retry" }, back: render });
     };
     const confirm = (targets: readonly SavedAccount[], removeServer: boolean): void => {
-        const cancel = actionButton("cancel", "Cancel", render);
+        let removing = false;
+        const cancel = actionButton("cancel", "Cancel", () => { if (!removing) render(); });
         const accept = actionButton("confirm", removeServer ? "Remove Server" : "Sign Out", () => {
+            if (removing) return;
+            removing = true;
+            cancel.element.setAttribute("disabled", "");
+            accept.element.setAttribute("aria-disabled", "true");
+            accept.element.textContent = removeServer ? "Removing…" : "Signing out…";
+            panel.setAttribute("aria-busy", "true");
             void (async () => {
-                accept.element.setAttribute("disabled", "");
                 for (const row of targets) {
                     const cleared = row.id === current?.accounts.localAccountId ? (await current.session.logout()).storage : await signOutSavedAccount(row, core);
                     if (cleared === "failed") throw new Error("Could not remove the saved sign-in. Try again.");
@@ -49,9 +56,9 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
             : "This account's profiles and settings leave this TV. The server stays saved, so you can sign in again.";
         panel.append(el("h1", "signin-title", removeServer ? `Remove ${serverName}?` : `Sign out of ${targets[0]?.username ?? "this account"} on ${serverName}?`),
             el("p", "signin-text", message), cancel.element, accept.element);
-        host.show({ name: "accounts-confirm", content: [panel], zones: [{ id: "dialog", layout: "row", items: [cancel, accept] }], focus: { zone: "dialog", key: "cancel" }, back: render });
+        host.show({ name: "accounts-confirm", content: [panel], zones: [{ id: "dialog", layout: "row", items: [cancel, accept] }], focus: { zone: "dialog", key: "cancel" }, back: () => { if (!removing) render(); } });
     };
-    function render(railFocus = false): void {
+    function render(railFocus = false, enterPane = false): void {
         const rows = directory.list();
         if (manage) {
             const panel = el("div", "accounts-settings");
@@ -79,10 +86,10 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
         const pane = el("div", "accounts-pane");
         const serverItems = addresses.map(address => {
             const brand = cachedBranding(core.publicStorage, address);
-            const item = actionButton(address, brand?.serverName ?? new URL(address).host, () => { selected = address; render(); });
+            const item = actionButton(address, brand?.serverName ?? new URL(address).host, () => { selected = address; render(false, true); });
             const mark = el("img", "accounts-server-mark"); mark.src = brand?.markUrl ?? "icon.png"; mark.alt = "";
             item.element.prepend(mark);
-            item.element.addEventListener("focus", () => { if (selected !== address) { selected = address; render(true); } });
+            item.element.addEventListener("focus", () => { if (selected !== address) { selected = address; paneEntry = undefined; render(true); } });
             item.element.setAttribute("aria-selected", String(address === selected));
             return item;
         });
@@ -104,6 +111,7 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
         addAccount.element.classList.add("account-card");
         addAccount.element.append(el("span", "account-initial", "+"), name);
         if (selected) accounts.push(addAccount);
+        for (const item of accounts) item.element.addEventListener("focus", () => { paneEntry = item.key; });
         if (manage && selected) accounts.push(actionButton("remove-server", "Remove Server", () => confirm(rows.filter(row => row.baseUrl === selected), true)));
         rail.append(...serverItems.map(item => item.element)); pane.append(...accounts.map(item => item.element));
         const columns = el("div", "accounts-columns"); columns.append(rail, pane);
@@ -114,7 +122,7 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
             back: () => {
                 if (host.focused()?.zone === "accounts") { render(true); return; }
                 destroy(); back();
-            } }, railFocus ? { zone: "servers", key: selected ?? "add-server" } : undefined);
+            } }, railFocus ? { zone: "servers", key: selected ?? "add-server" } : enterPane ? { zone: "accounts", key: paneEntry ?? accounts.find(row => row.key === current?.accounts.localAccountId)?.key ?? accounts[0]!.key } : undefined);
     }
     function expired(row: SavedAccount): void {
         const controls = [actionButton("signin", "Sign in again", () => go(row)), actionButton("signout", "Sign Out", () => confirm([row], false)), actionButton("cancel", "Cancel", render)];

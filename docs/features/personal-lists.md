@@ -35,6 +35,8 @@ Apple's Personal Watchlist, Favorites and History screens define the destination
 Apple's History query factory omits `type`, but that does not expose episodes in the pinned backend's media-items relation.
 The public query scope accepts `episode`; the query-only type was extended without widening library media scopes.
 Watchlist and Favorites use `GET /watchlist` and `GET /favorites`, as Apple's `APIv2Client+PersonalLists.swift` does.
+The shared `operations.listPersonalItems` factory owns those requests; `decodePersonalListPage` owns their wire contract.
+The UI applies only the Favorites media filter after decoding.
 Those endpoints order tied membership timestamps by item ID descending; the catalog query path uses a different tiebreaker and can respect collection sort preferences.
 The existing incremental loading owner keeps 24-card batches rather than Apple's eager 200-item batches.
 History uses `POST /catalog/query` with `source=history` and no media filter.

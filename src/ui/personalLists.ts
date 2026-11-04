@@ -1,8 +1,8 @@
 import type { RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
-import { decodeCard, type CatalogPage } from "../contracts/v2/catalog.ts";
+import type { CatalogPage } from "../contracts/v2/catalog.ts";
 import type { CatalogQueryRequest } from "../contracts/v2/discovery.ts";
-import { boolean, object, string, WireError } from "../contracts/v2/wire.ts";
+import { boolean, object, string } from "../contracts/v2/wire.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import type { ErrorState } from "./browseRoutes.ts";
 import { PAGE_SIZE, type Route, type RouteHandlers } from "./browseRoutes.ts";
@@ -33,19 +33,12 @@ export function personalQuery(source: PersonalSource, filter: PersonalFilter, cu
 }
 export function readPersonalPage(source: PersonalSource, filter: PersonalFilter, cursor: string | undefined): RequestSpec<CatalogPage> {
     if (source === "history") return operations.queryCatalogItems(personalQuery(source, filter, cursor));
-    const params = new URLSearchParams({ limit: String(PAGE_SIZE), image_size: "small" });
-    if (cursor !== undefined) params.set("cursor", cursor);
-    return { method: "GET", path: `/${source}?${params}`, retry: "safe", decode: value => {
-        const obj = object(value, "personal_list");
-        if (!Array.isArray(obj.items)) throw new WireError("personal_list.items", "an array");
-        const page = object(obj.page, "personal_list.page");
-        const more = boolean(page, "has_more", "personal_list.page");
-        const nextCursor = more ? string(page, "next_cursor", "personal_list.page") : undefined;
-        if (nextCursor === "") throw new WireError("personal_list.page.next_cursor", "a nonempty continuation");
-        const cards = obj.items.map((item, index) => decodeCard(item, `personal_list.items[${index}]`));
+    const spec = operations.listPersonalItems(source, { limit: PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) });
+    return { ...spec, decode: value => {
+        const page = spec.decode(value);
         // Apple's FavoritesView filters the stored list without changing its order.
-        const items = source === "favorites" ? cards.filter(card => filter === "movie" ? card.type === "movie" : card.type === "series" || card.type === "episode") : cards;
-        return { items, nextCursor, total: items.length, totalExact: false };
+        const items = source === "favorites" ? page.items.filter(card => filter === "movie" ? card.type === "movie" : card.type === "series" || card.type === "episode") : page.items;
+        return { ...page, items, total: items.length };
     } };
 }
 

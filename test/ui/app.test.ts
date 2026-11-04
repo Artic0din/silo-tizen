@@ -418,6 +418,8 @@ appTest("profile Settings 15/45 reaches the composed controller and every remote
     await tv.page.locator('.skyline-continue[data-focus="movie:m0001"]').click();
     await prepare(tv);
     assert.equal(await tv.page.locator('[data-view^="item:"]').count(), 0);
+    // Keep the debounce from committing between remote inputs on a slow host.
+    await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
     const position = () => tv.page.getByRole("slider").getAttribute("aria-valuenow");
     assert.equal(await tv.page.getByRole("button", { name: "Back 15 seconds", exact: true }).count(), 1);
     assert.equal(await tv.page.getByRole("button", { name: "Forward 45 seconds", exact: true }).count(), 1);

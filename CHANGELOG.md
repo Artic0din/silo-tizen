@@ -108,8 +108,6 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Matched Apple TV’s fixed top menu and moved Requests into the profile menu with Back restoring its row.
-
 - Kept a rating write running when the details page restarted, and read the rating only after it settled, so the page shows the stored rating instead of the old one.
 - Measured current Continue Watching artwork in geometry regressions without retaining nodes across Home redraws.
 - Upgraded cold or incomplete Home artwork after image sizing became available while preserving the selected title, hidden libraries, pending metadata and watched changes from Card actions, including when the optional artwork read failed.

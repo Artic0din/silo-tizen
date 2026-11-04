@@ -400,6 +400,7 @@ export class FocusHost {
         if (zone === undefined || item === undefined) {
             return;
         }
+        if (zone.id === "nav" || (this.lastZone === "nav" && this.view?.barEntersDefault === true)) this.navigationX = undefined;
         this.memory.set(zone.id, item.key);
         this.lastZone = zone.id;
         // Opening the cascade must not replace the content return target.
@@ -492,8 +493,8 @@ export class FocusHost {
         }
         event.preventDefault();
         const { zone, zoneIndex, index } = found;
-        if (key === "left" || key === "right" || this.navigationItem?.element !== found.item.element) this.navigationX = undefined;
-        if (key === "up" || key === "down") {
+        if (inText || key === "left" || key === "right" || this.navigationItem?.element !== found.item.element) this.navigationX = undefined;
+        if (!inText && (key === "up" || key === "down")) {
             const rect = found.item.element.getBoundingClientRect();
             // A default entry target must not pull a vertical navigation column sideways.
             this.navigationX ??= rect.left + rect.width / 2;

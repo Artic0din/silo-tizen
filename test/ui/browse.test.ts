@@ -109,11 +109,18 @@ browseTest("Search spatial People entry chooses the nearest title column", async
     assert.equal(tv.fake.requests.length, reads);
 }, { catalog: new SearchEdgeCatalog() });
 
-browseTest("Search retains the filter column through default People and ragged grid entry", async tv => {
+for (const coldStart of [false, true]) {
+browseTest(`Search retains the filter column through default People and ragged grid entry${coldStart ? " from the field on a cold visit" : ""}`, async tv => {
     await tv.page.locator('[data-focus="search"]').click();
     await tv.page.fill("#browse-search", "Movie 000"); await tv.remote(IME_DONE);
     await tv.page.locator('.browse-grid [data-focus="movie:m0002"]').waitFor();
-    await tv.page.locator('[data-focus="search-filter:all"]').focus();
+    await tv.page.locator('[data-focus="person:edge-0"]').waitFor({ state: "attached" });
+    await tv.page.locator('[data-focus="movie:951"]').waitFor({ state: "attached" });
+    if (coldStart) {
+        assert.equal(await tv.focused(), "query");
+        await press(tv, "ArrowDown");
+    } else await tv.page.locator('[data-focus="search-filter:all"]').focus();
+    assert.equal(await tv.focused(), "search-filter:all");
     await press(tv, "ArrowDown");
     assert.equal(await tv.focused(), "person:edge-0", "People owns its default entry");
     await press(tv, "ArrowDown");
@@ -123,6 +130,7 @@ browseTest("Search retains the filter column through default People and ragged g
 }, { catalog: new SearchEdgeCatalog(), beforeConnect: tv => {
     new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" });
 } });
+}
 
 browseTest("Search field and no-results spacing use the native presentation", async tv => {
     await tv.page.locator('[data-focus="search"]').click();

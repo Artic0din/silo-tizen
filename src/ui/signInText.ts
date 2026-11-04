@@ -8,7 +8,7 @@ import type { VaultClear } from "../session/credentialVault.ts";
 import type { DeviceLoginState } from "../session/deviceLogin.ts";
 import type { LogoutResult, RestoreResult } from "../session/session.ts";
 
-export function connectProblem(result: Exclude<ConnectResult, { readonly status: "connected" }>): string {
+export function connectProblem(result: Exclude<ConnectResult, { readonly status: "connected" | "needs_setup" }>): string {
     switch (result.status) {
         case "invalid_url":
             return urlProblem(result.problem);
@@ -50,6 +50,13 @@ export function cleartextWarning(host: string): string {
 }
 
 export const CLEARTEXT_DECLINED = "Could not reach a Silo server at that address over HTTPS.";
+
+// TVServerNeedsSetupView and ServerNeedsSetupRetryModel, word for word.
+export const SERVER_NOT_READY_TITLE = "This server\nisn't ready";
+export const SERVER_NOT_READY_BODY = "Ask the server administrator to finish setup. When it is ready, check again.";
+export const SETUP_NEEDED = "Setup needed";
+export const STILL_NEEDS_SETUP = "This server still needs administrator setup.";
+export const SETUP_UNREACHABLE = "Couldn't reach the server. Check it's running and try again.";
 
 export function forgetResult(result: VaultClear): string {
     return result === "failed"
@@ -99,6 +106,20 @@ export function typedUrl(verificationUri: string, verificationUriComplete: strin
     }
     text = text.replace(/\/+$/, "");
     return /^https:\/\//i.test(text) ? text.slice("https://".length) : text;
+}
+
+/** TVServerNeedsSetupView.hostLabel: the hostname, plus a non-default port. */
+export function serverHostLabel(serverUrl: string): string {
+    let url: URL;
+    try {
+        url = new URL(serverUrl);
+    } catch {
+        return serverUrl;
+    }
+    if (url.hostname === "") {
+        return serverUrl;
+    }
+    return url.port === "" ? url.hostname : `${url.hostname}:${url.port}`;
 }
 
 /** The host people recognise for a server, port included so two servers on one machine stay apart. */

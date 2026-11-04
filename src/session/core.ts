@@ -2,9 +2,11 @@
 // sign in with a device code, choose a profile, sign out.
 
 import { type Clock, systemClock } from "../api/clock.ts";
-import { discoverServer, type DiscoveryResult, type ServerConnection } from "../api/discovery.ts";
+import { discoverServer, failedDiscovery, type DiscoveryResult, type ServerConnection } from "../api/discovery.ts";
 import type { FetchLike } from "../api/http.ts";
+import { operations } from "../api/operations.ts";
 import { parseServerUrl, type ServerUrlProblem } from "../api/serverUrl.ts";
+import type { SetupStatus } from "../contracts/v2/wire.ts";
 import { CredentialVault, type VaultClear } from "./credentialVault.ts";
 import { DeviceLogin } from "./deviceLogin.ts";
 import { deviceHeaders, loadDeviceId, type PublicStorage, type RandomBytes } from "./deviceIdentity.ts";
@@ -37,16 +39,18 @@ export interface ConnectedServer {
     createDeviceLogin(): DeviceLogin;
 }
 
-export type ConnectResult = ConnectedServer | Exclude<DiscoveryResult, { readonly status: "connected" }>;
+/** The address answered, and `needs_setup` is still true. No session is opened. */
+export interface ServerNeedsSetup {
+    readonly status: "needs_setup";
+    readonly server: ServerConnection;
+}
 
-export async function connect(serverAddress: string, deps: SessionCoreDeps, signal?: AbortSignal): Promise<ConnectResult> {
+export type ConnectResult = ConnectedServer | ServerNeedsSetup | Exclude<DiscoveryResult, { readonly status: "connected" }>;
+
+/** Opens a session on a server discovery has already accepted. */
+export async function openDiscoveredServer(server: ServerConnection, deps: SessionCoreDeps): Promise<ConnectedServer> {
     const clock = deps.clock ?? systemClock;
     const device = deviceHeaders(loadDeviceId(deps.publicStorage, deps.randomBytes), deps.deviceName, deps.devicePlatform);
-    const discovered = await discoverServer(serverAddress, device, deps.fetch, clock, signal);
-    if (discovered.status !== "connected") {
-        return discovered;
-    }
-    const server = discovered.server;
     const vault = new CredentialVault(openSecretStore(deps.keyManager), deps.publicStorage, server.http.base.baseUrl);
     const session = new NativeSession(server, vault, clock);
     const restore = await session.restore();
@@ -59,6 +63,26 @@ export async function connect(serverAddress: string, deps: SessionCoreDeps, sign
         restore,
         createDeviceLogin: () => new DeviceLogin(session, clock, device.name, device.platform),
     };
+}
+
+export async function connect(serverAddress: string, deps: SessionCoreDeps, signal?: AbortSignal): Promise<ConnectResult> {
+    const clock = deps.clock ?? systemClock;
+    const device = deviceHeaders(loadDeviceId(deps.publicStorage, deps.randomBytes), deps.deviceName, deps.devicePlatform);
+    const discovered = await discoverServer(serverAddress, device, deps.fetch, clock, signal);
+    if (discovered.status !== "connected") {
+        return discovered;
+    }
+    // Apple TV commits a server only after GET /api/v2/system/setup succeeds (AuthService.checkServer).
+    let setup: SetupStatus;
+    try {
+        setup = await discovered.server.http.send({ ...operations.setupStatus(), signal });
+    } catch (error) {
+        return failedDiscovery(error);
+    }
+    if (setup.needsSetup) {
+        return { status: "needs_setup", server: discovered.server };
+    }
+    return openDiscoveredServer(discovered.server, deps);
 }
 
 /** Deletes a server's stored credential without contacting it, e.g. while it is unreachable. */

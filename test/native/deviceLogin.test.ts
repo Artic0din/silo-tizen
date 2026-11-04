@@ -22,7 +22,8 @@ test("code view, interval polling, opened signal and approval install a persiste
         assert.equal(waiting.code.expiresAt, h.clock.now() + 900 * SECOND);
         assert.equal(waiting.opened, false);
     }
-    assert.deepEqual(h.fake.paths(), ["GET /system/info", "GET /system/identity", "GET /auth/device/capability", "POST /auth/device/start"]);
+    // Previously this list stopped at identity. That encoded connect before it read setup status.
+    assert.deepEqual(h.fake.paths(), ["GET /system/info", "GET /system/identity", "GET /system/setup", "GET /auth/device/capability", "POST /auth/device/start"]);
 
     // Nothing is polled before the server's interval.
     await h.clock.advance(4 * SECOND);

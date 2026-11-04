@@ -150,10 +150,18 @@ It reports `origin_mismatch` when `request_origin` differs from the entered orig
 It reports `unreachable` for network errors and timeouts, and `server_error` for any other failure.
 The `serverId` it returns is self-asserted and never authorizes anything on its own.
 
+`connect` (`src/session/core.ts`) then calls `GET /system/setup` on that server, still with no credentials.
+A failure is reported the same way as discovery, and no session is opened.
+`needs_setup: true` (true until the first administrator account exists) returns `needs_setup`.
+Sign-in shows the recovery screen and does not start a device code.
+`wizard_completed` is required by the contract and is not used to choose the screen.
+Account creation stays off the TV.
+
 | Operation | Method and path | Auth | Retry | Defined in |
 | --- | --- | --- | --- | --- |
 | getSystemInfo | `GET /system/info` | Public | safe | `src/api/operations.ts` |
 | getServerIdentity | `GET /system/identity` | Public | safe | `src/api/operations.ts` |
+| getSetupStatus | `GET /system/setup` | Public | safe | `src/api/operations.ts`, called from `src/session/core.ts` |
 | server branding | `GET /theme/branding` | Public | safe | `src/api/operations.ts`, called from `src/ui/signIn.ts` |
 | getImageCapabilities | `GET /images/capabilities` | Bearer, Profile | safe | `src/api/operations.ts` |
 

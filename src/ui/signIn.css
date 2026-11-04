@@ -297,6 +297,23 @@
     text-align: center;
 }
 
+/* showsInitial: false. Placeholder gradient #2B2D33 to #15171C; the rack is 0.42 of the 80 mark. */
+.marquee-server-mark.marquee-server-mark-rack {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(#2b2d33, #15171c);
+    color: rgba(237, 237, 237, 0.62);
+    font-size: 0;
+    line-height: 0;
+}
+
+.marquee-server-mark-rack .marquee-icon {
+    width: 33.6px;
+    height: 33.6px;
+    margin: 0;
+}
+
 /* AsyncImage, scaled to fill; the initial shows until it loads and stays if it fails. */
 .marquee-mark-image {
     position: absolute;
@@ -381,6 +398,30 @@
 
 .marquee-server-card + .marquee-hero {
     margin-top: 44px;
+}
+
+/* TVServerNeedsSetupView: headline 52, body 26, error 20, actions 56. */
+[data-screen="needs-setup"] .marquee-server-card + .marquee-hero {
+    margin-top: 52px;
+}
+
+[data-screen="needs-setup"] .marquee-lead {
+    margin-top: 26px;
+}
+
+[data-screen="needs-setup"] .marquee-error {
+    width: 900px;
+    margin-top: 20px;
+    animation: needs-setup-error 0.2s ease-in-out;
+}
+
+@keyframes needs-setup-error {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+[data-screen="needs-setup"] .marquee-actions {
+    margin-top: 56px;
 }
 
 /* The single-line MarqueeTVBody measures 34px with 28px type. */

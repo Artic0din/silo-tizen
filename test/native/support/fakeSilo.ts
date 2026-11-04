@@ -214,6 +214,9 @@ export class FakeSilo {
                 return { status: 200, body: { ...fixture("get_system_info_ok"), request_origin: this.origin } };
             case "GET /system/identity":
                 return { status: 200, body: { server_id: this.serverId } };
+            case "GET /system/setup":
+                // get_setup_status_ok: an administrator exists, so sign-in can continue.
+                return { status: 200, body: { needs_setup: false, wizard_completed: false } };
             case "GET /auth/device/capability":
                 return { status: 200, body: fixture("get_device_login_capability_ok") };
             case "POST /auth/device/start":

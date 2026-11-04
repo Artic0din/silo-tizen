@@ -1172,6 +1172,33 @@ journey("Home Down keeps the column across poster and still rows, including a ro
     ];
 });
 
+journey("Down from a landscape card uses that card, and Up from a poster still uses the column", async tv => {
+    const stills = await rowBoxes(tv, "resume");
+    const posters = await rowBoxes(tv, "recent-movies");
+    const posterColumn = posters[1];
+    assert.ok(stills[0] !== undefined && posterColumn !== undefined);
+    await tv.page.keyboard.press("ArrowDown");
+    assert.equal(await tv.focused(), posters[0]?.id, "the first Down from the wide card uses that card");
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), posterColumn.id);
+    await tv.page.keyboard.press("ArrowUp");
+    const focusedWide = await tv.focused();
+    const wide = (await rowBoxes(tv, "resume")).find(box => box.id === focusedWide);
+    assert.ok(wide !== undefined);
+    assert.equal(wide.id, nearestBox(await rowBoxes(tv, "resume"), posterColumn.left + posterColumn.width / 2).id, "Up from a poster lands on the still nearest that column");
+    await tv.page.keyboard.press("ArrowDown");
+    const landed = await tv.focused();
+    assert.equal(landed, nearestBox(posters, wide.left + wide.width / 2).id, "Down from the landscape card uses its own position");
+    assert.notEqual(landed, posterColumn.id, "the remembered poster column does not pull the landing sideways");
+}, catalog => {
+    const home = catalog.households.get("p-owner");
+    assert.ok(home !== undefined);
+    home.sections = [
+        { id: "resume", sectionType: "continue_watching", title: "Continue Watching", items: ["episode:s1e11", "episode:s1e12", "episode:s1e13"] },
+        { id: "recent-movies", sectionType: "recently_added", title: "Recently Added", items: ["movie:m0008", "movie:m0009", "movie:m0010", "movie:m0011", "movie:m0012", "movie:m0013", "movie:m0014"] },
+    ];
+});
+
 function logoSvg(width: number, height: number): string {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#fff"/></svg>`;
 }
@@ -1260,8 +1287,11 @@ journey("Hero title art scales to fit and centres in Apple's home logo slot", as
     assert.equal(wide.fit, "contain", "Apple titleSlot uses aspectRatio contentMode fit");
     // Replaced assertions that encoded the old pin: wide.imageHeight < 200, wide.imageTop === full.imageTop,
     // and wide.imageTop === wide.slotTop. Those measured the image element pinned to the top of the slot.
+    // Replaced the measured slot top of 146. TVFocusMarquee's 27pt stack rows put the slot at y143.
+    near(full.slotTop, 143, "the home logo slot uses the marquee stack");
     near(wide.paintHeight, 130, "wide art keeps its aspect inside the slot");
     near(wide.paintTop, wide.slotTop + (200 - 130) / 2, "short art is vertically centred in the 200px slot");
+    near(wide.paintTop, 143 + 35, "centred wide art follows the slot");
     near(wide.paintLeft, wide.slotLeft, "fitted art stays on the leading edge");
     near(wide.slotTop, full.slotTop, "the slot stays full height, so short art does not drop the block");
     near(small.paintHeight, 200, "small art scales up to the home slot height");
@@ -1300,10 +1330,11 @@ journey("Hero title art scales to fit and centres in Apple's home logo slot", as
     assert.equal(details.art, details.slot, "Details title art stays at the top of its heading");
     assert.ok(details.height < 180);
 }, catalog => {
+    const overview = "A two-line hero synopsis that fills the marquee stack the signed comparison measured.";
     enrichHome(catalog, {
-        "movie:m0004": { logo_url: "/art/full-logo.svg" },
-        "movie:m0005": { logo_url: "/art/wide-logo.svg" },
-        "movie:m0007": { logo_url: "/art/small-logo.svg" },
+        "movie:m0004": { logo_url: "/art/full-logo.svg", overview },
+        "movie:m0005": { logo_url: "/art/wide-logo.svg", overview },
+        "movie:m0007": { logo_url: "/art/small-logo.svg", overview },
     });
     enrichDetails(catalog, { "movie:m0001": { logo_url: "/art/wide-logo.svg" } });
     const route = catalog.route.bind(catalog);

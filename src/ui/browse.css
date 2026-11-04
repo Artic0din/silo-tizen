@@ -777,8 +777,9 @@
 .skyline-title.skyline-title-logo { display: block; width: 880px; height: 200px; max-height: none; overflow: visible; text-shadow: none; line-height: 0; }
 .skyline-logo { display: block; width: 100%; height: 100%; object-fit: contain; object-position: left center; }
 .skyline-library .skyline-title.skyline-title-logo { height: 150px; }
-/* Apple detailLine: one line at the meta size, medium weight, on-surface at half opacity, synopsis width. */
-.skyline-detail-line { max-width: 780px; height: 24px; margin: 0 0 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 20px; line-height: 24px; font-weight: 500; color: rgba(237,237,237,.5); }
+/* Apple detailLine: one line at the meta size. The marquee stack's meta and badge rows are framed at 27
+   (TVFocusMarquee.swift); a 24px estimate sat the bottom-anchored logo slot 3px too low. */
+.skyline-detail-line { max-width: 780px; height: 27px; margin: 0 0 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 20px; line-height: 27px; font-weight: 500; color: rgba(237,237,237,.5); }
 .skyline-library .skyline-detail-line { font-size: 19px; }
 .skyline-badges { display: flex; align-items: center; height: 27px; }
 .browse-section { margin-bottom: 32px; position: relative; }

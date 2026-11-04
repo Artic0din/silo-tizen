@@ -246,7 +246,7 @@ Defined in `src/api/operations.ts` unless noted.
 | listUserLibraries | `GET /user/libraries[?include_hidden=true]` | safe |
 | listHomeSections | `GET /home/sections?image_size=small[&slot widths]` | safe |
 | listCatalogItems | `GET /catalog?library_id&q&type&limit&cursor&image_size` | safe |
-| getCatalogItem | `GET /catalog/items/{id}?image_size=medium` | safe |
+| getCatalogItem | `GET /catalog/items/{id}?image_size=large` (Details overrides with the negotiated hero slots when known) | safe |
 | listCatalogItemVersions | `GET /catalog/items/{id}/versions` | safe |
 | listSeriesSeasons | `GET /catalog/series/{id}/seasons` | safe |
 | listSeasonEpisodes | `GET /catalog/series/{id}/seasons/{n}/episodes` | safe |

@@ -27,7 +27,7 @@ test("returning from Episode information refreshes cached effective episode pref
     state.noteEpisodePreference(id, true);
     const raw = r.catalog.route('GET', '/catalog/items/episode%3As1e12', 'p-owner')?.body;
     assert.ok(raw && typeof raw === 'object');
-    r.h.fake.script('/catalog/items/episode%3As1e12?image_size=medium', { status: 200, body: { ...raw, effective_subtitle_mode: 'off', effective_show_forced_subtitles: false } });
+    r.h.fake.script('/catalog/items/episode%3As1e12?image_size=large', { status: 200, body: { ...raw, effective_subtitle_mode: 'off', effective_show_forced_subtitles: false } });
     const writes = r.h.fake.requests.filter(request => request.method !== 'GET').length;
     state.start(); await settle();
     assert.equal(state.cachedEpisode(id)?.subtitleIntent().kind, 'off');
@@ -45,7 +45,7 @@ test("returning to retained Series completes interrupted season prefetches befor
     const seasons = decodeSeasons(r.catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body);
     const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
     state.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes());
-    const held = r.h.fake.hold('/catalog/items/episode%3As1e12?image_size=medium', true);
+    const held = r.h.fake.hold('/catalog/items/episode%3As1e12?image_size=large', true);
     state.start();
     await settle();
     assert.equal(state.cachedEpisode('episode:s1e12'), undefined);
@@ -72,7 +72,7 @@ test("season detail prefetch bounds concurrency and cancels queued and late work
     const row = state.series.episodes?.[0], title = r.catalog.titles.get('episode:s1e11');
     assert.ok(row && title);
     const ids = Array.from({ length: 6 }, (_, index) => `episode:batch-${index}`);
-    const held = ids.map(id => { r.catalog.titles.set(id, { ...title, id }); return r.h.fake.hold(`/catalog/items/${encodeURIComponent(id)}?image_size=medium`, true); });
+    const held = ids.map(id => { r.catalog.titles.set(id, { ...title, id }); return r.h.fake.hold(`/catalog/items/${encodeURIComponent(id)}?image_size=large`, true); });
     state.series.episodes = ids.map(id => ({ ...row, id }));
     state.warmSeriesEpisodes(); await settle();
     const reads = (): number => r.h.fake.requests.filter(request => request.path.startsWith('/catalog/items/episode%3Abatch-')).length;
@@ -94,7 +94,7 @@ test("confirming a shared preference requeues episodes whose detail read was int
     const seasons = decodeSeasons(r.catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body);
     const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
     state.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes());
-    const held = r.h.fake.hold('/catalog/items/episode%3As1e12?image_size=medium', true);
+    const held = r.h.fake.hold('/catalog/items/episode%3As1e12?image_size=large', true);
     state.start(); await settle();
     const first = state.cachedEpisode('episode:s1e11');
     assert.ok(first);
@@ -135,7 +135,7 @@ test("preference confirmation recovers after an interrupted save and failed deta
     const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
     state.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes());
     state.restore(previous);
-    r.h.fake.script('/catalog/items/episode%3As1e11?image_size=medium', { status: 500 });
+    r.h.fake.script('/catalog/items/episode%3As1e11?image_size=large', { status: 500 });
     state.start(); await settle();
     assert.equal(state.episodePreferencesBlocked, true);
     const stopped = state.unsettledEpisode; assert.ok(stopped);
@@ -172,7 +172,7 @@ test("series primary metadata is visit-owned, validates episode identity and ret
     const detail = decodeItemDetail(raw.body);
     const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
     const target = (): ItemDetail | undefined => state.nextEpisode;
-    const path = "/catalog/items/episode%3As1e11?image_size=medium";
+    const path = "/catalog/items/episode%3As1e11?image_size=large";
     const held = r.h.fake.hold(path, true);
     state.start();
     await settle();
@@ -229,7 +229,7 @@ test("watched reconciliation replaces an older pending primary read within the s
     const reply = r.catalog.route("GET", "/catalog/items/series%3As1", "p-owner");
     assert.ok(reply);
     const state = new DetailsState(decodeItemDetail(reply.body), r.h.core.session, () => undefined, async () => undefined);
-    const held = r.h.fake.hold("/catalog/items/episode%3As1e11?image_size=medium", true);
+    const held = r.h.fake.hold("/catalog/items/episode%3As1e11?image_size=large", true);
     state.start();
     await settle();
     assert.equal(state.nextEpisodeLoading, true);

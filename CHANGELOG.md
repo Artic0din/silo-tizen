@@ -9,6 +9,8 @@ All notable changes to this project are documented in this file.
 - Opened Series Details on the current season and episode, positioned its episode rail, respected thumbnail sizing, and centred Cast & Crew when navigating down.
 - Refreshed episode preferences when returning to Series Details and kept ordinary Play from overriding effective audio defaults.
 - Remembered Details audio and subtitle choices, including Off and Auto, with confirmation before playback and recovery after uncertain saves; native Apple/Samsung parity remains pending.
+- Kept Home hero and detail backdrops sharp using Apple TV artwork sizes instead of small first-pass images.
+
 - Prevented large Search posters from overlapping and kept catalog errors and Try Again visible while People results were pending.
 - Restored related titles on Details when the server returned cards without catalog pagination totals.
 - Made Enter on the player's default focus skip the intro, recap or credits while the Skip control shows, instead of pausing.

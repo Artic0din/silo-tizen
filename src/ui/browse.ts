@@ -337,7 +337,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (current?.kind !== "library" || current.discovery?.mode !== "Recommended" || current.discovery.data === undefined || torn || playing || cardActions.active || loading !== undefined || current.failure !== undefined) return;
         const attempt = libraryArtworkAttempts.get(current);
         const query = homeArtworkQuery(imageCapability, window.devicePixelRatio);
-        if (attempt === undefined || !Object.entries(query).some(([key, value]) => attempt[key] === undefined || Number(value) > Number(attempt[key]))) return;
+        if (attempt === undefined || !Object.entries(query).some(([key, value]) => attempt[key] !== value)) return;
         load(current, signal => read(operations.listLibrarySections(current.library.id, query), signal).catch((error: unknown) => {
             if (error instanceof ApiError && !error.aborted) return undefined;
             throw error;
@@ -365,7 +365,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const data = home.data;
         if (torn || playing || cardActions.active || top() !== home || loading !== undefined || data === undefined || home.failure !== undefined || homeArtworkAttempt === undefined) return;
         const query = homeArtworkQuery(imageCapability, window.devicePixelRatio);
-        if (!Object.entries(query).some(([key, value]) => homeArtworkAttempt?.[key] === undefined || Number(value) > Number(homeArtworkAttempt[key]))) return;
+        if (!Object.entries(query).some(([key, value]) => homeArtworkAttempt?.[key] !== value)) return;
         load(home, signal => read(operations.listHomeSections(query), signal).catch((error: unknown) => {
             if (error instanceof ApiError && !error.aborted) return undefined;
             throw error;
@@ -876,7 +876,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             case "item":
                 stopDetails();
                 load(current, async (signal) => {
-                    const detail = await read(operations.getCatalogItem(current.id), signal);
+                    // Slots follow response fields: backdrop_width also sizes a still returned in backdrop_url.
+                    const detail = await read(operations.getCatalogItem(current.id, imageCapability?.state === "available" ? homeArtworkQuery(imageCapability, window.devicePixelRatio) : {}), signal);
                     const seasons = detail.type === "series" ? await read(operations.listSeriesSeasons(detail.id), signal) : [];
                     const episodeId = current.seriesContext?.episodeId;
                     const episode = detail.type === "series" && current.seriesContext?.seasonNumber === undefined && episodeId !== undefined

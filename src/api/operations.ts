@@ -75,9 +75,9 @@ function query(params: Record<string, string | number | undefined>): string {
     return parts.length === 0 ? "" : `?${parts.join("&")}`;
 }
 
-/** Card rows and grids draw posters near 300px (the `small` rung); detail pages near 500px posters and full-width backdrops (`medium`). */
+/** Keep tiles small; Details needs the TV fallback, including stills used as episode backdrops. */
 const LIST_IMAGES = "small";
-const DETAIL_IMAGES = "medium";
+const DETAIL_IMAGES = "large";
 
 /** The media scope of a catalog page: what a library or search may list. */
 export type BrowseScope = "movie" | "series" | "video";
@@ -296,9 +296,9 @@ export const operations = {
         decode: decodeCatalogPage,
     }),
     /** getCatalogItem: a movie, series, season or episode page with the viewer's state. */
-    getCatalogItem: (contentId: string): Spec<ItemDetail> => ({
+    getCatalogItem: (contentId: string, artwork: Readonly<Record<string, string>> = {}): Spec<ItemDetail> => ({
         method: "GET",
-        path: `/catalog/items/${encodeURIComponent(contentId)}${query({ image_size: DETAIL_IMAGES })}`,
+        path: `/catalog/items/${encodeURIComponent(contentId)}${query({ image_size: DETAIL_IMAGES, ...artwork })}`,
         retry: "safe",
         decode: decodeItemDetail,
     }),

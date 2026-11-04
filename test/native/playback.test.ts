@@ -1834,6 +1834,22 @@ test("a replacement transport waits for the old resume seek, including its failu
     assert.equal(r.avplay.calls.filter((call) => call === "play").length, 1);
 });
 
+test("a scrub resume survives server re-anchoring and replacement preparation", async () => {
+    const r = await rig();
+    r.server.next.push({ timeline: { can_seek_anywhere: false } });
+    await playMovie(r);
+    r.controller.setPaused(true);
+    r.controller.seekToSeconds(45);
+    r.controller.setPaused(false);
+    await r.h.clock.advance(0);
+    r.avplay.finishPrepare();
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    assert.equal(last(r.views).phase, "playing");
+    assert.equal(r.avplay.state, "PLAYING");
+    r.controller.destroy();
+});
+
 test("a paused seek that needs server re-anchoring remains paused after preparing the new plan", async () => {
     const r = await rig();
     r.server.next.push({ timeline: { can_seek_anywhere: false } });

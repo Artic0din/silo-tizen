@@ -443,7 +443,12 @@ export class PlaybackController implements PlayerControls {
 
     setPaused(paused: boolean): void {
         const attempt = this.active();
-        if (attempt === undefined || !attempt.started) {
+        if (attempt === undefined) {
+            return;
+        }
+        // A seek reanchor replaces the transport; preparation must use the latest intent.
+        if (!attempt.started) {
+            if (attempt.presented) attempt.paused = paused;
             return;
         }
         // AVPlay rejects play and pause while seekTo is outstanding. Keep the request and apply it when the seek ends.
@@ -1139,6 +1144,7 @@ export class PlaybackController implements PlayerControls {
                 return;
             }
             this.rememberKeptPlan(attempt, next, serverFeatures);
+            attempt.subtitleRestore = { id: selectedSubtitle(next) };
             attempt.subtitleOverride = pending;
             const audio = (attempt.plan ?? next).selectedTracks.audio;
             const selected = { ...(audio === undefined ? {} : { audio }), ...(pending.id === undefined ? {} : { subtitle: { id: pending.id } }) };
@@ -1216,6 +1222,10 @@ export class PlaybackController implements PlayerControls {
         if (index === undefined) return false;
         try {
             avplay.setSelectTrack("TEXT", index);
+            attempt.captionAbort?.abort();
+            attempt.captionKey = undefined;
+            attempt.cues = [];
+            attempt.captionNotice = "";
             return true;
         } catch {
             return false;

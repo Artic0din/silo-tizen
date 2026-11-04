@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Matched History's Apple TV title position and focused poster scroll clearance.
 - Matched Apple TV personal-list loading, root selection, Back navigation, grid spacing, and saved-list ordering.
 - Kept saved-list requests and response validation in the shared API adapter and contract modules.
 - Matched Apple TV library shelf order and the Recommended, Collections and Browse section menu, keeping Collections in its own destination.

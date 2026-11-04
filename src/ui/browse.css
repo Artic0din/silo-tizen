@@ -1025,7 +1025,9 @@
 /* History uses the existing pushed-page title treatment in place of tvOS system navigation chrome. */
 .personal-history .skyline-content { top: 146px; left: 128px; width: 1664px; height: 934px; overflow-y: auto; }
 .personal-history .personal-page { padding: 16px 0 60px; }
-.personal-history > .browse-title { position: fixed; top: 56px; left: 48px; width: 1824px; font-size: 56px; line-height: 64px; }
+/* HistoryView uses a system navigationTitle with no numeric offset; the signed capture
+   places its visible title at y64, 9.5 points below the previous Tizen capture. */
+.personal-history > .browse-title { position: fixed; top: 65.5px; left: 48px; width: 1824px; font-size: 56px; line-height: 64px; }
 .personal-history .personal-count { margin: 0 0 48px; font-size: 22px; font-weight: 400; line-height: 26px; color: rgba(237,237,237,.6); }
 .personal-history .catalog-grid { grid-template-columns: repeat(var(--grid-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; width: 1664px; margin: 0; padding: 0; }
 .personal-history .catalog-grid .browse-card { --card-caption-gap: 22px; }

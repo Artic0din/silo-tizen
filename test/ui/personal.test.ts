@@ -145,6 +145,44 @@ test("native comparison: History uses the safe-area grid and preserves tied serv
         assert.deepEqual(frame.ids, ["movie:m0004", "movie:m0003", "movie:m0006", "movie:m0005"]);
     } finally { await tv.page.context().close(); }
 });
+test("native comparison: History title matches the captured system title", async () => {
+    const { tv } = await setup();
+    try {
+        await openList(tv, "history");
+        assert.equal((await tv.page.locator(".personal-history > .browse-title").boundingBox())?.y, 65.5);
+    } finally { await tv.page.context().close(); }
+});
+test("native comparison: History scrolls first, middle and last rows to the native focus anchor", async () => {
+    const { tv, catalog } = await setup();
+    try {
+        await tv.page.emulateMedia({ reducedMotion: "reduce" });
+        const reply = catalog.route("POST", "/catalog/query", "p-owner", { source: "history", limit: 60 });
+        const body = reply?.body as { items: Record<string, unknown>[] };
+        catalog.pageReplies.push({ status: 200, body: { ...body, items: body.items.slice(0, 24), page: { has_more: false } } });
+        await openList(tv, "history");
+        const geometry = () => tv.page.locator(".personal-history").evaluate(node => {
+            const card = node.querySelector(".browse-card:focus");
+            const art = card?.querySelector(".browse-art");
+            return { card: card?.getBoundingClientRect().top, art: art?.getBoundingClientRect().top, scroll: node.querySelector(".skyline-content")?.scrollTop };
+        });
+        assert.deepEqual(await geometry(), { card: 236, art: 236, scroll: 0 });
+        await tv.remote(40);
+        assert.deepEqual(await geometry(), { card: 564, art: 564, scroll: 201 });
+        await tv.remote(40);
+        assert.deepEqual(await geometry(), { card: 564, art: 564, scroll: 730 });
+        await tv.remote(40);
+        assert.deepEqual(await geometry(), { card: 564, art: 564, scroll: 1259 });
+        await tv.page.emulateMedia({ reducedMotion: "no-preference" });
+        // The focus lift changes the painted frame, never the scroll anchor.
+        await tv.eventually(async () => Math.abs(((await geometry()).art ?? 0) - 554.25) < .1, "focused poster lift");
+        await tv.remote(38);
+        await tv.eventually(async () => Math.abs(((await geometry()).art ?? 0) - 148.25) < .1, "previous row top edge");
+        await tv.remote(38);
+        await tv.eventually(async () => Math.abs(((await geometry()).art ?? 0) - 148.25) < .1, "second row top edge");
+        await tv.remote(38);
+        await tv.eventually(async () => (await geometry()).scroll === 0, "first row returns to the top");
+    } finally { await tv.page.context().close(); }
+});
 test("pinned History scope distinguishes aggregated media from episode queries", () => {
     const catalog = new PersonalCatalog();
     const query = (type?: string): Record<string, unknown>[] => {

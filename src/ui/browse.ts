@@ -44,7 +44,7 @@ import { PresentationSettings } from "./presentationSettings.ts";
 import { NavigationSettings } from "./navigationSettings.ts";
 import { cachedBranding } from "./brandingCache.ts";
 import { getCalendar } from "../api/calendarOperations.ts";
-import { calendarEventKeys, calendarState, calendarWeek, CalendarTimezoneError, deviceTimezone, localDateKey, shiftDay } from "./calendarState.ts";
+import { CALENDAR_FILTER_KEY, calendarEventKeys, calendarState, calendarWeek, CalendarTimezoneError, deviceTimezone, localDateKey, shiftDay, storedCalendarFilter } from "./calendarState.ts";
 import type { CalendarHandlers } from "./calendarView.ts";
 import { isSectionRoute, SectionCatalog, type SectionRoute } from "./sectionCatalog.ts";
 import { readSectionCatalog } from "./sectionCatalogState.ts";
@@ -755,6 +755,17 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                         if (home.kind === "home" && home.data !== undefined) home.data.libraries = libraries;
                         calendarLibrariesStale = false;
                     }
+                    if (state.returnToEvent) {
+                        state.returnToEvent = false;
+                        const onShelf = data.days.some(day => day.date === active?.zone);
+                        if (!onShelf) {
+                            const today = localDateKey(new Date(clock.now()));
+                            const populated = data.days.filter(day => day.items.length > 0);
+                            const shelf = populated.find(day => day.date === today) ?? populated.find(day => day.date > today) ?? [...populated].reverse().find(day => day.date < today);
+                            const key = shelf === undefined ? undefined : calendarEventKeys(shelf.items)[0];
+                            if (shelf !== undefined && key !== undefined) return { zone: shelf.date, key };
+                        }
+                    }
                     if (active?.zone === focus?.zone && active?.key === focus?.key && oldIndex >= 0) {
                         const day = data.days.find(day => day.date === focus?.zone);
                         const keys = calendarEventKeys(day?.items ?? []);
@@ -1383,15 +1394,23 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             try { prepareCalendar(current); }
             catch (error) { current.failure = error instanceof Error ? error.message : "Could not read this TV’s timezone."; render(); return; }
             const state = current.calendar;
-            if (typeof value === "string") { if (state.filter === value) return; state.filter = value; }
+            if (typeof value === "string") {
+                if (state.filter === value) return;
+                state.filter = value;
+                state.returnToEvent = false;
+                try { options.publicStorage?.setItem(CALENDAR_FILTER_KEY, value); }
+                catch { /* The session keeps the filter when storage is blocked. */ }
+            }
             else {
                 state.start = value === 0 ? calendarWeek(new Date(clock.now()))[0] : shiftDay(state.start ?? localDateKey(new Date(clock.now())), value * 7);
                 state.selectedDay = value === 0 ? localDateKey(new Date(clock.now())) : state.start;
+                // Today selects today. Focus stays on an event card once the week arrives; the day strip only shows the selection.
+                state.returnToEvent = value === 0;
             }
             state.data = undefined;
             current.failure = undefined;
             loadRoute(current, true);
-            render(value === 0 ? { zone: "days", key: `day:${state.selectedDay}` } : undefined);
+            render();
         },
     });
     const personalFilter = (current: Extract<Route, { kind: "personal" }>, filter: PersonalFilter): void => {
@@ -1469,6 +1488,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         render();
     };
 
+    const readCalendarFilter = (): ReturnType<typeof storedCalendarFilter> => {
+        try { return storedCalendarFilter(options.publicStorage?.getItem(CALENDAR_FILTER_KEY)); }
+        catch { return "following"; }
+    };
     const home = newRoute({ kind: "home", data: undefined });
     const roots = new Map<string, Route>([["home", home]]);
     const shell = new Skyline(container, clock, (target, destinationMode) => {
@@ -1479,7 +1502,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         let route = roots.get(key);
         if (route === undefined) {
             route = typeof target === "string"
-                ? target === "for_you" ? newRoute({ kind: "for_you", data: undefined }) : target === "calendar" ? newRoute({ kind: "calendar", calendar: calendarState() }) : newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
+                ? target === "for_you" ? newRoute({ kind: "for_you", data: undefined }) : target === "calendar" ? newRoute({ kind: "calendar", calendar: calendarState(readCalendarFilter()) }) : newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
                 : newRoute({ kind: "library", library: target, pages: newPages() });
             roots.set(key, route);
         }

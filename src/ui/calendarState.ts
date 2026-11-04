@@ -9,11 +9,18 @@ export interface CalendarState {
     start: string | undefined;
     timezone: string | undefined;
     selectedDay: string | undefined;
+    /** Today returns selection to today and leaves focus on that day's event card once it exists. */
+    returnToEvent?: boolean;
     filter: CalendarFilter;
     data: { readonly query: CalendarQuery; readonly days: readonly CalendarDay[] } | undefined;
 }
-export function calendarState(): CalendarState {
-    return { start: undefined, timezone: undefined, selectedDay: undefined, filter: "following", data: undefined };
+/** Apple `CalendarViewModel.filterDefaultsKey`. Unknown values open on Following. */
+export const CALENDAR_FILTER_KEY = "calendar.filter";
+export function storedCalendarFilter(stored: string | null | undefined): CalendarFilter {
+    return stored === "following" || stored === "trending" || stored === "everything" ? stored : "following";
+}
+export function calendarState(filter: CalendarFilter = "following"): CalendarState {
+    return { start: undefined, timezone: undefined, selectedDay: undefined, filter, data: undefined };
 }
 export function localDateKey(date: Date): string {
     return `${String(date.getFullYear()).padStart(4, "0")}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;

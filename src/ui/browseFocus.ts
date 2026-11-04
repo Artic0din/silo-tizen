@@ -243,7 +243,7 @@ export class FocusHost {
         if (focused !== undefined) {
             this.memory.set(focused.zone.id, focused.item.key);
             this.lastZone = focused.zone.id;
-            if (!["nav", "selector", "flyout", "pills"].includes(focused.zone.id)) this.contentZone = focused.zone.id;
+            if (this.tracksContent(focused.zone.id)) this.contentZone = focused.zone.id;
         }
         const panels = new Map(this.visits.get(key)?.panels);
         this.container.querySelectorAll<HTMLElement>(".browse-panel-list[data-scroll-key]").forEach(panel => panels.set(panel.dataset.scrollKey ?? "", panel.scrollTop));
@@ -351,7 +351,7 @@ export class FocusHost {
         const focused = this.locate(event.target instanceof Element ? event.target : null);
         if (focused === undefined || ["nav", "selector", "flyout", "pills"].includes(focused.zone.id)) return;
         this.memory.set(focused.zone.id, focused.item.key);
-        this.contentZone = focused.zone.id;
+        if (this.tracksContent(focused.zone.id)) this.contentZone = focused.zone.id;
     };
 
     private focusFirst(candidates: readonly (FocusTarget | undefined)[]): void {
@@ -402,10 +402,29 @@ export class FocusHost {
         this.memory.set(zone.id, item.key);
         this.lastZone = zone.id;
         // Opening the cascade must not replace the content return target.
-        if (!["nav", "selector", "flyout", "pills"].includes(zone.id)) this.contentZone = zone.id;
+        // Calendar's filter and day strip sit above the shelves; passing through them
+        // must leave the last event card for Down from the Calendar tab.
+        if (this.tracksContent(zone.id)) this.contentZone = zone.id;
         this.navigationItem = item;
         item.element.focus({ preventScroll: true });
         this.scroll.reveal(item.element, this.container);
+    }
+
+    /** Calendar chrome is not the card Down from the tab should restore. */
+    private tracksContent(zoneId: string): boolean {
+        if (["nav", "selector", "flyout", "pills"].includes(zoneId)) return false;
+        return !(this.view?.name === "calendar" && (zoneId === "filters" || zoneId === "days" || zoneId === "status"));
+    }
+
+    /** Down from the Calendar tab returns to the last event card, as tvOS restores content focus. */
+    private restoreCalendarCard(): boolean {
+        const zoneId = this.contentZone;
+        if (zoneId === undefined || !this.tracksContent(zoneId)) return false;
+        const zone = this.view?.zones.find(candidate => candidate.id === zoneId && candidate.items.length > 0);
+        const item = zone?.items.find(candidate => candidate.key === this.memory.get(zone.id));
+        if (zone === undefined || item === undefined) return false;
+        this.focusItem(zone, item);
+        return true;
     }
 
     /** Where focus last was in this view, to return to after it was lost. */
@@ -505,6 +524,7 @@ export class FocusHost {
             const destination = zone[key];
             const next = view.zones.find(candidate => candidate.id === destination && candidate.items.length > 0);
             if (next !== undefined) this.focusItem(next, next.items.find(item => item.key === this.memory.get(next.id)) ?? next.items[0]);
+            else if (key === "down" && zone.id === "nav" && view.name === "calendar" && this.restoreCalendarCard()) return;
             else if (key === "up" || key === "down") this.enterZone(zoneIndex, key === "up" ? -1 : 1, found.item);
         }
     };

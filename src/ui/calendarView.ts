@@ -101,11 +101,10 @@ function calendarContent(state: CalendarState, handlers: CalendarHandlers): View
         if (state.data !== undefined) {
             const hasEvents = shelves.some(shelf => shelf.date === date && shelf.items.length > 0);
             item.element.setAttribute("data-has-events", String(hasEvents));
-            if (hasEvents) {
-                const dot = el("span", "calendar-event-dot");
-                dot.setAttribute("aria-hidden", "true");
-                item.element.appendChild(dot);
-            }
+            // Apple always lays out the 8pt dot, clear when the day has no events, so the digit stays put.
+            const dot = el("span", hasEvents ? "calendar-day-mark calendar-event-dot" : "calendar-day-mark");
+            dot.setAttribute("aria-hidden", "true");
+            item.element.appendChild(dot);
         }
         item.element.setAttribute("aria-pressed", String(state.selectedDay === date));
         if (date === today) item.element.setAttribute("aria-current", "date");

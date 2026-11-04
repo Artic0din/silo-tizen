@@ -112,7 +112,7 @@ calendarTest("Calendar native comparison placeholders and captions", async (tv, 
     assert.equal(await tv.page.locator('.calendar-loading').innerText(), "");
     assert.equal(await tv.page.locator('[data-focus="retry"], [data-focus="back"]').count(), 0);
     held.release(); await ready(tv, 3);
-    assert.equal(await tv.page.locator('.calendar-week').evaluate(node => node.getBoundingClientRect().y), 281, JSON.stringify(await tv.page.locator('.calendar-filters').evaluate(node => ({ height: node.getBoundingClientRect().height, margin: getComputedStyle(node).margin, y: node.getBoundingClientRect().y }))));
+    assert.equal(await tv.page.locator('.calendar-week').evaluate(node => node.getBoundingClientRect().y), 284, `week strip uses CalendarView's 30pt spacing; the old assertion encoded 281. ${JSON.stringify(await tv.page.locator('.calendar-filters').evaluate(node => ({ height: node.getBoundingClientRect().height, margin: getComputedStyle(node).margin, y: node.getBoundingClientRect().y })))}`);
     const card = tv.page.locator('.calendar-event').first();
     assert.deepEqual(await card.locator('.browse-card-title').evaluate(node => [getComputedStyle(node).fontSize, getComputedStyle(node).fontWeight]), ["28px", "600"]);
     assert.equal(await card.locator('.browse-card-subtitle').evaluate(node => getComputedStyle(node).whiteSpace), "nowrap");
@@ -150,6 +150,12 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
         assert.equal(await strip.locator('.calendar-day-number').first().textContent(), "29");
         assert.equal(await strip.locator('.calendar-event-dot').count(), 3);
         assert.equal(await strip.locator('.calendar-day[data-has-events="false"]').count(), 4);
+        const digitOffsets = await strip.locator('.calendar-day').evaluateAll(nodes => nodes.map(node => {
+            const day = node.getBoundingClientRect();
+            const number = node.querySelector(".calendar-day-number")?.getBoundingClientRect();
+            return number === undefined ? undefined : Math.round(number.y - day.y);
+        }));
+        assert.equal(new Set(digitOffsets).size, 1, "dotless days keep the digit at the dotted height");
         const filterBox = await tv.page.locator('.calendar-filters').boundingBox(), stripBox = await strip.boundingBox();
         assert.ok(filterBox && stripBox && filterBox.y + filterBox.height <= stripBox.y);
         const count = reads(tv).length;
@@ -234,6 +240,14 @@ calendarTest("Calendar complete remote journey retains every event and restores 
     assert.equal(new URL(reads(tv)[0]?.path ?? "", "https://fake.invalid").searchParams.get("filter"), "following");
     assert.match(reads(tv)[0]?.path ?? "", /timezone=Australia%2FMelbourne/);
     await activate(tv, "filter:everything"); await ready(tv, 32);
+    const rowEdge = await tv.page.locator('[data-section="2025-12-29"] .browse-row').evaluate(node => {
+        const row = node.getBoundingClientRect();
+        const content = node.closest(".skyline-content")?.getBoundingClientRect();
+        const seventh = node.querySelectorAll(".calendar-event")[6]?.getBoundingClientRect();
+        return { rowRight: row.right, contentRight: content?.right, seventhLeft: seventh?.left, seventhRight: seventh?.right };
+    });
+    assert.ok((rowEdge.contentRight ?? 0) >= 1919 && rowEdge.rowRight >= 1919, "calendar rows run to the screen edge");
+    assert.ok((rowEdge.seventhLeft ?? 0) < 1920 && (rowEdge.seventhRight ?? 0) > 1840, "the seventh card is not clipped at the old 1840 inset");
     const before = reads(tv).length;
     await activate(tv, "day:2025-12-29");
     for (let i = 0; i < 29; i++) await tv.page.keyboard.press("ArrowRight");
@@ -273,6 +287,16 @@ calendarTest("Calendar complete remote journey retains every event and restores 
     await tv.remote(10009); assert.equal(await tv.page.locator('.browse[data-view="home"]').count(), 1);
     await activate(tv, "calendar"); await ready(tv, 32);
     assert.equal(await tv.page.locator('[data-focus="filter:everything"]').getAttribute("aria-pressed"), "true", "filter survives root/session return");
+    const card = await tv.page.locator('.calendar-event').first().getAttribute("data-focus");
+    await tv.page.locator('.calendar-event').first().focus();
+    await tv.page.locator('[data-focus="calendar"]').focus();
+    await tv.page.keyboard.press("ArrowDown");
+    assert.equal(await tv.focused(), card, "Down from the Calendar tab restores the last event card");
+    await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="home"]').count() === 1, "Home after remount");
+    await activate(tv, "calendar");
+    await ready(tv, 32);
+    assert.equal(await tv.page.locator('[data-focus="filter:everything"]').getAttribute("aria-pressed"), "true", "a new visit opens on the stored filter");
 });
 
 calendarTest("Calendar filters, empty weeks, Today, loading, decode failure and generic 404 recover", async (tv, catalog) => {
@@ -290,6 +314,8 @@ calendarTest("Calendar filters, empty weeks, Today, loading, decode failure and 
     await activate(tv, "day:2026-01-06"); assert.equal(await tv.focused(), "day:2026-01-06"); assert.equal(reads(tv).length, noReads);
     await activate(tv, "today"); await ready(tv, 2);
     assert.equal(await tv.page.locator('[data-focus="today"]').count(), 0);
+    assert.equal(await tv.page.locator('.calendar-day[aria-pressed="true"]').getAttribute("aria-current"), "date", "Today selects today");
+    assert.match(await tv.focused() ?? "", /^event:/, "Today leaves focus on an event card");
     catalog.calendarFailure = problem(404, "not_found", "Not found");
     await activate(tv, "filter:everything");
     await tv.page.getByText("We couldn't find what you were looking for. It may have been removed or moved.").waitFor();

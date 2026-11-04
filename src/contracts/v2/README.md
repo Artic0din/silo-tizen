@@ -41,7 +41,13 @@ Server day groups, event order, release metadata and all returned events are ret
 | `settingsValues`, `effectiveSettings` | read (`profile_scoped`) | One transport retry; read explicit profile rows separately from effective settings; title art also reads this profile-device row |
 | `putSetting`, `deleteSetting` | `non_retryable` (`profile_scoped`) | Never resent automatically; profile scope by default (including explicit null for nullable keys); title art uses its selected profile/device scope and confirms both scopes and effective readback |
 
-Title art is the only newly adopted advisory-platform definition, alongside the existing two seek exceptions.
+Settings also adopts the TV-capable poster, advisory-age, metadata-language, intro/credits and subtitle-appearance definitions from server `e3af98b06af2ee0ced92da518bf372f4b9fd5df6`.
+Poster writes use `profile_client` with client family `tv`, and can clear older device overrides to restore synced TV settings.
+Playback choices use this TV's profile-device scope, while subtitle language, behavior and forced-subtitle editors read and write the profile row independently of narrower effective overrides.
+Subtitle appearance can edit either the profile document or an explicit device document; the player consumes the same canonical appearance key through its effective endpoint.
+The fixture `settings_rows_216.json` contains the consumed upstream definitions and their referenced language options.
+
+Title art retains its existing contract checks, alongside the two seek exceptions.
 It requires settings API v1, numeric manifest revision 16 or later, the compatible remote boolean definition and both `profile` and `profile_device` scopes.
 Opaque capability `revision` remains opaque.
 The decoder checks title-art JSON booleans, explicit and effective identities, discovered collection revisions and advancing PUT row revisions.

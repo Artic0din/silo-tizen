@@ -8,6 +8,7 @@ import { playChoices, type PlayRequest } from "./browseModel.ts";
 import type { Clock } from "../api/clock.ts";
 import type { NativeSession } from "../session/session.ts";
 import { readSettingsCapability, readTitleArt } from "./presentationSettings.ts";
+import { ADVISORY_KEY } from "../contracts/v2/settingsRows.ts";
 import { RatingState } from "./ratingState.ts";
 import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
 import { SeriesEpisodes } from "./seriesEpisodes.ts";
@@ -41,6 +42,7 @@ export class DetailsState {
     personalFailed = false;
     titleArtPolicy: "pending" | "supported" | "compatibility" | "failed" = "pending";
     titleArt: boolean | undefined;
+    showAdvisoryAge = false;
     readonly values = new Map<PersonalAction, boolean>();
     readonly changes = new Map<PersonalAction, PersonalChange>();
     private controller: AbortController | undefined;
@@ -71,6 +73,14 @@ export class DetailsState {
         this.stopAuthority = this.session.onAuthorityChange(() => { this.stop(); this.changed(); });
         if (mode === "full") this.series?.start();
         if (mode === "full") this.loadTitleArt();
+        if (mode === "full") {
+            const controller = this.controller;
+            void this.read(operations.effectiveSettings([ADVISORY_KEY]), controller).then(values => {
+                if (!this.current(controller)) return;
+                this.showAdvisoryAge = values.get(ADVISORY_KEY)?.value === true;
+                this.changed();
+            }, () => { /* Missing advisory preferences keep the optional badge hidden. */ });
+        }
         if (mode === "full" && this.nextEpisode === undefined && !this.nextEpisodeFailed) this.loadNextEpisode();
         let interrupted = false;
         for (const [kind, change] of this.changes) {

@@ -433,7 +433,7 @@ test("profile null is explicit, reset removes only the profile row, effective ov
     assert.deepEqual(put?.body, { value: null });
     assert.equal(put?.headers["x-profile-id"], core.session.activeProfile?.id);
     assert.equal(put?.headers["x-silo-client-family"], undefined);
-    assert.ok(fake.requests.some(request => request.path === operations.settingsValues(SETTINGS_KEYS).path));
+    assert.ok(fake.requests.some(request => request.path === operations.settingsValues(SETTINGS_KEYS.filter(key => state.definitions.some(def => def.key === key))).path));
     state.stop();
 });
 

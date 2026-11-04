@@ -291,6 +291,7 @@ export interface WatchState {
 }
 
 export interface ItemDetail {
+    readonly advisoryAge?: number | undefined;
     readonly played: boolean | undefined;
     readonly extra?: DetailExtras;
     readonly id: string;
@@ -332,6 +333,7 @@ export function decodeItemDetail(value: unknown): ItemDetail {
     const obj = object(value, path);
     const watch = decodeWatch(obj.user_data, `${path}.user_data`);
     return {
+        advisoryAge: optionalInteger(obj, "advisory_age", path),
         played: obj.user_state === undefined ? watch?.played : boolean(object(obj.user_state, `${path}.user_state`), "played", `${path}.user_state`),
         extra: decodeDetailExtras(value),
         id: string(obj, "content_id", path),

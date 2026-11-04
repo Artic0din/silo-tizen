@@ -5,8 +5,14 @@ import { actionButton, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
 import { remoteKey } from "./keys.ts";
 import { SettingsState } from "./settingsState.ts";
-import type { ProfileLaunch } from "../session/profileLaunch.ts";
+import type { ProfileLaunch, LaunchBehavior } from "../session/profileLaunch.ts";
 import { acknowledgementsDocument } from "./acknowledgements.ts";
+import { settingsRows, rowValue, rowEdit, type SettingsRow } from "./settingsRows.ts";
+import { APPEARANCE_KEY } from "../contracts/v2/settingsRows.ts";
+import { qrCode } from "./qr.ts";
+import { navigationAvatar } from "./navigationAvatar.ts";
+import { decodeAppearance, DEFAULT_APPEARANCE } from "../contracts/v2/subtitles.ts";
+import { applySubtitleAppearance } from "../player/subtitleView.ts";
 
 type Category = "general" | "playback" | "subtitles" | "server";
 const CATEGORY_LABELS = { general: "General", playback: "Playback", subtitles: "Subtitles", server: "Server" } as const;
@@ -19,13 +25,14 @@ const CATEGORY_BLURBS = {
 } as const;
 const SUBTITLE_FOOTER = "Used to pick a matching track when one is available. Forced subtitles cover foreign-language dialogue even when subtitles are off or set to auto.";
 const MODE_CHOICES = [["auto", "Auto"], ["always", "Always"], ["off", "Off"]] as const;
+const LAUNCH_CHOICES = [["automatic", "Automatic"], ["askEveryLaunch", "Every Time"], ["afterOneHour", "After 1 Hour"], ["afterTwelveHours", "After 12 Hours"]] as const;
 /** Apple scrolls its Acknowledgements document by remote presses while the document holds focus. */
 const DOCUMENT_STEP = 160;
 type Picker = "hidden" | "audio" | "quality" | "bitrate" | "seek-back" | "seek-forward" | "subtitle-language" | "subtitle-mode";
 const PICKER_KEYS = { hidden: HIDDEN_KEY, audio: AUDIO_KEY, quality: QUALITY_KEY, bitrate: BITRATE_KEY, "seek-back": SEEK_BACK_KEY, "seek-forward": SEEK_FORWARD_KEY, "subtitle-language": SUBTITLE_LANGUAGE_KEY, "subtitle-mode": SUBTITLE_MODE_KEY } as const;
 const PICKER_LABELS = { hidden: "Hidden libraries", audio: "Audio Language", quality: "Resolution", bitrate: "Maximum Bitrate", "seek-back": "Skip Back", "seek-forward": "Skip Forward", "subtitle-language": "Language", "subtitle-mode": "Behavior" } as const;
 const BITRATE_CHOICES = [200000, 100000, 60000, 40000, 20000, 15000, 10000, 6000, 4000, 2000, 1500];
-export interface SettingsActions { readonly profileName: string; readonly accountName?: string | undefined; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: () => void }
+export interface SettingsActions { readonly profileName: string; readonly profileAvatarUrl?: string | undefined; readonly accountName?: string | undefined; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: () => void }
 export interface SettingsScreen { destroy(): void }
 
 export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions): SettingsScreen {
@@ -35,6 +42,9 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     const host = new FocusHost(container);
     let category: Category = "general";
     let picker: Picker | undefined;
+    let extraPicker: SettingsRow | undefined;
+    let privacy = false;
+    let confirmingAppearanceReset = false;
     let returnRow: Picker | "acknowledgements" | "subtitle-forced" = "hidden";
     let acknowledging = false;
     let confirmingSignOut = false;
@@ -44,15 +54,15 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     let torn = false;
     let launchPending = false;
     let launchError = false;
-    let launchTarget = false;
+    let launchTarget: LaunchBehavior = "askEveryLaunch";
     const launchController = new AbortController();
-    const saveLaunch = (remember: boolean): void => {
+    const saveLaunch = (behavior: LaunchBehavior): void => {
         if (launchPending || launch === undefined) return;
-        launchTarget = remember;
+        launchTarget = behavior;
         launchPending = true;
         launchError = false;
         render();
-        launch.setRemember(remember, launchController.signal).then(() => {
+        launch.setBehavior(behavior, launchController.signal).then(() => {
             if (torn) return;
             launchPending = false;
             choosingLaunch = false;
@@ -79,7 +89,10 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     const exit = (): void => { const changed = state.hiddenChanged; destroy(); close(changed); };
     const rowFocus = (): FocusTarget => ({ zone: "settings-rows", key: returnRow });
     const back = (): void => {
-        if (choosingLaunch) { choosingLaunch = false; render({ zone: "settings-rows", key: "remember-profile" }); }
+        if (confirmingAppearanceReset) { confirmingAppearanceReset = false; render({ zone: "settings-rows", key: "reset-appearance" }); }
+        else if (privacy) { privacy = false; render({ zone: "settings-rows", key: "privacy" }); }
+        else if (extraPicker !== undefined) { const key = extraPicker.id; extraPicker = undefined; render({ zone: "settings-rows", key }); }
+        else if (choosingLaunch) { choosingLaunch = false; render({ zone: "settings-rows", key: "remember-profile" }); }
         else if (confirmingSignOut) { confirmingSignOut = false; render({ zone: "settings-categories", key: "settings-signout" }); }
         else if (acknowledging) { acknowledging = false; render(rowFocus()); }
         else if (picker !== undefined) { picker = undefined; render(rowFocus()); }
@@ -197,11 +210,11 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 controls.push(item);
             }
         } else if (picker === "subtitle-language" || picker === "subtitle-mode") {
-            const current = state.effective.get(key)?.value ?? null;
+            const current = state.subtitleProfileValue(picker === "subtitle-language" ? SUBTITLE_LANGUAGE_KEY : SUBTITLE_MODE_KEY);
             const choices: readonly (readonly [SettingValue, string])[] = picker === "subtitle-language" ? [[null, "None"], ...state.subtitleOptions.map(value => [value, value] as const)] : MODE_CHOICES;
             for (const [value, text] of choices) {
                 const item = button(`${picker}:${value ?? "none"}`, text, () => {
-                    if ((state.effective.get(key)?.value ?? null) === value) { picker = undefined; render(rowFocus()); return; }
+                    if (current === value) { picker = undefined; render(rowFocus()); return; }
                     void commit(key, value);
                 });
                 item.element.setAttribute("role", "radio");
@@ -287,11 +300,40 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
 
     function render(focus?: FocusTarget): void {
         if (torn) return;
-        if (choosingLaunch && launch !== undefined) {
-            const controls = [actionButton("back", "Back", back), ...([true, false] as const).map(remember => {
-                const item = actionButton(`launch:${remember}`, remember ? "Automatic" : "Every Time", () => saveLaunch(remember));
+        if (confirmingAppearanceReset) {
+            const controls = [actionButton("cancel", "Cancel", back), button("reset", "Reset", () => { void state.save(APPEARANCE_KEY, { ...DEFAULT_APPEARANCE }).then(() => { if (!torn && confirmingAppearanceReset && state.error === undefined) back(); }); }), ...retryButton()];
+            host.show({ name: "settings:reset-appearance", content: [el("h1", "browse-title", "Reset Appearance?"), el("p", "settings-value", state.scope(APPEARANCE_KEY) === "profile_device" ? "This restores this TV's subtitle appearance to the defaults." : "This restores this profile's subtitle appearance to the defaults on all devices."), ...feedback(), zoneNode("settings-controls", controls)], zones: [{ id: "settings-picker", layout: "column", items: controls }], focus: { zone: "settings-picker", key: "cancel" }, back });
+            return;
+        }
+        if (privacy) {
+            const done = actionButton("back", "Done", back);
+            const code = qrCode("https://siloserver.org/privacy", "Privacy Policy QR code");
+            const image = el("div", "settings-privacy-qr");
+            if (code !== undefined) { code.style.width = "320px"; code.style.height = "320px"; image.appendChild(code); }
+            host.show({ name: "settings:privacy", content: [el("h1", "browse-title", "Privacy Policy"), image, el("p", "settings-value", "https://siloserver.org/privacy"), done.element], zones: [{ id: "settings-picker", layout: "column", items: [done] }], focus: { zone: "settings-picker", key: "back" }, back });
+            return;
+        }
+        if (extraPicker !== undefined) {
+            const row = extraPicker;
+            const current = rowValue(row, state);
+            const controls = [actionButton("back", "Back", back), ...row.choices.map(([value, text]) => {
+                const item = button(`choice:${String(value)}`, text, () => {
+                    void state.save(row.key, rowEdit(row, value, state)).then(() => { if (!torn && extraPicker === row && state.error === undefined) back(); });
+                });
                 item.element.setAttribute("role", "radio");
-                item.element.setAttribute("aria-checked", String(launch.remembered === remember));
+                item.element.setAttribute("aria-checked", String(current === value));
+                return item;
+            })];
+            controls.push(button("reset-row", row.key === "ui.card_presentation" ? "Use Profile Default" : state.scope(row.key) === "profile_device" ? "Use Profile Setting" : "Use inherited default", () => { void state.reset(row.key).then(() => { if (!torn && extraPicker === row && state.error === undefined) back(); }); }));
+            controls.push(...retryButton());
+            host.show({ name: `settings:${row.id}`, content: [el("h1", "browse-title", row.title), note(row.key), ...feedback(), zoneNode("settings-controls", controls)], zones: [{ id: "settings-picker", layout: "column", items: controls }], focus: { zone: "settings-picker", key: "back" }, back });
+            return;
+        }
+        if (choosingLaunch && launch !== undefined) {
+            const controls = [actionButton("back", "Back", back), ...LAUNCH_CHOICES.map(([behavior, text]) => {
+                const item = actionButton(`launch:${behavior === "automatic" ? "true" : behavior === "askEveryLaunch" ? "false" : behavior}`, text, () => { if (!launchPending) saveLaunch(behavior); });
+                item.element.setAttribute("role", "radio");
+                item.element.setAttribute("aria-checked", String(launch.behavior === behavior));
                 item.element.setAttribute("aria-disabled", String(launchPending));
                 return item;
             })];
@@ -316,12 +358,12 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             return item;
         });
         if (actions !== undefined) {
-            const account = actions.accountName?.trim() || "Signed in";
+            const account = session.account?.role === "admin" ? "Administrator" : actions.accountName?.trim() || "Signed in";
             const profile = actionButton("settings-profile", actions.profileName, () => { destroy(); actions.switchProfile(); });
             profile.element.classList.add("settings-profile");
             const copy = el("span", "settings-profile-copy");
             copy.append(el("span", "settings-profile-name", actions.profileName), el("span", "settings-profile-account", account));
-            profile.element.replaceChildren(copy, el("span", "settings-chevron", "›"));
+            profile.element.replaceChildren(navigationAvatar(actions.profileName, actions.profileAvatarUrl, session.http.base.baseUrl, 64), copy, el("span", "settings-chevron", "›"));
             profile.element.setAttribute("aria-label", `${actions.profileName}, ${account}`);
             categories.unshift(profile);
             if (actions.signOut !== undefined) {
@@ -336,6 +378,9 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         const pickers: readonly Picker[] = category === "general" ? ["hidden"] : category === "playback" ? ["quality", "bitrate", "audio", "seek-back", "seek-forward"] : [];
         if (category === "server") {
             body.append(el("h3", "settings-section-header", "ACTIVE SERVER"), el("p", "settings-value", `Server: ${actions?.serverName ?? session.http.base.baseUrl}`));
+            body.appendChild(el("p", "settings-value", `Address: ${session.http.base.baseUrl}`));
+            const policy = actionButton("privacy", "Privacy Policy", () => { privacy = true; render(); });
+            rows.push(policy); body.appendChild(policy.element);
             if (actions?.switchServer !== undefined) {
                 const manage = actionButton("manage-servers", "Manage Servers", () => { destroy(); actions.switchServer?.(); });
                 rows.push(manage); body.appendChild(manage.element);
@@ -381,10 +426,10 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             const forced = state.definitions.some(def => def.key === SHOW_FORCED_KEY);
             if (language || mode || forced) {
                 body.appendChild(el("h3", "settings-section-header", "PROFILE"));
-                if (language) rows.push(subtitlePicker("subtitle-language", state.effective.get(SUBTITLE_LANGUAGE_KEY)?.value ?? null));
-                if (mode) rows.push(subtitlePicker("subtitle-mode", state.effective.get(SUBTITLE_MODE_KEY)?.value ?? "auto"));
+                if (language) rows.push(subtitlePicker("subtitle-language", state.subtitleProfileValue(SUBTITLE_LANGUAGE_KEY)));
+                if (mode) rows.push(subtitlePicker("subtitle-mode", state.subtitleProfileValue(SUBTITLE_MODE_KEY)));
                 if (forced) {
-                    const on = state.effective.get(SHOW_FORCED_KEY)?.value === true;
+                    const on = state.subtitleProfileValue(SHOW_FORCED_KEY) === true;
                     const item = button("subtitle-forced", "Show Forced Subtitles", () => { void state.save(SHOW_FORCED_KEY, !on); });
                     item.element.appendChild(el("span", "settings-row-value", on ? "On" : "Off"));
                     item.element.setAttribute("role", "switch");
@@ -398,9 +443,47 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 if (override !== undefined) body.appendChild(el("p", "settings-value", `Override active — ${override}`));
             }
         }
+        if (state.loaded) {
+            for (const row of settingsRows(category, state)) {
+                const value = rowValue(row, state);
+                const item = button(row.id, row.title, () => {
+                    if (row.id === "poster-size" && state.effective.get(row.key)?.source === "profile_device") return;
+                    if (row.id === "advisory-age" || row.member === "textOutline") { void state.save(row.key, rowEdit(row, value !== true, state)); return; }
+                    extraPicker = row; render();
+                });
+                item.element.appendChild(el("span", "settings-row-value", row.choices.find(([choice]) => choice === value)?.[1] ?? String(value)));
+                if (row.id === "advisory-age" || row.member === "textOutline") { item.element.setAttribute("role", "switch"); item.element.setAttribute("aria-label", row.title); item.element.setAttribute("aria-checked", String(value === true)); }
+                rows.push(item); body.appendChild(item.element);
+                if (row.id === "poster-size" && state.effective.get(row.key)?.source === "profile_device") {
+                    item.element.setAttribute("aria-disabled", "true");
+                    const synced = button("use-synced-tv", "Use Synced TV Settings", () => { void state.resetPosterDevice(); });
+                    rows.push(synced); body.appendChild(synced.element);
+                }
+            }
+            if (category === "subtitles" && state.definitions.some(def => def.key === APPEARANCE_KEY)) {
+                const preview = el("div", "settings-subtitle-preview");
+                const text = el("span", "", "Subtitles will look like this");
+                preview.appendChild(text);
+                const stored = state.stored(APPEARANCE_KEY);
+                applySubtitleAppearance(preview, text, decodeAppearance({ profile_id: "preview", effective_value: JSON.stringify(stored?.isSet ? stored.value : {}) }, "preview"));
+                preview.style.position = "relative"; preview.style.height = "150px";
+                text.style.position = "absolute";
+                text.style.top = preview.style.top; text.style.bottom = preview.style.bottom;
+                preview.style.top = "auto"; preview.style.bottom = "auto";
+                body.appendChild(preview);
+                const reset = button("reset-appearance", "Reset Appearance", () => { confirmingAppearanceReset = true; render(); });
+                rows.push(reset); body.append(reset.element, note(APPEARANCE_KEY));
+                if (state.definitions.some(def => def.key === APPEARANCE_KEY && def.device)) {
+                    const device = state.scope(APPEARANCE_KEY) === "profile_device";
+                    const toggle = button("appearance-device", "Only on This TV", () => { void state.setAppearanceDevice(!device); });
+                    toggle.element.setAttribute("role", "switch"); toggle.element.setAttribute("aria-label", "Only on This TV"); toggle.element.setAttribute("aria-checked", String(device));
+                    rows.push(toggle); body.appendChild(toggle.element);
+                }
+            }
+        }
         if (category === "general" && launch !== undefined) {
             const item = actionButton("remember-profile", "Profile Selection", () => { choosingLaunch = true; render(); });
-            item.element.append(el("span", "settings-row-value", launch.remembered ? "Automatic" : "Every Time"), el("span", "settings-chevron", "›"));
+            item.element.append(el("span", "settings-row-value", LAUNCH_CHOICES.find(([value]) => value === launch.behavior)?.[1] ?? "Every Time"), el("span", "settings-chevron", "›"));
             item.element.setAttribute("aria-disabled", String(launchPending));
             rows.push(item);
             body.append(el("h3", "settings-section-header", "PROFILE AT LAUNCH"), item.element);
@@ -458,5 +541,6 @@ function valueLabel(value: SettingValue, key: SettingsKey = AUDIO_KEY): string {
     if (key === BITRATE_KEY) return value === null ? "No limit" : `${value} kbps`;
     if (value === null) return key === HIDDEN_KEY ? "None hidden" : "No preference";
     if (Array.isArray(value)) return `${value.length} hidden`;
+    if (typeof value === "object") return key === "ui.card_presentation" && "poster_size" in value ? String(value.poster_size) : "Custom appearance";
     return value === "x-silo-original" ? "Original language" : String(value);
 }

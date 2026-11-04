@@ -30,7 +30,7 @@ function appTest(name: string, body: (tv: Tv, playback: FakePlayback, catalog: F
     });
 }
 
-async function signIn(tv: Tv): Promise<void> {
+async function signIn(tv: Tv, remember = false): Promise<void> {
     await tv.page.fill("#signin-address", "silo.example.test");
     await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
     await tv.page.locator('[data-screen="code"]').waitFor();
@@ -42,7 +42,7 @@ async function signIn(tv: Tv): Promise<void> {
     await tv.jump(1000);
     await tv.page.locator('[data-screen="profiles"]').waitFor();
     await tv.page.locator('[data-focus="profile:p-owner"]').click();
-    await tv.page.locator('[data-focus="ask-every-launch"]').click();
+    await tv.page.locator(remember ? '[data-focus="remember"]' : '[data-focus="ask-every-launch"]').click();
     await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
     await homeDetailsRead(tv);
 }
@@ -147,10 +147,24 @@ async function visibility(tv: Tv, hidden: boolean): Promise<void> {
     }, hidden);
 }
 
+appTest("profile selection expiry refreshes an open picker and retires its old Back action", async tv => {
+    await signIn(tv);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Switch Profile", exact: true }).click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    await visibility(tv, true);
+    await visibility(tv, false);
+    await tv.jump(0);
+    await tv.remote(10009);
+    await tv.jump(0);
+    assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 1);
+    assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+});
+
 for (const reduced of [false, true]) {
     appTest(`foreground validation fences a second hide in ${reduced ? "reduced" : "normal"} motion`, async (tv, playback) => {
         await tv.page.emulateMedia({ reducedMotion: reduced ? "reduce" : "no-preference" });
-        await signIn(tv);
+        await signIn(tv, true);
         await startMovie(tv);
         await tv.page.evaluate(() => window.appHarness.avplay.tick(32000));
         await tv.remote(19);

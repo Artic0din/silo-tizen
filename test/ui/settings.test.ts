@@ -36,6 +36,187 @@ async function openSettings(tv: Tv): Promise<void> {
     await tv.page.getByRole("button", { name: /Hidden libraries/ }).waitFor();
 }
 
+test("remaining settings expose only honoured rows and save profile appearance", async () => {
+    const { tv, settings } = await setup();
+    settings.remainingRows = true;
+    try {
+        await openSettings(tv);
+        assert.equal(await tv.page.getByRole("button", { name: /Poster Size/ }).count(), 1, "Poster Size row is available");
+        await tv.page.getByRole("button", { name: /Poster Size/ }).click();
+        await tv.page.getByRole("radio", { name: "Large", exact: true }).click();
+        await tv.page.locator('[data-focus="poster-size"]').waitFor();
+        assert.deepEqual(settings.device("p-owner", "client:tv").get("ui.card_presentation"), { poster_size: "large", caption: "title_metadata" });
+        const posterWrite = tv.fake.requests.find(request => request.method === "PUT" && request.path.includes("ui.card_presentation"));
+        assert.equal(posterWrite?.path, "/settings/values/ui.card_presentation?scope=profile_client");
+        assert.equal(posterWrite?.headers["x-silo-client-family"], "tv");
+        await tv.page.getByRole("switch", { name: "Show Advisory Age", exact: true }).click();
+        await tv.eventually(async () => settings.profile().get("catalog.show_advisory_age") === true, "advisory profile write");
+        await tv.page.locator('[data-focus="playback"]').click();
+        await tv.page.getByRole("button", { name: /Auto-Play Next Episode/ }).click();
+        await tv.page.getByRole("radio", { name: "Off", exact: true }).click();
+        await tv.page.locator('[data-focus="auto-next"]').waitFor();
+        assert.equal(tv.fake.requests.find(request => request.method === "PUT" && request.path.includes("auto_play_next"))?.path, "/settings/values/playback.auto_play_next?scope=profile_device");
+        assert.equal(settings.profile().has("playback.auto_play_next"), false);
+        await tv.page.locator('[data-focus="subtitles"]').click();
+        await tv.page.getByRole("button", { name: /Font Size/ }).click();
+        await tv.page.getByRole("radio", { name: "Small", exact: true }).click();
+        await tv.eventually(async () => JSON.stringify(settings.profile().get("playback.subtitle_appearance"))?.includes('"fontSize":"small"') === true, "appearance profile write");
+        await tv.page.locator('[data-focus="appearance-fontSize"]').waitFor();
+        assert.equal(await tv.page.locator(".settings-subtitle-preview span").evaluate(node => (node as HTMLElement).style.fontSize), "28px");
+        const deviceId = tv.fake.requests.find(request => request.path === "/settings/contract/capabilities")?.headers["x-silo-device-id"];
+        assert.ok(deviceId);
+        await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).click();
+        await tv.eventually(async () => settings.device("p-owner", deviceId).has("playback.subtitle_appearance"), "device appearance copied");
+        await tv.page.getByRole("button", { name: /Font Color/ }).click();
+        await tv.page.getByRole("radio", { name: "Red", exact: true }).click();
+        await tv.eventually(async () => JSON.stringify(settings.device("p-owner", deviceId).get("playback.subtitle_appearance"))?.includes('"fontColor":"#ef4444"') === true, "device appearance write");
+        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small" });
+        await tv.page.locator('[data-focus="appearance-fontColor"]').waitFor();
+        await tv.page.getByRole("button", { name: /Font Color/ }).click();
+        await tv.page.getByRole("button", { name: "Use Profile Setting", exact: true }).click();
+        await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).getAttribute("aria-checked") === "false", "profile appearance restored");
+        assert.equal(await tv.page.getByRole("alert").count(), 0, "device reset is confirmed at the deleted scope");
+        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small" });
+        await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).click();
+        await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).getAttribute("aria-checked") === "true", "device override enabled again");
+        await tv.page.getByRole("button", { name: "Reset Appearance", exact: true }).click();
+        await tv.page.getByRole("button", { name: "Reset", exact: true }).click();
+        await tv.page.locator('[data-focus="reset-appearance"]').waitFor();
+        assert.equal(JSON.stringify(settings.device("p-owner", deviceId).get("playback.subtitle_appearance")).includes('"fontSize":"large"'), true);
+        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small" });
+        await tv.page.getByRole("button", { name: /Metadata Language/ }).click();
+        await tv.page.getByRole("radio", { name: "fr", exact: true }).click();
+        await tv.eventually(async () => settings.profile().get("catalog.metadata_language") === "fr", "metadata profile write");
+        await tv.page.locator('[data-focus="metadata-language"]').waitFor();
+        await tv.page.locator('[data-focus="server"]').click();
+        await tv.page.getByText(/^Address:/).waitFor();
+        await tv.page.getByRole("button", { name: "Privacy Policy", exact: true }).click();
+        assert.equal(await tv.page.getByRole("img", { name: "Privacy Policy QR code" }).count(), 1);
+        assert.equal(await tv.page.getByRole("button", { name: /HDR|Lossless|Seek Cache/ }).count(), 0);
+    } finally { await tv.page.context().close(); }
+});
+
+test("a settling poster save preserves navigation after leaving its picker", async () => {
+    const { tv, settings } = await setup();
+    settings.remainingRows = true;
+    const held = tv.fake.hold("/settings/values/ui.card_presentation", true);
+    try {
+        await openSettings(tv);
+        await tv.page.getByRole("button", { name: /Poster Size/ }).click();
+        await tv.page.getByRole("radio", { name: "Large", exact: true }).click();
+        await tv.eventually(async () => tv.fake.requests.some(request => request.method === "PUT" && request.path.includes("ui.card_presentation")), "poster save waiting");
+        await tv.remote(10009);
+        await tv.page.locator('[data-focus="server"]').click();
+        await tv.page.locator('[data-focus="privacy"]').focus();
+        const pane = await tv.page.locator(".settings-pane").elementHandle();
+        held.release();
+        await tv.eventually(async () => settings.device("p-owner", "client:tv").has("ui.card_presentation"), "poster save settled");
+        await tv.page.getByRole("status").waitFor({ state: "detached" });
+        await tv.page.waitForFunction(node => node !== null && !node.isConnected, pane);
+        await tv.jump(0);
+        assert.equal(await tv.focused(), "privacy");
+    } finally { held.release(); await tv.page.context().close(); }
+});
+
+test("appearance edits reject an intervening change instead of replacing unrelated fields", async () => {
+    const { tv, settings } = await setup();
+    settings.remainingRows = true;
+    settings.profile().set("playback.subtitle_appearance", { fontSize: "small" });
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="subtitles"]').click();
+        await tv.page.getByRole("button", { name: /Font Color/ }).click();
+        settings.profile().set("playback.subtitle_appearance", { fontSize: "large" });
+        await tv.page.getByRole("radio", { name: "Red", exact: true }).click();
+        await tv.page.getByRole("alert").filter({ hasText: "The setting changed on another device." }).waitFor();
+        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "large" });
+        assert.equal(tv.fake.requests.filter(request => request.method === "PUT" && request.path.includes("subtitle_appearance")).length, 0);
+    } finally { await tv.page.context().close(); }
+});
+
+test("poster controls are omitted when the server cannot resolve the TV client family", async () => {
+    for (const missing of ["family", "batch", "shortcuts"] as const) {
+    const { tv, settings } = await setup();
+    settings.remainingRows = true;
+    if (missing === "family") settings.clientFamilies = [];
+    if (missing === "batch") settings.supportsBatchedEffective = false;
+    if (missing === "shortcuts") settings.supportsAtomicShortcuts = false;
+    try {
+        await openSettings(tv);
+        assert.equal(await tv.page.locator('[data-focus="poster-size"]').count(), 0);
+        await tv.page.locator('[data-focus="playback"]').click();
+        await tv.page.locator('[data-focus="quality"]').waitFor();
+    } finally { await tv.page.context().close(); }
+    }
+});
+
+test("Show Advisory Age controls the detail badge when the server supplies an age", async () => {
+    for (const enabled of [false, true]) {
+        const { tv, settings } = await setup();
+        settings.profile().set("catalog.show_advisory_age", enabled);
+        await tv.page.route("**/catalog/items/movie%3Am0001*", async route => { await route.fulfill({ status: 200, json: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", advisory_age: 13 } }); });
+        try {
+            await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').focus();
+            await tv.page.keyboard.press("Enter");
+            await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
+            if (enabled) await tv.page.getByText("Advisory Age 13+", { exact: true }).waitFor();
+            else assert.equal(await tv.page.getByText("Advisory Age 13+", { exact: true }).count(), 0);
+        } finally { await tv.page.context().close(); }
+    }
+});
+
+test("Use Synced TV Settings removes only the older poster device override", async () => {
+    const { tv, settings } = await setup();
+    settings.remainingRows = true;
+    const deviceId = tv.fake.requests.find(request => request.headers["x-silo-device-id"])?.headers["x-silo-device-id"];
+    assert.ok(deviceId);
+    settings.device("p-owner", deviceId).set("ui.card_presentation", { poster_size: "compact", caption: "title_metadata" });
+    settings.device("p-owner", "client:tv").set("ui.card_presentation", { poster_size: "large", caption: "title_metadata" });
+    try {
+        await openSettings(tv);
+        assert.equal(await tv.page.locator('[data-focus="poster-size"]').getAttribute("aria-disabled"), "true");
+        await tv.page.getByRole("button", { name: "Use Synced TV Settings", exact: true }).click();
+        await tv.eventually(async () => !settings.device("p-owner", deviceId).has("ui.card_presentation"), "older device override cleared");
+        assert.equal(settings.device("p-owner", "client:tv").has("ui.card_presentation"), true);
+        await tv.page.getByRole("button", { name: /Poster Size/ }).click();
+        await tv.page.getByRole("button", { name: "Use Profile Default", exact: true }).click();
+        await tv.eventually(async () => !settings.device("p-owner", "client:tv").has("ui.card_presentation"), "TV-family override cleared");
+    } finally { await tv.page.context().close(); }
+});
+
+test("profile subtitle editors read and compare profile values while narrower overrides remain active", async () => {
+    const { tv, settings } = await setup();
+    settings.profileSubtitles = true;
+    settings.profile().set(SUBTITLE_LANGUAGE_KEY, "en");
+    settings.profile().set(SUBTITLE_MODE_KEY, "always");
+    settings.profile().set(SHOW_FORCED_KEY, false);
+    settings.overrides.set(SUBTITLE_LANGUAGE_KEY, "fr");
+    settings.overrides.set(SUBTITLE_MODE_KEY, "off");
+    settings.overrides.set(SHOW_FORCED_KEY, true);
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="subtitles"]').click();
+        assert.equal(await tv.page.locator('[data-focus="subtitle-language"] .settings-row-value').textContent(), "en");
+        assert.equal(await tv.page.locator('[data-focus="subtitle-mode"] .settings-row-value').textContent(), "Always");
+        assert.equal(await tv.page.locator('[data-focus="subtitle-forced"]').getAttribute("aria-checked"), "false");
+        await tv.page.locator('[data-focus="subtitle-language"]').click();
+        assert.equal(await tv.page.getByRole("radio", { name: "en", exact: true }).getAttribute("aria-checked"), "true");
+        await tv.page.getByRole("radio", { name: "fr", exact: true }).click();
+        await tv.page.locator('[data-focus="subtitle-language"]').waitFor();
+        assert.equal(settings.profile().get(SUBTITLE_LANGUAGE_KEY), "fr", "a value equal to the override still updates the profile");
+        await tv.page.locator('[data-focus="subtitle-mode"]').click();
+        await tv.page.getByRole("radio", { name: "Off", exact: true }).click();
+        await tv.page.locator('[data-focus="subtitle-mode"]').waitFor();
+        assert.equal(settings.profile().get(SUBTITLE_MODE_KEY), "off");
+        await tv.page.locator('[data-focus="subtitle-forced"]').click();
+        await tv.eventually(async () => settings.profile().get(SHOW_FORCED_KEY) === true, "toggle the profile value");
+        assert.equal(settings.overrides.get(SUBTITLE_LANGUAGE_KEY), "fr");
+        assert.equal(settings.overrides.get(SUBTITLE_MODE_KEY), "off");
+        assert.equal(settings.overrides.get(SHOW_FORCED_KEY), true);
+        await tv.page.getByText(/Override active/).waitFor();
+    } finally { await tv.page.context().close(); }
+});
+
 test("Subtitles, the profile account line and sign-out confirmation follow Apple TV", async () => {
     const { tv, settings } = await setup();
     settings.profileSubtitles = true;

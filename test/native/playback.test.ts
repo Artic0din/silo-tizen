@@ -233,6 +233,39 @@ async function playMovie(r: Rig, request: PlayRequest = MOVIE): Promise<string> 
     return id;
 }
 
+test("intro and credits settings control markers and automatic skips can be undone", async () => {
+    for (const mode of ["never", "ask", "always"] as const) {
+        const r = await rig();
+        const settings = new FakeSettings(r.h.fake);
+        settings.remainingRows = true;
+        settings.profile().set("playback.intro_skip_mode", mode);
+        settings.profile().set("playback.auto_skip_credits", true);
+        r.h.fake.scripted.set("/markers/files/42", [{ status: 200, body: { file_id: "42", marker_segments: [
+            { kind: "intro", start_seconds: 20, end_seconds: 60 },
+            { kind: "credits", start_seconds: 90, end_seconds: 100 },
+        ] } }]);
+        await playMovie(r);
+        r.avplay.tick(20000);
+        let view = last(r.views);
+        assert.ok(view.phase === "playing");
+        if (mode === "always") {
+            assert.equal(r.avplay.calls.at(-1), "seekTo 60000");
+            r.avplay.finishSeek();
+            view = last(r.views);
+            assert.ok(view.phase === "playing");
+            assert.equal(view.undoSkipSeconds, 20);
+            r.controller.seekToSeconds(20);
+            r.avplay.finishSeek();
+            r.avplay.tick(21000);
+            assert.equal(r.avplay.positionMs, 21000);
+        } else assert.equal(view.skipMarker?.kind, mode === "ask" ? "intro" : undefined);
+        r.avplay.tick(90000);
+        assert.equal(r.avplay.calls.at(-1), "seekTo 100000");
+        r.avplay.finishSeek();
+        r.controller.destroy();
+    }
+});
+
 test("effective file markers follow source time and cannot replace an in-flight manual seek", async () => {
     const r = await rig();
     r.h.fake.scripted.set("/markers/files/42", [{ status: 200, body: {

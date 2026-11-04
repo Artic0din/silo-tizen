@@ -1,6 +1,8 @@
 // Consumed subset of settings v1, server cc851494 (manifest revision 24).
 import { boolean, integer, object, string, WireError } from "./wire.ts";
 import { PRIMARY_MENU_KEY, decodePrimaryMenu } from "./navigation.ts";
+import { ROW_KEYS, INTRO_SKIP_KEY, CREDITS_SKIP_KEY, ADVISORY_KEY, APPEARANCE_KEY, METADATA_KEY } from "./settingsRows.ts";
+import { decodeAppearance } from "./subtitles.ts";
 
 export const HIDDEN_KEY = "ui.disabled_library_ids";
 export const TITLE_ART_KEY = "ui.title_art";
@@ -19,11 +21,11 @@ export const AUTO_NEXT_KEY = "playback.auto_play_next";
 export const CARD_OVERLAYS_KEY = "ui.card_overlays";
 export const CARD_OVERLAYS_ENABLED_KEY = "ui.card_overlays_enabled";
 export const CARD_PRESENTATION_KEY = "ui.card_presentation";
-export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY, QUALITY_KEY, BITRATE_KEY, ...SEEK_KEYS, TITLE_ART_KEY] as const;
+export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY, QUALITY_KEY, BITRATE_KEY, ...SEEK_KEYS, TITLE_ART_KEY, AUTO_NEXT_KEY, ...ROW_KEYS] as const;
 export type SettingsKey = (typeof SETTINGS_KEYS)[number] | typeof AUTO_NEXT_KEY | typeof SUBTITLE_LANGUAGE_KEY | typeof SUBTITLE_MODE_KEY | typeof SHOW_FORCED_KEY | typeof CARD_OVERLAYS_KEY | typeof CARD_OVERLAYS_ENABLED_KEY | typeof CARD_PRESENTATION_KEY | typeof PRIMARY_MENU_KEY;
 type Json = null | boolean | string | number | readonly Json[] | { readonly [member: string]: Json | undefined };
 export type SettingValue = null | boolean | string | number | readonly number[] | { readonly [member: string]: Json | undefined };
-export type SettingsScope = "profile" | "profile_device";
+export type SettingsScope = "profile" | "profile_device" | "profile_client";
 export interface SettingsIdentity { readonly profileId: string; readonly deviceId: string; readonly manifestRevision?: number }
 export interface SettingsCapabilities {
     readonly apiVersion: number;
@@ -41,6 +43,7 @@ export interface SettingDefinition {
     readonly introducedIn: number;
     readonly profile: boolean;
     readonly device: boolean;
+    readonly client?: boolean;
     readonly options: readonly { value: string | number; label: string; introducedIn: number; deprecated: boolean }[];
 }
 export interface SettingsContract {
@@ -99,6 +102,8 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
             titleArtSeen = true;
         }
         const schema = object(def.value_schema, "setting_definition.value_schema");
+        const extra = ROW_KEYS.some(row => row === key);
+        if (extra && (def.persistence !== "remote" || schema.type !== (key === INTRO_SKIP_KEY ? "enum" : key === METADATA_KEY ? "language_tag" : key === APPEARANCE_KEY || key === CARD_PRESENTATION_KEY ? "object" : "boolean"))) continue;
         const seek = key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY;
         const titleArt = key === TITLE_ART_KEY;
         const subtitleLanguage = key === SUBTITLE_LANGUAGE_KEY;
@@ -121,7 +126,7 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
         if (titleArt && (scopes.length !== 2 || !scopes.includes("profile") || !scopes.includes("profile_device") || JSON.stringify(def.resolution_order) !== JSON.stringify(["profile", "profile_device", "default"]))) continue;
         if (seek && (scopes.length !== 1 || scopes[0] !== "profile" || JSON.stringify(def.resolution_order) !== JSON.stringify(["profile", "default"]))) continue;
         let options: SettingDefinition["options"] = [];
-        if ((key === AUDIO_KEY || subtitleLanguage) && typeof def.suggested_options === "string") {
+        if ((key === AUDIO_KEY || key === METADATA_KEY || subtitleLanguage) && typeof def.suggested_options === "string") {
             const set = object(sets[def.suggested_options], "language_options");
             options = array(set.options, "language_options.options").map(raw => {
                 const option = object(raw, "language_option");
@@ -160,7 +165,7 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
             if (definitions.some(def => def.key === key)) throw new WireError("setting_definition.key", "each seek key once");
         }
         // Only the two seek keys and title art have approved advisory-platform adoption.
-        definitions.push({ key, introducedIn: integer(def, "introduced_in", "setting_definition"), profile: scopes.includes("profile") && (seek || titleArt || subtitleLanguage || subtitleMode || showForced || platforms === undefined || platforms.includes("tizen")), device: scopes.includes("profile_device"), options });
+        definitions.push({ key, introducedIn: integer(def, "introduced_in", "setting_definition"), profile: scopes.includes("profile") && (extra || seek || titleArt || subtitleLanguage || subtitleMode || showForced || platforms === undefined || platforms.includes("tizen")), device: scopes.includes("profile_device"), client: scopes.includes("profile_client"), options });
     }
     return { apiVersion: integer(obj, "api_version", "settings_contract"), revision: integer(obj, "revision", "settings_contract"), definitions };
 }
@@ -181,6 +186,18 @@ export function numericLibraryId(id: string): number {
 }
 
 export function decodeSettingValue(key: SettingsKey, value: unknown): SettingValue {
+    if (key === APPEARANCE_KEY) {
+        decodeAppearance({ profile_id: "validate", effective_value: JSON.stringify(value) }, "validate");
+        return object(value, "appearance") as { readonly [member: string]: Json };
+    }
+    if (key === ADVISORY_KEY || key === CREDITS_SKIP_KEY) {
+        if (typeof value !== "boolean") throw new WireError(key, "a boolean");
+        return value;
+    }
+    if (key === INTRO_SKIP_KEY) {
+        if (value !== "never" && value !== "ask" && value !== "always") throw new WireError(key, "never, ask or always");
+        return value;
+    }
     if (key === PRIMARY_MENU_KEY) return decodePrimaryMenu(value);
     if (key === CARD_PRESENTATION_KEY) {
         const document = object(value, "card_presentation.value");

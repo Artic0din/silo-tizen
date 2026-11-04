@@ -16,7 +16,7 @@ import { requestsState, type RequestsHandlers, type RequestsSource } from "./req
 import type { RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import { detailOperations } from "../api/detailOperations.ts";
-import type { ItemDetail } from "../contracts/v2/catalog.ts";
+import type { ItemDetail, UserLibrary } from "../contracts/v2/catalog.ts";
 import { DetailsState } from "./detailsState.ts";
 import { freshPlayPosition } from "./playbackPreparation.ts";
 import { SeriesEpisodes } from "./seriesEpisodes.ts";
@@ -81,6 +81,14 @@ export interface Browse {
 const SEARCH_DELAY_MS = 600;
 const SEARCH_TITLE_COLLAPSE_OFFSET = 85;
 const SLOW_MS = 5000;
+/** SectionRowLimit.cards (silo-apple SectionRowLimit.swift:6). */
+const HOME_SECTION_CARDS = 20;
+
+/** The server refused `item_limit` as an unknown query parameter (SectionRowLimit.swift:32). */
+function unsupportedHomeItemLimit(error: unknown): boolean {
+    return error instanceof ApiError && error.failure.kind === "problem" && error.status === 422
+        && error.failure.problem.errors.some(item => item.location === "query.item_limit" && item.code === "unknown_parameter");
+}
 
 export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const server = options.server;
@@ -169,6 +177,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     let stack: Route[] = [];
     let loading: AbortController | undefined;
+    let homeLibraries: AbortController | undefined;
     let cancelSlow: () => void = () => undefined;
     let cancelSearch: () => void = () => undefined;
     let cancelCalendarDay: () => void = () => undefined;
@@ -324,6 +333,23 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     // Artwork sizing (Apple ImageSizeCapability): one probe per Browse. The last answer for this
     // server is remembered so Home does not wait for it; a failed probe leaves per-slot widths off.
     const imageKey = `silo.imageCapability:${server.server.serverId}`;
+    // Apple remembers section_item_limit_max per server (SectionItemLimitSupport.swift:54-90)
+    // and sends min(max, 20) on the first Home read. Unknown stays unsent until the probe answers.
+    const homeLimitKey = `silo.homeSectionItemLimit:${server.server.serverId}`;
+    let homeLimitKnown = false;
+    let homeLimitMax: number | null = null;
+    try {
+        const raw = options.publicStorage?.getItem(homeLimitKey);
+        if (raw === "none") { homeLimitKnown = true; homeLimitMax = null; }
+        else if (raw !== null && raw !== undefined && /^[1-9]\d*$/.test(raw)) { homeLimitKnown = true; homeLimitMax = Number(raw); }
+    } catch { /* An unreadable optional cache leaves the probe in charge. */ }
+    const homeItemLimit = (): number | undefined => homeLimitMax === null ? undefined : Math.min(homeLimitMax, HOME_SECTION_CARDS);
+    const rememberHomeLimit = (max: number | null): void => {
+        homeLimitKnown = true;
+        homeLimitMax = max === null || max < 1 ? null : max;
+        try { options.publicStorage?.setItem(homeLimitKey, homeLimitMax === null ? "none" : String(homeLimitMax)); }
+        catch { /* The in-memory answer still decides this Browse. */ }
+    };
     let imageCapability: ImageCapabilities | undefined;
     try { imageCapability = rememberedImages(options.publicStorage?.getItem(imageKey)); }
     catch { /* Missing optional cache data leaves the capability probe in charge. */ }
@@ -364,7 +390,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (torn || playing || cardActions.active || top() !== home || loading !== undefined || data === undefined || home.failure !== undefined || homeArtworkAttempt === undefined) return;
         const query = homeArtworkQuery(imageCapability, window.devicePixelRatio);
         if (!Object.entries(query).some(([key, value]) => homeArtworkAttempt?.[key] === undefined || Number(value) > Number(homeArtworkAttempt[key]))) return;
-        load(home, signal => read(operations.listHomeSections(query), signal).catch((error: unknown) => {
+        load(home, signal => read(operations.listHomeSections(query, homeItemLimit()), signal).catch((error: unknown) => {
             if (error instanceof ApiError && !error.aborted) return undefined;
             throw error;
         }), sections => {
@@ -418,6 +444,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         settingsScreen = undefined;
         stopAuthority();
         loading?.abort();
+        homeLibraries?.abort();
         cancelSlow();
         cancelSearch();
         cancelCalendarDay();
@@ -502,6 +529,53 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     const read = <T>(spec: RequestSpec<T>, signal: AbortSignal): Promise<T> => session.call({ ...spec, profileScoped: true, signal });
+    // Join the capabilities probe when this server's row cap is unknown, so the first
+    // sections read can ask for short rows (SiloAPI.withSectionItemLimit, SiloAPI.swift:155).
+    // A known answer is used at once; a later probe only updates the next visit.
+    let homeLimitFlight: Promise<void> | undefined;
+    const probeHomeLimit = (signal: AbortSignal): Promise<void> => {
+        if (homeLimitKnown) return Promise.resolve();
+        const flight = homeLimitFlight ?? session.call({ ...operations.homeCapabilities(), profileScoped: true, signal }).then(found => {
+            const max = found.state === "available" && found.sectionItemLimitMax !== undefined && found.sectionItemLimitMax > 0 ? found.sectionItemLimitMax : null;
+            rememberHomeLimit(max);
+        }, (error: unknown) => {
+            if (error instanceof ApiError && error.aborted) throw error;
+            // A missing capabilities read means the server offers no row cap (SiloAPI.swift:179-180).
+            if (error instanceof ApiError && error.status === 404) rememberHomeLimit(null);
+        }).finally(() => { if (homeLimitFlight === flight) homeLimitFlight = undefined; });
+        homeLimitFlight = flight;
+        return flight;
+    };
+    // Library tabs are not part of the Home rows. Apple paints sections without waiting
+    // for them (HomeViewModel.fetchAndApplySections, HomeViewModel.swift:237).
+    let pendingHomeLibraries: UserLibrary[] | undefined;
+    const readHomeLibraries = (current: Extract<Route, { kind: "home" }>): void => {
+        homeLibraries?.abort();
+        const controller = new AbortController();
+        homeLibraries = controller;
+        const signal = controller.signal;
+        void Promise.all([
+            read(operations.listUserLibraries(), signal),
+            read(operations.hiddenLibraries(), signal).catch((error: unknown) => {
+                if (error instanceof ApiError && !error.aborted) return [];
+                throw error;
+            }),
+        ]).then(([libraries, hidden]) => {
+            if (signal.aborted || torn || current.kind !== "home") return;
+            const visible = visibleLibraries(libraries, hidden);
+            pendingHomeLibraries = visible;
+            if (current.data === undefined) return;
+            // shell.update replaces the nav, including a focused tab. Keep the target captured
+            // before that replacement so Back from Settings stays on Profiles.
+            const focus = host.focused();
+            current.data = { ...current.data, libraries: visible };
+            shell.update(visible);
+            if (!playing && top() === current && settingsScreen === undefined && !cardActions.active && !synopsis.active) render(focus);
+        }, (error: unknown) => {
+            if (signal.aborted || error instanceof ApiError) return;
+            clock.schedule(() => { throw error; }, 0);
+        });
+    };
     // Detail fields Home shows but its rows lack, read once per Home load and never on focus.
     const homeDetails = new HomeEnrichment(read, id => { if (!torn) shell.refreshDetails(id); }, () => {
         // Continue Watching cards redraw once with saved-file badges, keeping focus where it is.
@@ -806,22 +880,23 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             case "home": {
                 presentation.ensure();
                 const artworkQuery = homeArtworkQuery(imageCapability, window.devicePixelRatio);
-                load(current, (signal) => Promise.all([
-                    read(operations.listUserLibraries(), signal),
-                    // The hidden list is the profile's own preference, not an access limit: when it
-                    // cannot be read, its libraries still show rather than Home failing.
-                    read(operations.hiddenLibraries(), signal).catch((error: unknown) => {
-                        if (error instanceof ApiError && !error.aborted) {
-                            return [];
-                        }
-                        throw error;
-                    }),
-                    read(operations.listHomeSections(artworkQuery), signal),
-                ]), ([libraries, hidden, sections]) => {
+                if (current.kind === "home") readHomeLibraries(current);
+                load(current, async (signal) => {
+                    await probeHomeLimit(signal);
+                    const limit = homeItemLimit();
+                    try {
+                        return await read(operations.listHomeSections(artworkQuery, limit), signal);
+                    } catch (error) {
+                        if (limit === undefined || !unsupportedHomeItemLimit(error)) throw error;
+                        rememberHomeLimit(null);
+                        return await read(operations.listHomeSections(artworkQuery), signal);
+                    }
+                }, sections => {
                     const focus = host.focused();
-                    current.data = { libraries: visibleLibraries(libraries, hidden), sections };
+                    const libraries = pendingHomeLibraries ?? (current.kind === "home" ? current.data?.libraries : undefined) ?? [];
+                    current.data = { libraries, sections };
                     homeArtworkAttempt = artworkQuery;
-                    shell.update(current.data.libraries);
+                    shell.update(libraries);
                     homeDetails.load(homeRows(sections).flatMap(row => row.cards.map(card => ({ card, continuing: row.continuing }))));
                     // Changed tabs replace the nav nodes, including the still-present avatar.
                     queueMicrotask(upgradeHomeArtwork);

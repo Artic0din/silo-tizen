@@ -34,7 +34,7 @@ function sectionReplyProduced(catalog: FakeHome): Promise<void> {
     });
 }
 
-function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void>, setup?: (catalog: FakeHome) => void, settings?: (settings: FakeSettings, tv: Tv) => void, options: { readonly whileReading?: boolean } = {}): void {
+function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void>, setup?: (catalog: FakeHome) => void, settings?: (settings: FakeSettings, tv: Tv) => void, options: { readonly whileReading?: boolean; readonly beforeMount?: (tv: Tv) => void; readonly beforeReady?: (tv: Tv) => Promise<void>; readonly readyTimeout?: number } = {}): void {
     test(name, async () => {
         const tv = await openTv(browser, { app: "browse" });
         const catalog = new FakeHome();
@@ -49,8 +49,10 @@ function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void
             await tv.jump(5000);
             await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.loginPhase) === "signed_in", "sign in");
             await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner"));
+            options.beforeMount?.(tv);
             await tv.page.evaluate(() => window.browseHarness.mount());
-            await tv.page.locator('[data-view="home"] [data-section]').first().waitFor();
+            if (options.beforeReady !== undefined) await options.beforeReady(tv);
+            await tv.page.locator('[data-view="home"] [data-section]').first().waitFor(options.readyTimeout === undefined ? undefined : { timeout: options.readyTimeout });
             // Home reads detail for its titles as it loads; journeys start once those reads are out.
             if (options.whileReading !== true) await detailsRead(tv);
             await body(tv, catalog);
@@ -58,6 +60,66 @@ function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void
         } finally { await tv.page.context().close(); }
     });
 }
+
+let heldLibraries: { release(): void };
+let heldSections: { release(): void };
+
+journey("Home paints its rows while libraries are still out and does not say it is still waiting", async tv => {
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0, "library tabs wait for their own read");
+    heldLibraries.release();
+    await tv.eventually(async () => await tv.page.locator('[data-focus="movies"]').count() === 1, "library tabs follow the rows");
+}, undefined, undefined, { beforeMount: tv => { heldLibraries = tv.fake.hold("/user/libraries", true); }, readyTimeout: 4000 });
+
+journey("a delayed Home sections read never says it is still waiting", async tv => {
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+}, undefined, undefined, {
+    beforeMount: tv => { heldSections = tv.fake.hold("/home/sections", true); },
+    beforeReady: async tv => {
+        await tv.jump(5000);
+        assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+        heldSections.release();
+    },
+});
+
+journey("Home asks for the server's row cap and does not wait on an uncapped sections read", async tv => {
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+    const sections = tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path);
+    assert.ok(sections.some(path => path.includes("item_limit=20")), sections.join(" "));
+    assert.equal(sections.filter(path => !path.includes("item_limit=")).length, 0, sections.join(" "));
+}, catalog => {
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const url = new URL(path, "https://fake.invalid");
+        if (url.pathname === "/home/capabilities") return { status: 200, body: { state: "available", section_item_limit_max: 100 } };
+        return read(method, path, profile, body);
+    };
+}, undefined, {
+    beforeMount: tv => {
+        tv.fake.hold("/home/sections?image_size=small", true);
+        tv.fake.hold("/home/sections?image_size=small", true);
+    },
+    readyTimeout: 4000,
+});
+
+journey("Home reads sections again without the row cap when the server rejects it", async tv => {
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    const sections = tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path);
+    assert.deepEqual(sections, ["/home/sections?image_size=small&item_limit=20", "/home/sections?image_size=small"]);
+}, catalog => {
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const url = new URL(path, "https://fake.invalid");
+        if (url.pathname === "/home/capabilities") return { status: 200, body: { state: "available", section_item_limit_max: 100 } };
+        if (url.pathname === "/home/sections" && url.searchParams.has("item_limit")) {
+            return { status: 422, headers: { "Content-Type": "application/problem+json" }, body: { type: "https://siloserver.org/docs/api/v2/problems/validation_failed", title: "Validation failed", status: 422, errors: [{ location: "query.item_limit", code: "unknown_parameter" }] } };
+        }
+        return read(method, path, profile, body);
+    };
+});
 
 journey("Home keeps the server's row order and shows featured rows as ordinary rows", async tv => {
     assert.deepEqual(await tv.page.locator('[data-section]').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-section"))), ["hero/opaque", "recent/12", "because/opaque", "resume/opaque", "future/opaque", "for/you"]);

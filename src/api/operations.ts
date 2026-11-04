@@ -36,6 +36,7 @@ import {
     decodeCatalogPage,
     decodeEpisodes,
     decodeHiddenLibraries,
+    decodeHomeCapabilities,
     decodeHomeSections,
     decodeItemDetail,
     decodeMarqueeDetail,
@@ -274,10 +275,15 @@ export const operations = {
     }),
     /** getImageCapabilities: how image-bearing reads may size their artwork. */
     imageCapabilities: (): Spec<ImageCapabilities> => ({ method: "GET", path: "/images/capabilities", retry: "safe", decode: decodeImageCapabilities }),
-    /** listHomeSections: every section with its first cards, bounded by each section's item_limit. */
-    listHomeSections: (slotWidths: Readonly<Record<string, string>> = {}): Spec<HomeSection[]> => ({
+    /** getHomeCapabilities: `section_item_limit_max` is the largest `item_limit` listHomeSections accepts. */
+    homeCapabilities: (): Spec<ReturnType<typeof decodeHomeCapabilities>> => ({ method: "GET", path: "/home/capabilities", retry: "safe", decode: decodeHomeCapabilities }),
+    /**
+     * listHomeSections: every section with its first cards.
+     * `itemLimit` is sent only after getHomeCapabilities advertises `section_item_limit_max`.
+     */
+    listHomeSections: (slotWidths: Readonly<Record<string, string>> = {}, itemLimit?: number): Spec<HomeSection[]> => ({
         method: "GET",
-        path: `/home/sections${query({ image_size: LIST_IMAGES, ...slotWidths })}`,
+        path: `/home/sections${query({ image_size: LIST_IMAGES, ...slotWidths, ...(itemLimit === undefined ? {} : { item_limit: itemLimit }) })}`,
         retry: "safe",
         decode: decodeHomeSections,
     }),

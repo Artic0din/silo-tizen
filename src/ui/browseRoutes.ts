@@ -195,7 +195,10 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
                 return withNote(seasonView(`season:${current.seriesId}:${current.seasonNumber}`, current.title, current.data.episodes, context, pop, handlers.play, handlers.synopsis, current.data.details?.detail ?? current.data.detail, current.data.details), current.failure);
             }
     }
-    return statusView(`${current.kind}:loading`, "Loading", current.slow ? ["Still waiting for the server."] : [], [escape], back);
+    // Apple tvOS Home shows an empty loading page (HomeView.swift:77-85, accessibility
+    // "Loading home") and no "still waiting" sentence. Other routes keep the slow note.
+    const waiting = current.kind === "home" || !current.slow ? [] : ["Still waiting for the server."];
+    return statusView(`${current.kind}:loading`, "Loading", waiting, [escape], back);
 }
 
 function grid(current: Route, pages: Pages, page: CatalogPage, handlers: RouteHandlers): ReturnType<typeof pagedGrid> {

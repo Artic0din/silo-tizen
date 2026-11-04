@@ -192,7 +192,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     }
     const choices = playChoices(detail, state?.selectedFileId);
     const choose = (request: PlayRequest): void => {
-        const audioTrackId = state?.audioTrackId();
+        const audioTrackId = state?.audioTrackId(true);
         play({ ...request, ...(audioTrackId === undefined ? {} : { audioTrackId }), ...(state === undefined ? {} : { subtitle: state.subtitleIntent() }) });
     };
     if (choices?.resume !== undefined) {

@@ -27,6 +27,46 @@ detailTest("episode focus swaps cached hero and selectors without starting a rea
 
 let browser: Browser;
 
+detailTest('Episode information subtitle changes refresh the retained Series cache on Back', async tv => {
+    const catalog = tv.fake.catalog;
+    assert.ok(catalog instanceof FakeDetails);
+    const reply = catalog.route('GET', '/catalog/items/episode%3As1e11', 'p-owner');
+    assert.ok(reply?.body && typeof reply.body === 'object');
+    const body = reply.body;
+    let off = false;
+    await tv.page.route('**/api/v2/catalog/items/episode%3As1e11?**', route => route.fulfill({ json: { ...body, effective_subtitle_mode: off ? 'off' : 'auto', effective_show_forced_subtitles: false } }));
+    await tv.page.route('**/api/v2/subtitle-prefs/**', route => {
+        if (route.request().method() === 'PUT') { off = true; return route.fulfill({ status: 204 }); }
+        return route.fulfill(off ? { status: 200, json: { series_id: 'series:s1', subtitle_mode: 'off', subtitle_track_index: -1 } } : { status: 404 });
+    });
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:s1e11"]').click({ button: 'right' });
+    await tv.page.locator('[data-focus="episode-information"]').click();
+    await tv.page.locator('[data-focus="subtitles"]').click();
+    await tv.page.locator('[data-focus="subtitle:off"]').click();
+    await tv.page.getByText('Saving subtitle preference…', { exact: true }).waitFor({ state: 'hidden' });
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="item:series:s1"]').waitFor();
+    await tv.eventually(async () => await tv.page.locator('[data-track-summary="subtitles"] span').textContent() === 'Off', 'refreshed shared subtitle preference');
+});
+
+for (const media of ['movie:m0001', 'episode:s1e11']) detailTest(`ordinary Play on ${media} leaves effective audio to playback resolution`, async tv => {
+    const catalog = tv.fake.catalog;
+    assert.ok(catalog instanceof FakeDetails);
+    const reply = catalog.route('GET', `/catalog/items/${encodeURIComponent(media)}`, 'p-owner');
+    assert.ok(reply?.body && typeof reply.body === 'object');
+    const body = reply.body as { versions: Record<string, unknown>[] };
+    await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(media)}?**`, route => route.fulfill({ json: { ...body, versions: body.versions.map(version => ({ ...version, audio_tracks: [{ language: 'en', codec: 'aac', default: true }], effective_audio_track_index: 0 })) } }));
+    if (media.startsWith('episode:')) {
+        await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+        await tv.page.locator('[data-focus="episode:s1e11"]').click({ button: 'right' });
+        await tv.page.locator('[data-focus="episode-information"]').click();
+    } else await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
+    await tv.page.locator('[data-focus="play"]').click();
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length > 0), 'handoff');
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.at(-1)?.audioTrackId), undefined);
+});
+
 detailTest("a failed prefetched episode only retries on Select, never on focus", async tv => {
     const catalog = tv.fake.catalog;
     assert.ok(catalog instanceof FakeDetails);

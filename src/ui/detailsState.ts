@@ -112,6 +112,7 @@ export class DetailsState {
         if (["movie", "episode"].includes(this.detail.type)) this.audioPreference.start();
         if (["movie", "episode"].includes(this.detail.type)) this.subtitlePreference.start();
         this.full = mode === "full";
+        if (this.full && this.episodePreferenceDirty) this.episodePreferenceChanged(this);
         if (mode === "full" && ["movie", "series"].includes(this.detail.type)) this.rating.start();
         this.stopAuthority = this.session.onAuthorityChange(() => { this.stop(); this.changed(); });
         if (mode === "playback") return;
@@ -363,8 +364,11 @@ export class DetailsState {
 
     cachedEpisode(id: string): DetailsState | undefined { return this.episodeStates.get(id); }
 
-    noteEpisodePreference(id: string): void {
-        if (this.episodeStates.has(id)) { this.episodePreferenceDirty = true; this.episodePreferenceSource = id; }
+    noteEpisodePreference(id: string, external = false): void {
+        if (this.episodeStates.has(id) || this.previousEpisodeStates.has(id)) {
+            this.episodePreferenceDirty = true;
+            this.episodePreferenceSource = external ? undefined : id;
+        }
     }
 
     retryPreference(kind: "audio" | "subtitles", owner: DetailsState): void {

@@ -14,6 +14,30 @@ import { fixture, problem } from "./support/fakeSilo.ts";
 const ID = "movie:m0001";
 const WATCH = "/watch/movie%3Am0001?file_id=42";
 
+test("returning from Episode information refreshes cached effective episode preferences", async () => {
+    const r = await rig(); r.state.stop();
+    const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
+    const seasons = decodeSeasons(r.catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body);
+    const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
+    state.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes());
+    state.start(); await settle();
+    const id = 'episode:s1e12';
+    assert.ok(state.cachedEpisode(id));
+    state.stop();
+    state.noteEpisodePreference(id, true);
+    const raw = r.catalog.route('GET', '/catalog/items/episode%3As1e12', 'p-owner')?.body;
+    assert.ok(raw && typeof raw === 'object');
+    r.h.fake.script('/catalog/items/episode%3As1e12?image_size=medium', { status: 200, body: { ...raw, effective_subtitle_mode: 'off', effective_show_forced_subtitles: false } });
+    const writes = r.h.fake.requests.filter(request => request.method !== 'GET').length;
+    state.start(); await settle();
+    assert.equal(state.cachedEpisode(id)?.subtitleIntent().kind, 'off');
+    const reads = r.h.fake.requests.length;
+    state.focusEpisode(id);
+    assert.equal(r.h.fake.requests.length, reads, 'focus remains read-free');
+    assert.equal(r.h.fake.requests.filter(request => request.method !== 'GET').length, writes, 'return is read-only');
+    state.stop();
+});
+
 test("returning to retained Series completes interrupted season prefetches before focus", async () => {
     const r = await rig();
     r.state.stop();

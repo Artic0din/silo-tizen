@@ -456,6 +456,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const detailsChanged = (current: Route, returnKey?: string): void => {
         if (current.kind === "item" || current.kind === "season") {
+            const details = current.data?.details;
+            if (details?.detail.type === "episode" && (details.audioPreference.pending || details.subtitlePreference.pending)) {
+                for (const entry of stack) {
+                    if (entry.kind === "item" || entry.kind === "season") entry.data?.details?.noteEpisodePreference(details.detail.id, true);
+                }
+            }
             const changes = current.data?.details?.changes;
             if (changes !== undefined && [...changes.values()].some(change => change.pending)) {
                 invalidateCalendar();

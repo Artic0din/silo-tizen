@@ -11,6 +11,7 @@ All notable changes to this project are documented in this file.
 - Opened History without the top menu, with a centered title, exact counts and Apple's unfiltered 60-item pages.
 
 - Kept personal-list focus and cached cards after failed reads and fitted large History posters to five columns.
+- Opening a Movies or Series library section, including Continue Watching, no longer sends type, sort and order on the section catalog query, which the server rejected.
 - Kept Home hero and detail backdrops sharp using Apple TV artwork sizes instead of small first-pass images.
 
 - Prevented large Search posters from overlapping and kept catalog errors and Try Again visible while People results were pending.

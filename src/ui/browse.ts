@@ -79,6 +79,7 @@ export interface Browse {
 }
 
 const SEARCH_DELAY_MS = 600;
+const SEARCH_TITLE_COLLAPSE_OFFSET = 85;
 const SLOW_MS = 5000;
 
 export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
@@ -113,7 +114,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const resized = shownScale !== presentation.posterScale;
         if (resized) { shownScale = presentation.posterScale; applyCardSize(); }
         const current = top();
-        if (!playing && current !== undefined && (current.kind === "home" || current.kind === "for_you" || current.kind === "recommendationSection" || isSectionRoute(current) || (current.kind === "library" && (current.discovery?.mode === "Browse" || current.discovery?.mode === "Recommended"))) && (resized || shownOverlays !== presentation.cardOverlays)) {
+        if (!playing && current !== undefined && (current.kind === "home" || current.kind === "for_you" || current.kind === "search" || current.kind === "recommendationSection" || isSectionRoute(current) || (current.kind === "library" && (current.discovery?.mode === "Browse" || current.discovery?.mode === "Recommended"))) && (resized || shownOverlays !== presentation.cardOverlays)) {
             shownOverlays = presentation.cardOverlays;
             render(host.focused());
             if (resized) host.revealFocused();
@@ -124,6 +125,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const applyCardSize = (): void => {
         const scale = presentation.posterScale;
         container.style.setProperty("--poster-scale", String(scale));
+        container.style.setProperty("--request-lift", String((330 * scale + 40) / (330 * scale)));
     };
     applyCardSize();
     let shownOverlays: CardOverlayPrefs | undefined = presentation.cardOverlays;
@@ -149,11 +151,18 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     input.type = "search";
     input.spellcheck = false;
     input.autocomplete = "off";
+    input.placeholder = "Search movies and series...";
     input.setAttribute("data-focus", "query");
     const searchLabel = el("label", "browse-label", "Search titles");
     searchLabel.htmlFor = input.id;
     // Kept across renders so the field, and the TV keyboard open on it, are never detached.
-    const searchHead = [el("h1", "browse-title", "Search"), searchLabel, input];
+    const searchField = el("div", "search-field");
+    const searchIcon = el("span", "search-field-icon");
+    searchIcon.setAttribute("aria-hidden", "true");
+    searchIcon.innerHTML = '<svg viewBox="0 0 48 48" fill="none"><circle cx="20" cy="20" r="15" stroke="currentColor" stroke-width="5"/><path d="m31 31 12 12" stroke="currentColor" stroke-width="6" stroke-linecap="round"/></svg>';
+    searchField.append(searchIcon, input);
+    const searchHead = [el("h1", "browse-title search-navigation-title", "Search"), searchLabel, searchField];
+    container.addEventListener("scroll", () => { container.classList.toggle("search-scrolled", container.scrollTop >= SEARCH_TITLE_COLLAPSE_OFFSET); });
 
     let stack: Route[] = [];
     let loading: AbortController | undefined;
@@ -187,12 +196,65 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     });
     const stopDetails = (): void => { synopsis.destroy(); detailWork?.stop(); detailWork = undefined; };
     let inputRevision = 0;
-    const recordInput = (): void => { inputRevision++; };
+    const recordInput = (): void => { inputRevision++; container.classList.remove("search-restored"); };
     document.addEventListener("keydown", recordInput, true);
     document.addEventListener("pointerdown", recordInput, true);
 
     const top = (): Route | undefined => stack[stack.length - 1];
     let requestsCapability: RequestsCapability = { enabled: false, follow: false };
+    let searchPeopleController: AbortController | undefined;
+    let searchRequestsController: AbortController | undefined;
+    const acceptRequestsCapability = (capability: RequestsCapability): void => {
+        requestsCapability = capability;
+        if (capability.enabled) return;
+        searchRequestsController?.abort();
+        for (const route of new Set([...roots.values(), ...stack])) {
+            if (route.kind === "search" && route.supplement !== undefined) { route.supplement.requests = []; route.supplement.requestsFor = undefined; }
+        }
+    };
+    const stopSearchSupplement = (): void => {
+        searchPeopleController?.abort(); searchPeopleController = undefined;
+        searchRequestsController?.abort(); searchRequestsController = undefined;
+    };
+    const searchRequests = (current: Extract<Route, { kind: "search" }>): void => {
+        const query = current.query.trim();
+        const supplement = current.supplement ??= {};
+        if (!requestsCapability.enabled || query.length <= 1 || supplement.requestsFor === query) return;
+        searchRequestsController?.abort();
+        const controller = new AbortController(); searchRequestsController = controller;
+        supplement.requestsFor = query;
+        controller.signal.onabort = () => { supplement.requestsFor = undefined; };
+        const owns = (): boolean => !torn && !controller.signal.aborted && top() === current && current.supplement === supplement && current.query.trim() === query;
+        void read(requestOperations.search(query, 1), controller.signal).then(page => {
+            if (!owns()) return;
+            searchRequestsController = undefined;
+            supplement.requests = page.results.filter(title => ["movie", "series"].includes(title.mediaType) && title.availability !== "available").slice(0, 12);
+            render(host.focused());
+        }, (error: unknown) => {
+            if (!owns()) return;
+            searchRequestsController = undefined;
+            supplement.requestsFor = undefined; supplement.requests = [];
+            render(host.focused());
+            if (error instanceof ApiError && ["capability_disabled", "capability_not_configured", "capability_unsupported", "permission_denied"].includes(error.problemId ?? "")) void probeRequests(false);
+        });
+    };
+    const searchPeople = (current: Extract<Route, { kind: "search" }>, type: "movie" | "series" | "video" | "video_with_episodes"): void => {
+        searchPeopleController?.abort();
+        const supplement = current.supplement ??= {};
+        supplement.people = []; supplement.peopleFailure = false;
+        if (!current.peopleSupported) { supplement.peoplePending = false; return; }
+        const query = current.query;
+        const controller = new AbortController(); searchPeopleController = controller;
+        supplement.peoplePending = true;
+        const owns = (): boolean => !torn && !controller.signal.aborted && top() === current && current.supplement === supplement && current.query === query;
+        void read(detailOperations.people(query.trim(), type), controller.signal).then(people => {
+            if (!owns()) return;
+            supplement.people = people; supplement.peoplePending = false; render(host.focused());
+        }, () => {
+            if (!owns()) return;
+            supplement.peoplePending = false; supplement.peopleFailure = true; render(host.focused());
+        });
+    };
     let probeOrdinal = 0;
     let requestWritePending = false;
     let shuffleCapability: ShuffleCapability = { usable: false, scopeKinds: [] };
@@ -234,12 +296,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const original = home.kind === "home" ? home.data?.libraries.find(library => library.id === route.library.id) : undefined;
         return shuffleCapability.usable && shuffleCapability.scopeKinds.includes("library") && (original?.type !== "mixed" || route.library.type === "mixed");
     };
-    const probeRequests = async (): Promise<void> => {
+    const probeRequests = async (refreshSearch = true): Promise<void> => {
         const ordinal = ++probeOrdinal;
         try {
             const capability = await session.call({ ...requestOperations.status(), profileScoped: true, signal: requestsController.signal });
             if (torn || ordinal !== probeOrdinal) return;
-            requestsCapability = capability;
+            acceptRequestsCapability(capability);
+            const searchRoute = top();
+            if (refreshSearch && capability.enabled && searchRoute?.kind === "search") searchRequests(searchRoute);
             const focus = host.focused();
             shell.setRequestsEnabled(capability.enabled);
             if (!capability.enabled) {
@@ -336,6 +400,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             return;
         }
         torn = true;
+        stopSearchSupplement();
         presentation.stop();
         activeSection?.stop();
         if (activeBrowse !== undefined) stopFeed(activeBrowse);
@@ -633,7 +698,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     return { capability, data, detail, detailFailed };
                 }, result => {
                     if (capabilityOrdinal === probeOrdinal) {
-                        requestsCapability = result.capability;
+                        acceptRequestsCapability(result.capability);
                         shell.setRequestsEnabled(result.capability.enabled);
                     }
                     if (!requestsCapability.enabled) { roots.delete("requests"); stack = [home]; showRoute(home, { zone: "nav", key: "home" }); return; }
@@ -946,9 +1011,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     ? "video_with_episodes" : "video";
                 if (!signal.aborted && top() === current && current.query === query) {
                     current.searchType = type;
+                    current.peopleSupported = capability.allowed && capability.state === "available" && capability.peopleMediaScope === true;
                 }
             }
-            return read(operations.listCatalogItems({ q: query, type, limit: PAGE_SIZE, cursor: pages.cursors[index] }), signal);
+            if (signal.aborted || top() !== current || current.query !== query) throw new DOMException("Aborted", "AbortError");
+            if (current.supplement?.people === undefined) searchPeople(current, current.filter ?? type);
+            return read(operations.listCatalogItems({ q: query.trim(), type: current.filter ?? type, limit: PAGE_SIZE, cursor: pages.cursors[index] }), signal);
         }, (page) => {
             pages.page = page;
             pages.index = index;
@@ -958,8 +1026,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }, quiet || pages.page !== undefined);
     };
 
+    let searchReturnFocus: { readonly route: Extract<Route, { kind: "search" }>; readonly target: FocusTarget } | undefined;
     const search = (current: Extract<Route, { kind: "search" }>, quiet = false): void => {
+        searchReturnFocus = undefined;
         cancelSearch();
+        stopSearchSupplement();
+        current.supplement = {};
+        searchRequests(current);
         current.failure = undefined;
         if (current.query.trim() === "") {
             loading?.abort();
@@ -975,6 +1048,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     input.addEventListener("input", () => {
+        searchReturnFocus = undefined;
         const current = top();
         if (current?.kind !== "search") {
             return;
@@ -984,10 +1058,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         cancelSlow();
         current.slow = false;
         current.query = input.value;
+        stopSearchSupplement();
+        current.supplement = {};
+        render(host.focused());
         cancelSearch();
         // Only the replacement request is debounced; an obsolete read stops immediately.
         cancelSearch = clock.schedule(() => search(current), SEARCH_DELAY_MS);
     });
+    input.addEventListener("blur", () => { searchReturnFocus = undefined; });
     input.addEventListener("keydown", (event) => {
         const current = top();
         // The TV keyboard's Done key, or Enter on a desktop keyboard: search now.
@@ -998,6 +1076,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     });
 
     const pop = (): void => {
+        stopSearchSupplement();
         const active = top();
         if (active?.kind === "library" && active.discovery?.genre !== undefined) {
             genre(active, undefined);
@@ -1013,6 +1092,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         stack.pop();
         const current = top();
         if (current !== undefined) {
+            container.classList.toggle("search-restored", current.kind === "search");
             if (current.kind === "personal" || current.kind === "personFilmography" || current.kind === "calendar" || current.kind === "requests") {
                 if (current.kind === "personal" || current.kind === "personFilmography") current.pendingIndex = undefined;
                 current.stale = true;
@@ -1021,7 +1101,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
     };
 
-    const push = (next: Route): void => {
+    const push = (next: Route, focus?: FocusTarget): void => {
+        stopSearchSupplement();
         shuffleGeneration++;
         const current = top();
         const panel = (current?.kind === "item" || current?.kind === "season") ? current.data?.details?.panel : undefined;
@@ -1034,16 +1115,21 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         loading = undefined;
         cancelSearch();
         stack.push(next);
-        showRoute(next, undefined);
+        showRoute(next, focus);
     };
 
     const showRoute = (current: Route, focus: FocusTarget | undefined): void => {
+        searchReturnFocus = current.kind === "search" && focus?.zone === "search-requests" && current.supplement?.requests === undefined
+            ? { route: current, target: focus } : undefined;
         if (current.kind === "calendar") {
             try { prepareCalendar(current); }
             catch (error) { current.failure = error instanceof Error ? error.message : "Could not read this TV’s timezone. Try again."; }
         }
         if (current.kind === "search") {
             input.value = current.query;
+            if (current.supplement?.peoplePending && current.searchType !== undefined && current.query === current.resultsFor) searchPeople(current, current.filter ?? current.searchType);
+            if (current.supplement !== undefined && current.supplement.requests === undefined) current.supplement.requestsFor = undefined;
+            searchRequests(current);
         }
         render(focus);
         if ((current.kind === "item" || current.kind === "season") && current.data?.details !== undefined && !current.stale) {
@@ -1097,6 +1183,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         current.focus = focus ?? host.focused();
         stopDetails();
         playing = true;
+        stopSearchSupplement();
         cancelCalendarDay();
         host.holdVisit();
         shell.hide();
@@ -1120,6 +1207,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (current === undefined || torn || playing || synopsis.active || cardActions.active || settingsScreen !== undefined) {
             return;
         }
+        if (searchReturnFocus?.route === current && current.kind === "search" && current.supplement?.requests !== undefined) {
+            if (current.supplement.requests.some(title => `${title.mediaType}:${title.tmdbId}` === searchReturnFocus?.target.key)) focus = searchReturnFocus.target;
+            searchReturnFocus = undefined;
+        }
         if (current.kind === "calendar") {
             const midnight = new Date(clock.now());
             midnight.setHours(24, 0, 0, 0);
@@ -1127,11 +1218,17 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
         shell.setAvatar(options.profileName ?? "Profiles", options.profileAvatarUrl, context.baseUrl);
         if (current.kind === "library") shell.setLibraryModes(availableModes(current.discovery?.data?.capabilities ?? current.discovery?.capabilities));
-        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: current.kind === "library" && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
+        const searchFilter = (route: Extract<Route, { kind: "search" }>, filter: "movie" | "series" | undefined): void => {
+            if (top() !== route || route.filter === filter) return;
+            loading?.abort(); loading = undefined; cancelSlow();
+            route.filter = filter; route.pages = undefined; search(route);
+        };
+        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, searchFilter, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: current.kind === "library" && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
         container.classList.toggle("section-catalog", isSectionRoute(current) || current.kind === "recommendationSection");
         const browsing = current.kind === "library" && current.discovery?.mode === "Browse";
         container.classList.toggle("library-browse", browsing);
         container.classList.toggle("requests-scene", current.kind === "requests");
+        container.classList.toggle("search-scene", current.kind === "search");
         container.classList.toggle("requests-hub", current.kind === "requests" && current.requests.source.kind === "hub");
         if (browsing) activeBrowse = current.pages;
         if (isSectionRoute(current)) activeSection = sectionCatalog(current);
@@ -1139,8 +1236,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             ? activeSection.view(current, context, loading !== undefined, pop, () => retry(current), () => {
                 if (top() !== current || torn || playing || loading !== undefined || cardActions.active || synopsis.active || settingsScreen !== undefined || current.failure !== undefined || current.pages.page?.nextCursor === undefined) return;
                 loadSection(current, true, true);
-            }) : routeView(current, handlers);
-        const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || current.kind === "search" || current.kind === "personal" || current.kind === "calendar" || (current.kind === "requests" && current.requests.source.kind === "hub");
+            }) : routeView(current, { ...handlers, retryPeople: route => {
+                if (top() !== route || route.searchType === undefined || route.query.trim() === "") return;
+                searchPeople(route, route.filter ?? route.searchType);
+                render(host.focused());
+            } });
+        const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || current.kind === "personal" || current.kind === "calendar" || (current.kind === "requests" && current.requests.source.kind === "hub");
         if (rootRoute) {
             const selected = current.kind === "library" ? (current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? current.anchor ?? "profiles" : current.kind;
             const preview = current.kind === "home" || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && (current.discovery?.mode ?? "Recommended") === "Recommended");
@@ -1162,7 +1263,18 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         loadRoute(current);
     };
     // Retained roots must reread too: a settled or uncertain write may have changed them.
-    const markRequestsStale = (): void => { for (const route of new Set([...roots.values(), ...stack])) if (route.kind === "requests") route.stale = true; };
+    const markRequestsStale = (): void => {
+        searchRequestsController?.abort();
+        const visible = top();
+        for (const route of new Set([...roots.values(), ...stack])) {
+            if (route.kind === "requests") route.stale = true;
+            if (route.kind === "search" && route.supplement !== undefined) {
+                if (route !== visible) route.supplement.requests = undefined;
+                route.supplement.requestsFor = undefined;
+            }
+        }
+        if (visible?.kind === "search") searchRequests(visible);
+    };
     const openRequests = (source: RequestsSource): void => { if (requestsCapability.enabled) push(newRoute({ kind: "requests", requests: requestsState(source) })); };
     const requestsHandlers = (current: Extract<Route, { kind: "requests" }>): RequestsHandlers => ({
         capability: requestsCapability, busy: loading !== undefined || requestWritePending, failure: current.failure,
@@ -1362,6 +1474,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             route.discovery = { ...discoveryState(), mode: destinationMode, capabilities: route.discovery?.capabilities };
             route.pages = newPages();
         }
+        if (route.kind === "search") {
+            route = newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" });
+            roots.set(key, route);
+            push(route, { zone: "field", key: "query" });
+            if (current !== undefined) current.focus = { zone: "nav", key: current.kind === "library" ? current.library.type === "series" ? "series" : "movies" : current.kind === "personal" ? current.anchor ?? "profiles" : current.kind };
+            return;
+        }
         // Apple's shown tab hands focus to the first card and reads nothing (TVRequestsPage.requestEntryFocus).
         if (route === current && route.kind === "requests") {
             host.focusDefault();
@@ -1378,12 +1497,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         loading = undefined;
         cancelSearch();
         stack = route === home ? [home] : [home, route];
+        stopSearchSupplement();
         showRoute(route, route.focus?.zone === "nav" ? undefined : route.focus);
         if (hasData(route) && (route.focus === undefined || route.focus.zone === "nav")) host.focusDefault();
     }, {
         name: options.profileName ?? "Profiles",
         serverName: () => cachedBranding(options.publicStorage, context.baseUrl)?.serverName,
         settings: () => {
+            stopSearchSupplement();
             shuffleGeneration++;
             stopDetails();
             cancelCalendarDay();

@@ -31,6 +31,10 @@ export class SkylineScroll {
     reveal(element: HTMLElement, container: HTMLElement): void {
         if (element.closest(".browse-nav, .skyline-selector:not(.details-audio-picker)") !== null) return;
         const viewport = element.closest<HTMLElement>(".browse-panel-list, .details-audio-picker, .skyline-content") ?? container;
+        if (container.dataset.view === "search" && element.closest(".search-filters") !== null) {
+            this.move(viewport, 0, 0);
+            return;
+        }
         const row = element.closest<HTMLElement>(".browse-row");
         if (row !== null) {
             const bounds = row.getBoundingClientRect();
@@ -51,9 +55,13 @@ export class SkylineScroll {
             return;
         }
         const margins = getComputedStyle(element);
+        const topRect = container.dataset.view === "search" && element.closest(".browse-grid") !== null
+            ? element.querySelector(".browse-art")?.getBoundingClientRect() ?? rect : rect;
         const topEdge = bounds.top + Math.max(12, parseFloat(margins.scrollMarginTop));
-        const bottomEdge = bounds.bottom - Math.max(32, parseFloat(margins.scrollMarginBottom));
-        const delta = rect.top < topEdge ? rect.top - topEdge : rect.bottom > bottomEdge ? rect.bottom - bottomEdge : 0;
+        const bottomEdge = bounds.bottom - (container.dataset.view === "search"
+            ? Math.max(32, parseFloat(getComputedStyle(viewport).scrollPaddingBottom) || 0)
+            : Math.max(32, parseFloat(margins.scrollMarginBottom)));
+        const delta = topRect.top < topEdge ? topRect.top - topEdge : rect.bottom > bottomEdge ? rect.bottom - bottomEdge : 0;
         // Opening selectors scale their rectangles, while scrollTop stays in unscaled CSS pixels.
         const scale = bounds.height / viewport.offsetHeight;
         this.move(viewport, 0, Math.max(0, viewport.scrollTop + delta / scale));

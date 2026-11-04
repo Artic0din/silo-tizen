@@ -32,6 +32,61 @@ official clients where it fits:
 Do not copy from jellyfin-web or jellyfin-tizen.
 Before porting a feature, read its upstream design spec; [Upstream design notes](docs/upstream-design-notes.md) links the ones that apply to a TV client.
 
+## Parity delivery gates
+
+### Establish the reference before editing
+
+- Read the affected Apple TV Swift implementation before every UI or behaviour
+  change, including integration fixes.
+  Record the source revision and distinguish it from the installed Apple build;
+  never infer that they match.
+- Compare the complete affected experience: layout, typography, colour,
+  spacing, copy, focus, motion, remote navigation and relevant loading,
+  failure, Retry, offline, empty and artwork-fallback states.
+- Inspect existing Tizen components and affected callers before adding code.
+  Reuse the existing shell, artwork, cards, focus, scrolling, dialogs, paging
+  and session owners where their behaviour fits.
+  Fix shared causes at their existing owner; do not rebuild these per screen.
+
+### Prove parity before committing
+
+- Do not commit a user-facing parity change until same-state Apple/Samsung
+  comparison demonstrates the affected experience matches.
+  Passing tests, source approval and publication approval are separate checks;
+  none substitutes for native comparison.
+- Use the same content, status, selection, focus, scroll and viewport.
+  Record actual capture dimensions; never upscale an image and call it native.
+  Use remote interaction and a recording when focus, motion or timing matters.
+- Identify the source candidate and signed WGT.
+  Verify changed installed assets and loaded code match that package before
+  capturing; repeat affected proof after subsequent changes.
+- Fix implementation differences.
+  For a demonstrated platform constraint, use the closest practical substitute,
+  document the reason and show the comparison.
+  A waiver applies only to the explicitly accepted gap.
+- Preserve meaningful regression assertions during test migrations.
+  Do not delete focus, cancellation, authority, paging or request-count checks
+  to obtain green results.
+  Diagnose failures; a later pass alone does not establish a flake or a fix.
+
+### Runtime ownership and parallel work
+
+- Use the Pro for native comparisons and Xcode Device Hub for Apple TV.
+  One Apple simulator and one Samsung simulator may run concurrently.
+  Never launch duplicate instances; assign one input owner per simulator.
+- A locked desktop or missing generic device listing does not establish that
+  SDK debugging is unavailable.
+  Test the authorized debugging interface before declaring a blocker.
+- Spread independent implementation, research and review across isolated
+  agents and available machines.
+  Serialize shared-file integration and simulator input, not all useful work.
+  Verify transferred patch bytes and hashes before applying them.
+- Keep physical-TV work deferred until simulator parity is complete.
+  Simulator success does not establish TV CORS, AVPlay or hardware acceptance.
+- Under full-send, continue the agreed backlog after each PR.
+  Keep verified progress and remaining gaps in GitHub issues.
+  An individual merge, green CI or partial review does not complete parity.
+
 ## Build, Test, and Development Commands
 
 - `npm ci` installs the build and test tools (Node.js 26 or later); `npx playwright install chromium` adds the browser the screen tests need.
@@ -42,8 +97,8 @@ Before porting a feature, read its upstream design spec; [Upstream design notes]
 - `export TIZEN_SECURITY_PROFILE="YourProfileName"` then `./scripts/build-wgt.sh` packages and signs `dist/Silo.wgt` with `tizen package -t wgt`.
 - `tizen install -n dist/Silo.wgt -t <device>` and `tizen run -p Sil0Tv0001.Silo -t <device>` install and launch on a TV in Developer Mode.
 
-The proof bar: the `.wgt` builds; smoke-test in the Tizen TV software emulator
-or Samsung TV simulator when possible; real TV validation is the final gate.
+The proof bar: the signed `.wgt` builds and the affected simulator journeys
+pass the parity gates above; real TV validation remains the final hardware gate.
 The simulator ships with `--disable-web-security`, so a successful simulator
 request does not establish ordinary-browser CORS or physical-TV acceptance. See
 [simulator evidence](docs/evidence/simulator-evidence.md) for launch, capture and proof
@@ -148,7 +203,9 @@ messages. Include validation evidence, risks, and follow-up work.
 - When babysitting a pull request, poll checks and review comments created
   after the last push. Verify bot findings against the source, fix real issues,
   and dismiss false positives with a written reason. Remain quiet when nothing
-  new has appeared. Stop when the latest commit is green.
+  new has appeared.
+  Green CI completes only the CI check; satisfy review and evidence gates,
+  then continue the parent task when its agreed scope remains unfinished.
 
 ## Security & Configuration Tips
 

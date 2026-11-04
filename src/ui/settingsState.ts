@@ -3,7 +3,7 @@ import { systemClock, type Clock } from "../api/clock.ts";
 import type { RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import type { UserLibrary } from "../contracts/v2/catalog.ts";
-import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, TITLE_ART_KEY, SEEK_KEYS, SETTINGS_KEYS, decodeSettingValue, numericLibraryId, profileSettings, type SettingsIdentity, type SettingsScope, type EffectiveSetting, type ExplicitSetting, type SettingDefinition, type SettingsKey, type SettingValue } from "../contracts/v2/settings.ts";
+import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, TITLE_ART_KEY, SEEK_KEYS, SETTINGS_KEYS, SHOW_FORCED_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, decodeSettingValue, numericLibraryId, profileSettings, type SettingsIdentity, type SettingsScope, type EffectiveSetting, type ExplicitSetting, type SettingDefinition, type SettingsKey, type SettingValue } from "../contracts/v2/settings.ts";
 import { NativeSession, SessionError } from "../session/session.ts";
 
 type TitleEdit = { key: typeof TITLE_ART_KEY; kind: "title"; profile: ExplicitSetting; steps: { scope: SettingsScope; value?: boolean; done?: boolean }[] };
@@ -18,6 +18,7 @@ export class SettingsState {
     definitions: readonly SettingDefinition[] = [];
     libraries: readonly UserLibrary[] = [];
     audioOptions: readonly (string | null)[] = [];
+    subtitleOptions: readonly string[] = [];
     busy = false;
     loaded = false;
     error: string | undefined;
@@ -65,6 +66,7 @@ export class SettingsState {
         this.titleDevice = undefined;
         this.libraries = [];
         this.audioOptions = [];
+        this.subtitleOptions = [];
         this.error = undefined;
         this.changed();
         try {
@@ -78,13 +80,14 @@ export class SettingsState {
             this.definitions = profileSettings(contract, capability);
             this.manifestRevision = contract.revision;
             this.batchedEffective = capability.supportsBatchedEffective;
-            const keys = SETTINGS_KEYS.filter(key => this.definitions.some(def => def.key === key));
+            const keys: SettingsKey[] = [...SETTINGS_KEYS, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, SHOW_FORCED_KEY].filter(key => this.definitions.some(def => def.key === key));
             if (keys.length > 0) await this.readValues(keys);
             const libraries = keys.includes(HIDDEN_KEY) ? await this.call(operations.listUserLibraries(true)) : [];
             if (!this.active) return;
             this.libraries = libraries;
             const options = this.definitions.find(def => def.key === AUDIO_KEY)?.options.filter(option => option.introducedIn <= revision).map(option => option.value).filter((value): value is string => typeof value === "string") ?? [];
             this.audioOptions = [null, ...(revision >= 9 ? ["x-silo-original"] : []), ...options];
+            this.subtitleOptions = this.definitions.find(def => def.key === SUBTITLE_LANGUAGE_KEY)?.options.filter(option => option.introducedIn <= revision && typeof option.value === "string").map(option => String(option.value)) ?? [];
             this.loaded = true;
             this.retryEdit = undefined;
             if (capability.manifestRevision >= 16 && !this.definitions.some(def => def.key === TITLE_ART_KEY)) this.error = "Title-art settings are unavailable. Reload settings.";
@@ -251,6 +254,7 @@ export class SettingsState {
         this.definitions = [];
         this.libraries = [];
         this.audioOptions = [];
+        this.subtitleOptions = [];
         this.retryEdit = undefined;
         this.loaded = false;
         this.error = undefined;

@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Showed Up Next before playback ended with Play Now, Keep Watching and an On Deck row, and refreshed autoplay at episode completion.
+
 ### Fixed
 
 - Resumed playback after a timeline scrub once the seek finished, let the remote move through an empty audio list, and cropped seek previews to each thumbnail's own shape.

@@ -60,42 +60,53 @@ export async function nextEpisode(read: Read, contentId: string, effectiveFileId
  * title, so it plays only from Play next. A failed read offers nothing.
  */
 export async function onDeckPlay(read: Read, contentId: string): Promise<PlayRequest | undefined> {
+    return (await onDeckPlays(read, contentId))[0];
+}
+
+export async function onDeckPlays(read: Read, contentId: string): Promise<PlayRequest[]> {
     let seriesId: string | undefined;
     try {
         const current = await read(operations.watchDetail(contentId));
-        if (current.id !== contentId) return undefined;
+        if (current.id !== contentId) return [];
         seriesId = current.seriesId;
     } catch {
-        return undefined;
+        return [];
     }
     let sections;
     try {
         sections = await read(operations.listHomeSections());
     } catch {
-        return undefined;
+        return [];
     }
+    const result: PlayRequest[] = [];
+    const seen = new Set<string>();
     for (const section of sections) {
         if (!ON_DECK_SECTIONS.has(section.sectionType)) continue;
         for (const card of section.items) {
             if (card.id === contentId || card.type !== "movie" && card.type !== "episode") continue;
             if (seriesId !== undefined && card.seriesId === seriesId) continue;
+            if (seen.has(card.id)) continue;
+            seen.add(card.id);
+            if (seen.size > 12) return result;
             try {
                 const detail = await read(operations.watchDetail(card.id));
                 if (detail.id !== card.id || detail.type !== "movie" && detail.type !== "episode") continue;
                 const file = detail.versions.find((version) => version.fileId === detail.watch?.lastFileId) ?? detail.versions[0];
                 if (file === undefined) continue;
                 const start = resumeSeconds(detail.watch?.positionSeconds, file.durationSeconds > 0 ? file.durationSeconds : undefined);
-                return {
+                result.push({
                     contentId: detail.id,
                     fileId: file.fileId,
                     title: detail.title,
+                    overview: card.overview,
+                    backdropUrl: card.backdropUrl,
                     startSeconds: start ?? 0,
                     ...(detail.type === "episode" ? { episode: true as const } : {}),
-                };
+                });
             } catch {
                 continue;
             }
         }
     }
-    return undefined;
+    return result;
 }

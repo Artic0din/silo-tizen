@@ -272,7 +272,8 @@ for (const change of ["audio", "quality"] as const) test(`a hidden ${change} rep
     assert.equal(view.phase === "playing" && view.positionSeconds, 123, "fresh listener receives time updates");
     r.avplay.listener?.onstreamcompleted();
     await r.h.clock.advance(0);
-    assert.deepEqual(r.exits, ["end:completed"]);
+    assert.deepEqual(r.exits, []);
+    assert.equal(r.views.at(-1)?.phase, "completion");
 });
 
 test("retired restore cannot mark a preparing user replacement started", async () => {
@@ -1093,7 +1094,8 @@ test("a refused subtitle stays a refusal, and natural end still completes", asyn
     assert.equal(r.avplay.state, "PLAYING");
     r.avplay.listener?.onstreamcompleted();
     await r.h.clock.advance(0);
-    assert.deepEqual(r.exits, ["end:completed"]);
+    assert.deepEqual(r.exits, []);
+    assert.equal(r.views.at(-1)?.phase, "completion");
     assert.equal(stops(r.h), 1);
     r.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
     await r.h.clock.advance(60000);

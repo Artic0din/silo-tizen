@@ -31,7 +31,8 @@ import { SeekThumbnails, type ThumbnailSheetLoader } from "./seekThumbnails.ts";
 import { AUTO_NEXT_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS, profileSettings } from "../contracts/v2/settings.ts";
 import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
 import { markerAt, type SkipMarker } from "../contracts/v2/markers.ts";
-import { nextEpisode, onDeckPlay } from "./nextEpisode.ts";
+import { nextEpisode, onDeckPlays } from "./nextEpisode.ts";
+import { NEXT_UP_PROMPT_KEY } from "../contracts/v2/settings.ts";
 import { nextShuffle } from "./nextShuffle.ts";
 import { SubtitleAI, type SubtitleAIView } from "./subtitleAI.ts";
 import { DEFAULT_APPEARANCE, decodeCues, type SubtitleAppearance, type SubtitleCue } from "../contracts/v2/subtitles.ts";
@@ -42,6 +43,8 @@ import { audioRow, qualityMenuLabel, subtitleRow } from "./trackLabels.ts";
 
 /** What browse hands over: one file of one catalog item. */
 export interface PlayRequest {
+    readonly overview?: string | undefined;
+    readonly backdropUrl?: string | undefined;
     readonly shuffleId?: string;
     readonly episode?: true;
     readonly audioTrackId?: string;
@@ -114,7 +117,7 @@ export interface TrackView {
 }
 
 export type PlaybackView =
-    | { readonly phase: "completion"; readonly title: string; readonly state: "finalizing" | "resolving" | "ready" | "failed"; readonly next: PlayRequest | undefined; readonly retryable: boolean; readonly countdown?: number | undefined }
+    | { readonly phase: "completion"; readonly title: string; readonly state: "finalizing" | "resolving" | "ready" | "failed"; readonly next: PlayRequest | undefined; readonly retryable: boolean; readonly countdown?: number | undefined; readonly deck?: readonly PlayRequest[] }
     | { readonly phase: "loading"; readonly title: string; readonly detail?: "reconnecting" | "restoring" }
     | {
           readonly phase: "playing" | "paused";
@@ -123,6 +126,7 @@ export type PlaybackView =
           readonly positionSeconds: number;
           readonly durationSeconds: number | undefined;
           readonly buffering: boolean;
+          readonly upNext?: { readonly next: PlayRequest | undefined; readonly deck: readonly PlayRequest[]; readonly countdown: number | undefined; readonly status: string };
           readonly tracks: TrackView;
           readonly seekIntervals: { readonly backward: number; readonly forward: number };
           readonly previewKey?: string | undefined;
@@ -155,8 +159,9 @@ export interface PlayerControls {
     retryTrackInfo(): void;
     retrySettings(): void;
     retryCompletion(): void;
-    playNext(): void;
+    playNext(request?: PlayRequest): void;
     cancelAutoplay(): void;
+    keepWatching(): void;
     saveSeriesSubtitle(): void;
     startSubtitleAI(kind: "translate" | "transcribe", language?: string): void;
     selectAIResult(id: string): void;
@@ -193,6 +198,13 @@ const WARNING_NOTICES: Readonly<Record<string, string>> = {
 };
 
 interface Attempt {
+    autoNextSupported: boolean;
+    promptSeconds: number;
+    promptSupported: boolean;
+    promptDismissed: boolean;
+    promptPending: boolean;
+    promptLookedUp: boolean;
+    prompt: { next: PlayRequest | undefined; deck: readonly PlayRequest[]; fromDeck: boolean } | undefined;
     autoNext: boolean;
     ai: SubtitleAI | undefined;
     readonly aiBlockedFiles: Set<string>;
@@ -340,6 +352,8 @@ export class PlaybackController implements PlayerControls {
         }
         this.shownError = undefined;
         const attempt: Attempt = {
+            autoNextSupported: false,
+            promptSeconds: 30, promptSupported: false, promptDismissed: false, promptPending: false, promptLookedUp: false, prompt: undefined,
             autoNext: false,
             ai: undefined, aiBlockedFiles: new Set(), pendingAIResult: undefined,
             appearance: DEFAULT_APPEARANCE, subtitleSync: 0, cues: [], captionAbort: undefined, captionNotice: "", captionPreferenceNotice: "", captionKey: undefined, captionPreferencesRead: false, seriesSubtitle: request.episode ? { busy: false, message: "" } : undefined,
@@ -574,6 +588,7 @@ export class PlaybackController implements PlayerControls {
         if (attempt === undefined || attempt.hidden) {
             return;
         }
+        if (attempt.prompt !== undefined) this.cancelAutoplay();
         attempt.resumeGeneration += 1;
         attempt.restoring = false;
         attempt.hidden = true;
@@ -815,7 +830,16 @@ export class PlaybackController implements PlayerControls {
             if (!attempt.live) return false;
             if (contract.apiVersion !== 1 || contract.revision < capability.manifestRevision) throw new Error("Settings contract changed");
             const definitions = profileSettings(contract, capability);
+            attempt.promptSupported = definitions.some(def => def.key === NEXT_UP_PROMPT_KEY);
+            if (attempt.promptSupported) {
+                try {
+                    const values = await call(operations.effectiveSettings([NEXT_UP_PROMPT_KEY]));
+                    const seconds = values.get(NEXT_UP_PROMPT_KEY)?.value;
+                    if (typeof seconds === "number") attempt.promptSeconds = seconds;
+                } catch { /* Apple's default remains usable offline. */ }
+            }
             if (definitions.some(def => def.key === AUTO_NEXT_KEY)) {
+                attempt.autoNextSupported = true;
                 try {
                     const values = await call(operations.effectiveSettings([AUTO_NEXT_KEY]));
                     if (attempt.live) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
@@ -1394,7 +1418,7 @@ export class PlaybackController implements PlayerControls {
         try {
             avplay.open(url);
             avplay.setListener(this.listen(attempt, transport));
-            avplay.setDisplayRect(0, 0, SCREEN.width, SCREEN.height);
+            this.setDisplayRect(attempt);
             this.armStartup(attempt, transport);
             avplay.prepareAsync(
                 () => {
@@ -1504,6 +1528,7 @@ export class PlaybackController implements PlayerControls {
                 const plan = attempt.plan;
                 if (current() && attempt.started && (!attempt.busy || attempt.change.state === "changing" || attempt.reporting) && plan !== undefined) {
                     attempt.sourceSeconds = milliseconds / 1000 + plan.timeline.timelineOffsetSeconds;
+                    this.updatePrompt(attempt);
                     this.showPlayback(attempt);
                 }
             },
@@ -1614,7 +1639,7 @@ export class PlaybackController implements PlayerControls {
         const spec = operations.updatePlaybackProgress(sessionId, {
             installation_id: installationId,
             sequence: ++attempt.sequence,
-            position: attempt.sourceSeconds,
+            position: this.reportPosition(attempt),
             is_paused: samplePaused(attempt),
         });
         attempt.progress = this.deps.session.call({ ...spec, profileScoped: true, signal: attempt.signal }).then(
@@ -1652,7 +1677,7 @@ export class PlaybackController implements PlayerControls {
             installation_id: installationId,
             stop_id: this.newId(),
             sequence: ++attempt.sequence,
-            position: attempt.sourceSeconds,
+            position: this.reportPosition(attempt),
             is_paused: samplePaused(attempt),
         });
         attempt.stopSpec = spec;
@@ -1693,25 +1718,56 @@ export class PlaybackController implements PlayerControls {
         void this.finishCompletion(completion);
     }
 
-    playNext(): void {
+    playNext(selected?: PlayRequest): void {
         const view = this.current;
+        const attempt = this.active();
+        if ((view.phase === "playing" || view.phase === "paused") && attempt?.prompt !== undefined) {
+            const request = selected ?? attempt.prompt.next;
+            if (request === undefined || (request !== attempt.prompt.next && !attempt.prompt.deck.includes(request))) return;
+            attempt.sourceSeconds = attempt.plan?.durationSeconds ?? attempt.sourceSeconds;
+            this.beginCompletion(attempt);
+            this.nextStart = request;
+            return;
+        }
         if (view.phase !== "completion" || view.state !== "ready" || view.next === undefined || this.completion?.attempt.stopped !== true) return;
-        const request = view.next;
+        const request = selected ?? view.next;
+        if (request !== view.next && !view.deck?.includes(request)) return;
         this.cancelCompletion();
         this.nextStart = request;
         this.play(request);
     }
 
     private cancelCompletion(): void {
-        this.cancelAutoplay();
+        this.cancelAutoplayTimer?.();
+        this.cancelAutoplayTimer = undefined;
         this.completion?.abort.abort();
         this.completion = undefined;
     }
 
     cancelAutoplay(): void {
+        const attempt = this.active();
+        if (attempt !== undefined) {
+            attempt.promptDismissed = true;
+            attempt.prompt = undefined;
+            try { this.deps.avplay.setDisplayRect(0, 0, SCREEN.width, SCREEN.height); } catch { /* Transport recovery owns platform failures. */ }
+            this.showPlayback(attempt);
+        }
         this.cancelAutoplayTimer?.();
         this.cancelAutoplayTimer = undefined;
         if (this.current.phase === "completion" && this.current.countdown !== undefined) this.show({ ...this.current, countdown: undefined });
+    }
+
+    keepWatching(): void {
+        const attempt = this.attempt;
+        if (attempt?.live === true) {
+            this.cancelAutoplay();
+            this.setPaused(false);
+        } else if (attempt?.stopped === true && this.completion !== undefined) {
+            const request = { ...attempt.request, startSeconds: Math.max(0, (attempt.plan?.durationSeconds ?? attempt.sourceSeconds) - 10) };
+            this.cancelCompletion();
+            this.play(request);
+            if (this.attempt !== undefined) this.attempt.promptDismissed = true;
+        } else this.back();
     }
 
     private startAutoplay(completion: NonNullable<PlaybackController["completion"]>): void {
@@ -1730,13 +1786,26 @@ export class PlaybackController implements PlayerControls {
     private async finishCompletion(completion: NonNullable<PlaybackController["completion"]>): Promise<void> {
         const { attempt, abort } = completion;
         const current = (): boolean => this.completion === completion && this.attempt === attempt && !abort.signal.aborted && !attempt.signal.aborted && attempt.signal === this.deps.session.authoritySignal;
-        const show = (state: "finalizing" | "resolving" | "ready" | "failed", next?: PlayRequest, retryable = false, title = "Playback ended"): void => {
-            if (current()) this.show({ phase: "completion", title, state, next, retryable });
+        const show = (state: "finalizing" | "resolving" | "ready" | "failed", next?: PlayRequest, retryable = false, title = "Playback ended", deck?: readonly PlayRequest[]): void => {
+            if (current()) this.show({ phase: "completion", title, state, next, retryable, ...(deck === undefined ? {} : { deck }) });
         };
         show("finalizing");
         try {
             await this.stopSession(attempt);
             if (!current()) return;
+            if (this.nextStart !== undefined) {
+                const request = this.nextStart;
+                this.cancelCompletion();
+                this.play(request);
+                return;
+            }
+            if (attempt.autoNextSupported) {
+                try {
+                    const values = await this.deps.session.call({ ...operations.effectiveSettings([AUTO_NEXT_KEY]), profileScoped: true, signal: abort.signal });
+                    attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
+                } catch { attempt.autoNext = false; }
+                if (!current()) return;
+            }
             if (attempt.request.shuffleId !== undefined) {
                 show("resolving");
                 const next = await nextShuffle(spec => {
@@ -1747,31 +1816,36 @@ export class PlaybackController implements PlayerControls {
                 if (current() && next !== undefined && attempt.autoNext) this.startAutoplay(completion);
                 return;
             }
-            if (attempt.request.episode !== true) {
-                this.cancelCompletion();
-                this.attempt = undefined;
-                this.show({ phase: "closed" });
-                this.deps.exits.onEnd("completed");
-                return;
-            }
             show("resolving");
             const fileId = attempt.plan?.effectiveMediaFileId;
             if (fileId === undefined) throw new ApiError({ kind: "invalid_response", path: "playback_plan.effective_media_file_id" });
-            const next = await nextEpisode(spec => {
+            const next = attempt.request.episode === true ? await nextEpisode(spec => {
                 if (!current()) throw abortedError();
                 return this.deps.session.call({ ...spec, profileScoped: true, signal: abort.signal });
-            }, attempt.request.contentId, fileId);
+            }, attempt.request.contentId, fileId) : undefined;
             if (next !== undefined) {
                 show("ready", next, false, "Playing Next");
-                if (current() && attempt.autoNext) this.startAutoplay(completion);
+                this.loadPresentation(next, abort.signal, enriched => {
+                    if (current() && this.current.phase === "completion" && this.current.next === next) this.show({ ...this.current, next: enriched });
+                });
+                void onDeckPlays(spec => {
+                    if (!current()) throw abortedError();
+                    return this.deps.session.call({ ...spec, profileScoped: true, signal: abort.signal });
+                }, attempt.request.contentId).then(deck => {
+                    if (current() && this.current.phase === "completion" && this.current.state === "ready") this.show({ ...this.current, deck });
+                }, () => undefined);
+                if (current() && attempt.autoNext && !attempt.promptDismissed) {
+                    if (attempt.prompt !== undefined) this.playNext();
+                    else this.startAutoplay(completion);
+                }
                 return;
             }
-            const deck = await onDeckPlay(spec => {
+            const deck = await onDeckPlays(spec => {
                 if (!current()) throw abortedError();
                 return this.deps.session.call({ ...spec, profileScoped: true, signal: abort.signal });
             }, attempt.request.contentId);
             if (!current()) return;
-            show("ready", deck, false, deck === undefined ? "Finished" : "Up Next");
+            this.show({ phase: "completion", title: deck.length === 0 ? "Finished" : "Up Next", state: "ready", next: deck[0], deck, retryable: false });
         } catch (error) {
             const missingSession = error instanceof ApiError && error.status === 404 && !attempt.stopped;
             const forbidden = missingSession || (error instanceof ApiError && (error.status === 401 || error.status === 403 || error.status === 410 || error.problemId === "installation_changed"));
@@ -2491,12 +2565,90 @@ export class PlaybackController implements PlayerControls {
             positionSeconds: attempt.sourceSeconds,
             durationSeconds: plan.durationSeconds,
             buffering: attempt.buffering,
+            ...(attempt.prompt === undefined ? {} : { upNext: {
+                next: attempt.prompt.next, deck: attempt.prompt.deck,
+                countdown: attempt.autoNext && !attempt.prompt.fromDeck && attempt.prompt.next !== undefined ? Math.max(0, Math.ceil((plan.durationSeconds ?? 0) - attempt.sourceSeconds)) : undefined,
+                status: attempt.prompt.next === undefined ? "More To Watch" : "Up Next",
+            } }),
             tracks: trackView(attempt, plan),
             seekIntervals: attempt.seekIntervals,
             previewKey: frozen ? undefined : attempt.planAttemptId,
             captions: attempt.hidden || attempt.restoring || frozen ? undefined : { text: attempt.cues.filter(cue => attempt.sourceSeconds - attempt.subtitleSync / 1000 >= cue.start && attempt.sourceSeconds - attempt.subtitleSync / 1000 < cue.end).map(cue => cue.text).join("\n"), appearance: attempt.appearance },
             skipMarker: frozen ? undefined : markerAt(attempt.markers?.segments ?? [], attempt.sourceSeconds),
         });
+    }
+
+    private updatePrompt(attempt: Attempt): void {
+        const duration = attempt.plan?.durationSeconds;
+        const remaining = duration === undefined ? Infinity : duration - attempt.sourceSeconds;
+        if (remaining < 0 || remaining > attempt.promptSeconds || attempt.promptSeconds === 0) {
+            attempt.promptDismissed = false;
+            attempt.promptLookedUp = false;
+            if (attempt.prompt !== undefined) {
+                attempt.prompt = undefined;
+                try { this.deps.avplay.setDisplayRect(0, 0, SCREEN.width, SCREEN.height); } catch { /* Recovery owns platform failures. */ }
+            }
+            return;
+        }
+        if (attempt.promptDismissed || attempt.promptPending || attempt.promptLookedUp || attempt.prompt !== undefined || attempt.hidden || attempt.busy || attempt.request.shuffleId !== undefined) return;
+        attempt.promptPending = true;
+        attempt.promptLookedUp = true;
+        void this.loadPrompt(attempt);
+    }
+
+    private reportPosition(attempt: Attempt): number {
+        const duration = attempt.plan?.durationSeconds;
+        return attempt.prompt !== undefined && duration !== undefined && attempt.promptSeconds > 0 && duration - attempt.sourceSeconds >= 0 && duration - attempt.sourceSeconds <= attempt.promptSeconds ? duration : attempt.sourceSeconds;
+    }
+
+    private async loadPrompt(attempt: Attempt): Promise<void> {
+        const current = (): boolean => {
+            const remaining = (attempt.plan?.durationSeconds ?? Infinity) - attempt.sourceSeconds;
+            return this.active() === attempt && !attempt.signal.aborted && !attempt.promptDismissed && !attempt.hidden && !attempt.busy && remaining >= 0 && remaining <= attempt.promptSeconds;
+        };
+        const read = <T>(spec: RequestSpec<T>): Promise<T> => this.deps.session.call({ ...spec, profileScoped: true, signal: attempt.signal });
+        try {
+            if (attempt.autoNextSupported) {
+                try {
+                    const values = await read(operations.effectiveSettings([AUTO_NEXT_KEY]));
+                    if (current()) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
+                } catch { attempt.autoNext = false; }
+            }
+            const fileId = attempt.plan?.effectiveMediaFileId;
+            const next = attempt.request.episode === true && fileId !== undefined ? await nextEpisode(read, attempt.request.contentId, fileId) : undefined;
+            if (!current()) return;
+            if (next !== undefined) {
+                attempt.prompt = { next, deck: [], fromDeck: false };
+                this.setDisplayRect(attempt);
+                this.showPlayback(attempt);
+                this.loadPresentation(next, attempt.signal, enriched => {
+                    if (current() && attempt.prompt?.next?.contentId === next.contentId) {
+                        attempt.prompt.next = enriched;
+                        this.showPlayback(attempt);
+                    }
+                });
+            }
+            const deck = await onDeckPlays(read, attempt.request.contentId);
+            if (!current()) return;
+            if (next === undefined && deck.length === 0) return;
+            attempt.prompt = { next: attempt.prompt?.next ?? next ?? deck[0], deck, fromDeck: next === undefined };
+            this.setDisplayRect(attempt);
+            this.showPlayback(attempt);
+        } catch {
+            // Playback continues; EOF retains the existing explicit Retry path.
+        } finally { attempt.promptPending = false; }
+    }
+
+    private setDisplayRect(attempt: Attempt): void {
+        // tvOS standard-card column: 4 × 360 + 3 × 40; preview spans two cards.
+        if (attempt.prompt !== undefined) this.deps.avplay.setDisplayRect(180, 112, 760, Math.round(760 * 9 / 16));
+        else this.deps.avplay.setDisplayRect(0, 0, SCREEN.width, SCREEN.height);
+    }
+
+    private loadPresentation(request: PlayRequest, signal: AbortSignal, accept: (request: PlayRequest) => void): void {
+        void this.deps.session.call({ ...operations.getCatalogItem(request.contentId), profileScoped: true, signal }).then(detail => {
+            if (!signal.aborted && detail.id === request.contentId) accept({ ...request, overview: detail.overview, backdropUrl: detail.backdropUrl });
+        }, () => undefined);
     }
 
     private show(view: PlaybackView): void {

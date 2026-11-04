@@ -82,7 +82,9 @@ async function open(hidden = false, videoDir?: string): Promise<{ page: Page; lo
         const type = path.endsWith(".js") ? "application/javascript" : path.endsWith(".css") ? "text/css" : "text/html";
         await route.fulfill({ status: 200, contentType: type, body });
     });
-    await page.clock.install();
+    const time = new Date("2026-11-05T00:00:00Z");
+    await page.clock.install({ time });
+    await page.clock.pauseAt(time);
     if (hidden) {
         await page.addInitScript(() => Object.defineProperty(document, "hidden", { configurable: true, value: true }));
     }
@@ -118,7 +120,7 @@ test("autoplay countdown and Cancel are remote-operable without losing manual Pl
     const view: PlaybackView = { phase: "completion", title: "Playback ended", state: "ready", retryable: false, next: { contentId: "next", fileId: "43", title: "Next episode", startSeconds: 0, episode: true }, countdown: 10 };
     try {
         await show(page, view);
-        assert.equal(await page.locator('[data-focus="play-next"]').innerText(), "Play next (10s)");
+        assert.equal(await page.locator('[data-focus="play-next"]').innerText(), "Play Now");
         await remote(page, DOWN);
         assert.equal(await focused(page), "cancel-autoplay");
         await show(page, { ...view, countdown: 9 });
@@ -129,6 +131,36 @@ test("autoplay countdown and Cancel are remote-operable without losing manual Pl
         assert.equal(await focused(page), "play-next");
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), ["cancelAutoplay", "playNext"]);
+    } finally { await page.close(); }
+});
+
+test("Up Next captures remote input, preserves focus and exposes Keep Watching and On Deck", async () => {
+    const { page } = await open();
+    const candidate = { contentId: "next", fileId: "43", title: "Next episode", overview: "The next chapter.", startSeconds: 0, episode: true as const };
+    const cards = Array.from({ length: 12 }, (_, index) => ({ ...candidate, contentId: `deck-${index}`, title: `Title ${index}` }));
+    const view: PlaybackView = { ...playing(TRACKS), upNext: { next: candidate, deck: cards, countdown: 30, status: "Up Next" } };
+    try {
+        await show(page, view);
+        assert.equal(await focused(page), "play-next");
+        assert.equal(await page.locator(".player-next-eyebrow").innerText(), "UP NEXT");
+        assert.equal(await page.locator(".player-next-synopsis").innerText(), "The next chapter.");
+        assert.equal(await page.locator(".player-next-card").count(), 12);
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "keep-watching");
+        await show(page, view);
+        assert.equal(await focused(page), "keep-watching");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["keepWatching"]);
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "back");
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "deck:deck-0");
+        await remote(page, RIGHT);
+        await show(page, { ...playing(TRACKS), upNext: { next: candidate, deck: cards.map(card => ({ ...card, fileId: "new-file" })), countdown: 20, status: "Up Next" } });
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["keepWatching", "playNext deck-1 new-file"]);
+        await remote(page, BACK);
+        assert.equal((await commands(page)).at(-1), "keepWatching");
     } finally { await page.close(); }
 });
 

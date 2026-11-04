@@ -301,11 +301,18 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const failure = el("div", "player-error");
     failure.setAttribute("role", "alert");
     const failureTitle = el("h1", "player-title");
+    const eyebrow = el("p", "player-next-eyebrow");
+    const synopsis = el("p", "player-next-synopsis");
+    const deck = el("div", "player-next-deck");
+    const keep = el("button", "player-button", "Keep Watching");
+    keep.type = "button";
+    keep.setAttribute("data-focus", "keep-watching");
+    keep.addEventListener("click", () => controls.keepWatching());
     const failureText = el("p", "player-error-text");
     const back = el("button", "player-button", "Back");
     back.type = "button";
     back.setAttribute("data-focus", "back");
-    back.addEventListener("click", () => view.phase === "completion" ? controls.back() : controls.dismissError());
+    back.addEventListener("click", () => view.phase === "completion" || ((view.phase === "playing" || view.phase === "paused") && view.upNext !== undefined) ? controls.keepWatching() : controls.dismissError());
     const retry = el("button", "player-button", "Retry");
     retry.type = "button";
     retry.setAttribute("data-focus", "settings-retry");
@@ -318,12 +325,16 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     cancelAutoplay.type = "button";
     cancelAutoplay.setAttribute("data-focus", "cancel-autoplay");
     cancelAutoplay.addEventListener("click", () => controls.cancelAutoplay());
+    failure.appendChild(eyebrow);
     failure.appendChild(failureTitle);
     failure.appendChild(failureText);
+    failure.appendChild(synopsis);
     failure.appendChild(next);
+    failure.appendChild(keep);
     failure.appendChild(cancelAutoplay);
     failure.appendChild(retry);
     failure.appendChild(back);
+    failure.appendChild(deck);
     section.appendChild(surface);
     section.appendChild(overlay);
     section.appendChild(skip);
@@ -445,6 +456,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
 
     const render = (): void => {
         renderSubtitles(view);
+        const prompt = view.phase === "playing" || view.phase === "paused" ? view.upNext : undefined;
         const active = view.phase === "playing" || view.phase === "paused";
         if (!active && (seekPreview !== undefined || timeline || autoRate !== 0)) cancelScrub();
         const marker = view.phase === "playing" || view.phase === "paused" ? view.skipMarker : undefined;
@@ -456,7 +468,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         if (seekPreview === undefined) thumbnail.clear();
         transport.hidden = !active;
         bar.setAttribute("aria-disabled", String(!active));
-        const showing = view.phase === "error" || view.phase === "completion" ? "error" : "overlay";
+        const showing = view.phase === "error" || view.phase === "completion" || prompt !== undefined ? "error" : "overlay";
         failure.style.display = showing === "error" ? "block" : "none";
         overlay.style.display = showing === "overlay" ? "block" : "none";
         if (menuOpen && view.phase !== "playing" && view.phase !== "paused") {
@@ -465,19 +477,69 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         hud.hidden = !menuOpen;
         tracksButton.setAttribute("aria-expanded", String(menuOpen));
         next.hidden = true;
+        keep.hidden = prompt === undefined;
+        eyebrow.hidden = view.phase !== "completion" && prompt === undefined;
+        synopsis.hidden = eyebrow.hidden;
+        deck.hidden = eyebrow.hidden;
         cancelAutoplay.hidden = view.phase !== "completion" || view.countdown === undefined;
-        if (view.phase === "completion") {
+        if (view.phase === "completion" || prompt !== undefined) {
+            closeMenu();
+            hud.hidden = true;
+            skip.hidden = true;
+            const candidate = view.phase === "completion" ? view.next : prompt?.next;
+            const cards = view.phase === "completion" ? view.deck ?? [] : prompt?.deck ?? [];
+            const seconds = view.phase === "completion" ? view.countdown : prompt?.countdown;
+            const status = view.phase === "completion" ? view.title : prompt?.status ?? "Up Next";
+            failure.classList.add("player-next-up");
+            eyebrow.textContent = status;
+            synopsis.textContent = candidate?.overview ?? "";
+            const identity = cards.map(card => card.contentId).join("|");
+            if (deck.dataset.items !== identity) {
+                deck.dataset.items = identity;
+                deck.replaceChildren();
+                if (cards.length > 0) deck.appendChild(el("h2", "player-menu-heading", "On Deck"));
+                for (const card of cards) {
+                    const button = el("button", "player-choice player-next-card", card.title);
+                    button.type = "button";
+                    button.setAttribute("data-focus", `deck:${card.contentId}`);
+                    if (card.backdropUrl !== undefined) {
+                        const img = document.createElement("img");
+                        img.src = card.backdropUrl;
+                        img.alt = "";
+                        img.addEventListener("error", () => img.remove(), { once: true });
+                        button.prepend(img);
+                    }
+                    button.addEventListener("click", () => {
+                        const current = view.phase === "completion" ? view.deck : view.phase === "playing" || view.phase === "paused" ? view.upNext?.deck : undefined;
+                        const selected = current?.find(candidate => candidate.contentId === card.contentId);
+                        if (selected !== undefined) controls.playNext(selected);
+                    });
+                    deck.appendChild(button);
+                }
+            }
+            if (view.phase !== "completion") {
+                next.hidden = candidate === undefined;
+                next.textContent = "Play Now";
+                retry.hidden = true;
+                cancelAutoplay.hidden = true;
+                failureTitle.textContent = candidate?.title ?? "Almost finished";
+                failureText.textContent = seconds === undefined ? "" : `Playing in ${seconds}s`;
+                if (!failure.contains(document.activeElement)) (next.hidden ? keep : next).focus();
+                return;
+            }
             next.hidden = view.state !== "ready" || view.next === undefined;
-            next.textContent = view.countdown === undefined ? "Play next" : `Play next (${view.countdown}s)`;
+            next.textContent = "Play Now";
             retry.hidden = view.state !== "failed" || !view.retryable;
-            failureTitle.textContent = view.title;
+            failureTitle.textContent = candidate?.title ?? (view.state === "ready" ? "End of playback" : view.title);
             failureText.textContent = view.state === "finalizing" ? "Ending playback…" : view.state === "resolving" ? "Finding the next episode…" : view.state === "failed" ? "Could not confirm playback or load the next episode." : view.next?.title ?? "No more playable episodes.";
-            if (![back, retry.hidden ? undefined : retry, next.hidden ? undefined : next, cancelAutoplay.hidden ? undefined : cancelAutoplay].includes(document.activeElement as HTMLButtonElement)) {
+            if (view.countdown !== undefined) failureText.textContent = `Playing in ${view.countdown}s`;
+            if (!failure.contains(document.activeElement) || (document.activeElement as HTMLElement).hidden) {
                 (!next.hidden ? next : !retry.hidden ? retry : back).focus();
             }
             return;
         }
         if (view.phase === "error") {
+            failure.classList.remove("player-next-up");
             retry.hidden = view.error.kind !== "settings" && !view.retryable;
             failureTitle.textContent = view.title;
             failureText.textContent = errorText(view.error);
@@ -798,10 +860,11 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             return;
         }
         event.preventDefault();
-        if (view.phase === "completion") {
-            const buttons = [next, cancelAutoplay, retry, back].filter(button => !button.hidden);
+        if (view.phase === "completion" || ((view.phase === "playing" || view.phase === "paused") && view.upNext !== undefined)) {
+            const buttons = [next, keep, cancelAutoplay, retry, back, ...Array.from(deck.querySelectorAll<HTMLButtonElement>("button"))].filter(button => !button.hidden);
             const index = buttons.findIndex(button => button === document.activeElement);
-            if (key === "back" || key === "stop") controls.back();
+            if (key === "stop") controls.back();
+            else if (key === "back") controls.keepWatching();
             else if (key === "enter") (buttons[index] ?? buttons[0])?.click();
             else if (key === "up" || key === "left") buttons[Math.max(0, index - 1)]?.focus();
             else if (key === "down" || key === "right") buttons[Math.min(buttons.length - 1, index + 1)]?.focus();

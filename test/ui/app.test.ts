@@ -40,12 +40,56 @@ async function signIn(tv: Tv): Promise<void> {
     await tv.jump(5000);
     // "Signed in as …" holds for a second before sign-in moves on.
     await tv.jump(1000);
+    if (await tv.page.locator('[data-screen="notice"]').count()) await tv.page.getByRole("button", { name: "Continue", exact: true }).click();
     await tv.page.locator('[data-screen="profiles"]').waitFor();
     await tv.page.locator('[data-focus="profile:p-owner"]').click();
     await tv.page.locator('[data-focus="ask-every-launch"]').click();
     await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
     await homeDetailsRead(tv);
 }
+
+appTest("unreadable account storage shows recovery and preserves the saved bytes", async tv => {
+    await tv.page.evaluate(() => { window.appHarness.destroy(); window.appHarness.storage.failGet = true; window.appHarness.mount(); });
+    await tv.page.locator('[data-screen="accounts-storage-error"]').waitFor();
+    assert.equal(await tv.focused(), "retry");
+    await tv.page.getByRole("button", { name: "Continue without saved accounts", exact: true }).click();
+    await tv.page.locator('[data-screen="entry"]').waitFor();
+    await tv.page.evaluate(() => { window.appHarness.storage.failGet = false; });
+});
+
+appTest("a profile-count cache write failure still opens Switch Profile", async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => { window.appHarness.storage.failSet = true; });
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="switch-profile"]').click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    assert.equal(await tv.page.locator('.profile-avatar').count(), 2);
+});
+
+appTest("Change Account keeps a session-only account usable without signing in again", async tv => {
+    await tv.page.evaluate(() => { window.appHarness.keyManager.failSave = true; });
+    await signIn(tv);
+    const devices = tv.fake.devices.size;
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.page.locator('[data-view="change-account"]').waitFor();
+    await tv.page.locator('.account-card').first().click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    assert.equal(tv.fake.devices.size, devices);
+    assert.equal(tv.fake.revokedSessions.size, 0);
+});
+
+appTest("empty Change Account focuses Add server and Back returns to sign-in", async tv => {
+    await tv.page.fill("#signin-address", "silo.example.test");
+    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="change-account"]').waitFor();
+    assert.equal(await tv.focused(), "add-server");
+    assert.equal(await tv.page.getByRole("button", { name: "Add an account", exact: true }).count(), 0);
+    await tv.remote(10009);
+    await tv.page.locator('[data-screen="entry"]').waitFor();
+});
 
 appTest("the top bar shows a preset's flat PNG when the server's avatar URL is an SVG", async tv => {
     await tv.page.route("https://api.dicebear.com/**", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="58" height="58"/>' }));
@@ -106,7 +150,7 @@ appTest("Sign Out confirmation traps focus and cancellation preserves the sessio
     assert.equal(await tv.page.locator(".browse").count(), 0);
 });
 
-appTest("Change Account follows Settings and opens existing server entry without signing out", async tv => {
+appTest("Change Account follows Settings and opens saved accounts without signing out", async tv => {
     await signIn(tv);
     const writes = tv.fake.requests.filter(request => request.method !== "GET").length;
     const sessions = tv.fake.devices.size;
@@ -114,12 +158,23 @@ appTest("Change Account follows Settings and opens existing server entry without
     assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["Switch Profile", "History", "Settings", "Change Account", "Sign Out"]);
     assert.equal(await tv.page.getByRole("menuitem", { name: "Switch Server", exact: true }).count(), 0);
     await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
-    await tv.page.locator('[data-screen="entry"]').waitFor();
+    await tv.page.locator('[data-view="change-account"]').waitFor();
     assert.equal(await tv.page.locator(".browse").count(), 0);
     assert.equal(tv.fake.requests.filter(request => request.method !== "GET").length, writes);
     assert.equal(tv.fake.devices.size, sessions, "entry does not start another sign-in");
-    assert.equal(await tv.page.locator("#signin-address").inputValue(), "https://silo.example.test");
-    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
+    assert.equal(await tv.page.locator('.account-badge').textContent(), "CURRENT");
+    const geometry = await tv.page.evaluate(() => {
+        const rail = document.querySelector('.accounts-rail button')!.getBoundingClientRect();
+        const card = document.querySelector('.account-card')!.getBoundingClientRect();
+        return { rail: [rail.width, rail.height], card: [card.width, card.height], headline: getComputedStyle(document.querySelector('.accounts-title')!).fontSize };
+    });
+    assert.deepEqual(geometry.rail, [520, 88]);
+    assert.equal(geometry.headline, "88px");
+    // Focus grows the 760 by 128 card by Apple's 1.03 scale.
+    assert.ok(Math.abs(geometry.card[0]! - 760 * 1.03) < .1);
+    assert.ok(Math.abs(geometry.card[1]! - 128 * 1.03) < .1);
+    assert.equal(await tv.page.getByRole('button', { name: 'Add', exact: true }).count(), 0, "tvOS has direct add-account and add-server actions");
+    await tv.page.locator('.account-card').first().click();
     await tv.page.locator('[data-screen="profiles"]').waitFor();
     assert.equal(await tv.page.locator('[data-screen="code"]').count(), 0, "the saved account restores");
 });
@@ -577,7 +632,8 @@ appTest("sign-out returns its notice to entry and relaunch cannot restore the re
     await tv.page.getByRole("button", { name: "Sign out", exact: true }).click();
     await tv.page.locator('[data-screen="entry"]').waitFor();
     await tv.page.evaluate(() => window.appHarness.mount());
-    await tv.page.locator('[data-screen="code"]').waitFor();
+    await tv.page.locator('[data-screen="entry"]').waitFor();
+    assert.equal(await tv.page.locator("#signin-address").inputValue(), "", "signing out of the last account removes its server");
     assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 0);
     assert.equal(await tv.page.locator(".browse").count(), 0);
 });

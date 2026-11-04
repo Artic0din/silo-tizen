@@ -12,10 +12,13 @@ import { Profiles } from "./profiles.ts";
 import { ProfileLaunch } from "./profileLaunch.ts";
 import { openSecretStore, type TizenKeyManager } from "./secretStore.ts";
 import { NativeSession, type RestoreResult } from "./session.ts";
+import { AccountDirectory, AccountVault, type SavedAccount } from "./accounts.ts";
+import type { SecretStore } from "./secretStore.ts";
 
 export interface SessionCoreDeps {
+    readonly transientAccounts?: { readonly secrets: SecretStore; readonly storage: PublicStorage };
     readonly fetch: FetchLike;
-    /** localStorage; holds only the public device id and logout floors, never tokens. */
+    /** localStorage; public device identity, account metadata and logout floors, never tokens. */
     readonly publicStorage: PublicStorage | undefined;
     /** `findTizenKeyManager()` on a TV; undefined keeps credentials in memory for this run. */
     readonly keyManager: TizenKeyManager | undefined;
@@ -24,6 +27,8 @@ export interface SessionCoreDeps {
     readonly deviceName: string;
     readonly devicePlatform: string;
     readonly clock?: Clock;
+    readonly localAccountId?: string;
+    readonly addAccount?: boolean;
 }
 
 export interface ConnectedServer {
@@ -33,6 +38,7 @@ export interface ConnectedServer {
     readonly profiles: Profiles;
     readonly profileLaunch: ProfileLaunch;
     readonly restore: RestoreResult;
+    readonly accounts: AccountVault;
     /** A fresh sign-in flow; call `start()` to show a code. */
     createDeviceLogin(): DeviceLogin;
 }
@@ -47,7 +53,13 @@ export async function connect(serverAddress: string, deps: SessionCoreDeps, sign
         return discovered;
     }
     const server = discovered.server;
-    const vault = new CredentialVault(openSecretStore(deps.keyManager), deps.publicStorage, server.http.base.baseUrl);
+    let vault: AccountVault;
+    const transient = deps.keyManager === undefined ? deps.transientAccounts : undefined;
+    try { vault = new AccountVault(transient?.secrets ?? openSecretStore(deps.keyManager), transient?.storage ?? deps.publicStorage, server.http.base.baseUrl, deps.randomBytes, deps.localAccountId, deps.addAccount, transient?.storage); }
+    catch {
+        // Unreadable metadata must not overwrite saved accounts; sign-in can still be session-only.
+        vault = new AccountVault(deps.transientAccounts?.secrets ?? openSecretStore(undefined), deps.transientAccounts?.storage, server.http.base.baseUrl, deps.randomBytes, undefined, true, deps.transientAccounts?.storage);
+    }
     const session = new NativeSession(server, vault, clock);
     const restore = await session.restore();
     return {
@@ -57,8 +69,27 @@ export async function connect(serverAddress: string, deps: SessionCoreDeps, sign
         profiles: new Profiles(session, clock),
         profileLaunch: new ProfileLaunch(session, deps.publicStorage, openSecretStore(deps.keyManager), deps.randomBytes, server.serverId),
         restore,
+        accounts: vault,
         createDeviceLogin: () => new DeviceLogin(session, clock, device.name, device.platform),
     };
+}
+
+/** Offline removal still clears local authority; reachable accounts also revoke their session. */
+export async function signOutSavedAccount(account: SavedAccount, deps: SessionCoreDeps): Promise<VaultClear> {
+    try {
+        const connected = await connect(account.baseUrl, { ...deps, addAccount: true });
+        if (connected.status === "connected") {
+            const transient = deps.keyManager === undefined ? deps.transientAccounts : undefined;
+            const vault = new CredentialVault(transient?.secrets ?? openSecretStore(deps.keyManager), transient?.storage ?? deps.publicStorage, account.baseUrl, account.id);
+            const session = new NativeSession(connected.server, vault, deps.clock ?? systemClock);
+            await session.restore();
+            if (session.signedIn && (await session.logout()).storage === "failed") return "failed";
+        }
+    } catch {
+        // Discovery can fail offline; protected storage remains the local sign-out authority.
+    }
+    const transient = deps.keyManager === undefined ? deps.transientAccounts : undefined;
+    return new AccountVault(transient?.secrets ?? openSecretStore(deps.keyManager), transient?.storage ?? deps.publicStorage, account.baseUrl, deps.randomBytes, account.id, false, transient?.storage).signOut();
 }
 
 /** Deletes a server's stored credential without contacting it, e.g. while it is unreachable. */
@@ -70,5 +101,13 @@ export async function forgetStoredCredential(
     if (!parsed.ok) {
         return parsed.problem;
     }
-    return new CredentialVault(openSecretStore(deps.keyManager), deps.publicStorage, parsed.base.baseUrl).clear();
+    const store = openSecretStore(deps.keyManager);
+    const directory = new AccountDirectory(deps.publicStorage, () => undefined);
+    let result = await new CredentialVault(store, deps.publicStorage, parsed.base.baseUrl).clear();
+    for (const row of directory.list().filter(row => row.baseUrl === parsed.base.baseUrl)) {
+        const cleared = await new CredentialVault(store, deps.publicStorage, row.baseUrl, row.id).clear();
+        if (cleared === "failed" || result === "failed") result = "failed";
+        else if (cleared === "guarded") result = "guarded";
+    }
+    return result;
 }

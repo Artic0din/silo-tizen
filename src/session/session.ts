@@ -191,7 +191,7 @@ export class NativeSession {
         const epoch = this.accountEpoch;
         // Whatever was stored before (even an account this run could not read) must not come
         // back after a restart if this save fails.
-        const previousSession = await this.vault.clear();
+        const previousSession = await this.vault.prepareSignIn();
         const current = this.credential;
         if (this.accountEpoch !== epoch || current === undefined) {
             return undefined;
@@ -304,11 +304,12 @@ export class NativeSession {
     /** Ends the session here first, so it holds even offline; then asks the server to revoke it. */
     async logout(): Promise<LogoutResult> {
         const credential = this.credential;
-        const storage = await this.endAccount("signed_out");
+        const clearing = this.endAccount("signed_out");
         if (credential === undefined) {
-            return { storage, server: "not_signed_in" };
+            return { storage: await clearing, server: "not_signed_in" };
         }
-        return { storage, server: await revokeIssuedTokens(this.http, credential) };
+        const revoking = revokeIssuedTokens(this.http, credential);
+        return { storage: await clearing, server: await revoking };
     }
 
     /** Used by Profiles; switching aborts the old profile's requests and notifies listeners. */
@@ -374,9 +375,10 @@ export class NativeSession {
     }
 
     private endAccount(reason: "signed_out" | "session_expired"): Promise<VaultClear> {
+        const hadAccount = this.signedIn;
         this.resetAccount();
         this.bump(reason);
-        return this.vault.clear();
+        return reason === "signed_out" && hadAccount ? this.vault.signOut() : this.vault.clear();
     }
 
     private resetAccount(): void {

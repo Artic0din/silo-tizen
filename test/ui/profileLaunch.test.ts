@@ -20,20 +20,57 @@ async function selectKid(tv: Tv): Promise<void> {
     await tv.page.locator('[data-focus="unlock"]').click();
 }
 
-test("Change server from the composed picker preserves saved credentials and retires its screen", async () => {
+test("Change account from the composed picker preserves saved credentials and retires its screen", async () => {
     const browser = await launchBrowser();
     const tv = await openTv(browser, { app: "application" });
     try {
         await picker(tv);
         const saved = await tv.page.evaluate(() => window.appHarness.keyManager.items.size);
         assert.ok(saved > 0);
-        await tv.page.getByRole("button", { name: "Change server", exact: true }).click();
-        await tv.page.locator('[data-screen="entry"]').waitFor();
-        assert.equal(await tv.focused(), "connect");
+        await tv.page.getByRole("button", { name: "Change account", exact: true }).click();
+        await tv.page.locator('[data-view="change-account"]').waitFor();
+        assert.equal(await tv.page.locator('.account-card:focus').count(), 1);
         assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 0);
         assert.equal(await tv.page.evaluate(() => window.appHarness.keyManager.items.size), saved);
         assert.equal(tv.fake.revokedSessions.size, 0);
         assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); await browser.close(); }
+});
+
+test("Change Account waits for a profile instead of reopening a remembered profile", async () => {
+    const browser = await launchBrowser();
+    const tv = await openTv(browser, { app: "application" });
+    tv.fake.catalog = new FakeDetails();
+    try {
+        await picker(tv); await selectKid(tv);
+        await tv.page.locator('[data-screen="remember-profile"]').waitFor();
+        await tv.page.keyboard.press("Enter");
+        await tv.page.locator('[data-view="home"]').waitFor();
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+        await tv.page.locator('.account-card').first().click();
+        await tv.page.locator('[data-screen="profiles"]').waitFor();
+        assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+    } finally { await tv.page.context().close(); await browser.close(); }
+});
+
+test("Settings Accounts clears the previous profile's PIN authority", async () => {
+    const browser = await launchBrowser();
+    const tv = await openTv(browser, { app: "application" });
+    tv.fake.catalog = new FakeDetails();
+    try {
+        await picker(tv); await selectKid(tv);
+        await tv.page.locator('[data-focus="ask-every-launch"]').click();
+        await tv.page.locator('[data-view="home"]').waitFor();
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+        await tv.page.locator('[data-focus="server"]').click();
+        await tv.page.getByRole("button", { name: "Accounts", exact: true }).click();
+        await tv.page.locator('[data-view="accounts-settings"]').waitFor();
+        await tv.remote(10009);
+        await tv.page.locator('[data-screen="profiles"]').waitFor();
+        await tv.page.locator('[data-focus="profile:p-kid"]').click();
+        await tv.page.locator('[data-screen="pin"]').waitFor();
     } finally { await tv.page.context().close(); await browser.close(); }
 });
 

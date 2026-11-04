@@ -17,7 +17,7 @@ const PICKER_KEYS = { hidden: HIDDEN_KEY, audio: AUDIO_KEY, quality: QUALITY_KEY
 const PICKER_LABELS = { hidden: "Hidden libraries", audio: "Preferred audio", quality: "Preferred quality", bitrate: "Maximum bitrate", "seek-back": "Video rewind interval", "seek-forward": "Video fast-forward interval" } as const;
 export interface SettingsScreen { destroy(): void }
 
-export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void, launch?: ProfileLaunch): SettingsScreen {
+export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void, launch?: ProfileLaunch, accounts?: () => void): SettingsScreen {
     const container = el("section", "browse settings");
     container.setAttribute("aria-label", "Settings");
     root.appendChild(container);
@@ -240,6 +240,10 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         });
         const rows: FocusItem[] = [];
         const body = el("div", "settings-pane");
+        if (category === "server" && accounts) {
+            const item = actionButton("accounts", "Accounts", accounts);
+            rows.push(item); body.append(item.element);
+        }
         body.append(el("h2", "browse-section-title", CATEGORY_LABELS[category]), ...(category === "server" ? [] : feedback()));
         const pickers: readonly Picker[] = category === "general" ? ["hidden"] : category === "playback" ? ["audio", "quality", "bitrate", "seek-back", "seek-forward"] : [];
         if (category === "server") {

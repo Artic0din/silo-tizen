@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added Change Account with several saved accounts per server, account management, and automatic opening of a single profile without a PIN.
+
 ### Fixed
 
 - Renamed the profile menu's Switch Server row to Change Account, after Settings and before Sign Out.

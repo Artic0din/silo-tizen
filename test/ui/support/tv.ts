@@ -18,7 +18,7 @@ const THEME = readFileSync(new URL("../../../src/theme.css", import.meta.url), "
 const CSS: Record<TvApp, string> = {
     signIn: readFileSync(new URL("../../../src/ui/signIn.css", import.meta.url), "utf8"),
     browse: readFileSync(new URL("../../../src/ui/browse.css", import.meta.url), "utf8"),
-    application: ["ui/signIn.css", "ui/browse.css", "player/player.css", "app.css"].map((name) => readFileSync(new URL(`../../../src/${name}`, import.meta.url), "utf8")).join("\n"),
+    application: ["ui/signIn.css", "ui/browse.css", "ui/accounts.css", "player/player.css", "app.css"].map((name) => readFileSync(new URL(`../../../src/${name}`, import.meta.url), "utf8")).join("\n"),
 };
 const HTML = `<!DOCTYPE html>
 <html lang="en">

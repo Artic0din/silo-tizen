@@ -65,6 +65,7 @@ export interface BrowseOptions {
     readonly onChooseProfile: () => void;
     readonly onSignOut?: () => void;
     readonly onSwitchServer?: () => void;
+    readonly onAccounts?: () => void;
     readonly profileName?: string;
     readonly profileAvatarUrl?: string;
     readonly clock?: Clock;
@@ -1527,7 +1528,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 host.listen();
                 const current = top();
                 if (current !== undefined) showRoute(current, { zone: "nav", key: "profiles" });
-            }, server.profileLaunch);
+            }, server.profileLaunch, options.onAccounts);
         },
         personal: (source, anchor = "profiles") => {
             const origin = top();
@@ -1537,6 +1538,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         switchProfile: chooseProfile,
         ...(options.onSwitchServer === undefined ? {} : { switchServer: () => { teardown(); options.onSwitchServer?.(); } }),
         ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
+        ...(session.account ? { accountName: session.account.username } : {}),
+        lastAccount: (() => {
+            try { return server.accounts.directory.list().filter(row => row.baseUrl === context.baseUrl).length === 1; }
+            catch { return false; } // Optional dialog copy cannot block Browse; logout checks storage itself.
+        })(),
     }, focus => render(focus), options.publicStorage, `silo.skyline.scope:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`, context.baseUrl);
     shell.titleArt = () => presentation.showsTitleArt;
     const enrichedScene = (): boolean => { const current = top(); return current?.kind === "home" || current?.kind === "for_you" || (current?.kind === "library" && current.discovery?.mode === "Recommended"); };

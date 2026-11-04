@@ -262,12 +262,15 @@ test("watchlist, favorites and history are continuous Apple pages", async () => 
         await tv.page.locator(".browse .browse-card").first().focus();
         await tv.page.keyboard.press("ArrowRight");
         assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length, before);
+        const next = catalog.route("POST", "/catalog/query", "p-owner", { source: "watchlist", type: "video", limit: 24, cursor: "p-owner:watchlist:video:24" });
+        assert.ok(next);
+        // Queue both outcomes before scrolling can prefetch beyond the next page.
+        catalog.pageReplies.push(next, problem(503, "service_unavailable", "Unavailable"), problem(503, "service_unavailable", "Unavailable"));
         await tv.eventually(async () => {
             await revealEnd(tv);
             return await tv.page.locator(".browse .browse-card").count() > 24;
         }, "watchlist appended the next page");
-        assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).pop()?.body?.cursor, "p-owner:watchlist:video:24");
-        catalog.pageReplies.push(problem(503, "service_unavailable", "Unavailable"), problem(503, "service_unavailable", "Unavailable"));
+        assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query"))[before]?.body?.cursor, "p-owner:watchlist:video:24");
         const shown = await tv.page.locator(".browse .browse-card").count();
         await tv.eventually(async () => {
             await revealEnd(tv);
@@ -478,18 +481,21 @@ for (const source of ["watchlist", "favorites"]) test(`uncovering ${source} reco
 test("Details return discards an abandoned personal-page turn", async () => {
     const { tv } = await setup();
     try {
+        tv.fake.hold("/catalog/query", true).release();
+        tv.fake.hold("/catalog/query", true).release();
+        const held = tv.fake.hold("/catalog/query", true);
         await openList(tv, "watchlist");
         await loadThrough(tv, 48);
-        const reads = tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length;
-        const held = tv.fake.hold("/catalog/query", true);
         await revealEnd(tv);
-        await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length > reads, "pending later page");
+        await tv.eventually(async () => tv.fake.requests.some(request => request.path.startsWith("/catalog/query") && request.body?.cursor === "p-owner:watchlist:video:48"), "pending later page");
         await tv.page.locator('[data-focus="movie:m0026"]').click();
         await tv.page.locator('[data-view="item:movie:m0026"]').waitFor();
+        const refresh = tv.fake.hold("/catalog/query", true);
         await tv.remote(10009);
         const cached = await tv.page.locator('.browse [data-focus="movie:m0026"]').elementHandle();
         assert.ok(cached);
         held.release();
+        refresh.release();
         await tv.eventually(async () => await cached.evaluate(node => !node.isConnected), "personal-page refresh rendered");
         assert.equal(await tv.page.locator(".browse-page-status").count(), 0);
         assert.equal(await tv.focused(), "movie:m0026");

@@ -2304,13 +2304,18 @@ browseTest("discovery uses nonzero letter positions and cancels an obsolete quer
 
 browseTest("Skyline keeps bounded type tabs and a passive debounced marquee", async (tv) => {
     assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["search", "home", "movies", "series", "for_you", "calendar", "profiles"]);
-    assert.equal(await tv.page.locator(".skyline-marquee h1").textContent(), "Movie 0001");
+    const headline = (): Promise<string | null> => tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) h1").textContent();
+    assert.equal(await headline(), "Movie 0001");
     const reads = tv.fake.requests.length;
+    // The installed page clock keeps flowing, so a loaded runner can pass 150 ms before the next
+    // read. Pause it so only the jump below opens the debounced layer. The outgoing title stays
+    // mounted through the crossfade, so the read is the current layer.
+    await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now()) + 1000);
     await press(tv, "ArrowRight");
     assert.equal(await tv.focused(), "episode:s1e12");
-    assert.equal(await tv.page.locator(".skyline-marquee h1").textContent(), "Movie 0001");
+    assert.equal(await headline(), "Movie 0001");
     await tv.jump(150);
-    assert.equal(await tv.page.locator(".skyline-marquee h1").last().textContent(), "Harbor Lights", "episodes headline with their series");
+    assert.equal(await headline(), "Harbor Lights", "episodes headline with their series");
     assert.equal(tv.fake.requests.length, reads);
 });
 

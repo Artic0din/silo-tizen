@@ -8,6 +8,7 @@ All notable changes to this project are documented in this file.
 
 - Matched Apple TV card focus lift, outlines, caption spacing and colours across Search, cast, related titles, Requests and Calendar.
 - Kept Search posters at their intended top clearance after the focus lift finished.
+- Opening a Movies or Series library section, including Continue Watching, no longer sends type, sort and order on the section catalog query, which the server rejected.
 - Kept Home hero and detail backdrops sharp using Apple TV artwork sizes instead of small first-pass images.
 - Prevented large Search posters from overlapping and kept catalog errors and Try Again visible while People results were pending.
 - Restored related titles on Details when the server returned cards without catalog pagination totals.

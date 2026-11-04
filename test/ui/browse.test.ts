@@ -745,6 +745,41 @@ browseTest("Recommended shares Skyline rows and expands through a tile", async t
     assert.equal(await tv.focused(), "expand:library-picks");
 });
 
+browseTest("Movies Continue Watching and other library headings open without a catalog overlay", async (tv, catalog) => {
+    const household = catalog.households.get("p-owner");
+    assert.ok(household);
+    household.librarySections = [
+        { id: "continue_watching", sectionType: "continue_watching", title: "Continue Watching", items: ["movie:m0001", "episode:s1e12"] },
+        { id: "recently_added", sectionType: "recently_added", title: "Recently Added", items: ["movie:m0002", "movie:m0004"] },
+    ];
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    for (const id of ["continue_watching", "recently_added"]) {
+        const heading = tv.page.locator(`[data-section="${id}"] .browse-section-title`);
+        await heading.waitFor();
+        assert.equal(await heading.evaluate(node => node.tagName), "H2", `${id} heading is not a control`);
+        assert.equal(await heading.getAttribute("data-focus"), null);
+        assert.equal(await tv.page.locator(`[data-focus="section:${id}"]`).count(), 0);
+    }
+    await tv.page.locator('[data-focus="expand:continue_watching"]').click();
+    const catalogCard = tv.page.locator(".section-catalog-grid .browse-card").first();
+    const catalogError = tv.page.getByText("Something went wrong. Try again.");
+    await Promise.race([catalogCard.waitFor(), catalogError.waitFor()]);
+    const opened = tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).at(-1);
+    assert.equal(opened?.path.startsWith("/catalog/query?image_size=small"), true);
+    assert.deepEqual(opened?.body, { library_id: "12", limit: 60, source: "section", scope: "library", section_id: "continue_watching" });
+    assert.equal(await catalogError.count(), 0);
+    await catalogCard.waitFor();
+    assert.equal(await tv.page.locator(".section-catalog-title").innerText(), "Continue Watching");
+    await tv.remote(BACK);
+    assert.equal(await tv.focused(), "expand:continue_watching");
+    await tv.page.locator('[data-focus="expand:recently_added"]').click();
+    await tv.page.locator(".section-catalog-title").waitFor();
+    assert.equal(await tv.page.locator(".section-catalog-title").innerText(), "Recently Added");
+    assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).at(-1)?.body, { library_id: "12", limit: 60, source: "section", scope: "library", section_id: "recently_added" });
+    assert.equal(await tv.page.getByText("Something went wrong. Try again.").count(), 0);
+});
+
 function videoOnlyCatalog(): FakeCatalog {
     const catalog = new FakeCatalog();
     delete catalog.searchCapabilities.video_with_episodes_scope;

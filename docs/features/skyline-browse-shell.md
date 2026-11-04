@@ -4,7 +4,8 @@ This slice applies the [Skyline guide](https://github.com/Silo-Server/silo-apple
 Home, Movies, Series and Profiles share mounted root navigation.
 Only visible video library types appear, and mixed libraries can be scoped to either video type.
 Search, Detail, season and playback routes remove the root chrome.
-Library destinations follow the available discovery capabilities: Browse, Collections, Genres, A–Z and Recently Added.
+The library dropdown offers Recommended, Collections and Browse, in that order, matching the tvOS cascade.
+Browse retains the capability-gated Genres, A–Z and Recently Added mode controls.
 
 ## Details layout and selection
 
@@ -240,7 +241,8 @@ Reference: silo-apple `ffa6e5188c70664090a6dc9beb8c7cbbc3ce43e7`, source only; t
 With reduced motion the artwork does not grow and shows Apple's 4 px focus ring instead.
 Library Recommended now uses these same media rows and the calibrated Home hero/marquee scene, independently of its selected navigation root or library shortcut.
 Its headings are plain text; Explore All retains the section route and library scope.
-Inline collection tiles retain their separate presentation and actions.
+Recommended preserves non-featured server shelf order without injecting a Collections shelf or requesting collections.
+Collections retains its separate grid destination and actions.
 The 38 px added artwork height is the measured native-card substitute, not a universal Swift scale constant.
 [Earlier signed shelf focus comparisons](../evidence/screenshots/149-library-focus/README.md) document the superseded 208×312 Library shelf layout; they do not prove the current shared scene.
 The [current signed scene evidence](../evidence/screenshots/152-library-skyline/README.md) records shared-scene calibration, corrected Collections-to-row artwork clearance, reduced motion, expansion and controlled failure recovery, with historical Apple and simulator limits disclosed.

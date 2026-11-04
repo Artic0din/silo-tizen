@@ -911,7 +911,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     if (previous?.panel !== undefined || previous?.busy || previous?.preparingPlay) { current.stale = true; deferredDetails.add(current); return; }
                     deferredDetails.delete(current);
                     if (previous !== undefined && cachedDetailOwners.has(previous)) {
-                        cachedDetailOwners.delete(previous);
+                        if (!cache.isOffline(operations.getCatalogItem(current.id))) cachedDetailOwners.delete(previous);
                         previous.acceptDetail(data.detail);
                         if (data.detail.played !== undefined) previous.values.set("watched", data.detail.played);
                         if (data.detail.type === "series") {

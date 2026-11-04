@@ -88,7 +88,17 @@ for (const column of ["accounts-rail", "accounts-pane", "accounts-settings"]) ap
     const first = tv.page.locator(`.${column} button`).first();
     await first.focus();
     const count = await tv.page.locator(`.${column} button`).count();
-    for (let i = 1; i < count; i++) await tv.page.keyboard.press("ArrowDown");
+    for (let i = 1; i < count; i++) {
+        await tv.page.keyboard.press("ArrowDown");
+        if (column === "accounts-rail" && i === count - 2) {
+            await tv.jump(300);
+            assert.ok(await tv.page.locator(".accounts-rail").evaluate(node => {
+                const bounds = node.getBoundingClientRect();
+                const focused = document.activeElement!.getBoundingClientRect();
+                return focused.top >= bounds.top && focused.bottom <= bounds.bottom;
+            }), "an intermediate server row stays visible after rebuilding the chooser");
+        }
+    }
     await tv.jump(300);
     const bounds = await tv.page.locator(`.${column}`).evaluate(node => {
         const viewport = node.getBoundingClientRect();

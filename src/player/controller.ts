@@ -410,7 +410,12 @@ export class PlaybackController implements PlayerControls {
 
     setPaused(paused: boolean): void {
         const attempt = this.active();
-        if (attempt === undefined || !attempt.started) {
+        if (attempt === undefined) {
+            return;
+        }
+        // A seek reanchor replaces the transport; preparation must use the latest intent.
+        if (!attempt.started) {
+            if (attempt.presented) attempt.paused = paused;
             return;
         }
         // AVPlay rejects play and pause while seekTo is outstanding. Keep the request and apply it when the seek ends.

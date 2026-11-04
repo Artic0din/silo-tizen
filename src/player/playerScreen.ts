@@ -721,7 +721,10 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         if (key === "up" || key === "down") {
             all[Math.max(0, Math.min(all.length - 1, at + (key === "up" ? -1 : 1)))]?.focus();
         } else if (key === "left" || key === "right") {
-            focusList(Math.max(0, Math.min(lists.length - 1, column + (key === "left" ? -1 : 1))));
+            const direction = key === "left" ? -1 : 1;
+            for (let index = column + direction; index >= 0 && index < lists.length; index += direction) {
+                if (focusList(index)) break;
+            }
         } else if (key === "enter") {
             if (document.activeElement?.getAttribute("aria-disabled") === "true") return;
             if ((view.phase === "playing" || view.phase === "paused") && view.tracks.change.state === "changing") {
@@ -817,7 +820,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             }
             return;
         }
-        if (!skip.hidden && document.activeElement === skip && (key === "enter" || key === "play")) {
+        const hiddenPrompt = overlay.classList.contains("player-overlay-hidden") && !menuOpen && !timeline;
+        if (!skip.hidden && (document.activeElement === skip || hiddenPrompt) && (key === "enter" || key === "play")) {
             skip.click();
             return;
         }
@@ -860,6 +864,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }
         if (key === "up") {
             if (transport.contains(document.activeElement)) bar.focus();
+            else if (!skip.hidden) skip.focus();
             render();
             return;
         }

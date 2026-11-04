@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserved unresolved episode track choices across repeated Series refreshes until readback confirms them, without replaying uncertain saves.
 - Restored painted Details text and season labels, Play entry focus, selected-season navigation, facts tables, compact track readouts and anchored track pickers.
 - Hid unavailable or empty Related rails after loading, removing their extra error and Retry focus stop.
 - Kept Details artwork inside Home's shared top-right frame, displayed content-rating badges, and focused the current episode when opening a Series without overriding remote input.

@@ -201,6 +201,7 @@ export class DetailsState {
         this.focusedEpisodeId = previous.focusedEpisodeId;
         this.episodePreferenceDirty = previous.episodePreferenceDirty;
         this.episodePreferenceSource = previous.episodePreferenceDirty ? previous.episodePreferenceSource : undefined;
+        for (const [id, state] of previous.previousEpisodeStates) this.previousEpisodeStates.set(id, state);
         for (const [id, state] of previous.episodeStates) this.previousEpisodeStates.set(id, state);
         this.audioPreference.restore(previous.audioPreference);
         this.subtitlePreference.restore(previous.subtitlePreference);

@@ -145,6 +145,42 @@ test("preference confirmation recovers after an interrupted save and failed deta
     state.stop();
 });
 
+test("repeated Series restores retain an unresolved episode choice until confirmation", async () => {
+    const r = await rig(); r.state.stop();
+    const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
+    const seasons = decodeSeasons(r.catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body);
+    const create = (): DetailsState => {
+        const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
+        state.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes());
+        return state;
+    };
+    const original = create(); original.start(); await settle();
+    const owner = original.cachedEpisode('episode:s1e11'); assert.ok(owner);
+    const preferencePath = '/subtitle-prefs/series%3As1';
+    r.h.fake.script(preferencePath, { status: 204 }, { status: 200, body: { series_id: 'series:s1', subtitle_mode: 'off', subtitle_track_index: -1 } });
+    const held = r.h.fake.hold(preferencePath, true);
+    original.noteEpisodePreference(owner.detail.id); owner.selectSubtitle('off'); await settle();
+    original.stop(); held.release(); await settle();
+    const writes = (): number => r.h.fake.requests.filter(request => request.path === preferencePath && request.method === 'PUT').length;
+    assert.equal(writes(), 1);
+    let previous = original;
+    for (let visit = 0; visit < 2; visit++) {
+        const state = create(); state.restore(previous);
+        r.h.fake.script('/catalog/items/episode%3As1e11?image_size=large', { status: 500 });
+        state.start(); await settle();
+        assert.equal(state.episodePreferencesBlocked, true, `replacement ${visit + 1} must retain uncertain preference`);
+        assert.equal(state.unsettledEpisode?.subtitleIntent().kind, 'off');
+        assert.equal(state.cachedEpisode(owner.detail.id), undefined);
+        assert.equal(writes(), 1, 'restoring never replays the uncertain mutation');
+        state.stop(); previous = state;
+    }
+    const recovered = create(); recovered.restore(previous); recovered.start(); await settle();
+    assert.ok(recovered.cachedEpisode(owner.detail.id));
+    assert.equal(recovered.episodePreferencesBlocked, false);
+    assert.equal(writes(), 1, 'confirmed readback recovers without another mutation');
+    recovered.stop();
+});
+
 async function rig() {
     const h = await connected();
     await signIn(h);

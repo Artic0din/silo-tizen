@@ -103,6 +103,7 @@ browseTest("Search spatial People entry chooses the nearest title column", async
     await press(tv, "ArrowUp");
     assert.equal(await tv.focused(), "movie:m0008", "Up from Requests enters the adjacent bottom grid row");
     await tv.jump(250);
+    await tv.page.waitForTimeout(260);
     const posterTop = await tv.page.locator('[data-focus="movie:m0008"] .browse-art').evaluate(node => node.getBoundingClientRect().top);
     assert.ok(Math.abs(posterTop - 171) < 1, `Search upward reveal keeps the focused poster at 171px, got ${posterTop}`);
     assert.equal(await tv.page.locator('.search-navigation-title').evaluate(node => getComputedStyle(node).position), "absolute", "deep directional navigation does not show the navigation title");
@@ -994,7 +995,7 @@ for (const kind of ["movie", "episode"]) {
     }, { catalog: new FakeDetails() });
 }
 
-browseTest("S-D1 synopsis closes on browse destruction and optional failures remain retryable", async (tv) => {
+browseTest("S-D1 synopsis closes on browse destruction while failed Related stays omitted", async (tv) => {
     await tv.page.route("**/api/v2/recommendations/similar/**", async (route) => {
         await route.fulfill({ status: 400, json: problem(400, "unavailable", "Unavailable").body });
     });
@@ -1009,7 +1010,9 @@ browseTest("S-D1 synopsis closes on browse destruction and optional failures rem
     assert.equal(await tv.page.getByRole("dialog", { name: "Synopsis" }).count(), 1);
     await tv.remote(BACK);
     await tv.remote(BACK);
-    await tv.page.getByRole("button", { name: "Retry related titles", exact: true }).waitFor();
+    await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
+    assert.equal(await tv.page.locator('[data-detail-section="related"]').count(), 0);
+    assert.equal(await tv.page.getByRole("button", { name: "Retry related titles", exact: true }).count(), 0);
     await detailsMore(tv);
     await tv.page.locator('[data-focus="synopsis"]').click();
     await tv.page.evaluate(() => window.browseHarness.destroy());
@@ -1217,7 +1220,7 @@ browseTest("personal writes require confirmed state and discard late replies aft
     assert.ok(writes.every((request) => request.headers["x-profile-id"] === "p-owner"));
 }, { catalog: new FakeDetails() });
 
-browseTest("optional Details reads load independently, fail, retry and report empty results", async (tv, catalog) => {
+browseTest("optional Details reads load independently and omit empty Related results", async (tv, catalog) => {
     assert.ok(catalog instanceof FakeDetails);
     const related = tv.fake.hold("/recommendations/similar/movie%3Am0001", true);
     const capability = tv.fake.hold("/capabilities/personal-lists", true);
@@ -1234,7 +1237,8 @@ browseTest("optional Details reads load independently, fail, retry and report em
     catalog.empty = true;
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
-    await shows(tv, "No related titles available.");
+    await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
+    assert.equal(await tv.page.locator('[data-detail-section="related"]').count(), 0);
     await tv.page.locator('[data-focus="person:7"]').focus();
     await press(tv, "Enter");
     await showing(tv, "person:7");
@@ -1256,7 +1260,7 @@ browseTest("series Details render related titles from the unpaginated server col
     assert.equal(await tv.page.getByRole("button", { name: "Retry related titles", exact: true }).count(), 0);
 }, { catalog: new FakeDetails() });
 
-browseTest("person, related and personal reads recover with explicit retries", async (tv) => {
+browseTest("personal reads retry explicitly and omitted Related recovers on a new visit", async (tv) => {
     let relatedFail = true;
     let personalFail = true;
     await tv.page.route("**/api/v2/recommendations/similar/**", async (route) => {
@@ -1269,15 +1273,20 @@ browseTest("person, related and personal reads recover with explicit retries", a
     });
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
-    await shows(tv, "Could not load related titles.");
+    await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
+    assert.equal(await tv.page.locator('[data-detail-section="related"]').count(), 0);
     await shows(tv, "Could not load personal actions.");
     relatedFail = false; personalFail = false;
-    await tv.page.getByRole("button", { name: "Retry related titles", exact: true }).click();
+    assert.equal(await tv.page.getByRole("button", { name: "Retry related titles", exact: true }).count(), 0);
     await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Retry personal actions", exact: true }).click();
     await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
     await tv.remote(BACK);
-    await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "related retry");
+    await tv.remote(BACK);
+    await showing(tv, "home");
+    await activateDetails(tv);
+    await showing(tv, "item:movie:m0001");
+    await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "related new visit");
     const person = tv.fake.hold("/catalog/people/7", true);
     await tv.page.locator('[data-focus="person:7"]').focus();
     await press(tv, "Enter");

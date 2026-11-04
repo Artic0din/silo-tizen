@@ -125,10 +125,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const applyCardSize = (): void => {
         const scale = presentation.posterScale;
         container.style.setProperty("--poster-scale", String(scale));
-        container.style.setProperty("--row-lift", String((264 * scale + 38) / (264 * scale)));
-        container.style.setProperty("--request-lift", String((330 * scale + 40) / (330 * scale)));
-        // Apple's Compact still measures 199px focused: ~22px native lift plus EpisodeThumbCard's 1.025.
-        container.style.setProperty("--still-lift", String((200 * scale + 22) / (200 * scale) * 1.025));
     };
     applyCardSize();
     let shownOverlays: CardOverlayPrefs | undefined = presentation.cardOverlays;
@@ -885,16 +881,17 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     return { detail, seasons, contextSeason: current.seriesContext?.seasonNumber ?? (episode?.seriesId === detail.id ? episode.seasonNumber : undefined) };
                 }, (data) => {
                     const previous = current.data?.details;
-                    const entryRevision = inputRevision;
-                    let enterEpisodes = previous === undefined && current.focus === undefined && current.seriesContext === undefined;
+                    let seasonFocus: { season: number | undefined; revision: number } | undefined;
                     const details = new DetailsState(data.detail, session, (audioClosed) => {
-                        const episode = details.series?.entryEpisode;
-                        if (enterEpisodes && episode !== undefined && details.series?.episodes !== undefined) {
-                            enterEpisodes = false;
-                            if (top() === current && inputRevision === entryRevision) {
-                                render({ zone: "episodes", key: episode });
-                                return;
-                            }
+                        if (details.series?.focusSelectedEpisode && seasonFocus?.season !== details.series.seasonNumber) {
+                            seasonFocus = { season: details.series.seasonNumber, revision: inputRevision };
+                        }
+                        if (details.series?.focusSelectedEpisode && details.series.episodes !== undefined) {
+                            details.series.focusSelectedEpisode = false;
+                            const episode = details.series.entryEpisode;
+                            const enter = seasonFocus?.revision === inputRevision;
+                            seasonFocus = undefined;
+                            if (top() === current && enter && episode !== undefined) { render({ zone: "episodes", key: episode }); return; }
                         }
                         detailsChanged(current, audioClosed);
                     }, (detail, signal) => refreshWatched(current, detail, signal), personalPending);

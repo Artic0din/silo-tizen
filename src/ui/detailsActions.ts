@@ -23,6 +23,9 @@ export function detailAction(item: FocusItem): FocusItem {
     button.textContent = "";
     button.setAttribute("aria-label", label);
     button.classList.add("details-action", !startOver && (item.key === "play" || item.key === "resume" || item.key === "next-episode") ? "details-play" : "details-circle");
+    // Pointer focus would expand this pill between press and release, moving its click target.
+    button.addEventListener("mousedown", event => event.preventDefault());
+    button.addEventListener("click", () => button.focus({ preventScroll: true }), { capture: true });
     const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     icon.setAttribute("viewBox", "0 0 24 24");
     icon.setAttribute("aria-hidden", "true");
@@ -31,6 +34,7 @@ export function detailAction(item: FocusItem): FocusItem {
     icon.setAttribute("stroke-width", item.key === "more" ? "4" : "1.8");
     const shape = document.createElementNS(icon.namespaceURI, "path");
     shape.setAttribute("d", path);
+    if (["play", "resume", "next-episode"].includes(item.key)) shape.setAttribute("fill", "currentColor");
     icon.appendChild(shape);
     button.append(icon, el("span", "details-action-label", label));
     return item;
@@ -66,9 +70,20 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
     panel.setAttribute("aria-modal", "true");
     panel.setAttribute("aria-label", title);
     panel.append(el("h2", "browse-section-title", title), ...notes, zoneNode("details-audio-options", items));
+    const popover = ["audio", "subtitles", "version"].includes(name);
+    if (popover) {
+        panel.classList.add("details-track-popover");
+        const anchor = document.querySelector<HTMLElement>(`.details-editorial [data-focus="${name}"]`)?.getBoundingClientRect();
+        if (anchor !== undefined) {
+            panel.style.left = `${Math.min(anchor.left, 1920 - 660)}px`;
+            panel.style.top = `${Math.min(anchor.bottom + 14, 1080 - 560)}px`;
+        }
+        const auto = items[0];
+        if (auto !== undefined) auto.element.append(el("small", "details-option-subtext", name === "audio" ? "Use your Playback audio preference" : name === "subtitles" ? "Use your subtitle preferences" : "Use the preferred version"));
+    }
     const scrim = el("div", "skyline-dropdown-scrim");
     scrim.addEventListener("click", () => state.closePanel());
     for (const node of underlying) { node.inert = true; node.setAttribute("aria-hidden", "true"); }
-    const selected = items.find(item => item.element.getAttribute("aria-checked") === "true") ?? items[0];
-    return { name: `${view.name}:${name}`, content: [...underlying, scrim, panel], zones: [{ id: name, layout: "column", items }], focus: selected === undefined ? undefined : { zone: name, key: selected.key }, back: () => state.closePanel() };
+    const selected = popover ? items[0] : items.find(item => item.element.getAttribute("aria-checked") === "true") ?? items[0];
+    return { name: `${view.name}:${name}`, content: [...underlying, ...popover ? [] : [scrim], panel], zones: [{ id: name, layout: "column", items }], focus: selected === undefined ? undefined : { zone: name, key: selected.key }, back: () => state.closePanel() };
 }

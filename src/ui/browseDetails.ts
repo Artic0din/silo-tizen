@@ -12,12 +12,13 @@ import { el } from "./screen.ts";
 import { SkylineScroll } from "./skylineScroll.ts";
 import { remoteKey } from "./keys.ts";
 import { detailAction, detailPanel, ratingControls } from "./detailsActions.ts";
-import { matchesSubtitle } from "../player/preplaySubtitles.ts";
+import { initialSubtitle, matchesSubtitle } from "../player/preplaySubtitles.ts";
 import type { SubtitleSignature } from "../contracts/v2/preplaySubtitles.ts";
 import { seriesEpisodesView } from "./seriesEpisodesView.ts";
 import { languageName } from "./cardOverlays.ts";
 import { heroBackdrop, type Tints } from "./heroBackdrop.ts";
 import { episodeAirDate, episodeRuntime } from "./episodeCaption.ts";
+import { TMDB_LOGO_PATH } from "./acknowledgements.ts";
 
 const detailPalette = new Map<string, Tints>();
 
@@ -90,12 +91,12 @@ function metaLine(detail: ItemDetail, state?: DetailsState): string {
     }
     if (detail.runtimeMinutes !== undefined && detail.runtimeMinutes > 0) {
         const file = detail.versions.find(file => file.fileId === playChoices(detail, state?.selectedFileId)?.fromStart.fileId);
-        const minutes = file?.durationSeconds ? Math.floor(file.durationSeconds / 60) : detail.runtimeMinutes;
+        const minutes = file?.durationSeconds ? Math.round(file.durationSeconds / 60) : detail.runtimeMinutes;
         parts.push(minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`);
     }
     const count = state?.series?.seasons.filter(season => !season.isSpecials).length;
-    if (detail.type === "series" && count) parts.push(`${count} season${count === 1 ? "" : "s"}`);
-    return [...parts, ...detail.genres.slice(0, 3)].join(" · ");
+    if (detail.type === "series" && count) parts.push(`${count} Season${count === 1 ? "" : "s"}`);
+    return parts.join(" · ");
 }
 
 function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonly FocusItem[], state?: DetailsState, summary?: string): HTMLElement[] {
@@ -127,11 +128,20 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     const episode = state?.series?.episodes?.find(episode => episode.id === state.focusedEpisodeId);
     const playback = state?.nextEpisodeState;
     const selectedFile = playback?.detail.versions.find(file => file.fileId === playChoices(playback.detail, playback.selectedFileId)?.fromStart.fileId);
-    const meta = episode === undefined ? metaLine(detail, state) : [episodeAirDate(episode.airDate), episodeRuntime(selectedFile?.durationSeconds ? Math.floor(selectedFile.durationSeconds / 60) : episode.runtimeMinutes), ...detail.genres.slice(0, 3), episode.seasonNumber === 0 ? "Specials" : `Season ${episode.seasonNumber}`, `Episode ${episode.episodeNumber}`].filter(Boolean).join(" · ");
+    const meta = episode === undefined ? metaLine(detail, state) : [episodeAirDate(episode.airDate), episodeRuntime(selectedFile?.durationSeconds ? Math.round(selectedFile.durationSeconds / 60) : episode.runtimeMinutes), episode.seasonNumber === 0 ? "Specials" : `Season ${episode.seasonNumber}`, `Episode ${episode.episodeNumber}`].filter(Boolean).join(" · ");
     const ratings = (episode === undefined ? detail.extra?.ratings : playback?.detail.extra?.ratings ?? episode.ratings)?.map(rating => `${rating.name} ${rating.display}`).join(" · ");
     const ratingChip = detail.contentRating?.trim();
     if (meta || ratings || ratingChip) {
-        const facts = el("p", "browse-meta", [meta, ratings].filter(Boolean).join(" · "));
+        const facts = el("p", "browse-meta", meta);
+        for (const rating of (episode === undefined ? detail.extra?.ratings : playback?.detail.extra?.ratings ?? episode.ratings) ?? []) {
+            const badge = el("span", "details-external-rating");
+            if (rating.name.toUpperCase() === "TMDB") {
+                const logo = el("img", "skyline-rating-logo"); logo.src = TMDB_LOGO_PATH; logo.alt = "TMDB";
+                badge.append(logo, el("span", "details-rating-divider"));
+            } else badge.append(el("span", "", rating.name));
+            badge.append(el("span", "", rating.display)); facts.append(badge);
+        }
+        if (detail.genres.length) facts.append(" ", el("span", "details-genres", detail.genres.slice(0, 3).join(", ")));
         if (ratingChip) facts.prepend(el("span", "details-rating-badge", ratingChip));
         nodes.push(facts);
     }
@@ -155,7 +165,11 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     const layout = el("div", "details-hero");
     layout.dataset.mediaType = detail.type;
     const backdrop = artworkUrl(detail.backdropUrl ?? detail.posterUrl, context.baseUrl);
-    layout.appendChild(heroBackdrop(backdrop ?? "", undefined, detailPalette, true));
+    const background = heroBackdrop(backdrop ?? "", undefined, detailPalette, true);
+    const wash = background.querySelector<HTMLElement>(".skyline-tint-wash")!;
+    wash.classList.add("details-page-wash");
+    wash.remove();
+    layout.appendChild(background);
     const info = el("div", "details-editorial");
     if (detail.type === "series") {
         const lift = (context.posterScale?.() ?? 1) > 1 ? 32 : 0;
@@ -171,7 +185,7 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     } else info.append(...nodes);
     info.appendChild(zoneNode("browse-actions", actions));
     layout.appendChild(info);
-    return [layout];
+    return [wash, layout];
 }
 
 export function itemView(detail: ItemDetail, seasons: readonly Season[], context: ViewContext, play: (request: PlayRequest) => void, back: () => void, synopsis: Synopsis, state?: DetailsState): View {
@@ -231,18 +245,24 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         const audioTrackId = cached?.audioTrackId(true);
         context.playEpisode?.(id, title, startOver, cached === undefined ? undefined : { ...(cached.selectedFileId === undefined ? {} : { fileId: cached.selectedFileId }), ...(audioTrackId === undefined ? {} : { audioTrackId }), subtitle: cached.subtitleIntent() });
     } };
-    const series = state?.series === undefined ? undefined : seriesEpisodesView(state.series, seriesContext, id => state.focusEpisode(id));
+    const series = state?.series === undefined ? undefined : seriesEpisodesView(state.series, seriesContext, id => state.focusEpisode(id), next);
     const seasonItems = series?.zones[0]?.items ?? (detail.type === "series" ? seasons.map((season) => seasonItem(detail.id, detail.title, season, context)) : []);
     const overview = detail.overview;
     const file = playbackDetail.versions.find(file => file.fileId === playbackChoices?.fromStart.fileId);
     const audio = file?.audio ?? [];
-    const selectedAudio = tracks?.audioTrackId();
+    const selectedAudio = tracks?.audioTrackId(true);
     const subtitle = tracks?.subtitleIntent();
     const subtitleLabel = (track: SubtitleSignature): string => [...new Set([languageName(track.language) ?? "Unknown language", track.label, track.codec?.toUpperCase(), track.forced ? "Forced" : undefined, track.hearingImpaired ? "SDH" : undefined].filter(Boolean))].join(" · ");
     const selectedSubtitleLabel = subtitle?.kind === "track" ? subtitleLabel(subtitle.signature) : subtitle?.kind === "off" ? "Off" : "Auto";
+    const autoSubtitle = file?.effectiveSubtitle === undefined ? undefined : initialSubtitle({ kind: "auto" }, (file.subtitles ?? []).map((track, index) => ({ ...track, trackId: String(index), combinedIndex: index, delivery: "unknown" as const })), file.effectiveSubtitle);
+    const autoSubtitleTrack = autoSubtitle === undefined ? undefined : file?.subtitles?.[Number(autoSubtitle)];
+    const subtitleSummary = selectedSubtitleLabel !== "Auto" ? selectedSubtitleLabel : file?.effectiveSubtitle === undefined ? "Auto" : `Auto · ${autoSubtitleTrack === undefined ? "None" : subtitleLabel(autoSubtitleTrack)}`;
     const audioLabel = (index: number): string => {
         const track = audio[index];
-        return [track?.title || track?.language?.toUpperCase() || `Track ${index + 1}`, track?.codec?.toUpperCase(), track?.channels ? `${track.channels} ch` : undefined].filter(Boolean).join(" · ");
+        const layout = track?.layout?.replace(/\(.*\)/, '').trim() || (track?.channels === 6 ? '5.1' : track?.channels === 8 ? '7.1' : track?.channels === 2 ? '2.0' : track?.channels === 1 ? '1.0' : track?.channels?.toString());
+        const embedded = track?.embeddedTitle?.trim();
+        const meaningful = embedded && !/^(?:ATSC|AC-?3|E-?AC-?3|AAC|DTS|FLAC|PCM|OPUS|MP3|VORBIS)(?:\b|$)/i.test(embedded) ? embedded : undefined;
+        return [meaningful ?? languageName(track?.language) ?? `Track ${index + 1}`, track?.codec?.toUpperCase(), layout].filter(Boolean).join(" · ");
     };
     const seriesSelectors = detail.type === "series";
     if ((playbackChoices !== undefined || seriesSelectors) && state !== undefined) {
@@ -284,7 +304,10 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         actions.push(more);
     } else if (overview) actions.push(actionButton("synopsis", "Read synopsis", () => synopsis.show(overview)));
     const ordinal = audio.findIndex((_track, index) => selectedAudio === `file:${file?.fileId}:audio:${index}`);
-    const summary = playbackChoices === undefined ? undefined : `Version: ${file?.label || "Auto"} | Audio: ${ordinal === -1 ? "Auto" : audioLabel(ordinal)} | Subtitles: ${selectedSubtitleLabel}`;
+    const effectiveAudio = ordinal >= 0 ? ordinal : file?.effectiveAudioTrackIndex ?? audio.findIndex(track => track.isDefault);
+    const resolvedAudio = audio[effectiveAudio] === undefined ? audio.length ? audioLabel(0) : "Unknown" : audioLabel(effectiveAudio);
+    const versionLabel = file?.label?.match(/\b(?:\d{3,4}p|4K|8K)\b/i)?.[0] ?? file?.label ?? "Auto";
+    const summary = playbackChoices === undefined ? undefined : `Version: ${tracks?.selectedFileId === undefined && versionLabel !== "Auto" ? "Auto · " : ""}${versionLabel} | Audio: ${ordinal === -1 ? "Auto · " : ""}${resolvedAudio} | Subtitles: ${subtitleSummary}`;
     const content = [...detailHeader(detail, context, actions.map(detailAction), state, summary), ...lines(notes), ...personal?.notes ?? []];
     if (tracks?.preparingPlay) {
         const status = el("p", "browse-text", "Checking resume position…");
@@ -336,32 +359,31 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
             if (state.extraFailed !== undefined) content.push(...lines(["Could not load extra. Select its card to retry."], "error"));
         }
         const related = titleCards(state.related ?? [], context);
-        const section = zoneNode("browse-row", related);
-        section.setAttribute("data-detail-section", "related");
-        content.push(el("h2", "browse-section-title", "Related titles"));
-        if (state.relatedFailed) {
-            const retry = actionButton("retry-related", "Retry related titles", () => state.loadRelated());
-            content.push(...lines(["Could not load related titles."], "error"), zoneNode("browse-actions", [retry]));
-            related.push(retry);
-        } else if (state.related === undefined) content.push(...lines(["Loading related titles."]));
-        else if (related.length === 0) content.push(...lines(["No related titles available."]));
-        content.push(section);
-        zones.push({ id: "related", layout: "row", items: related });
+        if (!state.relatedFailed && (state.related === undefined || related.length > 0)) {
+            const section = zoneNode("browse-row", related);
+            section.setAttribute("data-detail-section", "related");
+            content.push(el("h2", "browse-section-title", detail.type === "movie" ? "Related Movies" : "Related Series"));
+            if (state.related === undefined) {
+                content.push(...lines(["Loading related titles."]));
+                for (let index = 0; index < 6; index++) { const placeholder = el("div", "details-related-placeholder"); placeholder.setAttribute("aria-hidden", "true"); section.append(placeholder); }
+            } else zones.push({ id: "related", layout: "row", items: related });
+            content.push(section);
+        }
     }
-    const facts = [...detail.extra?.facts ?? []];
-    for (const credit of detail.extra?.crew ?? []) facts.unshift({ label: credit.role, value: credit.name });
+    const facts: { label: string; value: string }[] = [];
+    for (const [label, jobs] of [["DIRECTOR", ["director"]], ["WRITTEN BY", ["writer", "screenplay", "story"]]] as const) {
+        const names = [...new Set(detail.extra?.crew.filter(credit => (jobs as readonly string[]).includes(credit.role.toLowerCase())).map(credit => credit.name))];
+        if (names.length) facts.push({ label, value: names.slice(0, 3).join(", ") });
+    }
+    facts.push(...detail.extra?.facts ?? []);
     if (facts.length > 0) {
         const panel = el("div", "details-facts");
         panel.setAttribute("aria-label", "Details");
         panel.appendChild(el("h2", "browse-section-title", "Details"));
-        const items = facts.map((fact, index): FocusItem => {
-            const key = `fact:${index}`;
-            const element = el("p", "browse-text", `${fact.label}: ${fact.value}`);
-            element.tabIndex = -1;
-            element.setAttribute("data-focus", key);
-            panel.appendChild(element);
-            return { key, element };
-        });
+        const table = el("dl", "details-facts-table");
+        for (const fact of facts) { const row = el("div", "details-fact-row"); row.append(el("dt", "", fact.label.toUpperCase()), el("dd", "", fact.value)); table.append(row); }
+        table.tabIndex = -1; table.dataset.focus = "fact:0"; panel.append(table);
+        const items = [{ key: "fact:0", element: table }];
         content.push(panel);
         zones.push({ id: "facts", layout: "column", items });
     }
@@ -372,6 +394,10 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
             const item = actionButton(`audio:${ordinal ?? "auto"}`, ordinal === undefined ? "Auto" : audioLabel(ordinal), () => { if (tracks !== undefined) state.noteEpisodePreference(tracks.detail.id); tracks?.selectAudio(ordinal); if (tracks !== state) state.closePanel(); });
             item.element.setAttribute("role", "radio");
             item.element.setAttribute("aria-checked", String(ordinal === undefined ? selectedAudio === undefined : selectedAudio === `file:${file?.fileId}:audio:${ordinal}`));
+            if (ordinal !== undefined) {
+                const flags = [audio[ordinal]?.isDefault ? "Default" : undefined, ordinal === file?.effectiveAudioTrackIndex ? "Preferred" : undefined].filter(Boolean).join(" · ");
+                if (flags) item.element.append(el("small", "details-option-subtext", flags));
+            }
             return item;
         });
         return detailPanel(view, state, "Audio", options);

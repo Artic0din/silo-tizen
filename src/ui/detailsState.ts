@@ -347,6 +347,10 @@ export class DetailsState {
     }
 
     warmSeriesEpisodes(): void {
+        if (!["series", "season"].includes(this.detail.type)) return;
+        if (this.series?.focusSelectedEpisode && this.series.episodes !== undefined) {
+            this.focusedEpisodeId = this.series.entryEpisode;
+        }
         if (this.detail.playContentId !== undefined) this.queueEpisode(this.detail.playContentId);
         if (this.series?.episodes !== undefined && this.focusedEpisodeId !== undefined && !this.series.episodes.some(episode => episode.id === this.focusedEpisodeId)) this.focusedEpisodeId = undefined;
         for (const episode of this.series?.episodes ?? []) this.queueEpisode(episode.id);
@@ -387,7 +391,7 @@ export class DetailsState {
         const id = this.playbackTargetId;
         this.nextEpisodeState = id === undefined ? undefined : this.episodeStates.get(id);
         this.nextEpisode = this.nextEpisodeState?.detail;
-        this.nextEpisodeFailed = id !== undefined && this.episodeFailures.has(id);
+        this.nextEpisodeFailed = ["series", "season"].includes(this.detail.type) && id !== undefined && this.episodeFailures.has(id);
         this.nextEpisodeLoading = id !== undefined && this.episodeReads.has(id);
     }
 

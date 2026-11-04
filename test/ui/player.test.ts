@@ -511,7 +511,7 @@ test("a retryable start failure focuses Retry, moves to Back, and only Retry sta
         await show(page, { phase: "error", title: "The Movie", error: { kind: "server" }, retryable: true });
         assert.equal(await text(page, ".player-error-text"), "The server couldn't start playback. Try again.");
         assert.equal(await page.getByRole("button", { name: "Retry", exact: true }).isVisible(), true);
-        assert.equal(await page.getByRole("button", { name: "Back", exact: true }).isVisible(), true);
+        assert.equal(await page.getByRole("button", { name: "Go Back", exact: true }).isVisible(), true);
         assert.equal(await focused(page), "settings-retry");
         await remote(page, RIGHT);
         assert.equal(await focused(page), "back");
@@ -520,6 +520,45 @@ test("a retryable start failure focuses Retry, moves to Back, and only Retry sta
         await remote(page, ENTER);
         await remote(page, BACK);
         assert.deepEqual(await commands(page), ["retryCompletion", "dismissError"]);
+        assert.deepEqual(logs, []);
+    } finally {
+        await page.close();
+    }
+});
+
+test("a playback error uses the Apple TV wall: triangle, body text, and a row of actions", async () => {
+    const { page, logs } = await open();
+    try {
+        await show(page, { phase: "error", title: "The Movie", error: { kind: "network" } });
+        const measured = await page.evaluate(() => {
+            const mark = document.querySelector(".player-error-mark");
+            const copy = document.querySelector(".player-error-text");
+            const actions = document.querySelector(".player-error-actions");
+            const back = document.querySelector<HTMLElement>('[data-focus="back"]');
+            if (!(mark instanceof Element) || !(copy instanceof HTMLElement) || !(actions instanceof HTMLElement) || back === null) {
+                return undefined;
+            }
+            const markStyle = getComputedStyle(mark);
+            const copyStyle = getComputedStyle(copy);
+            const actionStyle = getComputedStyle(actions);
+            const backStyle = getComputedStyle(back);
+            return {
+                mark: { width: markStyle.width, height: markStyle.height, color: markStyle.color },
+                copy: { size: copyStyle.fontSize, weight: copyStyle.fontWeight, color: copyStyle.color, align: copyStyle.textAlign },
+                gap: actionStyle.gap,
+                direction: actionStyle.flexDirection,
+                minWidth: backStyle.minWidth,
+                label: back.textContent,
+            };
+        });
+        assert.deepEqual(measured, {
+            mark: { width: "40px", height: "40px", color: "rgb(176, 0, 32)" },
+            copy: { size: "26px", weight: "400", color: "rgb(255, 255, 255)", align: "center" },
+            gap: "16px",
+            direction: "row",
+            minWidth: "140px",
+            label: "Go Back",
+        });
         assert.deepEqual(logs, []);
     } finally {
         await page.close();

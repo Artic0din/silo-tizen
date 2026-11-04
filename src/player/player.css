@@ -172,6 +172,54 @@
     color: var(--silo-error);
 }
 
+/* Apple TV error wall: PlayerView.errorView, tvOS siloBody, siloError #B00020. */
+.player-error-wall {
+    text-align: center;
+}
+
+.player-error-wall .player-error-mark {
+    display: block;
+    width: 40px;
+    height: 40px;
+    margin: 0 auto 16px;
+    color: #b00020;
+}
+
+.player-error-wall .player-error-mark svg {
+    display: block;
+    width: 40px;
+    height: 40px;
+}
+
+.player-error-mark path {
+    fill: currentColor;
+}
+
+.player-error-mark rect,
+.player-error-mark circle {
+    fill: #ffffff;
+}
+
+.player-error-wall .player-error-text {
+    margin: 0 auto 16px;
+    padding: 0 16px;
+    font-size: 26px;
+    font-weight: 400;
+    color: #ffffff;
+    text-align: center;
+}
+
+.player-error-wall .player-error-actions {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    gap: 16px;
+}
+
+.player-error-wall .player-error-actions .player-button {
+    min-width: 140px;
+}
+
 .player-button {
     min-width: 200px;
     padding: 20px 32px;

@@ -12,6 +12,7 @@ All notable changes to this project are documented in this file.
 
 - Kept the latest Play/Pause choice when remote presses arrive during a seek.
 - Resumed playback after a timeline scrub once the seek finished, let the remote move through an empty audio list, and cropped seek previews to each thumbnail's own shape.
+- Opening a Movies or Series library section, including Continue Watching, no longer sends type, sort and order on the section catalog query, which the server rejected.
 - Kept Home hero and detail backdrops sharp using Apple TV artwork sizes instead of small first-pass images.
 
 - Prevented large Search posters from overlapping and kept catalog errors and Try Again visible while People results were pending.

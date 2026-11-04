@@ -49,7 +49,9 @@ export class SkylineScroll {
         const rect = element.getBoundingClientRect();
         const bounds = viewport.getBoundingClientRect();
         // Apple's Requests band is view-aligned: the focused row's top sits on the band's top.
-        const aligned = element.closest<HTMLElement>(".requests-row");
+        // Apple view-aligns a Home row (`scrollTargetBehavior(.viewAligned)` on TVSkylineSectionFeed)
+        // and a Requests row, so the focused row's top sits on the band's top.
+        const aligned = element.closest<HTMLElement>(".requests-row") ?? element.closest<HTMLElement>(".skyline-home .home-section");
         if (aligned !== null) {
             this.move(viewport, 0, viewport.scrollTop + aligned.getBoundingClientRect().top - bounds.top);
             return;

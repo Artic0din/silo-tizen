@@ -729,7 +729,11 @@
 .skyline-content { position: fixed; top: 180px; left: 88px; width: 1744px; height: 900px; overflow: hidden; }
 .skyline-preview .skyline-content { top: 545px; height: 535px; }
 .skyline-library .skyline-content { top: 510px; height: 570px; }
-.skyline-home .skyline-content { top: 596px; height: 484px; left: 0; width: 1920px; padding-left: 80px; }
+/* Band top 596 and height 484 match TVSkylineSectionFeed. Bottom padding is the band height minus
+   SiloTheme.Skyline.rowBandBottomInset (20), so the last row can top-align. Rows are 10px apart
+   (rowBandPreviewSpacing). */
+.skyline-home .skyline-content { top: 596px; height: 484px; left: 0; width: 1920px; padding-left: 80px; padding-bottom: 464px; }
+.skyline-home .home-section + .home-section { margin-top: 10px; }
 .skyline-home .skyline-marquee { top: 256px; }
 .skyline-home .home-section .browse-row { margin-left: -80px; padding-left: 80px; --reveal-end: 80px; }
 .skyline-home .skyline-hero-backdrop { position: fixed; inset: 0; width: 1920px; height: 1080px; z-index: -2; pointer-events: none; }

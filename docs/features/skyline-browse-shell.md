@@ -211,11 +211,11 @@ Dates follow the device region and retain the server's calendar day.
 Detail also supplies a runtime or content rating omitted by a row, without replacing the row's confirmed values.
 Continue Watching's chips and card badges describe the file in `user_data.last_file_id` when the item still has that file; otherwise they keep `overlay_summary`, the server's best file, and never guess.
 Rows stay usable while the reads run, and focus moves only look answers up.
-Continue Watching keeps landscape geometry, using its backdrop or cropping its poster when no backdrop is available.
-Home cards follow Apple `MediaCard` and `EpisodeThumbCard`: standard 176×264 posters and 360×200 Continue Watching stills, 40 px apart.
+Continue Watching, In Progress, any row whose server type contains "next", and a row made only of TV items that includes an episode use landscape stills. The still uses the backdrop, or the poster when no backdrop is available. A shared row that also contains a movie stays a poster, including when it has one episode.
+Home cards follow Apple `MediaCard` and `EpisodeThumbCard`: standard 176×264 posters (`SiloTheme.Skyline.densePosterCardWidth`) and 360×200 stills (`SiloTheme.thumbnailCardWidth` / `thumbnailCardHeight`), 40 px apart. A focused Home row's top sits on the row band's top.
 The effective `ui.card_presentation` value is read for the `tv` client family through the existing presentation-settings owner; Compact, Standard and Large scale artwork by 0.86, 1 and 1.2.
 The last confirmed size is cached per server/profile, a transient failure keeps it, an older incompatible server restores Standard, and optional storage failure does not block a successful in-memory answer.
-Poster badge sizes use the actual scaled artwork width; Continue Watching badges retain their fixed wide-card size.
+Poster badge sizes use the actual scaled artwork width; still badges retain their fixed wide-card size.
 Episode cards are captioned with their series and an `S01E02 · Pilot` line.
 Unfocused captions dim; focus brightens and drops the caption below a lift of the artwork only.
 Cards use Apple's shared 1.05 artwork lift and 4px white outline at 70% opacity.
@@ -241,7 +241,7 @@ Watched titles show a check disc on every card.
 Home cards draw the profile's poster badges (Apple `CardOverlays`): the profile's `ui.card_overlays` document wins outright, else the administrator's baseline from `/settings/overlay-config`, else the registry defaults.
 The profile's `ui.card_overlays_enabled` choice overrides the server-wide default in either direction.
 As in Apple `OverlayPrefsStore`, the registry defaults show until the reads answer; a failed read keeps that half's last answer, so a known administrator or profile off stays off.
-Poster badges scale from Apple's 185 px poster reference; Continue Watching badges keep their size and clear the progress bar.
+Poster badges scale from Apple's 185 px poster reference; still badges keep their size and clear the progress bar.
 Brand marks (DV, HDR10, ATMOS, AV1) are text as in Apple; Apple's other badge icons are SF Symbols and are not drawn.
 The settings are read when Home loads and again after Settings closes, never on focus.
 Home shows non-empty rows in the server's profile order, matching the Apple TV client.
@@ -268,7 +268,7 @@ Inter is the licensed substitute for SF Pro; drawn symbols and CSS lift/ring app
 Continue Watching uses the same 1.05 lift as posters, with a caption drop calculated from its still height and 14px caption gap.
 The [Home comparison](../evidence/screenshots/107-home/home-comparison.png) pairs this signed candidate in Samsung's software simulator with the historical Apple r13 frame in the same Continue Watching state; the earlier Tizen r13 build is not used as current-build proof.
 Apple's native 960×540 frame is displayed at 100%, and the current 1920×1080 Tizen frame at 50%, without upscaling.
-On the Compact profile, current measurements are y596 for the first heading, y939.99 for the next heading, and 357.92×198.85 for focused landscape artwork, against Apple's 358.8×199 accessibility frame.
+That Compact capture measured the first heading at y596, the following heading at y939.99, and focused landscape artwork at 357.92×198.85, against Apple's 358.8×199 accessibility frame. A focused row now top-aligns in the band, so the following heading's old position is not the current scroll position.
 The [focused poster capture](../evidence/screenshots/107-home/home-poster.png) is current Tizen evidence only, without a matching Apple frame.
 The simulator uses Chromium 137 with a legacy Tizen user-agent string, so it establishes this software runtime's rendering rather than physical Tizen 8/AVPlay compatibility.
 The [actual S95C capture](../evidence/screenshots/107-home/home-actual-tv.png) records PR #112's `117314f` build on Tizen 9 / Chromium 120; restored and fresh device-code sign-in, profile selection, Home and native AVPlay playback were exercised.

@@ -179,6 +179,36 @@ for (const source of ["watchlist", "favorites", "history"]) test(`review: ${sour
     } finally { await tv.page.context().close(); }
 });
 
+for (const source of ["watchlist", "favorites", "history"]) for (const fails of [false, true]) test(`review: ${source} preserves scrolled viewport after page ${fails ? "failure" : "append"}`, async () => {
+    const { tv, catalog } = await setup();
+    try {
+        await tv.page.emulateMedia({ reducedMotion: "reduce" });
+        await openList(tv, source);
+        const held = tv.fake.hold("/catalog/query", true);
+        if (fails) catalog.pageReplies.push(problem(500, "internal_error", "Synthetic failure"));
+        const reads = tv.fake.requests.length;
+        const card = tv.page.locator('.browse .browse-card').last();
+        const id = await card.getAttribute("data-focus");
+        await card.focus();
+        await revealEnd(tv);
+        await tv.eventually(async () => tv.fake.requests.slice(reads).some(r => r.path.startsWith("/catalog/query")), "held next page");
+        const oldPage = await tv.page.locator(".personal-page").elementHandle();
+        assert.ok(oldPage);
+        const top = await tv.page.locator(".skyline-content").evaluate(node => node.scrollTop);
+        assert.ok(top > 0);
+        held.release();
+        await tv.eventually(async () => await oldPage.evaluate(node => !node.isConnected), "page repaint completed");
+        assert.equal(await tv.focused(), id);
+        assert.equal(await tv.page.locator(".skyline-content").evaluate(node => node.scrollTop), top);
+        const visible = await tv.page.locator(`.browse-card[data-focus="${id}"]`).evaluate(node => {
+            const bounds = node.closest(".skyline-content")?.getBoundingClientRect();
+            const rect = node.getBoundingClientRect();
+            return bounds !== undefined && rect.top >= bounds.top && rect.bottom <= bounds.bottom;
+        });
+        assert.ok(visible, "selected card stays inside the viewport");
+    } finally { await tv.page.context().close(); }
+});
+
 for (const source of ["watchlist", "favorites", "history"]) test(`review: ${source} keeps card focus after later-page failure`, async () => {
     const { tv, catalog } = await setup();
     try {

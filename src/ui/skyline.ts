@@ -266,6 +266,8 @@ export class Skyline {
         if (!this.selector.hidden) zones.push({ id: "selector", layout: this.confirmation ? "row" : "column", items: this.panel });
         if (!this.flyout.hidden) zones.push({ id: "flyout", layout: "column", items: this.flyoutItems });
         const prepare = (): void => {
+            // FocusHost has saved the viewport before child views move cached nodes.
+            view.prepare?.();
             this.container.classList.add("skyline-root");
             this.container.classList.toggle("skyline-preview", preview);
             this.container.classList.toggle("skyline-home", this.sharedScene);

@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept scrolled personal-list cards visible when pages appended or reads failed.
+
 - Opened History without the top menu, with a centered title, exact counts and Apple's unfiltered 60-item pages.
 
 - Kept personal-list focus and cached cards after failed reads and fitted large History posters to five columns.

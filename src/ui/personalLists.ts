@@ -162,8 +162,7 @@ function savedListView(route: PersonalRoute, handlers: RouteHandlers): View {
     const zone = preferred ?? zones.find(candidate => candidate.items.length > 0);
     const item = zone?.id === "filters" ? zone.items.find(candidate => candidate.key === `filter:${route.filter}`) ?? zone.items[0] : zone?.items[0];
     const pageNode = el("div", "personal-page");
-    pageNode.append(...content);
-    return { name: `personal:${route.source}`, content: [pageNode], zones, focus: zone === undefined || item === undefined ? undefined : { zone: zone.id, key: item.key }, back: handlers.pop };
+    return { name: `personal:${route.source}`, prepare: () => pageNode.append(...content), content: [pageNode], zones, focus: zone === undefined || item === undefined ? undefined : { zone: zone.id, key: item.key }, back: handlers.pop };
 }
 
 /** HistoryView: a pushed catalog grid with a count, not the dense personal grid. */
@@ -190,8 +189,7 @@ function historyView(route: PersonalRoute, handlers: RouteHandlers): View {
     const zone = zones.find(candidate => candidate.items.length > 0);
     const item = zone?.items[0];
     const pageNode = el("div", "personal-page");
-    pageNode.append(...content);
-    return { name: "personal:history", content: [pageNode], zones, focus: zone === undefined || item === undefined ? undefined : { zone: zone.id, key: item.key }, back: handlers.pop };
+    return { name: "personal:history", prepare: () => pageNode.append(...content), content: [pageNode], zones, focus: zone === undefined || item === undefined ? undefined : { zone: zone.id, key: item.key }, back: handlers.pop };
 }
 
 export function personalView(route: PersonalRoute, handlers: RouteHandlers): View {

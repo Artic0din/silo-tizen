@@ -96,6 +96,8 @@ export interface Problem {
     readonly id: string;
     readonly status: number;
     readonly title: string;
+    /** The server documents this as safe to show. */
+    readonly detail?: string;
     readonly instance: string;
     readonly errors: readonly ProblemFieldError[];
 }
@@ -123,6 +125,7 @@ export function decodeProblem(value: unknown): Problem {
         id,
         status: integer(obj, "status", "problem"),
         title: string(obj, "title", "problem"),
+        ...(typeof obj.detail === "string" ? { detail: obj.detail } : {}),
         instance: optionalString(obj, "instance", "problem") ?? "",
         errors,
     };

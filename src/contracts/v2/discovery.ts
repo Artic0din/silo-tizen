@@ -215,6 +215,7 @@ export function decodeLibraryCollections(value: unknown): LibraryCollections {
 }
 
 export interface CatalogSearchCapabilities {
+    readonly peopleMediaScope?: boolean | undefined;
     readonly revision: string;
     readonly state: "available" | "disabled" | "not_configured" | "unsupported" | "unknown";
     readonly allowed: boolean;
@@ -233,6 +234,7 @@ export function decodeCatalogSearchCapabilities(value: unknown): CatalogSearchCa
         allowed: boolean(obj, "allowed", path), letterIndex: optionalBoolean(obj, "letter_index", path),
         extendedQueryRules: optionalBoolean(obj, "extended_query_rules", path),
         videoWithEpisodesScope: optionalBoolean(obj, "video_with_episodes_scope", path),
+        peopleMediaScope: optionalBoolean(obj, "people_media_scope", path),
         provider: provider === undefined ? undefined : enumValue<"postgres" | "meilisearch">(provider, ["postgres", "meilisearch"]),
     };
 }

@@ -13,10 +13,11 @@ export interface BrowseHarness {
     readonly plays: PlayRequest[];
     /** Whether browse's container was still in the root when onChooseProfile ran. */
     readonly chooseProfileCalls: boolean[];
+    signOutCalls: number;
     lastKeyPrevented: boolean | undefined;
     connect(): Promise<void>;
     selectProfile(id: string, pin?: string): Promise<string>;
-    mount(): void;
+    mount(offerSignOut?: boolean): void;
     resume(): void;
     destroy(): void;
     failPublicStorage(read: boolean, write: boolean): void;
@@ -61,6 +62,7 @@ const harness: BrowseHarness = {
     loginPhase: "none",
     plays: [],
     chooseProfileCalls: [],
+    signOutCalls: 0,
     lastKeyPrevented: undefined,
     async connect() {
         const result = await connect("https://silo.example.test", {
@@ -104,7 +106,7 @@ const harness: BrowseHarness = {
         }
         return (await profiles.verifyPin(id, pin ?? "")).status;
     },
-    mount() {
+    mount(offerSignOut = false) {
         document.getElementById("successor")?.remove();
         browse = mountBrowse(root, {
             server: connected(),
@@ -115,6 +117,7 @@ const harness: BrowseHarness = {
             onChooseProfile: () => {
                 harness.chooseProfileCalls.push(root.querySelector(".browse") !== null);
             },
+            ...(offerSignOut ? { onSignOut: () => { harness.signOutCalls++; } } : {}),
         });
     },
     resume() {

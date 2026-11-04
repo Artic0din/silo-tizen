@@ -29,7 +29,6 @@ export class FakeRequests extends FakeDetails {
         const page = { page: Number(url.searchParams.get("page") ?? 1), total_pages: 2, total_results: 2, results: this.requestsEmpty ? [] : [this.title()] };
         if (p === "/requests/search") return { status: 200, body: page };
         const section = { ...page, key: "trending_movies", title: "Trending Movies" };
-        if (p.startsWith("/requests/discover/rows/")) return { status: 200, body: section };
         if (p === "/requests/discover") return { status: 200, body: { items: [section], row_order: [{ key: section.key, title: section.title, type: "tmdb_chart" }] } };
         return undefined;
     }

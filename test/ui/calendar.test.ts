@@ -201,7 +201,7 @@ calendarTest("card quick-actions target Calendar episode and season content IDs,
     await tv.remote(10009);
     await tv.eventually(async () => reads(tv).length === count + 1 && (await episode.getAttribute("aria-label"))?.includes("Watched") === true, "refreshed Calendar decoration");
     const own = "season:s1:2";
-    tv.fake.script(`/catalog/items/${encodeURIComponent(own)}?image_size=medium`, { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: own, type: "season", series_id: "series:s1", season_number: 2, user_state: { played: false }, versions: [] } });
+    tv.fake.script(`/catalog/items/${encodeURIComponent(own)}?image_size=large`, { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: own, type: "season", series_id: "series:s1", season_number: 2, user_state: { played: false }, versions: [] } });
     const before = tv.fake.requests.length;
     await tv.page.locator(`.calendar-event[data-content-id="${own}"]`).focus();
     await tv.down(13); await tv.jump(650); await tv.up(13);
@@ -466,7 +466,7 @@ calendarTest("Calendar Settings hidden-library return reuses current route and c
     await tv.remote(10009); await tv.remote(10009); await tv.remote(10009); await ready(tv, 2);
     assert.equal(await tv.page.locator('[data-focus="filter:everything"]').getAttribute("aria-pressed"), "true");
     assert.ok((await tv.page.locator(".calendar-event").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-content-id")))).every(id => id?.startsWith("episode:") || id?.startsWith("season:")));
-    assert.equal(await tv.focused(), "profiles", "Settings origin remains selected while revalidating");
+    assert.equal(await tv.focused(), "calendar", "selected tab retains focus while revalidating after Settings");
     assert.equal(await tv.page.locator('.browse-nav [data-focus="movies"]').count(), 0, "hidden-library refresh also updates existing Skyline scopes");
 });
 

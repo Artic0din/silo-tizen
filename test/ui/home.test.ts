@@ -88,6 +88,55 @@ journey("Home uses the Apple row band and marquee frame without changing library
     assert.equal(frames.title[0], 80);
 });
 
+journey("Home uses Apple's 360x200 still for TV episode rows and keeps mixed and series rows as 176x264 posters", async tv => {
+    const art = async (section: string) => tv.page.locator(`[data-section="${section}"] .browse-card:not(.skyline-explore) .browse-art`).first().evaluate(node => ({
+        width: (node as HTMLElement).offsetWidth,
+        height: (node as HTMLElement).offsetHeight,
+        src: node.querySelector("img")?.getAttribute("src") ?? "",
+    }));
+    const added = await art("recent-tv");
+    assert.deepEqual({ width: added.width, height: added.height }, { width: 360, height: 200 });
+    assert.match(added.src, /tv-still\.svg$/);
+    assert.equal(await tv.page.locator('[data-section="recent-tv"] .skyline-progress').count(), 1);
+    assert.equal(await tv.page.locator('[data-section="recent-tv"] .home-row-glyph').count(), 0);
+    assert.equal(await tv.page.locator('[data-section="recent-tv"] .skyline-explore').evaluate(node => (node as HTMLElement).offsetWidth), 360);
+    const mixed = await art("recent-mixed");
+    assert.deepEqual({ width: mixed.width, height: mixed.height }, { width: 176, height: 264 });
+    assert.doesNotMatch(mixed.src, /tv-still/);
+    assert.equal((await art("series-only")).width, 176);
+    assert.equal((await art("next-up")).width, 360);
+    assert.equal((await art("in-progress")).width, 360);
+    assert.equal(await tv.page.locator('[data-section="in-progress"] .home-row-glyph').count(), 1);
+    assert.equal((await art("recent/12")).width, 176);
+    assert.equal((await art("resume/opaque")).width, 360);
+}, catalog => {
+    const home = catalog.households.get("p-owner");
+    assert.ok(home !== undefined);
+    home.sections.push(
+        { id: "recent-tv", sectionType: "recently_added", title: "Recently Added TV", items: ["episode:s1e11", "episode:s1e12"] },
+        { id: "recent-mixed", sectionType: "recently_added", title: "Recently Added", items: ["movie:m0008", "episode:s1e21"] },
+        { id: "series-only", sectionType: "recently_added", title: "Series", items: ["series:s1", "series:s2"] },
+        { id: "next-up", sectionType: "next_up", title: "Next Up", items: ["movie:m0009"] },
+        { id: "in-progress", sectionType: "in_progress", title: "In Progress", items: ["movie:m0010"] },
+    );
+    enrichHome(catalog, { "episode:s1e11": { backdrop_url: "/art/tv-still.svg", position_seconds: 30, duration_seconds: 1200 }, "episode:s1e12": { backdrop_url: "/art/tv-still.svg" } });
+});
+
+journey("a focused Home row sits on the top of Apple's row band", async tv => {
+    const placed = () => tv.page.evaluate(() => {
+        const band = document.querySelector(".skyline-content")?.getBoundingClientRect();
+        const section = document.activeElement?.closest(".home-section")?.getBoundingClientRect();
+        if (band === undefined || section === undefined) throw new Error("missing Home row");
+        return section.top - band.top;
+    });
+    const rows = await tv.page.locator('[data-view="home"] [data-section]').count();
+    for (let index = 0; index < rows; index += 1) {
+        if (index > 0) await tv.page.keyboard.press("ArrowDown");
+        const delta = await placed();
+        assert.ok(Math.abs(delta) < 0.5, `row ${index} sits ${delta}px off the band top`);
+    }
+});
+
 journey("Home caps each shelf at Apple's 20 media cards", async tv => {
     assert.equal(await tv.page.locator('[data-section="recent/12"] .browse-card:not(.skyline-explore)').count(), 20);
 });
@@ -141,7 +190,7 @@ journey("Home keeps the packaged font and source weights under a simulator's glo
     });
     assert.match(subtitle[0] ?? "", /Inter/);
     assert.equal(subtitle[1], "400");
-    assert.equal(await tv.page.locator(".home-section .browse-card:focus .browse-card-subtitle").evaluate(node => getComputedStyle(node).fontWeight), "500");
+    assert.equal(await tv.page.locator(".home-section .browse-card:focus .browse-card-subtitle").evaluate(node => getComputedStyle(node).fontWeight), "400");
 });
 
 journey("Home fills omitted marquee rating and runtime from detail but preserves row values", async tv => {
@@ -376,15 +425,15 @@ journey("section captions retain Apple's focus contrast under the simulator font
         const read = (selector: string) => { const node = root.querySelector(selector); if (node === null) throw new Error(selector); const style = getComputedStyle(node); return { weight: style.fontWeight, color: style.color, transform: style.transform }; };
         return { title: read(".browse-card:focus .browse-card-title"), subtitle: read(".browse-card:focus .browse-card-subtitle"), resting: read(".browse-card:not(:focus) .browse-card-title"), metadata: read(".browse-card:not(:focus) .browse-card-subtitle"), count: read(".section-catalog-count") };
     });
-    assert.equal(styles.title.weight, "600");
+    assert.equal(styles.title.weight, "500");
     assert.equal(styles.title.color, "rgb(255, 255, 255)");
-    assert.equal(styles.subtitle.weight, "500");
+    assert.equal(styles.subtitle.weight, "400");
     assert.equal(styles.resting.weight, "500");
     assert.equal(styles.resting.color, "rgba(237, 237, 237, 0.45)");
     assert.equal(styles.metadata.weight, "400");
     assert.equal(styles.metadata.color, "rgba(237, 237, 237, 0.32)");
     assert.equal(styles.count.weight, "400");
-    assert.equal(styles.title.transform, "matrix(1, 0, 0, 1, 0, 5)");
+    assert.equal(styles.title.transform, "none");
 });
 
 let heldSectionBadges: { release(): void };
@@ -460,7 +509,7 @@ for (const [size, scale] of [["compact", 0.86], ["standard", 1], ["large", 1.2]]
 }, catalog => enrichHome(catalog, badgeFields), settings => settings.profile().set(CARD_PRESENTATION_KEY, { poster_size: size, caption: "title_metadata" }));
 
 let posterAnswer: { release(): void };
-journey("Compact Continue Watching focus matches Apple's measured 199px still height", async tv => {
+journey("Compact Continue Watching focus uses Apple's shared 5% lift", async tv => {
     await tv.page.emulateMedia({ reducedMotion: "no-preference" });
     const still = tv.page.locator('[data-section="resume/opaque"] [data-focus="episode:s1e12"]');
     await still.focus();
@@ -468,7 +517,7 @@ journey("Compact Continue Watching focus matches Apple's measured 199px still he
     await tv.page.evaluate(() => { for (const animation of document.getAnimations()) animation.finish(); });
     const frame = await still.locator(".browse-art").boundingBox();
     assert.ok(frame !== null);
-    assert.ok(Math.abs(frame.height - 199) < 1, `focused still height ${frame.height}`);
+    assert.ok(Math.abs(frame.height - 180.6) < 1, `focused still height ${frame.height}`);
 }, undefined, settings => settings.profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" }));
 
 journey("a late Home poster-size answer resizes existing focus without fetching on navigation", async tv => {
@@ -665,7 +714,7 @@ journey("fresh slot sizing upgrades incomplete remembered Home artwork", async (
     heldImageProbe.release();
     assert.equal(await (await cached).finished(), null);
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), "one-size capability cached");
-    await tv.eventually(async () => tv.fake.requests.filter(request => request.path === "/home/sections?image_size=medium").length === 1, "one-size upgrade completed");
+    await tv.eventually(async () => tv.fake.requests.filter(request => request.path === "/home/sections?image_size=large").length === 1, "one-size upgrade completed");
     await detailsRead(tv);
     imageCapabilities(catalog, true);
     heldImageProbe = tv.fake.hold("/images/capabilities", true);
@@ -680,7 +729,7 @@ journey("fresh slot sizing upgrades incomplete remembered Home artwork", async (
 journey("a pending optional image probe cannot block cold Home", async tv => {
     const titles = await homeTitles(tv);
     assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, 1);
-    assert.equal(tv.fake.requests.find(request => request.path.startsWith("/home/sections"))?.path, "/home/sections?image_size=small");
+    assert.equal(tv.fake.requests.find(request => request.path.startsWith("/home/sections"))?.path, "/home/sections?image_size=large");
     await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0012"]').focus();
     await tv.jump(200);
     const focus = await tv.focused();
@@ -757,21 +806,22 @@ journey("a late image answer waits for Home return without replacing Details", a
 
 for (const [server, setup, expected] of [
     ["takes per-slot widths", (catalog: FakeHome) => imageCapabilities(catalog, true), "/home/sections?image_size=medium&logo_width=880&backdrop_width=1344"],
-    ["takes one size only", (catalog: FakeHome) => imageCapabilities(catalog, false), "/home/sections?image_size=medium"],
-    ["has no image capability", () => undefined, "/home/sections?image_size=small"],
+    ["takes one size only", (catalog: FakeHome) => imageCapabilities(catalog, false), "/home/sections?image_size=large"],
+    ["has no image capability", () => undefined, "/home/sections?image_size=large"],
 ] as const) {
     journey(`Home asks for title logos at the marquee's width only when the server ${server}`, async tv => {
         assert.equal(tv.fake.requests.filter(request => request.path === "/images/capabilities").length, 1, "one probe per Home session");
         if (server === "has no image capability") {
-            assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path), ["/home/sections?image_size=small"]);
+            assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path), ["/home/sections?image_size=large"]);
             return;
         }
-        await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length === 2, "cold Home upgraded once");
+        const initial = server === "takes per-slot widths" ? ["/home/sections?image_size=large", expected] : [expected];
+        await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length === initial.length, "cold Home sizing settled");
         await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), "capability cached for next mount");
         const held = tv.fake.hold("/images/capabilities", true);
         await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
         await tv.page.locator('[data-view="home"] [data-section]').first().waitFor();
-        assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path), ["/home/sections?image_size=small", expected, expected], "cached sizing applies even while the refresh probe is pending");
+        assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path), [...initial, expected], "cached sizing applies even while the refresh probe is pending");
         held.release();
     }, setup);
 }

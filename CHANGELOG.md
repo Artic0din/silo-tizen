@@ -7,13 +7,25 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Corrected Calendar wall-clock times, spatial shelf return and top restoration, clipped captions, strip placement, and Apple-style loading, empty and error states after native comparison.
+- Matched Apple TV library shelf order and the Recommended, Collections and Browse section menu, keeping Collections in its own destination.
+- Restored each page's hero after returning from the profile menu and painted the avatar's white focus ring above its image.
+- Renamed the profile menu's Switch Server row to Change Account, after Settings and before Sign Out.
 
+- Matched Apple TV’s fixed top menu and moved Requests into the profile menu.
+- Returned focus to the selected tab after leaving profile menu destinations and made the avatar's white focus ring visible over artwork.
+- Kept focus on the same top-bar tab when Home rebuilt its library tabs, so hiding a library leaves Profiles focused.
+- Matched Apple TV card focus lift, outlines, caption spacing and colours across Search, cast, related titles, Requests and Calendar.
+- Kept Search posters at their intended top clearance after the focus lift finished.
+- Drew Home TV episode rows as landscape stills and top-aligned the focused Home row with Apple TV.
+- Opening a Movies or Series library section, including Continue Watching, no longer sends type, sort and order on the section catalog query, which the server rejected.
+- Kept Home hero and detail backdrops sharp using Apple TV artwork sizes instead of small first-pass images.
 - Prevented large Search posters from overlapping and kept catalog errors and Try Again visible while People results were pending.
 - Restored related titles on Details when the server returned cards without catalog pagination totals.
 - Made Enter on the player's default focus skip the intro, recap or credits while the Skip control shows, instead of pausing.
 
 ### Changed
 
+- Matched Apple TV's outlined card focus with a smaller lift, softer captions and a persistent outline on the Series row's current episode.
 - Started the horizontal navigation column after leaving a text field, and reset it at the top bar or a page's first card.
 
 - Kept Search's horizontal navigation column through default entries, showed its faded title only on return, and gave posters the native clearance when moving up from Requests.

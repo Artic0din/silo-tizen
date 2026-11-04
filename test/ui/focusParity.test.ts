@@ -153,14 +153,22 @@ async function openLibrary(tv: Tv): Promise<void> {
 }
 
 for (const reducedMotion of ["no-preference", "reduce"] as const) {
-    test(`returning up from Collections keeps the shared shelf artwork inside ${reducedMotion}`, async () => {
+    test(`returning up between library shelves keeps artwork inside ${reducedMotion}`, async () => {
         const tv = await openTv(browser, { app: "browse" });
         try {
             await tv.page.emulateMedia({ reducedMotion });
-            await signedIn(tv);
+            const catalog = new FakeCatalog();
+            const household = catalog.households.get("p-owner");
+            assert.ok(household);
+            household.librarySections = [
+                { id: "first", title: "First shelf", items: ["movie:m0001"] },
+                { id: "second", title: "Second shelf", items: ["movie:m0004"] },
+            ];
+            await signedIn(tv, catalog);
             await openLibrary(tv);
+            assert.equal(await tv.page.locator('[data-focus="collection:highlights"]').count(), 0);
             await tv.remote(40);
-            assert.equal(await tv.focused(), "collection:highlights");
+            assert.equal(await tv.focused(), "movie:m0004");
             await tv.jump(300);
             await tv.remote(38);
             await tv.jump(300);
@@ -168,6 +176,14 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             assert.equal(await tv.focused(), "movie:m0001");
             const focused = await focusClip(tv);
             assert.equal(focused.inside, true, focused.clippedBy.join("; "));
+            await selectLibraryMode(tv, "Collections");
+            await tv.eventually(async () => await tv.focused() === "collection:highlights", "separate Collections page");
+            await selectLibraryMode(tv, "Recommended");
+            await tv.eventually(async () => await tv.focused() === "movie:m0001", "return to Recommended");
+            await tv.jump(300);
+            await settleFocusMotion(tv);
+            const returned = await focusClip(tv);
+            assert.equal(returned.inside, true, returned.clippedBy.join("; "));
         } finally { await tv.page.context().close(); }
     });
     test(`library shelf focus keeps captions and edge artwork clear ${reducedMotion}`, async () => {
@@ -195,7 +211,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
                     if (art == null || title == null || neighbor == null) throw new Error("shelf captions missing");
                     const captions = [...card?.querySelectorAll(".browse-card-title, .browse-card-subtitle") ?? []];
                     return {
-                        focused: getComputedStyle(title).color, unfocused: getComputedStyle(neighbor).color, cue: getComputedStyle(art).boxShadow,
+                        focused: getComputedStyle(title).color, unfocused: getComputedStyle(neighbor).color, cue: getComputedStyle(art).outline, shadow: getComputedStyle(art).boxShadow,
                         captions: captions.map(node => {
                             const style = getComputedStyle(node), matrix = new DOMMatrixReadOnly(style.transform);
                             return { linear: [matrix.a, matrix.b, matrix.c, matrix.d], scale: style.scale };
@@ -211,7 +227,8 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
                 }
                 if (reducedMotion === "reduce") {
                     assert.equal(focused.artGrowth, 0);
-                    assert.equal(style.cue, "rgba(255, 255, 255, 0.9) 0px 0px 0px 4px", "reduced motion keeps a zero-offset, zero-blur 4px ring");
+                    assert.equal(style.cue, "rgba(255, 255, 255, 0.7) solid 4px", "reduced motion keeps Apple's shared outline");
+                    assert.equal(style.shadow, "rgba(0, 0, 0, 0.45) 0px 8px 36px 0px", "reduced motion retains the focused shadow");
                     assert.deepEqual(style.transitions, ["0s", "0s", "0s"], "reduced motion disables artwork and caption transitions");
                 }
             }
@@ -238,7 +255,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
                 assert.equal(entry.inside, true, "reduced-motion focus border stays inside the clip on entry");
             } else {
                 assert.equal(entry.transform, "none", "the shelf button and its caption do not scale");
-                assert.ok(Math.abs(entry.artGrowth - 38) < 1, `artwork alone gains the calibrated 38px (${entry.artGrowth})`);
+                assert.ok(Math.abs(entry.artGrowth - 13.2) < 1, `artwork alone gains 5% of its 264px height (${entry.artGrowth})`);
                 assert.equal(entry.inside, true, `normal-motion artwork stays inside the clip on entry: ${entry.clippedBy.join("; ")}`);
             }
             assert.equal(entry.border, "rgba(0, 0, 0, 0)", "the button has no visible border");
@@ -287,7 +304,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             if (reducedMotion === "reduce") assert.equal(afterReturn.transform, "none");
             else {
                 assert.equal(afterReturn.transform, "none");
-                assert.ok(Math.abs(afterReturn.artGrowth - 38) < 1);
+                assert.ok(Math.abs(afterReturn.artGrowth - 13.2) < 1);
             }
             if (capture !== undefined) await tv.page.screenshot({ path: `${capture}/${reducedMotion}/return.png` });
             assert.deepEqual(tv.console, []);
@@ -634,7 +651,7 @@ test("settings, audio, calendar, filmography, personal and card actions keep vis
         await tv.remote(BACK);
         await tv.remote(BACK);
         await showing(tv, "home");
-        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.locator('[data-focus="for_you"]').focus(); await tv.remote(40);
         await tv.page.locator('[data-focus="watchlist"]').click();
         const personalCard = tv.page.locator('[data-view="personal:watchlist"] .browse-card').first();
         await personalCard.waitFor();

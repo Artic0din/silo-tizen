@@ -12,12 +12,80 @@ import { FakeRequests } from "../native/support/fakeRequests.ts";
 import type { Reply } from "../native/support/fakeSilo.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
+import { PRIMARY_MENU_KEY } from "../../src/contracts/v2/navigation.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
 import { homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
 const IME_DONE = 65376;
 const PAGE_SIZE = 24;
+
+class AudiobookCatalog extends FakeCatalog {
+    detailFails = true;
+    position = 140;
+    constructor() {
+        super();
+        this.households.get("p-owner")?.libraries.push({ id: "99", name: "Audio Library", type: "audiobooks", sort_order: 9 });
+    }
+    override route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): Reply | undefined {
+        const url = new URL(path, "https://fake.invalid");
+        if (url.pathname === "/catalog/audiobook-groups") return { status: 200, body: { items: [{ name: "Author" }], page: {} } };
+        if (url.pathname === "/catalog/query" && body?.type === "audiobook") return { status: 200, body: { items: [{ content_id: "book:1", title: "Test Book" }], page: {} } };
+        if (url.pathname === "/catalog/items/book%3A1") return this.detailFails ? problem(403, "permission_denied", "Denied") : { status: 200, body: {
+            content_id: "book:1", type: "audiobook", title: "Test Book", user_data: { position_seconds: this.position },
+            versions: [{ file_id: "1", duration: 120, presentation_part_index: 1, chapters: [{ index: 0, title: "Opening", start_seconds: 0, end_seconds: 120 }] },
+                { file_id: "2", duration: 100, presentation_part_index: 2, chapters: [{ index: 0, title: "Ending", start_seconds: 0, end_seconds: 100 }] }],
+        } };
+        return super.route(method, path, profileId, body);
+    }
+}
+
+browseTest("Audiobooks opt-in gates library, groups, detail retry and stitched chapter handoff", async (tv, catalog) => {
+    assert.equal(await tv.page.locator('[data-focus="audiobooks"]').count(), 0);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+    await tv.page.getByRole("switch", { name: "Show Audiobooks", exact: true }).click();
+    await tv.remote(BACK);
+    await tv.remote(BACK);
+    await tv.page.locator('[data-focus="audiobooks"]').click();
+    await tv.page.getByRole("button", { name: "Audio Library", exact: true }).click();
+    await tv.page.getByRole("button", { name: "By author", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Author", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Test Book", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Retry", exact: true }).waitFor();
+    assert.ok(catalog instanceof AudiobookCatalog);
+    catalog.detailFails = false;
+    await tv.page.getByRole("button", { name: "Retry", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Resume", exact: true }).waitFor();
+    await tv.page.getByRole("button", { name: "Chapters", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Ending · 2:00", exact: true }).click();
+    const plays = await tv.page.evaluate(() => window.browseHarness.plays);
+    assert.equal(plays.at(-1)?.fileId, "2");
+    assert.equal(plays.at(-1)?.startSeconds, 0);
+    assert.equal(plays.at(-1)?.allowAlternateVersions, false);
+    catalog.position = 180;
+    await tv.page.evaluate(() => window.browseHarness.resume());
+    await tv.eventually(async () => tv.fake.requests.filter(request => request.path === "/catalog/items/book%3A1").length === 3, "fresh book progress after chapter playback");
+    await tv.page.getByText("Loading", { exact: true }).waitFor({ state: "hidden" });
+    await tv.remote(BACK);
+    await tv.page.getByRole("button", { name: "Resume", exact: true }).click();
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.at(-1)?.startSeconds), 60, "detail shares refreshed whole-book resume");
+    await tv.page.evaluate(() => window.browseHarness.clearProfile());
+    assert.equal(await tv.page.locator('[data-view^="audiobooks:"]').count(), 0);
+}, { catalog: new AudiobookCatalog() });
+
+browseTest("audiobook library shortcut opens its selected library directly", async tv => {
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+    await tv.page.getByRole("switch", { name: "Show Audiobooks", exact: true }).click();
+    await tv.remote(BACK); await tv.remote(BACK);
+    await tv.page.locator('[data-focus="library:99"]').click();
+    await tv.page.getByRole("button", { name: "Test Book", exact: true }).waitFor();
+    assert.equal(await tv.page.getByRole("button", { name: "Audio Library", exact: true }).count(), 0);
+}, { catalog: new AudiobookCatalog(), beforeConnect: tv => {
+    const settings = new FakeSettings(tv.fake);
+    settings.profile().set(PRIMARY_MENU_KEY, { items: [{ type: "builtin", destination: "home" }, { type: "library", library_id: 99, label: "Audio Shortcut" }] });
+} });
 
 class SearchCatalog extends FakeRequests {
     peopleFailure = false;

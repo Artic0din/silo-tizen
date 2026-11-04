@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added profile-gated beta audiobook libraries, grouped browsing, chapters, resume, audio seeking and sleep timers.
+
 ### Fixed
 
 - Kept focus on the same top-bar tab when Home rebuilt its library tabs, so hiding a library leaves Profiles focused.

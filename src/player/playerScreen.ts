@@ -16,6 +16,7 @@ import type { AVPlay } from "./avplay.ts";
 import { type PlaybackError, type PlaybackExits, PlaybackController, type PlaybackView, type PlayerControls, type PlayRequest, type TrackView } from "./controller.ts";
 import { mountSeekThumbnail } from "./seekThumbnailView.ts";
 import { mountSubtitles } from "./subtitleView.ts";
+import { mountAudioScreen } from "./audioScreen.ts";
 
 /** While playing, the overlay hides this long after the last key. */
 const OVERLAY_MS = 5000;
@@ -685,7 +686,7 @@ export function startPlayback(
             },
         },
     });
-    screen = mountPlayerScreen(root, controller, clock);
+    screen = request.audiobook === undefined ? mountPlayerScreen(root, controller, clock) : mountAudioScreen(root, controller, request.audiobook, clock);
     controller.play(request);
     return { destroy: finish };
 }

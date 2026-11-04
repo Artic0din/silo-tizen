@@ -150,6 +150,9 @@ test("General switches show source/scope, serialize edits and keep focus without
         assert.equal(await tv.page.getByText("Profile defaults", { exact: true }).count(), 0);
         const count = tv.fake.requests.length;
         await tv.page.keyboard.press("ArrowRight");
+        assert.equal(await tv.focused(), "show-audiobooks");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "title-art");
         await tv.page.keyboard.press("ArrowDown");
         assert.equal(await tv.focused(), "title-art-all");
         assert.equal(tv.fake.requests.length, count);

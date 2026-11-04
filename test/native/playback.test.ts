@@ -13,9 +13,130 @@ import { FakeSettings } from "./support/fakeSettings.ts";
 import { FakeCatalog } from "./support/fakeCatalog.ts";
 import { SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS } from "../../src/contracts/v2/settings.ts";
 import { operations } from "../../src/api/operations.ts";
+import { decodeAudiobook, AUDIOBOOK_SEEK_KEYS } from "../../src/contracts/v2/audiobooks.ts";
+
+test("audiobook uses local session samples and whole-book durable progress", async () => {
+    const r = await rig();
+    r.h.fake.script(operations.effectiveSettings(AUDIOBOOK_SEEK_KEYS).path, { status: 200, body: { revision: 24, items: AUDIOBOOK_SEEK_KEYS.map((key, i) => ({ key, value: i === 0 ? 15 : 45, source: "profile", definition_revision: 9 })) } });
+    const book = decodeAudiobook({ content_id: MOVIE.contentId, type: "audiobook", title: "Book", versions: [{ file_id: "41", duration: 100 }, { file_id: "42", duration: 100 }] });
+    r.h.fake.script("/sync/progress", ...Array.from({ length: 4 }, () => ({ status: 200, body: { items: [{ media_item_id: MOVIE.contentId, status: "success" }] } })));
+    await playMovie(r, { ...MOVIE, audiobook: book, allowAlternateVersions: false, startSeconds: 20 });
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.positionSeconds, 120);
+    assert.equal(view.durationSeconds, 200);
+    assert.deepEqual(view.seekIntervals, { backward: 15, forward: 45 });
+    assert.equal(bodies(r.h, "/start")[0]?.progress_persistence, "client");
+    r.avplay.listener?.oncurrentplaytime(25000);
+    await r.h.clock.advance(10000);
+    assert.equal(bodies(r.h, "/progress").at(-1)?.position, 25);
+    const sync = r.h.fake.requests.find(request => request.path === "/sync/progress");
+    assert.deepEqual(sync?.body, { items: [{ media_item_id: MOVIE.contentId, position_ms: 125000, duration_ms: 200000, force_overwrite: true }] });
+    r.controller.back();
+    await r.h.clock.advance(0);
+    assert.equal(playbackRequests(r.h).find(request => request.method === "DELETE")?.body?.position, 25);
+    r.controller.destroy();
+});
 import { connected, type Harness, signIn } from "./support/harness.ts";
 
 const MOVIE: PlayRequest = { contentId: "movie-1", fileId: "42", title: "Movie", startSeconds: 12.5 };
+
+test("audiobook completion advances parts through the same controller and authority cancels samples", async () => {
+    const r = await rig();
+    const values = { revision: 24, items: AUDIOBOOK_SEEK_KEYS.map((key, i) => ({ key, value: i === 0 ? 10 : 30, source: "default", definition_revision: 9 })) };
+    r.h.fake.script(operations.effectiveSettings(AUDIOBOOK_SEEK_KEYS).path, ...Array.from({ length: 4 }, () => ({ status: 200, body: values })));
+    r.h.fake.script("/sync/progress", ...Array.from({ length: 8 }, () => ({ status: 200, body: { items: [{ media_item_id: MOVIE.contentId, status: "success" }] } })));
+    const book = decodeAudiobook({ content_id: MOVIE.contentId, type: "audiobook", title: "Book", versions: [{ file_id: "42", duration: 100 }, { file_id: "43", duration: 100 }] });
+    await playMovie(r, { ...MOVIE, audiobook: book, allowAlternateVersions: false, startSeconds: 0 });
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, "/start").at(-1)?.file_id, "43");
+    assert.equal(bodies(r.h, "/start").at(-1)?.progress_persistence, "client");
+    assert.equal(playbackRequests(r.h).find(request => request.method === "DELETE")?.body?.position, 100);
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    r.controller.setPaused(true);
+    r.controller.seekToSeconds(40);
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, "/start").at(-1)?.file_id, "42");
+    assert.equal(bodies(r.h, "/start").at(-1)?.start_position, 40);
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    assert.equal(last(r.views).phase, "paused", "cross-part chapter seek retains pause");
+    const count = r.h.fake.requests.length;
+    r.h.core.profiles.clear();
+    await r.h.clock.advance(10000);
+    assert.equal(r.h.fake.requests.length, count, "no stale-profile progress or stop");
+    r.controller.destroy();
+});
+
+test("audiobook forbidden final progress lets Back leave the failed stop", async () => {
+    const r = await rig();
+    r.h.fake.script(operations.effectiveSettings(AUDIOBOOK_SEEK_KEYS).path, { status: 200, body: { revision: 24, items: AUDIOBOOK_SEEK_KEYS.map(key => ({ key, value: 10, source: "default", definition_revision: 9 })) } });
+    r.h.fake.script("/sync/progress", problem(403, "permission_denied", "Denied"));
+    const book = decodeAudiobook({ content_id: MOVIE.contentId, type: "audiobook", title: "Book", versions: [{ file_id: "42", duration: 100 }] });
+    await playMovie(r, { ...MOVIE, audiobook: book });
+    r.controller.back();
+    await r.h.clock.advance(0);
+    const view = last(r.views);
+    assert.ok(view.phase === "completion" && view.state === "failed" && !view.retryable);
+    r.controller.back();
+    assert.deepEqual(r.exits, ["back"]);
+    r.controller.destroy();
+});
+
+test("audiobook stop waits for a delayed durable write after session progress fails", async () => {
+    const r = await rig();
+    r.h.fake.script(operations.effectiveSettings(AUDIOBOOK_SEEK_KEYS).path, { status: 200, body: { revision: 24, items: AUDIOBOOK_SEEK_KEYS.map(key => ({ key, value: 10, source: "default", definition_revision: 9 })) } });
+    r.h.fake.script("/sync/progress", ...Array.from({ length: 4 }, () => ({ status: 200, body: { items: [{ media_item_id: MOVIE.contentId, status: "success" }] } })));
+    const book = decodeAudiobook({ content_id: MOVIE.contentId, type: "audiobook", title: "Book", versions: [{ file_id: "42", duration: 100 }] });
+    const id = await playMovie(r, { ...MOVIE, audiobook: book });
+    const held = r.h.fake.hold("/sync/progress", true);
+    r.h.fake.script(`/playback/${id}/progress`, problem(503, "dependency_unavailable", "Unavailable"));
+    await r.h.clock.advance(10000);
+    r.controller.back();
+    await r.h.clock.advance(0);
+    assert.equal(r.h.fake.requests.filter(request => request.path === "/sync/progress").length, 1, "final sync must wait for the older forced write");
+    held.release();
+    await r.h.clock.advance(0);
+    assert.equal(r.h.fake.requests.filter(request => request.path === "/sync/progress").length, 2);
+    assert.deepEqual(r.exits, ["back"]);
+    r.controller.destroy();
+});
+
+test("cross-part seek closes the old transport and cancels sampling before a slow stop", async () => {
+    const r = await rig();
+    r.h.fake.script(operations.effectiveSettings(AUDIOBOOK_SEEK_KEYS).path, ...Array.from({ length: 2 }, () => ({ status: 200, body: { revision: 24, items: AUDIOBOOK_SEEK_KEYS.map(key => ({ key, value: 10, source: "default", definition_revision: 9 })) } })));
+    r.h.fake.script("/sync/progress", ...Array.from({ length: 4 }, () => ({ status: 200, body: { items: [{ media_item_id: MOVIE.contentId, status: "success" }] } })));
+    const book = decodeAudiobook({ content_id: MOVIE.contentId, type: "audiobook", title: "Book", versions: [{ file_id: "42", duration: 100 }, { file_id: "43", duration: 100 }] });
+    await playMovie(r, { ...MOVIE, audiobook: book, startSeconds: 20 });
+    const held = r.h.fake.hold("/sync/progress", true);
+    r.controller.seekToSeconds(150);
+    assert.equal(r.avplay.state, "NONE");
+    await r.h.clock.advance(20000);
+    assert.equal(bodies(r.h, "/start").length, 1);
+    assert.equal(bodies(r.h, "/progress").length, 0);
+    held.release();
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, "/start").at(-1)?.file_id, "43");
+    r.controller.destroy();
+});
+
+test("unknown-duration audiobook EOF preserves the actual source position", async () => {
+    const r = await rig();
+    r.h.fake.script(operations.effectiveSettings(AUDIOBOOK_SEEK_KEYS).path, { status: 200, body: { revision: 24, items: AUDIOBOOK_SEEK_KEYS.map(key => ({ key, value: 10, source: "default", definition_revision: 9 })) } });
+    r.h.fake.script("/sync/progress", { status: 200, body: { items: [{ media_item_id: MOVIE.contentId, status: "success" }] } });
+    const book = decodeAudiobook({ content_id: MOVIE.contentId, type: "audiobook", title: "Book", versions: [{ file_id: "42", codec_audio: "aac" }] });
+    await playMovie(r, { ...MOVIE, audiobook: book, startSeconds: 0 });
+    r.avplay.listener?.oncurrentplaytime(95000);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(playbackRequests(r.h).find(request => request.method === "DELETE")?.body?.position, 95);
+    assert.deepEqual(r.h.fake.requests.find(request => request.path === "/sync/progress")?.body?.items, [{ media_item_id: MOVIE.contentId, position_ms: 95000, duration_ms: 0, force_overwrite: true }]);
+    r.controller.destroy();
+});
 
 test("a completed Shuffle item advances the same server session before offering its next pick", async () => {
     const r = await rig();

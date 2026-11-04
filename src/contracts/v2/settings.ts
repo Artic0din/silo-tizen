@@ -1,6 +1,7 @@
 // Consumed subset of settings v1, server cc851494 (manifest revision 24).
 import { boolean, integer, object, string, WireError } from "./wire.ts";
 import { PRIMARY_MENU_KEY, decodePrimaryMenu } from "./navigation.ts";
+import { AUDIOBOOK_SEEK_KEYS } from "./audiobooks.ts";
 
 export const HIDDEN_KEY = "ui.disabled_library_ids";
 export const TITLE_ART_KEY = "ui.title_art";
@@ -17,7 +18,7 @@ export const CARD_OVERLAYS_KEY = "ui.card_overlays";
 export const CARD_OVERLAYS_ENABLED_KEY = "ui.card_overlays_enabled";
 export const CARD_PRESENTATION_KEY = "ui.card_presentation";
 export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY, QUALITY_KEY, BITRATE_KEY, ...SEEK_KEYS, TITLE_ART_KEY] as const;
-export type SettingsKey = (typeof SETTINGS_KEYS)[number] | typeof AUTO_NEXT_KEY | typeof CARD_OVERLAYS_KEY | typeof CARD_OVERLAYS_ENABLED_KEY | typeof CARD_PRESENTATION_KEY | typeof PRIMARY_MENU_KEY;
+export type SettingsKey = (typeof AUDIOBOOK_SEEK_KEYS)[number] | (typeof SETTINGS_KEYS)[number] | typeof AUTO_NEXT_KEY | typeof CARD_OVERLAYS_KEY | typeof CARD_OVERLAYS_ENABLED_KEY | typeof CARD_PRESENTATION_KEY | typeof PRIMARY_MENU_KEY;
 type Json = null | boolean | string | number | readonly Json[] | { readonly [member: string]: Json | undefined };
 export type SettingValue = null | boolean | string | number | readonly number[] | { readonly [member: string]: Json | undefined };
 export type SettingsScope = "profile" | "profile_device";
@@ -184,7 +185,7 @@ export function decodeSettingValue(key: SettingsKey, value: unknown): SettingVal
         if (typeof value !== "boolean") throw new WireError("title_art.value", "a JSON boolean");
         return value;
     }
-    if (key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY) {
+    if (key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY || key === AUDIOBOOK_SEEK_KEYS[0] || key === AUDIOBOOK_SEEK_KEYS[1]) {
         if (typeof value !== "number" || !SEEK_SECONDS.includes(value)) throw new WireError("video_skip_seconds.value", "one of 5, 10, 15, 30, 45, 60 or 90");
         return value;
     }
@@ -275,7 +276,7 @@ export function decodeEffectiveSettings(keys: readonly SettingsKey[], value: unk
             ...(row.permitted_values === undefined ? {} : { permittedValues: array(row.permitted_values, "permitted_values").map(value => decodeSettingValue(key, value)) }),
             ...(row.suggested_values === undefined ? {} : { suggestedValues: array(row.suggested_values, "suggested_values").map(value => decodeSettingValue(key, value)) }),
         };
-        if ((key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY) && (!["profile", "default"].includes(result.source) || result.definitionRevision < 9)) throw new WireError("effective_setting", "a profile or default seek interval introduced at revision 9");
+        if ((key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY || key === AUDIOBOOK_SEEK_KEYS[0] || key === AUDIOBOOK_SEEK_KEYS[1]) && (!["profile", "default"].includes(result.source) || result.definitionRevision < 9)) throw new WireError("effective_setting", "a profile or default seek interval introduced at revision 9");
         if (key === TITLE_ART_KEY) {
             if (!["profile", "profile_device", "default"].includes(result.source) || result.definitionRevision < 16 || result.definitionRevision > Number(obj.revision)) throw new WireError("title_art.effective", "a compatible effective source and definition revision");
             if (result.source === "default") {

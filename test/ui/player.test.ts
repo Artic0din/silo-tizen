@@ -98,6 +98,41 @@ const show = (page: Page, view: PlaybackView): Promise<void> => page.evaluate((n
 const commands = (page: Page): Promise<string[]> => page.evaluate(() => window.player.commands.slice());
 const focused = (page: Page): Promise<string | null> => page.evaluate(() => document.activeElement?.getAttribute("data-focus") ?? null);
 
+test("audio transport uses audiobook intervals, chapters and cancellable sleep timer", async () => {
+    const { page, logs } = await open();
+    try {
+        await page.evaluate(() => window.player.audio());
+        await show(page, { ...playing(NO_TRACKS), seekIntervals: { backward: 15, forward: 45 } });
+        await page.getByRole("button", { name: "Back 15 seconds", exact: true }).click();
+        await page.getByRole("button", { name: "Forward 45 seconds", exact: true }).click();
+        await page.getByRole("button", { name: "Chapters", exact: true }).click();
+        await page.getByRole("button", { name: "Ending", exact: true }).click();
+        assert.deepEqual(await commands(page), ["seekBy -15", "seekBy 45", "seekToSeconds 100"]);
+        for (const code of [10252, 415, 19, 412, 417]) await remote(page, code);
+        assert.deepEqual((await commands(page)).slice(-5), ["togglePause", "setPaused false", "setPaused true", "seekBy -15", "seekBy 45"]);
+        await page.locator('[data-focus="sleep:15"]').click();
+        await page.clock.runFor(15 * 60000);
+        assert.equal((await commands(page)).at(-1), "setPaused true");
+        await page.locator('[data-focus="sleep:30"]').click();
+        await page.locator('[data-focus="sleep:0"]').click();
+        await page.clock.runFor(30 * 60000);
+        assert.equal((await commands(page)).filter(command => command === "setPaused true").length, 2);
+        await page.locator('[data-focus="sleep:15"]').click();
+        await show(page, { phase: "loading", title: "Book" });
+        await page.clock.runFor(15 * 60000);
+        assert.equal((await commands(page)).filter(command => command === "setPaused true").length, 2, "loading transport cannot apply pause yet");
+        await show(page, playing(NO_TRACKS));
+        assert.equal((await commands(page)).filter(command => command === "setPaused true").length, 3, "sleep pause is applied when the new transport is ready");
+        await show(page, playing(NO_TRACKS));
+        assert.equal((await commands(page)).filter(command => command === "setPaused true").length, 4, "a busy transport retries the sleep pause until confirmed");
+        await show(page, { ...playing(NO_TRACKS), phase: "paused" });
+        await show(page, playing(NO_TRACKS));
+        assert.equal((await commands(page)).filter(command => command === "setPaused true").length, 4);
+        await page.evaluate(() => window.player.destroy());
+        assert.deepEqual(logs, []);
+    } finally { await page.close(); }
+});
+
 test("autoplay countdown and Cancel are remote-operable without losing manual Play next", async () => {
     const { page } = await open();
     const view: PlaybackView = { phase: "completion", title: "Playback ended", state: "ready", retryable: false, next: { contentId: "next", fileId: "43", title: "Next episode", startSeconds: 0, episode: true }, countdown: 10 };

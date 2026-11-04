@@ -29,7 +29,7 @@ interface ProfileMenu {
     readonly serverName?: () => string | undefined;
 }
 
-type RootTarget = "home" | "search" | "calendar" | "requests" | "for_you" | UserLibrary;
+type RootTarget = "home" | "search" | "calendar" | "requests" | "for_you" | "audiobooks" | UserLibrary;
 
 function replaceNodes(container: HTMLElement, nodes: readonly HTMLElement[]): void {
     while (container.firstChild !== null) container.removeChild(container.firstChild);
@@ -165,7 +165,7 @@ export class Skyline {
 
     update(libraries: readonly UserLibrary[]): void {
         this.libraries = libraries;
-        const roots = navigationRoots(this.menu, libraries, this.requestsEnabled);
+        const roots = navigationRoots(this.menu, libraries, this.requestsEnabled, this.showAudiobooks);
         const identity = JSON.stringify(roots);
         if (identity === this.navigationIdentity || !this.selector.hidden) return;
         const focusedKey = this.items.find((item) => item.element === document.activeElement)?.key;
@@ -202,6 +202,8 @@ export class Skyline {
         if (focusedKey !== undefined) this.items.find((item) => item.key === focusedKey)?.element.focus({ preventScroll: true });
     }
 
+    private showAudiobooks = false;
+    setAudiobooks(show: boolean): void { this.showAudiobooks = show; this.update(this.libraries); }
     setMenu(menu: PrimaryMenu | null): void { this.menu = menu; this.update(this.libraries); }
 
     private forType(type: VideoTab): readonly UserLibrary[] {

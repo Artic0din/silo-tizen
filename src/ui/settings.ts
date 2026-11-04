@@ -7,6 +7,7 @@ import { remoteKey } from "./keys.ts";
 import { SettingsState } from "./settingsState.ts";
 import type { ProfileLaunch } from "../session/profileLaunch.ts";
 import { acknowledgementsDocument } from "./acknowledgements.ts";
+import type { AudiobookPreference } from "./audiobookPreference.ts";
 
 type Category = "general" | "playback" | "server";
 const CATEGORY_LABELS = { general: "General", playback: "Playback", server: "Server" } as const;
@@ -17,7 +18,7 @@ const PICKER_KEYS = { hidden: HIDDEN_KEY, audio: AUDIO_KEY, quality: QUALITY_KEY
 const PICKER_LABELS = { hidden: "Hidden libraries", audio: "Preferred audio", quality: "Preferred quality", bitrate: "Maximum bitrate", "seek-back": "Video rewind interval", "seek-forward": "Video fast-forward interval" } as const;
 export interface SettingsScreen { destroy(): void }
 
-export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void, launch?: ProfileLaunch): SettingsScreen {
+export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void, launch?: ProfileLaunch, audiobooks?: AudiobookPreference): SettingsScreen {
     const container = el("section", "browse settings");
     container.setAttribute("aria-label", "Settings");
     root.appendChild(container);
@@ -239,8 +240,16 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             return item;
         });
         const rows: FocusItem[] = [];
+        if (category === "general" && audiobooks !== undefined) {
+            const toggle = actionButton("show-audiobooks", "Show Audiobooks", () => { audiobooks.set(!audiobooks.value); render({ zone: "settings-rows", key: "show-audiobooks" }); });
+            toggle.element.setAttribute("role", "switch");
+            toggle.element.setAttribute("aria-checked", String(audiobooks.value));
+            rows.push(toggle);
+        }
         const body = el("div", "settings-pane");
         body.append(el("h2", "browse-section-title", CATEGORY_LABELS[category]), ...(category === "server" ? [] : feedback()));
+        for (const row of rows) body.appendChild(row.element);
+        if (category === "general" && audiobooks?.error) body.appendChild(el("p", "browse-error", "Could not save Show Audiobooks. Try again."));
         const pickers: readonly Picker[] = category === "general" ? ["hidden"] : category === "playback" ? ["audio", "quality", "bitrate", "seek-back", "seek-forward"] : [];
         if (category === "server") {
             // Apple's Server pane: an ABOUT section whose Acknowledgements row opens the credits.

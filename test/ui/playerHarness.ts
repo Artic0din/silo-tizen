@@ -3,8 +3,11 @@
 
 import type { PlaybackView, PlayerControls } from "../../src/player/controller.ts";
 import { mountPlayerScreen, type PlayerScreen } from "../../src/player/playerScreen.ts";
+import { mountAudioScreen } from "../../src/player/audioScreen.ts";
+import { systemClock } from "../../src/api/clock.ts";
 
 export interface PlayerHarness {
+    audio(): void;
     readonly commands: string[];
     show(view: PlaybackView): void;
     destroy(): void;
@@ -60,9 +63,13 @@ const controls: PlayerControls = {
     selectAIResult: id => commands.push(`selectAIResult ${id}`),
     seekThumbnail: async () => undefined,
 };
-const screen: PlayerScreen = mountPlayerScreen(root, controls);
+let screen: PlayerScreen = mountPlayerScreen(root, controls);
 
 window.player = {
+    audio() {
+        screen.destroy();
+        screen = mountAudioScreen(root, controls, { id: "book", title: "Book", overview: "", poster: undefined, position: 0, duration: 200, parts: [{ fileId: "1", duration: 200, offset: 0 }], chapters: [{ title: "Opening", start: 0 }, { title: "Ending", start: 100 }] }, systemClock);
+    },
     commands,
     show: (view) => listener?.(view),
     destroy: () => screen.destroy(),

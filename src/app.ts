@@ -56,6 +56,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
 
     const showSignIn = (notice?: LogoutResult, chooseServer = false, account?: SavedAccount, address?: string, pickerRequested = false): void => {
         stopContent();
+        if (connected?.session.activeProfile) connected.session.setProfile(undefined, "profile_cleared");
         profiles?.destroy();
         profiles = undefined;
         const live = account && !account.needsSignIn ? liveAccounts.get(liveKey(account.baseUrl, account.accountId)) : undefined;
@@ -70,7 +71,9 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
             showProfiles(live, pickerRequested); return;
         }
         signIn = mountSignIn(root, {
-            core: { ...activeCore, ...(account ? { localAccountId: account.id } : {}), ...(address || account?.needsSignIn ? { addAccount: true } : {}) },
+            core: { ...activeCore, ...(account ? { localAccountId: account.id } : {}), ...(address || account?.needsSignIn ? { addAccount: true } : {}),
+                beforeAccountSignIn: async (baseUrl, accountId) => { await liveAccounts.get(liveKey(baseUrl, accountId))?.session.retire(); },
+            },
             ...(address || account ? { address: address ?? account!.baseUrl } : {}),
             ...(account ? { username: account.username } : {}),
             onChangeAccount: () => showAccounts(),

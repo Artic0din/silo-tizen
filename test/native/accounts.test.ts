@@ -8,6 +8,31 @@ import { connected, signIn } from "./support/harness.ts";
 import { connect } from "../../src/session/core.ts";
 import { MemoryPublicStorage } from "./support/keyManager.ts";
 
+for (const refused of [false, true]) test(`replacing a saved account fences its old ${refused ? "refused" : "successful"} refresh`, async () => {
+    const h = await connected();
+    await signIn(h);
+    if (refused) h.fake.revokeAllSessions();
+    const held = h.fake.hold("/auth/refresh", true);
+    const refreshing = h.core.session.refresh();
+    await h.clock.advance(0);
+    const next = await connect(h.fake.origin, {
+        fetch: h.fake.fetch, publicStorage: h.storage, keyManager: h.keyManager,
+        randomBytes: bytes => { bytes.fill(7); }, deviceName: "Test TV", devicePlatform: "tizen", clock: h.clock,
+        addAccount: true,
+        beforeAccountSignIn: async () => { await h.core.session.retire(); },
+    });
+    assert.equal(next.status, "connected");
+    if (next.status !== "connected") throw Error("fixture missing");
+    await signIn({ ...h, core: next });
+    const saved = [...h.keyManager!.items];
+    held.release();
+    await refreshing;
+    assert.deepEqual([...h.keyManager!.items], saved, "the old session cannot overwrite or clear the new login");
+    assert.equal(h.core.session.signedIn, false);
+    assert.equal(next.session.signedIn, true);
+    assert.equal(next.accounts.directory.list()[0]?.needsSignIn, false);
+});
+
 test("session-only account storage survives connections within one app run", async () => {
     const h = await connected({ keyManager: null });
     const deps = { fetch: h.fake.fetch, publicStorage: h.storage, keyManager: undefined,

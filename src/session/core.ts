@@ -29,6 +29,7 @@ export interface SessionCoreDeps {
     readonly clock?: Clock;
     readonly localAccountId?: string;
     readonly addAccount?: boolean;
+    readonly beforeAccountSignIn?: (baseUrl: string, accountId: string) => Promise<void>;
 }
 
 export interface ConnectedServer {
@@ -60,7 +61,9 @@ export async function connect(serverAddress: string, deps: SessionCoreDeps, sign
         // Unreadable metadata must not overwrite saved accounts; sign-in can still be session-only.
         vault = new AccountVault(deps.transientAccounts?.secrets ?? openSecretStore(undefined), deps.transientAccounts?.storage, server.http.base.baseUrl, deps.randomBytes, undefined, true, deps.transientAccounts?.storage);
     }
-    const session = new NativeSession(server, vault, clock);
+    const session = new NativeSession(server, vault, clock, async accountId => {
+        await deps.beforeAccountSignIn?.(server.http.base.baseUrl, accountId);
+    });
     const restore = await session.restore();
     return {
         status: "connected",

@@ -2590,8 +2590,8 @@ browseTest("series open seasons, episode Select plays directly, and playback ret
     await press(tv, "ArrowDown", "Enter");
     await showing(tv, "item:series:s1");
     await shows(tv, "Harbor Lights");
-    assert.equal(await tv.focused(), "next-episode");
-    await press(tv, "ArrowDown", "ArrowRight");
+    await tv.eventually(async () => await tv.focused() === "episode:s1e11", "current episode receives initial Series focus");
+    await press(tv, "ArrowUp", "ArrowRight");
     assert.equal(await tv.focused(), "season:2");
     await press(tv, "Enter");
     await detailsMore(tv);

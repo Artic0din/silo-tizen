@@ -886,7 +886,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }, (data) => {
                     const previous = current.data?.details;
                     const entryRevision = inputRevision;
-                    let enterEpisodes = previous === undefined && current.focus === undefined;
+                    let enterEpisodes = previous === undefined && current.focus === undefined && current.seriesContext === undefined;
                     const details = new DetailsState(data.detail, session, (audioClosed) => {
                         const episode = details.series?.entryEpisode;
                         if (enterEpisodes && episode !== undefined && details.series?.episodes !== undefined) {

@@ -15,6 +15,14 @@ The passive hero previews the focused request using already loaded data; focus p
 Its copy stays anchored above the row band as title and synopsis heights change.
 A wrapped title reduces the synopsis to two lines; available provider ratings stay on the metadata line.
 Two-line titles fill the first line as Apple TV does, never leave one word alone on the second, and keep the server's title text unchanged.
+The root top bar opens global Search and its independent Available to request rail.
+A new bar-owned Search starts empty; Back returns to its originating root tab.
+Requests is pushed from the profile menu and has no Search button or top bar.
+Back from a request detail retains the Search query and restores its result after an invalidated supplement refresh, unless the person moved focus or edited the query.
+Search uses the existing state renderer for accessible progress, no-results copy and a centered catalog error with Try Again.
+A failed People lookup leaves usable title results without another error panel or retry control; a new query tries People again.
+A pending People lookup prevents premature No results but leaves catalog errors and Try Again visible.
+Search title grids use five columns for large posters and six for standard or compact posters, including remote row navigation.
 Your requests contains the complete bounded list; the ready hub has no separate Search requests, My Requests, Refresh or Back controls.
 Discovery rows show only the first page the discover read returns, with no See all tile and no further read, because Apple TV's rails have neither.
 Rows are view-aligned to the band's top at y=596: a plain row's heading is at 596 with art at 662, and the row with the Discover eyebrow has the eyebrow at 596, heading at 621 and art at 687.
@@ -51,6 +59,7 @@ Processing and partly available titles retain their request destination, even wh
 The hub uses 176×264 posters, a 40px gap, separate captions and a lifted focused image.
 Detail recommendations use 220×330 posters scaled by the existing poster-size preference.
 Reduced motion keeps a visible focus ring without artwork growth.
+Global Search uses the shared request cards in a horizontal rail.
 The legacy request-search and My Requests routes retain their existing grids.
 Both details use a backdrop hero, metadata, synopsis, readable status and four-stage tracker, existing eligible actions and verified recommendations under More like this.
 Request summaries retain the local requested date and quality targets; series metadata retains season count and the first two creator credits.

@@ -67,6 +67,12 @@ export function decodePerson(value: unknown): Person {
     return { id: string(obj, "id", "person"), name: string(obj, "name", "person"), bio: optionalString(obj, "bio", "person"), photoUrl: optionalString(obj, "photo_url", "person"), photoThumbhash: optionalString(obj, "photo_thumbhash", "person"), birthDate: optionalString(obj, "birth_date", "person"), deathDate: optionalString(obj, "death_date", "person"), birthplace: optionalString(obj, "birthplace", "person") };
 }
 
+export function decodePeople(value: unknown): Person[] {
+    const obj = object(value, "people");
+    if (!Array.isArray(obj.items)) throw new WireError("people.items", "an array");
+    return obj.items.map(decodePerson);
+}
+
 export function decodePersonalCapability(value: unknown): boolean {
     const obj = object(value, "personal_capability");
     const state = string(obj, "state", "personal_capability");

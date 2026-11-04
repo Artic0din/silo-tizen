@@ -8,12 +8,22 @@ All notable changes to this project are documented in this file.
 
 - Matched Apple TV’s fixed top menu and moved Requests into the profile menu with Back restoring its row.
 
+- Prevented large Search posters from overlapping and kept catalog errors and Try Again visible while People results were pending.
 - Restored related titles on Details when the server returned cards without catalog pagination totals.
 - Made Enter on the player's default focus skip the intro, recap or credits while the Skip control shows, instead of pausing.
 
 ### Changed
 
+- Started the horizontal navigation column after leaving a text field, and reset it at the top bar or a page's first card.
+
+- Kept Search's horizontal navigation column through default entries, showed its faded title only on return, and gave posters the native clearance when moving up from Requests.
+
+- Applied Search filters on focus, followed nearby cards on vertical moves, restored native scroll and field presentation, and captioned episodes with their series and episode code.
+
+- Kept focused Search requests visible when People arrived later and retried interrupted Requests refreshes after returning from details.
+
 - Required demonstrated Apple TV parity before merging parity changes, preserved regression checks, and clarified component reuse and simulator ownership for coding agents.
+- Added People results, All/Movies/Series filters, result counts, an idle prompt and an independent Available to request rail to Search, and opened Search above its originating page without the root navigation, starting empty on each visit.
 - Preset profile avatars showed the flat image Apple TV shows when the server supplied an SVG avatar address.
 - Rebuilt Requests to match Apple TV: the hub showed Your requests first with focused title previews, horizontal shelves and Apple's loading, error and empty pages, and no longer had its own Search requests, My Requests, Refresh or Back buttons; details gained posters, backdrops, title metadata, a status tracker and related recommendations, with title fallbacks for missing artwork; and the top bar's tab positions and Search icon used Apple's values. A request or cancellation kept focus on its action while it ran, a refused or unconfirmed one explained itself beside the action, a failed title read showed the full error page, hub rows no longer ended in a See all tile, and a focused poster gained Apple's sheen.
 - Played episodes directly from cards and season lists with fresh resume progress, added numbered Play/Resume series actions, and kept episode information available in Card actions.

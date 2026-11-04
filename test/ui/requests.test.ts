@@ -206,6 +206,25 @@ test("an unrequested title that cannot be requested is not labelled Requested", 
         assert.equal(await tv.page.locator(".requests-detail-progress").count(), 0);
     } finally { await tv.page.context().close(); }
 });
+test("a first request keeps the originating card visible and each row's own scroll", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = await start(tv);
+        await openRequests(tv); await view(tv, "hub");
+        await button(tv, "movie:949").click(); await view(tv, "media");
+        await button(tv, "create").click();
+        await tv.eventually(async () => fake.created && await button(tv, "create").count() === 0, "created");
+        await tv.remote(10009); await view(tv, "hub");
+        await button(tv, "request-one").waitFor();
+        assert.equal(await tv.focused(), "movie:949");
+        await tv.eventually(async () => {
+            const box = await button(tv, "movie:949").locator(".browse-art").evaluate(node => { const rect = node.getBoundingClientRect(); return { top: rect.top, bottom: rect.bottom }; });
+            return box.top >= 596 && box.bottom <= 1080;
+        }, "the focused card is inside the row band after Your requests appears");
+        assert.equal(await tv.page.locator(".requests-row").first().getAttribute("data-section"), "mine");
+        assert.ok(await tv.page.locator('.requests-row:not([data-section])').count() === 0, "every row restores its scroll by section, not position");
+    } finally { await tv.page.context().close(); }
+});
 test("Requests loads its complete bounded mine list and groups active requests before landed titles", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
@@ -403,6 +422,24 @@ test("Requests hub, create, Your requests and cancel preserve return focus", asy
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
+test("a returning Search supplement preserves focus moved during its refresh", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = await start(tv);
+        await leaveRequests(tv); await button(tv, "search").click();
+        await tv.page.getByRole("searchbox").fill("Heat"); await tv.page.getByRole("searchbox").press("Enter");
+        await button(tv, "movie:949").click(); await button(tv, "create").click();
+        await tv.eventually(async () => fake.created && await button(tv, "create").count() === 0, "created");
+        const before = tv.fake.paths().filter(path => path.startsWith("GET /requests/search?")).length;
+        const held = tv.fake.hold("/requests/search", true);
+        await tv.remote(10009); await tv.page.getByRole("searchbox").waitFor();
+        await tv.eventually(async () => tv.fake.paths().filter(path => path.startsWith("GET /requests/search?")).length > before, "return refresh held");
+        await tv.remote(40);
+        assert.equal(await tv.focused(), "search-filter:all");
+        held.release(); await button(tv, "movie:949").waitFor();
+        assert.equal(await tv.focused(), "search-filter:all", "late refresh cannot undo a remote focus move");
+    } finally { await tv.page.context().close(); }
+});
 test("Requests disabled, empty, failure, Try Again and capability removal", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
@@ -473,6 +510,33 @@ test("late Requests answer cannot survive a profile switch", async () => {
     } finally { await tv.page.context().close(); }
 });
 
+test("Search request writes restore the result, then Back returns to the root before the Requests menu journey", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = await start(tv);
+        await button(tv, "search").click();
+        const input = tv.page.getByRole("searchbox");
+        await input.fill("Heat"); await input.press("Enter");
+        await button(tv, "movie:949").click(); await view(tv, "media");
+        await button(tv, "create").click();
+        await tv.eventually(async () => fake.created && await button(tv, "create").count() === 0, "created");
+        const searchReads = tv.fake.paths().filter(path => path.startsWith("GET /requests/search?")).length;
+        const held = tv.fake.hold("/requests/search", true);
+        await tv.remote(10009);
+        assert.equal(await input.inputValue(), "Heat");
+        await tv.eventually(async () => tv.fake.paths().filter(path => path.startsWith("GET /requests/search?")).length > searchReads, "Search refresh held");
+        held.release(); await button(tv, "movie:949").waitFor();
+        assert.equal(await tv.focused(), "movie:949", "the refreshed Search request result regains focus");
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "home");
+        assert.equal(await tv.page.locator('.browse-nav [data-focus="requests"]').count(), 0);
+        await openRequests(tv); await button(tv, "request-one").waitFor();
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "requests");
+        assert.equal(await tv.page.locator('.skyline-selector[data-menu-kind="profile"]').isVisible(), true);
+        assert.equal(tv.fake.paths().filter(path => path === "POST /requests").length, 1);
+    } finally { await tv.page.context().close(); }
+});
 test("cancel lost response is read back without replay and writes refuse refresh replay", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
@@ -514,7 +578,6 @@ test("a held write fences profile changes", async () => {
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
-
 test("reopened detail reconciles after a background write settles", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
@@ -790,6 +853,26 @@ test("Requests card focus reads nothing and Back fences a fresh hub read", async
     } finally { await tv.page.context().close(); }
 });
 
+test("shared Search returns to Home and Requests reopens from its profile row", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests(); fake.created = true;
+        await start(tv, fake); await openRequests(tv); await button(tv, "request-one").waitFor();
+        await button(tv, "request-one").focus();
+
+        await leaveRequests(tv); await button(tv, "search").click();
+        await tv.page.getByRole("searchbox").fill("Heat"); await tv.page.getByRole("searchbox").press("Enter");
+        await tv.page.locator('.search-request-rail [data-focus="movie:949"]').waitFor();
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "home");
+        await openRequests(tv); await button(tv, "request-one").waitFor();
+        assert.equal(await tv.focused(), "request-one");
+        assert.equal(await tv.page.locator('.browse-nav [data-focus="requests"]').count(), 0);
+        await leaveRequests(tv); await button(tv, "search").click();
+        assert.equal(await tv.page.getByRole("searchbox").inputValue(), "", "a new bar-owned Search starts empty");
+    } finally { await tv.page.context().close(); }
+});
+
 const LONG_OVERVIEW = "Nearly two decades after he seized control of the Imperium, Paul Atreides is now a ruthless Emperor, and must face the consequences of his reign as old allies return, terrifying new threats emerge, and betrayal lurks in every shadow. Haunted by visions of Imperial collapse and the reach of his own legend, he turns to the desert once more.";
 function nativeDetail(fake: FakeRequests, title: string, count: number): void {
     const original = fake.title.bind(fake);
@@ -940,6 +1023,7 @@ test("Requests loading is Apple's passive skeleton page and owns focus without a
         assert.equal(await tv.page.locator(".requests-loading-block").evaluate(node => getComputedStyle(node).borderRadius), "12px");
         assert.deepEqual(await tv.page.locator(".requests-loading-meta .requests-loading-bar").evaluateAll(nodes => nodes.map(node => { const rect = node.getBoundingClientRect(); return [Math.round(rect.left), Math.round(rect.top), rect.width, rect.height]; })), [[88, 280, 118, 22], [220, 280, 82, 22], [316, 280, 150, 22]]);
         assert.deepEqual(await tv.page.locator(".requests-loading-copy .requests-loading-bar").evaluateAll(nodes => nodes.map(node => { const rect = node.getBoundingClientRect(); return [Math.round(rect.left), Math.round(rect.top), rect.width, rect.height]; })), [[88, 322, 720, 18], [88, 353, 610, 18]]);
+        await tv.page.emulateMedia({ reducedMotion: "reduce" });
         near(await box(tv, ".requests-loading-spinner"), [88, 395, 40, 40], 0, "spinner");
         const label = await tv.page.locator(".requests-loading-label").evaluate(node => { const style = getComputedStyle(node), rect = node.getBoundingClientRect(); return { left: rect.left, centre: rect.top + rect.height / 2, size: style.fontSize, weight: style.fontWeight, color: style.color }; });
         assert.deepEqual(label, { left: 142, centre: 415, size: "20px", weight: "500", color: "rgba(237, 237, 237, 0.72)" });
@@ -1364,5 +1448,50 @@ test("hub marquee uses Apple's title width, synopsis rhythm, rating row and focu
         assert.equal(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node, "::after").content !== "none" && getComputedStyle(node, "::after").boxShadow !== "none"), true, "the focused card carries Apple's light edge");
         assert.match(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node, "::after").backgroundImage), /radial-gradient\(145% 70% at 25% 0(px|%)/, "the focused poster carries the upper-left sheen measured against Apple's pair 02a");
         assert.equal((await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node, "::after").boxShadow)).split(/,\s*(?=rgba)/).length, 3, "top, even and bottom edge strokes");
+    } finally { await tv.page.context().close(); }
+});
+
+test("typing in shared Search after leaving Requests keeps the field attached and focused", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv); await openRequests(tv); await leaveRequests(tv); await button(tv, "search").click(); await tv.page.getByRole("searchbox").waitFor();
+        const input = tv.page.getByRole("searchbox");
+        await input.focus();
+        await tv.page.evaluate(() => {
+            const field = document.activeElement as HTMLInputElement & { blurs?: number };
+            field.blurs = 0; field.addEventListener("blur", () => { field.blurs = (field.blurs ?? 0) + 1; });
+        });
+        const blurs = () => tv.page.evaluate(() => (document.querySelector('input[type="search"]') as HTMLInputElement & { blurs?: number }).blurs);
+        await input.pressSequentially("Hea");
+        assert.equal(await blurs(), 0, "editing never detaches the field");
+        await input.press("Enter"); await button(tv, "movie:949").waitFor();
+        await input.pressSequentially("t");
+        assert.equal(await input.inputValue(), "Heat");
+        assert.equal(await blurs(), 0, "results and edits never detach the field");
+        assert.equal(await input.evaluate(field => field === document.activeElement), true);
+    } finally { await tv.page.context().close(); }
+});
+
+
+test("editing search fences late results and a held write fences profile changes", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv); await openRequests(tv); await leaveRequests(tv); await button(tv, "search").click();
+        const input = tv.page.getByRole("searchbox");
+        await input.fill("Heat");
+        const held = tv.fake.hold("/requests/search", true);
+        await tv.page.getByRole("searchbox").press("Enter");
+        await tv.eventually(async () => tv.fake.paths().includes("GET /requests/search?q=Heat&media_type=all&page=1"), "search held");
+        await input.fill("Other"); held.release(); await tv.jump(1);
+        assert.equal(await button(tv, "movie:949").count(), 0);
+        await tv.page.getByRole("searchbox").press("Enter"); await button(tv, "movie:949").click(); await button(tv, "create").waitFor();
+        const write = tv.fake.hold("/requests", true);
+        await button(tv, "create").click();
+        await tv.eventually(async () => tv.fake.paths().includes("POST /requests"), "write held");
+        await tv.page.evaluate(() => window.browseHarness.selectProfile("p-kid"));
+        write.release(); await tv.jump(1);
+        assert.equal(await tv.page.locator(".browse").count(), 0);
+        assert.equal(tv.fake.paths().filter(path => path === "POST /requests").length, 1);
+        assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

@@ -331,6 +331,7 @@ for (const surface of ["library-shelf", "library-grid", "collection", "search", 
                 await tv.page.locator('.browse .browse-grid .browse-card').first().waitFor();
             }
             if (surface === "collection") {
+                await selectLibraryMode(tv, "Collections");
                 const fan = tv.page.locator('.browse .discovery-collection').first();
                 await fan.focus(); await tv.down(13); await tv.jump(700); await tv.up(13);
                 assert.equal(await menu(tv).count(), 0);

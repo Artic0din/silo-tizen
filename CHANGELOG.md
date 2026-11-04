@@ -9,6 +9,7 @@ All notable changes to this project are documented in this file.
 - Reset fresh Person visits from Search and applied delayed poster and badge preferences on Person.
 
 - Corrected Person safe-area insets, title-count spacing, biography weight, server-driven filters, fresh-visit focus and independent metadata loading, restored catalog status badges, and returned the full hero when focus moved back to its chips.
+- Matched Apple TV library shelf order and the Recommended, Collections and Browse section menu, keeping Collections in its own destination.
 - Restored each page's hero after returning from the profile menu and painted the avatar's white focus ring above its image.
 - Renamed the profile menu's Switch Server row to Change Account, after Settings and before Sign Out.
 

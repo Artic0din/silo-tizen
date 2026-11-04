@@ -51,8 +51,11 @@ export async function readDiscovery(library: UserLibrary, mode: LibraryMode, rea
     const sections = mode === "Recommended" ? await read(operations.listLibrarySections(library.id, artwork)) : [];
     let collectionsFailure: string | undefined;
     const collections = mode === "Collections" || mode === "Recommended" ? await read(operations.getLibraryCollections(library.id)).catch((error: unknown) => {
-        if (mode !== "Recommended" || !(error instanceof ApiError) || error.aborted) throw error;
-        collectionsFailure = "Collections could not be loaded. Try again.";
+        if (error instanceof ApiError && error.aborted) throw error;
+        if (mode === "Recommended") {
+            if (!(error instanceof ApiError)) throw error;
+            collectionsFailure = "Collections could not be loaded. Try again.";
+        }
         return undefined;
     }) : undefined;
     const filters = mode === "Genres" && available && capabilities.extendedQueryRules === true ? await read(operations.getCatalogFilters(libraryScope(library))) : undefined;

@@ -479,7 +479,19 @@
 .discovery-letters { position: fixed; right: 88px; top: 240px; width: 40px; height: 780px; flex-direction: column; flex-wrap: nowrap; }
 .discovery-letters .browse-button { width: 40px; min-height: 26px; padding: 2px; margin: 0; font-family: monospace; font-size: 15px; }
 .discovery-letters [aria-pressed="true"] { background: #fff; color: #000; }
-.discovery-collection-grid { display: grid; grid-template-columns: repeat(3, 430px); grid-column-gap: 26px; grid-row-gap: 26px; padding: 16px 12px; }
+.discovery-collection-grid { display: grid; grid-template-columns: repeat(var(--collection-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; padding: 16px 0 0; }
+.skyline-grid .skyline-content:has(.discovery-collection-grid) { top: 216px; left: 0; width: 1920px; height: 864px; padding: 0 80px 60px; }
+.browse-section:has(.discovery-collection-grid) { margin-bottom: 44px; }
+.browse-section:has(.discovery-collection-grid):last-child { margin-bottom: 0; }
+.collection-group-title { margin: 0 0 20px; font-family: ui-monospace, monospace; font-size: 22px; letter-spacing: 5.72px; color: rgba(237,237,237,.38); text-transform: uppercase; }
+.browse .catalog-grid .collection-poster { width: calc(260px * var(--poster-scale, 1)); height: auto; padding: 0; border: 0; border-radius: 0; background: none; }
+.browse .catalog-grid .collection-poster:focus { transform: none; background: none; box-shadow: none; }
+.browse .catalog-grid .collection-poster .browse-art { transition: transform var(--silo-fast) ease-out, box-shadow var(--silo-fast) ease-out; }
+.browse .catalog-grid .collection-poster:focus .browse-art { transform: scale(1.05); box-shadow: 0 0 0 4px rgba(255,255,255,.7), 0 8px 18px rgba(0,0,0,.45); }
+.discovery-collection .browse-art-fallback { position: absolute; inset: 0; padding: 0; }
+.collection-stack { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; color: rgba(255,255,255,.85); }
+.collection-stack svg { width: 56px; height: 56px; }
+@media (prefers-reduced-motion: reduce) { .browse .catalog-grid .collection-poster:focus .browse-art { transform: none; box-shadow: 0 0 0 4px rgba(255,255,255,.7); } }
 .browse .discovery-collection { position: relative; width: 430px; height: 234px; flex-shrink: 0; padding: 24px; margin: 0; border-radius: 16px; white-space: normal; overflow-wrap: break-word; background: linear-gradient(#2e3036,#121316); border: 2px solid rgba(255,255,255,.12); }
 .browse .browse-row .discovery-collection { width: 430px; margin-right: 24px; }
 .discovery-collection-art { position: absolute; left: 28px; top: 36px; width: 104px; height: 156px; transform: rotate(-8deg); overflow: hidden; border-radius: 8px; }

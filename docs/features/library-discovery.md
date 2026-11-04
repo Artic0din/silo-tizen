@@ -4,8 +4,7 @@ Movies and Series each keep one selected library using the existing server/profi
 Recommended uses Home's shared Skyline backdrop, marquee and preference-aware media rows.
 Featured rows and rows without supported video destinations are omitted; headings are not focus targets, and Explore All opens the existing library-scoped section catalog.
 Recommended inserts up to eight curated collections by descending item count after the first rendered media row, followed by See All, and retains the collection row when no media rows render.
-The top-bar cascade provides every supported library destination; Recommended no longer duplicates it with a mode strip.
-Other destinations retain their mode strip.
+The top-bar cascade provides every supported library destination without a duplicate mode strip.
 A failed Recommended collections read leaves media shelves usable and exposes an explicit Retry.
 Hero enrichment uses the existing bounded queue after accepted loads and cached re-entry, never on focus movement.
 Known artwork capabilities size the initial section read; a late improving answer rereads sections only and merges artwork by retained section/card identity.
@@ -25,10 +24,18 @@ Poster size and badge answers repaint existing cards without changing their iden
 Supported whole-library Shuffle creates one non-retryable server session, resolves its current pick through the existing watch/version path, and advances through the player completion owner.
 Pending Shuffle launches are discarded when their Browse visit is replaced, left or covered by Settings or Card Actions.
 Mixed-library Movies/Series slices hide Shuffle because the server's library scope would include other media.
-Collections preserves server groups and order, including opted-in personal collections, in a three-column fan-card grid.
+Collections preserves server groups and order, including opted-in personal collections, in a six-column portrait grid (seven Compact, five Large).
 Each card uses the single poster or collage supplied by the server, without inventing additional posters.
+Standard collection artwork is 260×390 with a 12px radius, 40px column spacing, 60px row spacing, and centered 24px title / 20px metadata captions.
+Missing or failed artwork uses a stack glyph over a stable collection-id gradient.
+Recommended keeps its existing inline collection cards.
+Collection entry focuses the first non-empty group; Back from members restores the collection by id.
+Empty lists, and a failed Collections read, say “No collections yet”. Empty members say “Collection is empty”.
+Named groups keep the server heading; the anonymous bucket has none.
+Count captions follow Apple's `collection_type` mapping; management types such as manual and smart use ITEM/ITEMS.
+No collection creation or management controls are offered on this TV surface.
 Personal collection contents use `POST /catalog/query` with `source=user_collection`, `collection_id` and the current library scope.
-Genres keeps filtered results and sort controls under the persistent library pills.
+Genres keeps filtered results and sort controls under the shared navigation.
 A–Z uses the server's letters, counts and positions with its query window cursor.
 Recently Added requests `added_at` descending.
 Expanded Home and library section rows read 60 cards at a time into one scrolling grid, reading more when the last six cards enter the viewport.
@@ -96,7 +103,7 @@ All 14 unpacked files matched the installed simulator files; their complete hash
 The later append-404 correction is covered by native regression tests; it changes error handling without changing this screen geometry.
 
 Search capabilities control the Genres, A–Z and Recently Added destinations.
-Explicit unsupported capabilities leave Recommended, Browse and Collections available; failed reads show an error and Retry.
+Explicit unsupported capabilities leave Recommended, Browse and Collections available; failed capability and member reads show an error and Retry.
 A–Z and Recently Added grids have no marquee; the alphabet rail is on the right and supports remote entry and return.
 All requests use the existing operations/session/NativeHttp owners and active profile authority.
 Changing mode, scope or sort starts a fresh page sequence; Back restores the previous collection, section or genre focus.
@@ -110,6 +117,12 @@ Return visibility is measured before reveal, including when reduced motion appli
 Entering library content from navigation does not restore a saved navigation or selector control as the default card.
 
 The Browse port references Apple commit `1a7cceeaf3b2bfc4f889c00487d19b2c6f843940`: `TVLibraryTypeTabView`, `TVLibraryGridView`, `CatalogSortKey`, `CatalogFilterState`, `CatalogFacets`, `CatalogQueryBuilder` and `ShuffleLauncher`.
+The Collections port references Apple commit `9723df007baa8e933f5615cc14b13e99a6ee1ea1`: `TVLibraryCollectionsView`, `TVCollectionPosterCard`, `TVLibraryTypeTabView`, `LibraryCollectionDetailView` and `TVCardFocusStyle`.
+This is a source reference, not an assertion about the installed Apple build.
+Tizen retains its existing 24-member paging; Apple requests 60 members.
+Both list loaders fall back to the empty state on failure, while member failures retain explicit Retry.
+Restricted-member visibility remains server-authoritative in both clients.
+Paired native captures and the reported collection's actual artwork request remain unverified for this change.
 The existing session/operations boundary is retained; the server web Shuffle module is a thin request wrapper and offers no smaller reusable browser owner here.
 The API fixtures and consumed Shuffle wire fields are pinned to server commit `cc8514943289045e7b9f7ac8d36d4968bfe93926`.
 Optional test screenshots require both `DISCOVERY_CAPTURE` and `DISCOVERY_OUTPUT`; ordinary tests create no evidence directory.

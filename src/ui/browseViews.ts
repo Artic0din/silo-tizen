@@ -72,10 +72,11 @@ function exploreAllCard(rowTitle: string, key: string, continuing: boolean, onPr
 }
 
 /** An <img> for signed or presigned artwork, or the title as a placeholder when it is missing or fails. */
-export function artwork(className: string, reference: string | undefined, baseUrl: string, fallback: string): HTMLElement {
+export function artwork(className: string, reference: string | undefined, baseUrl: string, fallback: string | HTMLElement): HTMLElement {
     const box = el("div", className);
     const src = artworkUrl(reference, baseUrl);
-    const placeholder = el("span", "browse-art-fallback", fallback);
+    const placeholder = el("span", "browse-art-fallback");
+    placeholder.append(fallback);
     if (src === undefined) {
         box.classList.add("browse-art-missing");
         box.appendChild(placeholder);

@@ -101,6 +101,8 @@ test("collection tabs preserve full list, groups, nullable group and optional un
     const result = decodeLibraryCollections(raw);
     assert.equal(result.libraryId, "1");
     assert.equal(result.collections[0]?.id, "c1");
+    assert.equal(result.collections[0]?.collectionType, "manual");
+    assert.equal(result.ungrouped?.collections[0]?.collectionType, undefined);
     assert.equal(result.collections[0]?.groupId, null);
     assert.equal(result.groups[0]?.kind, "user_collections");
     assert.equal(result.ungrouped?.collections[0]?.itemCount, 12);

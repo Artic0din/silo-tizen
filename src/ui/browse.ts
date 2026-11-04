@@ -112,7 +112,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const resized = shownScale !== presentation.posterScale;
         if (resized) { shownScale = presentation.posterScale; applyCardSize(); }
         const current = top();
-        if (!playing && current !== undefined && (current.kind === "home" || current.kind === "for_you" || current.kind === "recommendationSection" || isSectionRoute(current) || (current.kind === "library" && (current.discovery?.mode === "Browse" || current.discovery?.mode === "Recommended"))) && (resized || shownOverlays !== presentation.cardOverlays)) {
+        if (!playing && current !== undefined && (current.kind === "home" || current.kind === "for_you" || current.kind === "recommendationSection" || isSectionRoute(current) || (current.kind === "library" && (current.discovery?.mode === "Browse" || current.discovery?.mode === "Recommended" || current.discovery?.mode === "Collections"))) && (resized || shownOverlays !== presentation.cardOverlays)) {
             shownOverlays = presentation.cardOverlays;
             render(host.focused());
             if (resized) host.revealFocused();
@@ -1244,7 +1244,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         current.pages = newPages();
         current.failure = undefined;
         loadRoute(current);
-        render({ zone: "pills", key: `mode:${value}` });
+        render({ zone: "nav", key: current.library.type === "series" ? "series" : "movies" });
     };
     const jump = (current: Extract<Route, { kind: "library" }>, letter: string, position: number): void => {
         const state = current.discovery;

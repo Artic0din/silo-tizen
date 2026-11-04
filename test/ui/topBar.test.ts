@@ -103,6 +103,21 @@ test("For You shares Home shelves and expands only rows with a supported locator
     } finally { await tv.page.context().close(); }
 });
 
+test("For You retains cached recommendations after remount while unreachable", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await tv.page.locator('[data-focus="for_you"]').click();
+        await tv.page.locator('[data-view="for_you"] .browse-card').first().waitFor();
+        await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+        await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+        await tv.page.locator('[data-focus="for_you"]').click();
+        await tv.page.locator('[data-view="for_you"] .browse-card').first().waitFor();
+        await tv.jump(35000);
+        await tv.eventually(async () => (await tv.page.locator(".browse").innerText()).includes("Can't reach server — showing cached content"), "cached For You notice");
+    } finally { await tv.page.context().close(); }
+});
+
 test("library section rows use the Swift flyout text, padding and icon footprint", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

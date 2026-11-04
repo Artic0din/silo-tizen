@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -81,6 +81,20 @@ detailTest("More owns accessible personal-action loading and failure announcemen
     await panel.locator('[data-focus="watched"]').click();
     await panel.getByRole("alert").filter({ hasText: "Could not update watched." }).waitFor();
     assert.equal(await panel.getByRole("alert").count(), 1);
+});
+
+detailTest("cached Details recovery restores failed personal controls", async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().waitFor();
+    await homeDetailsRead(tv);
+    await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.jump(35000);
+    await tv.page.locator('[data-focus="more"]').waitFor();
+    await tv.page.unroute("**/api/v2/**");
+    await tv.jump(35000);
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    assert.equal(await tv.page.locator('[data-focus="watchlist"]').count(), 1);
+    assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Can't reach server/);
 });
 
 detailTest("series current episode keeps its outline while season chips own focus", async tv => {

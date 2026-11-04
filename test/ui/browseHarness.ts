@@ -6,6 +6,7 @@
 import type { ConnectedServer } from "../../src/session/core.ts";
 import { connect } from "../../src/session/core.ts";
 import { type Browse, mountBrowse, type PlayRequest } from "../../src/ui/browse.ts";
+import { clearBrowseCache } from "../../src/session/browseCache.ts";
 import { FakeKeyManager, MemoryPublicStorage } from "../native/support/keyManager.ts";
 
 export interface BrowseHarness {
@@ -20,6 +21,7 @@ export interface BrowseHarness {
     mount(offerSignOut?: boolean): void;
     resume(): void;
     destroy(): void;
+    clearResponseCache(): void;
     failPublicStorage(read: boolean, write: boolean): void;
     hasImageCapabilityCache(): boolean;
     /** As the profile screens do on Switch profile: clear the profile, which ends browse's authority. */
@@ -126,6 +128,7 @@ const harness: BrowseHarness = {
     destroy() {
         browse?.destroy();
     },
+    clearResponseCache() { clearBrowseCache(publicStorage); },
     failPublicStorage(read, write) {
         publicStorage.failGet = read;
         publicStorage.failSet = write;

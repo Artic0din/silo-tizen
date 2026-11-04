@@ -2,6 +2,7 @@
 // sign in with a device code, choose a profile, sign out.
 
 import { type Clock, systemClock } from "../api/clock.ts";
+import { clearBrowseCache } from "./browseCache.ts";
 import { discoverServer, type DiscoveryResult, type ServerConnection } from "../api/discovery.ts";
 import type { FetchLike } from "../api/http.ts";
 import { parseServerUrl, type ServerUrlProblem } from "../api/serverUrl.ts";
@@ -49,6 +50,9 @@ export async function connect(serverAddress: string, deps: SessionCoreDeps, sign
     const server = discovered.server;
     const vault = new CredentialVault(openSecretStore(deps.keyManager), deps.publicStorage, server.http.base.baseUrl);
     const session = new NativeSession(server, vault, clock);
+    session.onAuthorityChange(change => {
+        if (change.reason === "signed_out" || change.reason === "session_expired") clearBrowseCache(deps.publicStorage);
+    });
     const restore = await session.restore();
     return {
         status: "connected",
@@ -66,6 +70,7 @@ export async function forgetStoredCredential(
     serverAddress: string,
     deps: Pick<SessionCoreDeps, "publicStorage" | "keyManager">,
 ): Promise<VaultClear | ServerUrlProblem> {
+    clearBrowseCache(deps.publicStorage);
     const parsed = parseServerUrl(serverAddress);
     if (!parsed.ok) {
         return parsed.problem;

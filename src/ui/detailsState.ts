@@ -63,6 +63,23 @@ export class DetailsState {
     get pending(): boolean { return [...this.changes.values()].some(change => change.pending); }
     get busy(): boolean { return this.pending || this.rating.pending || this.pendingElsewhere(); }
 
+    acceptDetail(detail: ItemDetail): void {
+        const changedTarget = this.detail.playContentId !== detail.playContentId;
+        this.detail = detail;
+        if (changedTarget) {
+            this.nextEpisodeRevision++;
+            this.nextEpisode = undefined;
+            this.nextEpisodeLoading = false;
+            this.nextEpisodeFailed = false;
+        }
+        if (changedTarget || this.nextEpisodeFailed) this.loadNextEpisode();
+        if (this.controller === undefined || !this.full) return;
+        if (this.personalFailed) this.loadPersonal();
+        if (this.relatedFailed) this.loadRelated();
+        if (this.titleArtPolicy === "failed") this.loadTitleArt();
+        if (this.rating.failed && this.rating.failedTarget === undefined) this.rating.load();
+    }
+
     start(mode: "full" | "personal" = "full"): void {
         if (this.controller !== undefined) return;
         this.controller = new AbortController();

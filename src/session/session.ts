@@ -40,7 +40,7 @@ export type RefreshOutcome =
     | { readonly status: "refreshed" }
     | { readonly status: "session_ended" }
     /** Server or network unavailable; tokens kept, try again after the delay. */
-    | { readonly status: "unavailable"; readonly retryAfterSeconds: number | undefined }
+    | { readonly status: "unavailable"; readonly retryAfterSeconds: number | undefined; readonly transportFailure?: "network" | "timeout" }
     | { readonly status: "aborted" }
     | { readonly status: "signed_out" };
 
@@ -363,7 +363,7 @@ export class NativeSession {
                 await this.endAccount("session_expired");
                 return { status: "session_ended" };
             }
-            return { status: "unavailable", retryAfterSeconds: error.retryAfterSeconds };
+            return { status: "unavailable", retryAfterSeconds: error.retryAfterSeconds, ...(error.failure.kind === "network" || error.failure.kind === "timeout" ? { transportFailure: error.failure.kind } : {}) };
         }
     }
 
@@ -411,6 +411,7 @@ function throwUnlessRefreshed(outcome: RefreshOutcome): void {
         case "refreshed":
             return;
         case "unavailable":
+            if (outcome.transportFailure !== undefined) throw new ApiError({ kind: outcome.transportFailure });
             throw new SessionError("unavailable", outcome.retryAfterSeconds);
         case "session_ended":
             throw new SessionError("session_ended");

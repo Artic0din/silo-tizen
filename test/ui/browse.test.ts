@@ -2629,6 +2629,7 @@ browseTest("series open seasons, episode Select plays directly, and playback ret
     await press(tv, "ArrowDown", "Enter");
     await showing(tv, "item:series:s1");
     await shows(tv, "Harbor Lights");
+    await tv.page.locator('[data-focus="season:2"]').waitFor();
     assert.equal(await tv.focused(), "next-episode");
     await press(tv, "ArrowDown", "ArrowRight");
     assert.equal(await tv.focused(), "season:2");
@@ -2941,6 +2942,7 @@ browseTest("Back from a result reloads a query edited before its debounce could 
 }, { catalog: videoOnlyCatalog() });
 
 browseTest("loading, slow, offline, removed, empty and missing-artwork states all leave a way forward", async (tv, catalog) => {
+    await tv.page.evaluate(() => window.browseHarness.clearResponseCache());
     await tv.eventually(async () => (await tv.page.locator(".browse-art-missing").count()) >= 2, "placeholders");
     const missing = await tv.page.evaluate(() => Array.from(document.querySelectorAll(".browse-art-missing")).map((node) => node.parentElement?.getAttribute("data-focus")));
     assert.ok(missing.indexOf("movie:m0002") !== -1 && missing.indexOf("movie:m0003") !== -1, "no artwork and failed artwork both show the title");

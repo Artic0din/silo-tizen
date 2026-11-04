@@ -8,7 +8,8 @@ All notable changes to this project are documented in this file.
 
 - Renamed the profile menu's Switch Server row to Change Account, after Settings and before Sign Out.
 
-- Matched Apple TV’s fixed top menu and moved Requests into the profile menu with Back restoring its row.
+- Matched Apple TV’s fixed top menu and moved Requests into the profile menu.
+- Returned focus to the selected tab after leaving profile menu destinations and made the avatar's white focus ring visible over artwork.
 
 - Prevented large Search posters from overlapping and kept catalog errors and Try Again visible while People results were pending.
 - Restored related titles on Details when the server returned cards without catalog pagination totals.

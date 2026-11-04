@@ -1101,8 +1101,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (current.kind === "personal" || current.kind === "personFilmography") current.pendingIndex = undefined;
                 current.stale = true;
             }
-            showRoute(current, current.focus);
-            if (active?.kind === "requests" && active.requests.source.kind === "hub" && current.focus?.key === "requests") shell.restoreProfileRow("requests");
+            const fromProfileMenu = (active?.kind === "requests" && active.requests.source.kind === "hub") || (active?.kind === "personal" && active.anchor === "profiles");
+            showRoute(current, fromProfileMenu ? tabFocus(current) : current.focus);
         }
     };
 
@@ -1122,6 +1122,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         stack.push(next);
         showRoute(next, focus);
     };
+
+    const tabFocus = (current: Route): FocusTarget => ({ zone: "nav", key: current.kind === "library" ? (current.library.type === "music" ? "music" : current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? current.anchor ?? "profiles" : current.kind });
 
     const showRoute = (current: Route, focus: FocusTarget | undefined): void => {
         searchReturnFocus = current.kind === "search" && focus?.zone === "search-requests" && current.supplement?.requests === undefined
@@ -1248,7 +1250,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             } });
         const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || current.kind === "personal" || current.kind === "calendar";
         if (rootRoute) {
-            const selected = current.kind === "library" ? (current.library.type === "music" ? "music" : current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? current.anchor ?? "profiles" : current.kind;
+            const selected = tabFocus(current).key;
             const preview = current.kind === "home" || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
             const modal = browsing && (current.discovery?.panel !== undefined || shuffleFailure?.route === current);
             const decorated = shell.decorate(view, selected, preview, modal ? () => { view.back?.(); } : current.kind === "personal" || (current.kind === "library" && current.discovery?.genre !== undefined) ? pop : undefined, current.kind === "library" ? `library:${current.library.id}:${current.library.type}:${current.discovery?.mode ?? "Recommended"}` : undefined);
@@ -1526,7 +1528,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }
                 host.listen();
                 const current = top();
-                if (current !== undefined) showRoute(current, { zone: "nav", key: "profiles" });
+                if (current !== undefined) showRoute(current, tabFocus(current));
             }, server.profileLaunch);
         },
         personal: (source, anchor = "profiles") => {

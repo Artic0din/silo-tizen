@@ -49,6 +49,47 @@ async function start(tv: Tv, menu: PrimaryMenu | null = null, catalog = new Reco
     await homeDetailsRead(tv);
 }
 
+for (const destination of ["History", "Settings"] as const) test(`${destination} Back closes the profile menu and restores the selected Movies tab`, async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await tv.page.locator('[data-focus="movies"]').click();
+        await tv.page.locator('.browse[data-view="library:12"] .browse-card').first().waitFor();
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.getByRole("menuitem", { name: destination, exact: true }).click();
+        await tv.page.locator(destination === "Settings" ? '[data-focus="playback"]' : '.browse[data-view="personal:history"]').waitFor();
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "movies");
+        assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "false");
+        await tv.jump(1000);
+        assert.equal(await tv.focused(), "movies");
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "profiles", "Back from the menu itself still restores the avatar");
+    } finally { await tv.page.context().close(); }
+});
+
+test("focused avatar paints Apple's inset white ring above loaded artwork", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        const avatar = tv.page.locator('[data-focus="profiles"]');
+        await avatar.locator('.navigation-avatar').evaluate(node => {
+            const image = document.createElement("img");
+            image.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="red"/></svg>';
+            node.appendChild(image);
+            return image.decode();
+        });
+        await avatar.focus();
+        assert.deepEqual(await avatar.evaluate(node => {
+            const style = getComputedStyle(node);
+            return [style.outlineWidth, style.outlineStyle, style.outlineColor, style.outlineOffset];
+        }), ["3px", "solid", "rgb(255, 255, 255)", "-3px"]);
+        await tv.page.locator('[data-focus="home"]').focus();
+        assert.equal(await avatar.evaluate(node => getComputedStyle(node).outlineStyle), "none");
+    } finally { await tv.page.context().close(); }
+});
+
 test("Music is library-gated and opens an explicit unavailable page without video queries", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

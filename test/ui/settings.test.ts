@@ -93,7 +93,7 @@ test("Settings uses category, row and picker Back focus with no requests on focu
         assert.equal(await tv.focused(), "playback");
         assert.equal(tv.fake.requests.length, requests);
         await tv.remote(10009);
-        assert.equal(await tv.focused(), "profiles");
+        assert.equal(await tv.focused(), "home");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
@@ -116,7 +116,7 @@ test("hidden libraries persist absent IDs and refresh Home and navigation on ret
         refreshedLibraries.release();
         await tv.page.locator('[role="tab"][data-focus="movies"]').waitFor({ state: "detached" });
         assert.equal(await tv.page.locator('[role="tab"][data-focus="movies"]').count(), 0);
-        assert.equal(await tv.focused(), "profiles");
+        assert.equal(await tv.focused(), "home");
     } finally { await tv.page.context().close(); }
 });
 

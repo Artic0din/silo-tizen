@@ -595,11 +595,6 @@ export class Skyline {
     }
     private cancelFade = (): void => undefined;
 
-    restoreProfileRow(key: string): void {
-        this.openProfile();
-        this.refresh({ zone: "selector", key });
-    }
-
     private openProfile(enter = false): void {
         if (!this.visible) return;
         this.close();

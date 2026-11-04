@@ -153,9 +153,12 @@ Labels retain Apple's 29 px horizontal inset (including the CSS border), 26 px s
 Removing Requests lets the shared flex row recalculate every horizontal anchor from the remaining labels.
 
 The avatar uses the server-resolved image through the existing artwork URL policy, keeping the initial visible until loading succeeds or if it fails.
+Its focused ring is opaque white, 3 px wide and inset within the avatar edge, matching Apple's `strokeBorder`.
 The anchored profile menu includes Switch Profile, History, capability-gated Requests, Settings, Change Account and a red, unfocused Sign Out row.
 Watchlist and Favorites remain under For You.
-Requests pushes a screen without the top bar; Back restores its profile menu row.
+Requests pushes a screen without the top bar.
+Back from Requests, History or Settings keeps the profile menu closed and restores the selected tab.
+Back from the open profile menu itself still restores avatar focus.
 The header uses the confirmed server branding name, falling back to the host when none is cached.
 Every focused menu row uses a white platter and black text, including Sign Out.
 Change Account currently opens the existing server selection without logging out or deleting saved sign-ins.

@@ -83,6 +83,19 @@ detailTest("More owns accessible personal-action loading and failure announcemen
     assert.equal(await panel.getByRole("alert").count(), 1);
 });
 
+detailTest("series current episode keeps its outline while season chips own focus", async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    const current = tv.page.locator('.details-episodes [aria-current="true"]');
+    await current.waitFor();
+    await tv.page.locator('[data-focus="season:1"]').focus();
+    assert.equal(await current.getAttribute("data-focus"), "episode:s1e11");
+    assert.equal(await current.locator(".browse-art").evaluate(node => getComputedStyle(node).outline), "rgba(255, 255, 255, 0.7) solid 4px");
+    assert.equal(await current.locator(".browse-card-title").evaluate(node => getComputedStyle(node).color), "rgb(255, 255, 255)");
+    await tv.page.locator('[data-focus="season:2"]').click();
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e21"]').waitFor();
+    assert.equal(await current.count(), 0, "another season never highlights an unrelated episode");
+});
+
 detailTest("series Details selects season chips explicitly and restores its inline episode rail", async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('[data-view="item:series:s1"]').waitFor();

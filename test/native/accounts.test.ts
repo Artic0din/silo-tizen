@@ -83,6 +83,36 @@ for (const legacy of [false, true]) test(`forget selected sign-in preserves anot
     if (legacy) assert.equal((await new CredentialVault(store, h.storage, h.fake.origin).load()).status, "found");
 });
 
+test("retiring an inactive account preserves the current account selection", async () => {
+    const h = await connected(); await signIn(h);
+    const account = h.core.accounts.directory.list()[0]!;
+    const directory = new AccountDirectory(h.storage, bytes => { bytes.fill(9); });
+    const current = directory.add(h.fake.origin, account.serverId, "other", "Other");
+    directory.select(current.id);
+    await h.core.session.retire();
+    assert.equal(directory.selected, current.id);
+    await h.core.accounts.signOut();
+    assert.equal(directory.selected, current.id);
+    assert.equal(directory.list()[0]?.needsSignIn, false);
+});
+
+test("retirement drains a refresh write already queued in the account vault", async () => {
+    const h = await connected(); await signIn(h);
+    const saving = h.keyManager!.holdSaves();
+    const refreshing = h.core.session.refresh();
+    await h.clock.advance(0);
+    assert.equal(saving.waiting(), 1);
+    let retired = false;
+    const retiring = h.core.session.retire().then(() => { retired = true; });
+    try {
+        await new Promise<void>(resolve => setImmediate(resolve));
+        assert.equal(retired, false, "retirement waits for the queued write");
+    } finally { saving.release(); }
+    await retiring;
+    assert.deepEqual(await refreshing, { status: "aborted" });
+    assert.equal(retired, true);
+});
+
 test("removing an inactive cached account fences its late refresh writes", async () => {
     const h = await connected(); await signIn(h);
     const account = h.core.accounts.directory.list()[0]!;

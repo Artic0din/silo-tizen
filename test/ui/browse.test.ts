@@ -13,7 +13,7 @@ import type { Reply } from "../native/support/fakeSilo.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
-import { homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { detailReads, homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
 const IME_DONE = 65376;
@@ -2462,8 +2462,14 @@ browseTest("many libraries stay bounded; dwell and Back never commit; scope surv
     assert.ok(household);
     household.hidden = [];
     for (let index = 0; index < 20; index++) household.libraries.push({ id: String(index + 30), name: `Library ${index} with a long title`, type: "movies", sort_order: index + 10 });
+    const previousReads = detailReads(tv).length;
+    let release = (): void => {};
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    await tv.page.route("**/api/v2/catalog/items/**", async route => { await pending; await route.fallback(); });
     await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
     await showing(tv, "home");
+    release();
+    await homeDetailsRead(tv, previousReads);
     assert.equal(await tv.page.locator(".browse").evaluate((node) => node.scrollWidth), 1920);
     await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
     await tv.page.evaluate(() => { window.retainedNavigation = document.querySelector(".browse-nav"); });

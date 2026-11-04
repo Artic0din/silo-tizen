@@ -140,6 +140,29 @@ appTest("Change Account keeps a session-only account usable without signing in a
     assert.equal(tv.fake.revokedSessions.size, 0);
 });
 
+appTest("a guarded replacement reuses its live session but cannot restore after restart", async tv => {
+    await signIn(tv);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.page.evaluate(() => { window.appHarness.keyManager.failSave = true; });
+    await tv.page.locator('[data-focus="add-account"]').click();
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    tv.fake.approve([...tv.fake.devices.keys()].pop()!);
+    await tv.jump(5000); await tv.jump(1000);
+    if (await tv.page.locator('[data-screen="notice"]').count()) await tv.page.getByRole("button", { name: "Continue", exact: true }).click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    const devices = tv.fake.devices.size;
+    await tv.page.locator('[data-focus="change-server"]').click();
+    await tv.page.locator('[data-view="change-account"]').waitFor();
+    assert.equal(await tv.page.evaluate(() => JSON.parse(window.appHarness.storage.getItem("silo.native.accounts.v1")!).accounts[0].needsSignIn), true);
+    await tv.page.locator('.account-card').first().click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor({ timeout: 3000 });
+    assert.equal(tv.fake.devices.size, devices);
+    await tv.page.evaluate(() => { window.appHarness.keyManager.failSave = false; window.appHarness.mount(); });
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 0);
+});
+
 appTest("empty Change Account focuses Add server and Back returns to sign-in", async tv => {
     await tv.page.fill("#signin-address", "silo.example.test");
     await tv.page.getByRole("button", { name: "Connect", exact: true }).click();

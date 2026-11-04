@@ -232,9 +232,9 @@ export function detailReads(tv: Tv): string[] {
 }
 
 /** Waits until Home has sent its detail read for every title it drew (Home reads them once as it loads). */
-export async function homeDetailsRead(tv: Tv): Promise<string[]> {
+export async function homeDetailsRead(tv: Tv, previousReads = 0): Promise<string[]> {
     const titles = await tv.page.locator('[data-view="home"] [data-section] .browse-card:not(.skyline-explore)').evaluateAll(nodes => [...new Set(nodes.map(node => node.getAttribute("data-focus") ?? ""))]);
-    await tv.eventually(async () => titles.every(id => detailReads(tv).includes(id)), "Home detail reads");
+    await tv.eventually(async () => titles.every(id => detailReads(tv).slice(previousReads).includes(id)), "Home detail reads");
     await tv.jump(0);
     return titles;
 }

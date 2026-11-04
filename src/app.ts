@@ -64,7 +64,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
         if (connected?.session.activeProfile) connected.session.setProfile(undefined, "profile_cleared");
         profiles?.destroy();
         profiles = undefined;
-        const live = account && !account.needsSignIn ? liveAccounts.get(liveKey(account.baseUrl, account.accountId)) : undefined;
+        const live = account ? liveAccounts.get(liveKey(account.baseUrl, account.accountId)) : undefined;
         if (live?.session.signedIn && account) {
             try { live.accounts.directory.select(account.id); }
             catch {

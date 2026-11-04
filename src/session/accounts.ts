@@ -105,6 +105,7 @@ export class AccountVault extends CredentialVault {
         this.accountQueue = result.catch(() => undefined);
         return result;
     }
+    override async drain(): Promise<void> { await this.accountQueue; await super.drain(); }
     override load(): Promise<VaultLoad> { return this.ordered(() => this.loadAccount()); }
     private async loadAccount(): Promise<VaultLoad> {
         if (this.adding) return { status: "none" };

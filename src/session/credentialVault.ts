@@ -115,6 +115,8 @@ export class CredentialVault {
         return this.store.persistent;
     }
 
+    async drain(): Promise<void> { await this.queue; }
+
     load(): Promise<VaultLoad> {
         return this.serialize(() => this.loadNow());
     }

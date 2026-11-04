@@ -400,7 +400,9 @@ export class FocusHost {
         if (zone === undefined || item === undefined) {
             return;
         }
-        if (zone.id === "nav" || (this.lastZone === "nav" && this.view?.barEntersDefault === true)) this.navigationX = undefined;
+        // The top bar is not a content column. Entering it or leaving it drops the
+        // axis, so the next vertical move measures the card rather than the tab.
+        if (zone.id === "nav" || this.lastZone === "nav") this.navigationX = undefined;
         this.memory.set(zone.id, item.key);
         this.lastZone = zone.id;
         // Opening the cascade must not replace the content return target.

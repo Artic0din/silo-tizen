@@ -1118,3 +1118,96 @@ journey("Home expansion empty, missing and failed reads retain reachable control
     await tv.remote(10009);
     assert.equal(await tv.focused(), "expand:recent/12");
 });
+
+interface CardBox { id: string; left: number; width: number }
+
+/** Centres of the row's cards, including Explore all, in visual order. */
+async function rowBoxes(tv: Tv, section: string): Promise<CardBox[]> {
+    return tv.page.locator(`[data-section="${section}"] .browse-card`).evaluateAll(nodes => nodes.map(node => {
+        const rect = node.getBoundingClientRect();
+        return { id: node.getAttribute("data-focus") ?? "", left: rect.left, width: rect.width };
+    }));
+}
+
+function nearestBox(boxes: readonly CardBox[], x: number): CardBox {
+    const centre = (box: CardBox): number => box.left + box.width / 2;
+    return boxes.reduce((best, box) => Math.abs(centre(box) - x) < Math.abs(centre(best) - x) ? box : best);
+}
+
+journey("Home Down keeps the column across poster and still rows, including a row already visited", async tv => {
+    const stills = await rowBoxes(tv, "recent-tv");
+    const posters = await rowBoxes(tv, "recent-movies");
+    assert.equal(await tv.focused(), stills[0]?.id);
+    await tv.page.keyboard.press("ArrowDown");
+    const firstLanding = await tv.focused();
+    assert.equal(firstLanding, nearestBox(posters, (stills[0]?.left ?? 0) + (stills[0]?.width ?? 0) / 2).id);
+    await tv.page.keyboard.press("ArrowUp");
+    assert.equal(await tv.focused(), stills[0]?.id);
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("ArrowRight");
+    const origin = await tv.focused();
+    const source = (await rowBoxes(tv, "recent-tv")).find(box => box.id === origin);
+    assert.ok(source !== undefined);
+    assert.notEqual(origin, stills[0]?.id);
+    const posterBoxes = await rowBoxes(tv, "recent-movies");
+    await tv.page.keyboard.press("ArrowDown");
+    const landed = await tv.focused();
+    const column = nearestBox(posterBoxes, source.left + source.width / 2).id;
+    assert.equal(landed, column, "Down from a later still lands on the poster nearest that column");
+    assert.notEqual(landed, firstLanding, "a poster row visited before does not restore its first card");
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("ArrowRight");
+    const movedId = await tv.focused();
+    const moved = (await rowBoxes(tv, "recent-movies")).find(box => box.id === movedId);
+    assert.ok(moved !== undefined);
+    const stillTargets = await rowBoxes(tv, "recent-tv");
+    await tv.page.keyboard.press("ArrowUp");
+    assert.equal(await tv.focused(), nearestBox(stillTargets, moved.left + moved.width / 2).id, "Up follows the column rather than the still last focused in that row");
+}, catalog => {
+    const home = catalog.households.get("p-owner");
+    assert.ok(home !== undefined);
+    home.sections = [
+        { id: "recent-tv", sectionType: "recently_added", title: "Recently Added TV", items: ["episode:s1e11", "episode:s1e12", "episode:s1e13", "episode:s1e21"] },
+        { id: "recent-movies", sectionType: "recently_added", title: "Recently Added", items: ["movie:m0008", "movie:m0009", "movie:m0010", "movie:m0011", "movie:m0012", "movie:m0013", "movie:m0014"] },
+    ];
+});
+
+function logoSvg(width: number, height: number): string {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#fff"/></svg>`;
+}
+
+journey("Home hero title art is pinned to the top of Apple's fixed logo slot", async tv => {
+    await tv.page.route("**/art/full-logo.svg*", route => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg(880, 200) }));
+    await tv.page.route("**/art/wide-logo.svg*", route => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg(880, 130) }));
+    const place = async (id: string): Promise<{ slotTop: number; slotHeight: number; imageTop: number; imageHeight: number }> => {
+        await tv.page.locator(`[data-section="${id === "movie:m0004" ? "hero/opaque" : "because/opaque"}"] [data-focus="${id}"]`).focus();
+        await tv.jump(300);
+        const image = tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) img.skyline-logo");
+        await image.waitFor();
+        return image.evaluate(node => {
+            const art = node.getBoundingClientRect();
+            const slot = node.parentElement?.getBoundingClientRect();
+            if (slot === undefined) throw new Error("missing logo slot");
+            return { slotTop: slot.top, slotHeight: slot.height, imageTop: art.top, imageHeight: art.height };
+        });
+    };
+    const full = await place("movie:m0004");
+    const wide = await place("movie:m0005");
+    assert.equal(full.slotHeight, 200, "Apple SiloTheme.Skyline.marqueeLogoMaxHeightHome");
+    assert.equal(wide.slotHeight, 200);
+    assert.ok(wide.imageHeight < 200, "wide art does not fill the slot");
+    assert.equal(wide.imageTop, full.imageTop, "short art keeps the full-height art's top; the old slot collapsed and dropped it");
+    assert.equal(wide.imageTop, wide.slotTop, "the art is pinned to the top of the slot");
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator(".details-logo").waitFor();
+    const details = await tv.page.locator(".details-logo").evaluate(node => {
+        const art = node.getBoundingClientRect();
+        const slot = node.parentElement?.getBoundingClientRect();
+        return { art: art.top, slot: slot?.top, height: art.height };
+    });
+    assert.equal(details.art, details.slot, "Details title art stays at the top of its heading");
+    assert.ok(details.height < 180);
+}, catalog => {
+    enrichHome(catalog, { "movie:m0004": { logo_url: "/art/full-logo.svg" }, "movie:m0005": { logo_url: "/art/wide-logo.svg" } });
+    enrichDetails(catalog, { "movie:m0005": { logo_url: "/art/wide-logo.svg" } });
+});

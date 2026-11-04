@@ -784,10 +784,14 @@
 /* TMDB's approved logo replaces its text mark at the score's cap height (0.7x), undimmed, on the baseline. */
 .skyline-rating-logo { height: 14px; width: auto; margin-right: 7px; vertical-align: baseline; }
 .skyline-library .skyline-rating-logo { height: 13px; }
-/* Apple marquee logo: aspect-fit inside 880 x 200 (Home) or 880 x 150 (library), leading. */
-.skyline-title.skyline-title-logo { display: block; max-height: none; overflow: visible; text-shadow: none; line-height: 0; }
-.skyline-logo { display: block; max-width: 880px; max-height: 200px; }
-.skyline-library .skyline-logo { max-height: 150px; }
+/* Apple TVMarqueeBlock titleSlot (TVFocusMarquee.swift): aspect-fit in a fixed
+   880×200 Home slot, or 880×150 on the library scale (SiloTheme.Skyline
+   marqueeLogoMaxWidth, marqueeLogoMaxHeightHome, marqueeLogoMaxHeightLibrary).
+   The art is pinned to the top leading edge so a short logo keeps the full
+   slot and does not drop in the bottom-anchored marquee. */
+.skyline-title.skyline-title-logo { display: flex; align-items: flex-start; justify-content: flex-start; width: 880px; height: 200px; max-height: none; overflow: visible; text-shadow: none; line-height: 0; }
+.skyline-logo { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; object-position: left top; }
+.skyline-library .skyline-title.skyline-title-logo { height: 150px; }
 /* Apple detailLine: one line at the meta size, medium weight, on-surface at half opacity, synopsis width. */
 .skyline-detail-line { max-width: 780px; height: 24px; margin: 0 0 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 20px; line-height: 24px; font-weight: 500; color: rgba(237,237,237,.5); }
 .skyline-library .skyline-detail-line { font-size: 19px; }

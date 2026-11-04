@@ -1,11 +1,13 @@
 // Details-only native v2 operations; source and retry classifications match contracts/v2/SOURCE.
 import type { RequestSpec } from "./http.ts";
 import { decodeCatalogCollection, decodeCatalogPage, decodeResumePosition } from "../contracts/v2/catalog.ts";
-import { decodeMembership, decodePerson, decodePersonalCapability } from "../contracts/v2/details.ts";
+import { decodeMembership, decodePerson, decodePeople, decodePersonalCapability } from "../contracts/v2/details.ts";
+import type { BrowseScope, TextSearchScope } from "./operations.ts";
 
 export type PersonalAction = "watchlist" | "favorites" | "watched";
 
 export const detailOperations = {
+    people: (query: string, scope: BrowseScope | TextSearchScope): RequestSpec<ReturnType<typeof decodePeople>> => ({ method: "GET", path: `/catalog/people?q=${encodeURIComponent(query)}&media_scope=${scope}&limit=20`, retry: "safe", decode: decodePeople }),
     resumePosition: (id: string, fileId: string): RequestSpec<ReturnType<typeof decodeResumePosition>> => ({
         method: "GET", path: `/watch/${encodeURIComponent(id)}?file_id=${encodeURIComponent(fileId)}`, retry: "safe",
         decode: value => decodeResumePosition(value, id, fileId),

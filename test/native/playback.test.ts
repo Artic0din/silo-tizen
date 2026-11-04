@@ -1028,6 +1028,25 @@ test("autoplay cancellation, disabled preference, suspension and authority chang
     }
 });
 
+test("an exhausted series offers the first On Deck title and does not count down into it", async () => {
+    const r = await autoplayRig(true);
+    for (const id of ["episode:s1e13", "episode:s1e21", "episode:s1e22", "episode:s1e23"]) r.catalog.removed.add(id);
+    await playMovie(r, EPISODE);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(15000);
+    const done = completion(r);
+    assert.equal(done.title, "Up Next");
+    assert.equal(done.next?.contentId, "movie:m0001");
+    assert.equal(done.next?.fileId, "f-movie:m0001");
+    assert.equal(done.next?.episode, undefined);
+    assert.equal(done.countdown, undefined);
+    assert.equal(bodies(r.h, "/start").length, 1, "On Deck waits for Play next");
+    r.controller.playNext();
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, "/start")[1]?.file_id, "f-movie:m0001");
+    r.controller.destroy();
+});
+
 test("autoplay stops at the series end and never starts after failed resolution", async () => {
     for (const mode of ["end", "failure"] as const) {
         const r = await autoplayRig(true);
@@ -1036,7 +1055,13 @@ test("autoplay stops at the series end and never starts after failed resolution"
         if (mode === "failure") r.catalog.removed.add(EPISODE.contentId);
         r.avplay.listener?.onstreamcompleted();
         await r.h.clock.advance(15000);
-        assert.equal(completion(r).next, undefined);
+        if (mode === "end") {
+            // Old series end left `next` undefined. On Deck is offered and does not start.
+            assert.equal(completion(r).next?.contentId, "movie:m0001");
+            assert.equal(completion(r).title, "Up Next");
+        } else {
+            assert.equal(completion(r).next, undefined);
+        }
         assert.equal(completion(r).countdown, undefined);
         assert.equal(completion(r).state, mode === "end" ? "ready" : "failed");
         assert.equal(bodies(r.h, "/start").length, 1);
@@ -1234,7 +1259,8 @@ test("fresh unchanged played:false is authoritative and still permits a neutral 
     r.avplay.listener?.onstreamcompleted();
     await r.h.clock.advance(0);
     assert.equal(completion(r).state, "ready");
-    assert.equal(completion(r).title, "Playback ended");
+    // Old completion title was "Playback ended". A series successor reads Playing Next.
+    assert.equal(completion(r).title, "Playing Next");
     assert.equal(r.catalog.playbackWatched.has(EPISODE.contentId), false);
     assert.equal(r.catalog.progress.has(EPISODE.contentId), false);
     r.controller.destroy();

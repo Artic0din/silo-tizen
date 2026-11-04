@@ -22,6 +22,20 @@ export interface AVPlayListener {
     onerror(eventType: string): void;
 }
 
+/** `AVPlayStreamType` from the AVPlay API reference. */
+export type AVPlayTrackType = "VIDEO" | "AUDIO" | "TEXT";
+
+/**
+ * One `AVPlayStreamInfo` row from `getTotalTrackInfo` / `getCurrentStreamInfo`.
+ * `extra_info` is the documented JSON string. Subtitle rows use
+ * `track_num`, `track_lang`, `subtitle_type` and `fourCC`.
+ */
+export interface AVPlayTrackInfo {
+    readonly index: number;
+    readonly type: AVPlayTrackType;
+    readonly extra_info: string;
+}
+
 export interface AVPlay {
     open(url: string): void;
     close(): void;
@@ -45,6 +59,22 @@ export interface AVPlay {
     stop(): void;
     getState(): string;
     getCurrentTime(): number;
+    /**
+     * TEXT and AUDIO rows of the open stream. Valid in PLAYING and PAUSED.
+     * READY is documented only for the synchronous `prepare`, which this client does not use.
+     */
+    getTotalTrackInfo?(): readonly AVPlayTrackInfo[];
+    /**
+     * Switch an AUDIO or TEXT track of the open stream. TEXT is valid in PLAYING and PAUSED.
+     * The index is `AVPlayStreamInfo.index`, not a server or FFmpeg stream index.
+     */
+    setSelectTrack?(trackType: "AUDIO" | "TEXT", trackIndex: number): void;
+    /**
+     * `true` hides subtitles. Samsung titles this as external subtitles; the parameter
+     * text says subtitles are hidden. Whether it hides a TEXT track chosen with
+     * `setSelectTrack` is not stated.
+     */
+    setSilentSubtitle?(hidden: boolean): void;
 }
 
 function isAVPlay(value: unknown): value is AVPlay {

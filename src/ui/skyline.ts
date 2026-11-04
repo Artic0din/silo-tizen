@@ -168,6 +168,7 @@ export class Skyline {
         const roots = navigationRoots(this.menu, libraries, this.requestsEnabled);
         const identity = JSON.stringify(roots);
         if (identity === this.navigationIdentity || !this.selector.hidden) return;
+        const focusedKey = this.items.find((item) => item.element === document.activeElement)?.key;
         this.navigationIdentity = identity;
         this.close();
         const rootItems = roots.map(root => {
@@ -196,6 +197,9 @@ export class Skyline {
         balance.setAttribute("aria-hidden", "true");
         replaceNodes(this.tabs, [searchItem.element, this.roots, balance]);
         replaceNodes(this.tools, this.items.slice(-1).map(item => item.element));
+        // Removing the focused tab moves focus to the next control, the first title. Put the same
+        // tab back when it is still in the strip, before that move can be recorded as content focus.
+        if (focusedKey !== undefined) this.items.find((item) => item.key === focusedKey)?.element.focus({ preventScroll: true });
     }
 
     setMenu(menu: PrimaryMenu | null): void { this.menu = menu; this.update(this.libraries); }

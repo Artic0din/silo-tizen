@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept focus on the same top-bar tab when Home rebuilt its library tabs, so hiding a library leaves Profiles focused.
 - Matched Apple TV card focus lift, outlines, caption spacing and colours across Search, cast, related titles, Requests and Calendar.
 - Kept Search posters at their intended top clearance after the focus lift finished.
 - Drew Home TV episode rows as landscape stills and top-aligned the focused Home row with Apple TV.

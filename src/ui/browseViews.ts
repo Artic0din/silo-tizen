@@ -4,7 +4,7 @@
 
 import type { Card, CardOverlay, CatalogPage, HomeSection, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
-import { artworkUrl, type Destination, type EpisodeSelection, destinationOf, episodeLabel } from "./browseModel.ts";
+import { artworkUrl, type Destination, type EpisodeSelection, destinationOf } from "./browseModel.ts";
 import { type CardOverlayPrefs, overlayLayer } from "./cardOverlays.ts";
 import { homeCaption } from "./cardPresentation.ts";
 import { el } from "./screen.ts";
@@ -99,14 +99,6 @@ export function artwork(className: string, reference: string | undefined, baseUr
     return box;
 }
 
-function cardSubtitle(card: Card): string | undefined {
-    if (card.type === "episode") {
-        const label = episodeLabel(card.seasonNumber, card.episodeNumber);
-        return [card.seriesTitle, label].filter((part) => part !== undefined).join(" · ") || undefined;
-    }
-    return card.year === undefined ? undefined : String(card.year);
-}
-
 /** Undefined for media this client does not browse. */
 export function cardItem(card: Card, context: ViewContext): FocusItem | undefined {
     const destination = destinationOf(card);
@@ -138,7 +130,7 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
         tick.appendChild(el("span", "silo-sr-only", "Watched"));
         element.firstElementChild?.appendChild(tick);
     }
-    const caption = context.homeCaptions === true ? homeCaption(card, continuing) : { title: card.title, line: cardSubtitle(card) };
+    const caption = homeCaption(card, context.homeCaptions === true && continuing);
     element.appendChild(el("span", "browse-card-title", caption.title));
     if (caption.line !== undefined) {
         element.appendChild(el("span", "browse-card-subtitle", caption.line));
@@ -305,19 +297,23 @@ export function searchView(head: readonly HTMLElement[], input: HTMLInputElement
     const zones: Zone[] = [{ id: "field", layout: "row", items: [field] }];
     switch (results.status) {
         case "idle":
+            content.push(searchState("Search Silo", "Find movies, series, and people", "search-prompt"));
             break;
         case "searching":
-            content.push(...lines(["Searching."]));
+            content.push(searchLoading());
             break;
         case "failed": {
-            const retry = actionButton("retry", "Try again", results.retry);
-            content.push(...lines([results.text], "error"), zoneNode("browse-actions", [retry]));
+            const retry = actionButton("retry", "Try Again", results.retry);
+            const failure = searchState("Something went wrong", results.text, "search-failure");
+            failure.setAttribute("role", "alert");
+            failure.appendChild(zoneNode("browse-actions", [retry]));
+            content.push(failure);
             zones.push({ id: "status", layout: "row", items: [retry] });
             break;
         }
         case "ready":
             if (results.grid.zones[0]?.items.length === 0) {
-                content.push(...lines([`No results for "${results.query}".`]));
+                content.push(searchState("No results", "Try a different search term", "search-empty"));
             }
             content.push(...results.grid.content);
             zones.push(...results.grid.zones);
@@ -326,6 +322,14 @@ export function searchView(head: readonly HTMLElement[], input: HTMLInputElement
 }
 
 export const FAILURE_ICON = '<svg viewBox="0 0 48 48"><path fill="currentColor" d="M20 5a4.6 4.6 0 0 1 8 0l19 33a4.6 4.6 0 0 1-4 7H5a4.6 4.6 0 0 1-4-7Z"/><path d="M24 16v12m0 7v1" stroke="#000" stroke-width="4" stroke-linecap="round"/></svg>';
+
+export function searchLoading(): HTMLElement {
+    const progress = el("div", "search-progress");
+    progress.setAttribute("role", "status");
+    progress.setAttribute("aria-label", "Searching");
+    progress.appendChild(el("span", "search-progress-icon"));
+    return progress;
+}
 
 /** Apple EmptyStateView and ErrorView: an icon, a title and a line, sized by `className`. */
 export function searchState(title: string, subtitle: string, className: string, iconMarkup?: string): HTMLElement {

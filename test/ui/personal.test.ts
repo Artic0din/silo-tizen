@@ -5,7 +5,7 @@ import { mkdir } from "node:fs/promises";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem, type Reply } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
-import { personalQuery } from "../../src/ui/personalLists.ts";
+import { personalQuery, readPersonalPage } from "../../src/ui/personalLists.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
 
@@ -17,6 +17,12 @@ class PersonalCatalog extends FakeDetails {
     pageReplies: Reply[] = [];
     override route(method: string, path: string, profile: string | undefined, body?: Record<string, unknown>): Reply | undefined {
         if (path.startsWith("/capabilities/personal-lists")) return this.capabilityReplies.shift() ?? { status: 200, body: { revision: "1", state: this.unavailable ? "unsupported" : "available", allowed: !this.unavailable, membership_supported: true } };
+        const list = /^\/(watchlist|favorites)\?/.exec(path);
+        if (method === "GET" && list?.[1] !== undefined) {
+            const params = new URLSearchParams(path.split("?")[1]);
+            assert.equal(params.get("limit"), "24");
+            return this.route("POST", "/catalog/query", profile, { source: list[1], type: "video", limit: 24, ...(params.has("cursor") ? { cursor: params.get("cursor") } : {}) });
+        }
         const personal = /^\/(watchlist|favorites)\/([^/?]+)(?:\/membership)?(?:\?.*)?$/.exec(path);
         if (personal?.[1] !== undefined && personal[2] !== undefined) {
             const members = this.members(profile, personal[1]);
@@ -68,7 +74,77 @@ class PersonalCatalog extends FakeDetails {
         return members;
     }
 }
+function listReads(tv: Tv) {
+    return tv.fake.requests.map(request => {
+        const url = new URL(request.path, "https://fixture.invalid");
+        const source = url.pathname.slice(1);
+        if (request.method !== "GET" || !["watchlist", "favorites"].includes(source)) return request;
+        return { ...request, body: { source, cursor: url.searchParams.get("cursor") ?? undefined } };
+    }).filter(request => request.path.startsWith("/catalog/query") || /^\/(watchlist|favorites)\?/.test(request.path));
+}
+function holdList(tv: Tv, source = "watchlist") { return tv.fake.hold(source === "history" ? "/catalog/query" : `/${source}`, true); }
 let browser: Browser;
+test("native comparison: saved-list requests use Apple's endpoint and preserve tied order", () => {
+    const catalog = new PersonalCatalog();
+    const reply = catalog.route("POST", "/catalog/query", "p-owner", { source: "watchlist", type: "video", limit: 24 });
+    const items = (reply?.body as { items: Record<string, unknown>[] }).items;
+    const reordered = [items[3], items[2], items[5], items[4]];
+    for (const source of ["watchlist", "favorites"] as const) {
+        const request = readPersonalPage(source, "movie", "opaque");
+        assert.equal(request.method, "GET");
+        const url = new URL(request.path, "https://fixture.invalid");
+        assert.equal(url.pathname, `/${source}`);
+        assert.equal(url.searchParams.get("cursor"), "opaque");
+        assert.equal(url.searchParams.has("sort"), false);
+        const result = request.decode({ items: reordered, page: { has_more: false } });
+        assert.deepEqual(result.items.map(item => item.id), ["movie:m0004", "movie:m0003", "movie:m0006", "movie:m0005"]);
+        assert.ok(result.items.every(item => item.showStatus === undefined));
+        const supplied = request.decode({ items: [{ ...items[0], show_status: "Ended" }], page: { has_more: false } });
+        assert.equal(supplied.items[0]?.showStatus, "Ended");
+    }
+});
+for (const source of ["watchlist", "favorites"]) test(`native comparison: ${source} retains the opening root and uses two Back presses`, async () => {
+    const { tv } = await setup();
+    try {
+        for (const root of ["home", "calendar"]) {
+            await tv.page.locator(`[data-focus="${root}"]`).click();
+            await tv.page.locator(`[data-view="${root}"]`).waitFor();
+            await openList(tv, source);
+            assert.equal(await tv.page.locator(`[data-focus="${root}"]`).getAttribute("aria-current"), "page");
+            const geometry = await tv.page.locator(".personal-page").evaluate(node => {
+                const title = node.querySelector("h1");
+                const cards = node.querySelectorAll(".browse-card");
+                return { titleHeight: title?.getBoundingClientRect().height, pitch: (cards[8]?.getBoundingClientRect().top ?? 0) - (cards[0]?.getBoundingClientRect().top ?? 0) };
+            });
+            assert.equal(geometry.titleHeight, 77);
+            assert.equal(geometry.pitch, 403);
+            await tv.remote(10009);
+            assert.equal(await tv.focused(), root);
+            assert.equal(await tv.page.locator(`[data-view="personal:${source}"]`).count(), 1);
+            await tv.remote(10009);
+            await tv.page.locator(`[data-view="${root}"]`).waitFor();
+            assert.equal(await tv.page.locator('.skyline-selector:not([hidden])').count(), 0);
+        }
+    } finally { await tv.page.context().close(); }
+});
+test("native comparison: History uses the safe-area grid and preserves tied server order", async () => {
+    const { tv, catalog } = await setup();
+    try {
+        const reply = catalog.route("POST", "/catalog/query", "p-owner", { source: "history", limit: 60 });
+        const body = reply?.body as Record<string, unknown>;
+        const items = body.items as Record<string, unknown>[];
+        const reordered = [items[3], items[2], items[5], items[4], ...items.slice(6)];
+        catalog.pageReplies.push({ status: 200, body: { ...body, items: reordered } });
+        await openList(tv, "history");
+        const frame = await tv.page.locator(".personal-page").evaluate(node => {
+            const cards = node.querySelectorAll(".browse-card");
+            return { countX: node.querySelector(".personal-count")?.getBoundingClientRect().x, pitch: (cards[1]?.getBoundingClientRect().x ?? 0) - (cards[0]?.getBoundingClientRect().x ?? 0), ids: [...cards].slice(0, 4).map(n => n.getAttribute("data-focus")) };
+        });
+        assert.equal(frame.countX, 128);
+        assert.equal(frame.pitch, 284);
+        assert.deepEqual(frame.ids, ["movie:m0004", "movie:m0003", "movie:m0006", "movie:m0005"]);
+    } finally { await tv.page.context().close(); }
+});
 test("pinned History scope distinguishes aggregated media from episode queries", () => {
     const catalog = new PersonalCatalog();
     const query = (type?: string): Record<string, unknown>[] => {
@@ -167,7 +243,7 @@ async function loadThrough(tv: Tv, minimum: number): Promise<void> {
 for (const source of ["watchlist", "favorites", "history"]) test(`review: ${source} matches blank tvOS loading and retains focus`, async () => {
     const { tv } = await setup();
     try {
-        const held = tv.fake.hold("/catalog/query", true);
+        const held = holdList(tv, source);
         if (source === "history") await tv.page.locator('[data-focus="profiles"]').click();
         else { await tv.page.locator('[data-focus="for_you"]').focus(); await tv.remote(40); }
         await tv.page.locator(`[data-focus="${source}"]`).click();
@@ -177,6 +253,7 @@ for (const source of ["watchlist", "favorites", "history"]) test(`review: ${sour
         assert.equal(await loading.getAttribute("aria-label"), source === "history" ? null : `Loading ${source}`);
         await loading.focus();
         assert.equal(await tv.focused(), "status");
+        assert.equal(await loading.evaluate(node => getComputedStyle(node).outlineStyle), "none");
         held.release();
     } finally { await tv.page.context().close(); }
 });
@@ -186,14 +263,14 @@ for (const source of ["watchlist", "favorites", "history"]) for (const fails of 
     try {
         await tv.page.emulateMedia({ reducedMotion: "reduce" });
         await openList(tv, source);
-        const held = tv.fake.hold("/catalog/query", true);
+        const held = holdList(tv, source);
         if (fails) catalog.pageReplies.push(problem(500, "internal_error", "Synthetic failure"));
-        const reads = tv.fake.requests.length;
+        const reads = listReads(tv).length;
         const card = tv.page.locator('.browse .browse-card').last();
         const id = await card.getAttribute("data-focus");
         await card.focus();
         await revealEnd(tv);
-        await tv.eventually(async () => tv.fake.requests.slice(reads).some(r => r.path.startsWith("/catalog/query")), "held next page");
+        await tv.eventually(async () => listReads(tv).length > reads, "held next page");
         const oldPage = await tv.page.locator(".personal-page").elementHandle();
         assert.ok(oldPage);
         const top = await tv.page.locator(".skyline-content").evaluate(node => node.scrollTop);
@@ -215,12 +292,12 @@ for (const source of ["watchlist", "favorites", "history"]) test(`review: ${sour
     const { tv, catalog } = await setup();
     try {
         await openList(tv, source);
-        const held = tv.fake.hold("/catalog/query", true);
-        const before = tv.fake.requests.length;
+        const held = holdList(tv, source);
+        const before = listReads(tv).length;
         catalog.pageReplies.push(problem(500, "internal_error", "Synthetic failure"));
         await tv.eventually(async () => {
             await revealEnd(tv);
-            return tv.fake.requests.slice(before).some(r => r.path.startsWith("/catalog/query"));
+            return listReads(tv).length > before;
         }, "later read");
         await tv.page.locator('.browse [data-focus="movie:m0020"]').focus();
         held.release();
@@ -261,10 +338,10 @@ test("watchlist, favorites and history are continuous Apple pages", async () => 
     try {
         await openList(tv, "watchlist");
         assert.equal(await tv.page.locator('[data-focus="next"], [data-focus="previous"], .browse-page-status').count(), 0);
-        const before = tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length;
+        const before = listReads(tv).length;
         await tv.page.locator(".browse .browse-card").first().focus();
         await tv.page.keyboard.press("ArrowRight");
-        assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length, before);
+        assert.equal(listReads(tv).length, before);
         const next = catalog.route("POST", "/catalog/query", "p-owner", { source: "watchlist", type: "video", limit: 24, cursor: "p-owner:watchlist:video:24" });
         assert.ok(next);
         // Queue both outcomes before scrolling can prefetch beyond the next page.
@@ -273,11 +350,11 @@ test("watchlist, favorites and history are continuous Apple pages", async () => 
             await revealEnd(tv);
             return await tv.page.locator(".browse .browse-card").count() > 24;
         }, "watchlist appended the next page");
-        assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query"))[before]?.body?.cursor, "p-owner:watchlist:video:24");
+        assert.equal(listReads(tv)[before]?.body?.cursor, "p-owner:watchlist:video:24");
         const shown = await tv.page.locator(".browse .browse-card").count();
         await tv.eventually(async () => {
             await revealEnd(tv);
-            return tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length > before + 1;
+            return listReads(tv).length > before + 1;
         }, "failed later page was attempted");
         await tv.jump(1000);
         assert.equal(await tv.page.locator(".browse .browse-card").count(), shown);
@@ -333,7 +410,7 @@ test("watchlist, favorites and history are continuous Apple pages", async () => 
         await tv.page.locator('.skyline-selector [data-focus="watchlist"]').click();
         await tv.page.locator('[data-view="personal:watchlist"] .browse-card').first().waitFor();
         await tv.page.keyboard.press("ArrowUp");
-        assert.equal(await tv.focused(), "for_you");
+        assert.equal(await tv.focused(), "home");
     } finally { await tv.page.context().close(); }
 });
 
@@ -379,7 +456,7 @@ test("watchlist and favorites use Apple's 8-column 176px grid without a Back but
         assert.equal(await tv.focused(), "movie:m0008");
         for (let step = 0; step < 7; step++) await tv.page.keyboard.press("ArrowLeft");
         await tv.page.keyboard.press("ArrowUp");
-        assert.equal(await tv.focused(), "for_you");
+        assert.equal(await tv.focused(), "home");
         await openList(tv, "favorites");
         assert.equal(await tv.focused(), "filter:movie");
         const favorites = await frameOf("favorites");
@@ -397,7 +474,7 @@ test("watchlist and favorites use Apple's 8-column 176px grid without a Back but
         await tv.page.keyboard.press("ArrowUp");
         assert.equal(await tv.focused(), "filter:movie");
         await tv.page.keyboard.press("ArrowUp");
-        assert.equal(await tv.focused(), "for_you");
+        assert.equal(await tv.focused(), "home");
     } finally { await tv.page.context().close(); }
 });
 
@@ -415,8 +492,8 @@ for (const source of ["watchlist", "favorites"]) test(`card quick-actions remove
         await panel.getByRole("button", { name: source === "watchlist" ? "Add to watchlist" : "Add favorite", exact: true }).waitFor();
         await tv.remote(10009);
         await tv.eventually(async () => await card.count() === 0 && await tv.focused() === "movie:m0051", "nearby removal focus");
-        const last = tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).slice(-1)[0];
-        assert.equal(last?.body?.cursor, `p-owner:${source}:${source === "watchlist" ? "video" : "movie"}:48`);
+        const last = listReads(tv).slice(-1)[0];
+        assert.equal(last?.body?.cursor, `p-owner:${source}:video:48`);
         assert.equal(last?.body?.source, source);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
@@ -424,10 +501,10 @@ for (const source of ["watchlist", "favorites"]) test(`card quick-actions remove
 for (const destination of ["unchanged", "navigation", "profile menu"]) test(`initial personal-list completion preserves ${destination} focus`, async () => {
     const { tv } = await setup();
     try {
-        const held = tv.fake.hold("/catalog/query", true);
+        const held = holdList(tv);
         await tv.page.locator('[data-focus="for_you"]').focus(); await tv.remote(40);
         await tv.page.locator('[data-focus="watchlist"]').click();
-        await tv.eventually(async () => tv.fake.requests.some(r => r.path.startsWith("/catalog/query")), "initial personal read held");
+        await tv.eventually(async () => listReads(tv).length > 0, "initial personal read held");
         assert.equal(await tv.focused(), "status");
         assert.equal(await tv.page.locator('[data-focus="status"]').getAttribute("aria-label"), "Loading watchlist");
         if (destination === "navigation") {
@@ -443,7 +520,7 @@ for (const destination of ["unchanged", "navigation", "profile menu"]) test(`ini
         held.release();
         await tv.page.locator('[data-view="personal:watchlist"] .browse-card').first().waitFor();
         assert.equal(await tv.focused(), destination === "unchanged" ? "movie:m0001" : focus);
-        assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).length, 1);
+        assert.equal(listReads(tv).length, 1);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
@@ -460,7 +537,7 @@ for (const source of ["watchlist", "favorites"]) test(`uncovering ${source} reco
         if (source === "favorites") await tv.page.locator('[data-focus="more"]').click();
         await tv.page.getByRole("button", { name: source === "favorites" ? "Remove favorite" : "Remove from watchlist", exact: true }).click();
         await tv.page.getByRole("button", { name: source === "favorites" ? "Add favorite" : "Add to watchlist", exact: true }).waitFor();
-        const innerRefresh = tv.fake.hold("/catalog/query", true);
+        const innerRefresh = holdList(tv, source === "watchlist" ? "favorites" : "watchlist");
         if (source === "favorites") await tv.remote(10009);
         await tv.remote(10009);
         await tv.page.locator('[data-view^="personal:"]').waitFor();
@@ -469,13 +546,14 @@ for (const source of ["watchlist", "favorites"]) test(`uncovering ${source} reco
         innerRefresh.release();
         await tv.eventually(async () => await cached.evaluate(node => !node.isConnected), "inner list refresh rendered");
         await tv.eventually(async () => await tv.focused() === "movie:m0050", "other list retains the title");
-        const queries = tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).length;
-        const held = tv.fake.hold("/catalog/query", true);
+        const queries = listReads(tv).length;
+        const held = holdList(tv, source);
+        await tv.remote(10009);
         await tv.remote(10009);
         await tv.page.locator(`[data-view="personal:${source}"]`).waitFor();
         held.release();
         await tv.eventually(async () => await tv.page.locator('.browse [data-focus="movie:m0050"]').count() === 0, "uncovered list reconciles confirmed removal");
-        assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).length, queries + 3);
+        assert.equal(listReads(tv).length, queries + 3);
         assert.equal(catalog.mutations.length, 1);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
@@ -484,16 +562,16 @@ for (const source of ["watchlist", "favorites"]) test(`uncovering ${source} reco
 test("Details return discards an abandoned personal-page turn", async () => {
     const { tv } = await setup();
     try {
-        tv.fake.hold("/catalog/query", true).release();
-        tv.fake.hold("/catalog/query", true).release();
-        const held = tv.fake.hold("/catalog/query", true);
+        holdList(tv).release();
+        holdList(tv).release();
+        const held = holdList(tv);
         await openList(tv, "watchlist");
         await loadThrough(tv, 48);
         await revealEnd(tv);
-        await tv.eventually(async () => tv.fake.requests.some(request => request.path.startsWith("/catalog/query") && request.body?.cursor === "p-owner:watchlist:video:48"), "pending later page");
+        await tv.eventually(async () => listReads(tv).some(request => request.body?.cursor === "p-owner:watchlist:video:48"), "pending later page");
         await tv.page.locator('[data-focus="movie:m0026"]').click();
         await tv.page.locator('[data-view="item:movie:m0026"]').waitFor();
-        const refresh = tv.fake.hold("/catalog/query", true);
+        const refresh = holdList(tv);
         await tv.remote(10009);
         const cached = await tv.page.locator('.browse [data-focus="movie:m0026"]').elementHandle();
         assert.ok(cached);
@@ -528,6 +606,8 @@ for (const source of ["watchlist", "favorites"]) test(`integrated Details remove
         assert.equal(await tv.focused(), "movie:m0051");
         assert.equal(catalog.mutations.length, 1);
         await tv.remote(10009);
+        assert.equal(await tv.focused(), "home");
+        await tv.remote(10009);
         await tv.page.locator('[data-view="home"]').waitFor();
         await openList(tv, source === "watchlist" ? "favorites" : "watchlist");
         await loadThrough(tv, 60);
@@ -544,11 +624,11 @@ for (const removed of [false, true]) test(`later-page Details return ${removed ?
         await tv.page.locator('.browse [data-focus="movie:m0050"]').click();
         await tv.page.locator('[data-view="item:movie:m0050"]').waitFor();
         if (removed) catalog.excluded.add("movie:m0050");
-        const held = tv.fake.hold("/catalog/query", true);
+        const held = holdList(tv);
         await tv.remote(10009);
         assert.equal(await tv.focused(), "movie:m0050");
         held.release();
-        await tv.eventually(async () => tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).length >= 4, "refresh sent");
+        await tv.eventually(async () => listReads(tv).length >= 4, "refresh sent");
         await tv.page.waitForTimeout(200);
         assert.equal(await tv.focused(), removed ? "movie:m0051" : "movie:m0050");
         assert.equal(await tv.page.locator('.browse [data-focus="movie:m0050"]').count(), removed ? 0 : 1);
@@ -580,13 +660,18 @@ test("personal destinations page on the server, restore Details focus and reconc
             await tv.remote(10009);
             await tv.eventually(async () => await tv.page.locator(`.browse-card[data-focus="${id}"]`).count() === 0, "membership refresh");
             catalog.excluded.clear();
+            if (source !== "history") {
+                await tv.remote(10009);
+                assert.equal(await tv.focused(), "home");
+                assert.equal(await tv.page.locator(`[data-view="personal:${source}"]`).count(), 1);
+            }
             await tv.remote(10009);
             try { await tv.page.locator('[data-view="home"]').waitFor(); }
             catch (error: unknown) {
                 const state = await tv.page.evaluate(() => ({ view: document.querySelector('.browse')?.getAttribute('data-view'), focus: document.activeElement?.getAttribute('data-focus'), alerts: [...document.querySelectorAll('[role="alert"]')].map(node => node.textContent), targets: [...document.querySelectorAll('.browse [data-focus]')].map(node => node.getAttribute('data-focus')) }));
                 throw new Error(`${String(error)}; source=${source}; state=${JSON.stringify(state)}`);
             }
-            assert.equal(await tv.focused(), source === "history" ? "home" : "for_you");
+            assert.equal(await tv.focused(), "home");
         }
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
@@ -603,9 +688,9 @@ test("Favorites filters the whole result before paging and retains opaque contin
         await tv.page.locator('[data-focus="filter:series"]').click();
         await tv.eventually(async () => await tv.page.locator(".browse .browse-card").count() === 3, "server series filter");
         assert.deepEqual(await tv.page.locator(".browse .browse-card").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus"))), ["series:s1", "series:s2", "series:s3"]);
-        const query = tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).pop();
-        assert.equal(query?.body?.type, "series");
-        assert.equal(query?.body?.cursor, undefined);
+        const query = listReads(tv).pop();
+        assert.equal(query?.method, "GET");
+        assert.ok(query?.path.startsWith("/favorites?"));
         assert.equal(await tv.focused(), "filter:series");
     } finally { await tv.page.context().close(); }
 });
@@ -615,10 +700,10 @@ test("a failed later page keeps the rows, and an invalid cursor restarts from th
     try {
         await openList(tv, "watchlist");
         catalog.pageReplies.push(problem(503, "service_unavailable", "Unavailable"), problem(503, "service_unavailable", "Unavailable"));
-        const before = tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length;
+        const before = listReads(tv).length;
         await tv.eventually(async () => {
             await revealEnd(tv);
-            return tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length > before;
+            return listReads(tv).length > before;
         }, "later page attempted");
         await tv.jump(1000);
         assert.equal(await tv.page.locator(".browse .browse-card").count(), 24);
@@ -630,12 +715,12 @@ test("a failed later page keeps the rows, and an invalid cursor restarts from th
         await tv.page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
         await loadThrough(tv, 48);
         assert.equal(await tv.page.locator('.browse [data-focus="movie:m0025"]').count(), 1);
-        assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).filter(request => request.body?.cursor === "p-owner:watchlist:video:24").length > 0, true);
+        assert.equal(listReads(tv).filter(request => request.body?.cursor === "p-owner:watchlist:video:24").length > 0, true);
         catalog.pageReplies.push(problem(400, "invalid_cursor", "Invalid cursor"));
-        const mark = tv.fake.requests.length;
+        const mark = listReads(tv).length;
         await tv.eventually(async () => {
             await revealEnd(tv);
-            return tv.fake.requests.slice(mark).some(request => request.path.startsWith("/catalog/query") && request.body?.cursor === undefined);
+            return listReads(tv).slice(mark).some(request => request.body?.cursor === undefined);
         }, "invalid cursor restarted");
         assert.equal(await tv.page.locator('.browse [data-focus="movie:m0001"]').count(), 1);
         assert.equal(await tv.page.locator('[data-focus="retry"]').count(), 0);
@@ -650,7 +735,7 @@ test("capability failures are retryable errors, unsupported is explicit, empty r
         await tv.page.locator('[data-focus="watchlist"]').click();
         await tv.page.getByRole("heading", { name: "Something went wrong", exact: true }).waitFor();
         await tv.page.getByText("The server response was in an unexpected format.", { exact: true }).waitFor();
-        assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).length, 0);
+        assert.equal(listReads(tv).length, 0);
         catalog.unavailable = true;
         await tv.page.locator('[data-focus="retry"]').click();
         await tv.page.getByText("Watchlist is unavailable.").waitFor();
@@ -663,17 +748,17 @@ test("capability failures are retryable errors, unsupported is explicit, empty r
         await tv.page.getByText("Tap the bookmark icon on any item to add it here", { exact: true }).waitFor();
         assert.equal(await tv.focused(), "status");
         await tv.page.keyboard.press("ArrowUp");
-        assert.equal(await tv.focused(), "for_you");
+        assert.equal(await tv.focused(), "home");
     } finally { await tv.page.context().close(); }
 });
 
 test("profile change drops late personal answers and PIN-scopes the replacement list", async () => {
     const { tv } = await setup();
     try {
-        const held = tv.fake.hold("/catalog/query", true);
+        const held = holdList(tv, "history");
         await tv.page.locator('[data-focus="profiles"]').click();
         await tv.page.locator('[data-focus="history"]').click();
-        await tv.eventually(async () => tv.fake.requests.some(r => r.path.startsWith("/catalog/query")), "held personal read");
+        await tv.eventually(async () => listReads(tv).length > 0, "held personal read");
         await tv.page.evaluate(() => window.browseHarness.clearProfile());
         held.release();
         await tv.jump(0);
@@ -683,7 +768,7 @@ test("profile change drops late personal answers and PIN-scopes the replacement 
         await tv.page.locator('[data-view="home"]').waitFor();
         await openList(tv, "watchlist");
         assert.equal(await tv.page.locator(".browse .browse-card").count(), 8);
-        const read = tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).pop();
+        const read = listReads(tv).pop();
         assert.equal(read?.headers["x-profile-id"], "p-kid");
         assert.ok(read?.headers["x-profile-token"]?.startsWith("pvt-"));
         assert.ok((await tv.page.locator(".browse .browse-card").evaluateAll(nodes => nodes.map(n => n.getAttribute("data-focus") ?? ""))).every(id => id.startsWith("movie:k")));
@@ -734,10 +819,10 @@ test("History includes episodes and cached Details return remains visible during
     const { tv } = await setup();
     try {
         await openList(tv, "history");
-        assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).pop()?.body?.type, undefined);
+        assert.equal(listReads(tv).pop()?.body?.type, undefined);
         await tv.page.locator('.browse [data-focus="movie:m0002"]').click();
         await tv.page.locator('[data-view="item:movie:m0002"]').waitFor();
-        const held = tv.fake.hold("/catalog/query", true);
+        const held = holdList(tv, "history");
         await tv.remote(10009);
         await tv.page.locator('[data-view="personal:history"]').waitFor();
         assert.equal(await tv.page.locator(".browse .browse-card").count(), 60);
@@ -747,6 +832,6 @@ test("History includes episodes and cached Details return remains visible during
         await loadThrough(tv, 63);
         assert.ok(await tv.page.locator('.browse .browse-card[data-focus^="series:"]').count() > 0);
         assert.equal(await tv.page.getByRole("button", { name: "Episodes", exact: true }).count(), 0);
-        assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).every(request => request.body?.type !== "episode"), true);
+        assert.equal(listReads(tv).every(request => request.body?.type !== "episode"), true);
     } finally { await tv.page.context().close(); }
 });

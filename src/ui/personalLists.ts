@@ -1,8 +1,8 @@
 import type { RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
-import type { CatalogPage } from "../contracts/v2/catalog.ts";
+import { decodeCard, type CatalogPage } from "../contracts/v2/catalog.ts";
 import type { CatalogQueryRequest } from "../contracts/v2/discovery.ts";
-import { boolean, object, string } from "../contracts/v2/wire.ts";
+import { boolean, object, string, WireError } from "../contracts/v2/wire.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import type { ErrorState } from "./browseRoutes.ts";
 import { PAGE_SIZE, type Route, type RouteHandlers } from "./browseRoutes.ts";
@@ -31,8 +31,22 @@ export function personalQuery(source: PersonalSource, filter: PersonalFilter, cu
     // Omit sort/order: each source's native default defines the fenced ordering.
     return { source, ...(source === "history" ? {} : { type: source === "favorites" ? filter : "video" }), limit: source === "history" ? 60 : PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) };
 }
-export function readPersonalPage(source: PersonalSource, filter: PersonalFilter, cursor: string | undefined): ReturnType<typeof operations.queryCatalogItems> {
-    return operations.queryCatalogItems(personalQuery(source, filter, cursor));
+export function readPersonalPage(source: PersonalSource, filter: PersonalFilter, cursor: string | undefined): RequestSpec<CatalogPage> {
+    if (source === "history") return operations.queryCatalogItems(personalQuery(source, filter, cursor));
+    const params = new URLSearchParams({ limit: String(PAGE_SIZE), image_size: "small" });
+    if (cursor !== undefined) params.set("cursor", cursor);
+    return { method: "GET", path: `/${source}?${params}`, retry: "safe", decode: value => {
+        const obj = object(value, "personal_list");
+        if (!Array.isArray(obj.items)) throw new WireError("personal_list.items", "an array");
+        const page = object(obj.page, "personal_list.page");
+        const more = boolean(page, "has_more", "personal_list.page");
+        const nextCursor = more ? string(page, "next_cursor", "personal_list.page") : undefined;
+        if (nextCursor === "") throw new WireError("personal_list.page.next_cursor", "a nonempty continuation");
+        const cards = obj.items.map((item, index) => decodeCard(item, `personal_list.items[${index}]`));
+        // Apple's FavoritesView filters the stored list without changing its order.
+        const items = source === "favorites" ? cards.filter(card => filter === "movie" ? card.type === "movie" : card.type === "series" || card.type === "episode") : cards;
+        return { items, nextCursor, total: items.length, totalExact: false };
+    } };
 }
 
 /** CatalogGrid.loadMoreLead: the card this far from the end asks for the next page. */
@@ -41,9 +55,9 @@ const LOAD_LEAD = 6;
 const DENSE_COLUMNS = 8;
 const DENSE_WIDTH = 1760;
 const DENSE_POSTER = 176;
-/** HistoryView's CatalogGrid: six 260-point posters inside 48-point side padding (1920 − 96). */
+/** History adds 48-point content padding inside the TV's 80-point safe area. */
 const HISTORY_COLUMNS = 6;
-const HISTORY_WIDTH = 1824;
+const HISTORY_WIDTH = 1664;
 
 type PersonalRoute = Extract<Route, { kind: "personal" }>;
 

@@ -1,11 +1,11 @@
 # Personal list pages
 
-The Skyline profile dropdown opens Watchlist, Favorites and History for the selected profile.
-Each page renders at most 24 live cards and keeps opaque server continuations.
-Favorites offers Movies and TV Shows filters across the entire server result.
-Watchlist uses video scope.
-History offers Movies & TV Shows (`video`) and Episodes (`episode`) as separate server-filtered results.
-Both retain native History ordering and independent opaque pagination, without merging streams in the client.
+The Skyline For You dropdown opens Watchlist and Favorites; the profile dropdown opens History.
+Watchlist and Favorites retain the selected underlying root tab.
+Their first Back focuses that tab while the list remains; the second leaves the list with the menu closed.
+Saved lists append 24-card server pages using opaque continuations.
+Favorites filters Movies and TV Shows locally without changing stored list order.
+History appends unfiltered 60-card catalog pages and uses the TV safe area plus 48-point content padding.
 All lists preserve native source ordering.
 Moving focus never fetches data.
 
@@ -30,12 +30,15 @@ List absence never establishes that an item is not a member.
 
 ## Contract and integration
 
-Sources are canonical `Silo-Server/silo-apple` commit `148d5d70f8b8ce982a827fead2b16f8de40f0f57` and `Silo-Server/silo-server` commit `cc8514943289045e7b9f7ac8d36d4968bfe93926`.
+The tvOS comparison source is canonical `Silo-Server/silo-apple` commit `bef81e8652a89c23a1c3cf07e312e9444baa6c4c`.
 Apple's Personal Watchlist, Favorites and History screens define the destinations; Favorites supplies the TV media selector and History uses fenced catalog pagination.
 Apple's History query factory omits `type`, but that does not expose episodes in the pinned backend's media-items relation.
 The public query scope accepts `episode`; the query-only type was extended without widening library media scopes.
-The separate History Episodes filter is a deliberate UX equivalent that preserves movies, series and episodes without inventing a mixed scope or continuation order.
-The server's OpenAPI defines `POST /catalog/query` with `source=watchlist|favorites|history` as naturally idempotent and profile-scoped.
+Watchlist and Favorites use `GET /watchlist` and `GET /favorites`, as Apple's `APIv2Client+PersonalLists.swift` does.
+Those endpoints order tied membership timestamps by item ID descending; the catalog query path uses a different tiebreaker and can respect collection sort preferences.
+The existing incremental loading owner keeps 24-card batches rather than Apple's eager 200-item batches.
+History uses `POST /catalog/query` with `source=history` and no media filter.
+Apple passes overlay data through `MediaCard.posterImage` on all three pages; overlays remain preference-controlled, including show status when supplied by the list endpoint.
 The existing session supplies profile and PIN proof headers.
 `GET /history` has a different response shape and is not consumed here.
 

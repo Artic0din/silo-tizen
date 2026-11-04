@@ -657,7 +657,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             let elsewhere = false;
             if (!append && current.source === "favorites" && snapshot.page.items.length === 0 && snapshot.page.nextCursor === undefined) {
                 const other = current.filter === "series" ? "movie" : "series";
-                elsewhere = (await read(readPersonalPage("favorites", other, undefined), signal)).items.length > 0;
+                elsewhere = (await readSectionCatalog(undefined, false, async cursor => read(readPersonalPage("favorites", other, cursor), signal), signal)).page.items.length > 0;
             }
             return { capability, snapshot, elsewhere };
         }, ({ capability, snapshot, elsewhere }) => {
@@ -1137,7 +1137,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (current.kind === "personal" || current.kind === "personFilmography") current.pendingIndex = undefined;
                 current.stale = true;
             }
-            const fromProfileMenu = (active?.kind === "requests" && active.requests.source.kind === "hub") || (active?.kind === "personal" && active.anchor === "profiles");
+            const fromProfileMenu = (active?.kind === "requests" && active.requests.source.kind === "hub") || active?.kind === "personal";
             showRoute(current, fromProfileMenu ? tabFocus(current) : current.focus);
         }
     };
@@ -1298,7 +1298,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const selected = tabFocus(current).key;
             const preview = current.kind === "home" || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
             const modal = browsing && (current.discovery?.panel !== undefined || shuffleFailure?.route === current);
-            const decorated = shell.decorate(view, selected, preview, modal ? () => { view.back?.(); } : current.kind === "personal" || (current.kind === "library" && current.discovery?.genre !== undefined) ? pop : undefined, current.kind === "library" ? `library:${current.library.id}:${current.library.type}:${current.discovery?.mode ?? "Recommended"}` : undefined);
+            const decorated = shell.decorate(view, selected, preview, modal ? () => { view.back?.(); } : current.kind === "personal" ? () => {
+                if (host.focused()?.zone === "nav") pop();
+                else render(tabFocus(current));
+            } : (current.kind === "library" && current.discovery?.genre !== undefined) ? pop : undefined, current.kind === "library" ? `library:${current.library.id}:${current.library.type}:${current.discovery?.mode ?? "Recommended"}` : undefined);
             // A bar-focused return does not focus a card to restore this page's hero.
             if (preview && host.name !== view.name) previews.get(current)?.();
             const nav = container.querySelector<HTMLElement>(".browse-nav");
@@ -1584,8 +1587,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         },
         personal: (source, anchor = "profiles") => {
             const origin = top();
-            push(newRoute({ kind: "personal", source, anchor, filter: "movie", pages: newPages(), capability: undefined, pendingIndex: undefined }));
-            if (origin !== undefined) origin.focus = { zone: "nav", key: anchor };
+            const selected = source === "history" ? anchor : origin === undefined ? "home" : tabFocus(origin).key;
+            push(newRoute({ kind: "personal", source, anchor: selected, filter: "movie", pages: newPages(), capability: undefined, pendingIndex: undefined }));
+            if (origin !== undefined) origin.focus = { zone: "nav", key: selected };
         },
         switchProfile: chooseProfile,
         ...(options.onSwitchServer === undefined ? {} : { switchServer: () => { teardown(); options.onSwitchServer?.(); } }),

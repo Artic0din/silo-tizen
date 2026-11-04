@@ -515,7 +515,7 @@ appTest("the composed remote seeks and changes audio through the real playback o
     await tv.page.keyboard.press("ArrowRight");
     await tv.page.keyboard.press("ArrowRight");
     await tv.page.keyboard.press("Enter");
-    await tv.page.keyboard.press("ArrowRight");
+    for (let index = 0; index < 3; index++) await tv.page.keyboard.press("ArrowRight");
     const id = [...playback.sessions.keys()][0];
     assert.ok(id !== undefined);
     const hold = tv.fake.hold(`/playback/${id}/replan`);

@@ -40,6 +40,8 @@ import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
 import { initialSubtitle } from "./preplaySubtitles.ts";
 import { PlaybackRecovery, recoveryVerdict, type RecoveryStep, type RecoveryVerdict, unanswered } from "./playbackRecovery.ts";
 import { audioRow, qualityMenuLabel, subtitleRow } from "./trackLabels.ts";
+import { HUDState } from "./hudState.ts";
+import { planStats, videoOptions, type PlayerHUD } from "./playerHUD.ts";
 
 /** What browse hands over: one file of one catalog item. */
 export interface PlayRequest {
@@ -128,6 +130,7 @@ export type PlaybackView =
           readonly buffering: boolean;
           readonly upNext?: { readonly next: PlayRequest | undefined; readonly deck: readonly PlayRequest[]; readonly countdown: number | undefined; readonly status: string };
           readonly tracks: TrackView;
+          readonly hud?: PlayerHUD;
           readonly seekIntervals: { readonly backward: number; readonly forward: number };
           readonly previewKey?: string | undefined;
           readonly captions?: { readonly text: string; readonly appearance: SubtitleAppearance } | undefined;
@@ -138,6 +141,9 @@ export type PlaybackView =
 
 /** What the player screen drives. */
 export interface PlayerControls {
+    setVideo(kind: "speed" | "aspect", value: string): void;
+    toggleAutoNext(): void;
+    retryChapters(): void;
     subscribe(listener: (view: PlaybackView) => void): () => void;
     togglePause(): void;
     setPaused(paused: boolean): void;
@@ -198,6 +204,7 @@ const WARNING_NOTICES: Readonly<Record<string, string>> = {
 };
 
 interface Attempt {
+    readonly hud: HUDState;
     autoNextSupported: boolean;
     promptSeconds: number;
     promptSupported: boolean;
@@ -353,6 +360,7 @@ export class PlaybackController implements PlayerControls {
         }
         this.shownError = undefined;
         const attempt: Attempt = {
+            hud: new HUDState(),
             autoNextSupported: false,
             promptSeconds: 30, promptSupported: false, promptDismissed: false, promptPending: false, promptLookedUp: false, prompt: undefined,
             autoNext: false,
@@ -436,6 +444,39 @@ export class PlaybackController implements PlayerControls {
                 this.listeners.splice(index, 1);
             }
         };
+    }
+
+    setVideo(kind: "speed" | "aspect", value: string): void {
+        const attempt = this.active();
+        if (attempt?.plan === undefined || attempt.busy || attempt.hidden || attempt.restoring) return;
+        attempt.hud.setVideo(this.deps.avplay, attempt.plan, kind, value);
+        this.showPlayback(attempt);
+    }
+
+    retryChapters(): void {
+        const attempt = this.active();
+        if (attempt?.plan === undefined) return;
+        attempt.hud.read(this.deps.session, attempt.request.contentId, attempt.plan.effectiveMediaFileId, attempt.signal, () => this.showPlayback(attempt), true);
+        this.showPlayback(attempt);
+    }
+
+    toggleAutoNext(): void {
+        const attempt = this.active();
+        if (attempt === undefined || !attempt.autoNextSupported || attempt.hud.autoBusy) return;
+        attempt.hud.autoBusy = true;
+        attempt.hud.message = "Saving Auto-play next";
+        this.showPlayback(attempt);
+        const enabled = !attempt.autoNext;
+        void this.deps.session.call({ ...operations.putSetting(AUTO_NEXT_KEY, enabled), profileScoped: true, signal: attempt.signal }).then(() => {
+            if (!attempt.live || attempt.signal.aborted) return;
+            attempt.autoNext = enabled;
+            attempt.hud.message = "";
+        }, () => {
+            if (attempt.live && !attempt.signal.aborted) attempt.hud.message = "Could not save Auto-play next. Try again.";
+        }).finally(() => {
+            attempt.hud.autoBusy = false;
+            if (attempt.live) this.showPlayback(attempt);
+        });
     }
 
     togglePause(): void {
@@ -1194,6 +1235,7 @@ export class PlaybackController implements PlayerControls {
         const presented = attempt.presented;
         this.readCaptions(attempt, plan);
         attempt.plan = plan;
+        attempt.hud.read(this.deps.session, attempt.request.contentId, plan.effectiveMediaFileId, attempt.signal, () => this.showPlayback(attempt));
         attempt.serverFeatures = serverFeatures;
         attempt.planAttemptId = this.newId();
         attempt.sourceSeconds = seconds;
@@ -1320,6 +1362,7 @@ export class PlaybackController implements PlayerControls {
         this.clearThumbnails(attempt);
         this.readCaptions(attempt, plan);
         attempt.plan = plan;
+        attempt.hud.read(this.deps.session, attempt.request.contentId, plan.effectiveMediaFileId, attempt.signal, () => this.showPlayback(attempt));
         if (attempt.ai?.fileId !== plan.effectiveMediaFileId) {
             attempt.ai?.destroy();
             attempt.ai = new SubtitleAI(this.deps.session, this.deps.clock, plan.effectiveMediaFileId, () => this.showPlayback(attempt), attempt.aiBlockedFiles);
@@ -1500,6 +1543,7 @@ export class PlaybackController implements PlayerControls {
             }
             try {
                 this.deps.avplay.play();
+                attempt.hud.restore(this.deps.avplay, plan);
                 if (attempt.paused) {
                     this.deps.avplay.pause();
                 }
@@ -2494,6 +2538,7 @@ export class PlaybackController implements PlayerControls {
                     attempt.presented = true;
                     attempt.resuming = false;
                     try {
+                        attempt.hud.restore(this.deps.avplay, plan);
                         if (attempt.paused) {
                             if (this.deps.avplay.getState() === "PLAYING") {
                                 this.deps.avplay.pause();
@@ -2611,6 +2656,17 @@ export class PlaybackController implements PlayerControls {
                 status: attempt.prompt.next === undefined ? "More To Watch" : "Up Next",
             } }),
             tracks: trackView(attempt, plan),
+            hud: {
+                chapters: attempt.hud.chapters, chapterState: attempt.hud.chapterState,
+                overview: attempt.hud.metadata?.overview ?? attempt.request.overview,
+                metadata: attempt.hud.metadata, metadataFailed: attempt.hud.metadataFailed,
+                stats: planStats(plan),
+                ...videoOptions(this.deps.avplay.setSpeed !== undefined, this.deps.avplay.setDisplayMethod !== undefined, plan.streamProtocol),
+                speed: attempt.hud.speed, aspect: attempt.hud.aspect,
+                autoNext: attempt.autoNextSupported ? attempt.autoNext : undefined,
+                busy: attempt.hud.autoBusy || attempt.busy,
+                message: attempt.hud.message,
+            },
             seekIntervals: attempt.seekIntervals,
             previewKey: frozen ? undefined : attempt.planAttemptId,
             captions: attempt.hidden || attempt.restoring || frozen ? undefined : { text: attempt.cues.filter(cue => attempt.sourceSeconds - attempt.subtitleSync / 1000 >= cue.start && attempt.sourceSeconds - attempt.subtitleSync / 1000 < cue.end).map(cue => cue.text).join("\n"), appearance: attempt.appearance },

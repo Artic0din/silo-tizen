@@ -223,7 +223,7 @@ test("focus navigation never requests previews; one sheet is reused and carries 
         await remote(r.page, 39);
         await remote(r.page, 39);
         await remote(r.page, 37);
-        assert.equal(r.previews.watchReads, 0);
+        assert.equal(r.previews.watchReads, 1, "only the initial chapter metadata read; focus makes no request");
         assert.equal(r.sheets.length, 0);
         await remote(r.page, 10009);
         const raw = r.previews.manifest();

@@ -78,7 +78,7 @@ export function codeScreen(view: CodeView): CodeScreen {
         ...noteChips(view.notes),
         serverCard(view.serverName, view.host, view.secure, view.markUrl),
         title,
-        lead(codeLead(view.typed)),
+        lead(codeLead(view.status, view.typed)),
         actionRow(view.controls),
     ];
     const name = view.code !== undefined ? "code" : view.status.kind === "approved" ? "approved" : isTerminal(view.status) ? "ended" : "starting";

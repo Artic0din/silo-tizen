@@ -5,15 +5,18 @@
 import { type Clock, systemClock } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
 import { operations } from "../api/operations.ts";
-import { type AdvancedScheme, advancedAddress, plainHttpFallbacks } from "../api/serverUrl.ts";
+import { type AdvancedScheme, advancedAddress, plainHttpFallbacks, portFieldFault } from "../api/serverUrl.ts";
 import { resolveBrandingAsset } from "../contracts/v2/branding.ts";
 import { type ConnectedServer, type ConnectResult, connect, forgetStoredCredential, type SessionCoreDeps } from "../session/core.ts";
 import type { DeviceCodeView, DeviceLogin, DeviceLoginState } from "../session/deviceLogin.ts";
+import { DEFAULT_PASSWORD_LIMITS, passwordResetOffered, readPasswordLimits, replacePassword, requestPasswordReset, temporaryPasswordRemains } from "../session/passwordChange.ts";
 import { passwordLogin } from "../session/passwordLogin.ts";
 import type { LogoutResult } from "../session/session.ts";
 import { cachedBranding, storeBranding } from "./brandingCache.ts";
 import { codeScreen, type CodeScreen } from "./codeScreen.ts";
 import { credentialsScreen, type CredentialsScreen } from "./credentialsScreen.ts";
+import { forgotPasswordScreen } from "./forgotPasswordScreen.ts";
+import { passwordChangeForm, passwordChangeNotice } from "./passwordChangeScreen.ts";
 import { actionRow, chip, errorText, field, headline, keyboardCard, lead, marqueeButton, marqueeScreen, noteChips, setServerMark, textInput } from "./marquee.ts";
 import { MarqueeBackdrop } from "./marqueeBackdrop.ts";
 import { type Control, el, type Note, type Screen, ScreenHost } from "./screen.ts";
@@ -29,6 +32,11 @@ export interface SignInOptions {
     readonly signedOut?: LogoutResult;
     /** Told each server sign-in connects to before any account is handed over (diagnostics, tests). */
     readonly onConnected?: (server: ConnectedServer) => void;
+    /**
+     * An account already signed in that must replace a temporary password. The screens stay on
+     * that session instead of asking for a server again.
+     */
+    readonly passwordChange?: ConnectedServer;
 }
 
 export interface SignInScreens {
@@ -109,6 +117,11 @@ interface Active {
     /** "Show password" pressed; kept while the screen is redrawn. */
     shown: boolean;
     error: string | undefined;
+    /** A missing username. Any other error outlines the password. */
+    errorField: "username" | undefined;
+    /** The server emails reset links, so the password form offers "Forgot password?". */
+    offersReset: boolean;
+    resetChecked: boolean;
 }
 
 export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInScreens {
@@ -129,13 +142,20 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     let advanced = false;
     let connecting: AbortController | undefined;
     let active: Active | undefined;
+    /** A signed-in account that still has to choose a password. Not a device-login attempt. */
+    let restricted: ConnectedServer | undefined;
     let destroyed = false;
 
     const destroy = (): void => {
         destroyed = true;
         connecting?.abort();
         connecting = undefined;
+        const held = restricted;
+        restricted = undefined;
         leaveSignIn();
+        if (held?.session.signedIn === true) {
+            void logoutCollectedAccount(held);
+        }
         document.removeEventListener("visibilitychange", onVisibility);
         backdrop.destroy();
         host.destroy();
@@ -148,6 +168,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         backdrop.setStage(choosing ? 0 : 1);
         backdrop.setAccent(choosing ? undefined : active?.accent);
         host.show(screen, focus);
+        fitCodeActions(root);
     };
 
     /**
@@ -179,6 +200,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     document.addEventListener("visibilitychange", onVisibility);
 
     const handOff = (server: ConnectedServer): void => {
+        restricted = undefined;
         leaveSignIn(true);
         destroy();
         options.onSignedIn(server);
@@ -188,7 +210,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
      * The Apple TV manual entry. `busy`: a connect is running; Connect says so and holds focus,
      * and nothing else is reachable until it answers, as the Apple TV app waits for its probe.
      */
-    const entryScreen = (notes: readonly Note[], offerForget: boolean, error?: string, busy = false): Screen => {
+    const entryScreen = (notes: readonly Note[], offerForget: boolean, error?: string, busy = false, errorField?: "address" | "port"): Screen => {
         const input = textInput("signin-address", "address", "media.example.com", "Server address", address);
         input.type = "url";
         input.readOnly = busy;
@@ -203,13 +225,17 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         }, { loading: busy });
         const toggle = marqueeButton("advanced", advanced ? "Hide advanced options" : "Advanced options", "plain", () => {
             advanced = !advanced;
-            show(entryScreen(notes, offerForget, error), "advanced");
+            show(entryScreen(notes, offerForget, error, false, errorField), "advanced");
         }, { glyph: "gear", compact: true });
         const controls: Control[] = [
             { key: "address", element: input, row: 0, done: "connect" },
             { ...toggle, row: 1 },
         ];
-        const copy: HTMLElement[] = [headline(text.ENTRY_TITLE), lead(text.ENTRY_LEAD), field(input, "globe", error !== undefined)];
+        const addressError = error !== undefined && errorField !== "port";
+        if (addressError) {
+            input.setAttribute("aria-invalid", "true");
+        }
+        const copy: HTMLElement[] = [headline(text.ENTRY_TITLE), lead(text.ENTRY_LEAD), field(input, "globe", addressError)];
         if (error !== undefined) {
             copy.push(errorText(error));
         }
@@ -221,7 +247,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             for (const [value, label] of SCHEMES) {
                 const option = marqueeButton(`scheme-${value}`, label, "glass", () => {
                     scheme = value;
-                    show(entryScreen(notes, offerForget, error), `scheme-${value}`);
+                    show(entryScreen(notes, offerForget, error, false, errorField), `scheme-${value}`);
                 }, { compact: true, ...(scheme === value ? { glyph: "check" as const } : {}) });
                 option.element.setAttribute("aria-pressed", String(scheme === value));
                 options.appendChild(option.element);
@@ -233,7 +259,11 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             portInput.addEventListener("input", () => {
                 port = portInput.value;
             });
-            const portField = field(portInput, "number");
+            const portError = errorField === "port";
+            if (portError) {
+                portInput.setAttribute("aria-invalid", "true");
+            }
+            const portField = field(portInput, "number", portError);
             portField.classList.add("signin-port");
             options.appendChild(portField);
             controls.push({ key: "port", element: portInput, row: 2, done: "connect" });
@@ -263,24 +293,42 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         };
     };
 
-    const showEntry = (notes: readonly Note[], offerForget: boolean, focus?: string, error?: string): void => {
-        show(entryScreen(notes, offerForget, error), focus);
+    const showEntry = (notes: readonly Note[], offerForget: boolean, focus?: string, error?: string, errorField?: "address" | "port"): void => {
+        show(entryScreen(notes, offerForget, error, false, errorField), focus);
+    };
+
+    /** A bad port is explained on the field it belongs to, and the Port field is opened so the outline is in view. */
+    const rejectPort = (offerForget: boolean, fault: "address" | "port"): void => {
+        if (fault === "port") {
+            advanced = true;
+        }
+        showEntry([], offerForget, fault, text.INVALID_PORT, fault);
     };
 
     /** Applies Advanced options; a bad port is explained before anything is sent. */
     const submit = (): void => {
+        const fault = portFieldFault(address, port);
+        if (fault !== undefined) {
+            rejectPort(false, fault);
+            return;
+        }
         const chosen = advancedAddress(address, scheme, port);
         if (!chosen.ok) {
-            showEntry([], false, "connect", text.INVALID_PORT);
+            rejectPort(false, "port");
             return;
         }
         startConnect([], chosen.address, scheme);
     };
 
     const forget = async (): Promise<void> => {
+        const fault = portFieldFault(address, port);
+        if (fault !== undefined) {
+            rejectPort(true, fault);
+            return;
+        }
         const chosen = advancedAddress(address, scheme, port);
         if (!chosen.ok) {
-            showEntry([], true, "forget", text.INVALID_PORT);
+            rejectPort(true, "port");
             return;
         }
         const result = await forgetStoredCredential(chosen.address, core);
@@ -425,7 +473,8 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         const now = clock.now();
         const current: Active = {
             server, login, stop, notes, code: undefined, typed: undefined, left: new AbortController(), options: undefined,
-            credentials: false, submitting: false, username: "", password: "", shown: false, error: undefined,
+            credentials: false, submitting: false, username: "", password: "", shown: false, error: undefined, errorField: undefined,
+            offersReset: false, resetChecked: false,
             status: { kind: "getting_code" }, shownCode: undefined, renewed: false, windowStart: now, startedAt: now,
             sawCode: false, startStreak: undefined, cancelTimer: undefined, pendingStart: undefined,
             // ServerBrandingCache: the last answer shows at once; the server's new one replaces it.
@@ -758,6 +807,8 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
                 password: current.password,
                 shown: current.shown,
                 error: current.error,
+                errorField: current.errorField,
+                forgot: current.offersReset ? () => openForgot(current) : undefined,
                 shake,
                 submitting: current.submitting,
                 onInput: (username, password) => {
@@ -775,6 +826,22 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             }),
             focus,
         );
+        if (!current.resetChecked) {
+            current.resetChecked = true;
+            void passwordResetOffered(current.server.server.http).then((offered) => {
+                if (destroyed || active !== current || !offered) {
+                    return;
+                }
+                current.offersReset = true;
+                if (current.credentials && host.name === "credentials") {
+                    showCredentials(current);
+                }
+            }, (error: unknown) => {
+                clock.schedule(() => {
+                    throw error;
+                }, 0);
+            });
+        }
     };
 
     const submitPassword = (current: Active): void => {
@@ -783,21 +850,23 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         }
         const phoneRoute = !passwordOnly(current);
         const hint = phoneRoute ? text.phoneHint(current.options?.oauthProviders ?? []) : undefined;
-        const refuse = (message: string): void => {
+        const refuse = (message: string, field: "username" | "password"): void => {
             current.error = message;
-            // Every failure, an empty field included, focuses the password, as on the Apple TV app.
-            showCredentials(current, "secret", true);
+            current.errorField = field === "username" ? "username" : undefined;
+            // A missing username outlines and focuses that field. Every other failure outlines the password.
+            showCredentials(current, field === "username" ? "username" : "secret", true);
         };
         if (current.username.trim() === "") {
-            refuse(text.ENTER_USERNAME);
+            refuse(text.ENTER_USERNAME, "username");
             return;
         }
         if (current.password === "") {
-            refuse(text.ENTER_PASSWORD);
+            refuse(text.ENTER_PASSWORD, "password");
             return;
         }
         current.submitting = true;
         current.error = undefined;
+        current.errorField = undefined;
         showCredentials(current);
         passwordLogin(current.server.session, current.username, current.password, current.left.signal).then((result) => {
             if (active !== current) {
@@ -812,7 +881,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
                     signedIn(current, { phase: "signed_in", persistence: result.persistence, previousSession: result.previousSession, passwordChangeRequired: result.passwordChangeRequired });
                     return;
                 case "failed":
-                    refuse(text.passwordProblem(result.error, hint, phoneRoute));
+                    refuse(text.passwordProblem(result.error, hint, phoneRoute), "password");
                     return;
                 case "superseded":
                     showCredentials(current);
@@ -864,20 +933,9 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         const server = current.server;
         const kept = state.previousSession === "failed" ? [text.PREVIOUS_SESSION_KEPT] : [];
         if (state.passwordChangeRequired) {
-            // The account can do nothing on this TV until its password changes, and the change
-            // ends this session anyway: sign it out now rather than hand over a session that fails.
+            // The session stays: choosing a new password is the only thing it can do.
             leaveSignIn(true);
-            const showPassword = (extra: readonly string[]): void => {
-                const again = marqueeButton("retry", "Get a new code", "primary", () => signIn(server, []));
-                const lines = [...text.passwordChange(server.server.http.base.baseUrl), ...kept, ...extra];
-                showMessage("password", "Choose a new password", lines, [again, marqueeButton("change", "Change server", "plain", changeServer)]);
-            };
-            showPassword([]);
-            void logoutCollectedAccount(server).then((result) => {
-                if (!destroyed && host.name === "password" && result.storage === "failed" && state.previousSession !== "failed") {
-                    showPassword([text.PREVIOUS_SESSION_KEPT]);
-                }
-            });
+            showPasswordChange(server, kept);
             return;
         }
         const lines = [...(state.persistence === "session_only" ? [text.SESSION_ONLY] : []), ...kept];
@@ -890,13 +948,287 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         showMessage("notice", title, lines, [marqueeButton("continue", "Continue", "primary", () => handOff(server))], () => undefined);
     };
 
-    /** A screen of its own for what only this TV says: a session it can't keep, or a password to change. */
+    /** A screen of its own for what only this TV says, such as a session it can't keep. */
     const showMessage = (name: string, title: string, lines: readonly string[], controls: readonly Control[], back: () => void = changeServer): void => {
         const copy = [headline(title), ...lines.map((line) => lead(line)), actionRow(controls)];
         show({ name, content: marqueeScreen(copy), controls, focus: controls[0]?.key ?? "", back });
     };
 
-    if (options.signedOut !== undefined) {
+    const signOutRestricted = (server: ConnectedServer): void => {
+        if (restricted === server) {
+            restricted = undefined;
+        }
+        showEntry([], false, "connect");
+        void logoutCollectedAccount(server).then((result) => {
+            if (!destroyed && host.name === "entry" && (result.storage === "failed" || result.server === "unreachable")) {
+                showEntry(text.signedOutNotice(result).map((line) => ({ text: line, tone: "info" })), result.storage === "failed");
+            }
+        });
+    };
+
+    const showPasswordChange = (server: ConnectedServer, notes: readonly string[]): void => {
+        restricted = server;
+        const draft = {
+            current: "",
+            next: "",
+            confirmation: "",
+            error: undefined as string | undefined,
+            shake: false,
+            busy: false,
+            limits: DEFAULT_PASSWORD_LIMITS,
+            editing: true,
+        };
+        const paint = (focus?: string): void => {
+            if (destroyed || restricted !== server || !draft.editing) {
+                return;
+            }
+            show(passwordChangeForm({
+                accountName: server.session.account?.username,
+                minimumLength: draft.limits.minimumLength,
+                current: draft.current,
+                next: draft.next,
+                confirmation: draft.confirmation,
+                error: draft.error,
+                shake: draft.shake,
+                busy: draft.busy,
+                notes,
+                onInput: (current, next, confirmation) => {
+                    draft.current = current;
+                    draft.next = next;
+                    draft.confirmation = confirmation;
+                },
+                save: () => void save(),
+                signOut: () => {
+                    if (!draft.busy) {
+                        signOutRestricted(server);
+                    }
+                },
+            }), focus);
+            draft.shake = false;
+        };
+        const retryRefresh = (busy: boolean): void => {
+            show(passwordChangeNotice(
+                "password-changed",
+                text.PASSWORD_CHANGED_TITLE,
+                text.PASSWORD_CHANGED_LEAD,
+                "Try again",
+                busy,
+                () => retryRefresh(true),
+                () => signOutRestricted(server),
+            ), "retry");
+            if (busy) {
+                void finishRefresh();
+            }
+        };
+        const finishRefresh = (): void => {
+            void server.session.refresh().then((outcome) => {
+                if (destroyed || restricted !== server) {
+                    return;
+                }
+                if (outcome.status === "refreshed") {
+                    handOff(server);
+                    return;
+                }
+                if (outcome.status === "session_ended" || outcome.status === "aborted") {
+                    restricted = undefined;
+                    showEntry([], false, "connect");
+                    return;
+                }
+                retryRefresh(false);
+            }, (error: unknown) => {
+                clock.schedule(() => {
+                    throw error;
+                }, 0);
+            });
+        };
+        const showUnconfirmed = (checking: boolean): void => {
+            draft.editing = false;
+            show(passwordChangeNotice(
+                "password-unconfirmed",
+                text.PASSWORD_UNCONFIRMED_TITLE,
+                text.PASSWORD_UNCONFIRMED_LEAD,
+                "Try again",
+                checking,
+                () => showUnconfirmed(true),
+                () => signOutRestricted(server),
+            ), "retry");
+            if (!checking) {
+                return;
+            }
+            void temporaryPasswordRemains(server.session).then((remains) => {
+                if (destroyed || restricted !== server) {
+                    return;
+                }
+                if (remains === true) {
+                    draft.editing = true;
+                    draft.busy = false;
+                    draft.error = text.PASSWORD_NOT_CHANGED;
+                    draft.shake = true;
+                    paint("current");
+                    return;
+                }
+                if (remains === false) {
+                    draft.current = "";
+                    draft.next = "";
+                    draft.confirmation = "";
+                    finishRefresh();
+                    return;
+                }
+                showUnconfirmed(false);
+            }, (error: unknown) => {
+                clock.schedule(() => {
+                    throw error;
+                }, 0);
+            });
+        };
+        const save = async (): Promise<void> => {
+            if (draft.busy || !draft.editing) {
+                return;
+            }
+            if (draft.current === "") {
+                draft.error = text.ENTER_TEMPORARY_PASSWORD;
+                draft.shake = true;
+                paint("current");
+                return;
+            }
+            const problem = text.newPasswordProblem(draft.next, draft.confirmation, draft.limits);
+            if (problem !== undefined) {
+                draft.error = problem;
+                draft.shake = true;
+                paint(problem === "The new passwords don't match." ? "confirm" : "new");
+                return;
+            }
+            draft.busy = true;
+            draft.error = undefined;
+            paint("save");
+            try {
+                await replacePassword(server.session, draft.current, draft.next);
+            } catch (error) {
+                if (!(error instanceof ApiError)) {
+                    clock.schedule(() => {
+                        throw error;
+                    }, 0);
+                    return;
+                }
+                const remains = await temporaryPasswordRemains(server.session);
+                if (destroyed || restricted !== server) {
+                    return;
+                }
+                if (remains === false) {
+                    draft.current = "";
+                    draft.next = "";
+                    draft.confirmation = "";
+                    finishRefresh();
+                    return;
+                }
+                if (remains === undefined) {
+                    showUnconfirmed(false);
+                    return;
+                }
+                draft.busy = false;
+                draft.error = text.passwordChangeFailure(error);
+                draft.shake = true;
+                const currentPassword = error.failure.kind === "problem" && error.failure.problem.errors[0]?.location === "body.current_password";
+                paint(currentPassword ? "current" : "new");
+                return;
+            }
+            if (destroyed || restricted !== server) {
+                return;
+            }
+            draft.current = "";
+            draft.next = "";
+            draft.confirmation = "";
+            draft.editing = false;
+            finishRefresh();
+        };
+        paint("current");
+        void readPasswordLimits(server.session).then((limits) => {
+            if (destroyed || restricted !== server || !draft.editing) {
+                return;
+            }
+            draft.limits = limits;
+            paint();
+        }, (error: unknown) => {
+            clock.schedule(() => {
+                throw error;
+            }, 0);
+        });
+    };
+
+    const openForgot = (current: Active): void => {
+        const draft = { login: current.username.trim(), phase: "editing" as "editing" | "sending" | "sent" | "unavailable", error: undefined as string | undefined };
+        const paint = (focus?: string): void => {
+            if (destroyed || active !== current) {
+                return;
+            }
+            show(forgotPasswordScreen({
+                login: draft.login,
+                phase: draft.phase,
+                error: draft.error,
+                onInput: (login) => {
+                    draft.login = login;
+                },
+                send: () => {
+                    void send();
+                },
+                done: () => {
+                    if (draft.phase === "sending") {
+                        return;
+                    }
+                    current.username = draft.login;
+                    showCredentials(current, "forgot");
+                },
+            }), focus);
+        };
+        const send = async (): Promise<void> => {
+            if (draft.phase !== "editing") {
+                return;
+            }
+            const login = draft.login.trim();
+            if (login === "") {
+                draft.error = text.FORGOT_EMPTY;
+                paint("login");
+                return;
+            }
+            draft.phase = "sending";
+            draft.error = undefined;
+            paint("send");
+            try {
+                await requestPasswordReset(current.server.server.http, login);
+            } catch (error) {
+                if (!(error instanceof ApiError)) {
+                    clock.schedule(() => {
+                        throw error;
+                    }, 0);
+                    return;
+                }
+                if (destroyed || active !== current) {
+                    return;
+                }
+                const failure = text.forgotFailure(error);
+                if (failure === "unavailable") {
+                    draft.phase = "unavailable";
+                    paint("done");
+                    return;
+                }
+                draft.phase = "editing";
+                draft.error = failure;
+                paint("login");
+                return;
+            }
+            if (destroyed || active !== current) {
+                return;
+            }
+            draft.login = login;
+            draft.phase = "sent";
+            paint("done");
+        };
+        paint(draft.login === "" ? "login" : "send");
+    };
+
+    if (options.passwordChange !== undefined) {
+        showPasswordChange(options.passwordChange, []);
+    } else if (options.signedOut !== undefined) {
         showEntry(text.signedOutNotice(options.signedOut).map((line) => ({ text: line, tone: "info" })), false);
     } else if (options.chooseServer === true) {
         showEntry([], false, "connect");
@@ -914,6 +1246,31 @@ function readServer(core: SessionCoreDeps): string | undefined {
     } catch {
         return undefined;
     }
+}
+
+/** One row when the code actions fit the 900-wide copy column, else one button per line. */
+function fitCodeActions(root: HTMLElement): void {
+    const section = root.querySelector(".signin-screen");
+    const name = section?.getAttribute("data-screen");
+    if (section === null || (name !== "code" && name !== "starting" && name !== "ended" && name !== "approved")) {
+        return;
+    }
+    const row = section.querySelector(".marquee-actions");
+    if (!(row instanceof HTMLElement) || row.childElementCount < 2) {
+        return;
+    }
+    const buttons = [...row.children].filter((node): node is HTMLElement => node instanceof HTMLElement);
+    // A flex row shrinks the buttons to the column, so the laid-out widths always fit. Measure each label at its own width.
+    for (const button of buttons) {
+        button.style.flex = "none";
+        button.style.width = "max-content";
+    }
+    const width = buttons.reduce((sum, button) => sum + button.offsetWidth, 0) + 22 * (buttons.length - 1);
+    for (const button of buttons) {
+        button.style.flex = "";
+        button.style.width = "";
+    }
+    row.classList.toggle("marquee-actions-stack", width > 900);
 }
 
 function writeServer(core: SessionCoreDeps, baseUrl: string): void {

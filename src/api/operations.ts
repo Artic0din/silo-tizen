@@ -2,6 +2,7 @@
 // Retry classes come from the operation's x-silo-retry-safety in openapi.json (see ../contracts/v2/SOURCE).
 
 import { decodeServerBranding } from "../contracts/v2/branding.ts";
+import { decodePasswordCapability, decodePasswordResetCapability } from "../contracts/v2/passwords.ts";
 import { shuffleOperations } from "./shuffleOperations.ts";
 import { recommendationOperations } from "./recommendationOperations.ts";
 import {
@@ -10,6 +11,8 @@ import {
     decodeDeviceLoginCapability,
     decodeDeviceLoginPoll,
     decodeDeviceLoginStart,
+    decodeCurrentAccount,
+    WireError,
     decodeProfileCollection,
     decodeProfileSummary,
     type ProfileCreateBody,
@@ -61,6 +64,14 @@ import { markerOperations } from "./markerOperations.ts";
 type Spec<T> = RequestSpec<T>;
 
 function noContent(): undefined {
+    return undefined;
+}
+
+/** A 202 with no body. Any document is not this operation's answer. */
+function emptyAccepted(value: unknown): undefined {
+    if (value !== undefined) {
+        throw new WireError("password_reset", "no body");
+    }
     return undefined;
 }
 
@@ -178,6 +189,49 @@ export const operations = {
         method: "POST",
         path: "/auth/logout",
         retry: "safe",
+        decode: noContent,
+    }),
+    /**
+     * getPasswordResetCapability: public read. `available` only when the server emails reset
+     * links. A 404 is a server that predates the capability.
+     */
+    passwordResetCapability: (): Spec<ReturnType<typeof decodePasswordResetCapability>> => ({
+        method: "GET",
+        path: "/capabilities/password-reset",
+        retry: "safe",
+        decode: decodePasswordResetCapability,
+    }),
+    /** requestPasswordReset: public, non_retryable. 202 with no body, whether or not an account matched. */
+    requestPasswordReset: (login: string): Spec<undefined> => ({
+        method: "POST",
+        path: "/password-resets",
+        retry: "never",
+        body: { login },
+        decode: emptyAccepted,
+    }),
+    /** getCurrentUser: bearer, no profile. Allowed while a temporary password is outstanding. */
+    currentAccount: (): Spec<ReturnType<typeof decodeCurrentAccount>> => ({
+        method: "GET",
+        path: "/account/me",
+        retry: "safe",
+        decode: decodeCurrentAccount,
+    }),
+    /** getAccountPasswordCapability: bearer, no profile. Read; a failure keeps the documented limits. */
+    accountPasswordCapability: (): Spec<ReturnType<typeof decodePasswordCapability>> => ({
+        method: "GET",
+        path: "/account/password/capability",
+        retry: "safe",
+        decode: decodePasswordCapability,
+    }),
+    /**
+     * changePassword: non_retryable. 204. Sent once; a replay would spend another attempt.
+     * The access token keeps a temporary-password restriction until the session is refreshed.
+     */
+    changePassword: (currentPassword: string, newPassword: string): Spec<undefined> => ({
+        method: "POST",
+        path: "/account/password",
+        retry: "never",
+        body: { current_password: currentPassword, new_password: newPassword },
         decode: noContent,
     }),
     /** listProfiles: profile_scoped read. */

@@ -87,6 +87,8 @@ export class FakeSilo {
     profiles: Record<string, unknown> = household();
     pinAttempts = 0;
     passwordChangeRequired = false;
+    /** `GET /capabilities/password-reset`: offered only while `available`. */
+    passwordResetState: "available" | "disabled" | "not_configured" = "disabled";
     lockedUntil = 0;
     private nextId = 1;
     private readonly clock: ManualClock;
@@ -237,7 +239,28 @@ export class FakeSilo {
                 return { status: 204 };
             }
         }
-        // Until the password changes, the session may only log out (auth-api.md, temporary passwords).
+        if (method === "GET" && path === "/capabilities/password-reset") {
+            return { status: 200, body: { revision: 1, state: this.passwordResetState, allowed: this.passwordResetState === "available" } };
+        }
+        if (method === "POST" && path === "/password-resets") {
+            return this.requestPasswordReset(body);
+        }
+        // Allowed while a temporary password is outstanding (auth-api.md): account, its password capability, and the change.
+        if (path === "/account/me" || path === "/account/password" || path === "/account/password/capability") {
+            if (this.authenticate(headers) === undefined) {
+                return problem(401, "authentication_required", "Authentication required");
+            }
+            if (method === "GET" && path === "/account/me") {
+                return { status: 200, body: { id: "1", username: "laura", role: "user", download_allowed: true, password_change_required: this.passwordChangeRequired } };
+            }
+            if (method === "GET" && path === "/account/password/capability") {
+                return { status: 200, body: { revision: 1, state: "available", allowed: true, minimum_password_length: 8, maximum_password_bytes: 72, sign_out_other_sessions: true } };
+            }
+            if (method === "POST" && path === "/account/password") {
+                return this.replacePassword(body);
+            }
+        }
+        // Until the password changes, the session may only log out and change that password (auth-api.md).
         const denied = this.denyUnauthenticated(headers);
         if (denied !== undefined) {
             return denied;
@@ -338,6 +361,42 @@ export class FakeSilo {
         }
         this.refreshTokens.set(refresh, sessionId);
         return { access_token: access, refresh_token: refresh, expires_in: 3600 };
+    }
+
+    private requestPasswordReset(body: Record<string, unknown> | undefined): Reply {
+        if (this.passwordResetState !== "available") {
+            const id = this.passwordResetState === "not_configured" ? "capability_not_configured" : "capability_disabled";
+            return problem(409, id, "Password reset is unavailable");
+        }
+        if (typeof body?.login !== "string" || body.login.trim() === "") {
+            return problem(422, "validation_failed", "Enter a login");
+        }
+        return { status: 202 };
+    }
+
+    /** The temporary password is the account's current password. Reusing it is refused. */
+    private replacePassword(body: Record<string, unknown> | undefined): Reply {
+        const current = body?.current_password;
+        const next = body?.new_password;
+        const invalid = (location: string): Reply => ({
+            status: 422,
+            headers: { "Content-Type": "application/problem+json" },
+            body: {
+                type: `${PROBLEM_BASE}validation_failed`,
+                title: "Validation failed",
+                status: 422,
+                detail: "Invalid password",
+                errors: [{ location, code: "invalid" }],
+            },
+        });
+        if (typeof current !== "string" || current === "" || current !== FAKE_PASSWORD) {
+            return invalid("body.current_password");
+        }
+        if (typeof next !== "string" || [...next].length < 8 || new TextEncoder().encode(next).length > 72 || next === current) {
+            return invalid("body.new_password");
+        }
+        this.passwordChangeRequired = false;
+        return { status: 204 };
     }
 
     private refresh(refreshToken: string): Reply {

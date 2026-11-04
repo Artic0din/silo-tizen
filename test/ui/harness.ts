@@ -140,23 +140,7 @@ const harness: SignInHarness = {
             onConnected: (server) => {
                 connected = server;
             },
-            onSignedIn: (server) => {
-                last = server;
-                harness.handoffs.push({
-                    restore: server.restore,
-                    username: server.session.account?.username,
-                    persistence: server.session.persistence,
-                    rootChildren: root.childElementCount,
-                });
-                if (profileFlow) {
-                    profileScreens = mountProfiles(root, { server, onSelected: browse, onSignedOut: backToSignIn, onChangeServer: () => {
-                        profileScreens?.destroy(); profileScreens = undefined;
-                        server.session.setProfile(undefined, "profile_cleared");
-                        const screen = document.createElement("section"); screen.setAttribute("data-screen", "server-selection");
-                        root.replaceChildren(screen);
-                    } });
-                }
-            },
+            onSignedIn: (server) => continueSignedIn(server),
             ...(signedOut === undefined ? {} : { signedOut }),
         });
     },
@@ -195,6 +179,59 @@ const backToSignIn = (notice: LogoutResult | undefined): void => {
     profileScreens = undefined;
     harness.signedOut.push(notice);
     harness.mount(notice);
+};
+
+const signInCore = {
+    fetch: (url: string, init: RequestInit) => {
+        if (new URL(url).pathname.endsWith("/system/info")) {
+            harness.discoveryRequests++;
+        }
+        return window.fetch(url, init);
+    },
+    publicStorage: storage,
+    keyManager,
+    randomBytes: (bytes: Uint8Array) => {
+        bytes.set(crypto.getRandomValues(new Uint8Array(bytes.length)));
+    },
+    deviceName: "Living room TV",
+    devicePlatform: "tizen",
+};
+
+const continueSignedIn = (server: ConnectedServer): void => {
+    last = server;
+    harness.handoffs.push({
+        restore: server.restore,
+        username: server.session.account?.username,
+        persistence: server.session.persistence,
+        rootChildren: root.childElementCount,
+    });
+    if (!profileFlow) {
+        return;
+    }
+    profileScreens = mountProfiles(root, {
+        server,
+        onSelected: browse,
+        onSignedOut: backToSignIn,
+        onChangeServer: () => {
+            profileScreens?.destroy();
+            profileScreens = undefined;
+            server.session.setProfile(undefined, "profile_cleared");
+            const screen = document.createElement("section");
+            screen.setAttribute("data-screen", "server-selection");
+            root.replaceChildren(screen);
+        },
+        onPasswordChange: () => {
+            profileScreens = undefined;
+            screens = mountSignIn(root, {
+                core: signInCore,
+                passwordChange: server,
+                onConnected: (next) => {
+                    connected = next;
+                },
+                onSignedIn: continueSignedIn,
+            });
+        },
+    });
 };
 
 window.addEventListener("keydown", (event) => {

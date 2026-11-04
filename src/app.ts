@@ -41,6 +41,29 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
         browse = undefined;
     };
 
+    const openProfiles = (server: ConnectedServer): void => {
+        // Sign-in releases its root before handing over; its old destroy would clear the successor.
+        signIn = undefined;
+        profiles = mountProfiles(root, {
+            server,
+            onChangeServer: () => switchServer(server),
+            launch: server.profileLaunch,
+            onSelected: (active) => showBrowse(server, active),
+            onSignedOut: (result) => {
+                profiles = undefined;
+                showSignIn(result);
+            },
+            onPasswordChange: () => {
+                profiles = undefined;
+                signIn = mountSignIn(root, {
+                    core: options.core,
+                    passwordChange: server,
+                    onSignedIn: openProfiles,
+                });
+            },
+        });
+    };
+
     const showSignIn = (notice?: LogoutResult, chooseServer = false): void => {
         stopContent();
         profiles?.destroy();
@@ -48,20 +71,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
         signIn = mountSignIn(root, {
             core: options.core,
             ...(chooseServer ? { chooseServer: true } : {}),
-            onSignedIn: (server) => {
-                // Sign-in releases its root before handing over; its old destroy would clear the successor.
-                signIn = undefined;
-                profiles = mountProfiles(root, {
-                    server,
-                    onChangeServer: () => switchServer(server),
-                    launch: server.profileLaunch,
-                    onSelected: (active) => showBrowse(server, active),
-                    onSignedOut: (result) => {
-                        profiles = undefined;
-                        showSignIn(result);
-                    },
-                });
-            },
+            onSignedIn: openProfiles,
             ...(notice === undefined ? {} : { signedOut: notice }),
         });
     };

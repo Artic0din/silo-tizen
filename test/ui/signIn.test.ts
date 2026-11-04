@@ -417,7 +417,11 @@ tvTest("a declined code offers a new one; expired, withdrawn and lost codes rene
     await connectTo(tv);
     tv.fake.deny(await codeScreen(tv));
     await tv.jump(5000);
-    await shows(tv, "Sign-in was declined on your phone.");
+    // Previously the status said "Sign-in was declined on your phone." and the scan lead stayed up with no code.
+    await shows(tv, "Sign-in was declined.");
+    await shows(tv, "Show a new code to try again.");
+    assert.equal(await tv.page.locator(".marquee-lead").innerText(), "Show a new code to try again.");
+    assert.equal(await tv.page.locator(".marquee-actions").evaluate((node) => getComputedStyle(node).flexDirection), "column", "the action labels wrap onto their own lines when they do not fit");
     assert.equal(await tv.page.locator("h1").innerText(), "Sign in to silo.example.test", "the headline stays");
     assert.equal(await tv.page.locator(".marquee-card .marquee-symbol").count(), 1, "the card shows the state's symbol instead of the code");
     assert.equal(await retryButton(tv), "Show a new code");
@@ -426,6 +430,7 @@ tvTest("a declined code offers a new one; expired, withdrawn and lost codes rene
 
     const second = await codeScreen(tv);
     await shows(tv, "Waiting for approval");
+    assert.equal(await tv.page.locator(".marquee-actions").evaluate((node) => getComputedStyle(node).flexDirection), "row", "two actions still fit the copy column");
     assert.equal(await tv.focused(), "password");
     await tv.page.keyboard.press("ArrowRight");
     assert.equal(await tv.focused(), "change");
@@ -726,20 +731,25 @@ tvTest("destroying a sign-in notice revokes the account instead of handing it ov
     assert.equal(await handoffs(tv), 0);
 }, { sessionOnly: true });
 
-tvTest("an account that must change its password is signed out here and sent to the server's web page", async (tv) => {
+tvTest("an account that must change its password chooses a new one here, then continues", async (tv) => {
     await connectTo(tv);
     const code = await codeScreen(tv);
     tv.fake.passwordChangeRequired = true;
     tv.fake.approve(code);
     await tv.jump(5000);
     await tv.page.locator('[data-screen="password"]').waitFor();
-    await shows(tv, "In a web browser, open https://silo.example.test, sign in and choose a new password.");
-    assert.equal(await tv.focused(), "retry");
-    await tv.eventually(async () => tv.fake.revokedSessions.size === 1, "the login session to be revoked");
-    await tv.eventually(async () => (await tv.page.evaluate(() => window.harness.keyManager?.items.size)) === 0, "the stored account to be removed");
-    assert.equal(await handoffs(tv), 0);
-    await tv.page.keyboard.press("Enter");
-    await codeScreen(tv);
+    // Previously this signed the account out and sent the person to the server's web page.
+    await shows(tv, "An admin set a temporary password for laura. Choose your own to continue.");
+    assert.equal(await tv.focused(), "current");
+    assert.equal(tv.fake.revokedSessions.size, 0, "the session stays until the password changes");
+    await tv.page.locator("#signin-current-password").fill(FAKE_PASSWORD);
+    await tv.page.locator("#signin-new-password").fill("replacement-for-tests");
+    await tv.page.locator("#signin-confirm-password").fill("replacement-for-tests");
+    await tv.page.getByRole("button", { name: "Save password", exact: true }).click();
+    await tv.eventually(async () => (await handoffs(tv)) === 1, "the handoff after the password change");
+    assert.equal(tv.fake.passwordChangeRequired, false);
+    assert.equal(tv.fake.paths().filter((path) => path === "POST /account/password").length, 1);
+    assert.equal(await tv.page.evaluate(() => window.harness.keyManager?.items.size), 1, "the new session stays stored");
 });
 
 tvTest("signing out offline still clears the TV, and the address screen says what the server was not told", async (tv) => {
@@ -903,14 +913,21 @@ tvTest("vertical password navigation skips its Show/Hide accessory, as on Apple 
     }
 });
 
-tvTest("empty fields and refusals read as on the Apple TV app; the name stays and focus returns to the password", async (tv) => {
+tvTest("empty fields and refusals read as on the Apple TV app; a missing username outlines that field", async (tv) => {
     await openPassword(tv);
     const signInButton = tv.page.getByRole("button", { name: "Sign in", exact: true });
     await signInButton.click();
     await shows(tv, "Please enter your username.");
+    // Previously every failure, including a missing username, outlined and focused the password.
+    assert.equal(await tv.page.locator(".signin-field-error #signin-username").count(), 1);
+    assert.equal(await tv.page.locator(".signin-field-error #signin-password").count(), 0);
+    assert.equal(await tv.focused(), "username");
     await tv.page.fill("#signin-username", "laura");
     await signInButton.click();
     await shows(tv, "Please enter your password.");
+    assert.equal(await tv.page.locator(".signin-field-error #signin-password").count(), 1);
+    assert.equal(await tv.page.locator(".signin-field-error #signin-username").count(), 0);
+    assert.equal(await tv.focused(), "secret");
     assert.equal(loginRequests(tv), 0, "nothing is sent without both fields");
 
     await tv.page.fill("#signin-password", "wrong");
@@ -1082,15 +1099,57 @@ tvTest("a password sign-in without secure storage warns before continuing, as a 
     await tv.eventually(async () => (await handoffs(tv)) === 1, "the handoff");
 }, { sessionOnly: true });
 
-tvTest("a password account that must change its password is signed out and sent to the web page", async (tv) => {
+tvTest("a password account that must change its password stays signed in and chooses a new one", async (tv) => {
     tv.fake.passwordChangeRequired = true;
     await openPassword(tv);
     await tv.page.fill("#signin-username", "laura");
     await tv.page.fill("#signin-password", FAKE_PASSWORD);
     await tv.page.getByRole("button", { name: "Sign in", exact: true }).click();
     await tv.page.locator('[data-screen="password"]').waitFor();
-    await tv.eventually(async () => tv.fake.revokedSessions.size === 1, "the login session to be revoked");
+    // Previously the login session was revoked and the screen pointed at the web page.
+    assert.equal(tv.fake.revokedSessions.size, 0);
     assert.equal(await handoffs(tv), 0);
+    await shows(tv, "At least 8 characters");
+    await tv.page.getByRole("button", { name: "Save password", exact: true }).click();
+    await shows(tv, "Enter the temporary password.");
+    assert.equal(await tv.focused(), "current");
+    await tv.page.locator("#signin-current-password").fill("wrong-temporary");
+    await tv.page.locator("#signin-new-password").fill("replacement-for-tests");
+    await tv.page.locator("#signin-confirm-password").fill("different-for-tests");
+    await tv.page.getByRole("button", { name: "Save password", exact: true }).click();
+    await shows(tv, "The new passwords don't match.");
+    assert.equal(await tv.focused(), "confirm");
+    assert.equal(tv.fake.paths().filter((path) => path === "POST /account/password").length, 0, "a mismatch is not sent");
+    await tv.page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await tv.eventually(async () => tv.fake.revokedSessions.size === 1, "sign out ends the restricted session");
+    assert.equal(await tv.screen(), "entry");
+});
+
+tvTest("Forgot password? is offered when the server emails reset links, and the link is chosen elsewhere", async (tv) => {
+    tv.fake.passwordResetState = "available";
+    await openPassword(tv);
+    await tv.page.fill("#signin-username", "laura");
+    const forgot = tv.page.getByRole("button", { name: "Forgot password?", exact: true });
+    await forgot.waitFor();
+    assert.equal(await tv.focused(), "username", "the offer does not take focus");
+    await forgot.click();
+    await shows(tv, "Enter your username or email. If it matches an account, we'll email that account a link to choose a new password.");
+    assert.equal(await tv.page.inputValue("#signin-reset-login"), "laura");
+    await tv.page.fill("#signin-reset-login", "   ");
+    await tv.page.getByRole("button", { name: "Send reset link", exact: true }).click();
+    await shows(tv, "Enter your username or email.");
+    assert.equal(await tv.page.locator(".signin-field-error #signin-reset-login").count(), 1);
+    await tv.page.fill("#signin-reset-login", "laura");
+    await tv.page.getByRole("button", { name: "Send reset link", exact: true }).click();
+    await shows(tv, "Check your email");
+    await shows(tv, "If laura matches an account with an email address, we sent that address a link to choose a new password. Once you've chosen it, sign in here.");
+    const reset = tv.fake.requests.filter((request) => request.path === "/password-resets");
+    assert.equal(reset.length, 1);
+    assert.deepEqual(reset[0]?.body, { login: "laura" });
+    assert.equal(JSON.stringify(reset[0]?.body).includes(FAKE_PASSWORD), false);
+    await tv.page.getByRole("button", { name: "Back to sign in", exact: true }).click();
+    assert.equal(await tv.screen(), "credentials");
+    assert.equal(await tv.page.inputValue("#signin-username"), "laura");
 });
 
 tvTest("a server that turned password sign-in off shows no password button", async (tv) => {
@@ -1297,7 +1356,10 @@ tvTest("HTTPS chosen in Advanced options never offers plain HTTP, and a bad port
     await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
     await shows(tv, "Port must be a number between 1 and 65535.");
     assert.equal(await tv.page.locator(".marquee-error").count(), 1);
-    assert.equal(await tv.page.locator(".signin-field-error #signin-address").count(), 1, "the address field shows the error");
+    // Previously a bad Port field outlined the address.
+    assert.equal(await tv.page.locator(".signin-field-error #signin-port").count(), 1, "the Port field shows the error");
+    assert.equal(await tv.page.locator(".signin-field-error #signin-address").count(), 0);
+    assert.equal(await tv.focused(), "port");
     assert.equal(tv.blocked, 0);
     await tv.page.fill("#signin-port", "");
     await tv.page.locator('[data-focus="scheme-https"]').click();
@@ -1306,6 +1368,15 @@ tvTest("HTTPS chosen in Advanced options never offers plain HTTP, and a bad port
     assert.ok(tv.blocked > 0, "HTTPS was tried");
     assert.deepEqual(tv.fake.requests, [], "nothing was sent unencrypted");
 }, { origin: PLAIN });
+
+tvTest("a port typed into the address outlines the address and opens nothing", async (tv) => {
+    await tv.page.fill("#signin-address", "silo.example.test:70000");
+    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
+    await shows(tv, "Port must be a number between 1 and 65535.");
+    assert.equal(await tv.page.locator(".signin-field-error #signin-address").count(), 1);
+    assert.equal(await tv.page.locator("#signin-port").count(), 0, "advanced options stay closed");
+    assert.equal(tv.blocked, 0);
+});
 
 tvTest("the code screen carries the server card, and late branding renames it in place", async (tv) => {
     const hold = tv.fake.hold("/theme/branding");

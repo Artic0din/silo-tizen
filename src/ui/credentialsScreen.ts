@@ -23,6 +23,10 @@ export interface CredentialsView {
     readonly password: string;
     readonly shown: boolean;
     readonly error: string | undefined;
+    /** A missing username outlines that field. Any other error outlines the password. */
+    readonly errorField: "username" | undefined;
+    /** Set when the server emails reset links. */
+    readonly forgot: (() => void) | undefined;
     /** Shake the fields: a sign-in was just refused. */
     readonly shake: boolean;
     readonly submitting: boolean;
@@ -45,7 +49,12 @@ export function credentialsScreen(view: CredentialsView): CredentialsScreen {
     const password = textInput("signin-password", "secret", "Password", "Password", view.password);
     password.type = view.shown ? "text" : "password";
     password.autocomplete = "current-password";
-    if (view.error !== undefined) {
+    const usernameError = view.errorField === "username";
+    const passwordError = view.error !== undefined && !usernameError;
+    if (usernameError) {
+        username.setAttribute("aria-invalid", "true");
+    }
+    if (passwordError) {
         password.setAttribute("aria-invalid", "true");
     }
     const update = (): void => view.onInput(username.value, password.value);
@@ -57,10 +66,10 @@ export function credentialsScreen(view: CredentialsView): CredentialsScreen {
     toggle.element.setAttribute("aria-label", view.shown ? "Hide password" : "Show password");
 
     const passwordRow = el("div", "signin-password-row");
-    passwordRow.appendChild(field(password, "lock", view.error !== undefined));
+    passwordRow.appendChild(field(password, "lock", passwordError));
     passwordRow.appendChild(toggle.element);
     const fields = el("div", view.shake ? "signin-fields signin-shake" : "signin-fields");
-    fields.appendChild(field(username, "person"));
+    fields.appendChild(field(username, "person", usernameError));
     fields.appendChild(passwordRow);
 
     const lines: HTMLElement[] = [];
@@ -71,6 +80,12 @@ export function credentialsScreen(view: CredentialsView): CredentialsScreen {
     const hint = el("p", "signin-hint", view.hint ?? "");
     hint.hidden = view.hint === undefined || view.error?.includes(view.hint) === true;
     lines.push(hint);
+    const forgot = view.forgot === undefined ? undefined : marqueeButton("forgot", "Forgot password?", "plain", view.forgot);
+    if (forgot !== undefined) {
+        const forgotRow = el("div", "signin-forgot");
+        forgotRow.appendChild(forgot.element);
+        lines.push(forgotRow);
+    }
 
     const signIn = marqueeButton("signin", view.submitting ? "Signing in…" : "Sign in", "primary", view.submit, { loading: view.submitting });
     const row: Control[] = [signIn];
@@ -82,12 +97,16 @@ export function credentialsScreen(view: CredentialsView): CredentialsScreen {
     for (const control of row.slice(1)) {
         control.element.toggleAttribute("disabled", view.submitting);
     }
-
+    if (forgot !== undefined) {
+        forgot.element.toggleAttribute("disabled", view.submitting);
+    }
+    const actionRowIndex = forgot === undefined ? 2 : 3;
     const controls: Control[] = [
         { key: "username", element: username, row: 0 },
         { key: "secret", element: password, row: 1 },
         { ...toggle, row: 1 },
-        ...row.filter((control) => !control.element.hasAttribute("disabled")).map((control) => ({ ...control, row: 2, landing: control.key === "signin" })),
+        ...(forgot === undefined || forgot.element.hasAttribute("disabled") ? [] : [{ ...forgot, row: 2 }]),
+        ...row.filter((control) => !control.element.hasAttribute("disabled")).map((control) => ({ ...control, row: actionRowIndex, landing: control.key === "signin" })),
     ];
     const body = lead(text.passwordLead(view.serverName, view.passwordOnly));
     let back = view.back;

@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
-import { fixture } from "../native/support/fakeSilo.ts";
+import { FAKE_PASSWORD, fixture } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
@@ -506,7 +506,7 @@ tvTest("an authority callback destroyed by an earlier listener cannot replace it
                 harness.mount({ storage: "cleared", server: "not_signed_in" });
             }
         });
-        controller = harness.mountProfiles(root, { server, onSelected: () => undefined, onSignedOut: () => undefined, onChangeServer: () => undefined });
+        controller = harness.mountProfiles(root, { server, onSelected: () => undefined, onSignedOut: () => undefined, onChangeServer: () => undefined, onPasswordChange: () => undefined });
         await server.session.logout();
         stop();
         return { screen: document.querySelector("[data-screen]")?.getAttribute("data-screen"), styled: root.classList.contains("signin") };
@@ -524,7 +524,7 @@ tvTest("repeated profile teardown preserves a successor sign-in screen and its s
         harness.profileController?.destroy();
         let complete = (): void => undefined;
         const handedBack = new Promise<void>((resolve) => { complete = resolve; });
-        const controller = harness.mountProfiles(root, { server, onSelected: () => undefined, onSignedOut: (notice) => { harness.mount(notice); complete(); }, onChangeServer: () => undefined });
+        const controller = harness.mountProfiles(root, { server, onSelected: () => undefined, onSignedOut: (notice) => { harness.mount(notice); complete(); }, onChangeServer: () => undefined, onPasswordChange: () => undefined });
         const signOut = document.querySelector('[data-focus="signout"]');
         if (!(signOut instanceof HTMLElement)) { throw new Error("sign-out control required"); }
         signOut.click();
@@ -535,20 +535,24 @@ tvTest("repeated profile teardown preserves a successor sign-in screen and its s
     assert.deepEqual(result, { screen: "entry", styled: true });
 });
 
-tvTest("a restored sign-in whose account must change its password is signed out and sent to the server's web page", async (tv) => {
+tvTest("a restored sign-in whose account must change its password chooses a new one before profiles", async (tv) => {
     await picker(tv);
     tv.fake.passwordChangeRequired = true;
     tv.fake.expireAccessTokens();
     await tv.page.evaluate(() => window.harness.mount());
     await screenIs(tv, "password");
-    await shows(tv, "In a web browser, open https://silo.example.test, sign in and choose a new password.");
+    // Previously this signed the account out and sent the person to the server's web page.
+    await shows(tv, "An admin set a temporary password for laura. Choose your own to continue.");
     assert.equal(await tv.page.evaluate(() => window.harness.handoffs[1]?.restore), "signed_in");
-    await tv.eventually(async () => tv.fake.revokedSessions.size === 1, "the restricted session to be revoked");
-    assert.equal(await tv.page.evaluate(() => window.harness.keyManager?.items.size), 0);
-    assert.equal(await tv.focused(), "signin");
-    await tv.page.keyboard.press("Enter");
-    await screenIs(tv, "entry");
-    assert.equal((await handed(tv)).length, 0);
+    assert.equal(tv.fake.revokedSessions.size, 0, "the restricted session stays for the change");
+    assert.equal(await tv.focused(), "current");
+    await tv.page.locator("#signin-current-password").fill(FAKE_PASSWORD);
+    await tv.page.locator("#signin-new-password").fill("replacement-for-tests");
+    await tv.page.locator("#signin-confirm-password").fill("replacement-for-tests");
+    await tv.page.getByRole("button", { name: "Save password", exact: true }).click();
+    await screenIs(tv, "profiles");
+    assert.equal(tv.fake.passwordChangeRequired, false);
+    assert.equal((await handed(tv)).length, 0, "the picker is shown before a profile is chosen");
 });
 
 for (const count of [0, 4, 5, 6, 7]) {

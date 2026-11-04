@@ -579,6 +579,21 @@
     margin-top: 40px;
 }
 
+/* One row when the labels fit the 900-wide copy column, else one button per line. */
+.marquee-actions-stack {
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.marquee-actions-stack > .marquee-button {
+    margin-right: 0;
+    margin-bottom: 22px;
+}
+
+.marquee-actions-stack > .marquee-button:last-child {
+    margin-bottom: 0;
+}
+
 [data-screen="starting"] .marquee-actions,
 [data-screen="code"] .marquee-actions,
 [data-screen="ended"] .marquee-actions {
@@ -817,6 +832,26 @@
 .signin-password-row .marquee-field {
     flex: 1 1 auto;
     min-width: 0;
+}
+
+.signin-change .marquee-field + .marquee-field {
+    margin-top: 20px;
+}
+
+/* "Forgot password?" trails the fields, as on the password form that offers a mailed reset. */
+.signin-forgot {
+    display: flex;
+    justify-content: flex-end;
+    width: 760px;
+    margin-top: 10px;
+}
+
+.signin-forgot .marquee-button {
+    height: 57px;
+    margin: 0;
+    padding: 0 8px;
+    font-size: 24px;
+    font-weight: 600;
 }
 
 /* MarqueeShake: -8, 8, -6, 4, 0 over 0.07, 0.07, 0.07, 0.07, 0.09 s. */

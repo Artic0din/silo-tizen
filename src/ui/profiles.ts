@@ -11,7 +11,6 @@ import { type AuthorityChange, type LogoutResult, SessionError } from "../sessio
 import { pinProblem, pinScreen } from "./pinScreen.ts";
 import { actions, button, type Control, el, type Note, type Screen, ScreenHost } from "./screen.ts";
 import { logoutCollectedAccount } from "./signIn.ts";
-import * as text from "./signInText.ts";
 import { MarqueeBackdrop } from "./marqueeBackdrop.ts";
 import { profilePickerScreen } from "./profilePicker.ts";
 import { createProfileFlow, type ProfileCreateFlow } from "./profileCreate.ts";
@@ -36,6 +35,11 @@ export interface ProfileOptions {
     readonly onSelected: (active: ProfileHandoff) => void;
     /** The account is signed out on this TV. The profile screens are gone; show sign-in, with the notice when given. */
     readonly onSignedOut: (notice: LogoutResult | undefined) => void;
+    /**
+     * The account holds a temporary password, so profiles are refused. The profile screens are
+     * gone; the session stays signed in for the password change.
+     */
+    readonly onPasswordChange: () => void;
 }
 
 export interface ProfileScreens {
@@ -293,16 +297,15 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         message("expired", "Signed out", lines, [button("signin", "Sign in again", signOut)]);
     };
 
-    /** The account can do nothing here until its password changes, which ends this session anyway. */
+    /** The account can do nothing here until its password changes. The session stays for that. */
     const passwordChange = (): void => {
         begin();
         current = undefined;
         leaving = true;
-        const logout = logoutCollectedAccount(server);
-        const again = button("signin", "Sign in again", () => {
-            void logout.then(leave, () => leave(undefined));
-        });
-        message("password", "Choose a new password", text.passwordChange(session.http.base.baseUrl), [again]);
+        if (!destroyed) {
+            destroy();
+        }
+        options.onPasswordChange();
     };
 
     /** The server refused the profile's PIN proof: ask for the PIN again if the profile still has one. */

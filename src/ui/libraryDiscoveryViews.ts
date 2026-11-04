@@ -41,7 +41,7 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
         content.push(skeleton);
     } else if (state.mode === "Recommended") {
         const rows = homeRows(state.data.sections.filter(section => section.featured !== true)).filter(row => row.cards.length > 0);
-        rows.forEach(({ section }, index) => {
+        rows.forEach(({ section }) => {
             const row = homeView([], [section], handlers.context, {
                 expand: value => open(value.title, { kind: "section", id: value.id }),
                 search: () => handlers.push(newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })),
@@ -50,9 +50,7 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
             });
             content.push(...row.content);
             zones.push(...row.zones);
-            if (index === 0) inlineCollections();
         });
-        if (rows.length === 0) inlineCollections();
     } else if (state.mode === "Collections") {
         const collections = state.data.collections;
         const groups = collections?.groups ?? [];
@@ -100,16 +98,6 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
     const first = firstZone?.items[0];
     return { name: state.data === undefined && route.failure === undefined ? "library:loading" : `library:${route.library.id}`, content, zones, focus: state.data === undefined && state.mode !== "Recommended" ? { zone: "pills", key: `mode:${state.mode}` } : first === undefined ? undefined : { zone: firstZone?.id ?? "pills", key: first.key }, back: handlers.pop };
 
-    function inlineCollections(): void {
-        if (state.data?.collectionsFailure !== undefined) {
-            const retry = actionButton("retry-collections", "Try again", () => handlers.retry(route));
-            content.push(...lines([state.data.collectionsFailure], "error"), zoneNode("browse-actions", [retry]));
-            zones.push({ id: "collections-error", layout: "row", items: [retry] });
-            return;
-        }
-        const collections = [...(state.data?.collections?.collections ?? [])].sort((a, b) => b.itemCount - a.itemCount).slice(0, 8);
-        collectionRow("inline", "Collections", collections, "admin", false);
-    }
     function collectionRow(id: string, title: string, collections: readonly CollectionSummary[], groupKind: "admin" | "user_collections", grid: boolean): void {
         if (collections.length === 0) return;
         const items = collections.map(collection => {

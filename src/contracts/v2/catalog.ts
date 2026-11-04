@@ -6,7 +6,7 @@
 import { boolean, integer, nonEmptyString, object, optionalString, string, WireError } from "./wire.ts";
 import { decodeDetailExtras, type DetailExtras } from "./details.ts";
 import { decodeAudioTracks, type AudioTrackInfo } from "./playback.ts";
-import { decodeCatalogSubtitles, type SubtitleSignature } from "./preplaySubtitles.ts";
+import { decodeCatalogSubtitles, decodeSubtitlePreferences, type CatalogSubtitleTrack, type SubtitlePreferences } from "./preplaySubtitles.ts";
 
 type WireObject = ReturnType<typeof object>;
 
@@ -274,7 +274,9 @@ export function decodeCatalogPage(value: unknown): CatalogPage {
 // --- getCatalogItem ---
 
 export interface PlayableFile {
-    readonly subtitles?: readonly SubtitleSignature[];
+    readonly effectiveAudioTrackIndex?: number | undefined;
+    readonly subtitles?: readonly CatalogSubtitleTrack[];
+    readonly effectiveSubtitle?: SubtitlePreferences;
     readonly audio?: readonly AudioTrackInfo[];
     /** Metadata omitted from labels must still invalidate an ordinal picked from an older inventory. */
     readonly audioMetadata?: string;
@@ -355,7 +357,7 @@ export function decodeItemDetail(value: unknown): ItemDetail {
             const versionPath = `${path}.versions[${index}]`;
             const version = object(entry, versionPath);
             const label = [optionalString(version, "edition_raw", versionPath), optionalString(version, "resolution", versionPath), optionalString(version, "codec_video", versionPath), version.hdr === undefined ? undefined : boolean(version, "hdr", versionPath) ? "HDR" : undefined, optionalString(version, "codec_audio", versionPath)].filter((part) => part !== undefined && part !== "").join(" · ");
-            return { fileId: string(version, "file_id", versionPath), durationSeconds: integer(version, "duration", versionPath), audio: decodeAudioTracks(version, versionPath), ...(version.subtitle_tracks === undefined ? {} : { subtitles: decodeCatalogSubtitles(version, versionPath) }), ...(version.audio_tracks === undefined ? {} : { audioMetadata: JSON.stringify(version.audio_tracks) }), ...(label === "" ? {} : { label }) };
+            return { ...(obj.effective_subtitle_mode === undefined && obj.effective_subtitle_track_signature === undefined ? {} : { effectiveSubtitle: decodeSubtitlePreferences(obj, string(obj, "content_id", path), string(version, "file_id", versionPath), undefined) }), fileId: string(version, "file_id", versionPath), effectiveAudioTrackIndex: optionalInteger(version, "effective_audio_track_index", versionPath), durationSeconds: integer(version, "duration", versionPath), audio: decodeAudioTracks(version, versionPath), ...(version.subtitle_tracks === undefined ? {} : { subtitles: decodeCatalogSubtitles(version, versionPath) }), ...(version.audio_tracks === undefined ? {} : { audioMetadata: JSON.stringify(version.audio_tracks) }), ...(label === "" ? {} : { label }) };
         }),
         watch,
     };

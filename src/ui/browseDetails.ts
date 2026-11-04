@@ -135,8 +135,19 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
 }
 
 export function itemView(detail: ItemDetail, seasons: readonly Season[], context: ViewContext, play: (request: PlayRequest) => void, back: () => void, synopsis: Synopsis, state?: DetailsState): View {
+    detail = state === undefined ? detail : { ...detail, versions: state.detail.versions };
     const actions: FocusItem[] = [];
     const notes: string[] = [];
+    if (state?.audioPreference.pending) notes.push("Saving audio preference…");
+    if (state?.subtitlePreference.pending) notes.push("Saving subtitle preference…");
+    if (state?.subtitlePreference.failed) {
+        notes.push("Subtitle preference could not be confirmed.");
+        actions.push(actionButton("retry-subtitle-preference", "Check subtitle preference", () => state.subtitlePreference.retry()));
+    }
+    if (state?.audioPreference.failed) {
+        notes.push("Could not confirm the audio preference. Check before playing.");
+        actions.push(actionButton("retry-audio-preference", "Check audio preference", () => state.audioPreference.retry()));
+    }
     const choices = playChoices(detail, state?.selectedFileId);
     const choose = (request: PlayRequest): void => {
         const audioTrackId = state?.audioTrackId();

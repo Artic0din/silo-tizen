@@ -224,6 +224,19 @@ Remembering a PIN proof is refused when protected storage is not persistent.
 
 ### Catalog, browse and detail
 
+Details sends explicit audio and subtitle choices through `PUT /audio-prefs/{key}` and `PUT /subtitle-prefs/{key}`, and Auto through the corresponding `DELETE`.
+The key is a nonempty series ID or the item's own opaque content ID.
+The audio signature preserves title, embedded title, layout, language, codec, channels and default independently.
+Writes never replay after refresh; queued choices serialize, uncertain results require explicit readback before retry, and playback remains blocked until confirmation and effective catalog readback settle.
+Route teardown fences completions; retained playback returns reread effective state without resending writes.
+Version selection remains visit-only.
+Subtitle signatures preserve source, language, codec, label, forced and hearing-impaired flags.
+External subtitle paths use the catalog `file_name`, matching Apple; embedded tracks send an empty path.
+Explicit Off writes index `-1`, empty language/path and mode `off`.
+Ordinary picks omit `show_forced_subtitles` so they do not pin an inherited profile setting.
+Fresh effective subtitle signatures seed Details using Apple's language/label scoring; explicit Auto remains Auto for the retained visit.
+This is source work only, pending independent review and native Apple/Samsung parity.
+
 All of these are Bearer plus Profile.
 The server applies library access and content limits, so the client does not filter.
 Defined in `src/api/operations.ts` unless noted.

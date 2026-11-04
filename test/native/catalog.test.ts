@@ -70,7 +70,7 @@ test("browse fixtures decode with the production decoders", () => {
     const detail = decodeItemDetail(fixture("get_catalog_item_ok"));
     assert.equal(detail.type, "movie");
     assert.equal(detail.tagline, "A Los Angeles crime saga");
-    assert.deepEqual(detail.versions, [{ fileId: "120", durationSeconds: 0, audio: [], label: "2160p" }]);
+    assert.deepEqual(detail.versions, [{ fileId: "120", effectiveAudioTrackIndex: 1, durationSeconds: 0, audio: [], label: "2160p" }]);
     assert.deepEqual(detail.watch, { played: true, positionSeconds: undefined, lastFileId: "120" });
 
     assert.deepEqual(decodeSeasons(fixture("list_series_seasons_ok")), [

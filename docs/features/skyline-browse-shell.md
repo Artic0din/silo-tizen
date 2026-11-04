@@ -55,8 +55,7 @@ Play from start sends `start_position:0` without a resume read, even when the se
 Subtitle Auto separately reads effective subtitle preferences before adopting the initial playable plan.
 Home Continue Watching keeps its existing direct-resolution journey.
 
-Audio choices last only in the current Details visit and playback attempt; no per-content audio preference PUT or DELETE is sent.
-This differs from Apple's persisted per-title/series audio override, which is deferred.
+Details remembers an explicit audio choice with `PUT /audio-prefs/{key}` and clears it with `DELETE` for Auto. Playback waits until that write is confirmed.
 Subtitles offers Auto, Off and the selected version's catalog subtitle tracks.
 Auto resolves the watch answer's effective mode, language, saved signature and forced setting against the actual first plan's subtitle inventory and selected audio language.
 Explicit Off bypasses forced/default selection.
@@ -66,8 +65,7 @@ The initial start still omits both subtitle selector fields.
 Missing or ambiguous explicit tracks, failed Auto preparation and refused initial replans show an error and retire the session; they do not silently play a different subtitle choice.
 The existing cached-resume fallback remains usable with explicit subtitle Off when the watch endpoint is unreachable.
 Subtitle choices persist within the Details visit and attempt, with explicit tracks reset when file or inventory changes; Off survives a version change.
-No Details selection writes per-content or series subtitle preferences.
-This differs from Apple's persisted overrides; downloaded tracks remain available through the authoritative in-player menu.
+Details also remembers an explicit subtitle choice, including Off, with `PUT /subtitle-prefs/{key}` and clears it with `DELETE` for Auto. The external path is the catalog file name; an external sidecar with no stream index stays on the visit only. Playback waits until that write is confirmed. Downloaded tracks remain available through the authoritative in-player menu.
 No subtitle renderer, AVPlay transport or capability declaration changed.
 The server's returned effective file, tracks, warnings and source/player timeline remain authoritative.
 The controller retains protocol 3, saved quality/cap settings, capability gates and bounded identical-body start resends with the same attempt identity.

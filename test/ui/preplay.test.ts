@@ -4,6 +4,21 @@ import type { Browser } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakePlayback } from "../native/support/fakePlayback.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { object } from "../../src/contracts/v2/wire.ts";
+
+class AudioPreferenceDetails extends FakeDetails {
+    private readonly audioPreferences = new Map<string, Record<string, unknown>>();
+
+    override route(...args: Parameters<FakeDetails["route"]>): ReturnType<FakeDetails["route"]> {
+        const [method, path, profile, body] = args;
+        if (!path.startsWith("/audio-prefs/") && !path.startsWith("/subtitle-prefs/")) return super.route(...args);
+        const key = `${profile}:${path}`;
+        if (method === "PUT") { this.audioPreferences.set(key, object(body, "audio_preference")); return { status: 204 }; }
+        if (method === "DELETE") { this.audioPreferences.delete(key); return { status: 204 }; }
+        const stored = this.audioPreferences.get(key);
+        return stored === undefined ? { status: 404 } : { status: 200, body: { ...stored, series_id: decodeURIComponent(path.slice(path.lastIndexOf("/") + 1)) } };
+    }
+}
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -28,7 +43,7 @@ async function details(tv: Tv): Promise<void> {
 function preplay(name: string, body: (tv: Tv, catalog: FakeDetails, playback: FakePlayback) => Promise<void>, production = true, reduced = false, configure?: (catalog: FakeDetails) => void): void {
     test(name, async () => {
         const tv = await openTv(browser, { app: "application", production });
-        const catalog = new FakeDetails();
+        const catalog = new AudioPreferenceDetails();
         catalog.progress.set("movie:m0001", 1200.5);
         configure?.(catalog);
         tv.fake.catalog = catalog;
@@ -48,6 +63,16 @@ preplay("stored nonzero progress + Play from start sends numeric zero", async (t
 
 const WATCH = "/watch/movie%3Am0001?file_id=42";
 const starts = (tv: Tv) => tv.fake.requests.filter(r => r.path === "/playback/start");
+
+async function savedAudio(tv: Tv): Promise<void> {
+    await tv.page.getByText("Saving audio preference…", { exact: true }).waitFor({ state: "hidden" });
+    assert.equal(await tv.page.locator('[data-focus="retry-audio-preference"]').count(), 0);
+}
+
+async function savedSubtitle(tv: Tv): Promise<void> {
+    await tv.page.getByText("Saving subtitle preference…", { exact: true }).waitFor({ state: "hidden" });
+    assert.equal(await tv.page.locator('[data-focus="retry-subtitle-preference"]').count(), 0);
+}
 
 async function prepare(tv: Tv): Promise<void> {
     await tv.eventually(() => tv.page.evaluate(() => window.appHarness.avplay.pendingPrepares > 0), "AVPlay preparation");
@@ -253,6 +278,7 @@ for (const reduced of [false, true]) {
         await tv.page.keyboard.press("Enter");
         assert.equal(await tv.focused(), "audio");
         assert.equal(await tv.page.getByRole("dialog", { name: "Audio" }).count(), 0);
+        await savedAudio(tv);
         catalog.progress.set("movie:m0001", 2400.25);
         const held = tv.fake.hold(WATCH, true);
         await tv.page.locator('[data-focus="resume"]').focus();
@@ -295,12 +321,14 @@ preplay("Auto keeps initial selectors omitted and resolves subtitles before adop
 preplay("version change clears old audio, pins the new file and allows a fresh explicit pick", async (tv) => {
     await tv.page.locator('[data-focus="audio"]').click();
     await tv.page.getByRole("radio", { name: /Japanese/ }).click();
+    await savedAudio(tv);
     await tv.page.locator('[data-focus="version"]').click();
     await tv.page.locator('[data-focus="version:43"]').click();
     assert.equal(await tv.page.locator('[data-focus="audio"]').textContent(), "Audio: Auto");
     await tv.page.locator('[data-focus="audio"]').click();
     assert.equal(await tv.page.getByRole("radio").count(), 3);
     await tv.page.getByRole("radio", { name: /English Dub/ }).click();
+    await savedAudio(tv);
     await tv.page.locator('[data-focus="play"]').click();
     await prepare(tv);
     assert.equal(starts(tv)[0]?.body?.file_id, "43");
@@ -316,6 +344,11 @@ preplay("Details subtitles resolve a catalog stream choice through the server in
     assert.equal(await tv.focused(), "subtitle:0");
     await tv.page.keyboard.press("Enter");
     assert.equal(await tv.focused(), "subtitles");
+    await savedSubtitle(tv);
+    const saved = tv.fake.requests.find(request => request.method === "PUT" && request.path === "/subtitle-prefs/movie%3Am0001");
+    assert.equal(saved?.body?.subtitle_track_index, 97);
+    assert.equal(saved?.body?.subtitle_mode, "always");
+    assert.equal(Object.hasOwn(saved?.body ?? {}, "show_forced_subtitles"), false);
     await tv.page.locator('[data-focus="play"]').click();
     await prepare(tv);
     assert.equal(starts(tv)[0]?.body?.subtitle_track_id, undefined);
@@ -340,6 +373,7 @@ preplay("fresh no-progress wins over cached Resume", async (tv, catalog) => {
 preplay("Resume remains usable while the playback-return Details refresh is pending", async (tv) => {
     await tv.page.locator('[data-focus="audio"]').click();
     await tv.page.getByRole("radio", { name: /Japanese/ }).click();
+    await savedAudio(tv);
     await tv.page.locator('[data-focus="play"]').click();
     await prepare(tv);
     const held = tv.fake.hold("/catalog/items/movie%3Am0001", true);
@@ -367,6 +401,7 @@ preplay("episode Details uses its file audio and restores the initiating Resume 
     await tv.page.locator('[data-focus="episode-information"]').click();
     await tv.page.locator('[data-focus="audio"]').click();
     await tv.page.getByRole("radio", { name: /Japanese/ }).click();
+    await savedAudio(tv);
     await tv.page.locator('[data-focus="resume"]').click();
     await prepare(tv);
     assert.equal(starts(tv)[0]?.body?.file_id, "42");
@@ -380,6 +415,7 @@ preplay("episode Details uses its file audio and restores the initiating Resume 
 preplay("network-only watch failure uses cached Resume with explicit subtitle Off without changing authority", async (tv) => {
     await tv.page.locator('[data-focus="subtitles"]').click();
     await tv.page.locator('[data-focus="subtitle:off"]').click();
+    await savedSubtitle(tv);
     await tv.page.route("**/api/v2/watch/movie%3Am0001?file_id=42", route => route.abort("internetdisconnected"));
     await tv.page.locator('[data-focus="resume"]').click();
     await tv.jump(3000);
@@ -434,6 +470,7 @@ preplay("preplay explicit audio reaches the one production start", async (tv) =>
     assert.equal(await audio.count(), 1, "Details exposes the audio trigger");
     await audio.click();
     await tv.page.getByRole("radio", { name: /Japanese/ }).click();
+    await savedAudio(tv);
     await tv.page.locator('[data-focus="play"]').click();
     await tv.eventually(async () => tv.fake.requests.some(r => r.path === "/playback/start"), "start POST");
     assert.equal(tv.fake.requests.find(r => r.path === "/playback/start")?.body?.audio_track_id, "file:42:audio:1");

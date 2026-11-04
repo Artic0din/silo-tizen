@@ -12,6 +12,10 @@ import { RatingState } from "./ratingState.ts";
 import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
 import { SeriesEpisodes } from "./seriesEpisodes.ts";
 import { freshPlayPosition } from "./playbackPreparation.ts";
+import { PreplayAudioPreference } from "./preplayAudioPreference.ts";
+import { PreplayTrackPreference } from "./preplayTrackPreference.ts";
+import { subtitlePreferenceOperations, type SubtitlePreferencePick, type SubtitlePreference } from "../api/subtitlePreferenceOperations.ts";
+import { matchesSubtitle, preferredCatalogSubtitle } from "../player/preplaySubtitles.ts";
 
 export interface PersonalChange {
     readonly target: boolean;
@@ -21,6 +25,8 @@ export interface PersonalChange {
 
 export class DetailsState {
     readonly rating: RatingState;
+    readonly audioPreference: PreplayAudioPreference;
+    readonly subtitlePreference: PreplayTrackPreference<SubtitlePreferencePick, SubtitlePreference>;
     series: SeriesEpisodes | undefined;
     detail: ItemDetail;
     selectedFileId: string | undefined;
@@ -34,7 +40,9 @@ export class DetailsState {
     private nextEpisodeRevision = 0;
     private full = false;
     private audioPick: { fileId: string; ordinal: number; inventory: string } | undefined;
+    private audioAuto = false;
     private subtitlePick: { fileId: string; inventory: string; intent: SubtitleIntent } | undefined;
+    private subtitleAuto = false;
     related: readonly Card[] | undefined;
     relatedFailed = false;
     personalSupported: boolean | undefined;
@@ -57,6 +65,20 @@ export class DetailsState {
         this.watchedChanged = watchedChanged;
         this.pendingElsewhere = pendingElsewhere;
         this.rating = new RatingState(session, detail.id, () => this.changed(), () => this.pending || this.pendingElsewhere());
+        this.audioPreference = new PreplayAudioPreference(session, detail.seriesId || detail.id, () => this.changed(), async signal => {
+            const refreshed = await session.call({ ...operations.getCatalogItem(detail.id), profileScoped: true, signal });
+            if (refreshed.id !== detail.id) throw new Error("Audio readback item mismatch");
+            if (signal.aborted) return;
+            this.detail = refreshed;
+            this.audioTrackId();
+        });
+        this.subtitlePreference = new PreplayTrackPreference(subtitlePreferenceOperations, session, detail.seriesId || detail.id, () => this.changed(), async signal => {
+            const refreshed = await session.call({ ...operations.getCatalogItem(detail.id), profileScoped: true, signal });
+            if (refreshed.id !== detail.id) throw new Error("Subtitle readback item mismatch");
+            if (signal.aborted) return;
+            this.detail = refreshed;
+            this.subtitleIntent();
+        });
         if (detail.played !== undefined && ["movie", "episode", "series", "season"].includes(detail.type)) this.values.set("watched", detail.played);
     }
 
@@ -66,6 +88,8 @@ export class DetailsState {
     start(mode: "full" | "personal" = "full"): void {
         if (this.controller !== undefined) return;
         this.controller = new AbortController();
+        if (["movie", "episode"].includes(this.detail.type)) this.audioPreference.start();
+        if (["movie", "episode"].includes(this.detail.type)) this.subtitlePreference.start();
         this.full = mode === "full";
         if (mode === "full" && ["movie", "series"].includes(this.detail.type)) this.rating.start();
         this.stopAuthority = this.session.onAuthorityChange(() => { this.stop(); this.changed(); });
@@ -85,6 +109,8 @@ export class DetailsState {
     }
 
     stop(): void {
+        this.audioPreference.stop();
+        this.subtitlePreference.stop();
         this.rating.stop();
         this.series?.stop();
         this.controller?.abort();
@@ -134,9 +160,13 @@ export class DetailsState {
 
     restore(previous: DetailsState | undefined): void {
         if (previous === undefined) return;
+        this.audioPreference.restore(previous.audioPreference);
+        this.subtitlePreference.restore(previous.subtitlePreference);
         if (this.detail.versions.some(file => file.fileId === previous.selectedFileId)) this.selectedFileId = previous.selectedFileId;
         this.audioPick = previous.audioPick;
+        this.audioAuto = previous.audioAuto;
         this.subtitlePick = previous.subtitlePick;
+        this.subtitleAuto = previous.subtitleAuto;
         this.audioTrackId();
         this.subtitleIntent();
     }
@@ -145,7 +175,10 @@ export class DetailsState {
         const fileId = playChoices(this.detail, this.selectedFileId)?.fromStart.fileId;
         const file = this.detail.versions.find(file => file.fileId === fileId);
         const pick = this.audioPick;
-        if (pick === undefined) return undefined;
+        if (pick === undefined) {
+            const index = file?.effectiveAudioTrackIndex;
+            return !this.audioAuto && index !== undefined && file?.audio?.[index] !== undefined ? `file:${fileId}:audio:${index}` : undefined;
+        }
         if (pick.fileId !== fileId || file?.audio?.[pick.ordinal] === undefined || pick.inventory !== JSON.stringify([file.audio, file.audioMetadata])) {
             this.audioPick = undefined;
             return undefined;
@@ -163,10 +196,14 @@ export class DetailsState {
     closeAudio(): void { this.closePanel(); }
 
     selectAudio(ordinal: number | undefined): void {
+        if (this.preparingPlay) { this.closeAudio(); return; }
         const fileId = playChoices(this.detail, this.selectedFileId)?.fromStart.fileId;
         const file = this.detail.versions.find(file => file.fileId === fileId);
         if (file === undefined || (ordinal !== undefined && file.audio?.[ordinal] === undefined)) return;
         this.audioPick = ordinal === undefined ? undefined : { fileId: file.fileId, ordinal, inventory: JSON.stringify([file.audio, file.audioMetadata]) };
+        this.audioAuto = ordinal === undefined;
+        const track = ordinal === undefined ? undefined : file.audio?.[ordinal];
+        this.audioPreference.choose(ordinal === undefined || track === undefined ? undefined : { ordinal, track });
         this.closeAudio();
     }
 
@@ -177,12 +214,19 @@ export class DetailsState {
         const file = this.detail.versions.find(file => file.fileId === fileId);
         if (pick === undefined || pick.fileId !== fileId || pick.inventory !== JSON.stringify(file?.subtitles)) {
             this.subtitlePick = undefined;
+            if (pick === undefined && !this.subtitleAuto) {
+                const effective = file?.effectiveSubtitle;
+                if (effective?.mode === "off") return { kind: effective.showForced ? "auto" : "off" };
+                const match = preferredCatalogSubtitle(file?.subtitles ?? [], effective?.signature);
+                if (match !== undefined && file?.subtitles?.filter(track => matchesSubtitle(track, match)).length === 1) return { kind: "track", signature: match };
+            }
             return { kind: "auto" };
         }
         return pick.intent;
     }
 
     selectSubtitle(choice: number | "off" | undefined): void {
+        if (this.preparingPlay) { this.closePanel(); return; }
         const fileId = playChoices(this.detail, this.selectedFileId)?.fromStart.fileId;
         const file = this.detail.versions.find(file => file.fileId === fileId);
         if (file === undefined) return;
@@ -193,12 +237,16 @@ export class DetailsState {
             intent = { kind: "track", signature: track };
         } else intent = { kind: choice === "off" ? "off" : "auto" };
         this.subtitlePick = choice === undefined ? undefined : { fileId: file.fileId, inventory: JSON.stringify(file.subtitles), intent };
+        this.subtitleAuto = choice === undefined;
+        const track = typeof choice === "number" ? file.subtitles?.[choice] : undefined;
+        // An external sidecar with no stream index cannot be named on the preference wire. Apple leaves it unselected for persistence.
+        if (track === undefined || track.selectionIndex !== undefined) this.subtitlePreference.choose(track === undefined ? choice === "off" ? "off" : undefined : { track });
         this.closePanel();
     }
 
     preparePlay(request: PlayRequest, clock: Clock, handoff: (request: PlayRequest) => void): void {
         const controller = this.controller;
-        if (controller === undefined || this.preparingPlay) return;
+        if (controller === undefined || this.preparingPlay || this.audioPreference.pending || this.audioPreference.failed || this.subtitlePreference.pending || this.subtitlePreference.failed) return;
         this.failedPlay = undefined;
         if (request.startSeconds === 0) { handoff(request); return; }
         this.preparingPlay = true;

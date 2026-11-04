@@ -120,7 +120,7 @@ test("Details reuses the per-file audio decoder and never invents omitted tracks
     assert.throws(() => decodeItemDetail({ ...raw, versions: [{ file_id: "42", duration: 3000, audio_tracks: [{ language: "en" }] }] }), WireError);
 });
 
-test("attempt-only audio survives identical refresh, resets for a changed inventory or file, and only an explicit version pins", async () => {
+test("visit audio survives identical refresh, resets for a changed inventory or file, and only an explicit version pins", async () => {
     const r = await rig();
     try {
         r.state.selectAudio(1);
@@ -139,7 +139,9 @@ test("attempt-only audio survives identical refresh, resets for a changed invent
         assert.equal(r.state.audioTrackId(), "file:43:audio:1");
         r.state.select("42");
         assert.equal(r.state.audioTrackId(), undefined);
-        assert.equal(r.h.fake.requests.some(req => req.method === "PUT" || req.method === "DELETE"), false);
+        await settle();
+        assert.equal(r.h.fake.requests.some(req => req.method === "PUT" && req.path === "/audio-prefs/movie%3Am0001"), true);
+        assert.equal(r.h.fake.requests.some(req => req.path.startsWith("/version-prefs/")), false, "version selection remains visit-only");
     } finally { r.state.stop(); }
 });
 
@@ -155,6 +157,9 @@ test("fresh progress and fresh no-progress replace cached progress using the cap
             await settle();
             r.state.select("43");
             r.state.selectAudio(0);
+            r.state.selectSubtitle("off");
+            await settle();
+            assert.equal(r.h.fake.requests.some(req => req.method === "PUT" && (req.path.startsWith("/audio-prefs/") || req.path.startsWith("/subtitle-prefs/"))), false, "preparation keeps the captured choices and cannot start an unsettled save");
             r.state.preparePlay({ ...r.request, fileId: "43" }, r.h.clock, r.handoff);
             assert.equal(r.state.preparingPlay, true);
             assert.deepEqual(r.plays, []);

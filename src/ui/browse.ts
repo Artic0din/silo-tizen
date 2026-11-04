@@ -188,6 +188,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let detailWork: DetailsState | undefined;
     let settingsScreen: SettingsScreen | undefined;
     let calendarLibrariesStale = false;
+    let homeLibrariesFailed = false;
+    let homeLibrariesNeedForeground = false;
+    let retryHomeLibraries: (() => void) | undefined;
     let menuOrigin: { route: Route; focus: FocusTarget | undefined } | undefined;
     const personalPending = (): boolean => detailWork?.pending === true || cardActions.pending;
     const cardActions = new CardActions(container, session, state => {
@@ -425,7 +428,18 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         return found;
     }, () => undefined);
     void probeImages();
-    const requestsVisibility = (): void => { if (!document.hidden) void probeRequests(); };
+    const requestsVisibility = (): void => {
+        if (document.hidden) {
+            // A libraries miss is read again on the next foreground, as Apple does
+            // after backgrounding (TVMainTabView scenePhase, TVMainTabView.swift:334-342).
+            homeLibrariesNeedForeground = true;
+            return;
+        }
+        void probeRequests();
+        if (!homeLibrariesFailed || !homeLibrariesNeedForeground) return;
+        homeLibrariesNeedForeground = false;
+        retryHomeLibraries?.();
+    };
     document.addEventListener("visibilitychange", requestsVisibility);
 
     const teardown = (): void => {
@@ -566,6 +580,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }),
         ]).then(([libraries, hidden]) => {
             if (signal.aborted || torn || current.kind !== "home") return;
+            homeLibrariesFailed = false;
             const visible = visibleLibraries(libraries, hidden);
             pendingHomeLibraries = visible;
             // shell.update replaces the nav, including a focused tab. Keep the target captured
@@ -575,9 +590,19 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const focus = host.focused();
             if (current.data !== undefined) current.data = { ...current.data, libraries: visible };
             shell.update(visible);
-            if (!playing && top() === current && settingsScreen === undefined && !cardActions.active && !synopsis.active) render(focus);
+            const shown = top();
+            const shownShell = shown?.kind === "home" || shown?.kind === "for_you" || shown?.kind === "library" || shown?.kind === "personal" || shown?.kind === "calendar";
+            // The page in front has to take the new buttons. Calendar and For You can open
+            // before this read finishes (TVMainTabView reconcileVisibleRootsChange, TVMainTabView.swift:1065).
+            if (!playing && shownShell && settingsScreen === undefined && !cardActions.active && !synopsis.active) render(focus);
         }, (error: unknown) => {
-            if (signal.aborted || error instanceof ApiError) return;
+            if (signal.aborted || torn || (error instanceof ApiError && error.aborted)) return;
+            if (error instanceof ApiError) {
+                // Home rows stay. Apple keeps the bar it has and does not show an error
+                // (TVMainTabView.loadLibraries, TVMainTabView.swift:1032-1036).
+                homeLibrariesFailed = true;
+                return;
+            }
             clock.schedule(() => { throw error; }, 0);
         });
     };
@@ -1548,6 +1573,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const home = newRoute({ kind: "home", data: undefined });
     const roots = new Map<string, Route>([["home", home]]);
+    retryHomeLibraries = (): void => {
+        const homeRoute = roots.get("home");
+        if (homeRoute?.kind === "home") readHomeLibraries(homeRoute);
+    };
     const shell = new Skyline(container, clock, (target, destinationMode) => {
         shuffleGeneration++;
         const current = top();

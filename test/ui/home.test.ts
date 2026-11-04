@@ -72,6 +72,47 @@ journey("Home paints its rows while libraries are still out and does not say it 
     await tv.eventually(async () => await tv.page.locator('[data-focus="movies"]').count() === 1, "library tabs follow the rows");
 }, undefined, undefined, { beforeMount: tv => { heldLibraries = tv.fake.hold("/user/libraries", true); }, readyTimeout: 4000 });
 
+let heldCalendarLibraries: { release(): void };
+journey("library tabs that arrive on Calendar keep Up on the new bar", async tv => {
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0);
+    await tv.page.locator('[data-focus="calendar"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="calendar"] [data-focus="previous-week"]').count() === 1 && await tv.page.getByText("Loading the week.", { exact: true }).count() === 0, "Calendar settled");
+    await tv.page.locator('[data-focus="previous-week"]').focus();
+    heldCalendarLibraries.release();
+    await tv.eventually(async () => await tv.page.locator('.browse-nav [data-focus="movies"]').count() === 1, "library tabs on Calendar");
+    await tv.page.keyboard.press("ArrowUp");
+    const landed = await tv.page.evaluate(() => ({ key: document.activeElement?.getAttribute("data-focus"), connected: document.activeElement?.isConnected === true }));
+    assert.deepEqual(landed, { key: "calendar", connected: true });
+}, undefined, undefined, { beforeMount: tv => { heldCalendarLibraries = tv.fake.hold("/user/libraries", true); }, readyTimeout: 4000 });
+
+journey("a failed libraries read keeps Home and retries the tabs after the app returns", async tv => {
+    const libraryReads = (): number => tv.fake.requests.filter(request => request.path === "/user/libraries").length;
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    await tv.jump(1000);
+    await tv.eventually(async () => libraryReads() >= 2, "libraries read exhausted its retry");
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0);
+    await tv.page.locator('[data-focus="calendar"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="calendar"]').count() === 1, "left Home");
+    await tv.page.locator('[data-focus="home"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="home"] [data-section="recent/12"]').count() === 1, "Home again");
+    assert.equal(libraryReads(), 2, "leaving Home and returning does not reread libraries");
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0);
+    await tv.page.evaluate(() => {
+        Object.defineProperty(document, "hidden", { configurable: true, value: true });
+        document.dispatchEvent(new Event("visibilitychange"));
+        Object.defineProperty(document, "hidden", { configurable: true, value: false });
+        document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await tv.eventually(async () => await tv.page.locator('[data-focus="movies"]').count() === 1, "library tabs after returning to the app");
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    assert.ok(libraryReads() > 2);
+}, catalog => {
+    catalog.failNext("/user/libraries", problem(503, "service_unavailable", "Unavailable"), problem(503, "service_unavailable", "Unavailable"));
+});
+
 journey("a delayed Home sections read never says it is still waiting", async tv => {
     assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
     assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);

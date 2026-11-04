@@ -841,9 +841,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     ]);
                     return { episodes, detail };
                 }, (data) => {
+                    const previous = current.data?.details;
                     current.data = data;
                     if (data.detail !== undefined) {
                         const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending);
+                        details.restore(previous);
                         current.data.details = details;
                         detailWork = details;
                         details.start();
@@ -1079,7 +1081,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (activeBrowse !== undefined) stopFeed(activeBrowse);
         const current = top();
         if (current === undefined || torn || playing) return;
-        const details = current.kind === "item" ? current.data?.details : undefined;
+        const details = current.kind === "item" || current.kind === "season" ? current.data?.details : undefined;
         const focus = host.focused();
         if (details === undefined) handoff(request);
         else {
@@ -1088,7 +1090,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             cancelSlow();
             detailWork = details;
             details.start();
-            details.preparePlay(request, clock, resolved => handoff(resolved, focus));
+            const playbackState = details.nextEpisodeState?.detail.id === request.contentId ? details.nextEpisodeState : details;
+            playbackState.preparePlay(request, clock, resolved => handoff(resolved, focus));
         }
     };
 

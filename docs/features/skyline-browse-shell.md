@@ -10,6 +10,11 @@ Library destinations follow the available discovery capabilities: Browse, Collec
 
 Movie and episode Details place Play/Resume, Start Over when available, Version, Audio, Subtitles, Watchlist and More in one row.
 A passive line shows the selected version, audio and subtitle intent.
+Movie and Series share the existing sampled hero backdrop and title typography used by Requests details.
+Series next-episode Version, Audio and Subtitles controls reuse the episode Details preference owner; both Resume and Start Over carry its selections.
+Auto audio stays server-resolved until a viewer explicitly picks a track.
+Local extras with an authoritative file ID appear in Trailers & More, start at zero through the existing player, and restore their card on Back.
+Extras without a file ID remain disabled; remote YouTube launching is not implemented.
 More retains watched/favorite actions, the full-synopsis dialog and the movie/series rating dialog.
 Each dialog owns focus, hides the underlying page from accessibility, and restores its initiating control on Back.
 The inline synopsis clamps to three lines with ellipsis; the full text remains available in More.
@@ -29,6 +34,37 @@ Default direct activation uses automatic audio and subtitle selection without bo
 Hold Select or right-click an episode to choose Episode information for its full synopsis and visit-only version/audio/subtitle controls.
 Calendar retains its existing series-context navigation rather than becoming a playback command.
 Playback return restores the originating card or action, selected season and visit scroll; the discarded resolution route cannot replay.
+
+### Apple source reference and outstanding comparison
+
+Reference: silo-apple `9723df007baa8e933f5615cc14b13e99a6ee1ea1` (current main fetched 5 November 2026).
+This is a source reference, not identification of an installed Apple build.
+Paths below are relative to `iosApp/iosApp/`.
+
+| Element | Apple source and exact value | Tizen candidate |
+| --- | --- | --- |
+| Hero | `tvOS/Screens/Detail/TVDetailHero.swift:10`: inset 100, height 690, top 116, editorial width 1080 | Shared backdrop; minimum 690, grows for wrapped text so controls remain reachable |
+| Title | `tvOS/Screens/Detail/TVDetailHero.swift:505`: 92-point compressed primary, 40-point secondary | Requests shared title treatment; colon-separated fallback; guarded logo loading retained |
+| Summary | `tvOS/Screens/Detail/TVDetailHero.swift:763`: gap 8; slots 313/364/338; height 44 | Three passive slots above actions |
+| Series baseline | `tvOS/Screens/Detail/TVSeriesDetailView.swift:405`: editorial 435, metadata 36, synopsis 112, credit 28, action spacing 4 | Synopsis reserved; actions bottom-aligned with 57-point trailing space; episode-focus editorial switching remains outstanding |
+| Controls | `tvOS/Screens/Detail/TVDetailActions.swift:354`: minimum circle width 76 and height 76; `TVMovieDetailView.swift:176`: primary width 340 | Existing dialogs and personal/rating ownership retained; next-episode controls now use the same selection owner |
+| Credits | `tvOS/Screens/Detail/TVDetailHero.swift:741`: first two directors for movies; first three cast names otherwise | Same text and limits |
+| Cast | `tvOS/Screens/Detail/TVDetailCastRail.swift:15`: 200-point circles | Existing circular cards, role deduplication and focus unchanged |
+| Extras | `tvOS/Screens/Detail/TVTrailersRail.swift:23`: gap 48; `:75`: 470×264 cards, radius 18 | Local extras decoded from server watch targets; same card geometry |
+| Episode caption | `Components/EpisodeCardCaption.swift:90`: season/episode code, middle dot, title | Same title; runtime in h/m; watched badge; air-date metadata remains outstanding |
+
+Remote navigation retains one FocusHost owner: Left/Right within action, season, episode, cast, extras and related rows; Up/Down through nonempty rows; Back closes the active dialog before popping the page.
+Seasons require explicit activation, including Specials; focus movement does not read data.
+The existing route status owner retains initial loading, error, Retry and Back; season loading/error/empty states stay in SeriesEpisodes.
+Missing metadata keeps a text title and usable controls; missing or failed artwork falls back to the shared tint surface.
+Version labels retain the server edition, resolution and codec fields.
+
+Native acceptance remains required before merge.
+Compare identical Movie and Series items, profile, selected file and tracks, card-size setting and 1920×1080 viewport on both clients.
+Capture entry with Play focused; each selector open; subtitle Off selected; More then rating and full synopsis; Cast focused; Trailers & More focused; related focused; and Back restoration.
+For Series additionally capture Season 1 selected, the first episode focused, the second episode focused, another season explicitly selected, Specials selected, and Back from Episode information.
+Apple episode focus changes its editorial metadata and selection target; this candidate retains the server next-up target and show overview.
+Do not claim whole-page parity until that difference, missing episode air dates, long-title hero growth and missing-file extras are resolved or explicitly accepted.
 
 ## Preplay audio, subtitles and resume
 

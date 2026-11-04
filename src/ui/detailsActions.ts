@@ -6,6 +6,7 @@ import { el } from "./screen.ts";
 const ICONS: Readonly<Record<string, string>> = {
     play: "M8 4 21 12 8 20Z",
     resume: "M8 4 21 12 8 20Z",
+    "next-episode": "M8 4 21 12 8 20Z",
     version: "M3 4H21V20H3ZM3 9H21M8 4 11 9M15 4 18 9",
     audio: "M3 9H7L13 4V20L7 15H3ZM17 8Q23 12 17 16",
     subtitles: "M3 5H21V19H3ZM6 11H10M6 14H11M14 11H18M14 14H18",
@@ -21,7 +22,7 @@ export function detailAction(item: FocusItem): FocusItem {
     const label = button.textContent ?? "";
     button.textContent = "";
     button.setAttribute("aria-label", label);
-    button.classList.add("details-action", !startOver && (item.key === "play" || item.key === "resume") ? "details-play" : "details-circle");
+    button.classList.add("details-action", !startOver && (item.key === "play" || item.key === "resume" || item.key === "next-episode") ? "details-play" : "details-circle");
     const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     icon.setAttribute("viewBox", "0 0 24 24");
     icon.setAttribute("aria-hidden", "true");

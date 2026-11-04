@@ -35,6 +35,8 @@ export class DetailsState {
     preparingPlay = false;
     failedPlay: PlayRequest | undefined;
     nextEpisode: ItemDetail | undefined;
+    nextEpisodeState: DetailsState | undefined;
+    private previousNextEpisodeState: DetailsState | undefined;
     nextEpisodeLoading = false;
     nextEpisodeFailed = false;
     private nextEpisodeRevision = 0;
@@ -85,7 +87,7 @@ export class DetailsState {
     get pending(): boolean { return [...this.changes.values()].some(change => change.pending); }
     get busy(): boolean { return this.pending || this.rating.pending || this.pendingElsewhere(); }
 
-    start(mode: "full" | "personal" = "full"): void {
+    start(mode: "full" | "personal" | "playback" = "full"): void {
         if (this.controller !== undefined) return;
         this.controller = new AbortController();
         if (["movie", "episode"].includes(this.detail.type)) this.audioPreference.start();
@@ -93,6 +95,8 @@ export class DetailsState {
         this.full = mode === "full";
         if (mode === "full" && ["movie", "series"].includes(this.detail.type)) this.rating.start();
         this.stopAuthority = this.session.onAuthorityChange(() => { this.stop(); this.changed(); });
+        if (mode === "playback") return;
+        this.nextEpisodeState?.start("playback");
         if (mode === "full") this.series?.start();
         if (mode === "full") this.loadTitleArt();
         if (mode === "full" && this.nextEpisode === undefined && !this.nextEpisodeFailed) this.loadNextEpisode();
@@ -109,6 +113,7 @@ export class DetailsState {
     }
 
     stop(): void {
+        this.nextEpisodeState?.stop();
         this.audioPreference.stop();
         this.subtitlePreference.stop();
         this.rating.stop();
@@ -160,6 +165,7 @@ export class DetailsState {
 
     restore(previous: DetailsState | undefined): void {
         if (previous === undefined) return;
+        this.previousNextEpisodeState = previous.nextEpisodeState;
         this.audioPreference.restore(previous.audioPreference);
         this.subtitlePreference.restore(previous.subtitlePreference);
         if (this.detail.versions.some(file => file.fileId === previous.selectedFileId)) this.selectedFileId = previous.selectedFileId;
@@ -171,11 +177,12 @@ export class DetailsState {
         this.subtitleIntent();
     }
 
-    audioTrackId(): string | undefined {
+    audioTrackId(explicitOnly = false): string | undefined {
         const fileId = playChoices(this.detail, this.selectedFileId)?.fromStart.fileId;
         const file = this.detail.versions.find(file => file.fileId === fileId);
         const pick = this.audioPick;
         if (pick === undefined) {
+            if (explicitOnly) return undefined;
             const index = file?.effectiveAudioTrackIndex;
             return !this.audioAuto && index !== undefined && file?.audio?.[index] !== undefined ? `file:${fileId}:audio:${index}` : undefined;
         }
@@ -283,6 +290,11 @@ export class DetailsState {
             if (!current()) return;
             if (detail.id !== id || detail.type !== "episode") throw new ApiError({ kind: "invalid_response", path: "nextEpisode.item" });
             this.nextEpisode = detail;
+            this.nextEpisodeState?.stop();
+            this.nextEpisodeState = new DetailsState(detail, this.session, key => this.changed(key), this.watchedChanged, this.pendingElsewhere);
+            if (this.previousNextEpisodeState?.detail.id === detail.id) this.nextEpisodeState.restore(this.previousNextEpisodeState);
+            this.previousNextEpisodeState = undefined;
+            this.nextEpisodeState.start("playback");
             this.nextEpisodeLoading = false;
             this.changed();
         }).catch(() => {

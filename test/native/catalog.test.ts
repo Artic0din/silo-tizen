@@ -15,6 +15,11 @@ import {
     type ItemDetail,
 } from "../../src/contracts/v2/catalog.ts";
 import { WireError } from "../../src/contracts/v2/wire.ts";
+
+test("local extras retain authoritative watch targets and numeric file IDs", () => {
+    const detail = decodeItemDetail({ ...fixture("get_catalog_item_ok"), extras: [{ content_id: "extra:1", file_id: 71, kind: "trailer", title: "Trailer", duration_seconds: 90, still_url: "/extra.jpg" }] });
+    assert.deepEqual(detail.extras, [{ contentId: "extra:1", fileId: "71", kind: "trailer", title: "Trailer", durationSeconds: 90, stillUrl: "/extra.jpg" }]);
+});
 import { artworkUrl, clockTime, destinationOf, playChoices, resumeSeconds, visibleLibraries } from "../../src/ui/browseModel.ts";
 import { moveWithin } from "../../src/ui/browseFocus.ts";
 import { fixture } from "./support/fakeSilo.ts";

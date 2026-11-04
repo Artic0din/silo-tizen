@@ -3,6 +3,7 @@ import type { FocusItem, Zone } from "./browseFocus.ts";
 import { actionButton, artwork, lines, mediaItem, type ViewContext, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
 import type { SeriesEpisodes } from "./seriesEpisodes.ts";
+import { episodeLabel } from "./browseModel.ts";
 
 export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext): { content: HTMLElement[]; zones: Zone[] } {
     const seasons = state.seasons.map(season => {
@@ -36,8 +37,9 @@ function episodeCard(episode: Episode, context: ViewContext): FocusItem {
     element.type = "button";
     element.tabIndex = -1;
     element.setAttribute("data-focus", episode.id);
-    element.append(artwork("browse-art browse-still", episode.stillUrl, context.baseUrl, episode.title), el("span", "browse-card-title", `${episode.episodeNumber}. ${episode.title}`));
-    element.appendChild(el("span", "browse-card-subtitle", [episode.runtimeMinutes > 0 ? `${episode.runtimeMinutes} min` : undefined, episode.played ? "Watched" : undefined].filter(Boolean).join(" · ")));
+    element.append(artwork("browse-art browse-still", episode.stillUrl, context.baseUrl, episode.title), el("span", "browse-card-title", `${episodeLabel(episode.seasonNumber, episode.episodeNumber)} · ${episode.title}`));
+    element.appendChild(el("span", "browse-card-subtitle", episode.runtimeMinutes > 0 ? `${episode.runtimeMinutes >= 60 ? `${Math.floor(episode.runtimeMinutes / 60)}h ` : ""}${episode.runtimeMinutes % 60}m` : ""));
+    if (episode.played) { const badge = el("span", "browse-watched", "✓"); badge.setAttribute("aria-label", "Watched"); element.appendChild(badge); }
     element.addEventListener("click", () => context.playEpisode === undefined ? context.open({ kind: "item", id: episode.id, title: episode.title }) : context.playEpisode(episode.id, episode.title));
     return mediaItem({ key: episode.id, element }, { id: episode.id, title: episode.title, type: "episode" }, context);
 }

@@ -293,6 +293,7 @@ export interface WatchState {
 }
 
 export interface ItemDetail {
+    readonly extras?: readonly LocalExtra[];
     readonly played: boolean | undefined;
     readonly extra?: DetailExtras;
     readonly id: string;
@@ -317,6 +318,25 @@ export interface ItemDetail {
     readonly watch: WatchState | undefined;
 }
 
+export interface LocalExtra {
+    readonly contentId: string;
+    readonly fileId: string | undefined;
+    readonly kind: string;
+    readonly title: string | undefined;
+    readonly durationSeconds: number | undefined;
+    readonly stillUrl: string | undefined;
+}
+
+function decodeExtras(obj: WireObject): LocalExtra[] {
+    if (obj.extras === undefined) return [];
+    return array(obj, "extras", "item_detail").map((entry, index) => {
+        const path = `item_detail.extras[${index}]`, extra = object(entry, path);
+        const fileId = optionalInteger(extra, "file_id", path);
+        if (fileId !== undefined && (!Number.isSafeInteger(fileId) || fileId <= 0)) throw new WireError(`${path}.file_id`, "a positive safe integer");
+        return { contentId: nonEmptyString(extra, "content_id", path), fileId: fileId === undefined ? undefined : String(fileId), kind: string(extra, "kind", path), title: optionalString(extra, "title", path), durationSeconds: optionalInteger(extra, "duration_seconds", path), stillUrl: optionalString(extra, "still_url", path) };
+    });
+}
+
 function decodeWatch(value: unknown, path: string): WatchState | undefined {
     if (value === undefined) {
         return undefined;
@@ -336,6 +356,7 @@ export function decodeItemDetail(value: unknown): ItemDetail {
     return {
         played: obj.user_state === undefined ? watch?.played : boolean(object(obj.user_state, `${path}.user_state`), "played", `${path}.user_state`),
         extra: decodeDetailExtras(value),
+        extras: decodeExtras(obj),
         id: string(obj, "content_id", path),
         type: oneOf(string(obj, "type", path), CARD_TYPES),
         title: string(obj, "title", path),

@@ -106,3 +106,39 @@ detailTest("series Details selects season chips explicitly and restores its inli
     assert.equal(await tv.page.locator('[data-focus="season:2"]').getAttribute("aria-pressed"), "true");
     assert.equal(episodeReads(), before + 1, "ordinary Back reuses the loaded season");
 });
+
+detailTest("series shares the full detail hero and next-episode track selectors", async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="audio"]').waitFor({ timeout: 3000 });
+    assert.equal(await tv.page.locator('.details-hero .skyline-hero-backdrop').count(), 1);
+    const hero = await tv.page.locator('.details-hero').boundingBox();
+    assert.equal(hero?.height, 690);
+    assert.equal(await tv.page.locator('.details-playback-summary [data-track-summary]').count(), 3);
+    await tv.page.locator('[data-focus="subtitles"]').click();
+    await tv.page.locator('[data-focus="subtitle:off"]').click();
+    assert.equal(await tv.focused(), "subtitles");
+    await tv.page.getByText("Off", { exact: true }).waitFor();
+    await tv.page.locator('[data-focus="next-episode"]').focus();
+    await tv.remote(40);
+    assert.match(await tv.focused() ?? "", /^season:/);
+    await tv.remote(40);
+    assert.match(await tv.focused() ?? "", /^episode:/);
+});
+
+for (const media of ["movie:m0001", "series:s1"]) detailTest(`a wrapped ${media} title keeps every action inside its hero`, async tv => {
+    const catalog = tv.fake.catalog;
+    assert.ok(catalog instanceof FakeDetails);
+    const reply = catalog.route("GET", `/catalog/items/${encodeURIComponent(media)}`, "p-owner");
+    assert.ok(reply?.body && typeof reply.body === "object");
+    const body = reply.body;
+    await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(media)}?**`, async route => {
+        await route.fulfill({ json: { ...body, title: "A Very Long Movie Title That Wraps Across Multiple Lines: The Complete Extended Story", logo_url: undefined, overview: "A long synopsis with enough words to wrap across three lines. ".repeat(8) } });
+    });
+    await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
+    await tv.page.locator('[data-focus="more"]').waitFor();
+    const bounds = await tv.page.locator('.details-hero').evaluate(hero => {
+        const actions = hero.querySelector('.browse-actions');
+        return { bottom: hero.getBoundingClientRect().bottom, actionBottom: actions?.getBoundingClientRect().bottom };
+    });
+    assert.ok(bounds.actionBottom !== undefined && bounds.actionBottom <= bounds.bottom, JSON.stringify(bounds));
+});

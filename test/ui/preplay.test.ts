@@ -64,6 +64,66 @@ preplay("stored nonzero progress + Play from start sends numeric zero", async (t
 const WATCH = "/watch/movie%3Am0001?file_id=42";
 const starts = (tv: Tv) => tv.fake.requests.filter(r => r.path === "/playback/start");
 
+for (const destination of ["series", "season"]) preplay(`${destination} Resume retains cached progress when its fresh lookup is unavailable`, async (tv, catalog, playback) => {
+    catalog.fileIds.set("episode:s1e11", "42");
+    catalog.progress.set("episode:s1e11", 630);
+    playback.items.set("episode:s1e11", ["42"]);
+    await series(tv);
+    if (destination === "season") {
+        await tv.page.locator('[data-focus="more"]').click();
+        await tv.page.locator('[data-focus="season-info"]').click();
+    }
+    await tv.page.getByRole("button", { name: "Resume S1:E1", exact: true }).waitFor();
+    const path = "/watch/episode%3As1e11?file_id=42";
+    const before = tv.fake.requests.filter(request => request.path === path).length;
+    tv.fake.script(path, { status: 503 });
+    await tv.page.locator('[data-focus="next-episode"]').click();
+    await prepare(tv);
+    assert.ok(tv.fake.requests.filter(request => request.path === path).length > before);
+    assert.equal(starts(tv)[0]?.body?.start_position, 630);
+});
+
+preplay("series Play refreshes progress saved after an initially unplayed episode loaded", async (tv, catalog, playback) => {
+    catalog.fileIds.set("episode:s1e11", "42");
+    catalog.progress.set("episode:s1e11", 0);
+    playback.items.set("episode:s1e11", ["42"]);
+    await series(tv);
+    await tv.page.locator('[data-focus="next-episode"]').waitFor();
+    catalog.progress.set("episode:s1e11", 630);
+    await tv.page.locator('[data-focus="next-episode"]').click();
+    await prepare(tv);
+    assert.equal(starts(tv)[0]?.body?.start_position, 630);
+});
+
+for (const destination of ["series", "season"]) preplay(`${destination} keeps an explicit next-episode version through playback return`, async (tv, catalog, playback) => {
+    catalog.fileIds.set("episode:s1e11", "42");
+    playback.items.set("episode:s1e11", ["42"]);
+    await series(tv);
+    if (destination === "season") {
+        await tv.page.locator('[data-focus="more"]').click();
+        await tv.page.locator('[data-focus="season-info"]').click();
+    }
+    await tv.page.locator('[data-focus="version"]').click();
+    await tv.page.locator('[data-focus="version:42"]').click();
+    await tv.page.locator('[data-focus="next-episode"]').click();
+    await prepare(tv);
+    await tv.remote(10009);
+    await tv.page.locator('[data-focus="version"]').click();
+    assert.equal(await tv.page.locator('[data-focus="version:42"]').getAttribute("aria-checked"), "true");
+});
+
+preplay("local extras start from zero through the player and restore their card on Back", async (tv, _catalog, playback) => {
+    playback.items.set("extra:1", ["42"]);
+    await tv.page.locator('[data-focus="extra:extra:1"]').click();
+    await prepare(tv);
+    assert.ok(tv.fake.requests.some(request => request.path.includes("extra%3A1")), "player resolves the extra watch target");
+    assert.equal(starts(tv)[0]?.body?.file_id, "42");
+    assert.equal(starts(tv)[0]?.body?.start_position, 0);
+    await tv.remote(10009);
+    await tv.page.locator('.details-extras').waitFor();
+    assert.equal(await tv.focused(), "extra:extra:1");
+}, true, false, catalog => { catalog.extras = [{ content_id: "extra:1", file_id: 42, kind: "trailer", title: "Trailer", duration_seconds: 90 }]; });
+
 async function savedAudio(tv: Tv): Promise<void> {
     await tv.page.getByText("Saving audio preference…", { exact: true }).waitFor({ state: "hidden" });
     assert.equal(await tv.page.locator('[data-focus="retry-audio-preference"]').count(), 0);

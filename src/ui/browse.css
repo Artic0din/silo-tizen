@@ -58,8 +58,10 @@
 /* Pushed Details pages: editorial hero and remote-reachable rails, no root chrome. */
 .details-hero {
     position: relative;
-    min-height: 600px;
-    margin-bottom: 28px;
+    height: 690px;
+    margin: -56px -88px 0;
+    isolation: isolate;
+    overflow: clip;
 }
 .details-backdrop {
     position: absolute;
@@ -79,20 +81,41 @@
     left: 0;
     background: linear-gradient(90deg, #000 0%, rgba(0,0,0,.7) 36%, rgba(0,0,0,.15) 100%), linear-gradient(0deg, #000 0%, transparent 60%);
 }
-.details-editorial { position: relative; padding-top: 48px; width: 1000px; }
-.details-editorial .browse-title { max-width: 950px; font-size: 76px; margin-bottom: 28px; }
+.details-hero .skyline-hero-backdrop { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.details-hero .skyline-tint-wash { position: fixed; inset: 0; z-index: -1; }
+.details-hero .skyline-art-frame { position: absolute; top: 0; right: 0; width: 64%; height: 756px; mask-image: linear-gradient(to bottom, #000 0%, #000 38%, rgba(0,0,0,.88) 52%, rgba(0,0,0,.58) 68%, rgba(0,0,0,.24) 81%, transparent 90%); }
+.details-hero .skyline-backdrop { width: 100%; height: 100%; object-fit: cover; mask-image: linear-gradient(to left, #000 0%, #000 32%, transparent 100%); }
+.details-editorial { position: relative; padding-top: 116px; margin-left: 100px; width: 1080px; }
+.details-editorial .browse-title { max-width: 1080px; margin-bottom: 14px; }
+.details-editorial .browse-meta { font-size: 24px; line-height: 36px; margin: 0 0 14px; }
 .details-logo { display: block; max-width: 860px; max-height: 180px; object-fit: contain; object-position: left center; }
-.details-editorial .browse-overview { max-width: 880px; font-size: 26px; line-height: 30px; max-height: 90px; margin-bottom: 20px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.details-editorial .browse-overview { max-width: 1080px; font-size: 26px; line-height: 36px; max-height: 108px; margin-bottom: 14px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .details-editorial .browse-actions { margin-bottom: 0; }
 .details-editorial .browse-button { padding: 18px 28px; margin-right: 16px; }
 .details-director, .details-playback-summary { margin: 0 0 20px; color: var(--silo-secondary); font-size: 20px; line-height: 26px; }
+.details-playback-summary { display: flex; gap: 8px; width: 1031px; height: 44px; margin-bottom: 18px; }
+.details-playback-summary > div { display: flex; align-items: baseline; gap: 6px; overflow: hidden; font-size: 23px; }
+.details-playback-summary > div:nth-child(1) { width: 313px; }
+.details-playback-summary > div:nth-child(2) { width: 364px; }
+.details-playback-summary > div:nth-child(3) { width: 338px; }
+.details-playback-summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.details-playback-summary strong { font-size: 23px; }
+.details-hero[data-media-type="series"] .details-editorial .browse-overview { height: 112px; max-height: 112px; }
+.details-hero[data-media-type="series"] { min-height: 690px; height: auto; }
+.details-hero[data-media-type="series"] .details-editorial { display: flex; flex-direction: column; min-height: 690px; box-sizing: border-box; padding-bottom: 57px; }
+.details-hero[data-media-type="series"] .details-editorial .browse-actions { margin-top: auto; }
+.details-hero:not([data-media-type="series"]) { min-height: 690px; height: auto; }
+.details-hero:not([data-media-type="series"]) .details-editorial { padding-bottom: 44px; }
+.details-director { font-size: 23px; line-height: 28px; margin-bottom: 14px; }
 .details-editorial .browse-actions { display: flex; align-items: center; gap: 18px; }
 .details-editorial .details-action { display: inline-flex; align-items: center; justify-content: center; gap: 18px; flex-shrink: 0; height: 76px; margin: 0; border-radius: 38px; }
 .details-action svg { width: 32px; height: 32px; flex-shrink: 0; }
-.details-editorial .details-play { min-width: 300px; font-size: 28px; }
+.details-editorial .details-play { min-width: 340px; font-size: 29px; }
 .details-editorial .details-circle { width: 76px; padding: 0; }
 .details-circle .details-action-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .details-versions { margin-bottom: 28px; padding-bottom: 12px; }
+.details-extras .details-extra { width: 470px; margin-right: 48px; }
+.details-extras .browse-still { width: 470px; height: 264px; border-radius: 18px; }
 .details-versions .browse-button[aria-pressed="true"] { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.4); }
 .details-versions .browse-button:focus { background: #fff; color: #000; }
 .browse-row .browse-card.details-person { width: 200px; margin-right: 60px; border: 0; border-radius: 0; }

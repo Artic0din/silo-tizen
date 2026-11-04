@@ -485,8 +485,8 @@ browseTest("Details portraits keep their circular geometry and combine one perso
     await tv.jump(240);
     assert.deepEqual(await tv.page.locator(".details-photo").first().evaluate((node) => ({ width: node.clientWidth, height: node.clientHeight })), { width: 200, height: 200 });
     assert.equal(await tv.page.locator(".details-hero").evaluate((node) => {
-        const art = node.querySelector(".details-backdrop");
-        return art !== null && art.getBoundingClientRect().bottom <= node.getBoundingClientRect().bottom;
+        const art = node.querySelector(".skyline-art-frame");
+        return art !== null && getComputedStyle(node).overflow === "clip";
     }), true, "hero artwork cannot paint over later rails");
     assert.equal(await tv.page.locator('[data-focus="person:7"]').count(), 1);
     await shows(tv, "Alex · Director");

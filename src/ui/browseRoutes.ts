@@ -21,6 +21,7 @@ import { personalView, type PersonalFilter, type PersonalSource, type PersonalLi
 import type { MediaScope } from "../contracts/v2/discovery.ts";
 import { personFilmographyView } from "./personFilmography.ts";
 import type { RecommendationLocator, RecommendationRow } from "../contracts/v2/recommendations.ts";
+import { globalSearchView, type SearchSupplement } from "./globalSearch.ts";
 import { recommendationsView } from "./recommendationsView.ts";
 
 /** Cards per catalog page: four grid rows. Only the shown page is kept. */
@@ -46,7 +47,7 @@ export type RouteData =
     | { readonly kind: "library"; readonly library: UserLibrary; pages: Pages; discovery?: DiscoveryState }
     | { readonly kind: "libraryResults"; readonly library: UserLibrary; readonly title: string; readonly source: LibrarySource; pages: Pages; descending: boolean }
     /** `resultsFor`: the query the shown page answers, which typing can move ahead of. */
-    | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope }
+    | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope; filter?: "movie" | "series" | undefined; peopleSupported?: boolean; supplement?: SearchSupplement }
     | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState } | undefined }
     | { readonly kind: "person"; readonly id: string; readonly title: string; data: { person: Person; titles: CatalogPage } | undefined }
     | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string; readonly episodeId?: string; data: { episodes: Episode[]; detail: ItemDetail | undefined; details?: DetailsState } | undefined };
@@ -111,6 +112,8 @@ export interface RouteHandlers {
     /** The search heading, label and field, kept across renders. */
     readonly searchHead: readonly HTMLElement[];
     readonly input: HTMLInputElement;
+    readonly searchFilter: (route: Extract<Route, { kind: "search" }>, filter: "movie" | "series" | undefined) => void;
+    readonly retryPeople: (route: Extract<Route, { kind: "search" }>) => void;
     readonly push: (route: Route) => void;
     readonly pop: () => void;
     readonly play: (request: PlayRequest) => void;
@@ -137,7 +140,7 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
         return discoveryView(current, current.discovery, handlers);
     }
     if (current.kind === "search") {
-        return searchView(handlers.searchHead, handlers.input, searchResults(current, handlers), pop);
+        return globalSearchView(searchView(handlers.searchHead, handlers.input, searchResults(current, handlers), pop), current, handlers);
     }
     if (current.failure !== undefined && !hasData(current)) {
         return statusView(`${current.kind}:failed`, "Something went wrong", [current.failure], [actionButton("retry", "Try again", () => handlers.retry(current)), escape], back, "error");

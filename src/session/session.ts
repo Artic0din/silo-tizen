@@ -322,7 +322,7 @@ export class NativeSession {
         this.resetAccount();
         this.bump("signed_out");
         // Drain earlier vault writes before the replacement owner saves its credentials.
-        await this.vault.load();
+        await this.vault.drain();
     }
 
     /** Used by Profiles; switching aborts the old profile's requests and notifies listeners. */

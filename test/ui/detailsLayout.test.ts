@@ -177,22 +177,32 @@ detailTest('Season primary playback refreshes a shared Auto change from another 
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.at(-1)?.subtitle?.kind), 'auto');
 });
 
-detailTest('Long Movie titles keep every playback action inside a revealable hero', async tv => {
+for (const [kind, id] of [['Movie', 'movie:m0001'], ['Episode', 'episode:s1e11'], ['Season', 'series:s1-S1']] as const) detailTest(`Long ${kind} titles keep every playback action inside a revealable hero`, async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
-    const body = catalog.route('GET', '/catalog/items/movie%3Am0001', 'p-owner')?.body as Record<string, unknown>;
-    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001?**', route => route.fulfill({ json: { ...body,
+    const body = catalog.route('GET', `/catalog/items/${encodeURIComponent(id)}`, 'p-owner')?.body as Record<string, unknown>;
+    await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(id)}?**`, route => route.fulfill({ json: { ...body,
         title: `${'A Very Long Movie Title That Wraps Across Multiple Lines '.repeat(4)}: ${'The Complete Extended Story '.repeat(4)}`, logo_url: undefined,
         overview: 'A long synopsis with enough words to wrap across three lines. '.repeat(8),
     } }));
-    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
-    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    if (kind === 'Movie') await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    else {
+        await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+        if (kind === 'Episode') {
+            await tv.page.locator('[data-focus="episode:s1e11"]').click({ button: 'right' });
+            await tv.page.locator('[data-focus="episode-information"]').click();
+        } else {
+            await tv.page.locator('[data-focus="more"]').click();
+            await tv.page.locator('[data-focus="season-info"]').click();
+        }
+    }
+    await tv.page.locator(`.details-hero[data-media-type="${kind.toLowerCase()}"]`).waitFor();
     await tv.page.evaluate(() => document.fonts.ready);
     const geometry = await tv.page.locator('.details-hero').evaluate(node => {
         const hero = node.getBoundingClientRect(), actions = node.querySelector('.browse-actions')!.getBoundingClientRect();
         return { heroBottom: hero.bottom, actionBottom: actions.bottom };
     });
     assert.ok(geometry.actionBottom <= geometry.heroBottom, JSON.stringify(geometry));
-    for (const key of ['play', 'audio', 'subtitles', 'more']) {
+    for (const key of [kind === 'Season' ? 'next-episode' : 'play', 'audio', 'subtitles', 'more']) {
         await tv.page.locator(`[data-focus="${key}"]`).focus();
         await tv.eventually(async () => tv.page.locator(`[data-focus="${key}"]`).evaluate(node => {
             const rect = node.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= 1080;

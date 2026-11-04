@@ -78,7 +78,7 @@
 .details-hero[data-media-type="series"] .details-editorial .browse-overview { height: 112px; max-height: 112px; }
 .details-series-editorial { position: relative; height: 435px; overflow: hidden; }
 .details-hero[data-media-type="series"] { overflow: visible; }
-.details-hero[data-media-type="movie"] { height: auto; min-height: 690px; }
+.details-hero:not([data-media-type="series"]) { height: auto; min-height: 690px; }
 .details-series-primary { height: 351px; overflow: hidden; }
 .details-series-disclosure { position: absolute; bottom: 0; left: 0; width: 1080px; height: 80px; }
 .details-series-disclosure .details-director { height: 28px; margin: 0 0 8px; overflow: hidden; white-space: nowrap; }

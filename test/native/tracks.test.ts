@@ -1154,6 +1154,10 @@ const RENDITIONS = [
 ] as const;
 
 function frenchInventory(r: Rig): void {
+    r.avplay.tracks = [
+        { index: 2, type: "TEXT", extra_info: JSON.stringify({ track_lang: "eng", track_num: "0" }) },
+        { index: 3, type: "TEXT", extra_info: JSON.stringify({ track_lang: "fra", track_num: "1" }) },
+    ];
     const file = r.server.file("42");
     const embedded = file.inventory[1];
     assert.ok(embedded !== undefined);
@@ -1330,6 +1334,20 @@ test("ambiguous original embedded subtitles replan with native selection disable
     r.controller.destroy();
 });
 
+test("an HLS subtitle alignment failure is explicit instead of claiming a selected track", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.avplay.tracks = [];
+    r.server.next.push(renditionPlan(1, "English Signs", 1));
+    r.controller.play({ ...MOVIE, startSeconds: 0 });
+    await settle(r);
+    r.avplay.finishPrepare();
+    await settle(r);
+    assert.equal(last(r.views).phase, "error");
+    assert.equal(replans(r.h).length, 0);
+    r.controller.destroy();
+});
+
 for (const refusal of ["terminal", "validation"] as const) {
     test(`an ambiguous native subtitle fallback ends loading on ${refusal} refusal`, async () => {
         const r = await rig();
@@ -1381,6 +1399,7 @@ test("a queued rendition that could not be applied reopens the confirmed stream"
     held.release();
     await settle(r);
     assert.equal(r.avplay.urls.length, 2);
+    r.avplay.tracks = [{ index: 3, type: "TEXT", extra_info: JSON.stringify({ track_lang: "fra" }) }];
     await playReplacement(r);
     assert.equal(replans(r.h).length, 2);
     r.controller.destroy();

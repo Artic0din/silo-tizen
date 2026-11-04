@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Reported an HLS subtitle alignment failure instead of showing a track that the native player could not select.
 - Allowed pause during subtitle reports, queued choices needing a new stream, and replanned subtitle tracks that the native stream could not identify.
 - Cleared sidecar captions when selecting embedded subtitles and restored the last confirmed subtitle after a queued choice was refused.
 - Resumed committed scrubs after a server reanchor, kept Skip reachable with the remote, and let navigation cross Audio while its choices loaded.

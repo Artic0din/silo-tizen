@@ -1176,28 +1176,120 @@ function logoSvg(width: number, height: number): string {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#fff"/></svg>`;
 }
 
-journey("Home hero title art is pinned to the top of Apple's fixed logo slot", async tv => {
+/** Painted logo inside the slot. `object-fit: contain` and `object-position: left center`. */
+async function paintedLogo(tv: Tv): Promise<{ slotTop: number; slotLeft: number; slotWidth: number; slotHeight: number; paintTop: number; paintLeft: number; paintWidth: number; paintHeight: number; fit: string }> {
+    const image = tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) img.skyline-logo");
+    await image.waitFor();
+    return image.evaluate(node => {
+        const art = node as HTMLImageElement;
+        const box = art.getBoundingClientRect();
+        const slot = art.parentElement?.getBoundingClientRect();
+        if (slot === undefined) throw new Error("missing logo slot");
+        const scale = Math.min(box.width / art.naturalWidth, box.height / art.naturalHeight);
+        const paintWidth = art.naturalWidth * scale;
+        const paintHeight = art.naturalHeight * scale;
+        const position = getComputedStyle(art).objectPosition.trim().split(/\s+/);
+        const horizontal = position[0] === "left" || position[0] === "0%" ? 0 : position[0] === "center" || position[0] === "50%" ? 0.5 : position[0] === "right" || position[0] === "100%" ? 1 : Number.NaN;
+        const vertical = position[1] === "top" || position[1] === "0%" ? 0 : position[1] === "center" || position[1] === "50%" ? 0.5 : position[1] === "bottom" || position[1] === "100%" ? 1 : Number.NaN;
+        return {
+            slotTop: slot.top, slotLeft: slot.left, slotWidth: slot.width, slotHeight: slot.height,
+            paintLeft: box.left + horizontal * (box.width - paintWidth),
+            paintTop: box.top + vertical * (box.height - paintHeight),
+            paintWidth, paintHeight, fit: getComputedStyle(art).objectFit,
+        };
+    });
+}
+
+function near(actual: number, expected: number, label: string): void {
+    assert.ok(Math.abs(actual - expected) < 0.5, `${label}: ${actual} vs ${expected}`);
+}
+
+journey("Down from the top bar lands on the leftmost card", async tv => {
+    const posters = () => rowBoxes(tv, "recent-movies");
+    const first = (await posters())[0];
+    assert.ok(first !== undefined);
+    assert.equal(await tv.focused(), first.id);
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("ArrowRight");
+    const remembered = await tv.focused();
+    assert.notEqual(remembered, first.id);
+    await tv.page.keyboard.press("ArrowUp");
+    assert.equal(await tv.focused(), "home");
+    await tv.page.keyboard.press("ArrowDown");
+    assert.equal(await tv.focused(), first.id, "Down from the bar ignores the card remembered in the row");
+    await tv.page.keyboard.press("ArrowDown");
+    const next = await rowBoxes(tv, "because-movies");
+    assert.equal(await tv.focused(), nearestBox(next, first.left + first.width / 2).id, "the next Down keeps that card's column");
+    await tv.page.keyboard.press("ArrowUp");
+    await tv.page.keyboard.press("ArrowRight");
+    const opened = await tv.focused();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator(`[data-view="item:${opened}"]`).waitFor();
+    await tv.remote(10009);
+    assert.equal(await tv.focused(), opened, "Back from a pushed page restores the card");
+}, catalog => {
+    const home = catalog.households.get("p-owner");
+    assert.ok(home !== undefined);
+    home.sections = [
+        { id: "recent-movies", sectionType: "recently_added", title: "Recently Added", items: ["movie:m0008", "movie:m0009", "movie:m0010", "movie:m0011"] },
+        { id: "because-movies", sectionType: "because_you_watched", title: "Because you watched", items: ["movie:m0012", "movie:m0013", "movie:m0014", "movie:m0015"] },
+    ];
+});
+
+journey("Hero title art scales to fit and centres in Apple's home logo slot", async tv => {
     await tv.page.route("**/art/full-logo.svg*", route => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg(880, 200) }));
     await tv.page.route("**/art/wide-logo.svg*", route => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg(880, 130) }));
-    const place = async (id: string): Promise<{ slotTop: number; slotHeight: number; imageTop: number; imageHeight: number }> => {
-        await tv.page.locator(`[data-section="${id === "movie:m0004" ? "hero/opaque" : "because/opaque"}"] [data-focus="${id}"]`).focus();
+    await tv.page.route("**/art/small-logo.svg*", route => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg(296, 124) }));
+    const show = async (selector: string): Promise<void> => {
+        await tv.page.locator(selector).focus();
         await tv.jump(300);
-        const image = tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) img.skyline-logo");
-        await image.waitFor();
-        return image.evaluate(node => {
-            const art = node.getBoundingClientRect();
-            const slot = node.parentElement?.getBoundingClientRect();
-            if (slot === undefined) throw new Error("missing logo slot");
-            return { slotTop: slot.top, slotHeight: slot.height, imageTop: art.top, imageHeight: art.height };
-        });
     };
-    const full = await place("movie:m0004");
-    const wide = await place("movie:m0005");
+    await show('[data-section="hero/opaque"] [data-focus="movie:m0004"]');
+    const full = await paintedLogo(tv);
+    await show('[data-section="because/opaque"] [data-focus="movie:m0005"]');
+    const wide = await paintedLogo(tv);
+    await show('[data-section="for/you"] [data-focus="movie:m0007"]');
+    const small = await paintedLogo(tv);
+    const homeMarquee = await tv.page.locator(".browse > .skyline-marquee").evaluate(node => {
+        const rect = node.getBoundingClientRect();
+        return [rect.x, rect.y, rect.width, rect.height];
+    });
     assert.equal(full.slotHeight, 200, "Apple SiloTheme.Skyline.marqueeLogoMaxHeightHome");
     assert.equal(wide.slotHeight, 200);
-    assert.ok(wide.imageHeight < 200, "wide art does not fill the slot");
-    assert.equal(wide.imageTop, full.imageTop, "short art keeps the full-height art's top; the old slot collapsed and dropped it");
-    assert.equal(wide.imageTop, wide.slotTop, "the art is pinned to the top of the slot");
+    assert.equal(full.slotWidth, 880, "Apple SiloTheme.Skyline.marqueeLogoMaxWidth");
+    assert.equal(wide.fit, "contain", "Apple titleSlot uses aspectRatio contentMode fit");
+    // Replaced assertions that encoded the old pin: wide.imageHeight < 200, wide.imageTop === full.imageTop,
+    // and wide.imageTop === wide.slotTop. Those measured the image element pinned to the top of the slot.
+    near(wide.paintHeight, 130, "wide art keeps its aspect inside the slot");
+    near(wide.paintTop, wide.slotTop + (200 - 130) / 2, "short art is vertically centred in the 200px slot");
+    near(wide.paintLeft, wide.slotLeft, "fitted art stays on the leading edge");
+    near(wide.slotTop, full.slotTop, "the slot stays full height, so short art does not drop the block");
+    near(small.paintHeight, 200, "small art scales up to the home slot height");
+    near(small.paintWidth, 296 * 200 / 124, "small art scales up with its aspect");
+    near(small.paintLeft, small.slotLeft, "upscaled art stays on the leading edge");
+    assert.deepEqual(homeMarquee, [88, 256, 880, 280]);
+
+    await tv.page.locator('[data-focus="movies"]').click();
+    await tv.page.locator('[data-view="library:12"] .browse-card').first().focus();
+    await tv.jump(300);
+    const library = await paintedLogo(tv);
+    const libraryMarquee = await tv.page.locator(".browse > .skyline-marquee").evaluate(node => {
+        const rect = node.getBoundingClientRect();
+        return [rect.x, rect.y, rect.width, rect.height];
+    });
+    assert.equal(await tv.page.locator(".browse").evaluate(node => node.classList.contains("skyline-home")), true, "library Recommended uses the shared home scene");
+    assert.equal(library.slotHeight, 200, "library Recommended uses the home logo slot, not the unused 150px library scale");
+    near(library.paintTop, library.slotTop + (200 - 130) / 2, "library art is centred in the same slot");
+    assert.deepEqual(libraryMarquee, homeMarquee, "TVSkylineSectionFeed uses the home marquee on library Recommended");
+
+    await tv.page.locator('[data-focus="for_you"]').click();
+    await tv.page.locator('[data-view="for_you"] .browse-card').first().focus();
+    await tv.jump(300);
+    const forYou = await paintedLogo(tv);
+    assert.equal(forYou.slotHeight, 200, "For You uses the home logo slot");
+    near(forYou.paintHeight, 200, "For You scales small art up to the slot");
+    near(forYou.paintWidth, 296 * 200 / 124, "For You keeps the small art's aspect");
+
     await tv.page.keyboard.press("Enter");
     await tv.page.locator(".details-logo").waitFor();
     const details = await tv.page.locator(".details-logo").evaluate(node => {
@@ -1208,6 +1300,21 @@ journey("Home hero title art is pinned to the top of Apple's fixed logo slot", a
     assert.equal(details.art, details.slot, "Details title art stays at the top of its heading");
     assert.ok(details.height < 180);
 }, catalog => {
-    enrichHome(catalog, { "movie:m0004": { logo_url: "/art/full-logo.svg" }, "movie:m0005": { logo_url: "/art/wide-logo.svg" } });
-    enrichDetails(catalog, { "movie:m0005": { logo_url: "/art/wide-logo.svg" } });
+    enrichHome(catalog, {
+        "movie:m0004": { logo_url: "/art/full-logo.svg" },
+        "movie:m0005": { logo_url: "/art/wide-logo.svg" },
+        "movie:m0007": { logo_url: "/art/small-logo.svg" },
+    });
+    enrichDetails(catalog, { "movie:m0001": { logo_url: "/art/wide-logo.svg" } });
+    const route = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const pathname = new URL(path, "https://fake.invalid").pathname;
+        if (pathname === "/recommendations/discover") {
+            return { status: 200, body: { items: [{ type: "popular", title: "For You", kind: "popular", items: [{ content_id: "movie:m0001", type: "movie", title: "Movie 0001", logo_url: "/art/small-logo.svg" }] }] } };
+        }
+        const reply = route(method, path, profile, body);
+        if (reply?.status !== 200 || !/^\/library\/[^/]+\/sections$/.test(pathname)) return reply;
+        const data = reply.body as { sections: { items: Record<string, unknown>[] }[] };
+        return { ...reply, body: { ...data, sections: data.sections.map((row, rowIndex) => rowIndex > 0 ? row : { ...row, items: row.items.map((item, index) => index === 0 ? { ...item, logo_url: "/art/wide-logo.svg" } : item) }) } };
+    };
 });

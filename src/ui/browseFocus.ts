@@ -1,8 +1,9 @@
 // Remote focus for the browse screens. A view is a stack of zones, top to bottom: a row of
 // cards, a grid of cards, a column of episodes or a row of buttons. Each zone has one focused
-// item at a time; arrows move inside the zone and, past its top or bottom edge, into the zone
-// above or below, landing on the item last focused there. Focus is restored by zone id and item
-// key, never by position, and a key press always brings lost focus back.
+// item at a time. Arrows move inside the zone and, past its edge, into the next. Up and Down
+// between content rows keep the column. Down from the top bar lands on the leftmost card.
+// Focus is restored by zone id and item key, never by position, and a key press always
+// brings lost focus back.
 // The sign-in ScreenHost moves through one list; grids and stacked rows need two dimensions.
 
 import { remoteKey } from "./keys.ts";
@@ -382,7 +383,10 @@ export class FocusHost {
         for (let next = zoneIndex + step; next >= 0 && next < zones.length; next += step) {
             const zone = zones[next];
             if (zone !== undefined && zone.items.length > 0) {
-                const remembered = this.memory.get(zone.id);
+                // Apple raises the first row's default-focus priority while the
+                // top menu is focused (TVSkylineSectionFeed), so Down from the
+                // bar ignores the card remembered in that row.
+                const remembered = zones[zoneIndex]?.id === "nav" ? undefined : this.memory.get(zone.id);
                 const columns = Math.max(1, zone.columns ?? 1);
                 const edge = step === 1 ? 0 : Math.floor((zone.items.length - 1) / columns) * columns;
                 const candidates = zone.layout === "grid" ? zone.items.slice(edge, edge + columns) : zone.items;

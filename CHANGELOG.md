@@ -6,7 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Kept the column when moving down between Home rows, and pinned wide hero title art to the top of Apple's logo slot.
+- Kept the column when moving down between Home rows, and fitted hero title art in Apple's 200px logo slot.
+- Down from the top bar lands on the leftmost card instead of the card remembered in the row.
 - Restored each page's hero after returning from the profile menu and painted the avatar's white focus ring above its image.
 - Renamed the profile menu's Switch Server row to Change Account, after Settings and before Sign Out.
 

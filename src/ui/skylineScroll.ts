@@ -57,13 +57,22 @@ export class SkylineScroll {
             return;
         }
         const margins = getComputedStyle(element);
-        const topRect = container.dataset.view === "search" && element.closest(".browse-grid") !== null
-            ? element.querySelector(".browse-art")?.getBoundingClientRect() ?? rect : rect;
+        let posterTop = rect.top;
+        if (container.dataset.view === "search" && element.closest(".browse-grid") !== null) {
+            const art = element.querySelector<HTMLElement>(".browse-art");
+            if (art !== null) {
+                const artRect = art.getBoundingClientRect();
+                const style = getComputedStyle(art);
+                // Reveal the final focused bounds, independent of the current lift animation frame.
+                const focusedHeight = parseFloat(style.height) * parseFloat(style.getPropertyValue("--card-focus-scale"));
+                posterTop = artRect.top + (artRect.height - focusedHeight) / 2;
+            }
+        }
         const topEdge = bounds.top + Math.max(12, parseFloat(margins.scrollMarginTop));
         const bottomEdge = bounds.bottom - (container.dataset.view === "search"
             ? Math.max(32, parseFloat(getComputedStyle(viewport).scrollPaddingBottom) || 0)
             : Math.max(32, parseFloat(margins.scrollMarginBottom)));
-        const delta = topRect.top < topEdge ? topRect.top - topEdge : rect.bottom > bottomEdge ? rect.bottom - bottomEdge : 0;
+        const delta = posterTop < topEdge ? posterTop - topEdge : rect.bottom > bottomEdge ? rect.bottom - bottomEdge : 0;
         // Opening selectors scale their rectangles, while scrollTop stays in unscaled CSS pixels.
         const scale = bounds.height / viewport.offsetHeight;
         this.move(viewport, 0, Math.max(0, viewport.scrollTop + delta / scale));

@@ -485,12 +485,14 @@ test("personal destinations page on the server, restore Details focus and reconc
             assert.equal(tv.fake.requests.length, reads);
             await loadThrough(tv, 48);
             const id = await tv.page.locator(".browse .browse-card").last().getAttribute("data-focus");
-            await tv.page.locator(".browse .browse-card").last().click();
+            assert.ok(id);
+            // Prefetch can change the last card between selecting an identity and clicking it.
+            await loadThrough(tv, 60);
+            await tv.page.locator(`.browse .browse-card[data-focus="${id}"]`).click();
             await tv.page.locator('[data-view^="item:"]').waitFor();
             await tv.remote(10009);
             await tv.page.locator('[data-view^="personal:"]').waitFor();
             await tv.eventually(async () => await tv.focused() === id, "unchanged later page identity");
-            assert.ok(id);
             await tv.page.locator(".browse .browse-card").first().click();
             await tv.page.locator('[data-view^="item:movie:"]').waitFor();
             catalog.excluded.add(id);

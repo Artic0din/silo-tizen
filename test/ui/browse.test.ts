@@ -11,7 +11,7 @@ import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakeRequests } from "../native/support/fakeRequests.ts";
 import type { Reply } from "../native/support/fakeSilo.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
-import { CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
+import { CARD_OVERLAYS_KEY, CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
 import { homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
@@ -105,10 +105,53 @@ browseTest("Search spatial People entry chooses the nearest title column", async
     await tv.jump(250);
     await tv.page.waitForTimeout(260);
     const posterTop = await tv.page.locator('[data-focus="movie:m0008"] .browse-art').evaluate(node => node.getBoundingClientRect().top);
-    assert.ok(Math.abs(posterTop - 171) < 1, `Search upward reveal keeps the focused poster at 171px, got ${posterTop}`);
+    // The previous pin was 171px. Apple's poster ring sits 10.6px higher.
+    const searchRevealTop = 160.4;
+    assert.ok(Math.abs(posterTop - searchRevealTop) < 1, `Search upward reveal keeps the focused poster at ${searchRevealTop}px; the previous pin was 171px, got ${posterTop}`);
     assert.equal(await tv.page.locator('.search-navigation-title').evaluate(node => getComputedStyle(node).position), "absolute", "deep directional navigation does not show the navigation title");
     assert.equal(tv.fake.requests.length, reads);
 }, { catalog: new SearchEdgeCatalog() });
+
+browseTest("Search cards show the Returning badge Home and library already draw", async (tv, catalog) => {
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const reply = read(method, path, profile, body);
+        const url = new URL(path, "https://fake.invalid");
+        if (url.pathname !== "/catalog" || reply?.status !== 200 || url.searchParams.get("q") === null) return reply;
+        const response = reply.body as { items?: Record<string, unknown>[] };
+        if (!Array.isArray(response.items)) return reply;
+        return { ...reply, body: { ...response, items: response.items.map(item => item.content_id === "series:s1" ? { ...item, show_status: "returning series" } : item) } };
+    };
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Harbor");
+    await tv.remote(IME_DONE);
+    const card = tv.page.locator('.browse-grid [data-focus="series:s1"]');
+    await card.waitFor();
+    await tv.eventually(async () => await card.locator(".card-overlay").evaluate(node => node.textContent) === "Returning", "Search Returning badge");
+}, { beforeConnect: tv => {
+    const settings = new FakeSettings(tv.fake);
+    settings.overlayConfig = { enabled: true };
+    settings.profile().set(CARD_OVERLAYS_KEY, { version: 2, preset: "classic", order: ["show_status"], items: { show_status: { enabled: true, position: "top-right" } } });
+} });
+
+browseTest("Related shelf omits the watched badge Apple leaves off the similar card", async tv => {
+    await tv.page.route("**/api/v2/recommendations/similar/**", async route => {
+        const items = Array.from({ length: 24 }, (_, index) => ({
+            content_id: `movie:m${String(index + 2).padStart(4, "0")}`,
+            type: "movie",
+            title: index === 0 ? "Mercy" : `Movie ${String(index + 2).padStart(4, "0")}`,
+            poster_url: `/art/movie-${index + 2}.svg`,
+            ...(index === 0 ? { user_state: { played: true } } : {}),
+        }));
+        await route.fulfill({ json: { items } });
+    });
+    await activateDetails(tv);
+    await showing(tv, "item:movie:m0001");
+    const mercy = tv.page.locator('[data-detail-section="related"] [data-focus="movie:m0002"]');
+    await mercy.waitFor();
+    assert.equal(await mercy.locator(".browse-watched").count(), 0, "user_state.played is set, and the related card still has no watched badge");
+    assert.match(await mercy.innerText(), /Mercy/);
+});
 
 for (const coldStart of [false, true]) {
 browseTest(`Search retains the filter column through default People and ragged grid entry${coldStart ? " from the field on a cold visit" : ""}`, async tv => {

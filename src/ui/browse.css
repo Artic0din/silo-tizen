@@ -156,7 +156,8 @@
 .search-scene .search-filters .browse-button:focus { transform: none; color: #000; background: #ededed; }
 .search-scene .search-count { margin: 0 162px 24px; font-size: 22px; line-height: 27px; }
 .search-scene > .browse-grid { width: 1444px; margin: 0 162px; padding: 24px 9px 20px; grid-template-columns: repeat(var(--search-columns, 6), minmax(0, 1fr)); gap: 48px 58px; }
-.search-scene .browse-grid .browse-card { width: calc(220px * var(--poster-scale, 1)); margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; scroll-margin-top: 171px; }
+/* The previous pin was 171px. Apple's poster ring is 10.6px higher, so the focused artwork stops at 160.4px. */
+.search-scene .browse-grid .browse-card { width: calc(220px * var(--poster-scale, 1)); margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; scroll-margin-top: 160.4px; }
 .search-scene .browse-grid .browse-art { width: calc(220px * var(--poster-scale, 1)); height: calc(330px * var(--poster-scale, 1)); border-radius: 16px; }
 .search-scene .browse-grid .browse-card-title { margin: 16px 0 0; padding: 0; font-size: 24px; line-height: 29px; font-weight: 600; }
 .search-scene .browse-grid .browse-card-subtitle { margin: 4px 0 0; padding: 0; font-size: 22px; line-height: 27px; }
@@ -848,6 +849,8 @@
 .browse .browse-card:is(:focus, [aria-current="true"]) .browse-art { outline-color: rgba(255,255,255,.7); }
 /* CSS box-shadow blur is twice the SwiftUI Gaussian radius. */
 .browse .browse-card:focus .browse-art { --card-focus-scale: 1.05; transform: scale(var(--card-focus-scale)); box-shadow: 0 8px 36px rgba(0,0,0,.45); }
+/* Continue Watching adds EpisodeThumbCard's focused shadow on top of the shared lift. */
+.browse .home-section .skyline-continue:focus .browse-art { box-shadow: 0 8px 36px rgba(0,0,0,.45), 0 10px 40px rgba(0,0,0,.5); }
 .browse .browse-card-title, .browse .browse-card-subtitle { transition: color var(--silo-fast) ease-out, transform var(--silo-fast) ease-out, text-shadow var(--silo-fast) ease-out; }
 .browse .browse-card:is(:focus, [aria-current="true"]) .browse-card-title { color: #fff; }
 .browse .browse-card:is(:focus, [aria-current="true"]) .browse-card-subtitle { color: rgba(255,255,255,.92); }

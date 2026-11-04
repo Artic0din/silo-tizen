@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Raised the focused Search poster, darkened the Continue Watching focus shadow, showed the Returning badge on Search cards, and hid the watched tick on Related titles.
 - Matched Apple TV card focus lift, outlines, caption spacing and colours across Search, cast, related titles, Requests and Calendar.
 - Kept Search posters at their intended top clearance after the focus lift finished.
 - Drew Home TV episode rows as landscape stills and top-aligned the focused Home row with Apple TV.

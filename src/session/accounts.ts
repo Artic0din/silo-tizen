@@ -156,25 +156,38 @@ export class AccountVault extends CredentialVault {
             return "saved";
         } catch { return "failed"; }
     }
-    override prepareSignIn(): Promise<VaultClear> {
+    override prepareSignIn(credential?: StoredCredential): Promise<VaultClear> {
         this.chooseOnSave = true;
-        return this.adding ? Promise.resolve("cleared") : this.clear();
+        if (!this.adding) return this.clear();
+        if (!credential) return Promise.resolve("cleared");
+        return this.ordered(async () => {
+            try {
+                const row = this.directory.add(this.address, credential.serverId, credential.accountId, credential.username);
+                this.activeId = row.id;
+                return await this.clearAccount();
+            } catch { return "failed"; }
+        });
     }
     override clear(): Promise<VaultClear> { return this.ordered(() => this.clearAccount()); }
     override signOut(): Promise<VaultClear> {
         return this.ordered(async () => {
-            const cleared = await this.clearAccount();
+            const cleared = await this.clearAccount(true);
             if (cleared !== "failed" && this.activeId) {
                 try { this.directory.remove(this.activeId); } catch { return "failed"; }
             }
             return cleared;
         });
     }
-    private async clearAccount(): Promise<VaultClear> {
+    private async clearAccount(removing = false): Promise<VaultClear> {
         if (!this.activeId) return super.clear();
         try { this.directory.update(this.activeId, { needsSignIn: true }); } catch { return "failed"; }
-        const legacy = await super.clear();
-        if (legacy === "failed") return legacy;
+        const legacy = await super.load();
+        // Removing the directory would discard its guard for an unreadable legacy copy.
+        if (removing && legacy.status === "unavailable") return "failed";
+        const row = this.directory.list().find(row => row.id === this.activeId);
+        if (legacy.status === "found" && row?.accountId === legacy.credential.accountId && row.serverId === legacy.credential.serverId) {
+            if (await super.clear() === "failed") return "failed";
+        }
         return this.accountVault(this.activeId).clear();
     }
 }

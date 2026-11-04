@@ -5,8 +5,83 @@ import { AccountVault } from "../../src/session/accounts.ts";
 import { CredentialVault } from "../../src/session/credentialVault.ts";
 import { keyManagerStore, memoryStore } from "../../src/session/secretStore.ts";
 import { connected, signIn } from "./support/harness.ts";
-import { connect } from "../../src/session/core.ts";
+import { connect, forgetStoredCredential } from "../../src/session/core.ts";
 import { MemoryPublicStorage } from "./support/keyManager.ts";
+
+test("unreadable retained legacy storage keeps the account's sign-out guard", async () => {
+    const h = await connected(); await signIn(h);
+    const store = keyManagerStore(h.keyManager!);
+    const saved = await new CredentialVault(store, h.storage, h.fake.origin, h.core.accounts.localAccountId).load();
+    if (saved.status !== "found") throw Error("fixture missing");
+    await new CredentialVault(store, h.storage, h.fake.origin).save(saved.credential);
+    h.keyManager!.failGet = true; h.keyManager!.failRemove = true;
+    assert.equal(await h.core.accounts.signOut(), "failed");
+    assert.equal(h.core.accounts.directory.list()[0]?.needsSignIn, true);
+    h.keyManager!.failGet = false; h.keyManager!.failRemove = false;
+    const restarted = await connected({ clock: h.clock, fake: h.fake, keyManager: h.keyManager, storage: h.storage });
+    assert.equal(restarted.core.restore, "signed_out");
+    assert.equal(await restarted.core.accounts.signOut(), "cleared");
+    assert.equal(restarted.core.accounts.directory.list().length, 0);
+});
+
+for (const legacy of [false, true]) for (const interrupted of [false, true]) test(`failed replacement cannot restore the old login (legacy=${legacy}, deleteFailure=${interrupted})`, async () => {
+    const h = await connected(); await signIn(h);
+    const store = keyManagerStore(h.keyManager!);
+    const id = h.core.accounts.localAccountId!;
+    const saved = await new CredentialVault(store, h.storage, h.fake.origin, id).load();
+    if (saved.status !== "found") throw Error("fixture missing");
+    if (legacy) {
+        await new CredentialVault(store, h.storage, h.fake.origin).save(saved.credential);
+        h.storage.removeItem("silo.native.accounts.v1");
+    }
+    const deps = { fetch: h.fake.fetch, publicStorage: h.storage, keyManager: h.keyManager,
+        randomBytes: (bytes: Uint8Array) => { bytes.fill(7); }, deviceName: "Test TV", devicePlatform: "tizen", clock: h.clock };
+    const next = await connect(h.fake.origin, { ...deps, addAccount: true });
+    if (next.status !== "connected") throw Error("fixture missing");
+    h.keyManager!.failSave = true;
+    h.keyManager!.failRemove = interrupted;
+    await signIn({ ...h, core: next });
+    assert.equal(next.session.persistence, "session_only");
+    h.keyManager!.failSave = false; h.keyManager!.failRemove = false;
+    const restarted = await connect(h.fake.origin, deps);
+    if (restarted.status !== "connected") throw Error("fixture missing");
+    assert.equal(restarted.restore, "signed_out");
+});
+
+test("an interrupted replacement write leaves the previous login guarded and unrelated accounts intact", async () => {
+    const h = await connected(); await signIn(h);
+    const store = keyManagerStore(h.keyManager!);
+    const first = await new CredentialVault(store, h.storage, h.fake.origin, h.core.accounts.localAccountId).load();
+    if (first.status !== "found") throw Error("fixture missing");
+    const other = new AccountVault(store, h.storage, h.fake.origin, bytes => { bytes.fill(8); }, undefined, true);
+    await other.save({ ...first.credential, accountId: "other", username: "Other" });
+    const replacement = new AccountVault(store, h.storage, h.fake.origin, bytes => { bytes.fill(9); }, undefined, true);
+    await replacement.prepareSignIn(first.credential);
+    const held = h.keyManager!.holdSaves();
+    const pending = replacement.save(first.credential);
+    while (held.waiting() === 0) await new Promise<void>(resolve => setImmediate(resolve));
+    try {
+        assert.equal((await new AccountVault(store, h.storage, h.fake.origin, bytes => { bytes.fill(10); }, h.core.accounts.localAccountId).load()).status, "none");
+        assert.equal((await new CredentialVault(store, h.storage, h.fake.origin, other.localAccountId).load()).status, "found");
+    } finally { held.release(); await pending; }
+});
+
+for (const legacy of [false, true]) test(`forget selected sign-in preserves another account (legacy=${legacy})`, async () => {
+    const h = await connected(); await signIn(h);
+    const store = keyManagerStore(h.keyManager!);
+    const id = h.core.accounts.localAccountId!;
+    const first = await new CredentialVault(store, h.storage, h.fake.origin, id).load();
+    if (first.status !== "found") throw Error("fixture missing");
+    const second = new AccountDirectory(h.storage, bytes => { bytes.fill(8); }).add(h.fake.origin, first.credential.serverId, "second", "Second");
+    const other = new CredentialVault(store, h.storage, h.fake.origin, second.id);
+    await other.save({ ...first.credential, accountId: "second", username: "Second" });
+    if (legacy) await new CredentialVault(store, h.storage, h.fake.origin).save({ ...first.credential, accountId: "second", username: "Second" });
+    assert.equal((await other.load()).status, "found");
+    await forgetStoredCredential(h.fake.origin, { publicStorage: h.storage, keyManager: h.keyManager, localAccountId: id });
+    assert.equal((await new CredentialVault(store, h.storage, h.fake.origin, id).load()).status, "none");
+    assert.equal((await other.load()).status, "found");
+    if (legacy) assert.equal((await new CredentialVault(store, h.storage, h.fake.origin).load()).status, "found");
+});
 
 for (const refused of [false, true]) test(`replacing a saved account fences its old ${refused ? "refused" : "successful"} refresh`, async () => {
     const h = await connected();

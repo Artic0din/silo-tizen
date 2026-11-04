@@ -196,7 +196,7 @@ export class NativeSession {
         if (this.accountEpoch !== epoch) return undefined;
         // Whatever was stored before (even an account this run could not read) must not come
         // back after a restart if this save fails.
-        const previousSession = await this.vault.prepareSignIn();
+        const previousSession = await this.vault.prepareSignIn(credential);
         const current = this.credential;
         if (this.accountEpoch !== epoch || current === undefined) {
             return undefined;

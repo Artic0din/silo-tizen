@@ -11,6 +11,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Restored saved-server pane focus, Back from Add server, and pending-removal focus on Samsung TV.
+- Prevented failed replacement sign-ins from restoring old credentials and kept saved-sign-in removal scoped to the selected account.
 - Prevented replaced account sessions from overwriting a new sign-in and required fresh PIN proof after committing an account switch.
 - Matched Apple TV library shelf order and the Recommended, Collections and Browse section menu, keeping Collections in its own destination.
 - Restored each page's hero after returning from the profile menu and painted the avatar's white focus ring above its image.

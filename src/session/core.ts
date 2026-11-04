@@ -12,7 +12,7 @@ import { Profiles } from "./profiles.ts";
 import { ProfileLaunch } from "./profileLaunch.ts";
 import { openSecretStore, type TizenKeyManager } from "./secretStore.ts";
 import { NativeSession, type RestoreResult } from "./session.ts";
-import { AccountDirectory, AccountVault, type SavedAccount } from "./accounts.ts";
+import { AccountVault, type SavedAccount } from "./accounts.ts";
 import type { SecretStore } from "./secretStore.ts";
 
 export interface SessionCoreDeps {
@@ -95,22 +95,15 @@ export async function signOutSavedAccount(account: SavedAccount, deps: SessionCo
     return new AccountVault(transient?.secrets ?? openSecretStore(deps.keyManager), transient?.storage ?? deps.publicStorage, account.baseUrl, deps.randomBytes, account.id, false, transient?.storage).signOut();
 }
 
-/** Deletes a server's stored credential without contacting it, e.g. while it is unreachable. */
+/** Clears only the selected sign-in, or the legacy sign-in when no account is selected. */
 export async function forgetStoredCredential(
     serverAddress: string,
-    deps: Pick<SessionCoreDeps, "publicStorage" | "keyManager">,
+    deps: Pick<SessionCoreDeps, "publicStorage" | "keyManager" | "localAccountId">,
 ): Promise<VaultClear | ServerUrlProblem> {
     const parsed = parseServerUrl(serverAddress);
     if (!parsed.ok) {
         return parsed.problem;
     }
     const store = openSecretStore(deps.keyManager);
-    const directory = new AccountDirectory(deps.publicStorage, () => undefined);
-    let result = await new CredentialVault(store, deps.publicStorage, parsed.base.baseUrl).clear();
-    for (const row of directory.list().filter(row => row.baseUrl === parsed.base.baseUrl)) {
-        const cleared = await new CredentialVault(store, deps.publicStorage, row.baseUrl, row.id).clear();
-        if (cleared === "failed" || result === "failed") result = "failed";
-        else if (cleared === "guarded") result = "guarded";
-    }
-    return result;
+    return new AccountVault(store, deps.publicStorage, parsed.base.baseUrl, () => undefined, deps.localAccountId).clear();
 }

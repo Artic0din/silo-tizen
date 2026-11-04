@@ -287,7 +287,8 @@ test("Skip counts down, activates with Enter or Play, and returns focus without 
         // Old path: Up returned to Skip, and Back from Skip returned to Pause.
         assert.equal(await focused(page), "position");
         assert.deepEqual(await commands(page), []);
-        await page.locator(".player-skip").focus();
+        await remote(page, UP);
+        assert.equal(await focused(page), "skip");
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), ["seekToSeconds 60"]);
         await remote(page, UP);
@@ -777,6 +778,30 @@ test("Down opens audio and subtitles with focus on the current track; the menu k
     } finally {
         await page.close();
     }
+});
+
+test("the remote crosses Audio while its choices are loading", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing({ ...TRACKS, audio: { state: "loading" } }));
+        await openPanel(page);
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "subtitles-off");
+        await remote(page, LEFT);
+        assert.equal(await focused(page), "info");
+    } finally { await page.close(); }
+});
+
+test("Select activates a late Skip prompt while controls are hidden", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await page.clock.runFor(6000);
+        await show(page, { ...playing(TRACKS), positionSeconds: 25, skipMarker: { kind: "intro", startSeconds: 20, endSeconds: 60 } });
+        assert.equal(await focused(page), "position");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["seekToSeconds 60"]);
+    } finally { await page.close(); }
 });
 
 test("the menu says what is happening: loading, a failed list with Retry, a change, a refusal and notices", async () => {

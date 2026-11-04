@@ -86,6 +86,65 @@ function calendarTest(name: string, body: (tv: Tv, catalog: FakeCalendar) => Pro
     });
 }
 
+for (const reducedMotion of ["no-preference", "reduce"] as const) {
+    calendarTest(`Calendar combined week presentation and remote entry (${reducedMotion})`, async tv => {
+        await tv.page.emulateMedia({ reducedMotion });
+        const held = tv.fake.hold("/calendar", true);
+        await activate(tv, "calendar");
+        await tv.page.getByText("Loading the week.", { exact: true }).waitFor();
+        assert.equal(await tv.page.locator('.calendar-day[data-has-events]').count(), 0, "pending days are unknown");
+        assert.equal(await tv.page.locator('.calendar-event-dot').count(), 0);
+        held.release(); await ready(tv, 3);
+        assert.equal(await tv.focused(), "filter:following", "root entry starts on the active scope");
+        assert.deepEqual(await tv.page.locator('.calendar-day-number').first().evaluate(node => {
+            const style = getComputedStyle(node);
+            return [style.fontSize, style.fontWeight];
+        }), ["26px", "700"]);
+        assert.equal(await tv.page.locator('h1').filter({ hasText: /^Calendar$/ }).count(), 0);
+        const strip = tv.page.locator('.calendar-week');
+        assert.deepEqual(await strip.locator('[data-focus]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-focus'))), ["previous-week", ...["2025-12-29", "2025-12-30", "2025-12-31", "2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04"].map(date => `day:${date}`), "next-week"]);
+        assert.equal(await tv.page.locator('.calendar-month').textContent(), "January 2026", "Thursday determines the month and year");
+        assert.equal(await strip.locator('.calendar-weekday').first().textContent(), "Mon");
+        assert.equal(await strip.locator('.calendar-day-number').first().textContent(), "29");
+        assert.equal(await strip.locator('.calendar-event-dot').count(), 3);
+        assert.equal(await strip.locator('.calendar-day[data-has-events="false"]').count(), 4);
+        const filterBox = await tv.page.locator('.calendar-filters').boundingBox(), stripBox = await strip.boundingBox();
+        assert.ok(filterBox && stripBox && filterBox.y + filterBox.height <= stripBox.y);
+        const count = reads(tv).length;
+        await tv.page.locator('[data-focus="filter:following"]').focus();
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "day:2026-01-02", "enter the strip on the selected day");
+        for (let i = 0; i < 5; i++) await tv.page.keyboard.press("ArrowLeft");
+        assert.equal(await tv.focused(), "previous-week");
+        for (let i = 0; i < 8; i++) await tv.page.keyboard.press("ArrowRight");
+        assert.equal(await tv.focused(), "next-week");
+        assert.equal(reads(tv).length, count, "moving across the combined strip never fetches");
+        await tv.page.keyboard.press("Enter"); await ready(tv, 0);
+        assert.equal(await strip.locator('[data-focus="today"]').count(), 1);
+        assert.equal(await strip.locator('.calendar-event-dot').count(), 0);
+        await strip.locator('[data-focus="today"]').focus();
+        assert.equal(await strip.locator('[data-focus="today"]').evaluate(node => getComputedStyle(node).backgroundColor), "rgba(237, 237, 237, 0.94)", "Today keeps the light focus fill");
+        await activate(tv, "today"); await ready(tv, 3);
+    });
+}
+
+calendarTest("Calendar artwork corners carry time, release and watched while captions retain episode identity", async (tv, catalog) => {
+    catalog.watchedEpisodes.add("episode:s1e22");
+    await activate(tv, "calendar"); await ready(tv, 3);
+    const card = tv.page.locator('.calendar-event[data-content-id="episode:s1e22"]');
+    assert.equal(await card.locator('.browse-art .calendar-time').textContent(), "8:00 AM");
+    assert.equal(await card.locator('.browse-art .calendar-release').textContent(), "FINALE");
+    assert.equal(await card.locator('.browse-art .calendar-watched').getAttribute('aria-label'), "Watched");
+    assert.equal(await card.locator('.browse-card-subtitle').textContent(), "S2 · E2 · The Crossing");
+    assert.match(await card.getAttribute('aria-label') ?? '', /Harbor Lights.*S2 · E2.*The Crossing.*8:00 AM.*FINALE.*Watched/);
+    const art = await card.locator('.browse-art').boundingBox();
+    assert.ok(art);
+    for (const selector of ['.calendar-time', '.calendar-release', '.calendar-watched']) {
+        const box = await card.locator(selector).boundingBox();
+        assert.ok(box && box.x >= art.x && box.y >= art.y && box.x + box.width <= art.x + art.width && box.y + box.height <= art.y + art.height, `${selector} stays inside missing-art fallback`);
+    }
+});
+
 calendarTest("card quick-actions target Calendar episode and season content IDs, with watched-only seasons", async tv => {
     await activate(tv, "calendar"); await ready(tv, 3);
     await activate(tv, "filter:everything"); await ready(tv, 32);
@@ -98,7 +157,7 @@ calendarTest("card quick-actions target Calendar episode and season content IDs,
     assert.equal(tv.fake.requests.filter(r => r.path === "/watched/series%3As1").length, 0);
     const count = reads(tv).length;
     await tv.remote(10009);
-    await tv.eventually(async () => reads(tv).length === count + 1 && (await episode.textContent())?.includes("Watched") === true, "refreshed Calendar decoration");
+    await tv.eventually(async () => reads(tv).length === count + 1 && (await episode.getAttribute("aria-label"))?.includes("Watched") === true, "refreshed Calendar decoration");
     const own = "season:s1:2";
     tv.fake.script(`/catalog/items/${encodeURIComponent(own)}?image_size=medium`, { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: own, type: "season", series_id: "series:s1", season_number: 2, user_state: { played: false }, versions: [] } });
     const before = tv.fake.requests.length;
@@ -182,8 +241,9 @@ calendarTest("Calendar filters, empty weeks, Today, loading, decode failure and 
     await activate(tv, "filter:trending"); await ready(tv, 2);
     held.release(); await tv.jump(0); assert.equal(await tv.page.locator(".calendar-event").count(), 2);
     await activate(tv, "next-week"); await ready(tv, 0);
-    assert.equal(await tv.page.locator(".calendar-day").count(), 7); assert.equal(await tv.page.locator(".calendar-shelf").count(), 7);
-    await tv.page.getByText("No releases or episodes this week. Try another filter.").waitFor();
+    assert.equal(await tv.page.locator(".calendar-day").count(), 7); assert.equal(await tv.page.locator(".calendar-shelf").count(), 0, "empty weeks use the shared empty panel instead of seven stubs");
+    await tv.page.getByText("Nothing trending this week").waitFor();
+    assert.deepEqual(await tv.page.locator('.calendar-empty-links [data-focus]').allTextContents(), ["Following", "All"]);
     const noReads = reads(tv).length;
     await activate(tv, "day:2026-01-06"); assert.equal(await tv.focused(), "day:2026-01-06"); assert.equal(reads(tv).length, noReads);
     await activate(tv, "today"); await ready(tv, 2);
@@ -275,7 +335,7 @@ calendarTest("Calendar return revalidates mutations and preserves nearby identit
     await activate(tv, "watched");
     await tv.eventually(async () => catalog.watched, "watched mutation");
     await tv.remote(10009); await tv.remote(10009); await ready(tv, 3);
-    assert.match(await tv.page.locator('.calendar-event[data-content-id="movie:m0001"]').textContent() ?? "", /Watched/);
+    assert.match(await tv.page.locator('.calendar-event[data-content-id="movie:m0001"]').getAttribute("aria-label") ?? "", /Watched/);
     await tv.page.keyboard.press("Enter");
     await tv.eventually(async () => await tv.page.locator('.browse[data-view="item:movie:m0001"]').count() === 1, "details again");
     catalog.events = catalog.events.filter(event => event.content_id !== "movie:m0001");
@@ -324,6 +384,9 @@ calendarTest("Calendar failed revalidation retains only the current window with 
     catalog.calendarFailure = problem(503, "service_unavailable", "Unavailable", { "Retry-After": "30" });
     await tv.remote(10009); await tv.jump(1000);
     await tv.page.getByText("The server had a problem. Try again in a moment.").waitFor();
+    const statusBox = await tv.page.locator('.calendar-status .browse-text').boundingBox();
+    const shelfBox = await tv.page.locator('.calendar-shelf').first().boundingBox();
+    assert.ok(statusBox && shelfBox && statusBox.y + statusBox.height <= shelfBox.y, "retained error does not overlap the shelf heading");
     assert.equal(await tv.page.locator(".calendar-event").count(), 3);
     assert.equal(await tv.page.locator(":focus").getAttribute("data-content-id"), "movie:m0001");
     catalog.calendarFailure = undefined;
@@ -372,8 +435,8 @@ calendarTest("Calendar premiere, episode context fallback, badges and distinct e
     const episodes = tv.page.locator('.calendar-event[data-content-id="episode:s1e22"]');
     assert.equal(await episodes.count(), 2);
     assert.notEqual(await episodes.nth(0).getAttribute("data-focus"), await episodes.nth(1).getAttribute("data-focus"));
-    assert.match(await episodes.nth(0).textContent() ?? "", /S2:E2.*The Crossing.*08:00.*Finale/);
-    assert.match(await episodes.nth(1).textContent() ?? "", /09:00.*Premiere/);
+    assert.match(await episodes.nth(0).getAttribute("aria-label") ?? "", /S2 · E2.*The Crossing.*8:00 AM.*FINALE/);
+    assert.match(await episodes.nth(1).getAttribute("aria-label") ?? "", /9:00 AM.*PREMIERE/);
     assert.doesNotMatch(await episodes.nth(1).textContent() ?? "", /function/);
     await tv.page.locator('.calendar-event[data-content-id="season:s1:2"]').focus(); await tv.page.keyboard.press("Enter");
     await tv.eventually(async () => await tv.focused() === "season:2", "premiere season focus");
@@ -478,7 +541,7 @@ calendarTest("S-C2 Calendar re-entry refreshes watched changes made through Home
     await tv.remote(10009);
     await activate(tv, "calendar"); await ready(tv, 3);
     assert.equal(reads(tv).length, 2);
-    assert.match(await tv.page.locator('.calendar-event[data-content-id="movie:m0001"]').textContent() ?? "", /Watched/);
+    assert.match(await tv.page.locator('.calendar-event[data-content-id="movie:m0001"]').getAttribute("aria-label") ?? "", /Watched/);
 });
 
 for (const [action, id, expected] of [["favorites", "movie:m0001", 2], ["watchlist", "series:s1", 1]] as const) {
@@ -509,7 +572,7 @@ calendarTest("S-C2 Calendar re-entry refreshes playback completed through Home",
     await tv.remote(10009);
     await activate(tv, "calendar"); await ready(tv, 3);
     assert.equal(reads(tv).length, 2);
-    assert.match(await tv.page.locator('.calendar-event[data-content-id="movie:m0001"]').textContent() ?? "", /Watched/);
+    assert.match(await tv.page.locator('.calendar-event[data-content-id="movie:m0001"]').getAttribute("aria-label") ?? "", /Watched/);
 });
 
 for (const [start, nextDay, hours] of [["2026-04-04T13:00:00Z", "2026-04-06", 25], ["2026-10-03T14:00:00Z", "2026-10-05", 23]] as const) {

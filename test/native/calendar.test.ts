@@ -60,25 +60,35 @@ test("Calendar restricted access subtracts hidden libraries before testing all m
 
 test("authoritative groups and date-only events survive extreme zones and the repeated DST hour", () => {
     const cases = [
-        { date: "2026-10-05", source: "2026-10-03", at: "2026-10-04T11:30:00Z", zone: "Pacific/Kiritimati", time: "01:30" },
-        { date: "2026-10-03", source: "2026-10-05", at: "2026-10-04T10:30:00Z", zone: "Etc/GMT+12", time: "22:30" },
+        { date: "2026-10-05", source: "2026-10-03", at: "2026-10-04T11:30:00Z", zone: "Pacific/Kiritimati", time: "1:30 AM" },
+        { date: "2026-10-03", source: "2026-10-05", at: "2026-10-04T10:30:00Z", zone: "Etc/GMT+12", time: "10:30 PM" },
     ];
     for (const c of cases) {
         const items = decodeCalendar({ events: [{ date: c.date, items: [{ ...event, local_air_date: c.date, air_date: c.source, air_at: c.at }, { ...event, type: "movie", local_air_date: c.date, air_date: c.date, air_at: undefined }] }] })[0]?.items;
         const timed = items?.[0], dateOnly = items?.[1];
         assert.ok(timed && dateOnly);
-        assert.equal(eventTime(timed, c.zone)?.replace(/[^0-9:]/g, ""), c.time);
+        assert.equal(eventTime(timed, c.zone)?.replace(/\s/g, " "), c.time);
         assert.equal(timed.localAirDate, c.date); assert.equal(timed.airDate, c.source);
         assert.equal(eventTime(dateOnly, c.zone), undefined); assert.equal(dateOnly.localAirDate, c.date);
     }
     const repeated = decodeCalendar({ events: [{ date: "2026-04-05", items: ["2026-04-04T15:59:00Z", "2026-04-04T16:00:00Z"].map(air_at => ({ ...event, air_at, local_air_date: "2026-04-05" })) }] })[0]?.items;
     assert.ok(repeated?.[0] && repeated[1]);
-    assert.match(eventTime(repeated[0], "Australia/Melbourne") ?? "", /02:59/);
-    assert.match(eventTime(repeated[1], "Australia/Melbourne") ?? "", /02:00/);
+    assert.match(eventTime(repeated[0], "Australia/Melbourne") ?? "", /2:59\sAM/);
+    assert.match(eventTime(repeated[1], "Australia/Melbourne") ?? "", /2:00\sAM/);
     assert.notEqual(calendarEventKey(repeated[0]), calendarEventKey(repeated[1]));
     assert.deepEqual(calendarDestination(repeated[0]), { kind: "item", id: "series:s1", title: "Harbor Lights", seriesContext: { seasonNumber: 2, episodeId: "episode:s1e22" } });
     assert.equal(calendarDestination({ ...repeated[0], seriesId: undefined })?.id, "episode:s1e22");
     assert.equal(calendarDestination({ ...repeated[0], type: "future_kind" }), undefined);
+});
+
+test("Calendar instant times use local 12-hour PM, noon and midnight without converting source wall clocks", () => {
+    const timed = decodeCalendar({ events: [{ date: "2026-10-04", items: [event] }] })[0]?.items[0];
+    assert.ok(timed);
+    for (const [airAt, expected] of [["2026-10-04T04:30:00Z", "3:30 PM"], ["2026-10-04T01:00:00Z", "12:00 PM"], ["2026-10-03T14:00:00Z", "12:00 AM"]]) {
+        assert.equal(eventTime({ ...timed, airAt }, "Australia/Melbourne")?.replace(/\s/g, " "), expected);
+    }
+    assert.equal(eventTime({ ...timed, airAt: undefined, airTime: "21:00", airTimezone: "America/New_York" }, "Australia/Melbourne"), "21:00 (America/New_York)");
+    assert.equal(eventTime({ ...timed, airAt: undefined, airTime: "21:00", airTimezone: undefined }, "Australia/Melbourne"), "21:00 (source time)");
 });
 
 test("Calendar decoder retains all events, metadata and unknown enum values; rejects malformed boundaries", () => {

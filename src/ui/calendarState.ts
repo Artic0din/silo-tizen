@@ -58,7 +58,7 @@ export function calendarEventKeys(events: readonly CalendarEvent[]): string[] {
 }
 export function eventTime(event: CalendarEvent, timezone: string): string | undefined {
     if (event.airAt !== undefined) {
-        try { return new Intl.DateTimeFormat(undefined, { timeZone: timezone, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(event.airAt)); }
+        try { return new Intl.DateTimeFormat(undefined, { timeZone: timezone, hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(event.airAt)); }
         catch { throw new CalendarTimezoneError("Could not format this TV’s timezone. Try again."); }
     }
     // Without an instant the network wall time is not a viewer-local time.

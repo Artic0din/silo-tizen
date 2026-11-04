@@ -144,7 +144,7 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     return mediaItem({ key: card.id, element }, card, context);
 }
 
-function cardItems(cards: readonly Card[], context: ViewContext): FocusItem[] {
+export function cardItems(cards: readonly Card[], context: ViewContext): FocusItem[] {
     const result: FocusItem[] = [];
     for (const card of cards) {
         const item = cardItem(card, context);

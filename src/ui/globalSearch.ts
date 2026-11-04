@@ -1,3 +1,5 @@
+import type { CatalogBoxSet } from "../contracts/v2/boxSets.ts";
+import { boxSetAccessibilityLabel, boxSetCardCaption, boxSetFilmCount, boxSetWatchedProgress } from "../contracts/v2/boxSets.ts";
 import type { Person } from "../contracts/v2/details.ts";
 import type { RequestTitle } from "../contracts/v2/requests.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
@@ -13,6 +15,9 @@ export interface SearchSupplement {
     people?: readonly Person[];
     peoplePending?: boolean;
     peopleFailure?: boolean;
+    /** Matching box sets, best match first, at most five. Absent until that lookup is asked. */
+    boxSets?: readonly CatalogBoxSet[];
+    boxSetsPending?: boolean;
     requests?: readonly RequestTitle[] | undefined;
     requestsFor?: string | undefined;
 }
@@ -41,8 +46,19 @@ export function globalSearchView(view: View, route: Extract<Route, { kind: "sear
     const current = route.query === route.resultsFor;
     const supplement = route.supplement;
     const people = supplement?.people ?? [];
-    const waitingForPeople = route.failure === undefined && supplement?.peoplePending === true && people.length === 0 && (route.pages?.page?.items.length ?? 0) === 0;
-    if (waitingForPeople && !view.content.some(node => node.classList.contains("search-progress"))) content.push(searchLoading());
+    const boxSets = supplement?.boxSets ?? [];
+    const titleCount = route.pages?.page?.items.length ?? 0;
+    const waitingForSupplement = route.failure === undefined && titleCount === 0 && people.length === 0 && boxSets.length === 0
+        && (supplement?.peoplePending === true || supplement?.boxSetsPending === true);
+    if (waitingForSupplement && !view.content.some(node => node.classList.contains("search-progress"))) content.push(searchLoading());
+    if (route.failure === undefined && boxSets.length > 0) {
+        const items = boxSets.map(set => boxSetSearchCard(set, h.context.baseUrl, () => h.push(newRoute({ kind: "boxSet", id: set.id, libraryId: set.libraryId, title: set.title, data: undefined }))));
+        const grid = zoneNode("browse-grid", items);
+        grid.dataset.section = "search-box-sets";
+        grid.style.setProperty("--search-columns", String(h.gridColumns));
+        content.push(el("h2", "browse-section-title search-box-sets-heading", "Box Sets"), grid);
+        zones.push({ id: "search-box-sets", layout: "grid", spatial: true, columns: h.gridColumns, items });
+    }
     if (route.failure === undefined && people.length > 0) {
         const items = people.map(person => {
             const item = actionButton(`person:${person.id}`, person.name, () => h.push(newRoute({ kind: "person", id: person.id, title: person.name, data: undefined })));
@@ -65,7 +81,7 @@ export function globalSearchView(view: View, route: Extract<Route, { kind: "sear
     }
     const hasPager = view.zones.some(zone => zone.id === "pager" && zone.items.length > 0);
     content.push(...view.content.slice(h.searchHead.length).filter(node => {
-        if (node.classList.contains("search-empty") && (people.length > 0 || waitingForPeople)) return false;
+        if (node.classList.contains("search-empty") && (people.length > 0 || boxSets.length > 0 || waitingForSupplement)) return false;
         if (node.classList.contains("browse-grid")) node.style.setProperty("--search-columns", String(h.gridColumns));
         if (node.classList.contains("browse-page-status") && !hasPager) return false;
         return !((node.classList.contains("browse-grid") || node.classList.contains("browse-actions")) && node.childElementCount === 0);
@@ -88,4 +104,28 @@ export function globalSearchView(view: View, route: Extract<Route, { kind: "sear
         zones.push({ id: "search-requests", layout: "row", spatial: true, items });
     }
     return { ...view, content, zones };
+}
+
+/** A box set search result drawn with the title card, opening the box set page. */
+function boxSetSearchCard(set: CatalogBoxSet, baseUrl: string, open: () => void): FocusItem {
+    const item = actionButton(`box-set:${set.libraryId}:${set.id}`, set.title, open);
+    item.element.className = "browse-card box-set-card";
+    item.element.replaceChildren();
+    item.element.setAttribute("aria-label", boxSetAccessibilityLabel(set));
+    const art = artwork("browse-art", set.posterUrl, baseUrl, set.title);
+    const progress = boxSetWatchedProgress(set);
+    if (progress !== undefined) {
+        const bar = el("span", "skyline-progress");
+        const fill = el("span", "skyline-progress-fill");
+        fill.style.width = `${Math.min(100, progress * 100)}%`;
+        bar.appendChild(fill);
+        art.appendChild(bar);
+    }
+    const mark = el("span", "box-set-label", "Box set");
+    const count = el("span", "box-set-count", boxSetFilmCount(set.movieCount));
+    mark.setAttribute("aria-hidden", "true");
+    count.setAttribute("aria-hidden", "true");
+    art.append(mark, count);
+    item.element.append(art, el("span", "browse-card-title", set.title), el("span", "browse-card-subtitle", boxSetCardCaption(set)));
+    return item;
 }

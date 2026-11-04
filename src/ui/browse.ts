@@ -16,6 +16,7 @@ import { requestsState, type RequestsHandlers, type RequestsSource } from "./req
 import type { RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import { detailOperations } from "../api/detailOperations.ts";
+import { BOX_SET_SEARCH_LIMIT, boxSetOperations } from "../api/boxSetOperations.ts";
 import type { ItemDetail } from "../contracts/v2/catalog.ts";
 import { DetailsState } from "./detailsState.ts";
 import { freshPlayPosition } from "./playbackPreparation.ts";
@@ -206,6 +207,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const top = (): Route | undefined => stack[stack.length - 1];
     let requestsCapability: RequestsCapability = { enabled: false, follow: false };
     let searchPeopleController: AbortController | undefined;
+    let searchBoxSetController: AbortController | undefined;
     let searchRequestsController: AbortController | undefined;
     const acceptRequestsCapability = (capability: RequestsCapability): void => {
         requestsCapability = capability;
@@ -217,6 +219,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
     const stopSearchSupplement = (): void => {
         searchPeopleController?.abort(); searchPeopleController = undefined;
+        searchBoxSetController?.abort(); searchBoxSetController = undefined;
         searchRequestsController?.abort(); searchRequestsController = undefined;
     };
     const searchRequests = (current: Extract<Route, { kind: "search" }>): void => {
@@ -256,6 +259,43 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }, () => {
             if (!owns()) return;
             supplement.peoplePending = false; supplement.peopleFailure = true; render(host.focused());
+        });
+    };
+    /** Box sets are movies, so only All and Movies ask. A failed read shows none and leaves titles alone. */
+    const searchBoxSets = (current: Extract<Route, { kind: "search" }>): void => {
+        searchBoxSetController?.abort();
+        const supplement = current.supplement ??= {};
+        const wants = current.boxSetsSupported === true && (current.filter === undefined || current.filter === "movie");
+        if (!wants) {
+            searchBoxSetController = undefined;
+            supplement.boxSets = [];
+            supplement.boxSetsPending = false;
+            return;
+        }
+        const query = current.query.trim();
+        if (query === "") {
+            searchBoxSetController = undefined;
+            supplement.boxSets = [];
+            supplement.boxSetsPending = false;
+            return;
+        }
+        const controller = new AbortController();
+        searchBoxSetController = controller;
+        supplement.boxSets = [];
+        supplement.boxSetsPending = true;
+        const owns = (): boolean => !torn && !controller.signal.aborted && top() === current && current.supplement === supplement && current.query.trim() === query && (current.filter === undefined || current.filter === "movie");
+        void read(boxSetOperations.search(query, BOX_SET_SEARCH_LIMIT), controller.signal).then(found => {
+            if (!owns()) return;
+            searchBoxSetController = undefined;
+            supplement.boxSets = found.slice(0, BOX_SET_SEARCH_LIMIT);
+            supplement.boxSetsPending = false;
+            render(host.focused());
+        }, () => {
+            if (!owns()) return;
+            searchBoxSetController = undefined;
+            supplement.boxSets = [];
+            supplement.boxSetsPending = false;
+            render(host.focused());
         });
     };
     let probeOrdinal = 0;
@@ -492,6 +532,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     }, 0);
                 }
                 current.failure = text ?? "Something went wrong. Try again.";
+                if (current.kind === "search" && current.pages?.page === undefined) {
+                    searchBoxSetController?.abort();
+                    searchBoxSetController = undefined;
+                    if (current.supplement !== undefined) current.supplement.boxSetsPending = false;
+                }
                 if (current.kind === "requests") { current.requests.error = errorState(error); if (!current.requests.unconfirmed && !current.requests.writing) current.requests.action = undefined; }
                 if (current.kind === "requests" && error instanceof ApiError && ["capability_disabled", "capability_not_configured", "capability_unsupported", "permission_denied"].includes(error.problemId ?? "")) void probeRequests();
                 if (top() === current) {
@@ -894,6 +939,24 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     current.data = { person, titles };
                 }, quiet);
                 return;
+            case "boxSet": {
+                const had = current.data !== undefined;
+                load(current, async signal => {
+                    try {
+                        return await read(boxSetOperations.get(current.id, current.libraryId), signal);
+                    } catch (error) {
+                        if (signal.aborted || (error instanceof ApiError && error.aborted)) throw error;
+                        const missing = error instanceof ApiError && error.status === 404;
+                        if (!missing && current.data !== undefined) return current.data;
+                        if (missing) current.data = undefined;
+                        throw error;
+                    }
+                }, detail => {
+                    current.data = detail;
+                    if (had) return host.focused() ?? current.focus;
+                }, quiet || had);
+                return;
+            }
             case "season":
                 stopDetails();
                 load(current, async (signal) => {
@@ -1015,10 +1078,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (!signal.aborted && top() === current && current.query === query) {
                     current.searchType = type;
                     current.peopleSupported = capability.allowed && capability.state === "available" && capability.peopleMediaScope === true;
+                    current.boxSetsSupported = capability.boxSets === true;
                 }
             }
             if (signal.aborted || top() !== current || current.query !== query) throw new DOMException("Aborted", "AbortError");
             if (current.supplement?.people === undefined) searchPeople(current, current.filter ?? type);
+            if (current.supplement?.boxSets === undefined) searchBoxSets(current);
             return read(operations.listCatalogItems({ q: query.trim(), type: current.filter ?? type, limit: PAGE_SIZE, cursor: pages.cursors[index] }), signal);
         }, (page) => {
             pages.page = page;
@@ -1113,6 +1178,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (current !== undefined) {
             current.focus = panel === undefined ? host.focused() : { zone: "actions", key: panel === "rating" ? "more" : panel };
             if (current.kind === "homeSection" || current.kind === "personFilmography") current.pendingIndex = undefined;
+            if (current.kind === "boxSet") current.stale = true;
         }
         loading?.abort();
         loading = undefined;
@@ -1131,6 +1197,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (current.kind === "search") {
             input.value = current.query;
             if (current.supplement?.peoplePending && current.searchType !== undefined && current.query === current.resultsFor) searchPeople(current, current.filter ?? current.searchType);
+            if (current.supplement?.boxSetsPending === true && current.boxSetsSupported === true && current.query === current.resultsFor) searchBoxSets(current);
             if (current.supplement !== undefined && current.supplement.requests === undefined) current.supplement.requestsFor = undefined;
             searchRequests(current);
         }

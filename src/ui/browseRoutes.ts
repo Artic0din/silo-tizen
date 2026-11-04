@@ -22,6 +22,8 @@ import type { MediaScope } from "../contracts/v2/discovery.ts";
 import { personFilmographyView } from "./personFilmography.ts";
 import type { RecommendationLocator, RecommendationRow } from "../contracts/v2/recommendations.ts";
 import { globalSearchView, type SearchSupplement } from "./globalSearch.ts";
+import { boxSetView } from "./boxSetView.ts";
+import { boxSetNextMovie, type CatalogBoxSetDetail } from "../contracts/v2/boxSets.ts";
 import { recommendationsView } from "./recommendationsView.ts";
 
 /** Cards per catalog page: four grid rows. Only the shown page is kept. */
@@ -47,7 +49,8 @@ export type RouteData =
     | { readonly kind: "library"; readonly library: UserLibrary; pages: Pages; discovery?: DiscoveryState }
     | { readonly kind: "libraryResults"; readonly library: UserLibrary; readonly title: string; readonly source: LibrarySource; pages: Pages; descending: boolean }
     /** `resultsFor`: the query the shown page answers, which typing can move ahead of. */
-    | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope; filter?: "movie" | "series" | undefined; peopleSupported?: boolean; supplement?: SearchSupplement }
+    | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope; filter?: "movie" | "series" | undefined; peopleSupported?: boolean; boxSetsSupported?: boolean; supplement?: SearchSupplement }
+    | { readonly kind: "boxSet"; readonly id: string; readonly libraryId: string; readonly title: string; data: CatalogBoxSetDetail | undefined }
     | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState } | undefined }
     | { readonly kind: "person"; readonly id: string; readonly title: string; data: { person: Person; titles: CatalogPage } | undefined }
     | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string; readonly episodeId?: string; data: { episodes: Episode[]; detail: ItemDetail | undefined; details?: DetailsState } | undefined };
@@ -87,6 +90,8 @@ export function hasData(current: Route): boolean {
             return current.pages.page !== undefined;
         case "search":
             return current.pages?.page !== undefined;
+        case "boxSet":
+            return current.data !== undefined;
         default:
             return current.data !== undefined;
     }
@@ -189,6 +194,15 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
         case "person":
             if (current.data !== undefined) return personView(current.data.person, current.data.titles.items, context, pop, handlers.synopsis,
                 () => handlers.push(newRoute({ kind: "personFilmography", id: current.id, title: current.data?.person.name ?? current.title, filter: "video", pages: newPages(), pendingIndex: undefined })));
+            break;
+        case "boxSet":
+            if (current.data !== undefined) {
+                const detail = current.data;
+                return boxSetView(detail, context, () => {
+                    const next = boxSetNextMovie(detail);
+                    if (next !== undefined) handlers.push(newRoute({ kind: "resume", id: next.id, title: next.title }));
+                }, pop);
+            }
             break;
         case "season":
             if (current.data !== undefined) {
@@ -305,6 +319,7 @@ export function failureText(error: unknown, current: Route): string | undefined 
     }
     if (error.status === 404) {
         if (current.kind === "calendar") return "Could not load Calendar. Try again.";
+        if (current.kind === "boxSet") return "This box set isn't available. Box sets may be turned off for this library, or too few of its movies are here.";
         return current.kind === "library"
             ? "This library is no longer available."
             : current.kind === "season"

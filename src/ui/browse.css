@@ -171,7 +171,10 @@
 .search-scene .browse-grid .browse-card-title { margin: 16px 0 0; padding: 0; font-size: 24px; line-height: 29px; font-weight: 600; }
 .search-scene .browse-grid .browse-card-subtitle { margin: 4px 0 0; padding: 0; font-size: 22px; line-height: 27px; }
 .search-scene > .browse-page-status, .search-scene > .browse-actions:not(.search-filters), .search-scene > .browse-text { margin-left: 162px; }
-.search-scene .search-people-heading { margin: 0 162px; font-size: 36px; line-height: 43px; font-weight: 600; }
+.search-scene .search-box-sets-heading, .search-scene .search-people-heading { margin: 0 162px; font-size: 36px; line-height: 43px; font-weight: 600; }
+.search-scene .box-set-card .box-set-label, .search-scene .box-set-card .box-set-count { position: absolute; z-index: 1; color: #fff; line-height: 1; pointer-events: none; }
+.search-scene .box-set-card .box-set-label { top: 12px; left: 12px; padding: 7px 14px; border: 1px solid rgba(255,255,255,.18); border-radius: 999px; background: rgba(0,0,0,.55); font-size: 15px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+.search-scene .box-set-card .box-set-count { right: 12px; bottom: 28px; padding: 4px 11px; border-radius: 8px; background: rgba(0,0,0,.6); font-size: 18px; font-weight: 700; }
 .search-scene .search-people-rail { display: flex; gap: 60px; width: 1920px; height: 328px; margin: 0 -76px 18px; padding: 14px 238px 30px; --reveal-end: 318px; }
 .search-overflow-rail .search-rail-outside:not(:focus) { opacity: 0; pointer-events: none; }
 .search-scene .search-people-rail .details-person { flex: 0 0 200px; width: 200px; margin: 0; padding: 0; border: 0; background: transparent; }

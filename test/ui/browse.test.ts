@@ -42,6 +42,49 @@ class SearchEdgeCatalog extends SearchCatalog {
     }
 }
 
+class BoxSetCatalog extends SearchCatalog {
+    constructor() {
+        super();
+        this.searchCapabilities = { ...this.searchCapabilities, box_sets: true };
+    }
+
+    override route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): Reply | undefined {
+        const url = new URL(path, "https://fake.invalid");
+        const detail = /^\/catalog\/box-sets\/([^/]+)$/.exec(url.pathname);
+        if (url.pathname === "/catalog/box-sets" || detail !== null) {
+            const queued = super.route(method, path, profileId, body);
+            if (queued !== undefined) return queued;
+            if (detail !== null) {
+                if (detail[1] !== "1241") return problem(404, "not_found", "Not found");
+                return { status: 200, body: {
+                    id: "1241", library_id: "12", title: "Harry Potter Collection", overview: "Wizards.",
+                    poster_url: "/art/potter.svg", backdrop_url: "/art/potter-wide.svg",
+                    movie_count: 8, played_count: 3, first_year: 2001, last_year: 2011,
+                    items: [
+                        { content_id: "movie:m0001", type: "movie", title: "Philosopher's Stone", year: 2001, poster_url: "/art/hp1.svg", user_state: { played: true } },
+                        { content_id: "movie:m0002", type: "movie", title: "Chamber of Secrets", year: 2002, poster_url: "/art/hp2.svg", user_state: { played: false } },
+                    ],
+                } };
+            }
+            const q = (url.searchParams.get("q") ?? "").toLowerCase();
+            const items = q.includes("potter") ? Array.from({ length: 6 }, (_, index) => ({
+                id: String(1241 + index), library_id: "12",
+                title: index === 0 ? "Harry Potter Collection" : `Potter Set ${index}`,
+                overview: "Wizards.", poster_url: "/art/potter.svg", movie_count: 8, played_count: 3, first_year: 2001, last_year: 2011,
+            })) : [];
+            return { status: 200, body: { items } };
+        }
+        return super.route(method, path, profileId, body);
+    }
+}
+
+class FailedBoxSetCatalog extends BoxSetCatalog {
+    override route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): Reply | undefined {
+        if (new URL(path, "https://fake.invalid").pathname === "/catalog/box-sets") return problem(503, "unavailable", "Unavailable");
+        return super.route(method, path, profileId, body);
+    }
+}
+
 browseTest("Search filter focus applies immediately and cancels superseded reads", async tv => {
     await tv.page.locator('[data-focus="search"]').click();
     await tv.page.fill("#browse-search", "Movie 0001"); await tv.remote(IME_DONE);
@@ -378,6 +421,101 @@ browseTest("Search People is scoped, activates real identities and does not fetc
     assert.equal(tv.fake.requests.length, reads);
     await tv.page.locator('[data-focus="person:7"]').click(); await showing(tv, "person:7");
 }, { catalog: peopleSearch });
+
+browseTest("Search lists at most five box sets ahead of People for All and Movies", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "potter"); await tv.remote(IME_DONE);
+    await tv.page.locator('[data-focus="box-set:12:1241"]').waitFor();
+    assert.equal(await tv.page.locator(".search-box-sets-heading + .browse-grid .box-set-card").count(), 5, "the screen keeps five of a longer answer");
+    assert.equal(await tv.page.locator('[data-focus="box-set:12:1241"] .browse-card-subtitle').textContent(), "3 / 8 watched");
+    assert.equal(await tv.page.locator('[data-focus="box-set:12:1241"] .box-set-label').textContent(), "Box set");
+    const order = await tv.page.locator(".search-box-sets-heading, .search-people-heading, .search-count").evaluateAll(nodes => nodes.map(node => node.className));
+    assert.deepEqual(order, ["browse-section-title search-box-sets-heading", "browse-section-title search-people-heading"]);
+    assert.equal(await tv.page.getByText("No results", { exact: true }).count(), 0);
+    const asked = browseReads(tv, "/catalog/box-sets").map(request => new URL(request.path, "https://fake.invalid").searchParams);
+    assert.equal(asked.length, 1);
+    assert.equal(asked[0]?.get("q"), "potter");
+    assert.equal(asked[0]?.get("limit"), "5");
+    await tv.page.locator('[data-focus="search-filter:series"]').focus();
+    await tv.eventually(async () => browseReads(tv, "/catalog").some(request => new URL(request.path, "https://fake.invalid").searchParams.get("type") === "series"), "Series search");
+    assert.equal(browseReads(tv, "/catalog/box-sets").length, 1, "Series does not look for box sets");
+    assert.equal(await tv.page.locator(".search-box-sets-heading").count(), 0);
+    await tv.page.locator('[data-focus="search-filter:movie"]').focus();
+    await tv.eventually(async () => browseReads(tv, "/catalog/box-sets").length === 2, "Movies looks again");
+    assert.equal(new URL(browseReads(tv, "/catalog/box-sets")[1]?.path ?? "", "https://fake.invalid").searchParams.get("limit"), "5");
+    await tv.page.locator('[data-focus="box-set:12:1241"]').waitFor();
+}, { catalog: new BoxSetCatalog() });
+
+browseTest("Search without box_sets never asks, and a failed lookup leaves the titles", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie 0001"); await tv.remote(IME_DONE);
+    await tv.page.locator('[data-focus="movie:m0001"]').waitFor();
+    await tv.eventually(async () => browseReads(tv, "/catalog/people").length === 1, "People lookup finished");
+    assert.equal(browseReads(tv, "/catalog/box-sets").length, 0);
+});
+
+browseTest("Search box set failure stays silent and a new query cancels the lookup", async (tv, catalog) => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie 0001"); await tv.remote(IME_DONE);
+    await tv.page.locator('[data-focus="movie:m0001"]').waitFor();
+    await tv.eventually(async () => browseReads(tv, "/catalog/box-sets").length === 1, "box set lookup failed on its own");
+    assert.equal(await tv.page.locator(".search-box-sets-heading, .search-failure").count(), 0);
+    assert.equal(await tv.page.locator(".search-count").count(), 1);
+    const held = tv.fake.hold("/catalog/box-sets", true);
+    await tv.page.fill("#browse-search", "potter"); await tv.remote(IME_DONE);
+    await tv.eventually(async () => browseReads(tv, "/catalog/box-sets").some(request => request.path.includes("q=potter")), "potter lookup held");
+    const cancelled = tv.page.waitForEvent("requestfailed", request => new URL(request.url()).pathname === "/api/v2/catalog/box-sets" && new URL(request.url()).searchParams.get("q") === "potter");
+    await tv.page.fill("#browse-search", "heat"); await tv.remote(IME_DONE);
+    await cancelled;
+    held.release();
+    await tv.eventually(async () => browseReads(tv, "/catalog/box-sets").some(request => request.path.includes("q=heat")), "heat lookup");
+    assert.equal(await tv.page.getByText("Harry Potter Collection", { exact: true }).count(), 0);
+    void catalog;
+}, { catalog: new FailedBoxSetCatalog() });
+
+browseTest("Opening a box set focuses Play, keeps member order, and Back returns", async (tv, catalog) => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "potter"); await tv.remote(IME_DONE);
+    await tv.page.locator('[data-focus="box-set:12:1241"]').click();
+    await showing(tv, "boxSet:12:1241");
+    assert.equal(await tv.focused(), "play");
+    assert.equal(await tv.page.locator('[data-focus="play"]').textContent(), "Continue · Chamber of Secrets");
+    assert.match(await tv.page.locator(".browse-meta").innerText(), /8 films/);
+    assert.match(await tv.page.locator(".browse-meta").innerText(), /2001 – 2011/);
+    assert.match(await tv.page.locator(".browse-meta").innerText(), /3 of 8 watched/);
+    assert.equal(await tv.page.locator(".browse-kicker").textContent(), "Box set");
+    assert.deepEqual(await cardIds(tv, ".browse-grid .browse-card"), ["movie:m0001", "movie:m0002"]);
+    const detail = browseReads(tv, "/catalog/box-sets/1241")[0];
+    assert.equal(new URL(detail?.path ?? "", "https://fake.invalid").searchParams.get("library_id"), "12");
+    assert.equal(new URL(detail?.path ?? "", "https://fake.invalid").searchParams.get("image_size"), "medium");
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "movie:m0001");
+    await press(tv, "Enter"); await showing(tv, "item:movie:m0001");
+    await tv.remote(BACK); await showing(tv, "boxSet:12:1241");
+    assert.equal(await tv.focused(), "movie:m0001", "Back keeps the member");
+    await tv.remote(BACK); await showing(tv, "search");
+    assert.equal(await tv.focused(), "box-set:12:1241", "Back keeps the box set card");
+    await tv.page.locator('[data-focus="box-set:12:1241"]').click();
+    await tv.page.locator('[data-focus="play"]').waitFor();
+    await tv.page.locator('[data-focus="play"]').click();
+    await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays[0]?.contentId) === "movie:m0002", "Play starts the first unplayed film");
+    const reads = browseReads(tv, "/catalog/box-sets/1241").length;
+    await tv.page.evaluate(() => window.browseHarness.resume());
+    await tv.eventually(async () => browseReads(tv, "/catalog/box-sets/1241").length === reads + 1, "returning reloads the box set");
+    await showing(tv, "boxSet:12:1241");
+    catalog.failNext("/catalog/box-sets/1241", problem(503, "unavailable", "Unavailable"));
+    await tv.page.locator('[data-focus="movie:m0001"]').click();
+    await showing(tv, "item:movie:m0001");
+    await tv.remote(BACK); await showing(tv, "boxSet:12:1241");
+    assert.equal(await tv.page.locator('[data-focus="play"]').count(), 1, "a dropped reload keeps Play");
+    assert.equal(await tv.page.locator(".browse-error").count(), 0);
+    catalog.failNext("/catalog/box-sets/1241", problem(404, "not_found", "Not found"));
+    await tv.page.locator('[data-focus="movie:m0001"]').click();
+    await showing(tv, "item:movie:m0001");
+    await tv.remote(BACK);
+    await shows(tv, "This box set isn't available. Box sets may be turned off for this library, or too few of its movies are here.");
+    assert.equal(await tv.page.locator('[data-focus="play"]').count(), 0);
+}, { catalog: new BoxSetCatalog() });
 
 const slowRequests = new SearchCatalog();
 const interruptedRequests = new SearchCatalog();

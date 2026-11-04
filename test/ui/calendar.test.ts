@@ -100,7 +100,7 @@ calendarTest("card quick-actions target Calendar episode and season content IDs,
     await tv.remote(10009);
     await tv.eventually(async () => reads(tv).length === count + 1 && (await episode.textContent())?.includes("Watched") === true, "refreshed Calendar decoration");
     const own = "season:s1:2";
-    tv.fake.script(`/catalog/items/${encodeURIComponent(own)}?image_size=medium`, { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: own, type: "season", series_id: "series:s1", season_number: 2, user_state: { played: false }, versions: [] } });
+    tv.fake.script(`/catalog/items/${encodeURIComponent(own)}?image_size=large`, { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: own, type: "season", series_id: "series:s1", season_number: 2, user_state: { played: false }, versions: [] } });
     const before = tv.fake.requests.length;
     await tv.page.locator(`.calendar-event[data-content-id="${own}"]`).focus();
     await tv.down(13); await tv.jump(650); await tv.up(13);

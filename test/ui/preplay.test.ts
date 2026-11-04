@@ -62,6 +62,135 @@ preplay("stored nonzero progress + Play from start sends numeric zero", async (t
 });
 
 const WATCH = "/watch/movie%3Am0001?file_id=42";
+
+preplay("switching episodes cannot bypass a held series subtitle save", async (tv, catalog, playback) => {
+    for (const id of ['episode:s1e11', 'episode:s1e12']) { catalog.fileIds.set(id, '42'); playback.items.set(id, ['42']); }
+    await series(tv);
+    await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+    await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).waitFor();
+    await tv.page.locator('[data-focus="episode:s1e11"]').focus();
+    await tv.page.locator('[data-focus="subtitles"]').waitFor();
+    const held = tv.fake.hold('/subtitle-prefs/series%3As1', true);
+    await tv.page.locator('[data-focus="subtitles"]').click();
+    await tv.page.locator('[data-focus="subtitle:off"]').click();
+    await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+    await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).waitFor();
+    assert.equal(await tv.page.locator('[data-focus="next-episode"]').getAttribute('aria-disabled'), 'true');
+    await tv.page.locator('[data-focus="next-episode"]').evaluate(node => { if (node instanceof HTMLElement) node.click(); });
+    await tv.jump(100);
+    assert.equal(tv.fake.requests.filter(request => request.path === '/playback/start').length, 0);
+    held.release();
+});
+
+preplay("a playback retry cannot bypass another episode's pending series preference", async (tv, catalog, playback) => {
+    for (const id of ['episode:s1e11', 'episode:s1e12']) { catalog.fileIds.set(id, '42'); playback.items.set(id, ['42']); }
+    catalog.progress.set('episode:s1e11', 630);
+    await series(tv);
+    const watch = '/watch/episode%3As1e11?file_id=42';
+    tv.fake.script(watch, { status: 500 });
+    await tv.page.locator('[data-focus="next-episode"]').click();
+    await tv.page.locator('[data-focus="retry-play"]').waitFor();
+    await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+    await tv.page.locator('[data-focus="subtitles"]').waitFor();
+    const held = tv.fake.hold('/subtitle-prefs/series%3As1', true);
+    await tv.page.locator('[data-focus="subtitles"]').click();
+    await tv.page.locator('[data-focus="subtitle:off"]').click();
+    await tv.page.locator('[data-focus="episode:s1e11"]').focus();
+    const retry = tv.page.locator('[data-focus="retry-play"]');
+    await retry.waitFor();
+    assert.equal(await retry.getAttribute('aria-disabled'), 'true');
+    const before = tv.fake.requests.filter(request => request.path === watch).length;
+    await retry.evaluate(node => { if (node instanceof HTMLElement) node.click(); });
+    await tv.jump(100);
+    assert.equal(tv.fake.requests.filter(request => request.path === watch).length, before);
+    held.release();
+});
+
+preplay("an in-flight resume lookup defers handoff if another episode starts a shared save", async (tv, catalog, playback) => {
+    for (const id of ['episode:s1e11', 'episode:s1e12']) { catalog.fileIds.set(id, '42'); playback.items.set(id, ['42']); }
+    catalog.progress.set('episode:s1e11', 630);
+    await series(tv);
+    const watch = tv.fake.hold('/watch/episode%3As1e11?file_id=42', true);
+    await tv.page.locator('[data-focus="next-episode"]').click();
+    await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+    await tv.page.locator('[data-focus="subtitles"]').waitFor();
+    const preference = tv.fake.hold('/subtitle-prefs/series%3As1', true);
+    await tv.page.locator('[data-focus="subtitles"]').click();
+    await tv.page.locator('[data-focus="subtitle:off"]').click();
+    watch.release();
+    await tv.page.locator('[data-focus="episode:s1e11"]').focus();
+    await tv.page.locator('[data-focus="retry-play"]').waitFor({ timeout: 3000 });
+    assert.equal(tv.fake.requests.filter(request => request.path === '/playback/start').length, 0);
+    preference.release();
+    await tv.eventually(async () => await tv.page.locator('[data-focus="retry-play"]').getAttribute('aria-disabled') === 'false', 'deferred playback remains retryable after confirmation');
+    await tv.page.locator('[data-focus="retry-play"]').click();
+    await prepare(tv);
+    assert.equal(tv.fake.requests.filter(request => request.path === '/playback/start').length, 1);
+});
+
+preplay("switching episodes keeps a failed shared subtitle save blocked until confirmation", async (tv, catalog, playback) => {
+    for (const id of ['episode:s1e11', 'episode:s1e12']) { catalog.fileIds.set(id, '42'); playback.items.set(id, ['42']); }
+    await series(tv);
+    await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+    await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).waitFor();
+    await tv.page.locator('[data-focus="episode:s1e11"]').focus();
+    tv.fake.script('/subtitle-prefs/series%3As1', { status: 500 });
+    await tv.page.locator('[data-focus="subtitles"]').click();
+    await tv.page.locator('[data-focus="subtitle:off"]').click();
+    await tv.page.locator('[data-focus="retry-subtitle-preference"]').waitFor();
+    await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+    await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).waitFor();
+    assert.equal(await tv.page.locator('[data-focus="next-episode"]').getAttribute('aria-disabled'), 'true');
+    await tv.page.locator('[data-focus="next-episode"]').evaluate(node => { if (node instanceof HTMLElement) node.click(); });
+    await tv.jump(100);
+    assert.equal(tv.fake.requests.filter(request => request.path === '/playback/start').length, 0);
+    await tv.page.locator('[data-focus="retry-subtitle-preference"]').click();
+    await tv.eventually(async () => await tv.page.locator('[data-focus="next-episode"]').getAttribute('aria-disabled') === 'false', 'shared preference confirmed and refreshed');
+});
+
+preplay("a confirmed series preference refresh clears other episodes' stale track intents but retains versions", async (tv, catalog) => {
+    for (const id of ['episode:s1e11', 'episode:s1e12']) catalog.fileIds.set(id, '42');
+    await series(tv);
+    await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+    await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).waitFor();
+    await tv.page.locator('[data-focus="version"]').click();
+    await tv.page.locator('[data-focus="version:42"]').click();
+    await tv.page.locator('[data-focus="subtitles"]').click();
+    await tv.page.locator('[data-focus="subtitle:off"]').click();
+    await tv.eventually(async () => await tv.page.locator('[data-focus="next-episode"]').getAttribute('aria-disabled') === 'false', 'Off saved');
+    await tv.page.locator('[data-focus="episode:s1e11"]').focus();
+    await tv.page.locator('[data-focus="subtitles"]').click();
+    await tv.page.locator('[data-focus="subtitle:auto"]').click();
+    await tv.eventually(async () => await tv.page.locator('[data-focus="next-episode"]').getAttribute('aria-disabled') === 'false', 'Auto saved');
+    await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+    await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).waitFor();
+    assert.equal(await tv.page.locator('[data-track-summary="subtitles"] span').textContent(), 'Auto');
+    await tv.page.locator('[data-focus="version"]').click();
+    assert.equal(await tv.page.locator('[data-focus="version:42"]').getAttribute('aria-checked'), 'true');
+});
+
+preplay("an extra without a file ID retries version lookup without an accidental start", async (tv, _catalog, playback) => {
+    playback.items.set("extra:1", ["42"]);
+    tv.fake.script("/catalog/items/extra%3A1/versions", { status: 500 });
+    await tv.page.locator('[data-focus="extra:extra:1"]').click();
+    await tv.page.getByRole('button', { name: /Retry Trailer/ }).waitFor();
+    assert.equal(tv.fake.requests.filter(request => request.path === '/playback/start').length, 0);
+    await tv.page.locator('[data-focus="extra:extra:1"]').click();
+    await prepare(tv);
+    assert.equal(tv.fake.requests.find(request => request.path === '/playback/start')?.body?.start_position, 0);
+}, true, false, catalog => { catalog.extras = [{ content_id: "extra:1", kind: "trailer", title: "Trailer" }]; });
+
+preplay("Back cancels an extra's held version lookup", async (tv, _catalog, playback) => {
+    playback.items.set("extra:1", ["42"]);
+    const held = tv.fake.hold("/catalog/items/extra%3A1/versions", true);
+    await tv.page.locator('[data-focus="extra:extra:1"]').click();
+    await tv.page.getByRole('button', { name: /Loading extra/ }).waitFor();
+    await tv.remote(10009);
+    await tv.page.locator('[data-section="recently_added"]').first().waitFor();
+    held.release();
+    await tv.jump(100);
+    assert.equal(tv.fake.requests.filter(request => request.path === '/playback/start').length, 0);
+}, true, false, catalog => { catalog.extras = [{ content_id: "extra:1", kind: "trailer", title: "Trailer" }]; });
 const starts = (tv: Tv) => tv.fake.requests.filter(r => r.path === "/playback/start");
 
 for (const destination of ["series", "season"]) preplay(`${destination} Resume retains cached progress when its fresh lookup is unavailable`, async (tv, catalog, playback) => {
@@ -112,7 +241,7 @@ for (const destination of ["series", "season"]) preplay(`${destination} keeps an
     assert.equal(await tv.page.locator('[data-focus="version:42"]').getAttribute("aria-checked"), "true");
 });
 
-preplay("local extras start from zero through the player and restore their card on Back", async (tv, _catalog, playback) => {
+for (const embeddedFile of [true, false]) preplay(`local extras ${embeddedFile ? "with" : "without"} embedded file ID start from zero and restore their card on Back`, async (tv, _catalog, playback) => {
     playback.items.set("extra:1", ["42"]);
     await tv.page.locator('[data-focus="extra:extra:1"]').click();
     await prepare(tv);
@@ -122,7 +251,7 @@ preplay("local extras start from zero through the player and restore their card 
     await tv.remote(10009);
     await tv.page.locator('.details-extras').waitFor();
     assert.equal(await tv.focused(), "extra:extra:1");
-}, true, false, catalog => { catalog.extras = [{ content_id: "extra:1", file_id: 42, kind: "trailer", title: "Trailer", duration_seconds: 90 }]; });
+}, true, false, catalog => { catalog.extras = [{ content_id: "extra:1", ...(embeddedFile ? { file_id: 42 } : {}), kind: "trailer", title: "Trailer", duration_seconds: 90 }]; });
 
 async function savedAudio(tv: Tv): Promise<void> {
     await tv.page.getByText("Saving audio preference…", { exact: true }).waitFor({ state: "hidden" });

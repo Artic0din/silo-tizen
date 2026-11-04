@@ -12,6 +12,8 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Updated the Series hero and playback target as episode focus moved, added episode air dates and runtimes, restored Apple's fixed detail frames, and resolved local extras whose embedded file ID was absent.
+
 - Updated Movie and Series detail heroes and playback readouts, added Series track selectors and local extras, and aligned episode captions with Apple TV.
 
 - Required demonstrated Apple TV parity before merging parity changes, preserved regression checks, and clarified component reuse and simulator ownership for coding agents.

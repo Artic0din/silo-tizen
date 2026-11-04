@@ -10,7 +10,7 @@ import type { DetailsState } from "./detailsState.ts";
 import { SessionError } from "../session/session.ts";
 import type { FocusTarget, View } from "./browseFocus.ts";
 import { itemView, personView, seasonView, type Synopsis } from "./browseDetails.ts";
-import type { PlayRequest, SeriesContext } from "./browseModel.ts";
+import type { EpisodeSelection, PlayRequest, SeriesContext } from "./browseModel.ts";
 import type { CalendarState } from "./calendarState.ts";
 import { calendarView, type CalendarHandlers } from "./calendarView.ts";
 import { actionButton, homeView, lines, pagedGrid, type SearchResults, searchView, statusView, type ViewContext, zoneNode } from "./browseViews.ts";
@@ -42,7 +42,7 @@ export type RouteData =
     | { readonly kind: "personal"; readonly source: PersonalSource; readonly anchor?: "for_you" | "profiles"; filter: PersonalFilter; capability: PersonalListCapability | undefined; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "home"; data: { libraries: UserLibrary[]; sections: HomeSection[] } | undefined }
     | { readonly kind: "homeSection"; readonly id: string; readonly title: string; readonly continuing: boolean; pages: Pages; pendingIndex: number | undefined }
-    | { readonly kind: "resume"; readonly id: string; readonly title: string; readonly episode?: true; readonly startOver?: boolean }
+    | { readonly kind: "resume"; readonly id: string; readonly title: string; readonly episode?: true; readonly startOver?: boolean; readonly selection?: EpisodeSelection }
     | { readonly kind: "library"; readonly library: UserLibrary; pages: Pages; discovery?: DiscoveryState }
     | { readonly kind: "libraryResults"; readonly library: UserLibrary; readonly title: string; readonly source: LibrarySource; pages: Pages; descending: boolean }
     /** `resultsFor`: the query the shown page answers, which typing can move ahead of. */

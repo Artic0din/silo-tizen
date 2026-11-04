@@ -398,7 +398,7 @@ for (const aggregate of ["series", "season"]) {
             await showing(tv, `item:${episodeId}`);
             await detailsMore(tv);
             await tv.eventually(async () => await tv.page.getByRole("button", { name: played ? "Mark unwatched" : "Mark watched", exact: true }).count() === 1, "covered episode reflects the aggregate change");
-            assert.equal(browseReads(tv, "/catalog/items/episode%3As1e12").length, 4, "Home and Card actions, then Details and its refresh");
+            assert.equal(browseReads(tv, "/catalog/items/episode%3As1e12").length, aggregate === "series" ? 6 : 4, "Home, Card actions, Details and refresh; Series also prefetches on season acceptance and watched invalidation");
             assert.equal(catalog.mutations.length, 1);
         }, { catalog: new FakeDetails() });
     }

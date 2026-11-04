@@ -3,7 +3,7 @@ import { ApiError } from "../api/errors.ts";
 import type { RequestSpec } from "../api/http.ts";
 import { detailOperations, type PersonalAction } from "../api/detailOperations.ts";
 import { operations } from "../api/operations.ts";
-import type { Card, ItemDetail } from "../contracts/v2/catalog.ts";
+import type { Card, ItemDetail, LocalExtra } from "../contracts/v2/catalog.ts";
 import { playChoices, type PlayRequest } from "./browseModel.ts";
 import type { Clock } from "../api/clock.ts";
 import type { NativeSession } from "../session/session.ts";
@@ -23,6 +23,8 @@ export interface PersonalChange {
     readonly failed: boolean;
 }
 
+const EPISODE_PREFETCH_CONCURRENCY = 4;
+
 export class DetailsState {
     readonly rating: RatingState;
     readonly audioPreference: PreplayAudioPreference;
@@ -37,9 +39,26 @@ export class DetailsState {
     nextEpisode: ItemDetail | undefined;
     nextEpisodeState: DetailsState | undefined;
     private previousNextEpisodeState: DetailsState | undefined;
+    focusedEpisodeId: string | undefined;
+    private readonly episodeStates = new Map<string, DetailsState>();
+    private readonly previousEpisodeStates = new Map<string, DetailsState>();
+    private readonly episodeReads = new Set<string>();
+    private readonly episodeFailures = new Set<string>();
+    private readonly episodeQueue: string[] = [];
+    private episodeWorkers = 0;
+    private episodeEpoch = 0;
+    private episodeController: AbortController | undefined;
+    private episodePreferenceDirty = false;
+    private episodePreferenceSource: string | undefined;
+    get unsettledEpisode(): DetailsState | undefined {
+        return [...this.episodeStates.values(), ...this.previousEpisodeStates.values()].find(state => state.audioPreference.pending || state.audioPreference.failed || state.subtitlePreference.pending || state.subtitlePreference.failed);
+    }
+    get episodePreferencesBlocked(): boolean { return this.unsettledEpisode !== undefined; }
+    get playbackTargetId(): string | undefined { return this.focusedEpisodeId ?? this.detail.playContentId; }
     nextEpisodeLoading = false;
     nextEpisodeFailed = false;
-    private nextEpisodeRevision = 0;
+    extraPending: string | undefined;
+    extraFailed: string | undefined;
     private full = false;
     private audioPick: { fileId: string; ordinal: number; inventory: string } | undefined;
     private audioAuto = false;
@@ -85,7 +104,7 @@ export class DetailsState {
     }
 
     get pending(): boolean { return [...this.changes.values()].some(change => change.pending); }
-    get busy(): boolean { return this.pending || this.rating.pending || this.pendingElsewhere(); }
+    get busy(): boolean { return this.pending || this.rating.pending || this.pendingElsewhere() || this.episodePreferencesBlocked; }
 
     start(mode: "full" | "personal" | "playback" = "full"): void {
         if (this.controller !== undefined) return;
@@ -97,7 +116,10 @@ export class DetailsState {
         this.stopAuthority = this.session.onAuthorityChange(() => { this.stop(); this.changed(); });
         if (mode === "playback") return;
         this.nextEpisodeState?.start("playback");
+        for (const state of this.episodeStates.values()) state.start("playback");
+        for (const [id, state] of this.previousEpisodeStates) if (state.audioPreference.failed || state.subtitlePreference.failed) this.queueEpisode(id);
         if (mode === "full") this.series?.start();
+        if (mode === "full") this.warmSeriesEpisodes();
         if (mode === "full") this.loadTitleArt();
         if (mode === "full" && this.nextEpisode === undefined && !this.nextEpisodeFailed) this.loadNextEpisode();
         let interrupted = false;
@@ -113,7 +135,15 @@ export class DetailsState {
     }
 
     stop(): void {
+        this.extraPending = undefined;
+        this.episodeEpoch++;
+        this.episodeController?.abort();
+        this.episodeController = undefined;
         this.nextEpisodeState?.stop();
+        for (const state of this.episodeStates.values()) state.stop();
+        this.episodeReads.clear();
+        this.episodeQueue.length = 0;
+        this.episodeWorkers = 0;
         this.audioPreference.stop();
         this.subtitlePreference.stop();
         this.rating.stop();
@@ -165,7 +195,12 @@ export class DetailsState {
 
     restore(previous: DetailsState | undefined): void {
         if (previous === undefined) return;
+        if (this.detail.versions.some(file => file.fileId === previous.failedPlay?.fileId)) this.failedPlay = previous.failedPlay;
         this.previousNextEpisodeState = previous.nextEpisodeState;
+        this.focusedEpisodeId = previous.focusedEpisodeId;
+        this.episodePreferenceDirty = previous.episodePreferenceDirty;
+        this.episodePreferenceSource = previous.episodePreferenceDirty ? previous.episodePreferenceSource : undefined;
+        for (const [id, state] of previous.episodeStates) this.previousEpisodeStates.set(id, state);
         this.audioPreference.restore(previous.audioPreference);
         this.subtitlePreference.restore(previous.subtitlePreference);
         if (this.detail.versions.some(file => file.fileId === previous.selectedFileId)) this.selectedFileId = previous.selectedFileId;
@@ -270,6 +305,30 @@ export class DetailsState {
         });
     }
 
+    deferPlay(request: PlayRequest): void { this.failedPlay = request; this.changed(); }
+
+    playExtra(extra: LocalExtra, handoff: (request: PlayRequest) => void): void {
+        const controller = this.controller;
+        if (controller === undefined || this.extraPending !== undefined) return;
+        const play = (fileId: string): void => handoff({ contentId: extra.contentId, fileId, title: extra.title || extra.kind, startSeconds: 0 });
+        if (extra.fileId !== undefined) { play(extra.fileId); return; }
+        this.extraPending = extra.contentId;
+        this.extraFailed = undefined;
+        this.changed();
+        this.read(operations.catalogItemVersions(extra.contentId), controller).then(files => {
+            if (!this.current(controller)) return;
+            const file = files[0];
+            if (file === undefined) throw new Error("Extra has no playback file");
+            this.extraPending = undefined;
+            play(file.fileId);
+        }).catch(() => {
+            if (!this.current(controller)) return;
+            this.extraPending = undefined;
+            this.extraFailed = extra.contentId;
+            this.changed();
+        });
+    }
+
     private read<T>(spec: RequestSpec<T>, controller: AbortController): Promise<T> {
         return this.session.call({ ...spec, profileScoped: true, signal: controller.signal });
     }
@@ -279,30 +338,128 @@ export class DetailsState {
     }
 
     loadNextEpisode(): void {
-        const controller = this.controller, id = this.detail.playContentId;
-        if (controller === undefined || !this.full || id === undefined || this.nextEpisodeLoading || !["series", "season"].includes(this.detail.type)) return;
-        this.nextEpisodeLoading = true;
-        this.nextEpisodeFailed = false;
-        const revision = ++this.nextEpisodeRevision;
-        const current = (): boolean => this.current(controller) && this.nextEpisodeRevision === revision && this.detail.playContentId === id;
+        if (!this.full || !["series", "season"].includes(this.detail.type)) return;
+        const id = this.playbackTargetId;
+        if (id !== undefined) { this.episodeFailures.delete(id); this.queueEpisode(id); }
+        this.syncEpisode();
         this.changed();
-        this.read(operations.getCatalogItem(id), controller).then(detail => {
-            if (!current()) return;
-            if (detail.id !== id || detail.type !== "episode") throw new ApiError({ kind: "invalid_response", path: "nextEpisode.item" });
-            this.nextEpisode = detail;
-            this.nextEpisodeState?.stop();
-            this.nextEpisodeState = new DetailsState(detail, this.session, key => this.changed(key), this.watchedChanged, this.pendingElsewhere);
-            if (this.previousNextEpisodeState?.detail.id === detail.id) this.nextEpisodeState.restore(this.previousNextEpisodeState);
+    }
+
+    warmSeriesEpisodes(): void {
+        if (this.detail.playContentId !== undefined) this.queueEpisode(this.detail.playContentId);
+        if (this.series?.episodes !== undefined && this.focusedEpisodeId !== undefined && !this.series.episodes.some(episode => episode.id === this.focusedEpisodeId)) this.focusedEpisodeId = undefined;
+        for (const episode of this.series?.episodes ?? []) this.queueEpisode(episode.id);
+        this.syncEpisode();
+        this.changed();
+    }
+
+    focusEpisode(id: string): void {
+        if (this.focusedEpisodeId === id || !this.series?.episodes?.some(episode => episode.id === id)) return;
+        this.focusedEpisodeId = id;
+        // Focus only selects a preloaded owner. Reads belong to season acceptance and explicit Retry.
+        this.syncEpisode();
+        this.changed();
+    }
+
+    cachedEpisode(id: string): DetailsState | undefined { return this.episodeStates.get(id); }
+
+    noteEpisodePreference(id: string): void {
+        if (this.episodeStates.has(id)) { this.episodePreferenceDirty = true; this.episodePreferenceSource = id; }
+    }
+
+    retryPreference(kind: "audio" | "subtitles", owner: DetailsState): void {
+        if (this.previousEpisodeStates.get(owner.detail.id) === owner && this.episodeStates.get(owner.detail.id) !== owner) {
+            this.episodeFailures.delete(owner.detail.id);
+            this.queueEpisode(owner.detail.id);
+            this.syncEpisode();
+            this.changed();
+        } else if (kind === "audio") owner.audioPreference.retry();
+        else owner.subtitlePreference.retry();
+    }
+
+    showSeriesOverview(): void { this.focusedEpisodeId = undefined; this.syncEpisode(); this.closePanel(); }
+
+    private syncEpisode(): void {
+        const id = this.playbackTargetId;
+        this.nextEpisodeState = id === undefined ? undefined : this.episodeStates.get(id);
+        this.nextEpisode = this.nextEpisodeState?.detail;
+        this.nextEpisodeFailed = id !== undefined && this.episodeFailures.has(id);
+        this.nextEpisodeLoading = id !== undefined && this.episodeReads.has(id);
+    }
+
+    private queueEpisode(id: string): void {
+        if (this.controller === undefined || this.episodeStates.has(id) || this.episodeReads.has(id) || this.episodeFailures.has(id)) return;
+        this.episodeReads.add(id);
+        this.episodeController ??= new AbortController();
+        this.episodeQueue.push(id);
+        this.drainEpisodes();
+    }
+
+    private drainEpisodes(): void {
+        const controller = this.controller;
+        const episodeController = this.episodeController, epoch = this.episodeEpoch;
+        if (controller === undefined || episodeController === undefined) return;
+        const current = (): boolean => this.current(controller) && this.episodeEpoch === epoch;
+        while (this.episodeWorkers < EPISODE_PREFETCH_CONCURRENCY && this.episodeQueue.length > 0) {
+            const id = this.episodeQueue.shift();
+            if (id === undefined) break;
+            this.episodeWorkers++;
+            this.session.call({ ...operations.getCatalogItem(id), profileScoped: true, signal: episodeController.signal }).then(detail => {
+                if (!current()) return;
+                if (detail.id !== id || detail.type !== "episode") throw new ApiError({ kind: "invalid_response", path: "nextEpisode.item" });
+                const state = new DetailsState(detail, this.session, key => this.episodePreferenceChanged(state, key), this.watchedChanged, this.pendingElsewhere);
+                state.restore(this.previousEpisodeStates.get(id) ?? (this.previousNextEpisodeState?.detail.id === id ? this.previousNextEpisodeState : undefined));
+                this.previousEpisodeStates.delete(id);
+                this.episodeStates.set(id, state);
+                state.start("playback");
+            }).catch(() => { if (current()) this.episodeFailures.add(id); }).finally(() => {
+                if (!current()) return;
+                this.episodeWorkers--;
+                this.episodeReads.delete(id);
+                this.syncEpisode();
+                this.changed();
+                this.drainEpisodes();
+            });
+        }
+    }
+
+    private invalidateEpisodes(): void {
+        this.episodeEpoch++;
+        this.episodeController?.abort();
+        this.episodeController = undefined;
+        for (const [id, state] of this.episodeStates) { this.previousEpisodeStates.set(id, state); state.stop(); }
+        this.episodeStates.clear();
+        this.episodeReads.clear();
+        this.episodeFailures.clear();
+        this.episodeQueue.length = 0;
+        this.episodeWorkers = 0;
+    }
+
+    private episodePreferenceChanged(state: DetailsState, key?: string): void {
+        if (state.audioPreference.pending || state.subtitlePreference.pending) {
+            this.episodePreferenceDirty = true;
+        }
+        if (this.episodePreferenceDirty && !this.episodePreferencesBlocked && this.controller !== undefined) {
+            this.episodePreferenceDirty = false;
+            const owners = new Map([...this.previousEpisodeStates, ...this.episodeStates]);
+            const ids = [...new Set([...owners.keys(), ...this.episodeReads, ...(this.series?.episodes ?? []).map(episode => episode.id)])];
+            for (const [episodeId, owner] of owners) {
+                if (episodeId !== this.episodePreferenceSource) {
+                    owner.audioPick = undefined; owner.subtitlePick = undefined;
+                    owner.audioAuto = false; owner.subtitleAuto = false;
+                    if (owner.failedPlay !== undefined) {
+                        const { audioTrackId: _audio, subtitle: _subtitle, ...request } = owner.failedPlay;
+                        owner.failedPlay = { ...request, subtitle: { kind: "auto" } };
+                    }
+                }
+            }
+            this.episodePreferenceSource = undefined;
+            this.invalidateEpisodes();
             this.previousNextEpisodeState = undefined;
-            this.nextEpisodeState.start("playback");
-            this.nextEpisodeLoading = false;
-            this.changed();
-        }).catch(() => {
-            if (!current()) return;
-            this.nextEpisodeLoading = false;
-            this.nextEpisodeFailed = true;
-            this.changed();
-        });
+            for (const episodeId of ids) this.queueEpisode(episodeId);
+            this.syncEpisode();
+        }
+        this.changed(key);
     }
 
     loadRelated(): void {
@@ -392,10 +549,13 @@ export class DetailsState {
             if (this.current(controller)) {
                 this.detail = detail;
                 this.values.set(kind, detail.played);
+                this.invalidateEpisodes();
+                this.focusedEpisodeId = undefined;
                 this.nextEpisode = undefined;
                 this.nextEpisodeLoading = false;
                 this.nextEpisodeFailed = false;
                 this.loadNextEpisode();
+                this.warmSeriesEpisodes();
             }
             return detail.played;
         }

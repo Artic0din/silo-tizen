@@ -5,7 +5,65 @@ import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
+detailTest("episode focus swaps cached hero and selectors without starting a read", async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="next-episode"]').waitFor();
+    assert.equal(await tv.page.locator('[data-focus="episode:s1e11"] .browse-card-title').textContent(), "S01E01 · Harbor Lights chapter 1.1");
+    assert.equal(await tv.page.locator('[data-focus="episode:s1e11"] .browse-card-subtitle').textContent(), "Feb 18, 2022  ·  57m");
+    await tv.eventually(async () => tv.fake.requests.some(request => request.path.startsWith('/catalog/items/episode%3As1e12')), "season playback details prefetched");
+    await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+    await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).waitFor();
+    assert.match(await tv.page.locator('.details-editorial .browse-overview').textContent() ?? '', /Harbor Lights chapter 1\.2/);
+    const before = tv.fake.requests.length;
+    await tv.page.locator('[data-focus="episode:s1e11"]').focus();
+    await tv.page.getByRole('button', { name: /Play S1:E1|Resume S1:E1/ }).waitFor();
+    await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+    await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).waitFor();
+    assert.equal(tv.fake.requests.length, before, "focus starts no reads");
+    await tv.page.locator('[data-focus="next-episode"]').click();
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length > 0), 'handoff');
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.at(-1)?.contentId), 'episode:s1e12');
+});
+
 let browser: Browser;
+
+detailTest("a failed prefetched episode only retries on Select, never on focus", async tv => {
+    const catalog = tv.fake.catalog;
+    assert.ok(catalog instanceof FakeDetails);
+    const reply = catalog.route('GET', '/catalog/items/episode%3As1e12', 'p-owner');
+    assert.ok(reply);
+    let failed = true;
+    await tv.page.route('**/api/v2/catalog/items/episode%3As1e12?**', route => route.fulfill(failed ? { status: 500 } : { status: 200, json: reply.body }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+    await tv.page.getByRole('button', { name: 'Retry episode', exact: true }).waitFor();
+    for (const key of ['version', 'audio', 'subtitles']) assert.equal(await tv.page.locator(`[data-focus="${key}"]`).getAttribute('aria-disabled'), 'true', `${key} keeps its disabled slot`);
+    const reads = (): number => tv.fake.requests.filter(request => request.path.startsWith('/catalog/items/episode%3As1e12')).length;
+    const before = reads();
+    await tv.page.locator('[data-focus="episode:s1e11"]').focus();
+    await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+    assert.equal(reads(), before);
+    failed = false;
+    await tv.page.getByRole('button', { name: 'Retry episode', exact: true }).click();
+    await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).waitFor();
+});
+
+detailTest("episode rail Select carries its cached subtitle Off choice", async tv => {
+    let off = false;
+    await tv.page.route('**/api/v2/subtitle-prefs/**', async route => {
+        if (route.request().method() === 'PUT') { off = true; await route.fulfill({ status: 204 }); }
+        else await route.fulfill(off ? { status: 200, json: { series_id: 'series:s1', subtitle_mode: 'off', subtitle_track_index: -1 } } : { status: 404 });
+    });
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+    await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).waitFor();
+    await tv.page.locator('[data-focus="subtitles"]').click();
+    await tv.page.locator('[data-focus="subtitle:off"]').click();
+    await tv.page.getByText('Saving subtitle preference…', { exact: true }).waitFor({ state: 'hidden' });
+    await tv.page.locator('[data-focus="episode:s1e12"]').click();
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length > 0), 'rail handoff');
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.at(-1)?.subtitle?.kind), 'off');
+});
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
 
@@ -111,8 +169,8 @@ detailTest("series shares the full detail hero and next-episode track selectors"
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('[data-focus="audio"]').waitFor({ timeout: 3000 });
     assert.equal(await tv.page.locator('.details-hero .skyline-hero-backdrop').count(), 1);
-    const hero = await tv.page.locator('.details-hero').boundingBox();
-    assert.equal(hero?.height, 690);
+    const heroHeight = await tv.page.evaluate(() => document.querySelector('.details-hero')?.getBoundingClientRect().height);
+    assert.equal(heroHeight, 690);
     assert.equal(await tv.page.locator('.details-playback-summary [data-track-summary]').count(), 3);
     await tv.page.locator('[data-focus="subtitles"]').click();
     await tv.page.locator('[data-focus="subtitle:off"]').click();
@@ -125,7 +183,7 @@ detailTest("series shares the full detail hero and next-episode track selectors"
     assert.match(await tv.focused() ?? "", /^episode:/);
 });
 
-for (const media of ["movie:m0001", "series:s1"]) detailTest(`a wrapped ${media} title keeps every action inside its hero`, async tv => {
+for (const media of ["movie:m0001", "series:s1"]) detailTest(`a wrapped ${media} title retains Apple's fixed hero and disclosure layout`, async tv => {
     const catalog = tv.fake.catalog;
     assert.ok(catalog instanceof FakeDetails);
     const reply = catalog.route("GET", `/catalog/items/${encodeURIComponent(media)}`, "p-owner");
@@ -136,9 +194,11 @@ for (const media of ["movie:m0001", "series:s1"]) detailTest(`a wrapped ${media}
     });
     await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
     await tv.page.locator('[data-focus="more"]').waitFor();
-    const bounds = await tv.page.locator('.details-hero').evaluate(hero => {
-        const actions = hero.querySelector('.browse-actions');
-        return { bottom: hero.getBoundingClientRect().bottom, actionBottom: actions?.getBoundingClientRect().bottom };
+    const bounds = await tv.page.evaluate(() => {
+        const hero = document.querySelector('.details-hero');
+        const actions = hero?.querySelector('.browse-actions');
+        return { height: hero?.getBoundingClientRect().height, bottom: hero?.getBoundingClientRect().bottom, actionBottom: actions?.getBoundingClientRect().bottom };
     });
-    assert.ok(bounds.actionBottom !== undefined && bounds.actionBottom <= bounds.bottom, JSON.stringify(bounds));
+    assert.equal(bounds.height, 690);
+    if (media.startsWith("series")) assert.ok(bounds.actionBottom !== undefined && bounds.bottom !== undefined && bounds.actionBottom <= bounds.bottom, JSON.stringify(bounds));
 });

@@ -132,8 +132,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let shownOverlays: CardOverlayPrefs | undefined = presentation.cardOverlays;
     const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, cardOverlays: () => presentation.cardOverlays, posterScale: () => presentation.posterScale, savedFileOverlay: card => homeDetails.savedFile(card)?.overlay, open: (destination) => open(destination), preview: (card, row, continuing) => shell.preview(card, row, continuing), resume: (id, title) => {
         if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title }));
-    }, playEpisode: (id, title, startOver) => {
-        if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title, episode: true, startOver: startOver === true }));
+    }, playEpisode: (id, title, startOver, selection) => {
+        const current = top();
+        if ((current?.kind === "item" || current?.kind === "season") && current.data?.details?.episodePreferencesBlocked) return;
+        if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title, episode: true, startOver: startOver === true, ...(selection === undefined ? {} : { selection }) }));
     }, quickActions: card => {
         const current = top();
         if (current === undefined || torn || playing || cardActions.active) return;
@@ -705,10 +707,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 load(current, async signal => {
                     const detail = await read(operations.getCatalogItem(current.id), signal);
                     if (detail.id !== current.id || (detail.type !== "movie" && detail.type !== "episode") || (current.episode === true && detail.type !== "episode")) throw new ApiError({ kind: "invalid_response", path: "resume.item" });
-                    const choices = playChoices(detail);
+                    const choices = playChoices(detail, current.selection?.fileId);
                     if (choices === undefined) return undefined;
                     let request = current.startOver === true ? choices.fromStart : choices.resume ?? choices.fromStart;
-                    if (detail.type === "episode") request = { ...request, subtitle: { kind: "auto" } };
+                    if (detail.type === "episode") request = { ...request, subtitle: { kind: "auto" }, ...current.selection };
                     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
                     return detail.type === "episode" && current.startOver !== true ? { ...request, startSeconds: await freshPlayPosition(session, request, clock, signal) } : request;
                 }, request => {
@@ -813,7 +815,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     const previous = current.data?.details;
                     const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending);
                     details.restore(previous);
-                    if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, () => detailsChanged(current), previous?.series?.seasonNumber ?? data.contextSeason, current.seriesContext?.episodeId);
+                    if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, () => details.warmSeriesEpisodes(), previous?.series?.seasonNumber ?? data.contextSeason, current.seriesContext?.episodeId);
                     details.series?.restore(previous?.series);
                     details.related = quiet ? previous?.related : undefined;
                     current.data = { ...data, details };
@@ -1082,6 +1084,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const current = top();
         if (current === undefined || torn || playing) return;
         const details = current.kind === "item" || current.kind === "season" ? current.data?.details : undefined;
+        if (request.episode === true && details?.episodePreferencesBlocked) return;
         const focus = host.focused();
         if (details === undefined) handoff(request);
         else {
@@ -1091,7 +1094,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             detailWork = details;
             details.start();
             const playbackState = details.nextEpisodeState?.detail.id === request.contentId ? details.nextEpisodeState : details;
-            playbackState.preparePlay(request, clock, resolved => handoff(resolved, focus));
+            playbackState.preparePlay(request, clock, resolved => {
+                if (resolved.episode === true && details.episodePreferencesBlocked) { playbackState.deferPlay(request); return; }
+                handoff(resolved, focus);
+            });
         }
     };
 

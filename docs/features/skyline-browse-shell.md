@@ -13,8 +13,9 @@ A passive line shows the selected version, audio and subtitle intent.
 Movie and Series share the existing sampled hero backdrop and title typography used by Requests details.
 Series next-episode Version, Audio and Subtitles controls reuse the episode Details preference owner; both Resume and Start Over carry its selections.
 Auto audio stays server-resolved until a viewer explicitly picks a track.
-Local extras with an authoritative file ID appear in Trailers & More, start at zero through the existing player, and restore their card on Back.
-Extras without a file ID remain disabled; remote YouTube launching is not implemented.
+Local extras appear in Trailers & More, start at zero through the existing player, and restore their card on Back.
+If the embedded extra omits its file ID, Select resolves its existing catalog versions endpoint before playback; failure keeps Retry on that card and Back cancels the lookup.
+Remote YouTube launching is not implemented because no supported Samsung YouTube handoff has been verified.
 More retains watched/favorite actions, the full-synopsis dialog and the movie/series rating dialog.
 Each dialog owns focus, hides the underlying page from accessibility, and restores its initiating control on Back.
 The inline synopsis clamps to three lines with ellipsis; the full text remains available in More.
@@ -24,6 +25,16 @@ Series Details use season chips and an inline landscape episode rail.
 The accepted initial season loads independently; subsequent season reads require explicit selection and replace obsolete reads.
 Re-selecting a loading chip keeps the same request and Calendar episode context.
 Moving focus makes no request.
+Accepting a season queues its episode catalog details with at most four reads in flight, deduplicated against the next-up read and this visit's cache.
+Each accepted episode detail starts its existing playback/preference owner before focus reaches it.
+All cached episodes share a series-wide playback gate while any series preference save is pending or unconfirmed.
+A confirmed save refreshes accepted episode details in the same bounded queue, clears other episodes' stale track intents, and retains their selected versions.
+Interrupted prefetches resume on return; watched mutations cancel older cache generations before refreshing them.
+Focus changes the hero synopsis, metadata, ratings and playback selection target by selecting that cached owner.
+The show's title, logo, artwork and starring credit stay fixed.
+While a detail is pending or failed, the loaded episode row still supplies its synopsis, air date and runtime; playback selectors wait for validated detail and an explicit Retry can repeat a failed read.
+More > Show Series Info restores the overview without a read.
+Rail Select carries confirmed version/audio/subtitle selections through the existing fresh catalog and progress resolution route.
 Ordinary episode Details/Back retains the selected season, loaded rail and focused episode.
 The existing season-information destination remains available in More.
 Episode Select on the rail, season list and ordinary media cards prepares playback directly.
@@ -43,15 +54,15 @@ Paths below are relative to `iosApp/iosApp/`.
 
 | Element | Apple source and exact value | Tizen candidate |
 | --- | --- | --- |
-| Hero | `tvOS/Screens/Detail/TVDetailHero.swift:10`: inset 100, height 690, top 116, editorial width 1080 | Shared backdrop; minimum 690, grows for wrapped text so controls remain reachable |
+| Hero | `tvOS/Screens/Detail/TVDetailHero.swift:10`: inset 100, height 690, top 116, editorial width 1080 | Shared backdrop and fixed 690-point frame; Large Series lifts the hero and top inset by 32 |
 | Title | `tvOS/Screens/Detail/TVDetailHero.swift:505`: 92-point compressed primary, 40-point secondary | Requests shared title treatment; colon-separated fallback; guarded logo loading retained |
 | Summary | `tvOS/Screens/Detail/TVDetailHero.swift:763`: gap 8; slots 313/364/338; height 44 | Three passive slots above actions |
-| Series baseline | `tvOS/Screens/Detail/TVSeriesDetailView.swift:405`: editorial 435, metadata 36, synopsis 112, credit 28, action spacing 4 | Synopsis reserved; actions bottom-aligned with 57-point trailing space; episode-focus editorial switching remains outstanding |
+| Series baseline | `tvOS/Screens/Detail/TVSeriesDetailView.swift:405`: editorial 435, metadata 36, synopsis 112, credit 28, action spacing 4 | Primary editorial clipped at 351; 80-point disclosure bottom-locked inside 435; actions at y=557 |
 | Controls | `tvOS/Screens/Detail/TVDetailActions.swift:354`: minimum circle width 76 and height 76; `TVMovieDetailView.swift:176`: primary width 340 | Existing dialogs and personal/rating ownership retained; next-episode controls now use the same selection owner |
 | Credits | `tvOS/Screens/Detail/TVDetailHero.swift:741`: first two directors for movies; first three cast names otherwise | Same text and limits |
 | Cast | `tvOS/Screens/Detail/TVDetailCastRail.swift:15`: 200-point circles | Existing circular cards, role deduplication and focus unchanged |
 | Extras | `tvOS/Screens/Detail/TVTrailersRail.swift:23`: gap 48; `:75`: 470×264 cards, radius 18 | Local extras decoded from server watch targets; same card geometry |
-| Episode caption | `Components/EpisodeCardCaption.swift:90`: season/episode code, middle dot, title | Same title; runtime in h/m; watched badge; air-date metadata remains outstanding |
+| Episode caption | `Components/EpisodeCardCaption.swift:90`: zero-padded season/episode code, middle dot, title | Same title, localized air date and h/m runtime; watched badge |
 
 Remote navigation retains one FocusHost owner: Left/Right within action, season, episode, cast, extras and related rows; Up/Down through nonempty rows; Back closes the active dialog before popping the page.
 Seasons require explicit activation, including Specials; focus movement does not read data.
@@ -63,8 +74,19 @@ Native acceptance remains required before merge.
 Compare identical Movie and Series items, profile, selected file and tracks, card-size setting and 1920×1080 viewport on both clients.
 Capture entry with Play focused; each selector open; subtitle Off selected; More then rating and full synopsis; Cast focused; Trailers & More focused; related focused; and Back restoration.
 For Series additionally capture Season 1 selected, the first episode focused, the second episode focused, another season explicitly selected, Specials selected, and Back from Episode information.
-Apple episode focus changes its editorial metadata and selection target; this candidate retains the server next-up target and show overview.
-Do not claim whole-page parity until that difference, missing episode air dates, long-title hero growth and missing-file extras are resolved or explicitly accepted.
+Apple's Movie hero uses an unreserved editorial stack inside `heroComposition.clipped()` (`TVDetailHero.swift:149-166,263-270`); title and synopsis retain their vertical size (`:493,501`, `TVHeroSynopsis.swift:24`).
+It has no grow-the-hero or shrink-the-title rule.
+The Tizen Movie frame now follows that fixed clipping contract, including overflow for pathological text; Series separately clips its primary editorial region and preserves disclosure/actions.
+This is a source-derived result, not an observation of the same pathological item on an installed Apple build.
+Native comparison must establish the exact visible truncation before merge.
+
+Apple does not filter local extras by file ID (`Screens/Detail/TrailerRail.swift:94-98`); tvOS launches their content ID from the beginning (`TVItemDetailView.swift:259-265`).
+The Tizen fallback resolves `/catalog/items/{content_id}/versions` on Select when the embedded file ID is absent, then uses the existing player and its authoritative inventory.
+Apple shows YouTube entries when its app is installed, and also in the tvOS simulator (`TVTrailersRail.swift:259-291`), then opens `youtube://www.youtube.com/watch?v=…` (`Screens/Detail/TrailerRail.swift:126`).
+Samsung's [Application API](https://developer.samsung.com/smarttv/develop/api-references/tizen-web-device-api-references/application-api.html) provides generic application-control dispatch; it does not establish that Apple's URL scheme or a particular YouTube video handoff works on Samsung.
+Tizen continues to omit remote cards until that receiving-app contract is verified; local extras are functional independently.
+Episode air dates, overview, ratings and runtime exist in the server's episode response (`silo-server 6aa6791ea072186ed0536bac41174486f96e7536`, `internal/apiv2/catalog_items.go:557-568`).
+Apple caption commit `b63e1be0bd90c26c7af11f592def93b5cb56796f` is included in the pinned Apple main above.
 
 ## Preplay audio, subtitles and resume
 

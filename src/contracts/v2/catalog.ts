@@ -293,6 +293,7 @@ export interface WatchState {
 }
 
 export interface ItemDetail {
+    readonly airDate?: string | undefined;
     readonly extras?: readonly LocalExtra[];
     readonly played: boolean | undefined;
     readonly extra?: DetailExtras;
@@ -357,6 +358,7 @@ export function decodeItemDetail(value: unknown): ItemDetail {
         played: obj.user_state === undefined ? watch?.played : boolean(object(obj.user_state, `${path}.user_state`), "played", `${path}.user_state`),
         extra: decodeDetailExtras(value),
         extras: decodeExtras(obj),
+        airDate: optionalString(obj, "air_date", path),
         id: string(obj, "content_id", path),
         type: oneOf(string(obj, "type", path), CARD_TYPES),
         title: string(obj, "title", path),
@@ -427,6 +429,9 @@ export function decodeSeasons(value: unknown): Season[] {
 // --- listSeasonEpisodes ---
 
 export interface Episode {
+    readonly airDate?: string | undefined;
+    readonly overview?: string | undefined;
+    readonly ratings?: DetailExtras["ratings"];
     readonly files?: readonly { readonly fileId: string; readonly unreadable: boolean }[];
     readonly id: string;
     readonly seasonNumber: number;
@@ -441,6 +446,9 @@ export function decodeEpisodes(value: unknown): Episode[] {
     return items(value, "episodes", (entry, path) => {
         const obj = object(entry, path);
         return {
+            airDate: optionalString(obj, "air_date", path),
+            overview: optionalString(obj, "overview", path),
+            ratings: decodeDetailExtras(obj).ratings,
             files: (obj.files === undefined ? [] : array(obj, "files", path)).map((entry, index) => {
                 const filePath = `${path}.files[${index}]`;
                 const file = object(entry, filePath);

@@ -530,6 +530,11 @@ export function moveWithin(zone: Pick<Zone, "layout" | "columns">, count: number
 
 /** Makes `nodes` the container's children; a node already in its place is not moved, so it keeps focus. */
 function place(container: HTMLElement, nodes: readonly HTMLElement[]): void {
+    // Remove replaced siblings first so retained focus/press hosts never need a DOM move.
+    const retained = new Set(nodes);
+    for (const child of Array.from(container.children)) {
+        if (child instanceof HTMLElement && !retained.has(child)) child.remove();
+    }
     nodes.forEach((node, index) => {
         const current = container.children[index];
         if (current !== node) {

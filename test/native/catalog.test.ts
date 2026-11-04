@@ -16,6 +16,13 @@ import {
 } from "../../src/contracts/v2/catalog.ts";
 import { WireError } from "../../src/contracts/v2/wire.ts";
 
+test("episode rows retain air date, overview and episode ratings", () => {
+    const episodes = decodeEpisodes({ items: [{ content_id: "episode:1", season_number: 1, episode_number: 2, title: "Pilot", runtime: 52, air_date: "2026-02-18", overview: "An arrival", ratings: [{ name: "IMDb", display: "8.1" }] }] });
+    assert.equal(episodes[0]?.airDate, "2026-02-18");
+    assert.equal(episodes[0]?.overview, "An arrival");
+    assert.deepEqual(episodes[0]?.ratings, [{ name: "IMDb", display: "8.1" }]);
+});
+
 test("local extras retain authoritative watch targets and numeric file IDs", () => {
     const detail = decodeItemDetail({ ...fixture("get_catalog_item_ok"), extras: [{ content_id: "extra:1", file_id: 71, kind: "trailer", title: "Trailer", duration_seconds: 90, still_url: "/extra.jpg" }] });
     assert.deepEqual(detail.extras, [{ contentId: "extra:1", fileId: "71", kind: "trailer", title: "Trailer", durationSeconds: 90, stillUrl: "/extra.jpg" }]);

@@ -88,7 +88,7 @@
 .details-editorial { position: relative; padding-top: 116px; margin-left: 100px; width: 1080px; }
 .details-editorial .browse-title { max-width: 1080px; margin-bottom: 14px; }
 .details-editorial .browse-meta { font-size: 24px; line-height: 36px; margin: 0 0 14px; }
-.details-logo { display: block; max-width: 860px; max-height: 180px; object-fit: contain; object-position: left center; }
+.details-logo { display: block; max-width: 650px; max-height: 160px; object-fit: contain; object-position: left center; }
 .details-editorial .browse-overview { max-width: 1080px; font-size: 26px; line-height: 36px; max-height: 108px; margin-bottom: 14px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .details-editorial .browse-actions { margin-bottom: 0; }
 .details-editorial .browse-button { padding: 18px 28px; margin-right: 16px; }
@@ -101,11 +101,13 @@
 .details-playback-summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .details-playback-summary strong { font-size: 23px; }
 .details-hero[data-media-type="series"] .details-editorial .browse-overview { height: 112px; max-height: 112px; }
-.details-hero[data-media-type="series"] { min-height: 690px; height: auto; }
-.details-hero[data-media-type="series"] .details-editorial { display: flex; flex-direction: column; min-height: 690px; box-sizing: border-box; padding-bottom: 57px; }
-.details-hero[data-media-type="series"] .details-editorial .browse-actions { margin-top: auto; }
-.details-hero:not([data-media-type="series"]) { min-height: 690px; height: auto; }
-.details-hero:not([data-media-type="series"]) .details-editorial { padding-bottom: 44px; }
+.details-series-editorial { position: relative; height: 435px; overflow: hidden; }
+.details-hero[data-media-type="series"] { overflow: visible; }
+.details-series-primary { height: 351px; overflow: hidden; }
+.details-series-disclosure { position: absolute; bottom: 0; left: 0; width: 1080px; height: 80px; }
+.details-series-disclosure .details-director { height: 28px; margin: 0 0 8px; overflow: hidden; white-space: nowrap; }
+.details-series-disclosure .details-playback-summary { margin-bottom: 0; }
+.details-hero[data-media-type="series"] .details-editorial .browse-actions { margin-top: 6px; }
 .details-director { font-size: 23px; line-height: 28px; margin-bottom: 14px; }
 .details-editorial .browse-actions { display: flex; align-items: center; gap: 18px; }
 .details-editorial .details-action { display: inline-flex; align-items: center; justify-content: center; gap: 18px; flex-shrink: 0; height: 76px; margin: 0; border-radius: 38px; }

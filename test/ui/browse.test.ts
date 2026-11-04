@@ -42,6 +42,86 @@ class SearchEdgeCatalog extends SearchCatalog {
     }
 }
 
+browseTest("Search filter focus applies immediately and cancels superseded reads", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie 0001"); await tv.remote(IME_DONE);
+    await tv.page.locator('.browse-grid [data-focus="movie:m0001"]').waitFor();
+    const held = tv.fake.hold("/catalog", true);
+    await tv.page.locator('[data-focus="search-filter:movie"]').focus();
+    await tv.eventually(async () => browseReads(tv, "/catalog").length === 2, "Movies read on focus without Select");
+    const cancelled = tv.page.waitForEvent("requestfailed", request => new URL(request.url()).pathname === "/api/v2/catalog");
+    await press(tv, "ArrowRight");
+    await cancelled;
+    await tv.eventually(async () => browseReads(tv, "/catalog").length === 3, "Series supersedes Movies");
+    held.release();
+    await shows(tv, "Try a different search term");
+    assert.equal(await tv.focused(), "search-filter:series");
+    assert.equal(await tv.page.locator('[data-focus="search-filter:series"]').getAttribute("aria-pressed"), "true");
+    assert.equal(await tv.page.locator('.browse-grid .browse-card').count(), 0, "late Movies answer cannot replace Series");
+});
+
+for (const reduced of [false, true]) {
+    browseTest(`Search spatial entry and filter scroll preserve Back identity: ${reduced ? "reduced" : "normal"} motion`, async tv => {
+        await tv.page.emulateMedia({ reducedMotion: reduced ? "reduce" : "no-preference" });
+        await tv.page.locator('[data-focus="search"]').click();
+        await tv.page.fill("#browse-search", "Movie 0001"); await tv.remote(IME_DONE);
+        await tv.page.locator('[data-focus="person:edge-1"]').waitFor({ state: "attached" });
+        await tv.page.locator('.browse-grid .browse-card').waitFor();
+        await tv.page.locator('[data-focus="person:edge-1"]').focus();
+        await press(tv, "ArrowDown"); await tv.jump(250);
+        assert.equal(await tv.focused(), "movie:m0001");
+        const offset = await tv.page.locator('.browse').evaluate(node => node.scrollTop);
+        assert.ok(offset > 0);
+        assert.ok(await tv.page.locator('.browse-grid .browse-card').evaluate(node => node.getBoundingClientRect().bottom <= 978), "focused captions retain the native 103px bottom clearance");
+        await press(tv, "Enter"); await showing(tv, "item:movie:m0001");
+        await tv.remote(BACK); await showing(tv, "search"); await tv.jump(250);
+        assert.equal(await tv.focused(), "movie:m0001", "Back keeps section and item identity");
+        assert.equal(await tv.page.locator('.browse').evaluate(node => node.scrollTop), offset);
+        await tv.eventually(async () => tv.page.locator('.search-navigation-title').evaluate(node => getComputedStyle(node).position === "fixed" && getComputedStyle(node).color === "rgba(237, 237, 237, 0.3)"), "restored scrolled navigation title");
+        await press(tv, "ArrowUp", "ArrowUp"); await tv.jump(250);
+        assert.equal(await tv.page.locator('.browse').evaluate(node => node.scrollTop), 0, "Up to filters restores the search field");
+        await tv.page.fill("#browse-search", "Tom"); await tv.remote(IME_DONE);
+        await tv.page.locator('[data-focus="movie:960"]').waitFor({ state: "attached" });
+        await tv.page.locator('[data-focus="person:edge-3"]').focus();
+        await press(tv, "ArrowDown"); await tv.jump(250);
+        assert.equal(await tv.focused(), "movie:952", "Requests entry follows origin geometry");
+    }, { catalog: new SearchEdgeCatalog() });
+}
+
+browseTest("Search spatial People entry chooses the nearest title column", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie 000"); await tv.remote(IME_DONE);
+    await tv.page.locator('.browse-grid [data-focus="movie:m0002"]').waitFor();
+    await tv.page.locator('[data-focus="person:edge-1"]').focus();
+    const reads = tv.fake.requests.length;
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "movie:m0002");
+    await press(tv, "ArrowDown", "ArrowDown");
+    assert.equal(await tv.focused(), "movie:950");
+    await press(tv, "ArrowUp");
+    assert.equal(await tv.focused(), "movie:m0008", "Up from Requests enters the adjacent bottom grid row");
+    assert.equal(tv.fake.requests.length, reads);
+}, { catalog: new SearchEdgeCatalog() });
+
+browseTest("Search field and no-results spacing use the native presentation", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    assert.deepEqual(await tv.page.locator('#browse-search').evaluate(node => {
+        const style = getComputedStyle(node);
+        return [style.fontSize, style.borderWidth, style.backgroundColor, getComputedStyle(node, '::-webkit-search-cancel-button').getPropertyValue('-webkit-appearance')];
+    }), ["56px", "0px", "rgba(0, 0, 0, 0)", "none"]);
+    assert.equal(await tv.page.locator('.search-field-icon svg').count(), 1);
+    assert.deepEqual(await tv.page.locator('.search-field-icon svg').evaluate(node => {
+        const rect = node.getBoundingClientRect();
+        return [rect.width, rect.height];
+    }), [56, 56]);
+    const prompt = await tv.page.locator('.search-prompt').boundingBox();
+    assert.equal(prompt?.y, 438, "true empty state keeps its existing position");
+    await tv.page.fill("#browse-search", "bbbbbb"); await tv.remote(IME_DONE);
+    await shows(tv, "No results");
+    assert.equal(await tv.page.locator('.search-empty .search-state-icon').evaluate(node => node.getBoundingClientRect().top), 568);
+    assert.equal(await tv.page.locator('.search-empty .search-state-title').evaluate(node => node.getBoundingClientRect().top), 628);
+});
+
 for (const reduced of [false, true]) {
     browseTest(`Search keeps a later request visible when People arrives: ${reduced ? "reduced" : "normal"} motion`, async tv => {
         await tv.page.emulateMedia({ reducedMotion: reduced ? "reduce" : "no-preference" });
@@ -97,7 +177,8 @@ for (const reduced of [false, true]) {
             }
         }
         await press(tv, "ArrowDown");
-        assert.equal(await tv.focused(), "movie:949");
+        assert.equal(await tv.focused(), "movie:954", "entry follows the sixth person's centre");
+        for (let step = 0; step < 5; step++) await press(tv, "ArrowLeft");
         await tv.eventually(async () => await paints('[data-focus="movie:955"] .browse-art'), "seventh poster paints completely");
         for (let step = 0; step < 6; step++) await press(tv, "ArrowRight");
         await tv.eventually(async () => Math.abs(await tv.page.locator('.search-request-rail').evaluate(row => row.scrollLeft) - 152) < 2, "native seventh-request scroll");
@@ -2555,7 +2636,8 @@ browseTest("episode-aware Search keeps movies, series and episode metadata witho
         await press(tv, "Enter");
         await tv.eventually(async () => (await cardIds(tv)).join() === ids.join(), "the scoped results");
     }
-    assert.match(await tv.page.locator('[data-focus="episode:s1e12"]').innerText(), /Harbor Lights · S1:E2/);
+    assert.equal(await tv.page.locator('[data-focus="episode:s1e12"] .browse-card-title').innerText(), "Harbor Lights");
+    assert.equal(await tv.page.locator('[data-focus="episode:s1e12"] .browse-card-subtitle').innerText(), "S01E02 · Harbor Lights chapter 1.2");
     const requests = browseReads(tv, "/catalog");
     assert.equal(requests.length, 2);
     for (const request of requests) {

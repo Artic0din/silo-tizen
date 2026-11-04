@@ -29,6 +29,7 @@ export function searchRequestCard(title: RequestTitle, baseUrl: string, open: ()
 export function globalSearchView(view: View, route: Extract<Route, { kind: "search" }>, h: RouteHandlers): View {
     const filters = ([[undefined, "All"], ["movie", "Movies"], ["series", "Series"]] as const).map(([value, label]) => {
         const item = actionButton(`search-filter:${value ?? "all"}`, label, () => h.searchFilter(route, value));
+        item.element.addEventListener("focus", () => h.searchFilter(route, value));
         item.element.setAttribute("aria-pressed", String(route.filter === value));
         return item;
     });
@@ -56,7 +57,7 @@ export function globalSearchView(view: View, route: Extract<Route, { kind: "sear
             for (const caption of rail.querySelectorAll<HTMLElement>(".browse-card-title")) balanceTwoLineText(caption);
         });
         content.push(el("h2", "browse-section-title search-people-heading", "People"), rail);
-        zones.push({ id: "search-people", layout: "row", items });
+        zones.push({ id: "search-people", layout: "row", spatial: true, items });
     }
     if (route.failure === undefined && current && (route.pages?.page?.items.length ?? 0) > 0 && route.pages?.page !== undefined) {
         const total = route.pages.page.total;
@@ -69,7 +70,7 @@ export function globalSearchView(view: View, route: Extract<Route, { kind: "sear
         if (node.classList.contains("browse-page-status") && !hasPager) return false;
         return !((node.classList.contains("browse-grid") || node.classList.contains("browse-actions")) && node.childElementCount === 0);
     }));
-    zones.push(...view.zones.slice(1).map(zone => zone.id === "grid" ? { ...zone, columns: h.gridColumns } : zone));
+    zones.push(...view.zones.slice(1).map(zone => zone.id === "grid" ? { ...zone, spatial: true, columns: h.gridColumns } : zone));
     if ((supplement?.requests?.length ?? 0) > 0) {
         const items = supplement?.requests?.map(title => searchRequestCard(title, h.context.baseUrl, () => {
             const id = searchRequestCatalogId(title);
@@ -84,7 +85,7 @@ export function globalSearchView(view: View, route: Extract<Route, { kind: "sear
         rail.dataset.section = "search-requests";
         content.push(heading,
             el("p", "search-requests-description", "Not in the library yet · tap to request"), rail);
-        zones.push({ id: "search-requests", layout: "row", items });
+        zones.push({ id: "search-requests", layout: "row", spatial: true, items });
     }
     return { ...view, content, zones };
 }

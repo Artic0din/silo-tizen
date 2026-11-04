@@ -12,6 +12,8 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Applied Search filters on focus, followed nearby cards on vertical moves, restored native scroll and field presentation, and captioned episodes with their series and episode code.
+
 - Kept focused Search requests visible when People arrived later and retried interrupted Requests refreshes after returning from details.
 
 - Required demonstrated Apple TV parity before merging parity changes, preserved regression checks, and clarified component reuse and simulator ownership for coding agents.

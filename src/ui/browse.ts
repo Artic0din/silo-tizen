@@ -79,6 +79,7 @@ export interface Browse {
 }
 
 const SEARCH_DELAY_MS = 600;
+const SEARCH_TITLE_COLLAPSE_OFFSET = 85;
 const SLOW_MS = 5000;
 
 export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
@@ -158,7 +159,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const searchLabel = el("label", "browse-label", "Search titles");
     searchLabel.htmlFor = input.id;
     // Kept across renders so the field, and the TV keyboard open on it, are never detached.
-    const searchHead = [el("h1", "browse-title", "Search"), searchLabel, input];
+    const searchField = el("div", "search-field");
+    const searchIcon = el("span", "search-field-icon");
+    searchIcon.setAttribute("aria-hidden", "true");
+    searchIcon.innerHTML = '<svg viewBox="0 0 48 48" fill="none"><circle cx="20" cy="20" r="15" stroke="currentColor" stroke-width="5"/><path d="m31 31 12 12" stroke="currentColor" stroke-width="6" stroke-linecap="round"/></svg>';
+    searchField.append(searchIcon, input);
+    const searchHead = [el("h1", "browse-title search-navigation-title", "Search"), searchLabel, searchField];
+    container.addEventListener("scroll", () => { container.classList.toggle("search-scrolled", container.scrollTop >= SEARCH_TITLE_COLLAPSE_OFFSET); });
 
     let stack: Route[] = [];
     let loading: AbortController | undefined;

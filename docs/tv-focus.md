@@ -186,6 +186,8 @@ Other layers:
 
 ## Never Fetch on Focus
 
+Search filter pills are the sole exception: focus applies their filter immediately, matching Apple TV's segmented picker, and cancels superseded reads.
+
 Moving focus never starts a request, activates a route or writes data.
 Fetching belongs to explicit activation (Enter), to a view loading, or to a one-off prefetch.
 

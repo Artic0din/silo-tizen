@@ -379,7 +379,10 @@ export class FocusHost {
             const zone = zones[next];
             if (zone !== undefined && zone.items.length > 0) {
                 const remembered = this.memory.get(zone.id);
-                const nearest = zone.spatial === true && zones[zoneIndex]?.spatial === true ? nearestItem(zone.items, from.element) : undefined;
+                const columns = Math.max(1, zone.columns ?? 1);
+                const edge = step === 1 ? 0 : Math.floor((zone.items.length - 1) / columns) * columns;
+                const candidates = zone.layout === "grid" ? zone.items.slice(edge, edge + columns) : zone.items;
+                const nearest = zone.spatial === true && zones[zoneIndex]?.spatial === true ? nearestItem(candidates, from.element) : undefined;
                 this.focusItem(zone, zone.items.find(item => item.key === zone.entry) ?? nearest ?? zone.items.find((item) => item.key === remembered) ?? zone.items[0]);
                 return true;
             }

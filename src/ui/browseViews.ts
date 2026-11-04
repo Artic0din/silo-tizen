@@ -4,7 +4,7 @@
 
 import type { Card, CardOverlay, CatalogPage, HomeSection, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
-import { artworkUrl, type Destination, destinationOf, episodeLabel } from "./browseModel.ts";
+import { artworkUrl, type Destination, destinationOf } from "./browseModel.ts";
 import { type CardOverlayPrefs, overlayLayer } from "./cardOverlays.ts";
 import { homeCaption } from "./cardPresentation.ts";
 import { el } from "./screen.ts";
@@ -99,14 +99,6 @@ export function artwork(className: string, reference: string | undefined, baseUr
     return box;
 }
 
-function cardSubtitle(card: Card): string | undefined {
-    if (card.type === "episode") {
-        const label = episodeLabel(card.seasonNumber, card.episodeNumber);
-        return [card.seriesTitle, label].filter((part) => part !== undefined).join(" · ") || undefined;
-    }
-    return card.year === undefined ? undefined : String(card.year);
-}
-
 /** Undefined for media this client does not browse. */
 export function cardItem(card: Card, context: ViewContext): FocusItem | undefined {
     const destination = destinationOf(card);
@@ -138,7 +130,7 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
         tick.appendChild(el("span", "silo-sr-only", "Watched"));
         element.firstElementChild?.appendChild(tick);
     }
-    const caption = context.homeCaptions === true ? homeCaption(card, continuing) : { title: card.title, line: cardSubtitle(card) };
+    const caption = homeCaption(card, context.homeCaptions === true && continuing);
     element.appendChild(el("span", "browse-card-title", caption.title));
     if (caption.line !== undefined) {
         element.appendChild(el("span", "browse-card-subtitle", caption.line));

@@ -40,7 +40,7 @@ export function globalSearchView(view: View, route: Extract<Route, { kind: "sear
     const current = route.query === route.resultsFor;
     const supplement = route.supplement;
     const people = supplement?.people ?? [];
-    const waitingForPeople = supplement?.peoplePending === true && people.length === 0 && (route.pages?.page?.items.length ?? 0) === 0;
+    const waitingForPeople = route.failure === undefined && supplement?.peoplePending === true && people.length === 0 && (route.pages?.page?.items.length ?? 0) === 0;
     if (waitingForPeople && !view.content.some(node => node.classList.contains("search-progress"))) content.push(searchLoading());
     if (route.failure === undefined && people.length > 0) {
         const items = people.map(person => {
@@ -64,11 +64,11 @@ export function globalSearchView(view: View, route: Extract<Route, { kind: "sear
     const hasPager = view.zones.some(zone => zone.id === "pager" && zone.items.length > 0);
     content.push(...view.content.slice(h.searchHead.length).filter(node => {
         if (node.classList.contains("search-empty") && (people.length > 0 || waitingForPeople)) return false;
-        if (node.classList.contains("search-failure") && waitingForPeople) return false;
+        if (node.classList.contains("browse-grid")) node.style.setProperty("--search-columns", String(h.gridColumns));
         if (node.classList.contains("browse-page-status") && !hasPager) return false;
         return !((node.classList.contains("browse-grid") || node.classList.contains("browse-actions")) && node.childElementCount === 0);
     }));
-    zones.push(...view.zones.slice(1).filter(zone => !waitingForPeople || zone.id !== "status"));
+    zones.push(...view.zones.slice(1).map(zone => zone.id === "grid" ? { ...zone, columns: h.gridColumns } : zone));
     if ((supplement?.requests?.length ?? 0) > 0) {
         const items = supplement?.requests?.map(title => searchRequestCard(title, h.context.baseUrl, () => {
             const id = searchRequestCatalogId(title);

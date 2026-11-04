@@ -91,7 +91,7 @@ for (const reduced of [false, true]) {
     } });
 }
 
-browseTest("Search balances long Person names without changing their text", async tv => {
+browseTest("Search fills Person name lines without leaving a lone second-line word", async tv => {
     await tv.page.locator('[data-focus="search"]').click();
     await tv.page.fill("#browse-search", "Tom"); await tv.remote(IME_DONE);
     const caption = tv.page.locator('[data-focus="person:edge-4"] .browse-card-title');
@@ -105,6 +105,46 @@ browseTest("Search balances long Person names without changing their text", asyn
     }), "native Armando / Tomas Mulato name balance");
     assert.equal(await caption.textContent(), "Armando Tomas Mulato");
 }, { catalog: new SearchEdgeCatalog() });
+
+for (const size of ["compact", "standard", "large"] as const) {
+    browseTest(`Search ${size} posters use nonoverlapping columns and matching remote rows`, async tv => {
+        await tv.page.locator('[data-focus="search"]').click();
+        await tv.page.fill("#browse-search", "Movie"); await tv.remote(IME_DONE);
+        const cards = tv.page.locator('.browse-grid .browse-card');
+        await cards.first().waitFor();
+        const columns = size === "large" ? 5 : 6;
+        const geometry = await cards.evaluateAll(nodes => nodes.slice(0, 7).map(node => {
+            const rect = node.getBoundingClientRect();
+            return { left: rect.left, right: rect.right, top: rect.top };
+        }));
+        assert.equal(geometry.filter(card => card.top === geometry[0]?.top).length, columns);
+        for (let index = 1; index < columns; index++) assert.ok(geometry[index]!.left >= geometry[index - 1]!.right, "adjacent posters do not overlap");
+        const reads = tv.fake.requests.length;
+        await cards.first().focus(); await press(tv, "ArrowDown");
+        assert.equal(await tv.focused(), await cards.nth(columns).getAttribute("data-focus"));
+        assert.equal(tv.fake.requests.length, reads, "row navigation performs no reads");
+    }, { beforeConnect: tv => {
+        new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: size, caption: "title_metadata" });
+    } });
+}
+
+const pendingPeopleFailure = new SearchCatalog();
+pendingPeopleFailure.searchCapabilities = { ...pendingPeopleFailure.searchCapabilities, people_media_scope: true };
+browseTest("Search exposes catalog failure and remote retry while People is pending", async (tv, catalog) => {
+    await tv.page.locator('[data-focus="search"]').click();
+    const held = tv.fake.hold("/catalog/people", true);
+    catalog.failNext("/catalog", problem(400, "validation_failed", "Unavailable"));
+    await tv.page.fill("#browse-search", "Movie 0001"); await tv.remote(IME_DONE);
+    await tv.eventually(async () => browseReads(tv, "/catalog/people").length === 1, "People remains held");
+    await tv.page.getByRole("heading", { name: "Something went wrong", exact: true }).waitFor({ timeout: 2000 });
+    assert.equal(await tv.page.getByRole("status", { name: "Searching", exact: true }).count(), 0);
+    await tv.page.locator('[data-focus="search-filter:all"]').focus();
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "retry");
+    await press(tv, "Enter");
+    await tv.page.locator('.browse-grid [data-focus="movie:m0001"]').waitFor();
+    held.release();
+}, { catalog: pendingPeopleFailure });
 
 browseTest("Search media filters use the native capsule shape", async tv => {
     await tv.page.locator('[data-focus="search"]').click();

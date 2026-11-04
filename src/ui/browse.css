@@ -157,7 +157,7 @@
 .search-scene .search-filters .browse-button[aria-pressed="true"] { background: #454545; background-clip: padding-box; }
 .search-scene .search-filters .browse-button:focus { transform: none; color: #000; background: #ededed; }
 .search-scene .search-count { margin: 0 162px 24px; font-size: 22px; line-height: 27px; }
-.search-scene > .browse-grid { width: 1444px; margin: 0 162px; padding: 24px 9px 20px; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 48px 58px; }
+.search-scene > .browse-grid { width: 1444px; margin: 0 162px; padding: 24px 9px 20px; grid-template-columns: repeat(var(--search-columns, 6), minmax(0, 1fr)); gap: 48px 58px; }
 .search-scene .browse-grid .browse-card { width: calc(220px * var(--poster-scale, 1)); margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .search-scene .browse-grid .browse-card:focus { transform: none; box-shadow: none; }
 .search-scene .browse-grid .browse-art { width: calc(220px * var(--poster-scale, 1)); height: calc(330px * var(--poster-scale, 1)); border-radius: 16px; }

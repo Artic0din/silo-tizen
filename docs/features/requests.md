@@ -19,7 +19,9 @@ The shared topbar Search opens global Search and its independent Available to re
 A new bar-owned Search starts empty; Back returns to the selected Requests tab, and Down re-enters the content.
 Back from a request detail retains the Search query and restores its result after an invalidated supplement refresh, unless the person moved focus or edited the query.
 Search uses the existing state renderer for accessible progress, no-results copy and a centered catalog error with Try Again.
-A failed People lookup leaves usable title results without another error panel; a pending People lookup prevents premature No results.
+A failed People lookup leaves usable title results without another error panel or retry control; a new query tries People again.
+A pending People lookup prevents premature No results but leaves catalog errors and Try Again visible.
+Search title grids use five columns for large posters and six for standard or compact posters, including remote row navigation.
 Your requests contains the complete bounded list; the ready hub has no separate Search requests, My Requests, Refresh or Back controls.
 Discovery rows show only the first page the discover read returns, with no See all tile and no further read, because Apple TV's rails have neither.
 Rows are view-aligned to the band's top at y=596: a plain row's heading is at 596 with art at 662, and the row with the Discover eyebrow has the eyebrow at 596, heading at 621 and art at 687.

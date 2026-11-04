@@ -88,12 +88,12 @@ The optional flag is strictly boolean when present, while unknown additive field
 The operation remains `listCatalogItems`, **GET `/api/v2/catalog`**, with `q`, `type`, `limit=24`, opaque continuation and small artwork.
 At [server cc851494](https://github.com/Silo-Server/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/internal/catalog/catalog_parser.go), `video_with_episodes` is legal only on the query source; with text it includes movies, series and episodes, and without text it browses movies and series.
 The typed client exposes that scope only for text Search, leaving library/Home types and POST source requests unchanged.
-Resolved scope belongs to the active Search route and stays fixed through its cursor sequence, retries, Details and cached reopening.
+Resolved scope belongs to the active Search route and stays fixed through its cursor sequence, retries and returns from Details.
 Changing text resets the cursor; late query/profile answers cannot paint or start another authorised query.
 Focus, render and page changes do not reread a resolved Search capability.
 
 Episode cards retain their content ID, series title and season/episode metadata and start prepared playback on Select; Card actions offers explicit Episode information.
-Back restores result focus; reopening Search through navigation preserves the query and page with its existing field-first entry.
+Back from Details restores result focus and retains the query and page; opening Search through navigation starts empty with focus on the field.
 The 600 ms debounce, TV Done key and cancellation remain unchanged.
 Search is pushed above its originating page without invisible root-navigation targets.
 Back returns to that page; profile menus on root pages retain their own Back priority.
@@ -105,11 +105,13 @@ People appears before titles, using 200 px circular portraits and centered two-l
 People-only results omit the title count and empty-catalog message.
 Filters appear only for a nonblank query.
 People uses profile-scoped `GET /catalog/people?q&media_scope&limit=20` only after an allowed, available `people_media_scope: true` capability.
-Its independent read cannot hide usable titles on failure; Retry people repeats only that read and preserves catalog paging and the Requests strip.
+Its independent read cannot hide usable titles on failure and shows no separate error or retry control; a new query tries People again.
+Pending People prevents premature No results but never hides a catalog error or Try Again.
+The title grid and remote row navigation use five columns for large posters and six for standard or compact posters.
 People cards use real person IDs, with no reads on focus.
 People and supplementary Requests retain the logical scroll frame while painting whole cards that intersect its edges, matching the native lazy rails.
 Remote navigation reaches all loaded cards; visibility observers are released when the query or route replaces a rail.
-Long People names balance across two centered lines without changing their text, and the media filters use capsule segments.
+Long People names fill the first of two centered lines without leaving one word alone on the second or changing their text, and the media filters use capsule segments.
 Returning Up to the field restores its top clearance.
 
 The supplementary Available to request strip uses `requestOperations.search(query, 1)` only with an enabled Requests capability and a trimmed query longer than one character.

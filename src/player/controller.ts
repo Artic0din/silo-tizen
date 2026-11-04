@@ -231,6 +231,7 @@ interface Attempt {
     serverFeatures: readonly string[];
     /** The capability response advertised `hls_subtitle_renditions_all_v1`. */
     renditionsAll: boolean;
+    nativeSubtitleUnavailable: boolean;
     /** A subtitle applied on the open stream ahead of the plan. `id` undefined is Off. */
     subtitleOverride: { readonly id: string | undefined } | undefined;
     /** What was showing before the in-stream report, restored if the server refuses it. */
@@ -238,7 +239,7 @@ interface Attempt {
     /** A subtitle report is out and the current transport keeps playing. */
     reporting: boolean;
     /** A newer in-stream pick made while a report was out. Latest wins. */
-    pendingSubtitle: { readonly id: string | undefined } | undefined;
+    pendingSubtitle: { readonly id: string | undefined; readonly applied: boolean } | undefined;
     /** Applied after a reopened plan when a newer pick arrived during the report. */
     queuedSubtitle: { readonly id: string | undefined } | undefined;
     trickplayEnabled: boolean;
@@ -365,6 +366,7 @@ export class PlaybackController implements PlayerControls {
             batchedSettings: true,
             serverFeatures: [],
             renditionsAll: false,
+            nativeSubtitleUnavailable: false,
             subtitleOverride: undefined,
             subtitleRestore: undefined,
             reporting: false,
@@ -443,7 +445,7 @@ export class PlaybackController implements PlayerControls {
             return;
         }
         if (attempt.paused === paused) return;
-        if (attempt.busy && !(attempt.change.state === "changing" && attempt.change.kind === "quality")) {
+        if (attempt.busy && !attempt.reporting && !(attempt.change.state === "changing" && attempt.change.kind === "quality")) {
             return;
         }
         if (attempt.hidden || attempt.restoring) {
@@ -667,11 +669,13 @@ export class PlaybackController implements PlayerControls {
         const reporting = this.active();
         if (reporting?.reporting) {
             const plan = reporting.plan;
-            if (plan === undefined || trackId === shownSubtitle(reporting, plan)) return;
+            if (plan === undefined) return;
+            const latest = reporting.pendingSubtitle;
+            if (trackId === (latest === undefined ? shownSubtitle(reporting, plan) : latest.id)) return;
             if (trackId !== undefined && !plan.subtitle.inventory.some((entry) => entry.trackId === trackId)) return;
-            if (!this.applyStreamSubtitle(reporting, trackId)) return;
-            reporting.subtitleOverride = { id: trackId };
-            reporting.pendingSubtitle = { id: trackId };
+            const applied = this.applyStreamSubtitle(reporting, trackId);
+            if (applied) reporting.subtitleOverride = { id: trackId };
+            reporting.pendingSubtitle = { id: trackId, applied };
             this.showPlayback(reporting);
             return;
         }
@@ -894,7 +898,7 @@ export class PlaybackController implements PlayerControls {
                 ...(attempt.request.audioTrackId === undefined ? {} : { audio_track_id: attempt.request.audioTrackId }),
                 ...(attempt.request.allowAlternateVersions === undefined ? {} : { allow_alternate_versions: attempt.request.allowAlternateVersions }),
                 client_capabilities: CLIENT_CAPABILITIES,
-                client_playback_context: playbackContext(this.deps.device.model, this.deps.device.appVersion),
+                client_playback_context: playbackContext(this.deps.device.model, this.deps.device.appVersion, !attempt.nativeSubtitleUnavailable),
             });
             // Back does not abort the start: its answer names the session that must then be stopped.
             decision = await this.resend(attempt, () => session.call({ ...start, profileScoped: true, signal: attempt.signal }));
@@ -973,7 +977,7 @@ export class PlaybackController implements PlayerControls {
             selected_tracks: selected,
             ...(classification === undefined ? {} : { failure: { classification } }),
             client_capabilities: CLIENT_CAPABILITIES,
-            client_playback_context: playbackContext(this.deps.device.model, this.deps.device.appVersion),
+            client_playback_context: playbackContext(this.deps.device.model, this.deps.device.appVersion, !attempt.nativeSubtitleUnavailable),
         });
         let decision: PlaybackDecision;
         try {
@@ -985,7 +989,7 @@ export class PlaybackController implements PlayerControls {
             if (!current()) {
                 return;
             }
-            if (operation === "track_change" && attempt.plan === undefined) {
+            if (operation === "track_change" && (attempt.plan === undefined || (!attempt.started && attempt.nativeSubtitleUnavailable))) {
                 this.fail(attempt, startFailure(error), true);
                 return;
             }
@@ -1017,7 +1021,7 @@ export class PlaybackController implements PlayerControls {
             return;
         }
         if ((operation === "track_change" || operation === "quality_change") && decision.outcome === "adaptation_unavailable") {
-            if (attempt.plan === undefined) { this.fail(attempt, decisionFailure(decision), true); return; }
+            if (attempt.plan === undefined || (!attempt.started && attempt.nativeSubtitleUnavailable)) { this.fail(attempt, decisionFailure(decision), true); return; }
             // The server rolled the change back; the current plan and transport keep playing.
             if (attempt.reporting) this.restoreReportedSubtitle(attempt);
             this.changeSettled(attempt, { state: "refused", message: decision.terminal.message });
@@ -1106,7 +1110,7 @@ export class PlaybackController implements PlayerControls {
         const current = attempt.plan;
         const reportedId = reported.subtitle?.id;
         const kept = current !== undefined && keepsHlsTransport(current, next);
-        if (pending !== undefined && pending.id !== reportedId) {
+        if (pending !== undefined && (pending.id !== reportedId || !pending.applied)) {
             attempt.pendingSubtitle = undefined;
             if (!kept || attempt.endedDuringChange) {
                 attempt.reporting = false;
@@ -1120,6 +1124,18 @@ export class PlaybackController implements PlayerControls {
                 return;
             }
             this.rememberKeptPlan(attempt, next, serverFeatures);
+            if (!pending.applied || !renditionSwitch(next, pending.id)) {
+                attempt.reporting = false;
+                attempt.subtitleOverride = undefined;
+                if (!this.applyStreamSubtitle(attempt, selectedSubtitle(next))) {
+                    attempt.queuedSubtitle = pending;
+                    this.adopt(attempt, next, serverFeatures);
+                    return;
+                }
+                attempt.busy = false;
+                this.selectSubtitle(pending.id);
+                return;
+            }
             attempt.subtitleRestore = { id: selectedSubtitle(next) };
             attempt.subtitleOverride = pending;
             const audio = (attempt.plan ?? next).selectedTracks.audio;
@@ -1208,13 +1224,23 @@ export class PlaybackController implements PlayerControls {
         }
     }
 
-    private alignOpenStream(attempt: Attempt, plan: PlaybackPlan): void {
-        if (plan.subtitle.mode === "off" || plan.subtitle.mode === "burn_in" || plan.subtitle.mode === "unknown") return;
+    private alignOpenStream(attempt: Attempt, plan: PlaybackPlan): boolean {
+        if (plan.subtitle.mode === "off" || plan.subtitle.mode === "burn_in" || plan.subtitle.mode === "unknown" || plan.subtitle.artifact !== undefined) return true;
         const id = shownSubtitle(attempt, plan);
-        if (id === undefined) return;
+        if (id === undefined) return true;
         const row = plan.subtitle.inventory.find((entry) => entry.trackId === id);
-        if (row === undefined || !inStreamCandidate(plan, row)) return;
-        this.applyStreamSubtitle(attempt, id);
+        if (row !== undefined && inStreamCandidate(plan, row) && this.applyStreamSubtitle(attempt, id)) return true;
+        if (plan.delivery !== "original_http") return true;
+        if (attempt.nativeSubtitleUnavailable) {
+            this.fail(attempt, { kind: "playback_failed" }, true);
+            return false;
+        }
+        attempt.nativeSubtitleUnavailable = true;
+        this.closeTransport();
+        attempt.started = false;
+        this.showLoading(attempt, undefined);
+        void this.replan(attempt, plan, "track_change", attempt.sourceSeconds, undefined, plan.selectedTracks);
+        return false;
     }
 
     private changeTracks(attempt: Attempt, plan: PlaybackPlan, selected: SelectedTracks): void {
@@ -1464,7 +1490,7 @@ export class PlaybackController implements PlayerControls {
             if (attempt.cancelTimer === undefined) {
                 this.scheduleProgress(attempt);
             }
-            this.alignOpenStream(attempt, plan);
+            if (!this.alignOpenStream(attempt, plan)) return;
             this.showPlayback(attempt);
             if (attempt.pendingAIResult !== undefined) {
                 const resultId = attempt.pendingAIResult;
@@ -2082,7 +2108,7 @@ export class PlaybackController implements PlayerControls {
             position_seconds: attempt.sourceSeconds,
             selected_tracks: chosenTracks(attempt, plan),
             client_capabilities: CLIENT_CAPABILITIES,
-            client_playback_context: playbackContext(this.deps.device.model, this.deps.device.appVersion),
+            client_playback_context: playbackContext(this.deps.device.model, this.deps.device.appVersion, !attempt.nativeSubtitleUnavailable),
         });
         attempt.recoverySpec = replan;
         return this.deps.session.call({ ...replan, profileScoped: true, signal: attempt.signal });
@@ -2112,7 +2138,7 @@ export class PlaybackController implements PlayerControls {
             ...(subtitle === undefined ? {} : { subtitle_track_id: subtitle }),
             ...(attempt.request.allowAlternateVersions === undefined ? {} : { allow_alternate_versions: attempt.request.allowAlternateVersions }),
             client_capabilities: CLIENT_CAPABILITIES,
-            client_playback_context: playbackContext(this.deps.device.model, this.deps.device.appVersion),
+            client_playback_context: playbackContext(this.deps.device.model, this.deps.device.appVersion, !attempt.nativeSubtitleUnavailable),
         };
     }
 
@@ -2622,7 +2648,7 @@ function renditionSwitch(plan: PlaybackPlan, trackId: string | undefined): boole
 
 function inStreamCandidate(plan: PlaybackPlan, row: SubtitleTrack): boolean {
     if (row.delivery === "burn_in_only" || row.source === "external" || row.source === "downloaded") return false;
-    if (row.hlsRendition !== undefined || plan.streamProtocol === "hls" && row.source === "embedded") return textSubtitle(row.codec) || row.hlsRendition !== undefined;
+    if (plan.streamProtocol === "hls") return row.hlsRendition !== undefined;
     return plan.delivery === "original_http" && row.source === "embedded" && textSubtitle(row.codec);
 }
 

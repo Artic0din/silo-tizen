@@ -79,7 +79,8 @@ export const CLIENT_CAPABILITIES: ClientCapabilities = {
     ],
 };
 
-export function playbackContext(model: string, appVersion: string): ClientPlaybackContext {
+export function playbackContext(model: string, appVersion: string, originalEmbeddedText = true): ClientPlaybackContext {
+    const original = delivery(["mp4", "m4v", "mkv", "matroska"], []);
     return {
         protocol_version: 3,
         form_factor: "tv",
@@ -87,7 +88,7 @@ export function playbackContext(model: string, appVersion: string): ClientPlayba
         device: { platform: "tizen", manufacturer: "Samsung", model },
         output: {},
         deliveries: {
-            original_http: delivery(["mp4", "m4v", "mkv", "matroska"], []),
+            original_http: { ...original, subtitles: { ...original.subtitles, embedded_text: originalEmbeddedText } },
             // MPEG-TS segments for copy remuxes, as AVPlay HLS plays them.
             hls: delivery(["m3u8", "hls"], ["hls_copy_mpegts_v1"]),
         },

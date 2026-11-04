@@ -134,6 +134,16 @@ test("autoplay countdown and Cancel are remote-operable without losing manual Pl
     } finally { await page.close(); }
 });
 
+test("On Deck resolves relative artwork against the connected server", async () => {
+    const { page } = await open();
+    try {
+        await page.route("**/api/v2/images/backdrop", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>' }));
+        const candidate = { contentId: "next", fileId: "43", title: "Next", startSeconds: 0, episode: true as const, backdropUrl: "/api/v2/images/backdrop" };
+        await show(page, { ...playing(TRACKS), upNext: { next: candidate, deck: [candidate], countdown: 30, status: "Up Next" } });
+        assert.equal(await page.locator(".player-next-card img").getAttribute("src"), "https://media.test/api/v2/images/backdrop");
+    } finally { await page.close(); }
+});
+
 test("Up Next captures remote input, preserves focus and exposes Keep Watching and On Deck", async () => {
     const { page } = await open();
     const candidate = { contentId: "next", fileId: "43", title: "Next episode", overview: "The next chapter.", startSeconds: 0, episode: true as const };
@@ -145,6 +155,13 @@ test("Up Next captures remote input, preserves focus and exposes Keep Watching a
         assert.equal(await page.locator(".player-next-eyebrow").innerText(), "UP NEXT");
         assert.equal(await page.locator(".player-next-synopsis").innerText(), "The next chapter.");
         assert.equal(await page.locator(".player-next-card").count(), 12);
+        await remote(page, 19);
+        await remote(page, 415);
+        await remote(page, 10252);
+        await remote(page, 412);
+        await remote(page, 417);
+        assert.deepEqual(await commands(page), ["setPaused true", "setPaused false", "togglePause", "seekBy -10", "seekBy 10"]);
+        await page.evaluate(() => { window.player.commands.length = 0; });
         await remote(page, DOWN);
         assert.equal(await focused(page), "keep-watching");
         await show(page, view);

@@ -13,6 +13,7 @@ import type { ConnectedServer } from "../session/core.ts";
 import type { RandomBytes } from "../session/deviceIdentity.ts";
 import { remoteKey } from "../ui/keys.ts";
 import { el } from "../ui/screen.ts";
+import { artworkUrl } from "../ui/browseModel.ts";
 import type { AVPlay } from "./avplay.ts";
 import { type PlaybackError, type PlaybackExits, PlaybackController, type PlaybackView, type PlayerControls, type PlayRequest, type TrackView } from "./controller.ts";
 import { closeIcon, optionsIcon, pauseIcon, playIcon, skipIcon } from "./playerIcons.ts";
@@ -190,7 +191,7 @@ export function clockText(seconds: number): string {
     return hours > 0 ? `${hours}:${two(minutes)}:${two(secs)}` : `${minutes}:${two(secs)}`;
 }
 
-export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, clock: Clock = systemClock): PlayerScreen {
+export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, clock: Clock = systemClock, baseUrl = location.origin): PlayerScreen {
     const section = el("section", "player");
     const renderSubtitles = mountSubtitles(section);
     section.setAttribute("data-screen", "player");
@@ -502,9 +503,10 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                     const button = el("button", "player-choice player-next-card", card.title);
                     button.type = "button";
                     button.setAttribute("data-focus", `deck:${card.contentId}`);
-                    if (card.backdropUrl !== undefined) {
+                    const backdrop = artworkUrl(card.backdropUrl, baseUrl);
+                    if (backdrop !== undefined) {
                         const img = document.createElement("img");
-                        img.src = card.backdropUrl;
+                        img.src = backdrop;
                         img.alt = "";
                         img.addEventListener("error", () => img.remove(), { once: true });
                         button.prepend(img);
@@ -860,6 +862,14 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             return;
         }
         event.preventDefault();
+        if ((view.phase === "playing" || view.phase === "paused") && view.upNext !== undefined) {
+            if (key === "play_pause") { controls.togglePause(); return; }
+            if (key === "play" || key === "pause") { controls.setPaused(key === "pause"); return; }
+            if (key === "rewind" || key === "fast_forward") {
+                controls.seekBy(key === "rewind" ? -view.seekIntervals.backward : view.seekIntervals.forward);
+                return;
+            }
+        }
         if (view.phase === "completion" || ((view.phase === "playing" || view.phase === "paused") && view.upNext !== undefined)) {
             const buttons = [next, keep, cancelAutoplay, retry, back, ...Array.from(deck.querySelectorAll<HTMLButtonElement>("button"))].filter(button => !button.hidden);
             const index = buttons.findIndex(button => button === document.activeElement);
@@ -1069,7 +1079,7 @@ export function startPlayback(
             },
         },
     });
-    screen = mountPlayerScreen(root, controller, clock);
+    screen = mountPlayerScreen(root, controller, clock, server.server.http.base.baseUrl);
     controller.play(request);
     return { destroy: finish };
 }

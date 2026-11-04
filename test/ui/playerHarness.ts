@@ -61,7 +61,7 @@ const controls: PlayerControls = {
     selectAIResult: id => commands.push(`selectAIResult ${id}`),
     seekThumbnail: async () => undefined,
 };
-const screen: PlayerScreen = mountPlayerScreen(root, controls);
+const screen: PlayerScreen = mountPlayerScreen(root, controls, undefined, "https://media.test");
 
 window.player = {
     commands,

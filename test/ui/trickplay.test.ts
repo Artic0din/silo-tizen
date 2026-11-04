@@ -134,7 +134,9 @@ async function open(timelineOffset = 0, intervals?: { backward: number; forward:
 }
 
 const remote = (page: Page, keyCode: number): Promise<void> => page.evaluate((code) => {
-    (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, bubbles: true, cancelable: true }));
+    const target = document.activeElement ?? document.body;
+    target.dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, bubbles: true, cancelable: true }));
+    target.dispatchEvent(new KeyboardEvent("keyup", { keyCode: code, bubbles: true, cancelable: true }));
 }, keyCode);
 const focus = (page: Page) => page.evaluate(() => document.activeElement?.getAttribute("data-focus"));
 const capture = async (page: Page, name: string): Promise<void> => { if (CAPTURE !== undefined) await page.screenshot({ path: join(CAPTURE, `${name}.png`), animations: "disabled" }); };
@@ -210,7 +212,8 @@ test("matched native-size seek journey: active JPEG, failure fallback and cancel
 test("focus navigation never requests previews; one sheet is reused and carries only opaque signed authorization", { skip: BASELINE !== undefined }, async () => {
     const r = await open();
     try {
-        await remote(r.page, 38);
+        // Old Up entered the transport. Down does that now, so the arrows move between buttons.
+        await remote(r.page, 40);
         await remote(r.page, 39);
         await remote(r.page, 39);
         await remote(r.page, 37);

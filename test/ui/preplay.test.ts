@@ -288,7 +288,8 @@ preplay("Auto keeps initial selectors omitted and resolves subtitles before adop
     await prepare(tv);
     const body = starts(tv)[0]?.body;
     for (const field of ["audio_track_id", "audio_track_index", "subtitle_track_id", "subtitle_track_index", "allow_alternate_versions"]) assert.equal(Object.prototype.hasOwnProperty.call(body, field), false, field);
-    await tv.page.getByRole("button", { name: "Audio and subtitles", exact: true }).click();
+    // Old accessible name was "Audio and subtitles". Apple's options control is "Info and options".
+    await tv.page.getByRole("button", { name: "Info and options", exact: true }).click();
     assert.equal(await tv.page.locator('[data-focus="file:42:audio:2"]').getAttribute("aria-pressed"), "true");
 });
 

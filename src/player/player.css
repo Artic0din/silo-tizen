@@ -122,10 +122,21 @@
     position: absolute;
     left: 0;
     bottom: calc(100% + 16px);
-    overflow: hidden;
-    border-radius: 14px;
+    box-sizing: border-box;
+    width: 340px;
+    padding: 10px;
+    border-radius: 20px;
     pointer-events: none;
     background: rgba(26, 26, 26, 0.88);
+    box-shadow: 0 7px 18px rgba(0, 0, 0, 0.5);
+}
+
+.player-thumbnail-frame {
+    position: relative;
+    width: 320px;
+    height: 180px;
+    overflow: hidden;
+    border-radius: 14px;
 }
 
 .player-thumbnail img {
@@ -193,8 +204,17 @@
 .player-transport {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 14px;
     margin: 0;
+}
+
+.player-transport-group {
+    display: flex;
+    gap: 10px;
+}
+
+.player-transport-secondary {
+    margin-left: auto;
 }
 
 .player-transport[hidden] {
@@ -202,6 +222,9 @@
 }
 
 .player-transport .player-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: 66px;
     height: 66px;
     min-width: 66px;
@@ -210,12 +233,41 @@
     border: 1px solid rgba(255, 255, 255, 0.22);
     border-radius: 50%;
     background: rgba(0, 0, 0, 0.35);
-    font-size: 25px;
-    line-height: 66px;
+    color: #ffffff;
 }
 
-.player-transport .player-button-primary {
-    font-size: 30px;
+.player-glyph {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+}
+
+.player-glyph svg {
+    width: 25px;
+    height: 25px;
+    display: block;
+}
+
+.player-transport .player-button-primary .player-glyph svg {
+    width: 30px;
+    height: 30px;
+}
+
+.player-rate {
+    position: absolute;
+    top: -34px;
+    right: 0;
+    margin: 0;
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: #ffffff;
+    color: #000000;
+    font-size: 18px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
 }
 
 .player-transport .player-button:focus {
@@ -341,6 +393,43 @@
     opacity: 1;
     pointer-events: auto;
     scroll-behavior: smooth;
+}
+
+.player-info {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    outline: none;
+}
+
+.player-info-title {
+    margin: 0;
+    font-size: 34px;
+    font-weight: 600;
+    line-height: 1.15;
+}
+
+.player-info-meta {
+    margin: 8px 0 0;
+    font-size: 20px;
+    color: rgba(255, 255, 255, 0.65);
+    font-variant-numeric: tabular-nums;
+}
+
+.player-info-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 0;
+    padding: 4px 0;
+    font-size: 22px;
+    font-weight: 500;
+}
+
+.player-info-value {
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.7);
+    font-variant-numeric: tabular-nums;
 }
 
 .player-menu-heading {

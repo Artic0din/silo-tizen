@@ -7,6 +7,8 @@ import { el } from "../ui/screen.ts";
 /** One loaded sheet and at most one replacement; image requests carry only signed authorization. */
 export function mountSeekThumbnail(parent: HTMLElement, controls: PlayerControls, clock: Clock): { show(seconds: number): void; clear(): void } {
     const frame = el("div", "player-thumbnail");
+    const crop = el("div", "player-thumbnail-frame");
+    frame.appendChild(crop);
     frame.setAttribute("aria-hidden", "true");
     frame.hidden = true;
     parent.appendChild(frame);
@@ -52,14 +54,14 @@ export function mountSeekThumbnail(parent: HTMLElement, controls: PlayerControls
             void controls.seekThumbnail(seconds, target.signal, loadSheet).then((tile) => {
                 if (target.signal.aborted || request !== target || tile === undefined || sheet === undefined) return;
                 const scale = 320 / tile.width;
-                frame.style.width = "320px";
-                frame.style.height = `${tile.height * scale}px`;
+                crop.style.width = "320px";
+                crop.style.height = "180px";
                 sheet.style.width = `${tile.sheetWidth * scale}px`;
                 sheet.style.height = `${tile.sheetHeight * scale}px`;
                 sheet.style.left = `${-tile.x * scale}px`;
                 sheet.style.top = `${-tile.y * scale}px`;
-                frame.textContent = "";
-                frame.appendChild(sheet);
+                crop.textContent = "";
+                crop.appendChild(sheet);
                 frame.hidden = false;
             }, () => { if (request === target) frame.hidden = true; });
         },
@@ -68,7 +70,7 @@ export function mountSeekThumbnail(parent: HTMLElement, controls: PlayerControls
             request = undefined;
             sheet?.removeAttribute("src");
             sheet = undefined;
-            frame.textContent = "";
+            crop.textContent = "";
             frame.hidden = true;
         },
     };

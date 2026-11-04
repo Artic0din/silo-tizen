@@ -526,7 +526,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const details = current.data?.details;
             if (details?.detail.type === "episode" && (details.audioPreference.pending || details.subtitlePreference.pending)) {
                 for (const entry of stack) {
-                    if (entry.kind === "item" || entry.kind === "season") entry.data?.details?.noteEpisodePreference(details.detail.id, true);
+                    if (entry.kind === "item" || entry.kind === "season") entry.data?.details?.noteEpisodePreference(details.detail.id, true, details.detail.seriesId);
                 }
             }
             const changes = current.data?.details?.changes;

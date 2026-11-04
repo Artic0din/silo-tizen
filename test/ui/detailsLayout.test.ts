@@ -124,6 +124,82 @@ detailTest('Movie uses rounded runtime, rating artwork, comma genres and compact
     const title = await tv.page.locator('.details-editorial .browse-title').boundingBox(); assert.equal(title?.y, 116);
 });
 
+detailTest('Auto subtitle readout resolves forced tracks using effective and explicitly selected audio', async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const body = catalog.route('GET', '/catalog/items/movie%3Am0001', 'p-owner')?.body as { versions: Record<string, unknown>[] };
+    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001?**', route => route.fulfill({ json: {
+        ...body, effective_subtitle_mode: 'auto', effective_subtitle_language: 'en', effective_show_forced_subtitles: true,
+        versions: body.versions.map(version => ({ ...version, effective_audio_track_index: 0,
+            audio_tracks: [{ default: true, language: 'en', codec: 'aac' }, { default: false, language: 'ja', codec: 'aac' }],
+            subtitle_tracks: [{ language: 'en', title: 'Dialogue', codec: 'subrip', external: false, forced: false }, { language: 'en', codec: 'subrip', external: false, forced: true }, { language: 'ja', codec: 'subrip', external: false, forced: true }],
+        })),
+    } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    const summary = tv.page.locator('[data-track-summary="subtitles"] span');
+    assert.match(await summary.textContent() ?? '', /Auto · English.*Forced/);
+    await tv.page.locator('[data-focus="audio"]').click();
+    await tv.page.locator('[data-focus="audio:1"]').click();
+    assert.match(await summary.textContent() ?? '', /Auto · English.*Dialogue/);
+    assert.doesNotMatch(await summary.textContent() ?? '', /Forced/);
+});
+
+detailTest('Season hero and playback controls precede the episode list', async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.locator('[data-focus="season-info"]').click();
+    await tv.page.locator('.browse-episodes').waitFor();
+    assert.equal(await tv.page.locator('.details-hero').evaluate(node => Boolean(node.compareDocumentPosition(document.querySelector('.browse-episodes')!) & Node.DOCUMENT_POSITION_FOLLOWING)), true);
+});
+
+detailTest('Season primary playback refreshes a shared Auto change from another episode information page', async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    let off = true;
+    for (const id of ['episode:s1e11', 'episode:s1e12']) {
+        const body = catalog.route('GET', `/catalog/items/${encodeURIComponent(id)}`, 'p-owner')?.body as Record<string, unknown>;
+        await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(id)}?**`, route => route.fulfill({ json: { ...body, effective_subtitle_mode: off ? 'off' : 'auto', effective_show_forced_subtitles: false } }));
+    }
+    await tv.page.route('**/api/v2/subtitle-prefs/**', route => {
+        if (route.request().method() === 'DELETE') { off = false; return route.fulfill({ status: 204 }); }
+        return route.fulfill(off ? { json: { series_id: 'series:s1', subtitle_mode: 'off', subtitle_track_index: -1 } } : { status: 404 });
+    });
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.locator('[data-focus="season-info"]').click();
+    await tv.page.locator('[data-focus="episode:s1e12"]').click({ button: 'right' });
+    await tv.page.locator('[data-focus="episode-information"]').click();
+    await tv.page.locator('[data-focus="subtitles"]').click();
+    await tv.page.locator('[data-focus="subtitle:auto"]').click();
+    await tv.page.getByText('Saving subtitle preference…', { exact: true }).waitFor({ state: 'hidden' });
+    await tv.remote(10009);
+    await tv.page.locator('.browse-episodes').waitFor();
+    await tv.page.locator('[data-focus="next-episode"]').click();
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length > 0), 'season primary handoff');
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.at(-1)?.subtitle?.kind), 'auto');
+});
+
+detailTest('Long Movie titles keep every playback action inside a revealable hero', async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const body = catalog.route('GET', '/catalog/items/movie%3Am0001', 'p-owner')?.body as Record<string, unknown>;
+    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001?**', route => route.fulfill({ json: { ...body,
+        title: `${'A Very Long Movie Title That Wraps Across Multiple Lines '.repeat(4)}: ${'The Complete Extended Story '.repeat(4)}`, logo_url: undefined,
+        overview: 'A long synopsis with enough words to wrap across three lines. '.repeat(8),
+    } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.evaluate(() => document.fonts.ready);
+    const geometry = await tv.page.locator('.details-hero').evaluate(node => {
+        const hero = node.getBoundingClientRect(), actions = node.querySelector('.browse-actions')!.getBoundingClientRect();
+        return { heroBottom: hero.bottom, actionBottom: actions.bottom };
+    });
+    assert.ok(geometry.actionBottom <= geometry.heroBottom, JSON.stringify(geometry));
+    for (const key of ['play', 'audio', 'subtitles', 'more']) {
+        await tv.page.locator(`[data-focus="${key}"]`).focus();
+        await tv.eventually(async () => tv.page.locator(`[data-focus="${key}"]`).evaluate(node => {
+            const rect = node.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= 1080;
+        }), `${key} remains revealable`);
+    }
+});
+
 detailTest("episode focus swaps cached hero and selectors without starting a read", async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('[data-focus="next-episode"]').waitFor();
@@ -465,7 +541,7 @@ detailTest("series shares the full detail hero and next-episode track selectors"
     assert.match(await tv.focused() ?? "", /^episode:/);
 });
 
-for (const media of ["movie:m0001", "series:s1"]) detailTest(`a wrapped ${media} title retains Apple's fixed hero and disclosure layout`, async tv => {
+for (const media of ["movie:m0001", "series:s1"]) detailTest(`a wrapped ${media} title keeps playback controls inside its hero`, async tv => {
     const catalog = tv.fake.catalog;
     assert.ok(catalog instanceof FakeDetails);
     const reply = catalog.route("GET", `/catalog/items/${encodeURIComponent(media)}`, "p-owner");
@@ -481,6 +557,7 @@ for (const media of ["movie:m0001", "series:s1"]) detailTest(`a wrapped ${media}
         const actions = hero?.querySelector('.browse-actions');
         return { height: hero?.getBoundingClientRect().height, bottom: hero?.getBoundingClientRect().bottom, actionBottom: actions?.getBoundingClientRect().bottom };
     });
-    assert.equal(bounds.height, 690);
-    if (media.startsWith("series")) assert.ok(bounds.actionBottom !== undefined && bounds.bottom !== undefined && bounds.actionBottom <= bounds.bottom, JSON.stringify(bounds));
+    if (media.startsWith("series")) assert.equal(bounds.height, 690);
+    else assert.ok(bounds.height !== undefined && bounds.height >= 690);
+    assert.ok(bounds.actionBottom !== undefined && bounds.bottom !== undefined && bounds.actionBottom <= bounds.bottom, JSON.stringify(bounds));
 });

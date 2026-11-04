@@ -1170,9 +1170,9 @@ browseTest("Details portraits keep their circular geometry and combine one perso
     await shows(tv, "Alex · Director");
 }, { catalog: new FakeDetails() });
 
-browseTest("long Details facts remain reachable with the remote", async (tv) => {
+browseTest("grouped Details facts remain reachable as one passive table with the remote", async (tv) => {
     await tv.page.route("**/api/v2/catalog/items/movie%3Am0001?**", async (route) => {
-        await route.fulfill({ status: 200, json: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", original_language: "en", crew: Array.from({ length: 35 }, (_, index) => ({ name: `Crew ${index}`, job: `Role ${index}` })) } });
+        await route.fulfill({ status: 200, json: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", studios: ['Studio'], countries: ['AU'], release_date: '2024-01-02', crew: Array.from({ length: 35 }, (_, index) => ({ name: `Crew ${index}`, job: 'Director' })) } });
     });
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
@@ -1184,13 +1184,17 @@ browseTest("long Details facts remain reachable with the remote", async (tv) => 
         await tv.jump(240);
         const fact = await tv.page.evaluate(() => {
             const node = document.activeElement;
-            if (!node?.matches(".details-facts .browse-text")) return undefined;
+            if (!node?.matches(".details-facts-table")) return undefined;
             const box = node.getBoundingClientRect();
             return { text: node.textContent ?? "", visible: box.top >= 0 && box.bottom <= 1080 };
         });
         if (fact !== undefined) { assert.equal(fact.visible, true); reached.add(fact.text); }
     }
-    assert.ok(reached.has("Role 34: Crew 34") && reached.has("Role 0: Crew 0") && reached.has("Original language: en"), JSON.stringify([...reached]));
+    assert.equal(reached.size, 1, 'facts form one passive focus target');
+    const facts = [...reached][0] ?? '';
+    assert.match(facts, /DIRECTORCrew 0, Crew 1, Crew 2/);
+    assert.match(facts, /STUDIOStudio/); assert.match(facts, /COUNTRYAU/); assert.match(facts, /RELEASED/);
+    assert.doesNotMatch(facts, /Crew 34/);
 }, { catalog: new FakeDetails() });
 
 browseTest("personal writes require confirmed state and discard late replies after a profile change", async (tv, catalog) => {
@@ -2639,8 +2643,8 @@ browseTest("series open seasons, episode Select plays directly, and playback ret
     await press(tv, "ArrowDown", "Enter");
     await showing(tv, "item:series:s1");
     await shows(tv, "Harbor Lights");
-    await tv.eventually(async () => await tv.focused() === "episode:s1e11", "current episode receives initial Series focus");
-    await press(tv, "ArrowUp", "ArrowRight");
+    await tv.eventually(async () => await tv.focused() === "next-episode", "Play receives initial Series focus");
+    await press(tv, "ArrowDown", "ArrowRight");
     assert.equal(await tv.focused(), "season:2");
     await press(tv, "Enter");
     await detailsMore(tv);

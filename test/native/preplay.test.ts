@@ -181,6 +181,28 @@ test("repeated Series restores retain an unresolved episode choice until confirm
     recovered.stop();
 });
 
+test('Season invalidates cached shared preferences when an uncached episode in the same series changes', async () => {
+    const r = await rig(); r.state.stop();
+    const series = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
+    const raw = r.catalog.route('GET', '/catalog/items/episode%3As1e11', 'p-owner')?.body as Record<string, unknown>;
+    const path = '/catalog/items/episode%3As1e11?image_size=large';
+    r.h.fake.script(path, { status: 200, body: { ...raw, effective_subtitle_mode: 'off', effective_show_forced_subtitles: false } });
+    const state = new DetailsState({ ...series, id: 'series:s1-S1', type: 'season', seriesId: series.id }, r.h.core.session, () => undefined, async () => undefined);
+    state.start(); await settle();
+    assert.equal(state.nextEpisodeState?.subtitleIntent().kind, 'off');
+    assert.equal(state.cachedEpisode('episode:s1e12'), undefined);
+    state.stop();
+    state.noteEpisodePreference('episode:s1e12', true, 'unrelated-series');
+    state.start(); await settle();
+    assert.equal(state.nextEpisodeState?.subtitleIntent().kind, 'off', 'unrelated series does not invalidate this visit');
+    state.stop();
+    state.noteEpisodePreference('episode:s1e12', true, series.id);
+    r.h.fake.script(path, { status: 200, body: { ...raw, effective_subtitle_mode: 'auto', effective_show_forced_subtitles: false } });
+    state.start(); await settle();
+    assert.equal(state.nextEpisodeState?.subtitleIntent().kind, 'auto', 'shared preference invalidates the cached primary episode');
+    state.stop();
+});
+
 async function rig() {
     const h = await connected();
     await signIn(h);

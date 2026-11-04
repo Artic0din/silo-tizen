@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept long Movie playback controls visible, placed Season headers before episodes, refreshed shared preferences from uncached episodes, and resolved Auto subtitle previews using the selected audio language.
 - Preserved unresolved episode track choices across repeated Series refreshes until readback confirms them, without replaying uncertain saves.
 - Restored painted Details text and season labels, Play entry focus, selected-season navigation, facts tables, compact track readouts and anchored track pickers.
 - Hid unavailable or empty Related rails after loading, removing their extra error and Retry focus stop.

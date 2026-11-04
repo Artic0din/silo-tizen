@@ -369,8 +369,9 @@ export class DetailsState {
 
     cachedEpisode(id: string): DetailsState | undefined { return this.episodeStates.get(id); }
 
-    noteEpisodePreference(id: string, external = false): void {
-        if (this.episodeStates.has(id) || this.previousEpisodeStates.has(id)) {
+    noteEpisodePreference(id: string, external = false, seriesId?: string): void {
+        const sharedSeries = external && ["series", "season"].includes(this.detail.type) && seriesId === (this.detail.seriesId || this.detail.id);
+        if (sharedSeries || this.episodeStates.has(id) || this.previousEpisodeStates.has(id)) {
             this.episodePreferenceDirty = true;
             this.episodePreferenceSource = external ? undefined : id;
         }

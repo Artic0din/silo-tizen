@@ -405,6 +405,10 @@ Pushed Details pages show optional title artwork, server-ordered ratings, facts 
 Details shares Home's 1228.8×756 top-right artwork frame and fade masks, with an image contained in that frame rather than fixed to the viewport.
 Its page wash follows tvOS `TVDetailPageSurface`: sampled base at 0.42 opacity, shared accent and shadow gradients, and no top menu scrim.
 The content-rating badge follows tvOS `TVDetailHero`; runtime, credits and VERSION / AUDIO / SUBTITLES remain in the editorial column.
+Movie heroes retain a minimum 690px height and grow for wrapped editorial content so playback controls remain visible.
+Season heroes precede the episode list, including the separate page wash.
+Auto subtitle previews resolve using the explicit audio track or the file's effective audio language.
+Shared episode preference changes invalidate retained Series and Season owners by series identity, including when the edited episode was not cached.
 Ordinary Series entry focuses Play and retains the series overview, matching Apple `bbd1e47`.
 The current episode is positioned at the rail's leading slot without taking focus.
 Selecting a season retargets Play and enters that season's episode rail; Up returns to the selected season pill.

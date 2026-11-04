@@ -139,7 +139,7 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
                 const logo = el("img", "skyline-rating-logo"); logo.src = TMDB_LOGO_PATH; logo.alt = "TMDB";
                 badge.append(logo, el("span", "details-rating-divider"));
             } else badge.append(el("span", "", rating.name));
-            badge.append(el("span", "", rating.display)); facts.append(badge);
+            badge.append(" ", el("span", "", rating.display)); facts.append(badge);
         }
         if (detail.genres.length) facts.append(" ", el("span", "details-genres", detail.genres.slice(0, 3).join(", ")));
         if (ratingChip) facts.prepend(el("span", "details-rating-badge", ratingChip));
@@ -251,10 +251,13 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     const file = playbackDetail.versions.find(file => file.fileId === playbackChoices?.fromStart.fileId);
     const audio = file?.audio ?? [];
     const selectedAudio = tracks?.audioTrackId(true);
+    const explicitAudio = audio.findIndex((_track, index) => selectedAudio === `file:${file?.fileId}:audio:${index}`);
+    const effectiveAudio = explicitAudio >= 0 ? explicitAudio : file?.effectiveAudioTrackIndex ?? audio.findIndex(track => track.isDefault);
+    const resolvedAudioTrack = audio[effectiveAudio] ?? audio[0];
     const subtitle = tracks?.subtitleIntent();
     const subtitleLabel = (track: SubtitleSignature): string => [...new Set([languageName(track.language) ?? "Unknown language", track.label, track.codec?.toUpperCase(), track.forced ? "Forced" : undefined, track.hearingImpaired ? "SDH" : undefined].filter(Boolean))].join(" · ");
     const selectedSubtitleLabel = subtitle?.kind === "track" ? subtitleLabel(subtitle.signature) : subtitle?.kind === "off" ? "Off" : "Auto";
-    const autoSubtitle = file?.effectiveSubtitle === undefined ? undefined : initialSubtitle({ kind: "auto" }, (file.subtitles ?? []).map((track, index) => ({ ...track, trackId: String(index), combinedIndex: index, delivery: "unknown" as const })), file.effectiveSubtitle);
+    const autoSubtitle = file?.effectiveSubtitle === undefined ? undefined : initialSubtitle({ kind: "auto" }, (file.subtitles ?? []).map((track, index) => ({ ...track, trackId: String(index), combinedIndex: index, delivery: "unknown" as const })), { ...file.effectiveSubtitle, audioLanguage: resolvedAudioTrack?.language });
     const autoSubtitleTrack = autoSubtitle === undefined ? undefined : file?.subtitles?.[Number(autoSubtitle)];
     const subtitleSummary = selectedSubtitleLabel !== "Auto" ? selectedSubtitleLabel : file?.effectiveSubtitle === undefined ? "Auto" : `Auto · ${autoSubtitleTrack === undefined ? "None" : subtitleLabel(autoSubtitleTrack)}`;
     const audioLabel = (index: number): string => {
@@ -304,7 +307,6 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         actions.push(more);
     } else if (overview) actions.push(actionButton("synopsis", "Read synopsis", () => synopsis.show(overview)));
     const ordinal = audio.findIndex((_track, index) => selectedAudio === `file:${file?.fileId}:audio:${index}`);
-    const effectiveAudio = ordinal >= 0 ? ordinal : file?.effectiveAudioTrackIndex ?? audio.findIndex(track => track.isDefault);
     const resolvedAudio = audio[effectiveAudio] === undefined ? audio.length ? audioLabel(0) : "Unknown" : audioLabel(effectiveAudio);
     const versionLabel = file?.label?.match(/\b(?:\d{3,4}p|4K|8K)\b/i)?.[0] ?? file?.label ?? "Auto";
     const summary = playbackChoices === undefined ? undefined : `Version: ${tracks?.selectedFileId === undefined && versionLabel !== "Auto" ? "Auto · " : ""}${versionLabel} | Audio: ${ordinal === -1 ? "Auto · " : ""}${resolvedAudio} | Subtitles: ${subtitleSummary}`;
@@ -535,7 +537,8 @@ export function seasonView(name: string, title: string, episodes: readonly Episo
         return mediaItem({ key: episode.id, element }, { id: episode.id, title: episode.title, type: "episode" }, context);
     });
     const header = detail === undefined ? undefined : itemView(detail, [], context, play, back, synopsis, state);
-    const content = [...(header?.content.slice(0, 1) ?? [heading(title)]), ...(items.length === 0 ? lines(["This season has no episodes yet."]) : []), zoneNode("browse-episodes", items), ...header?.content.slice(1) ?? []];
+    const heroEnd = (header?.content.findIndex(node => node.classList.contains("details-hero")) ?? -1) + 1;
+    const content = [...(header?.content.slice(0, heroEnd) ?? [heading(title)]), ...(items.length === 0 ? lines(["This season has no episodes yet."]) : []), zoneNode("browse-episodes", items), ...header?.content.slice(heroEnd) ?? []];
     const fallback = items.length === 0 ? [actionButton("back", "Back", back)] : [];
     if (fallback.length > 0) {
         content.push(zoneNode("browse-actions", fallback));

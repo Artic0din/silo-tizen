@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Cleared sidecar captions when selecting embedded subtitles and restored the last confirmed subtitle after a queued choice was refused.
 - Resumed committed scrubs after a server reanchor, kept Skip reachable with the remote, and let navigation cross Audio while its choices loaded.
 - Kept the latest Play/Pause choice when remote presses arrive during a seek.
 - Resumed playback after a timeline scrub once the seek finished, let the remote move through an empty audio list, and cropped seek previews to each thumbnail's own shape.

@@ -1258,6 +1258,46 @@ test("Off on a rendition stream hides subtitles without restarting", async () =>
     r.controller.destroy();
 });
 
+test("a confirmed rendition becomes the rollback choice for a refused queued Off", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.server.next.push(renditionPlan(1, "English Signs", 1));
+    const id = await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.avplay.tracks = [
+        { index: 2, type: "TEXT", extra_info: JSON.stringify({ track_num: "0", track_lang: "eng", subtitle_type: "0", fourCC: "TTML" }) },
+        { index: 3, type: "TEXT", extra_info: JSON.stringify({ track_num: "1", track_lang: "fra", subtitle_type: "0", fourCC: "TTML" }) },
+    ];
+    r.server.next.push(renditionPlan(5, "French", 2), { terminal: "subtitle_unavailable" });
+    const held = r.h.fake.hold(`/playback/${id}/replan`);
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    r.controller.selectSubtitle(undefined);
+    held.release();
+    await settle(r);
+    assert.equal(replans(r.h).length, 2);
+    assert.equal(tracks(r).selectedSubtitleId, "file:42:subtitle:5");
+    assert.equal(r.avplay.calls.at(-1), "setSelectTrack TEXT 3");
+    r.controller.destroy();
+});
+
+test("an original-file embedded text switch clears sidecar captions", async () => {
+    const r = await rig();
+    r.server.next.push({ timeline: STREAM_TIMELINE, subtitle: 0, subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/captions?token=fixture`, format: "vtt", timing_origin_seconds: 0 } });
+    r.h.fake.script("/captions?token=fixture", { status: 200, text: "WEBVTT\n\n00:00.000 --> 00:30.000\nSidecar" });
+    await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.avplay.tick(1000);
+    const before = last(r.views);
+    assert.ok(before.phase === "playing");
+    assert.equal(before.captions?.text, "Sidecar");
+    r.avplay.tracks = [{ index: 4, type: "TEXT", extra_info: JSON.stringify({ track_num: "0", track_lang: "eng", subtitle_type: "0", fourCC: "TTML" }) }];
+    r.controller.selectSubtitle("file:42:subtitle:1");
+    const after = last(r.views);
+    assert.ok(after.phase === "playing");
+    assert.equal(after.captions?.text ?? "", "");
+    assert.equal(replans(r.h).length, 0);
+    r.controller.destroy();
+});
+
 test("an original-file embedded text track selects the open TEXT row and does not replan", async () => {
     const r = await rig();
     r.server.next.push({ timeline: STREAM_TIMELINE });

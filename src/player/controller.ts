@@ -1120,6 +1120,7 @@ export class PlaybackController implements PlayerControls {
                 return;
             }
             this.rememberKeptPlan(attempt, next, serverFeatures);
+            attempt.subtitleRestore = { id: selectedSubtitle(next) };
             attempt.subtitleOverride = pending;
             const audio = (attempt.plan ?? next).selectedTracks.audio;
             const selected = { ...(audio === undefined ? {} : { audio }), ...(pending.id === undefined ? {} : { subtitle: { id: pending.id } }) };
@@ -1197,6 +1198,10 @@ export class PlaybackController implements PlayerControls {
         if (index === undefined) return false;
         try {
             avplay.setSelectTrack("TEXT", index);
+            attempt.captionAbort?.abort();
+            attempt.captionKey = undefined;
+            attempt.cues = [];
+            attempt.captionNotice = "";
             return true;
         } catch {
             return false;

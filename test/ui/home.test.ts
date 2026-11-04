@@ -88,6 +88,55 @@ journey("Home uses the Apple row band and marquee frame without changing library
     assert.equal(frames.title[0], 80);
 });
 
+journey("Home uses Apple's 360x200 still for TV episode rows and keeps mixed and series rows as 176x264 posters", async tv => {
+    const art = async (section: string) => tv.page.locator(`[data-section="${section}"] .browse-card:not(.skyline-explore) .browse-art`).first().evaluate(node => ({
+        width: (node as HTMLElement).offsetWidth,
+        height: (node as HTMLElement).offsetHeight,
+        src: node.querySelector("img")?.getAttribute("src") ?? "",
+    }));
+    const added = await art("recent-tv");
+    assert.deepEqual({ width: added.width, height: added.height }, { width: 360, height: 200 });
+    assert.match(added.src, /tv-still\.svg$/);
+    assert.equal(await tv.page.locator('[data-section="recent-tv"] .skyline-progress').count(), 1);
+    assert.equal(await tv.page.locator('[data-section="recent-tv"] .home-row-glyph').count(), 0);
+    assert.equal(await tv.page.locator('[data-section="recent-tv"] .skyline-explore').evaluate(node => (node as HTMLElement).offsetWidth), 360);
+    const mixed = await art("recent-mixed");
+    assert.deepEqual({ width: mixed.width, height: mixed.height }, { width: 176, height: 264 });
+    assert.doesNotMatch(mixed.src, /tv-still/);
+    assert.equal((await art("series-only")).width, 176);
+    assert.equal((await art("next-up")).width, 360);
+    assert.equal((await art("in-progress")).width, 360);
+    assert.equal(await tv.page.locator('[data-section="in-progress"] .home-row-glyph').count(), 1);
+    assert.equal((await art("recent/12")).width, 176);
+    assert.equal((await art("resume/opaque")).width, 360);
+}, catalog => {
+    const home = catalog.households.get("p-owner");
+    assert.ok(home !== undefined);
+    home.sections.push(
+        { id: "recent-tv", sectionType: "recently_added", title: "Recently Added TV", items: ["episode:s1e11", "episode:s1e12"] },
+        { id: "recent-mixed", sectionType: "recently_added", title: "Recently Added", items: ["movie:m0008", "episode:s1e21"] },
+        { id: "series-only", sectionType: "recently_added", title: "Series", items: ["series:s1", "series:s2"] },
+        { id: "next-up", sectionType: "next_up", title: "Next Up", items: ["movie:m0009"] },
+        { id: "in-progress", sectionType: "in_progress", title: "In Progress", items: ["movie:m0010"] },
+    );
+    enrichHome(catalog, { "episode:s1e11": { backdrop_url: "/art/tv-still.svg", position_seconds: 30, duration_seconds: 1200 }, "episode:s1e12": { backdrop_url: "/art/tv-still.svg" } });
+});
+
+journey("a focused Home row sits on the top of Apple's row band", async tv => {
+    const placed = () => tv.page.evaluate(() => {
+        const band = document.querySelector(".skyline-content")?.getBoundingClientRect();
+        const section = document.activeElement?.closest(".home-section")?.getBoundingClientRect();
+        if (band === undefined || section === undefined) throw new Error("missing Home row");
+        return section.top - band.top;
+    });
+    const rows = await tv.page.locator('[data-view="home"] [data-section]').count();
+    for (let index = 0; index < rows; index += 1) {
+        if (index > 0) await tv.page.keyboard.press("ArrowDown");
+        const delta = await placed();
+        assert.ok(Math.abs(delta) < 0.5, `row ${index} sits ${delta}px off the band top`);
+    }
+});
+
 journey("Home caps each shelf at Apple's 20 media cards", async tv => {
     assert.equal(await tv.page.locator('[data-section="recent/12"] .browse-card:not(.skyline-explore)').count(), 20);
 });

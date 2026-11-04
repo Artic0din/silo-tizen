@@ -32,7 +32,7 @@ import { errorState, unconfirmedWriteMessage, writeFailureMessage, writeMayHaveA
 import { homeRows, type ViewContext } from "./browseViews.ts";
 import { HomeEnrichment } from "./homeEnrichment.ts";
 import { el } from "./screen.ts";
-import { discoveryState, genreGroups, libraryScope, readDiscovery, type LibraryMode } from "./libraryDiscovery.ts";
+import { discoveryState, genreGroups, libraryScope, librarySectionQuery, readDiscovery, type LibraryMode } from "./libraryDiscovery.ts";
 import { availableModes } from "./libraryDiscoveryViews.ts";
 import { personalListCapability, readPersonalPage, type PersonalFilter } from "./personalLists.ts";
 import type { MediaScope } from "../contracts/v2/discovery.ts";
@@ -132,7 +132,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
     applyCardSize();
     let shownOverlays: CardOverlayPrefs | undefined = presentation.cardOverlays;
-    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, cardOverlays: () => presentation.cardOverlays, posterScale: () => presentation.posterScale, savedFileOverlay: card => homeDetails.savedFile(card)?.overlay, open: (destination) => open(destination), preview: (card, row, continuing) => shell.preview(card, row, continuing), resume: (id, title) => {
+    const previews = new WeakMap<Route, () => void>();
+    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, cardOverlays: () => presentation.cardOverlays, posterScale: () => presentation.posterScale, savedFileOverlay: card => homeDetails.savedFile(card)?.overlay, open: (destination) => open(destination), preview: (card, row, continuing) => {
+        const current = top();
+        const preview = (): void => shell.preview(card, row, continuing);
+        if (current !== undefined) previews.set(current, preview);
+        preview();
+    }, resume: (id, title) => {
         if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title }));
     }, playEpisode: (id, title, startOver) => {
         if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title, episode: true, startOver: startOver === true }));
@@ -579,7 +585,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         // Section order is server-owned; this source rejects type and sort overlays.
         const query: CatalogQueryRequest = current.kind === "homeSection"
             ? { source: "section", scope: "home", section_id: current.id }
-            : { source: "section", scope: "library", section_id: current.source.id, library_id: current.library.id };
+            : librarySectionQuery(current.library.id, current.source.id);
         load(current, signal => readSectionCatalog(catalog.snapshot, append, async (cursor, limit) => {
             const page = await read(operations.queryCatalogItems({ ...query, limit, ...(cursor === undefined ? {} : { cursor }) }), signal);
             const items = page.items.filter(card => destinationOf(card) !== undefined && (mediaType === undefined || mediaType === "video" || mediaType === card.type || (mediaType === "series" && card.type === "episode")));
@@ -978,8 +984,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (current.kind === "library" || current.kind === "libraryResults") {
             load(current, async signal => {
                 const cursor = pages.cursors[index];
+                if (current.kind === "libraryResults" && current.source.kind === "section") {
+                    return read(operations.queryCatalogItems({ ...librarySectionQuery(current.library.id, current.source.id), limit: PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) }), signal);
+                }
                 if (current.kind === "libraryResults" && current.source.kind === "collection" && current.source.groupKind === "admin") return read(operations.getLibraryCollectionItems(current.library.id, current.source.id, { limit: PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) }), signal);
-                if (current.kind === "libraryResults" && current.source.kind === "section" && index === 0) await read(operations.getLibrarySectionItems(current.library.id, current.source.id), signal);
                 const state = current.kind === "library" ? current.discovery : undefined;
                 const recent = state?.mode === "Recently Added";
                 const source = current.kind === "libraryResults" ? current.source : undefined;
@@ -992,7 +1000,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     ...(source?.kind === "genre" ? { groups: genreGroups(source.name) } : {}),
                     ...(state?.genre === undefined ? {} : { groups: genreGroups(state.genre) }),
                     ...(source?.kind === "collection" && source.groupKind === "user_collections" ? { source: "user_collection", scope: "library", collection_id: source.id } : {}),
-                    ...(source?.kind === "section" ? { source: "section", scope: "library", section_id: source.id } : {}),
                 });
                 return read(query, signal);
             }, page => {
@@ -1255,6 +1262,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const preview = current.kind === "home" || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
             const modal = browsing && (current.discovery?.panel !== undefined || shuffleFailure?.route === current);
             const decorated = shell.decorate(view, selected, preview, modal ? () => { view.back?.(); } : current.kind === "personal" || (current.kind === "library" && current.discovery?.genre !== undefined) ? pop : undefined, current.kind === "library" ? `library:${current.library.id}:${current.library.type}:${current.discovery?.mode ?? "Recommended"}` : undefined);
+            // A bar-focused return does not focus a card to restore this page's hero.
+            if (preview && host.name !== view.name) previews.get(current)?.();
             const nav = container.querySelector<HTMLElement>(".browse-nav");
             if (nav !== null) { nav.inert = modal || nav.inert; if (nav.inert) nav.setAttribute("aria-hidden", "true"); else nav.removeAttribute("aria-hidden"); }
             host.show({ ...decorated, ...(current.kind === "library" ? { ready: hasData(current), ...(current.discovery?.genre !== undefined ? { back: pop } : {}) } : {}), ...(modal ? { zones: view.zones, back: view.back } : {}) }, focus);

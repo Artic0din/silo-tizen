@@ -165,7 +165,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         if (targetChoices?.resume !== undefined && target !== undefined) actions.push(actionButton("start-over-episode", "Start Over", () => context.playEpisode?.(target.id, target.title, true)));
         if (target !== undefined && targetChoices === undefined) notes.push("This episode has no file this TV can play.");
     }
-    const series = state?.series === undefined ? undefined : seriesEpisodesView(state.series, context);
+    const series = state?.series === undefined ? undefined : seriesEpisodesView(state.series, context, next);
     const seasonItems = series?.zones[0]?.items ?? (detail.type === "series" ? seasons.map((season) => seasonItem(detail.id, detail.title, season, context)) : []);
     const overview = detail.overview;
     const file = detail.versions.find(file => file.fileId === choices?.fromStart.fileId);

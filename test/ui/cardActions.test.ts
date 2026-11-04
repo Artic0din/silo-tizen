@@ -155,7 +155,7 @@ test("card actions initial loading, bad identity and Retry keep Close reachable 
         answer.release();
         await tv.jump(0);
         assert.equal(await menu(tv).count(), 0);
-        tv.fake.script("/catalog/items/movie%3Am0001?image_size=medium", { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "movie:wrong" } });
+        tv.fake.script("/catalog/items/movie%3Am0001?image_size=large", { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "movie:wrong" } });
         await hold(tv);
         await menu(tv).getByText("Could not load card actions.").waitFor();
         assert.equal(await menu(tv).getByRole("button").count(), 2);
@@ -172,7 +172,7 @@ for (const answer of ["unsupported", "unknown", "malformed", "membership-mismatc
         if (answer === "unsupported") catalog.capability = false;
         if (answer === "malformed") tv.fake.script("/capabilities/personal-lists", { status: 200, body: {} });
         if (answer === "membership-mismatch") tv.fake.script("/favorites/movie%3Am0001/membership", { status: 200, body: { item_id: "movie:wrong", is_member: false } });
-        if (answer === "unknown") tv.fake.script("/catalog/items/movie%3Am0001?image_size=medium", { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", user_state: undefined, user_data: undefined } });
+        if (answer === "unknown") tv.fake.script("/catalog/items/movie%3Am0001?image_size=large", { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", user_state: undefined, user_data: undefined } });
         await hold(tv);
         if (answer === "unsupported") await menu(tv).getByText("List actions are unavailable for this title.").waitFor();
         if (answer === "malformed" || answer === "membership-mismatch") {

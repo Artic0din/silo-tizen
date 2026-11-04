@@ -103,6 +103,7 @@ browseTest("Search spatial People entry chooses the nearest title column", async
     await press(tv, "ArrowUp");
     assert.equal(await tv.focused(), "movie:m0008", "Up from Requests enters the adjacent bottom grid row");
     await tv.jump(250);
+    await tv.page.waitForTimeout(260);
     const posterTop = await tv.page.locator('[data-focus="movie:m0008"] .browse-art').evaluate(node => node.getBoundingClientRect().top);
     assert.ok(Math.abs(posterTop - 171) < 1, `Search upward reveal keeps the focused poster at 171px, got ${posterTop}`);
     assert.equal(await tv.page.locator('.search-navigation-title').evaluate(node => getComputedStyle(node).position), "absolute", "deep directional navigation does not show the navigation title");
@@ -747,6 +748,41 @@ browseTest("Recommended shares Skyline rows and expands through a tile", async t
     assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).at(-1)?.body, { library_id: "12", limit: 60, source: "section", scope: "library", section_id: "library-picks" });
     await tv.remote(BACK);
     assert.equal(await tv.focused(), "expand:library-picks");
+});
+
+browseTest("Movies Continue Watching and other library headings open without a catalog overlay", async (tv, catalog) => {
+    const household = catalog.households.get("p-owner");
+    assert.ok(household);
+    household.librarySections = [
+        { id: "continue_watching", sectionType: "continue_watching", title: "Continue Watching", items: ["movie:m0001", "episode:s1e12"] },
+        { id: "recently_added", sectionType: "recently_added", title: "Recently Added", items: ["movie:m0002", "movie:m0004"] },
+    ];
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    for (const id of ["continue_watching", "recently_added"]) {
+        const heading = tv.page.locator(`[data-section="${id}"] .browse-section-title`);
+        await heading.waitFor();
+        assert.equal(await heading.evaluate(node => node.tagName), "H2", `${id} heading is not a control`);
+        assert.equal(await heading.getAttribute("data-focus"), null);
+        assert.equal(await tv.page.locator(`[data-focus="section:${id}"]`).count(), 0);
+    }
+    await tv.page.locator('[data-focus="expand:continue_watching"]').click();
+    const catalogCard = tv.page.locator(".section-catalog-grid .browse-card").first();
+    const catalogError = tv.page.getByText("Something went wrong. Try again.");
+    await Promise.race([catalogCard.waitFor(), catalogError.waitFor()]);
+    const opened = tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).at(-1);
+    assert.equal(opened?.path.startsWith("/catalog/query?image_size=small"), true);
+    assert.deepEqual(opened?.body, { library_id: "12", limit: 60, source: "section", scope: "library", section_id: "continue_watching" });
+    assert.equal(await catalogError.count(), 0);
+    await catalogCard.waitFor();
+    assert.equal(await tv.page.locator(".section-catalog-title").innerText(), "Continue Watching");
+    await tv.remote(BACK);
+    assert.equal(await tv.focused(), "expand:continue_watching");
+    await tv.page.locator('[data-focus="expand:recently_added"]').click();
+    await tv.page.locator(".section-catalog-title").waitFor();
+    assert.equal(await tv.page.locator(".section-catalog-title").innerText(), "Recently Added");
+    assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).at(-1)?.body, { library_id: "12", limit: 60, source: "section", scope: "library", section_id: "recently_added" });
+    assert.equal(await tv.page.getByText("Something went wrong. Try again.").count(), 0);
 });
 
 function videoOnlyCatalog(): FakeCatalog {
@@ -2276,13 +2312,18 @@ browseTest("discovery uses nonzero letter positions and cancels an obsolete quer
 
 browseTest("Skyline keeps bounded type tabs and a passive debounced marquee", async (tv) => {
     assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["search", "home", "movies", "series", "for_you", "calendar", "profiles"]);
-    assert.equal(await tv.page.locator(".skyline-marquee h1").textContent(), "Movie 0001");
+    const headline = (): Promise<string | null> => tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) h1").textContent();
+    assert.equal(await headline(), "Movie 0001");
     const reads = tv.fake.requests.length;
+    // The installed page clock keeps flowing, so a loaded runner can pass 150 ms before the next
+    // read. Pause it so only the jump below opens the debounced layer. The outgoing title stays
+    // mounted through the crossfade, so the read is the current layer.
+    await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now()) + 1000);
     await press(tv, "ArrowRight");
     assert.equal(await tv.focused(), "episode:s1e12");
-    assert.equal(await tv.page.locator(".skyline-marquee h1").textContent(), "Movie 0001");
+    assert.equal(await headline(), "Movie 0001");
     await tv.jump(150);
-    assert.equal(await tv.page.locator(".skyline-marquee h1").last().textContent(), "Harbor Lights", "episodes headline with their series");
+    assert.equal(await headline(), "Harbor Lights", "episodes headline with their series");
     assert.equal(tv.fake.requests.length, reads);
 });
 

@@ -21,10 +21,13 @@ export interface FakeTitle {
     readonly duration?: number;
 }
 
+interface LibraryRow { id: string; sectionType?: string; title: string; items: string[] }
 interface Household {
     readonly libraries: { id: string; name: string; type: string; sort_order: number }[];
     hidden: number[] | null;
-    sections: { id: string; sectionType?: string; title: string; items: string[] }[];
+    sections: LibraryRow[];
+    /** When set, replaces the synthetic Library Picks row for this profile. */
+    librarySections?: LibraryRow[];
 }
 
 const OWNER = "p-owner";
@@ -169,8 +172,16 @@ export class FakeCatalog implements CatalogRoutes {
         if (!household.libraries.some(item => item.id === id)) return problem(404, "not_found", "Not found");
         const titles = [...this.titles.values()].filter(title => title.libraryId === id && this.visible(household, title.id) && (title.type === "movie" || title.type === "series"));
         if (library?.[2] === "sections" && method === "GET") {
-            const section = { id: "library-picks", section_type: "recently_added", title: "Library Picks", total_count: titles.length, items: titles.slice(0, 24).map(title => this.card(title.id)) };
-            return { status: 200, body: library[3] === undefined ? { sections: titles.length === 0 ? [] : [section] } : section };
+            const rows = household.librarySections ?? (titles.length === 0 ? [] : [{ id: "library-picks", sectionType: "recently_added", title: "Library Picks", items: titles.slice(0, 24).map(title => title.id) }]);
+            const sectionBody = (row: LibraryRow): Record<string, unknown> => {
+                const items = row.items.filter(item => this.visible(household, item)).map(item => this.card(item));
+                return { id: row.id, section_type: row.sectionType ?? row.id, title: row.title, total_count: items.length, items };
+            };
+            if (library[3] !== undefined) {
+                const row = rows.find(item => item.id === decodeURIComponent(library[3] ?? ""));
+                return row === undefined ? problem(404, "not_found", "Not found") : { status: 200, body: sectionBody(row) };
+            }
+            return { status: 200, body: { sections: rows.map(sectionBody).filter(section => arrayOf(section.items).length > 0) } };
         }
         if (library?.[2] === "collections" && library[3] === undefined) {
             if (titles.length === 0) return { status: 200, body: { library_id: id, collections: [], groups: [], ungrouped: { sort_order: 1, collections: [] } } };

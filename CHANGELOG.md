@@ -6,17 +6,16 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Kept scrolled personal-list cards visible when pages appended or reads failed.
-
-- Opened History without the top menu, with a centered title, exact counts and Apple's unfiltered 60-item pages.
-
-- Kept personal-list focus and cached cards after failed reads and fitted large History posters to five columns.
+- Drew Home TV episode rows as landscape stills and top-aligned the focused Home row with Apple TV.
 - Opening a Movies or Series library section, including Continue Watching, no longer sends type, sort and order on the section catalog query, which the server rejected.
 - Kept Home hero and detail backdrops sharp using Apple TV artwork sizes instead of small first-pass images.
 
 - Prevented large Search posters from overlapping and kept catalog errors and Try Again visible while People results were pending.
 - Restored related titles on Details when the server returned cards without catalog pagination totals.
 - Made Enter on the player's default focus skip the intro, recap or credits while the Skip control shows, instead of pausing.
+- Kept scrolled personal-list cards visible when pages appended or reads failed.
+- Opened History without the top menu, with a centered title, exact counts and Apple's unfiltered 60-item pages.
+- Kept personal-list focus and cached cards after failed reads and fitted large History posters to five columns.
 
 ### Changed
 

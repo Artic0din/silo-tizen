@@ -122,7 +122,8 @@ If Search is already visible when the write settles, its strip refreshes indepen
 Supplementary capability refusals recheck Requests status without restarting catalog or People reads; that status check cannot automatically retry the refused supplement in a loop.
 Recognized request states take precedence over availability; only In library plus a nonempty `library_content_id` opens catalog Details.
 The Search card presentation boundary delegates to the shared Requests card and progress owners.
-Supplementary posters scale from 220×330 with the existing preference; focus lifts artwork by 40 px without moving captions, while reduced motion retains a visible ring without growth.
+Supplementary posters scale from 220×330 with the existing preference; focus uses the shared 1.05 lift and 4 px outline at 70% white without moving or whitening request captions.
+Search catalog captions use a 16 px gap and Requests use 22 px, matching the tvOS branches of `TVMediaCard` and `RequestMediaCard`.
 The native Samsung text field remains attached across renders; the tvOS alphabet keyboard is an operating-system surface, not a custom keyboard to port.
 Samsung simulator keyboard rendering and final same-state visual acceptance remain unverified.
 These source changes do not diagnose historical keyboard or first-query latency reports.
@@ -226,7 +227,16 @@ The last confirmed size is cached per server/profile, a transient failure keeps 
 Poster badge sizes use the actual scaled artwork width; still badges retain their fixed wide-card size.
 Episode cards are captioned with their series and an `S01E02 · Pilot` line.
 Unfocused captions dim; focus brightens and drops the caption below a lift of the artwork only.
-The lift size comes from Apple's measured native card lift (about 38 px of height), not from the tvOS system effect itself.
+Cards use Apple's shared 1.05 artwork lift and 4px white outline at 70% opacity.
+The focused shadow uses SwiftUI radius 18, converted to CSS box-shadow blur 36 px, with an 8 px vertical offset and 45% black opacity, with 120ms ease-out timing.
+CSS box-shadow blur is twice the Gaussian standard deviation ([CSS specification](https://www.w3.org/TR/css-backgrounds-3/#shadow-blur)); the SwiftUI radius is treated as the Gaussian radius, so radius 18 maps to blur 36 and cast radius 14 maps to blur 28.
+This rendering conversion requires same-state native comparison before merge.
+Caption weights stay fixed; their glow uses white at 22% with an 8px radius and 12% with a 3px radius.
+Caption drop is `max(0, artwork height × .025 + 8px - caption gap)` and is zero with reduced motion.
+Related Details captions use a 16 px gap; Requests and Calendar captions have no focus drop or glow.
+Cast scales the whole button, including its name and role, at 1.05; its focused name is `#EDEDED` and its role stays at 60% of that colour.
+Calendar titles change from 85% to full `#EDEDED` on focus and their subtitles stay at 60%; request titles stay at full `#EDEDED`.
+Reference: silo-apple `ffa6e5188c70664090a6dc9beb8c7cbbc3ce43e7`, source only; the installed Apple build was not verified.
 With reduced motion the artwork does not grow and shows Apple's 4 px focus ring instead.
 Library Recommended now uses these same media rows and the calibrated Home hero/marquee scene, independently of its selected navigation root or library shortcut.
 Its headings are plain text; Explore All retains the section route and library scope.
@@ -264,7 +274,7 @@ Canvas sampling first uses the already loaded image; a tainted canvas tries a se
 If sampling is refused, the matching backdrop ThumbHash supplies the wash, or black when there is no valid hash; an episode-still hash is never used with its series backdrop.
 Real local HTTP tests cover allowed/refused CORS while retaining visible artwork, but do not establish the packaged TV's origin policy.
 Inter is the licensed substitute for SF Pro; drawn symbols and CSS lift/ring approximate native focus effects, with no claim of tvOS parallax or specular equivalence.
-Continue Watching uses a separately measured landscape lift: the Compact still is about 199 px high when focused, including `EpisodeThumbCard`'s 1.025 scale; the poster's 38 px lift does not apply to stills.
+Continue Watching uses the same 1.05 lift as posters, with a caption drop calculated from its still height and 14px caption gap.
 The [Home comparison](../evidence/screenshots/107-home/home-comparison.png) pairs this signed candidate in Samsung's software simulator with the historical Apple r13 frame in the same Continue Watching state; the earlier Tizen r13 build is not used as current-build proof.
 Apple's native 960×540 frame is displayed at 100%, and the current 1920×1080 Tizen frame at 50%, without upscaling.
 That Compact capture measured the first heading at y596, the following heading at y939.99, and focused landscape artwork at 357.92×198.85, against Apple's 358.8×199 accessibility frame. A focused row now top-aligns in the band, so the following heading's old position is not the current scroll position.

@@ -127,6 +127,8 @@ async function open(timelineOffset = 0, intervals?: { backward: number; forward:
     await page.waitForFunction(() => window.trickplay.avplay.calls.some((call) => call.startsWith("seekTo")));
     await page.evaluate(() => window.trickplay.avplay.finishSeek());
     await page.waitForFunction(() => window.trickplay.avplay.state === "PLAYING");
+    // Navigation resumes the fake clock. Hold it so a skip preview stays until the test commits it.
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 2000));
     return { page, fake, playback, previews, sheets, errors,
         status(value: number) { sheetStatus = value; }, offline() { offline = true; },
         holdImage(fn: () => Promise<void>) { holdImage = fn; },
@@ -169,12 +171,16 @@ test("matched native-size seek journey: active JPEG, failure fallback and cancel
             await r.page.locator(".player-thumbnail:not([hidden]) img").waitFor();
             const geometry = await r.page.locator(".player-thumbnail img").evaluate((image) => {
                 if (!(image instanceof HTMLImageElement)) throw new Error("Missing image");
-                return { natural: [image.naturalWidth, image.naturalHeight], left: image.style.left, top: image.style.top, frame: image.parentElement?.getBoundingClientRect().toJSON(), focus: image.tabIndex };
+                const frame = image.parentElement;
+                return { natural: [image.naturalWidth, image.naturalHeight], left: image.style.left, top: image.style.top, crop: frame instanceof HTMLElement ? frame.style.height : "", frame: frame?.getBoundingClientRect().toJSON(), focus: image.tabIndex };
             });
             assert.deepEqual(geometry.natural, [3000, 1260]);
             assert.equal(geometry.left, "-960px");
             assert.equal(geometry.top, "-268.8px");
             assert.equal(geometry.frame?.width, 320);
+            // The fixture cell is 300 by 126. Scaled to the 320-wide frame, the crop is that cell, not a 16:9 window.
+            assert.equal(geometry.crop, "134.4px");
+            assert.ok(geometry.frame !== undefined && Math.abs(geometry.frame.height - 134.4) < 0.1);
             assert.ok(geometry.frame !== undefined && geometry.frame.y >= 0 && geometry.frame.bottom < 1080);
             assert.equal(geometry.focus, -1);
             assert.equal(r.sheets.length, 1);

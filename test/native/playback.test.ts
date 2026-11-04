@@ -433,6 +433,23 @@ test("explicit pause and play are idempotent and leave pending seeks alone", asy
     r.controller.destroy();
 });
 
+test("a resume asked for during an in-flight seek plays once that seek settles", async () => {
+    const r = await rig();
+    await playMovie(r);
+    r.controller.setPaused(true);
+    assert.equal(last(r.views).phase, "paused");
+    r.controller.seekToSeconds(45);
+    r.controller.setPaused(false);
+    assert.equal(r.avplay.calls[r.avplay.calls.length - 1], "seekTo 45000");
+    assert.equal(r.avplay.state, "PAUSED");
+    r.avplay.finishSeek();
+    assert.equal(r.avplay.state, "PLAYING");
+    const view = last(r.views);
+    assert.equal(view.phase, "playing");
+    assert.equal(view.phase === "playing" ? view.positionSeconds : undefined, 45);
+    r.controller.destroy();
+});
+
 test("committing an absolute source seek does not drift with live progress", async () => {
     const r = await rig();
     await playMovie(r);

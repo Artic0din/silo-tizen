@@ -134,9 +134,16 @@
 .player-thumbnail-frame {
     position: relative;
     width: 320px;
-    height: 180px;
     overflow: hidden;
     border-radius: 14px;
+}
+
+.player-menu-note:focus {
+    padding: 11px 14px;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #000000;
+    outline: none;
 }
 
 .player-thumbnail img {

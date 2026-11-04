@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept season selection on its pill, restored the Details hero on Up, and aligned title art, episode spacing, recommendations and playback popovers with Apple TV.
 - Kept Episode and Season playback controls visible when their titles and synopses wrap.
 - Kept long Movie playback controls visible, placed Season headers before episodes, refreshed shared preferences from uncached episodes, and resolved Auto subtitle previews using the selected audio language.
 - Preserved unresolved episode track choices across repeated Series refreshes until readback confirms them, without replaying uncertain saves.

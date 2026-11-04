@@ -898,7 +898,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                             const episode = details.series.entryEpisode;
                             const enter = seasonFocus?.revision === inputRevision;
                             seasonFocus = undefined;
-                            if (top() === current && enter && episode !== undefined) { render({ zone: "episodes", key: episode }); return; }
+                            if (top() === current && enter && episode !== undefined) { render({ zone: "seasons", key: `season:${details.series.seasonNumber}` }); return; }
                         }
                         detailsChanged(current, audioClosed);
                     }, (detail, signal) => refreshWatched(current, detail, signal), personalPending);

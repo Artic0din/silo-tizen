@@ -137,11 +137,11 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
             const badge = el("span", "details-external-rating");
             if (rating.name.toUpperCase() === "TMDB") {
                 const logo = el("img", "skyline-rating-logo"); logo.src = TMDB_LOGO_PATH; logo.alt = "TMDB";
-                badge.append(logo, el("span", "details-rating-divider"));
+                badge.append(logo);
             } else badge.append(el("span", "", rating.name));
-            badge.append(" ", el("span", "", rating.display)); facts.append(badge);
+            badge.append(" ", el("span", "details-rating-score", rating.display)); facts.append(" · ", badge);
         }
-        if (detail.genres.length) facts.append(" ", el("span", "details-genres", detail.genres.slice(0, 3).join(", ")));
+        if (detail.genres.length) facts.append(" · ", el("span", "details-genres", detail.genres.slice(0, 3).join(", ")));
         if (ratingChip) facts.prepend(el("span", "details-rating-badge", ratingChip));
         nodes.push(facts);
     }
@@ -337,7 +337,6 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         const index = credits.findIndex((previous) => credit.id ? previous.id === credit.id : previous.id === undefined && previous.name === credit.name);
         const previous = credits[index];
         if (previous === undefined) credits.push(credit);
-        else credits[index] = { ...previous, role: [previous.role, credit.role].filter((role) => role !== "").join(" · ") };
     }
     if (credits.length > 0) {
         const people = credits.slice(0, 24).map((credit) => creditCard(credit, context));
@@ -360,11 +359,12 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
             if (state.extraPending !== undefined) content.push(...lines(["Loading extra…"]));
             if (state.extraFailed !== undefined) content.push(...lines(["Could not load extra. Select its card to retry."], "error"));
         }
-        const related = titleCards(state.related ?? [], context);
+        // SimilarPosterItem omits userState, including its watched badge.
+        const related = titleCards((state.related ?? []).map(card => ({ ...card, played: undefined })), context);
         if (!state.relatedFailed && (state.related === undefined || related.length > 0)) {
             const section = zoneNode("browse-row", related);
             section.setAttribute("data-detail-section", "related");
-            content.push(el("h2", "browse-section-title", detail.type === "movie" ? "Related Movies" : "Related Series"));
+            content.push(el("h2", "browse-section-title", detail.type === "movie" ? "Related Movies" : "Recommended Series"));
             if (state.related === undefined) {
                 content.push(...lines(["Loading related titles."]));
                 for (let index = 0; index < 6; index++) { const placeholder = el("div", "details-related-placeholder"); placeholder.setAttribute("aria-hidden", "true"); section.append(placeholder); }
@@ -407,6 +407,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     if (state?.panel === "version") {
         const options = [undefined, ...playbackDetail.versions].map((version, index) => {
             const item = actionButton(`version:${version?.fileId ?? "auto"}`, version?.label || (version === undefined ? "Auto" : `Version ${index}`), () => { tracks?.select(version?.fileId); state.closePanel(); });
+            if (version?.detailLabel) item.element.append(el("small", "details-option-subtext", version.detailLabel));
             item.element.setAttribute("role", "radio");
             item.element.setAttribute("aria-checked", String(version?.fileId === tracks?.selectedFileId));
             return item;
@@ -420,6 +421,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
             const item = actionButton(`subtitle:${choice ?? "auto"}`, track === undefined ? choice === "off" ? "Off" : "Auto" : subtitleLabel(track), () => { if (tracks !== undefined) state.noteEpisodePreference(tracks.detail.id); tracks?.selectSubtitle(choice); if (tracks !== state) state.closePanel(); });
             item.element.setAttribute("role", "radio");
             item.element.setAttribute("aria-checked", String(track === undefined ? subtitle?.kind === (choice === "off" ? "off" : "auto") : subtitle?.kind === "track" && matchesSubtitle(track, subtitle.signature)));
+            if (choice === "off") item.element.append(el("small", "details-option-subtext", "Start without subtitles"));
             return item;
         });
         return detailPanel(view, state, "Subtitles", options);

@@ -1183,7 +1183,7 @@ browseTest("S-D3 unknown or mismatched watched postconditions remain errors", as
     assert.equal(await tv.page.locator('[data-focus="watched"]').getAttribute("aria-pressed"), "false");
 }, { catalog: new FakeDetails() });
 
-browseTest("Details portraits keep their circular geometry and combine one person's roles", async (tv) => {
+browseTest("Details portraits keep their circular geometry and retain the cast character", async (tv) => {
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await tv.page.locator('[data-focus="watchlist"]').waitFor();
@@ -1195,7 +1195,8 @@ browseTest("Details portraits keep their circular geometry and combine one perso
         return art !== null && getComputedStyle(node).overflow === "clip";
     }), true, "hero artwork cannot paint over later rails");
     assert.equal(await tv.page.locator('[data-focus="person:7"]').count(), 1);
-    await shows(tv, "Alex · Director");
+    await shows(tv, "Alex");
+    assert.equal(await tv.page.locator('[data-focus="person:7"] .browse-card-subtitle').textContent(), 'Alex');
 }, { catalog: new FakeDetails() });
 
 browseTest("grouped Details facts remain reachable as one passive table with the remote", async (tv) => {

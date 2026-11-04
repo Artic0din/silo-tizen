@@ -508,6 +508,11 @@ export class FocusHost {
         if (target !== undefined) {
             this.focusItem(zone, zone.items[target]);
         } else {
+            if (zone.id === "seasons" && key === "up") {
+                const actions = view.zones.find(candidate => candidate.id === "actions");
+                this.focusItem(actions, actions?.items.find(item => item.key === "more"));
+                return;
+            }
             const destination = zone[key];
             const next = view.zones.find(candidate => candidate.id === destination && candidate.items.length > 0);
             if (next !== undefined) this.focusItem(next, next.items.find(item => item.key === this.memory.get(next.id)) ?? next.items[0]);

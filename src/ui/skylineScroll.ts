@@ -50,6 +50,19 @@ export class SkylineScroll {
         }
         const rect = element.getBoundingClientRect();
         const bounds = viewport.getBoundingClientRect();
+        // tvOS pins the primary Series viewport; Large lifts the hero so its rail still fits.
+        if (element.closest(".details-editorial, .details-season-chips, .details-episodes") !== null) {
+            this.move(viewport, 0, 0);
+            return;
+        }
+        const related = element.closest<HTMLElement>('[data-detail-section="related"]');
+        if (related !== null) {
+            const rail = related.getBoundingClientRect();
+            const header = related.previousElementSibling?.getBoundingClientRect();
+            const centre = ((header?.top ?? rail.top) + rail.bottom) / 2;
+            this.move(viewport, 0, Math.max(0, viewport.scrollTop + centre - (bounds.top + bounds.bottom) / 2));
+            return;
+        }
         const cast = element.closest<HTMLElement>(".details-people");
         if (cast !== null) {
             const rail = cast.getBoundingClientRect();

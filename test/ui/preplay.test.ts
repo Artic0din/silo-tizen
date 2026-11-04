@@ -513,7 +513,8 @@ preplay("version change clears old audio, pins the new file and allows a fresh e
     await savedAudio(tv);
     await tv.page.locator('[data-focus="version"]').click();
     await tv.page.locator('[data-focus="version:43"]').click();
-    assert.equal(await tv.page.locator('[data-focus="audio"]').textContent(), "Audio: Auto");
+    assert.equal(await tv.page.locator('[data-focus="audio"]').textContent(), "Audio Tracks");
+    assert.equal(await tv.page.locator('[data-focus="audio"]').getAttribute('aria-label'), 'Audio: Auto');
     await tv.page.locator('[data-focus="audio"]').click();
     assert.equal(await tv.page.getByRole("radio").count(), 3);
     await tv.page.getByRole("radio", { name: /English Dub/ }).click();

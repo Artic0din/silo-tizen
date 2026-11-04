@@ -7,7 +7,7 @@ const ICONS: Readonly<Record<string, string>> = {
     play: "M8 4 21 12 8 20Z",
     resume: "M8 4 21 12 8 20Z",
     "next-episode": "M8 4 21 12 8 20Z",
-    version: "M3 4H21V20H3ZM3 9H21M8 4 11 9M15 4 18 9",
+    version: "M6 3H21V18H6ZM3 7V21H17",
     audio: "M3 9H7L13 4V20L7 15H3ZM17 8Q23 12 17 16",
     subtitles: "M3 5H21V19H3ZM6 11H10M6 14H11M14 11H18M14 14H18",
     watchlist: "M6 3H18V22L12 18 6 22Z",
@@ -19,9 +19,10 @@ export function detailAction(item: FocusItem): FocusItem {
     const path = startOver ? "M5 4V20M19 4 7 12 19 20Z" : ICONS[item.key];
     if (path === undefined) return item;
     const button = item.element;
-    const label = button.textContent ?? "";
+    const accessibleLabel = button.textContent ?? "";
+    const label = item.key === "version" ? "Versions" : item.key === "audio" ? "Audio Tracks" : item.key === "subtitles" ? "Subtitles" : accessibleLabel;
     button.textContent = "";
-    button.setAttribute("aria-label", label);
+    button.setAttribute("aria-label", accessibleLabel);
     button.classList.add("details-action", !startOver && (item.key === "play" || item.key === "resume" || item.key === "next-episode") ? "details-play" : "details-circle");
     // Pointer focus would expand this pill between press and release, moving its click target.
     button.addEventListener("mousedown", event => event.preventDefault());
@@ -35,6 +36,7 @@ export function detailAction(item: FocusItem): FocusItem {
     const shape = document.createElementNS(icon.namespaceURI, "path");
     shape.setAttribute("d", path);
     if (["play", "resume", "next-episode"].includes(item.key)) shape.setAttribute("fill", "currentColor");
+    if (item.key === "watchlist" && button.getAttribute("aria-pressed") === "true") shape.setAttribute("fill", "currentColor");
     icon.appendChild(shape);
     button.append(icon, el("span", "details-action-label", label));
     return item;
@@ -69,17 +71,30 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
     panel.setAttribute("role", "dialog");
     panel.setAttribute("aria-modal", "true");
     panel.setAttribute("aria-label", title);
-    panel.append(el("h2", "browse-section-title", title), ...notes, zoneNode("details-audio-options", items));
+    panel.append(el("h2", "browse-section-title", ["audio", "subtitles", "version"].includes(name) ? title.toUpperCase() : title), ...notes, zoneNode("details-audio-options", items));
     const popover = ["audio", "subtitles", "version"].includes(name);
     if (popover) {
         panel.classList.add("details-track-popover");
         const anchor = document.querySelector<HTMLElement>(`.details-editorial [data-focus="${name}"]`)?.getBoundingClientRect();
         if (anchor !== undefined) {
-            panel.style.left = `${Math.min(anchor.left, 1920 - 660)}px`;
-            panel.style.top = `${Math.min(anchor.bottom + 14, 1080 - 560)}px`;
+            const screenInset = 48;
+            const anchorGap = 14;
+            panel.style.left = `${Math.max(screenInset, Math.min(anchor.left, 1920 - screenInset - 660))}px`;
+            panel.style.top = `${anchor.bottom + 14}px`;
+            panel.style.boxSizing = "border-box";
+            panel.style.maxHeight = `${1080 - screenInset * 2}px`;
+            // Measure after FocusHost attaches the panel, before the first paint.
+            queueMicrotask(() => {
+                if (!panel.isConnected) return;
+                const height = panel.offsetHeight;
+                const below = anchor.bottom + anchorGap;
+                const above = anchor.top - anchorGap - height;
+                const top = below + height <= 1080 - screenInset ? below : above >= screenInset ? above : Math.max(screenInset, 1080 - screenInset - height);
+                panel.style.top = `${top}px`;
+            });
         }
         const auto = items[0];
-        if (auto !== undefined) auto.element.append(el("small", "details-option-subtext", name === "audio" ? "Use your Playback audio preference" : name === "subtitles" ? "Use your subtitle preferences" : "Use the preferred version"));
+        if (auto !== undefined) auto.element.append(el("small", "details-option-subtext", name === "audio" ? "Use your Playback audio preference" : name === "subtitles" ? "Use your subtitle preferences" : "Best match for this device"));
     }
     const scrim = el("div", "skyline-dropdown-scrim");
     scrim.addEventListener("click", () => state.closePanel());

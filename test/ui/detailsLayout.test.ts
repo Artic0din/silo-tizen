@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { FakeSettings } from "../native/support/fakeSettings.ts";
+import { CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
@@ -33,13 +35,19 @@ detailTest('Details headings and selected season labels contribute painted pixel
     }
 });
 
-detailTest('Series opens on Play with series facts and season Select enters its retargeted rail', async tv => {
+detailTest('Series opens on Play and season Select retains the pill until Down', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('.details-episodes [data-focus="episode:s1e11"]').waitFor();
     assert.equal(await tv.focused(), 'next-episode');
     assert.match(await tv.page.locator('.details-editorial .browse-meta').textContent() ?? '', /Seasons/);
     await tv.page.locator('[data-focus="season:2"]').click();
-    await tv.eventually(async () => await tv.focused() === 'episode:s1e21', 'selected season enters rail');
+    await tv.page.locator('[data-focus="episode:s1e21"]').waitFor();
+    assert.equal(await tv.focused(), 'season:2');
+    await tv.remote(38);
+    assert.equal(await tv.focused(), 'more');
+    await tv.remote(40);
+    await tv.remote(40);
+    assert.equal(await tv.focused(), 'episode:s1e21');
     await tv.page.getByRole('button', { name: /Play S2:E1|Resume S2:E1/ }).waitFor();
     await tv.remote(38);
     assert.equal(await tv.focused(), 'season:2');
@@ -66,7 +74,9 @@ detailTest('Up returns to a selected season beyond the visible pill window and r
     await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/14/episodes?**', route => route.fulfill({ json: { items: episodes.items.map(episode => ({ ...episode, season_number: 14 })) } }));
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('[data-focus="season:14"]').click();
-    await tv.eventually(async () => (await tv.focused())?.startsWith('episode:') === true, 'season rail focused');
+    await tv.page.locator('.details-episodes [data-focus]').first().waitFor();
+    assert.equal(await tv.focused(), 'season:14');
+    await tv.remote(40);
     await tv.remote(38);
     assert.equal(await tv.focused(), 'season:14');
     await tv.eventually(async () => tv.page.locator('[data-focus="season:14"]').evaluate(node => {
@@ -207,6 +217,12 @@ for (const [kind, id] of [['Movie', 'movie:m0001'], ['Episode', 'episode:s1e11']
         await tv.eventually(async () => tv.page.locator(`[data-focus="${key}"]`).evaluate(node => {
             const rect = node.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= 1080;
         }), `${key} remains revealable`);
+    }
+    for (const key of ['version', 'audio', 'subtitles']) {
+        await tv.page.locator(`[data-focus="${key}"]`).click();
+        const rect = await tv.page.locator('.details-track-popover').boundingBox();
+        assert.ok(rect && rect.y >= 48 && rect.y + rect.height <= 1032, `${key} picker stays within native screen insets: ${JSON.stringify(rect)}`);
+        await tv.remote(10009);
     }
 });
 
@@ -422,10 +438,11 @@ detailTest("episode rail Select carries its cached subtitle Off choice", async t
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
 
-function detailTest(name: string, body: (tv: Tv) => Promise<void>): void {
+function detailTest(name: string, body: (tv: Tv) => Promise<void>, size?: 'compact' | 'standard' | 'large'): void {
     test(name, async () => {
     const tv = await openTv(browser, { app: "browse" });
     tv.fake.catalog = new FakeDetails();
+    if (size !== undefined) new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: size, caption: 'title_metadata' });
     try {
         await tv.page.evaluate(() => window.browseHarness.connect());
         await tv.eventually(async () => tv.fake.devices.size > 0, "device code");
@@ -439,6 +456,26 @@ function detailTest(name: string, body: (tv: Tv) => Promise<void>): void {
     } finally { await tv.page.context().close(); }
     });
 }
+
+for (const size of ['compact', 'standard', 'large'] as const) detailTest(`Pinned ${size} episode rail keeps the entire focused card visible`, async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:s1e11"]').waitFor();
+    await tv.page.evaluate(() => document.fonts.ready);
+    await tv.page.locator('[data-focus="next-episode"]').focus();
+    await tv.remote(40);
+    await tv.remote(40);
+    await tv.eventually(async () => tv.page.locator('.details-episodes :focus').evaluate(node => {
+        const rect = node.getBoundingClientRect();
+        return rect.top >= 0 && rect.bottom <= 1080;
+    }), 'complete focused episode visible');
+    assert.equal(await tv.page.locator('.browse').evaluate(node => node.scrollTop), 0);
+    await tv.remote(40);
+    await tv.remote(38);
+    await tv.eventually(async () => tv.page.locator('.details-episodes :focus').evaluate(node => {
+        const rect = node.getBoundingClientRect();
+        return rect.top >= 0 && rect.bottom <= 1080 && node.closest('.browse')?.scrollTop === 0;
+    }), 'return from Cast restores the full pinned rail');
+}, size);
 
 detailTest("movie Details keeps playback and personal controls in one row with cast visible on entry", async tv => {
         await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
@@ -465,6 +502,40 @@ detailTest("movie Details keeps playback and personal controls in one row with c
         assert.equal(await tv.focused(), "rate");
         await tv.remote(10009);
         assert.equal(await tv.focused(), "more");
+});
+
+detailTest('Details restores the hero from supporting rails and uses native selector presentation', async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.page.locator('[data-focus="version"]').focus();
+    assert.equal(await tv.page.locator('[data-focus="version"] .details-action-label').textContent(), 'Versions');
+    await tv.page.locator('[data-focus="version"]').click();
+    const picker = tv.page.getByRole('dialog', { name: 'Version', exact: true });
+    assert.equal(await picker.locator('h2').textContent(), 'VERSION');
+    assert.match(await picker.locator('[data-focus="version:auto"]').textContent() ?? '', /Best match for this device/);
+    await tv.remote(10009);
+    await tv.page.locator('.details-people [data-focus]').first().focus();
+    await tv.remote(38);
+    await tv.eventually(() => tv.page.locator('.browse').evaluate(node => node.scrollTop === 0), 'hero scroll reset');
+    assert.equal(await tv.page.locator('.details-facts-table').evaluate(node => getComputedStyle(node).maxWidth), '1400px');
+});
+
+detailTest('Version options expose source codec, container and file size below the quality label', async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const reply = catalog.route('GET', '/catalog/items/movie%3Am0001', 'p-owner');
+    const body = reply?.body as { versions: Record<string, unknown>[] };
+    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001?**', route => route.fulfill({ json: { ...body, versions: body.versions.map(file => ({ ...file, codec_video: 'h264', container: 'mkv', file_size: 8430000000 })) } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.page.locator('[data-focus="version"]').click();
+    assert.equal(await tv.page.locator('[data-focus="version:42"] .details-option-subtext').textContent(), 'H.264 · MKV · 8.43 GB');
+});
+
+detailTest('Unknown Auto subtitle preferences do not claim a resolved None selection', async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const reply = catalog.route('GET', '/catalog/items/movie%3Am0001', 'p-owner');
+    const body = reply?.body as Record<string, unknown>;
+    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001?**', route => route.fulfill({ json: { ...body, effective_subtitle_mode: undefined, effective_subtitle_track_signature: undefined } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    assert.equal(await tv.page.locator('[data-track-summary="subtitles"] span').textContent(), 'Auto');
 });
 
 detailTest("subtitle choices retain their language when stream titles repeat the codec", async tv => {

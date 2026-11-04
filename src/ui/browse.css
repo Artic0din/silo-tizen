@@ -906,9 +906,29 @@
 .details-audio-options { display: flex; flex-direction: column; gap: 12px; }
 .details-audio-options .browse-button { width: 100%; text-align: left; }
 .details-track-popover { padding: 20px; border-radius: 24px; background: #28282b; box-shadow: 0 12px 40px rgba(0,0,0,.4); }
-.details-track-popover .browse-button { position: relative; padding-right: 56px; }
-.details-track-popover [aria-checked="true"]::after { content: "✓"; position: absolute; right: 20px; top: 20px; }
+.details-track-popover .browse-button { position: relative; padding-left: 56px; }
+.details-track-popover [aria-checked="true"]::before { content: "✓"; position: absolute; left: 20px; top: 20px; }
+.details-track-popover .browse-section-title { font-size: 18px; letter-spacing: 2px; opacity: .6; }
 .details-option-subtext { display: block; font-size: 20px; line-height: 26px; opacity: .65; }
+/* Detail metrics are scoped here after the shared Home card and heading rules. */
+.browse:has(.details-hero) > .browse-section-title, .browse:has(.details-hero) .details-facts > .browse-section-title { margin-left: 12px; margin-bottom: 14px; font-size: 36px; line-height: 43.2px; font-weight: 600; }
+.details-editorial .browse-title:has(.details-logo) { display: flex; align-items: flex-end; height: 160px; }
+.details-editorial .browse-meta { line-height: 29px; }
+.details-hero[data-media-type="series"] .browse-meta { height: 36px; }
+.details-editorial .browse-overview { line-height: 35px; }
+.details-editorial .details-circle { gap: 14px; font-size: 26px; font-weight: 600; background: rgba(255,255,255,.10); border-color: transparent; }
+.details-circle svg { width: 38px; height: 38px; }
+.details-editorial .details-circle:focus { background: #ededed; }
+.details-external-rating { margin: 0; gap: 8px; }
+.details-external-rating img { width: auto; height: 16.8px; }
+.details-rating-score { font-weight: 700; color: #fff; }
+.details-genres { margin-left: 0; }
+.details-season-chips { padding: 4px 12px; }
+.details-series-rail .details-episodes { padding: 12px calc(12px + 360px * var(--poster-scale, 1) * .025 + 2px); }
+.browse .details-series-rail .browse-card { margin-right: 40px; }
+.details-facts-table { position: relative; margin-left: 12px; }
+.details-facts-table:focus { background: transparent; }
+.details-facts-table:focus::before { content: ""; position: absolute; inset: -14px -28px; border-radius: 12px; background: rgba(255,255,255,.06); pointer-events: none; }
 /* Calendar events keep their own metadata and are never paged or capped. */
 .calendar-strip { display: flex; margin: 24px 0 32px; }
 .calendar-day { flex: 1; margin-right: 12px; min-height: 84px; }

@@ -1,5 +1,4 @@
 import { operations } from "../api/operations.ts";
-import { ApiError } from "../api/errors.ts";
 import type { RequestSpec } from "../api/http.ts";
 import type { HomeSection, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { CatalogFilters, CatalogLetters, CatalogQueryRequest, CatalogSearchCapabilities, FilterGroup, LibraryCollections, MediaScope } from "../contracts/v2/discovery.ts";
@@ -15,7 +14,6 @@ export interface DiscoveryData {
     readonly capabilities: CatalogSearchCapabilities | undefined;
     readonly sections: readonly HomeSection[];
     readonly collections: LibraryCollections | undefined;
-    readonly collectionsFailure?: string;
     readonly filters: CatalogFilters | undefined;
     readonly letters: CatalogLetters | undefined;
 }
@@ -53,13 +51,8 @@ export async function readDiscovery(library: UserLibrary, mode: LibraryMode, rea
     const capabilities = await read(operations.getCatalogSearchCapabilities());
     const available = capabilities?.allowed === true && capabilities.state === "available";
     const sections = mode === "Recommended" ? await read(operations.listLibrarySections(library.id, artwork)) : [];
-    let collectionsFailure: string | undefined;
-    const collections = mode === "Collections" || mode === "Recommended" ? await read(operations.getLibraryCollections(library.id)).catch((error: unknown) => {
-        if (mode !== "Recommended" || !(error instanceof ApiError) || error.aborted) throw error;
-        collectionsFailure = "Collections could not be loaded. Try again.";
-        return undefined;
-    }) : undefined;
+    const collections = mode === "Collections" ? await read(operations.getLibraryCollections(library.id)) : undefined;
     const filters = mode === "Genres" && available && capabilities.extendedQueryRules === true ? await read(operations.getCatalogFilters(libraryScope(library))) : undefined;
     const letters = mode === "A–Z" && available && capabilities.letterIndex === true ? await read(operations.queryCatalogLetters({ ...libraryScope(library), order: "asc" })) : undefined;
-    return { capabilities, sections, collections, filters, letters, ...(collectionsFailure === undefined ? {} : { collectionsFailure }) };
+    return { capabilities, sections, collections, filters, letters };
 }

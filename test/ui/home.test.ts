@@ -190,7 +190,7 @@ journey("Home keeps the packaged font and source weights under a simulator's glo
     });
     assert.match(subtitle[0] ?? "", /Inter/);
     assert.equal(subtitle[1], "400");
-    assert.equal(await tv.page.locator(".home-section .browse-card:focus .browse-card-subtitle").evaluate(node => getComputedStyle(node).fontWeight), "500");
+    assert.equal(await tv.page.locator(".home-section .browse-card:focus .browse-card-subtitle").evaluate(node => getComputedStyle(node).fontWeight), "400");
 });
 
 journey("Home fills omitted marquee rating and runtime from detail but preserves row values", async tv => {
@@ -425,15 +425,15 @@ journey("section captions retain Apple's focus contrast under the simulator font
         const read = (selector: string) => { const node = root.querySelector(selector); if (node === null) throw new Error(selector); const style = getComputedStyle(node); return { weight: style.fontWeight, color: style.color, transform: style.transform }; };
         return { title: read(".browse-card:focus .browse-card-title"), subtitle: read(".browse-card:focus .browse-card-subtitle"), resting: read(".browse-card:not(:focus) .browse-card-title"), metadata: read(".browse-card:not(:focus) .browse-card-subtitle"), count: read(".section-catalog-count") };
     });
-    assert.equal(styles.title.weight, "600");
+    assert.equal(styles.title.weight, "500");
     assert.equal(styles.title.color, "rgb(255, 255, 255)");
-    assert.equal(styles.subtitle.weight, "500");
+    assert.equal(styles.subtitle.weight, "400");
     assert.equal(styles.resting.weight, "500");
     assert.equal(styles.resting.color, "rgba(237, 237, 237, 0.45)");
     assert.equal(styles.metadata.weight, "400");
     assert.equal(styles.metadata.color, "rgba(237, 237, 237, 0.32)");
     assert.equal(styles.count.weight, "400");
-    assert.equal(styles.title.transform, "matrix(1, 0, 0, 1, 0, 5)");
+    assert.equal(styles.title.transform, "none");
 });
 
 let heldSectionBadges: { release(): void };
@@ -509,7 +509,7 @@ for (const [size, scale] of [["compact", 0.86], ["standard", 1], ["large", 1.2]]
 }, catalog => enrichHome(catalog, badgeFields), settings => settings.profile().set(CARD_PRESENTATION_KEY, { poster_size: size, caption: "title_metadata" }));
 
 let posterAnswer: { release(): void };
-journey("Compact Continue Watching focus matches Apple's measured 199px still height", async tv => {
+journey("Compact Continue Watching focus uses Apple's shared 5% lift", async tv => {
     await tv.page.emulateMedia({ reducedMotion: "no-preference" });
     const still = tv.page.locator('[data-section="resume/opaque"] [data-focus="episode:s1e12"]');
     await still.focus();
@@ -517,7 +517,7 @@ journey("Compact Continue Watching focus matches Apple's measured 199px still he
     await tv.page.evaluate(() => { for (const animation of document.getAnimations()) animation.finish(); });
     const frame = await still.locator(".browse-art").boundingBox();
     assert.ok(frame !== null);
-    assert.ok(Math.abs(frame.height - 199) < 1, `focused still height ${frame.height}`);
+    assert.ok(Math.abs(frame.height - 180.6) < 1, `focused still height ${frame.height}`);
 }, undefined, settings => settings.profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" }));
 
 journey("a late Home poster-size answer resizes existing focus without fetching on navigation", async tv => {

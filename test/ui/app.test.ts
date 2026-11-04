@@ -106,12 +106,14 @@ appTest("Sign Out confirmation traps focus and cancellation preserves the sessio
     assert.equal(await tv.page.locator(".browse").count(), 0);
 });
 
-appTest("Switch Server retires Browse and opens server entry without signing out", async tv => {
+appTest("Change Account follows Settings and opens existing server entry without signing out", async tv => {
     await signIn(tv);
     const writes = tv.fake.requests.filter(request => request.method !== "GET").length;
     const sessions = tv.fake.devices.size;
     await tv.page.locator('[data-focus="profiles"]').click();
-    await tv.page.locator('[data-focus="switch-server"]').click();
+    assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["Switch Profile", "History", "Settings", "Change Account", "Sign Out"]);
+    assert.equal(await tv.page.getByRole("menuitem", { name: "Switch Server", exact: true }).count(), 0);
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
     await tv.page.locator('[data-screen="entry"]').waitFor();
     assert.equal(await tv.page.locator(".browse").count(), 0);
     assert.equal(tv.fake.requests.filter(request => request.method !== "GET").length, writes);
@@ -679,7 +681,7 @@ appTest("the profile menu opens without changing content, stays dismissed after 
     assert.equal(await tv.focused(), "profiles");
     await tv.page.keyboard.press("Enter");
     assert.equal(await tv.focused(), "switch-profile", "Select enters the menu immediately");
-    for (const destination of ["watchlist", "favorites", "history", "settings", "switch-server"]) {
+    for (const destination of ["history", "settings", "switch-server"]) {
         await tv.page.keyboard.press("ArrowDown");
         assert.equal(await tv.focused(), destination);
     }

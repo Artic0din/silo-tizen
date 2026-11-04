@@ -131,7 +131,7 @@ export class CredentialVault {
         return this.serialize(() => this.clearNow());
     }
 
-    prepareSignIn(): Promise<VaultClear> { return this.clear(); }
+    prepareSignIn(_credential?: StoredCredential): Promise<VaultClear> { return this.clear(); }
     signOut(): Promise<VaultClear> { return this.clear(); }
 
     private serialize<T>(operation: () => Promise<T>): Promise<T> {

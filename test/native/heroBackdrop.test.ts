@@ -3,7 +3,7 @@
 // independently from those formulas.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { backdropFrame, cssColor, samplePalette, type RGB } from "../../src/ui/heroBackdrop.ts";
+import { backdropFrame, cssColor, samplePalette, washBackground, type RGB } from "../../src/ui/heroBackdrop.ts";
 
 const close = (actual: RGB, expected: readonly [number, number, number], what: string): void => {
     for (const [index, channel] of (["r", "g", "b"] as const).entries()) {
@@ -11,6 +11,17 @@ const close = (actual: RGB, expected: readonly [number, number, number], what: s
     }
 };
 const px = (r: number, g: number, b: number): RGB => ({ r, g, b });
+
+test("detail surfaces retain a uniform dimmed base beneath the shared accent and shadow", () => {
+    const tints = { base: px(0.4, 0.3, 0.2), accent: px(0.5, 0.2, 0.1), shadow: px(0.1, 0.05, 0) };
+    const detail = washBackground(tints, true);
+    assert.equal(detail.includes("240.64deg"), false);
+    assert.ok(detail.includes("rgba(102,77,51,0.42)"));
+    assert.equal(detail.match(/radial-gradient/g)?.length, 2);
+    assert.ok(washBackground(tints).includes("linear-gradient"), "root pages preserve their diagonal base wash");
+    assert.equal(washBackground(undefined), "#000");
+    assert.ok(washBackground(undefined, true).includes("rgba(10,31,36,0.42)"));
+});
 
 const CASES: readonly (readonly [string, readonly RGB[], readonly [number, number, number][]])[] = [
     ["a vivid red keeps its hue; its shadow drops to luminance 0.07", Array(4).fill(px(1, 0, 0)), [[1, 0, 0], [1, 0, 0], [0.329257, 0, 0]]],

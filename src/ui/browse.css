@@ -843,7 +843,7 @@
 .browse .browse-card .browse-art { transition: transform var(--silo-fast) ease-out, box-shadow var(--silo-fast) ease-out, outline-color var(--silo-fast) ease-out; outline: 4px solid transparent; outline-offset: -2px; }
 .browse .browse-card:is(:focus, [aria-current="true"]) .browse-art { outline-color: rgba(255,255,255,.7); }
 /* CSS box-shadow blur is twice the SwiftUI Gaussian radius. */
-.browse .browse-card:focus .browse-art { transform: scale(1.05); box-shadow: 0 8px 36px rgba(0,0,0,.45); }
+.browse .browse-card:focus .browse-art { --card-focus-scale: 1.05; transform: scale(var(--card-focus-scale)); box-shadow: 0 8px 36px rgba(0,0,0,.45); }
 .browse .browse-card-title, .browse .browse-card-subtitle { transition: color var(--silo-fast) ease-out, transform var(--silo-fast) ease-out, text-shadow var(--silo-fast) ease-out; }
 .browse .browse-card:is(:focus, [aria-current="true"]) .browse-card-title { color: #fff; }
 .browse .browse-card:is(:focus, [aria-current="true"]) .browse-card-subtitle { color: rgba(255,255,255,.92); }
@@ -861,6 +861,7 @@
 /* Collection tiles contain the collage and caption, so the tile owns focus. */
 .browse .discovery-collection:focus { transform: scale(1.05); outline: 4px solid rgba(255,255,255,.7); outline-offset: -2px; box-shadow: 0 8px 36px rgba(0,0,0,.45); }
 @media (prefers-reduced-motion: reduce) {
+    .browse .browse-card:focus .browse-art { --card-focus-scale: 1; }
     .browse .browse-card:is(:focus, [aria-current="true"]) .browse-art,
     .browse .browse-card:is(:focus, [aria-current="true"]) :is(.browse-card-title, .browse-card-subtitle),
     .browse .details-person:focus,

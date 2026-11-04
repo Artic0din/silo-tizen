@@ -108,7 +108,10 @@ function fillAudio(list: HTMLElement, tracks: TrackView): void {
         list.appendChild(el("p", "player-menu-note", "Couldn't load audio tracks."));
         list.appendChild(choice(RETRY, "Retry", false));
     } else if (audio.choices.length === 0) {
-        list.appendChild(el("p", "player-menu-note", "No audio tracks listed"));
+        const note = el("p", "player-menu-note", "No audio tracks listed");
+        note.tabIndex = -1;
+        note.setAttribute("data-focus", "audio-empty");
+        list.appendChild(note);
     } else {
         for (const track of audio.choices) {
             list.appendChild(choice(track.id, track.label, track.id === tracks.selectedAudioId, track.detail));
@@ -742,6 +745,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                 aiLanguages = false;
             } else if (id?.startsWith("ai-result:")) {
                 controls.selectAIResult(id.slice("ai-result:".length));
+            } else if (id === "audio-empty") {
+                return;
             } else if (id !== null) {
                 if (column === 1) {
                     controls.selectAudio(id);

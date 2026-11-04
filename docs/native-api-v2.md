@@ -233,7 +233,7 @@ Defined in `src/api/operations.ts` unless noted.
 | listUserLibraries | `GET /user/libraries[?include_hidden=true]` | safe |
 | listHomeSections | `GET /home/sections?image_size=small[&slot widths]` | safe |
 | listCatalogItems | `GET /catalog?library_id&q&type&limit&cursor&image_size` | safe |
-| getCatalogItem | `GET /catalog/items/{id}?image_size=medium` | safe |
+| getCatalogItem | `GET /catalog/items/{id}?image_size=large` (Details overrides with the negotiated hero slots when known) | safe |
 | listCatalogItemVersions | `GET /catalog/items/{id}/versions` | safe |
 | listSeriesSeasons | `GET /catalog/series/{id}/seasons` | safe |
 | listSeasonEpisodes | `GET /catalog/series/{id}/seasons/{n}/episodes` | safe |
@@ -248,6 +248,7 @@ Defined in `src/api/operations.ts` unless noted.
 | collection items | `GET /library/{id}/collections/{cid}/items?limit&cursor` (`src/api/discoveryOperations.ts`) | safe |
 | catalog filters | `GET /catalog/filters?...` (`src/api/discoveryOperations.ts`) | safe |
 | search capabilities | `GET /catalog/search/capabilities` (`src/api/discoveryOperations.ts`) | safe |
+| Search people | `GET /catalog/people?q&media_scope&limit=20` (`src/api/detailOperations.ts`), gated by allowed/available `people_media_scope` | safe |
 | queryCatalogItems | `POST /catalog/query?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
 | queryCatalogLetters | `POST /catalog/letters` (`src/api/discoveryOperations.ts`) | safe |
 

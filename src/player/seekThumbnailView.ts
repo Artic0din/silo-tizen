@@ -53,9 +53,10 @@ export function mountSeekThumbnail(parent: HTMLElement, controls: PlayerControls
             frame.hidden = true;
             void controls.seekThumbnail(seconds, target.signal, loadSheet).then((tile) => {
                 if (target.signal.aborted || request !== target || tile === undefined || sheet === undefined) return;
-                const scale = 320 / tile.width;
-                crop.style.width = "320px";
-                crop.style.height = "180px";
+                const frameWidth = 320;
+                const scale = frameWidth / tile.width;
+                crop.style.width = `${frameWidth}px`;
+                crop.style.height = `${tile.height * scale}px`;
                 sheet.style.width = `${tile.sheetWidth * scale}px`;
                 sheet.style.height = `${tile.sheetHeight * scale}px`;
                 sheet.style.left = `${-tile.x * scale}px`;

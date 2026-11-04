@@ -1009,3 +1009,26 @@ test("long server quality lists scroll within the menu with focus and status kep
         await page.close();
     }
 });
+
+test("an empty audio list does not trap remote movement between Info and Subtitles", async () => {
+    const { page, logs } = await open();
+    try {
+        await show(page, playing({ ...TRACKS, audio: { state: "ready", choices: [] }, selectedAudioId: undefined }));
+        await openPanel(page);
+        assert.equal(await focused(page), "info");
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "audio-empty");
+        assert.match(await text(page, ".player-menu-audio"), /No audio tracks listed/);
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), []);
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "subtitles-off");
+        await remote(page, LEFT);
+        assert.equal(await focused(page), "audio-empty");
+        await remote(page, LEFT);
+        assert.equal(await focused(page), "info");
+        assert.deepEqual(logs, []);
+    } finally {
+        await page.close();
+    }
+});

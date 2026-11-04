@@ -278,6 +278,8 @@ interface Attempt {
     changeFailure: string | undefined;
     endedDuringChange: boolean;
     seekFailure: string | undefined;
+    /** Pause or resume asked for while a local seek is settling. Applied when that seek ends. */
+    pauseAfterSeek: boolean | undefined;
     progress: Promise<void> | undefined;
     cancelTimer: (() => void) | undefined;
     stopSpec: RequestSpec<PlaybackMutation> | undefined;
@@ -396,6 +398,7 @@ export class PlaybackController implements PlayerControls {
             changeFailure: undefined,
             endedDuringChange: false,
             seekFailure: undefined,
+            pauseAfterSeek: undefined,
             progress: undefined,
             cancelTimer: undefined,
             stopSpec: undefined,
@@ -421,12 +424,21 @@ export class PlaybackController implements PlayerControls {
 
     togglePause(): void {
         const attempt = this.active();
-        if (attempt !== undefined) this.setPaused(!attempt.paused);
+        if (attempt !== undefined) this.setPaused(!(attempt.pauseAfterSeek ?? attempt.paused));
     }
 
     setPaused(paused: boolean): void {
         const attempt = this.active();
-        if (attempt === undefined || !attempt.started || (attempt.busy && !(attempt.change.state === "changing" && attempt.change.kind === "quality")) || attempt.paused === paused) {
+        if (attempt === undefined || !attempt.started) {
+            return;
+        }
+        // AVPlay rejects play and pause while seekTo is outstanding. Keep the request and apply it when the seek ends.
+        if (attempt.busy && this.pending.seek !== undefined && attempt.change.state !== "changing") {
+            attempt.pauseAfterSeek = paused;
+            return;
+        }
+        if (attempt.paused === paused) return;
+        if (attempt.busy && !(attempt.change.state === "changing" && attempt.change.kind === "quality")) {
             return;
         }
         if (attempt.hidden || attempt.restoring) {
@@ -485,6 +497,7 @@ export class PlaybackController implements PlayerControls {
             target >= timeline.timelineOffsetSeconds &&
             (timeline.seekWindowStartSeconds === undefined || target >= timeline.seekWindowStartSeconds) &&
             (timeline.seekWindowEndSeconds === undefined || target <= timeline.seekWindowEndSeconds);
+        attempt.pauseAfterSeek = undefined;
         attempt.busy = true;
         this.clearThumbnails(attempt);
         if (!local) {
@@ -498,6 +511,7 @@ export class PlaybackController implements PlayerControls {
         const transport = this.transport;
         const settled = (moved: boolean): void => {
             if (transport !== this.transport || !attempt.live) {
+                attempt.pauseAfterSeek = undefined;
                 return;
             }
             attempt.busy = false;
@@ -506,9 +520,25 @@ export class PlaybackController implements PlayerControls {
             }
             const failure = attempt.seekFailure;
             attempt.seekFailure = undefined;
+            const pauseAfterSeek = attempt.pauseAfterSeek;
+            attempt.pauseAfterSeek = undefined;
             if (failure !== undefined) {
+                if (pauseAfterSeek !== undefined) attempt.paused = pauseAfterSeek;
                 this.routeFailed(attempt, failure);
                 return;
+            }
+            if (pauseAfterSeek !== undefined && pauseAfterSeek !== attempt.paused) {
+                if (attempt.hidden || attempt.restoring) {
+                    attempt.paused = pauseAfterSeek;
+                } else {
+                    try {
+                        if (pauseAfterSeek) this.deps.avplay.pause();
+                        else this.deps.avplay.play();
+                        attempt.paused = pauseAfterSeek;
+                    } catch {
+                        // The platform still refuses play or pause; the next key tries again.
+                    }
+                }
             }
             this.showPlayback(attempt);
         };

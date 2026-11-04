@@ -40,7 +40,7 @@ test("series primary metadata is visit-owned, validates episode identity and ret
     const detail = decodeItemDetail(raw.body);
     const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
     const target = (): ItemDetail | undefined => state.nextEpisode;
-    const path = "/catalog/items/episode%3As1e11?image_size=medium";
+    const path = "/catalog/items/episode%3As1e11?image_size=large";
     const held = r.h.fake.hold(path, true);
     state.start();
     await settle();
@@ -97,7 +97,7 @@ test("watched reconciliation replaces an older pending primary read within the s
     const reply = r.catalog.route("GET", "/catalog/items/series%3As1", "p-owner");
     assert.ok(reply);
     const state = new DetailsState(decodeItemDetail(reply.body), r.h.core.session, () => undefined, async () => undefined);
-    const held = r.h.fake.hold("/catalog/items/episode%3As1e11?image_size=medium", true);
+    const held = r.h.fake.hold("/catalog/items/episode%3As1e11?image_size=large", true);
     state.start();
     await settle();
     assert.equal(state.nextEpisodeLoading, true);

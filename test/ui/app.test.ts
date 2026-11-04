@@ -712,6 +712,29 @@ appTest("native posters keep their shape and the exit modal covers the viewport"
     assert.ok(cancel.y + cancel.height <= 1080);
 });
 
+appTest("committing Change Account clears PIN authority while cancelling preserves it", async tv => {
+    await signIn(tv);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="switch-profile"]').click();
+    await tv.page.locator('[data-focus="profile:p-kid"]').click();
+    await tv.page.fill("#profile-pin", "2468");
+    await tv.page.getByRole("button", { name: "Unlock", exact: true }).click();
+    await tv.page.locator('[data-view="home"] [data-focus="movie:k1"]').waitFor();
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.remote(10009); await tv.remote(10009);
+    await tv.page.locator('[data-view="home"] [data-focus="movie:k1"]').waitFor();
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.page.locator('.account-card').first().click();
+    await tv.page.locator('[data-focus="profile:p-kid"]').click();
+    await tv.page.locator('[data-screen="pin"]').waitFor();
+    await tv.page.fill("#profile-pin", "2468");
+    await tv.page.getByRole("button", { name: "Unlock", exact: true }).click();
+    await tv.page.locator('[data-view="home"] [data-focus="movie:k1"]').waitFor();
+    assert.equal(tv.fake.paths().filter(path => path === "POST /profiles/p-kid/verify-pin").length, 2, "choosing the account again requires fresh PIN proof");
+});
+
 appTest("a profile-proof refusal stops playback and leaves the PIN successor intact", async (tv) => {
     await signIn(tv);
     await tv.page.locator('[data-focus="profiles"]').click();

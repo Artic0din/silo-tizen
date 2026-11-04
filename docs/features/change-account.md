@@ -8,6 +8,8 @@ The first launch copies the previous saved credential before making the new sele
 An interrupted copy can retry from the retained legacy credential.
 Expiry keeps the account row and asks the person to sign in again.
 From the profile menu, Back moves from the accounts pane to the server rail, then returns to the selected browse tab with the menu closed.
+Cancelling preserves the active profile; choosing an account clears its PIN authority.
+Signing in again to a saved account retires its previous session owner before saving replacement credentials.
 
 ## Reference and proof boundary
 

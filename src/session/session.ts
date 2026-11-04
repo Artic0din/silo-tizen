@@ -88,6 +88,7 @@ export class NativeSession {
     readonly server: ServerConnection;
     private readonly vault: CredentialVault;
     private readonly clock: Clock;
+    private readonly beforeInstall: ((accountId: string) => Promise<void>) | undefined;
     private credential: StoredCredential | undefined;
     private profile: ActiveProfile | undefined;
     private persistenceMode: Persistence;
@@ -101,10 +102,12 @@ export class NativeSession {
     private refreshing: Promise<RefreshOutcome> | undefined;
     private readonly listeners: AuthorityListener[] = [];
 
-    constructor(server: ServerConnection, vault: CredentialVault, clock: Clock) {
+    constructor(server: ServerConnection, vault: CredentialVault, clock: Clock,
+        beforeInstall?: (accountId: string) => Promise<void>) {
         this.server = server;
         this.vault = vault;
         this.clock = clock;
+        this.beforeInstall = beforeInstall;
         this.persistenceMode = vault.persistent ? "persistent" : "session_only";
     }
 
@@ -189,6 +192,8 @@ export class NativeSession {
             void revokeIssuedTokens(this.http, replaced);
         }
         const epoch = this.accountEpoch;
+        await this.beforeInstall?.(account.id);
+        if (this.accountEpoch !== epoch) return undefined;
         // Whatever was stored before (even an account this run could not read) must not come
         // back after a restart if this save fails.
         const previousSession = await this.vault.prepareSignIn();
@@ -310,6 +315,14 @@ export class NativeSession {
         }
         const revoking = revokeIssuedTokens(this.http, credential);
         return { storage: await clearing, server: await revoking };
+    }
+
+    /** Releases an obsolete owner without clearing the replacement login's vault. */
+    async retire(): Promise<void> {
+        this.resetAccount();
+        this.bump("signed_out");
+        // Drain earlier vault writes before the replacement owner saves its credentials.
+        await this.vault.load();
     }
 
     /** Used by Profiles; switching aborts the old profile's requests and notifies listeners. */

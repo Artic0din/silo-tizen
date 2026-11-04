@@ -11,6 +11,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Restored saved-server pane focus, Back from Add server, and pending-removal focus on Samsung TV.
+- Prevented replaced account sessions from overwriting a new sign-in and required fresh PIN proof after committing an account switch.
 - Restored each page's hero after returning from the profile menu and painted the avatar's white focus ring above its image.
 - Renamed the profile menu's Switch Server row to Change Account, after Settings and before Sign Out.
 

@@ -322,7 +322,10 @@ test("Favorites filters the whole result before paging and retains opaque contin
         for (let page = 1; page <= 3; page++) {
             await tv.page.getByText(`Page ${page} of 3`, { exact: true }).waitFor();
             seen.push(...await tv.page.locator(".browse .browse-card").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? "")));
-            if (page < 3) await tv.page.locator('[data-focus="next"]').click();
+            if (page < 3) {
+                await tv.page.locator('[data-focus="next"]').focus();
+                await tv.page.keyboard.press("Enter");
+            }
         }
         assert.equal(new Set(seen).size, 60);
         assert.ok(seen.every(id => id.startsWith("movie:")));

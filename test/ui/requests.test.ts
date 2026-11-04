@@ -178,6 +178,25 @@ test("an unrequested title that cannot be requested is not labelled Requested", 
         assert.equal(await tv.page.locator(".requests-detail-progress").count(), 0);
     } finally { await tv.page.context().close(); }
 });
+test("a first request keeps the originating card visible and each row's own scroll", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = await start(tv);
+        await button(tv, "requests").click(); await view(tv, "hub");
+        await button(tv, "movie:949").click(); await view(tv, "media");
+        await button(tv, "create").click();
+        await tv.eventually(async () => fake.created && await button(tv, "create").count() === 0, "created");
+        await tv.remote(10009); await view(tv, "hub");
+        await button(tv, "request-one").waitFor();
+        assert.equal(await tv.focused(), "movie:949");
+        await tv.eventually(async () => {
+            const box = await button(tv, "movie:949").locator(".browse-art").evaluate(node => { const rect = node.getBoundingClientRect(); return { top: rect.top, bottom: rect.bottom }; });
+            return box.top >= 596 && box.bottom <= 1080;
+        }, "the focused card is inside the row band after Your requests appears");
+        assert.equal(await tv.page.locator(".requests-row").first().getAttribute("data-section"), "mine");
+        assert.ok(await tv.page.locator('.requests-row:not([data-section])').count() === 0, "every row restores its scroll by section, not position");
+    } finally { await tv.page.context().close(); }
+});
 test("Requests loads its complete bounded mine list and groups active requests before landed titles", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

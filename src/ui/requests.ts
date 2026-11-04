@@ -119,6 +119,7 @@ export function requestsView(state: RequestsState, h: RequestsHandlers, baseUrl:
         const nodes = [...head];
         add(id, items, true, nodes);
         const row = el("section", "requests-row");
+        row.setAttribute("data-section", id);
         row.append(...nodes);
         content.push(row);
     };

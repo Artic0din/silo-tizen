@@ -7,10 +7,12 @@ Account credentials stay in protected storage, bound to their original server UR
 The first launch copies the previous saved credential before making the new selection durable, without a network request.
 An interrupted copy can retry from the retained legacy credential.
 Expiry keeps the account row and asks the person to sign in again.
+From the profile menu, Back moves from the accounts pane to the server rail, then returns to the selected browse tab with the menu closed.
 
 ## Reference and proof boundary
 
 Reference: silo-apple `ffa6e5188c70664090a6dc9beb8c7cbbc3ce43e7`, including the account change in `54cf0f34a4528795c69609268e6ad693d85e50b7`.
+Navigation was rechecked at `bbd1e470f0e1d3a99f486d0d7246d11ed1c97d55`: `TVMainTabView.swift:720,1284-1286` sets bar focus on return from Change Account, and `TVChangeAccountView.swift:64` returns from the pane to the rail first.
 `tvOS/Navigation/TVMainTabView.swift:1384-1387` routes both account screens inside its tvOS guard.
 `Screens/Accounts/ChangeAccountView.swift` is guarded by `#if !os(tvOS)` and is excluded from this port.
 Apple TV has no three-choice Add sheet: account and server actions are direct, and the profile picker's Add opens profile creation.

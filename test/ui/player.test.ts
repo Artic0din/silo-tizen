@@ -83,6 +83,8 @@ async function open(hidden = false, videoDir?: string): Promise<{ page: Page; lo
         await route.fulfill({ status: 200, contentType: type, body });
     });
     await page.clock.install();
+    // Remote sequences advance time explicitly so host delays cannot commit a preview.
+    await page.clock.pauseAt(new Date(Date.now() + 1000));
     if (hidden) {
         await page.addInitScript(() => Object.defineProperty(document, "hidden", { configurable: true, value: true }));
     }

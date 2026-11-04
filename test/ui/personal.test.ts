@@ -31,7 +31,8 @@ class PersonalCatalog extends FakeDetails {
         }
         if (path.startsWith("/catalog/query") && typeof body?.source === "string" && ["watchlist", "favorites", "history"].includes(body.source)) {
             assert.equal(method, "POST");
-            assert.equal(body.limit, 24);
+            const limit = body.source === "history" ? 60 : 24;
+            assert.equal(body.limit, limit);
             const failure = this.pageReplies.shift();
             if (failure !== undefined) return failure;
             const scope = `${profile}:${body.source}:${body.type}`;
@@ -46,14 +47,14 @@ class PersonalCatalog extends FakeDetails {
             // The immutable fixture order stands in for the server's fenced keyset.
             // A removed row before the anchor cannot shift a later page backwards.
             const remaining = scoped.slice(offset).filter(t => included(t.id));
-            const selected = remaining.slice(0, 24);
+            const selected = remaining.slice(0, limit);
             const last = selected[selected.length - 1];
             const next = last === undefined ? offset : scoped.indexOf(last) + 1;
             const cards = selected.map(t => {
                 const reply = super.route("GET", `/catalog/items/${encodeURIComponent(t.id)}`, profile);
                 return reply?.body;
             });
-            return { status: 200, body: { window_cursor: scope, items: cards, total: ids.length, total_exact: true, page: remaining.length > 24 ? { has_more: true, next_cursor: `${scope}:${next}` } : { has_more: false } } };
+            return { status: 200, body: { window_cursor: scope, items: cards, total: ids.length, total_exact: true, page: remaining.length > limit ? { has_more: true, next_cursor: `${scope}:${next}` } : { has_more: false } } };
         }
         return super.route(method, path, profile, body);
     }
@@ -71,14 +72,54 @@ let browser: Browser;
 test("pinned History scope distinguishes aggregated media from episode queries", () => {
     const catalog = new PersonalCatalog();
     const query = (type?: string): Record<string, unknown>[] => {
-        const reply = catalog.route("POST", "/catalog/query", "p-owner", { source: "history", limit: 24, ...(type === undefined ? {} : { type }) });
+        const reply = catalog.route("POST", "/catalog/query", "p-owner", { source: "history", limit: 60, ...(type === undefined ? {} : { type }) });
         return (reply?.body as { items: Record<string, unknown>[] }).items;
     };
     assert.ok(query().every(item => item.type !== "episode"));
     assert.ok(query("episode").some(item => item.type === "episode"));
 });
-test("History episode filter requests the public episode scope", () => {
-    assert.equal(personalQuery("history", "episode").type, "episode");
+test("History matches Apple's unfiltered 60-item query and continuation", () => {
+    assert.deepEqual(personalQuery("history", "movie"), { source: "history", limit: 60 });
+    assert.deepEqual(personalQuery("history", "movie", "opaque"), { source: "history", limit: 60, cursor: "opaque" });
+});
+
+test("History is pushed without shell chrome and Back restores the profile anchor", async () => {
+    const { tv } = await setup();
+    try {
+        await openList(tv, "history");
+        assert.equal(await tv.page.locator(".browse-nav").count(), 0);
+        assert.equal(await tv.page.locator(".personal-filters, [data-focus=back]").count(), 0);
+        assert.equal(await tv.focused(), "movie:m0001");
+        const title = tv.page.getByRole("heading", { name: "History", exact: true });
+        const box = await title.boundingBox();
+        assert.ok(box);
+        assert.equal(box.x + box.width / 2, 960);
+        await tv.page.keyboard.press("ArrowUp");
+        assert.equal(await tv.focused(), "movie:m0001");
+        await tv.remote(10009);
+        await tv.page.locator('[data-view="home"]').waitFor();
+        assert.equal(await tv.focused(), "profiles");
+    } finally { await tv.page.context().close(); }
+});
+
+test("History count uses exact totals and ignores server estimates", async () => {
+    const { tv, catalog } = await setup();
+    try {
+        const reply = catalog.route("POST", "/catalog/query", "p-owner", { source: "history", limit: 60 });
+        const body = reply?.body as Record<string, unknown>;
+        const items = body.items as Record<string, unknown>[];
+        for (const scenario of [
+            { total: 784, exact: true, more: true, items, label: "784 items" },
+            { total: 999, exact: false, more: true, items, label: "60+ items" },
+            { total: 999, exact: false, more: false, items: items.slice(0, 1), label: "1 item" },
+        ]) {
+            catalog.pageReplies.push({ status: 200, body: { ...body, items: scenario.items, total: scenario.total, total_exact: scenario.exact, page: scenario.more ? { has_more: true, next_cursor: "p-owner:history:undefined:60" } : { has_more: false } } });
+            await openList(tv, "history");
+            assert.equal(await tv.page.locator(".personal-count").innerText(), scenario.label);
+            await tv.remote(10009);
+            await tv.page.locator('[data-view="home"]').waitFor();
+        }
+    } finally { await tv.page.context().close(); }
 });
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
@@ -246,10 +287,11 @@ test("watchlist, favorites and history are continuous Apple pages", async () => 
         assert.equal(history.rowGap, "60px");
         assert.deepEqual(history.art, { width: 260, height: 390 });
         assert.equal(history.title, "History");
-        assert.equal(history.titleSize, "48px");
+        assert.equal(history.titleSize, "56px");
         assert.equal(history.titleWeight, "700");
         assert.match(history.count, /^\d+ items$/);
         assert.equal(history.countSize, "22px");
+        await tv.remote(10009);
         await tv.page.locator('[data-focus="for_you"]').focus();
         await tv.jump(250);
         await tv.page.locator('.skyline-selector [data-focus="watchlist"]').click();
@@ -478,7 +520,7 @@ test("personal destinations page on the server, restore Details focus and reconc
     try {
         for (const source of ["watchlist", "favorites", "history"]) {
             await openList(tv, source);
-            assert.equal(await tv.page.locator(".browse .browse-card").count(), 24);
+            assert.equal(await tv.page.locator(".browse .browse-card").count(), source === "history" ? 60 : 24);
             const reads = tv.fake.requests.length;
             await tv.page.locator(".browse .browse-card").first().focus();
             await tv.page.keyboard.press("ArrowRight");
@@ -652,17 +694,17 @@ test("History includes episodes and cached Details return remains visible during
     const { tv } = await setup();
     try {
         await openList(tv, "history");
-        assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).pop()?.body?.type, "video");
+        assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).pop()?.body?.type, undefined);
         await tv.page.locator('.browse [data-focus="movie:m0002"]').click();
         await tv.page.locator('[data-view="item:movie:m0002"]').waitFor();
         const held = tv.fake.hold("/catalog/query", true);
         await tv.remote(10009);
         await tv.page.locator('[data-view="personal:history"]').waitFor();
-        assert.equal(await tv.page.locator(".browse .browse-card").count(), 24);
+        assert.equal(await tv.page.locator(".browse .browse-card").count(), 60);
         assert.equal(await tv.focused(), "movie:m0002");
         held.release();
         await tv.eventually(async () => await tv.focused() === "movie:m0002", "refresh kept the open card");
-        await loadThrough(tv, 60);
+        await loadThrough(tv, 63);
         assert.ok(await tv.page.locator('.browse .browse-card[data-focus^="series:"]').count() > 0);
         assert.equal(await tv.page.getByRole("button", { name: "Episodes", exact: true }).count(), 0);
         assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).every(request => request.body?.type !== "episode"), true);

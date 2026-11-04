@@ -10,10 +10,9 @@ import { actionButton, FAILURE_ICON, recoveryActions, searchState, zoneNode } fr
 import { feedGrid } from "./catalogFeed.ts";
 import { navigationIcon } from "./navigationIcon.ts";
 import { el } from "./screen.ts";
-import { sectionCountLabel } from "./sectionCatalogState.ts";
 
 export type PersonalSource = "watchlist" | "favorites" | "history";
-export type PersonalFilter = "movie" | "series" | "episode";
+export type PersonalFilter = "movie" | "series";
 export const PERSONAL_TITLES = { watchlist: "Watchlist", favorites: "Favorites", history: "History" };
 export interface PersonalListCapability {
     readonly state: string;
@@ -30,7 +29,7 @@ export function personalListCapability(): RequestSpec<PersonalListCapability> {
 }
 export function personalQuery(source: PersonalSource, filter: PersonalFilter, cursor?: string): CatalogQueryRequest {
     // Omit sort/order: each source's native default defines the fenced ordering.
-    return { source, type: source === "history" ? (filter === "episode" ? "episode" : "video") : source === "favorites" ? filter : "video", limit: PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) };
+    return { source, ...(source === "history" ? {} : { type: source === "favorites" ? filter : "video" }), limit: source === "history" ? 60 : PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) };
 }
 export function readPersonalPage(source: PersonalSource, filter: PersonalFilter, cursor: string | undefined): ReturnType<typeof operations.queryCatalogItems> {
     return operations.queryCatalogItems(personalQuery(source, filter, cursor));
@@ -104,7 +103,9 @@ function shownError(route: PersonalRoute, page: CatalogPage | undefined): boolea
 
 /** HistoryViewModel.countLabel: the exact total, or a lower bound while another page remains. */
 function historyCount(page: CatalogPage): string {
-    return sectionCountLabel(page) ?? `${page.items.length}+ items`;
+    const count = page.totalExact ? page.total : page.items.length;
+    const lowerBound = !page.totalExact && page.nextCursor !== undefined;
+    return `${count}${lowerBound ? "+" : ""} ${count === 1 && !lowerBound ? "item" : "items"}`;
 }
 
 function continuousGrid(route: PersonalRoute, handlers: RouteHandlers, columns: number, posterWidth: number, gridWidth: number): { content: HTMLElement[]; zones: Zone[] } {
@@ -169,7 +170,7 @@ function savedListView(route: PersonalRoute, handlers: RouteHandlers): View {
 function historyView(route: PersonalRoute, handlers: RouteHandlers): View {
     const page = route.pages.page;
     if (shownError(route, page)) return errorPage(route, handlers);
-    const content: HTMLElement[] = [el("h1", "browse-title", "History")];
+    const content: HTMLElement[] = [];
     const zones: Zone[] = [];
     if (page === undefined) {
         const status = statusOwner("personal-loading", "");
@@ -199,5 +200,7 @@ export function personalView(route: PersonalRoute, handlers: RouteHandlers): Vie
         const unexpected: never = route.source;
         throw new Error(unexpected);
     }
-    return historyView(route, handlers);
+    const view = historyView(route, handlers);
+    view.content[0]?.classList.add("skyline-content");
+    return { ...view, content: [el("h1", "browse-title section-catalog-title", "History"), ...view.content] };
 }

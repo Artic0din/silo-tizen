@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Opened History without the top menu, with a centered title, exact counts and Apple's unfiltered 60-item pages.
+
 - Kept personal-list focus and cached cards after failed reads and fitted large History posters to five columns.
 
 - Prevented large Search posters from overlapping and kept catalog errors and Try Again visible while People results were pending.

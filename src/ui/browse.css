@@ -1019,10 +1019,10 @@
     .personal-lists .personal-filters .browse-button:focus { transform: none; }
 }
 
-/* HistoryView: horizontal padding 48, top 16, bottom 60, title siloTitle 48, count siloCaption 22, CatalogGrid gaps. */
-.personal-history.skyline-grid .skyline-content { left: 48px; width: 1824px; }
+/* History uses the existing pushed-page title treatment in place of tvOS system navigation chrome. */
+.personal-history .skyline-content { top: 146px; left: 48px; width: 1824px; height: 934px; overflow-y: auto; }
 .personal-history .personal-page { padding: 16px 0 60px; }
-.personal-history .browse-title { margin: 0 0 48px; font-size: 48px; font-weight: 700; line-height: 48px; color: #ededed; }
+.personal-history > .browse-title { position: fixed; top: 56px; left: 48px; width: 1824px; font-size: 56px; line-height: 64px; }
 .personal-history .personal-count { margin: 0 0 48px; font-size: 22px; font-weight: 400; line-height: 26px; color: rgba(237,237,237,.6); }
 .personal-history .catalog-grid { grid-template-columns: repeat(var(--grid-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; width: 1824px; margin: 0; padding: 0; }
 

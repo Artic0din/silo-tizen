@@ -1415,7 +1415,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 host.listen();
                 const current = top();
                 if (current !== undefined) showRoute(current, { zone: "nav", key: "profiles" });
-            }, server.profileLaunch);
+            }, server.profileLaunch, {
+                profileName: options.profileName ?? "Profiles",
+                switchProfile: chooseProfile,
+                serverName: cachedBranding(options.publicStorage, context.baseUrl)?.serverName,
+                ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
+                ...(options.onSwitchServer === undefined ? {} : { switchServer: () => { teardown(); options.onSwitchServer?.(); } }),
+            });
         },
         personal: (source, anchor = "profiles") => {
             const origin = top();

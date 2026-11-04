@@ -12,6 +12,7 @@ class SettingsConflict extends Error {}
 
 export class SettingsState {
     readonly explicit = new Map<SettingsKey, ExplicitSetting>();
+    readonly device = new Map<SettingsKey, ExplicitSetting>();
     readonly effective = new Map<SettingsKey, EffectiveSetting>();
     titleDevice: ExplicitSetting | undefined;
     definitions: readonly SettingDefinition[] = [];
@@ -38,6 +39,10 @@ export class SettingsState {
         this.stopAuthority = session.onAuthorityChange(() => { this.stop(); this.changed(); });
     }
     get canRetry(): boolean { return this.retryEdit !== undefined; }
+    scope(key: SettingsKey): SettingsScope {
+        return [AUDIO_KEY, QUALITY_KEY, "playback.max_bitrate_kbps"].includes(key) && this.definitions.some(def => def.key === key && def.device) ? "profile_device" : "profile";
+    }
+    stored(key: SettingsKey): ExplicitSetting | undefined { return (this.scope(key) === "profile_device" ? this.device : this.explicit).get(key); }
     get qualityOptions(): SettingDefinition["options"] { return this.definitions.find(def => def.key === QUALITY_KEY)?.options.filter(option => !option.deprecated && option.value !== "original") ?? []; }
     private get active(): boolean { return !this.controller.signal.aborted; }
     private get identity(): SettingsIdentity {
@@ -55,6 +60,7 @@ export class SettingsState {
         this.loaded = false;
         this.definitions = [];
         this.explicit.clear();
+        this.device.clear();
         this.effective.clear();
         this.titleDevice = undefined;
         this.libraries = [];
@@ -92,14 +98,24 @@ export class SettingsState {
 
     private async readValues(keys: readonly SettingsKey[]): Promise<void> {
         const identity = this.identity;
-        const [explicit, effective, device] = await Promise.all([this.call(operations.settingsValues(keys, "profile", identity)), Promise.all((this.batchedEffective ? [keys] : keys.map(key => [key])).map(group => this.call(operations.effectiveSettings(group, identity)))), keys.includes(TITLE_ART_KEY) ? this.call(operations.settingsValues([TITLE_ART_KEY], "profile_device", identity)) : undefined]);
+        const deviceKeys = keys.filter(key => key === TITLE_ART_KEY || this.scope(key) === "profile_device");
+        const [explicit, effective, device] = await Promise.all([this.call(operations.settingsValues(keys, "profile", identity)), Promise.all((this.batchedEffective ? [keys] : keys.map(key => [key])).map(group => this.call(operations.effectiveSettings(group, identity)))), deviceKeys.length > 0 ? this.call(operations.settingsValues(deviceKeys, "profile_device", identity)) : undefined]);
         if (!this.active) return;
         for (const [key, value] of explicit) this.explicit.set(key, value);
         for (const values of effective) for (const [key, value] of values) this.effective.set(key, value);
-        if (device !== undefined) this.titleDevice = device.get(TITLE_ART_KEY);
+        if (device !== undefined) {
+            for (const [key, value] of device) this.device.set(key, value);
+            if (keys.includes(TITLE_ART_KEY)) this.titleDevice = device.get(TITLE_ART_KEY);
+        }
     }
 
     save(key: SettingsKey, value: SettingValue): Promise<void> {
+        // Legacy stored null stays selected; new device no-preference choices clear the row.
+        if (key === AUDIO_KEY && value === null && this.scope(key) === "profile_device") {
+            const stored = this.stored(key);
+            if (stored?.isSet && stored.value === null) return Promise.resolve();
+            return this.reset(key);
+        }
         if (key !== TITLE_ART_KEY) return this.edit({ key, kind: "value", value });
         decodeSettingValue(key, value);
         const effective = this.effective.get(key);
@@ -121,7 +137,7 @@ export class SettingsState {
 
     private achieved(edit: Edit): boolean {
         if (edit.kind === "title") return edit.steps.every(step => step.done);
-        const stored = this.explicit.get(edit.key);
+        const stored = this.stored(edit.key);
         if (stored === undefined) return false;
         if (edit.kind === "reset") return !stored.isSet;
         if (!stored.isSet) return false;
@@ -158,7 +174,8 @@ export class SettingsState {
             if (edit.key === HIDDEN_KEY) this.hiddenChanged = true;
             let refused: unknown;
             try {
-                await this.call(edit.kind === "reset" ? operations.deleteSetting(edit.key) : operations.putSetting(edit.key, value));
+                const scope = this.scope(edit.key);
+                await this.call(edit.kind === "reset" ? operations.deleteSetting(edit.key, scope) : operations.putSetting(edit.key, value, scope, this.identity));
             } catch (error) {
                 if (error instanceof ApiError && (error.status === 403 || error.status === 422 || error.status === 429)) throw error;
                 refused = error;
@@ -228,6 +245,7 @@ export class SettingsState {
         this.controller.abort();
         this.stopAuthority();
         this.explicit.clear();
+        this.device.clear();
         this.effective.clear();
         this.titleDevice = undefined;
         this.definitions = [];

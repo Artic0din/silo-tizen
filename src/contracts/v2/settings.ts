@@ -37,6 +37,7 @@ export interface SettingDefinition {
     readonly key: SettingsKey;
     readonly introducedIn: number;
     readonly profile: boolean;
+    readonly device: boolean;
     readonly options: readonly { value: string | number; label: string; introducedIn: number; deprecated: boolean }[];
 }
 export interface SettingsContract {
@@ -139,7 +140,7 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
             if (definitions.some(def => def.key === key)) throw new WireError("setting_definition.key", "each seek key once");
         }
         // Only the two seek keys and title art have approved advisory-platform adoption.
-        definitions.push({ key, introducedIn: integer(def, "introduced_in", "setting_definition"), profile: scopes.includes("profile") && (seek || titleArt || platforms === undefined || platforms.includes("tizen")), options });
+        definitions.push({ key, introducedIn: integer(def, "introduced_in", "setting_definition"), profile: scopes.includes("profile") && (seek || titleArt || platforms === undefined || platforms.includes("tizen")), device: scopes.includes("profile_device"), options });
     }
     return { apiVersion: integer(obj, "api_version", "settings_contract"), revision: integer(obj, "revision", "settings_contract"), definitions };
 }
@@ -147,7 +148,7 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
 export function profileSettings(contract: SettingsContract, capability: SettingsCapabilities): readonly SettingDefinition[] {
     if (capability.apiVersion !== 1 || capability.state !== "available" || !capability.allowed || !capability.scopes.includes("profile") || contract.apiVersion !== 1) return [];
     const revision = Math.min(contract.revision, capability.manifestRevision);
-    const definitions = contract.definitions.filter(def => def.profile && def.introducedIn <= revision).map(def => ({ ...def, options: def.options.filter(option => option.introducedIn <= revision) }));
+    const definitions = contract.definitions.filter(def => def.profile && def.introducedIn <= revision).map(def => ({ ...def, device: def.device === true && capability.scopes.includes("profile_device"), options: def.options.filter(option => option.introducedIn <= revision) }));
     const pair = revision >= 9 && SEEK_KEYS.every(key => definitions.some(def => def.key === key && def.options.length === SEEK_SECONDS.length && def.options.every(option => !option.deprecated)));
     return definitions.filter(def => (pair || (def.key !== SEEK_BACK_KEY && def.key !== SEEK_FORWARD_KEY)) && (def.key !== TITLE_ART_KEY || capability.scopes.includes("profile_device")));
 }

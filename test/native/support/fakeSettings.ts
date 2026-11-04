@@ -16,6 +16,7 @@ export class FakeSettings {
     supportsAtomicShortcuts = true;
     cardClientFamily: string | undefined;
     constrained = false;
+    devicePlayback = true;
     /** `GET /settings/overlay-config`; undefined answers 404. */
     overlayConfig: { enabled: boolean; defaults?: string } | undefined = { enabled: true };
     constructor(fake: FakeSilo) {
@@ -40,7 +41,11 @@ export class FakeSettings {
         const url = new URL(path, "https://fake.invalid");
         const pathname = url.pathname;
         if (pathname === "/settings/contract/capabilities") return { status: 200, body: { api_version: 1, revision: "opaque-24", manifest_revision: this.revision, state: "available", allowed: this.allowed, scopes: ["profile", "profile_client", "profile_device"], supports_batched_effective: this.supportsBatchedEffective, supports_atomic_shortcuts: this.supportsAtomicShortcuts, client_families: this.clientFamilies } };
-        if (pathname === "/settings/contract") return { status: 200, body: fixture("settings_contract_ok") };
+        if (pathname === "/settings/contract") {
+            const contract = fixture("settings_contract_ok");
+            if (!this.devicePlayback && Array.isArray(contract.definitions)) contract.definitions = contract.definitions.map(def => [AUDIO_KEY, QUALITY_KEY, "playback.max_bitrate_kbps"].includes(String(def.key)) ? { ...def, allowed_scopes: ["profile"] } : def);
+            return { status: 200, body: contract };
+        }
         if (pathname === "/settings/overlay-config") return this.overlayConfig === undefined ? problem(404, "not_found", "Not found") : { status: 200, body: { quick_actions_enabled: false, quick_actions_default: "both", ...this.overlayConfig } };
         if (!pathname.startsWith("/settings/values")) return undefined;
         if (profile === undefined) return problem(422, "validation_failed", "Profile required");
@@ -61,15 +66,16 @@ export class FakeSettings {
                     return { key, value: source === "profile" ? profileRows.get(typed) : source === "profile_device" ? deviceRows.get(typed) : this.titleDefault, source, definition_revision: 16,
                         ...(source === "default" ? {} : { scope: source, profile_id: profile, ...(source === "profile_device" ? { device_id: device } : {}), source_context: { profile_id: profile, ...(source === "profile_device" ? { device_id: device } : {}) } }) };
                 }
-                const override = this.overrides.has(typed);
-                const value = override ? this.overrides.get(typed) : rows.has(typed) ? rows.get(typed) : key === "ui.card_presentation" ? { poster_size: "standard", caption: "title_metadata" } : typed === QUALITY_KEY ? "auto" : typed === SEEK_BACK_KEY ? 10 : typed === SEEK_FORWARD_KEY ? 30 : null;
+                const deviceOverride = typed !== SEEK_BACK_KEY && typed !== SEEK_FORWARD_KEY && deviceRows.has(typed);
+                const override = this.overrides.has(typed) || deviceOverride;
+                const value = this.overrides.has(typed) ? this.overrides.get(typed) : deviceOverride ? deviceRows.get(typed) : profileRows.has(typed) ? profileRows.get(typed) : key === "ui.card_presentation" ? { poster_size: "standard", caption: "title_metadata" } : typed === QUALITY_KEY ? "auto" : typed === SEEK_BACK_KEY ? 10 : typed === SEEK_FORWARD_KEY ? 30 : null;
                 return { key, value, source: override ? "profile_device" : rows.has(typed) ? "profile" : "default", definition_revision: this.revision, ...(this.constrained && typed === AUDIO_KEY ? { constrained: true, requested_value: rows.get(typed) ?? null, permitted_values: [null, "en"] } : {}) };
             });
             return { status: 200, body: { items, revision: this.revision } };
         }
         const key = pathname.slice("/settings/values/".length) as SettingsKey;
         if (!SETTINGS_KEYS.some(known => known === key) && key !== TITLE) return problem(422, "validation_failed", "Unknown setting");
-        if (scope !== "profile" && !(key === TITLE && scope === "profile_device" && device)) return problem(422, "validation_failed", "Invalid scope");
+        if (scope !== "profile" && !([TITLE, AUDIO_KEY, QUALITY_KEY, "playback.max_bitrate_kbps"].includes(key) && scope === "profile_device" && device)) return problem(422, "validation_failed", "Invalid scope");
         if (method === "DELETE") {
             if (!rows.delete(key)) return problem(404, "not_found", "Unset");
             return { status: 204 };

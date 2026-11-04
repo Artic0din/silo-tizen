@@ -11,17 +11,18 @@ let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
 
-async function setup() {
+async function setup(devicePlayback = false) {
     const tv = await openTv(browser, { app: "browse", ...(process.env.SETTINGS_CAPTURE_DIR === undefined ? {} : { video: process.env.SETTINGS_CAPTURE_DIR }) });
     tv.fake.catalog = new FakeCatalog();
     const settings = new FakeSettings(tv.fake);
+    settings.devicePlayback = devicePlayback;
     await tv.page.evaluate(() => window.browseHarness.connect());
     await tv.eventually(async () => tv.fake.devices.size > 0, "device code");
     tv.fake.approve([...tv.fake.devices.keys()][0] ?? "");
     await tv.jump(5000);
     await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.loginPhase) === "signed_in", "sign in");
     await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner"));
-    await tv.page.evaluate(() => window.browseHarness.mount());
+    await tv.page.evaluate(() => window.browseHarness.mount(true));
     await tv.page.locator('[data-view="home"]').waitFor();
     // Home reads title art and poster badges when it loads; let those settle before scripting settings replies.
     await tv.eventually(async () => ["keys=ui.title_art", "keys=ui.card_overlays"].every(key => tv.fake.requests.some(request => request.path.startsWith("/settings/values/effective?") && request.path.includes(key))), "Home settings reads");
@@ -34,6 +35,107 @@ async function openSettings(tv: Tv): Promise<void> {
     await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
     await tv.page.getByRole("button", { name: /Hidden libraries/ }).waitFor();
 }
+
+test("Apple Settings rail enters the first row, shows separate values and restores modal focus", async () => {
+    const { tv } = await setup(true);
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').focus();
+        await tv.remote(39);
+        assert.equal(await tv.page.locator(":focus").getAttribute("data-focus"), "quality");
+        assert.equal(await tv.page.locator('[data-focus="quality"] .settings-row-title').textContent(), "Resolution");
+        assert.equal(await tv.page.locator('[data-focus="quality"] .settings-row-value').textContent(), "Auto");
+        await tv.page.locator('[data-focus="bitrate"]').click();
+        await tv.page.getByRole("radio", { name: "6 Mbps", exact: true }).click();
+        await tv.page.locator('[data-focus="bitrate"]').waitFor();
+        assert.equal(await tv.page.locator(":focus").getAttribute("data-focus"), "bitrate");
+        assert.equal(await tv.page.locator('[data-focus="bitrate"] .settings-row-value').textContent(), "6 Mbps");
+        await tv.remote(37);
+        await tv.remote(39);
+        assert.equal(await tv.page.locator(":focus").getAttribute("data-focus"), "quality");
+        await tv.page.locator('[data-focus="settings-signout"]').click();
+        await tv.page.getByRole("button", { name: "Cancel", exact: true }).click();
+        assert.equal(await tv.page.locator(":focus").getAttribute("data-focus"), "settings-signout");
+        assert.equal(await tv.page.getByText(/Silo 0\.0\.1/).count(), 1);
+        assert.equal(await tv.page.getByRole("button", { name: /nav.*menu|synced.*menu/i }).count(), 0);
+    } finally { await tv.page.context().close(); }
+});
+
+test("Settings profile and confirmed sign out use the existing browse callbacks", async () => {
+    const first = await setup();
+    try {
+        await openSettings(first.tv);
+        await first.tv.page.locator('[data-focus="settings-profile"]').click();
+        assert.equal(await first.tv.page.evaluate(() => window.browseHarness.chooseProfileCalls.length), 1);
+        assert.equal(await first.tv.page.locator(".settings").count(), 0);
+    } finally { await first.tv.page.context().close(); }
+    const second = await setup();
+    try {
+        await openSettings(second.tv);
+        await second.tv.page.locator('[data-focus="settings-signout"]').click();
+        assert.equal(await second.tv.focused(), "cancel-signout");
+        await second.tv.page.keyboard.press("ArrowUp");
+        assert.equal(await second.tv.focused(), "cancel-signout");
+        await second.tv.page.locator('[data-focus="confirm-signout"]').click();
+        assert.equal(await second.tv.page.evaluate(() => window.browseHarness.signOutCalls), 1);
+        assert.equal(await second.tv.page.locator(".settings").count(), 0);
+    } finally { await second.tv.page.context().close(); }
+});
+
+test("device pickers preserve profile, show inheritance, retain legacy audio null and survive Back/reentry", async () => {
+    const { tv, settings } = await setup(true);
+    try {
+        const deviceId = tv.fake.requests.find(r => r.headers["x-silo-device-id"])?.headers["x-silo-device-id"];
+        assert.ok(deviceId);
+        const device = settings.device("p-owner", deviceId);
+        settings.profile().set(AUDIO_KEY, "fr");
+        settings.profile().set(QUALITY_KEY, "1080p");
+        settings.profile().set(BITRATE_KEY, 6000);
+        device.set(AUDIO_KEY, "yue-Hant-HK");
+        device.set(QUALITY_KEY, "480p");
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        await tv.page.locator('[data-focus="audio"]').click();
+        assert.equal(await tv.page.locator('[data-focus="audio:yue-Hant-HK"]').getAttribute("aria-checked"), "true");
+        assert.equal(await tv.page.locator('[data-focus="audio:null"]').count(), 0);
+        await tv.page.getByRole("radio", { name: "Use Profile Setting", exact: true }).click();
+        await tv.page.locator('[data-focus="audio"]').waitFor();
+        assert.equal(device.has(AUDIO_KEY), false);
+        assert.equal(settings.profile().get(AUDIO_KEY), "fr");
+        await tv.page.locator('[data-focus="quality"]').click();
+        await tv.page.getByRole("radio", { name: "720p", exact: true }).click();
+        await tv.page.locator('[data-focus="quality"]').waitFor();
+        assert.equal(device.get(QUALITY_KEY), "720p");
+        assert.equal(settings.profile().get(QUALITY_KEY), "1080p");
+        await tv.page.locator('[data-focus="bitrate"]').click();
+        await tv.page.getByRole("button", { name: "No limit", exact: true }).click();
+        await tv.page.locator('[data-focus="bitrate"]').waitFor();
+        assert.equal(device.has(BITRATE_KEY), true);
+        assert.equal(device.get(BITRATE_KEY), null);
+        await tv.page.locator('[data-focus="bitrate"]').click();
+        await tv.page.getByRole("radio", { name: "Use Profile Setting", exact: true }).click();
+        await tv.page.locator('[data-focus="bitrate"]').waitFor();
+        assert.equal(device.has(BITRATE_KEY), false);
+        assert.equal(settings.profile().get(BITRATE_KEY), 6000);
+        await tv.remote(10009);
+        await tv.remote(10009);
+        device.set(AUDIO_KEY, null);
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        await tv.page.locator('[data-focus="audio"]').click();
+        assert.equal(await tv.page.locator('[data-focus="audio:null"]').getAttribute("aria-checked"), "true");
+        await tv.page.locator('[data-focus="audio:null"]').click();
+        await tv.page.locator('[data-focus="audio"]').waitFor();
+        assert.equal(device.has(AUDIO_KEY), true);
+        assert.equal(device.get(AUDIO_KEY), null);
+        await tv.page.locator('[data-focus="quality"]').click();
+        assert.equal(await tv.page.locator('[data-focus="quality:720p"]').getAttribute("aria-checked"), "true");
+        await tv.page.getByRole("radio", { name: "Use Profile Setting", exact: true }).click();
+        await tv.page.getByText("On this TV: 1080p · Profile default", { exact: true }).waitFor();
+        assert.equal(device.has(QUALITY_KEY), false);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
 
 test("video intervals show numeric server labels, profile values and independent inherited resets", async () => {
     const { tv, settings } = await setup();
@@ -84,11 +186,11 @@ test("Settings uses category, row and picker Back focus with no requests on focu
         await tv.page.keyboard.press("ArrowDown");
         assert.equal(await tv.focused(), "playback");
         await tv.page.keyboard.press("ArrowRight");
-        assert.equal(await tv.focused(), "audio");
+        assert.equal(await tv.focused(), "quality");
         await tv.page.keyboard.press("Enter");
-        await tv.page.getByRole("heading", { name: "Preferred audio" }).waitFor();
+        await tv.page.getByRole("heading", { name: "Resolution" }).waitFor();
         await tv.remote(10009);
-        assert.equal(await tv.focused(), "audio");
+        assert.equal(await tv.focused(), "quality");
         await tv.remote(10009);
         assert.equal(await tv.focused(), "playback");
         assert.equal(tv.fake.requests.length, requests);
@@ -191,9 +293,9 @@ test("quality picker uses server labels, keeps legacy current values honest and 
         await tv.page.locator('[data-focus="quality"]').click();
         await tv.page.getByText("Current profile value: Original quality · Not offered", { exact: true }).waitFor();
         assert.equal(await tv.page.locator('[data-focus="quality:original"]').count(), 0);
-        assert.deepEqual(await tv.page.getByRole("radio").allTextContents(), ["Auto", "480p", "720p", "1080p", "2160p / 4K"]);
+        assert.deepEqual(await tv.page.getByRole("radio").allTextContents(), ["Auto", "4K", "1080p", "720p", "480p"]);
         assert.equal(tv.fake.requests.filter(r => r.method === "PUT").length, 0);
-        await tv.page.getByRole("radio", { name: "2160p / 4K", exact: true }).click();
+        await tv.page.getByRole("radio", { name: "4K", exact: true }).click();
         await tv.page.locator('[data-focus="quality"]').waitFor();
         assert.equal(await tv.focused(), "quality");
         assert.equal(settings.profile().get(QUALITY_KEY), "2160p");
@@ -337,7 +439,7 @@ test("Server settings open Acknowledgements with TMDB's logo and required notice
     try {
         await openSettings(tv);
         await tv.page.locator('[data-focus="server"]').click();
-        assert.equal(await tv.page.locator(".settings-section-header").innerText(), "ABOUT");
+        assert.deepEqual(await tv.page.locator(".settings-section-header").allTextContents(), ["ACTIVE SERVER", "ABOUT"]);
         await tv.page.getByRole("button", { name: "Acknowledgements", exact: true }).click();
         const credits = tv.page.locator(".acknowledgements-document");
         await credits.waitFor();

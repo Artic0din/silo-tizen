@@ -80,8 +80,9 @@ test("fresh TV offers remember; protected restart skips PIN; Settings opt-out re
         assert.equal(tv.fake.pinAttempts, attempts);
         await tv.page.locator('[data-focus="profiles"]').click();
         await tv.page.locator('[data-focus="settings"]').click();
-        await tv.page.getByRole("button", { name: "Launch profile: Remember this profile", exact: true }).click();
-        await tv.page.getByRole("button", { name: "Launch profile: Ask who's watching", exact: true }).waitFor();
+        await tv.page.locator('[data-focus="remember-profile"]').click();
+        await tv.page.getByRole("radio", { name: "Every Time", exact: true }).click();
+        await tv.page.getByRole("button", { name: /Profile Selection.*Every Time/ }).waitFor();
         await tv.remote(10009); await tv.remote(10009);
         await tv.page.evaluate(() => window.appHarness.mount());
         await tv.page.locator('[data-screen="profiles"]').waitFor();

@@ -14,10 +14,12 @@ const CATEGORY_LABELS = { general: "General", playback: "Playback", server: "Ser
 const DOCUMENT_STEP = 160;
 type Picker = "hidden" | "audio" | "quality" | "bitrate" | "seek-back" | "seek-forward";
 const PICKER_KEYS = { hidden: HIDDEN_KEY, audio: AUDIO_KEY, quality: QUALITY_KEY, bitrate: BITRATE_KEY, "seek-back": SEEK_BACK_KEY, "seek-forward": SEEK_FORWARD_KEY } as const;
-const PICKER_LABELS = { hidden: "Hidden libraries", audio: "Preferred audio", quality: "Preferred quality", bitrate: "Maximum bitrate", "seek-back": "Video rewind interval", "seek-forward": "Video fast-forward interval" } as const;
+const PICKER_LABELS = { hidden: "Hidden libraries", audio: "Audio Language", quality: "Resolution", bitrate: "Maximum Bitrate", "seek-back": "Skip Back", "seek-forward": "Skip Forward" } as const;
+const BITRATE_CHOICES = [200000, 100000, 60000, 40000, 20000, 15000, 10000, 6000, 4000, 2000, 1500];
+export interface SettingsActions { readonly profileName: string; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: () => void }
 export interface SettingsScreen { destroy(): void }
 
-export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void, launch?: ProfileLaunch): SettingsScreen {
+export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions): SettingsScreen {
     const container = el("section", "browse settings");
     container.setAttribute("aria-label", "Settings");
     root.appendChild(container);
@@ -26,6 +28,8 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     let picker: Picker | undefined;
     let returnRow: Picker | "acknowledgements" = "hidden";
     let acknowledging = false;
+    let confirmingSignOut = false;
+    let choosingLaunch = false;
     let bitrateDraft = "";
     let bitrateError: string | undefined;
     let torn = false;
@@ -42,7 +46,8 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         launch.setRemember(remember, launchController.signal).then(() => {
             if (torn) return;
             launchPending = false;
-            render();
+            choosingLaunch = false;
+            render({ zone: "settings-rows", key: "remember-profile" });
         }, () => {
             if (torn) return;
             launchPending = false;
@@ -65,13 +70,21 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     const exit = (): void => { const changed = state.hiddenChanged; destroy(); close(changed); };
     const rowFocus = (): FocusTarget => ({ zone: "settings-rows", key: returnRow });
     const back = (): void => {
-        if (acknowledging) { acknowledging = false; render(rowFocus()); }
+        if (choosingLaunch) { choosingLaunch = false; render({ zone: "settings-rows", key: "remember-profile" }); }
+        else if (confirmingSignOut) { confirmingSignOut = false; render({ zone: "settings-categories", key: "settings-signout" }); }
+        else if (acknowledging) { acknowledging = false; render(rowFocus()); }
         else if (picker !== undefined) { picker = undefined; render(rowFocus()); }
         else if (host.focused()?.zone !== "settings-categories") render({ zone: "settings-categories", key: category });
         else exit();
     };
     const onKey = (event: KeyboardEvent): void => {
         const key = remoteKey(event);
+        if (picker === undefined && !acknowledging && !confirmingSignOut && key === "right" && host.focused()?.zone === "settings-categories") {
+            event.preventDefault();
+            const first = container.querySelector<HTMLElement>(".settings-pane [data-focus]")?.getAttribute("data-focus");
+            if (first !== undefined && first !== null) render({ zone: "settings-rows", key: first });
+            return;
+        }
         const credits = container.querySelector<HTMLElement>(".acknowledgements-document");
         if (acknowledging && credits !== null && host.focused()?.key === "document" && (key === "up" || key === "down")) {
             // The document scrolls until an edge; Up from its top then reaches Done.
@@ -90,7 +103,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         picker = next;
         returnRow = next;
         bitrateError = undefined;
-        const stored = state.explicit.get(BITRATE_KEY);
+        const stored = state.stored(BITRATE_KEY);
         bitrateDraft = stored?.isSet && typeof stored.value === "number" ? String(stored.value) : "";
         render({ zone: "settings-picker", key: "back" });
     };
@@ -110,9 +123,13 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         const stored = state.explicit.get(key);
         return stored?.isSet ? label(stored.value, key) : "Inherited";
     };
-    const label = (value: SettingValue, key: SettingsKey): string => key === QUALITY_KEY || key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY
+    const label = (value: SettingValue, key: SettingsKey): string => key === QUALITY_KEY ? value === "2160p" ? "4K" : value === "auto" ? "Auto" : state.definitions.find(def => def.key === key)?.options.find(option => option.value === value)?.label ?? String(value) : key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY
         ? state.definitions.find(def => def.key === key)?.options.find(option => option.value === value)?.label ?? String(value)
         : valueLabel(value, key);
+    const scopeValue = (key: SettingsKey): string => {
+        const stored = state.stored(key);
+        return state.scope(key) === "profile_device" ? `This TV: ${stored?.isSet ? label(stored.value, key) : "Use Profile Setting"}` : `Profile default: ${profileValue(key)}`;
+    };
     const note = (key: SettingsKey): HTMLElement => {
         const effective = state.effective.get(key);
         const sources: Readonly<Record<string, string>> = { default: "Inherited default", profile: "Profile default", profile_device: "Device override", profile_library: "Library override", profile_series: "Series override" };
@@ -133,9 +150,9 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         if (picker === undefined) return;
         const hidden = picker === "hidden";
         const key = PICKER_KEYS[picker];
-        const stored = state.explicit.get(key);
+        const stored = state.stored(key);
         const controls: FocusItem[] = [actionButton("back", picker === "bitrate" ? "Cancel" : "Back", back)];
-        const content: HTMLElement[] = [el("h1", "browse-title", picker === "bitrate" ? "Maximum bitrate (kbps)" : PICKER_LABELS[picker]), el("p", "settings-value", `Profile default: ${profileValue(key)}`), note(key), ...feedback()];
+        const content: HTMLElement[] = [el("h1", "browse-title", picker === "bitrate" ? "Maximum bitrate (kbps)" : PICKER_LABELS[picker]), el("p", "settings-value", scopeValue(key)), ...(state.scope(key) === "profile_device" ? [el("p", "settings-value", `Profile default: ${profileValue(key)}`)] : []), note(key), ...feedback()];
         if (hidden) {
             const ids = stored?.isSet && Array.isArray(stored.value) ? stored.value : [];
             for (const library of state.libraries) {
@@ -155,8 +172,8 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         } else if (picker === "audio") {
             const current = stored?.isSet ? stored.value : undefined;
             const effective = state.effective.get(AUDIO_KEY);
-            const options = [...new Set([...state.audioOptions, ...(effective?.suggestedValues?.filter((value): value is string | null => value === null || typeof value === "string") ?? []), ...(typeof current === "string" ? [current] : [])])];
-            content.push(el("p", "browse-text", "Profile default. Device, library and series choices can take priority."));
+            const options = [...new Set([...state.audioOptions, ...(effective?.suggestedValues?.filter((value): value is string | null => value === null || typeof value === "string") ?? []), ...(typeof current === "string" ? [current] : [])])].filter(value => value !== null || state.scope(key) === "profile" || current === null);
+            content.push(el("p", "browse-text", state.scope(key) === "profile_device" ? "This TV. Library and series choices can take priority." : "Profile default. Device, library and series choices can take priority."));
             for (const value of options) {
                 const item = button(`audio:${value ?? "null"}`, valueLabel(value), () => { void commit(key, value); });
                 item.element.setAttribute("role", "radio");
@@ -165,15 +182,23 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             }
         } else if (picker === "quality" || picker === "seek-back" || picker === "seek-forward") {
             const current = stored?.isSet ? stored.value : undefined;
-            const options = picker === "quality" ? state.qualityOptions : state.definitions.find(def => def.key === key)?.options ?? [];
-            if (current !== undefined && !options.some(option => option.value === current)) content.push(el("p", "browse-text", `Current profile value: ${label(current, key)} · Not offered`));
+            const options = picker === "quality" ? ["auto", "2160p", "1080p", "720p", "480p"].flatMap(value => state.qualityOptions.filter(option => option.value === value)) : state.definitions.find(def => def.key === key)?.options ?? [];
+            if (current !== undefined && !options.some(option => option.value === current)) content.push(el("p", "browse-text", `Current ${state.scope(key) === "profile_device" ? "device" : "profile"} value: ${label(current, key)} · Not offered`));
             for (const option of options) {
-                const item = button(`${picker}:${option.value}`, option.label, () => { void commit(key, option.value); });
+                const item = button(`${picker}:${option.value}`, label(option.value, key), () => { void commit(key, option.value); });
                 item.element.setAttribute("role", "radio");
                 item.element.setAttribute("aria-checked", String(current === option.value));
                 controls.push(item);
             }
         } else {
+            const current = stored?.isSet ? stored.value : undefined;
+            const caps = [...new Set([...BITRATE_CHOICES, ...(typeof current === "number" ? [current] : [])])].sort((a, b) => b - a);
+            for (const value of caps) {
+                const item = button(`bitrate:${value}`, `${value / 1000} Mbps`, () => { void commit(key, value); });
+                item.element.setAttribute("role", "radio");
+                item.element.setAttribute("aria-checked", String(current === value));
+                controls.push(item);
+            }
             const input = el("input", "browse-button settings-input");
             input.type = "text";
             input.inputMode = "numeric";
@@ -204,7 +229,11 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             }));
             controls.push(button("no-limit", "No limit", () => { void commit(key, null); }));
         }
-        if (stored?.isSet) controls.push(button("reset", "Use inherited default", () => { void commit(key, undefined); }));
+        if (state.scope(key) === "profile_device" || stored?.isSet) {
+            const reset = button("reset", state.scope(key) === "profile_device" ? "Use Profile Setting" : "Use inherited default", () => { void commit(key, undefined); });
+            if (state.scope(key) === "profile_device") { reset.element.setAttribute("role", "radio"); reset.element.setAttribute("aria-checked", String(stored?.isSet === false)); }
+            controls.push(reset);
+        }
         controls.push(...retryButton());
         content.push(zoneNode("settings-controls", controls));
         host.show({ name: `settings:${picker}`, content, zones: [{ id: "settings-picker", layout: "column", items: controls }], focus: { zone: "settings-picker", key: "back" }, back }, undefined);
@@ -230,33 +259,61 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
 
     function render(focus?: FocusTarget): void {
         if (torn) return;
+        if (choosingLaunch && launch !== undefined) {
+            const controls = [actionButton("back", "Back", back), ...([true, false] as const).map(remember => {
+                const item = actionButton(`launch:${remember}`, remember ? "Automatic" : "Every Time", () => saveLaunch(remember));
+                item.element.setAttribute("role", "radio");
+                item.element.setAttribute("aria-checked", String(launch.remembered === remember));
+                item.element.setAttribute("aria-disabled", String(launchPending));
+                return item;
+            })];
+            host.show({ name: "settings:launch", content: [el("h1", "browse-title", "Profile Selection"), ...(launchError ? [el("p", "browse-error", "Could not save the launch choice. Try again.")] : []), ...(launchPending ? [el("p", "browse-text", "Saving launch choice…")] : []), zoneNode("settings-controls", controls)], zones: [{ id: "settings-launch", layout: "column", items: controls }], focus: { zone: "settings-launch", key: "back" }, back });
+            return;
+        }
+        if (confirmingSignOut) {
+            const controls = [actionButton("cancel-signout", "Cancel", back), actionButton("confirm-signout", "Sign Out", () => { destroy(); actions?.signOut?.(); })];
+            host.show({ name: "settings:signout", content: [el("h1", "browse-title", "Sign Out"), el("p", "settings-value", "Sign out of Silo on this TV?"), zoneNode("settings-controls", controls)], zones: [{ id: "settings-confirm", layout: "column", items: controls }], focus: { zone: "settings-confirm", key: "cancel-signout" }, back });
+            return;
+        }
         if (acknowledging) { renderAcknowledgements(); return; }
         if (picker !== undefined) { renderPicker(); return; }
         const categories = (["general", "playback", "server"] as const).map(id => {
-            const item = actionButton(id, CATEGORY_LABELS[id], () => { category = id; returnRow = id === "general" ? "hidden" : id === "playback" ? "audio" : "acknowledgements"; render(rowFocus()); });
+            const item = actionButton(id, CATEGORY_LABELS[id], () => { category = id; returnRow = id === "general" ? "hidden" : id === "playback" ? "quality" : "acknowledgements"; render(rowFocus()); });
             item.element.setAttribute("aria-current", id === category ? "page" : "false");
             item.element.addEventListener("focus", () => { if (category !== id) { category = id; render({ zone: "settings-categories", key: id }); } });
             return item;
         });
+        if (actions !== undefined) {
+            categories.unshift(actionButton("settings-profile", actions.profileName, () => { destroy(); actions.switchProfile(); }));
+            if (actions.signOut !== undefined) categories.push(actionButton("settings-signout", "Sign Out", () => { confirmingSignOut = true; render(); }));
+        }
         const rows: FocusItem[] = [];
         const body = el("div", "settings-pane");
         body.append(el("h2", "browse-section-title", CATEGORY_LABELS[category]), ...(category === "server" ? [] : feedback()));
-        const pickers: readonly Picker[] = category === "general" ? ["hidden"] : category === "playback" ? ["audio", "quality", "bitrate", "seek-back", "seek-forward"] : [];
+        const pickers: readonly Picker[] = category === "general" ? ["hidden"] : category === "playback" ? ["quality", "bitrate", "audio", "seek-back", "seek-forward"] : [];
         if (category === "server") {
+            body.append(el("h3", "settings-section-header", "ACTIVE SERVER"), el("p", "settings-value", `Server: ${actions?.serverName ?? session.http.base.baseUrl}`));
+            if (actions?.switchServer !== undefined) {
+                const manage = actionButton("manage-servers", "Manage Servers", () => { destroy(); actions.switchServer?.(); });
+                rows.push(manage); body.appendChild(manage.element);
+            }
             // Apple's Server pane: an ABOUT section whose Acknowledgements row opens the credits.
             const item = actionButton("acknowledgements", "Acknowledgements", () => { acknowledging = true; returnRow = "acknowledgements"; render(); });
-            body.append(el("h3", "settings-section-header", "ABOUT"), item.element);
+            body.append(el("h3", "settings-section-header", "ABOUT"), el("p", "settings-value", `App Version: ${APP_VERSION}`), item.element);
             rows.push(item);
         }
         const titleArt = state.effective.get(TITLE_ART_KEY);
         if (category === "general" && state.loaded && titleArt !== undefined) {
+            body.appendChild(el("h3", "settings-section-header", "TITLE PAGES"));
             const all = titleArt.source === "profile";
             for (const [key, text, checked, action] of [
                 ["title-art", "Show Title Art", titleArt.value === true, () => { void state.save(TITLE_ART_KEY, titleArt.value !== true); }],
                 ["title-art-all", "Apply to All Devices", all, () => { void state.setTitleArtScope(!all); }],
             ] as const) {
                 const item = button(key, text, action);
+                item.element.appendChild(el("span", "settings-row-value", checked ? "On" : "Off"));
                 item.element.setAttribute("role", "switch");
+                item.element.setAttribute("aria-label", text);
                 item.element.setAttribute("aria-checked", String(checked));
                 rows.push(item);
                 body.appendChild(item.element);
@@ -266,15 +323,21 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         for (const id of pickers) {
             const key = PICKER_KEYS[id];
             if (!state.loaded || !state.definitions.some(def => def.key === key)) continue;
-            const item = button(id, `${PICKER_LABELS[id]} · ${profileValue(key)}`, () => openPicker(id));
+            const section = id === "quality" ? "QUALITY" : id === "audio" ? "STREAMING" : id === "seek-back" ? "VIDEO" : undefined;
+            if (section !== undefined) body.appendChild(el("h3", "settings-section-header", section));
+            const item = button(id, PICKER_LABELS[id], () => openPicker(id));
+            const value = state.effective.get(key)?.value ?? null;
+            const displayValue = key === BITRATE_KEY && typeof value === "number" && value >= 1000 ? `${Number((value / 1000).toFixed(1))} Mbps` : label(value, key);
+            item.element.replaceChildren(el("span", "settings-row-title", PICKER_LABELS[id]), el("span", "settings-row-value", displayValue), el("span", "settings-chevron", "›"));
             rows.push(item);
             body.append(item.element, note(key));
         }
         if (category === "general" && launch !== undefined) {
-            const item = actionButton("remember-profile", launchPending ? "Saving launch choice…" : launch.remembered ? "Launch profile: Remember this profile" : "Launch profile: Ask who's watching", () => saveLaunch(!launch.remembered));
+            const item = actionButton("remember-profile", "Profile Selection", () => { choosingLaunch = true; render(); });
+            item.element.append(el("span", "settings-row-value", launch.remembered ? "Automatic" : "Every Time"), el("span", "settings-chevron", "›"));
             item.element.setAttribute("aria-disabled", String(launchPending));
             rows.push(item);
-            body.appendChild(item.element);
+            body.append(el("h3", "settings-section-header", "PROFILE AT LAUNCH"), item.element);
             if (launchError) {
                 const error = el("p", "browse-text browse-error", "Could not save the launch choice.");
                 error.setAttribute("role", "alert");
@@ -290,7 +353,9 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         body.classList.add("settings-controls");
         body.appendChild(zoneNode("settings-controls", rows.slice(settingRows)));
         const panes = el("div", "settings-panes");
-        panes.append(zoneNode("settings-categories", categories), body);
+        const rail = zoneNode("settings-categories", categories);
+        rail.appendChild(el("p", "settings-version", `Silo ${APP_VERSION}`));
+        panes.append(rail, body);
         host.show({ name: "settings", content: [el("h1", "browse-title", "Settings"), panes], zones: [
             { id: "settings-categories", layout: "column", right: "settings-rows", items: categories },
             { id: "settings-rows", layout: "column", left: "settings-categories", items: rows },

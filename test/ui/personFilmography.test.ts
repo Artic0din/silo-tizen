@@ -28,8 +28,9 @@ function population(): FakeDetails {
     return catalog;
 }
 
-async function start(tv: Tv, catalog: FakeDetails, statusOverlays = false): Promise<void> {
+async function start(tv: Tv, catalog: FakeDetails, statusOverlays = false, prepare?: () => void): Promise<void> {
     tv.fake.catalog = catalog;
+    prepare?.();
     if (statusOverlays) new FakeSettings(tv.fake).profile().set("ui.card_overlays" as SettingsKey, { version: 2, items: { show_status: { enabled: true, position: "top-right" } } });
     await tv.page.evaluate(() => window.browseHarness.connect());
     await tv.eventually(async () => tv.fake.devices.size > 0, "device code");
@@ -44,6 +45,19 @@ async function start(tv: Tv, catalog: FakeDetails, statusOverlays = false): Prom
     await tv.page.keyboard.press("Enter");
     await tv.eventually(async () => await tv.page.locator('.browse[data-view="person:7"] .browse-grid .browse-card').count() === 24, "inline person page");
 }
+
+test("late Person poster settings redraw the mounted grid", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const held = tv.fake.hold("/settings/values/effective?keys=ui.card_presentation", true);
+        await start(tv, population(), false, () => {
+            new FakeSettings(tv.fake).profile().set("ui.card_presentation" as SettingsKey, { poster_size: "large", caption: "title_metadata" });
+        });
+        assert.equal(await grid(tv).first().evaluate(node => node.getBoundingClientRect().width), 260);
+        held.release();
+        await tv.eventually(async () => await grid(tv).first().evaluate(node => (node as HTMLElement).offsetWidth) === 312, "late Person size");
+    } finally { await tv.page.context().close(); }
+});
 
 async function all(tv: Tv): Promise<void> {
     assert.equal(await tv.page.locator('[data-focus="see-all"]').count(), 0);

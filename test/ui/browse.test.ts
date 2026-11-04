@@ -377,6 +377,11 @@ browseTest("Search People is scoped, activates real identities and does not fetc
     await tv.page.locator('[data-focus="person:7"]').focus(); await tv.remote(39);
     assert.equal(tv.fake.requests.length, reads);
     await tv.page.locator('[data-focus="person:7"]').click(); await showing(tv, "person:7");
+    await tv.page.locator('[data-focus="filter:series"]').click();
+    await tv.page.locator('[data-focus="filter:series"][aria-pressed="true"]').waitFor();
+    await tv.remote(10009);
+    await tv.page.locator('[data-focus="person:7"]').click(); await showing(tv, "person:7");
+    assert.equal(await tv.focused(), "filter:video");
 }, { catalog: peopleSearch });
 
 const slowRequests = new SearchCatalog();

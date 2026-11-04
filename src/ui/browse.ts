@@ -115,7 +115,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const resized = shownScale !== presentation.posterScale;
         if (resized) { shownScale = presentation.posterScale; applyCardSize(); }
         const current = top();
-        if (!playing && current !== undefined && (current.kind === "home" || current.kind === "for_you" || current.kind === "search" || current.kind === "recommendationSection" || isSectionRoute(current) || (current.kind === "library" && (current.discovery?.mode === "Browse" || current.discovery?.mode === "Recommended"))) && (resized || shownOverlays !== presentation.cardOverlays)) {
+        if (!playing && current !== undefined && (current.kind === "home" || current.kind === "for_you" || current.kind === "search" || current.kind === "person" || current.kind === "recommendationSection" || isSectionRoute(current) || (current.kind === "library" && (current.discovery?.mode === "Browse" || current.discovery?.mode === "Recommended"))) && (resized || shownOverlays !== presentation.cardOverlays)) {
             shownOverlays = presentation.cardOverlays;
             render(host.focused());
             if (resized) host.revealFocused();

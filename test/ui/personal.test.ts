@@ -308,7 +308,7 @@ test("personal destinations page on the server, restore Details focus and reconc
                 const state = await tv.page.evaluate(() => ({ view: document.querySelector('.browse')?.getAttribute('data-view'), focus: document.activeElement?.getAttribute('data-focus'), alerts: [...document.querySelectorAll('[role="alert"]')].map(node => node.textContent), targets: [...document.querySelectorAll('.browse [data-focus]')].map(node => node.getAttribute('data-focus')) }));
                 throw new Error(`${String(error)}; source=${source}; state=${JSON.stringify(state)}`);
             }
-            assert.equal(await tv.focused(), source === "history" ? "profiles" : "for_you");
+            assert.equal(await tv.focused(), source === "history" ? "home" : "for_you");
         }
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }

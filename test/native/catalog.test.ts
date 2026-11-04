@@ -143,7 +143,7 @@ test("browse operations are profile-scoped reads on the documented paths", () =>
         "GET /home/sections?image_size=small",
         "GET /catalog?library_id=12&type=movie&limit=24&cursor=abc%2F%2B%3D&image_size=small",
         "GET /catalog?q=heat%20%26%20co&type=video&limit=24&image_size=small",
-        "GET /catalog/items/movie%3Aheat%201995?image_size=medium",
+        "GET /catalog/items/movie%3Aheat%201995?image_size=large",
         "GET /catalog/series/series%3Aseverance/seasons?image_size=small",
         "GET /catalog/series/series%3Aseverance/seasons/0/episodes?image_size=small",
     ]);

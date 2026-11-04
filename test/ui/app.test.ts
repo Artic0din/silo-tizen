@@ -150,8 +150,9 @@ appTest("Sign Out confirmation traps focus and cancellation preserves the sessio
     assert.equal(await tv.page.locator(".browse").count(), 0);
 });
 
-appTest("Change Account follows Settings and opens saved accounts without signing out", async tv => {
+for (const origin of ["home", "movies"] as const) appTest(`Change Account returns to ${origin} and opens saved accounts without signing out`, async tv => {
     await signIn(tv);
+    await tv.page.locator(`[data-focus="${origin}"]`).click();
     const writes = tv.fake.requests.filter(request => request.method !== "GET").length;
     const sessions = tv.fake.devices.size;
     await tv.page.locator('[data-focus="profiles"]').click();
@@ -159,7 +160,7 @@ appTest("Change Account follows Settings and opens saved accounts without signin
     assert.equal(await tv.page.getByRole("menuitem", { name: "Switch Server", exact: true }).count(), 0);
     await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
     await tv.page.locator('[data-view="change-account"]').waitFor();
-    assert.equal(await tv.page.locator(".browse").count(), 0);
+    assert.equal(await tv.page.locator(".browse").isVisible(), false);
     assert.equal(tv.fake.requests.filter(request => request.method !== "GET").length, writes);
     assert.equal(tv.fake.devices.size, sessions, "entry does not start another sign-in");
     assert.equal(await tv.page.locator('.account-badge').textContent(), "CURRENT");
@@ -174,6 +175,13 @@ appTest("Change Account follows Settings and opens saved accounts without signin
     assert.ok(Math.abs(geometry.card[0]! - 760 * 1.03) < .1);
     assert.ok(Math.abs(geometry.card[1]! - 128 * 1.03) < .1);
     assert.equal(await tv.page.getByRole('button', { name: 'Add', exact: true }).count(), 0, "tvOS has direct add-account and add-server actions");
+    await tv.remote(10009);
+    await tv.remote(10009);
+    assert.equal(await tv.focused(), origin);
+    assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "false");
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.page.locator('[data-view="change-account"]').waitFor();
     await tv.page.locator('.account-card').first().click();
     await tv.page.locator('[data-screen="profiles"]').waitFor();
     assert.equal(await tv.page.locator('[data-screen="code"]').count(), 0, "the saved account restores");

@@ -21,7 +21,7 @@ async function start(tv: Tv, fake = new FakeRequests(), offerSignOut = false): P
     return fake;
 }
 const button = (tv: Tv, key: string) => tv.page.locator(`[data-focus="${key}"]`).last();
-test("profile Requests is gated, pushed without chrome, contains Up, and Back restores its row", async () => {
+test("profile Requests is gated, pushed without chrome, contains Up, and Back restores the selected tab", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = await start(tv, new FakeRequests(), true);
@@ -34,7 +34,8 @@ test("profile Requests is gated, pushed without chrome, contains Up, and Back re
         await tv.remote(38);
         assert.equal(await tv.focused(), "movie:949");
         await tv.remote(10009);
-        assert.equal(await tv.focused(), "requests");
+        assert.equal(await tv.focused(), "home");
+        assert.equal(await button(tv, "profiles").getAttribute("aria-expanded"), "false");
         fake.enabled = false;
         await tv.page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
         await tv.eventually(async () => await button(tv, "requests").count() === 0, "disabled Requests row disappears");
@@ -532,8 +533,8 @@ test("Search request writes restore the result, then Back returns to the root be
         assert.equal(await tv.page.locator('.browse-nav [data-focus="requests"]').count(), 0);
         await openRequests(tv); await button(tv, "request-one").waitFor();
         await tv.remote(10009);
-        assert.equal(await tv.focused(), "requests");
-        assert.equal(await tv.page.locator('.skyline-selector[data-menu-kind="profile"]').isVisible(), true);
+        assert.equal(await tv.focused(), "home");
+        assert.equal(await tv.page.locator('.skyline-selector[data-menu-kind="profile"]').count(), 0);
         assert.equal(tv.fake.paths().filter(path => path === "POST /requests").length, 1);
     } finally { await tv.page.context().close(); }
 });
@@ -597,7 +598,7 @@ test("reopened detail reconciles after a background write settles", async () => 
     } finally { await tv.page.context().close(); }
 });
 
-test("a late Requests read cannot steal focus after Back to its profile row", async () => {
+test("a late Requests read cannot steal focus after Back to the selected tab", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         await start(tv);
@@ -605,7 +606,7 @@ test("a late Requests read cannot steal focus after Back to its profile row", as
         await openRequests(tv);
         await tv.eventually(async () => tv.fake.paths().includes("GET /requests/discover"), "held read");
         await tv.remote(10009);
-        const moved = await tv.focused(); assert.equal(moved, "requests");
+        const moved = await tv.focused(); assert.equal(moved, "home");
         held.release(); await tv.jump(100);
         assert.equal(await tv.focused(), moved);
         assert.equal(await tv.page.locator('.browse[data-view="requests:hub"]').count(), 0);
@@ -1167,7 +1168,7 @@ test("Requests empty is Apple's EmptyStateView and owns focus without a highligh
     } finally { await tv.page.context().close(); }
 });
 
-test("ready pushed hub keeps Up in its first row and restores the profile row on Back", async () => {
+test("ready pushed hub keeps Up in its first row and restores the selected tab on Back", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const fake = new FakeRequests(); fake.created = true;
@@ -1179,7 +1180,7 @@ test("ready pushed hub keeps Up in its first row and restores the profile row on
         await tv.remote(38); assert.equal(await tv.focused(), "request-one");
         assert.equal(tv.fake.requests.length, reads, "Up does not fetch");
         assert.equal(await tv.page.locator('.browse[data-view="requests:hub"]').count(), 1);
-        await tv.remote(10009); assert.equal(await tv.focused(), "requests");
+        await tv.remote(10009); assert.equal(await tv.focused(), "home");
     } finally { await tv.page.context().close(); }
 });
 
@@ -1445,9 +1446,10 @@ test("hub marquee uses Apple's title width, synopsis rhythm, rating row and focu
         assert.deepEqual(synopsis, ["32px", 780]);
         const row = await tv.page.locator(".requests-preview .requests-metadata").evaluate(node => { const text = node.querySelector("span")?.getBoundingClientRect(), logo = node.querySelector("img")?.getBoundingClientRect(), value = node.querySelector(".requests-tmdb span") as HTMLElement; return { dot: Math.round((logo?.left ?? 0) - (text?.right ?? 0)), gap: Math.round(value.getBoundingClientRect().left - (logo?.right ?? 0)), color: getComputedStyle(value).color, weight: getComputedStyle(value).fontWeight }; });
         assert.deepEqual(row, { dot: 15, gap: 7, color: "rgb(160, 160, 160)", weight: "700" });
-        assert.equal(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node, "::after").content !== "none" && getComputedStyle(node, "::after").boxShadow !== "none"), true, "the focused card carries Apple's light edge");
-        assert.match(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node, "::after").backgroundImage), /radial-gradient\(145% 70% at 25% 0(px|%)/, "the focused poster carries the upper-left sheen measured against Apple's pair 02a");
-        assert.equal((await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node, "::after").boxShadow)).split(/,\s*(?=rgba)/).length, 3, "top, even and bottom edge strokes");
+        await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => { for (const animation of node.getAnimations()) animation.finish(); });
+        assert.equal(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node).outline), "rgba(255, 255, 255, 0.7) solid 4px", "the focused card carries Apple's shared white outline");
+        assert.equal(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node, "::after").backgroundImage), "none", "the outlined focus treatment removes the system glass sheen");
+        assert.equal(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node).boxShadow), "rgba(0, 0, 0, 0.45) 0px 8px 36px 0px", "the focused poster uses Apple's shared shadow");
     } finally { await tv.page.context().close(); }
 });
 

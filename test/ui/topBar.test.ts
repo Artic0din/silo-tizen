@@ -3,6 +3,7 @@ import { before, after, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
+import { FakeRequests } from "../native/support/fakeRequests.ts";
 import type { Reply } from "../native/support/fakeSilo.ts";
 import { PRIMARY_MENU_KEY, type PrimaryMenu } from "../../src/contracts/v2/navigation.ts";
 import { HIDDEN_KEY } from "../../src/contracts/v2/settings.ts";
@@ -33,7 +34,7 @@ class RecommendationsCatalog extends FakeCatalog {
     }
 }
 
-async function start(tv: Tv, menu: PrimaryMenu | null = null, catalog = new RecommendationsCatalog()): Promise<void> {
+async function start(tv: Tv, menu: PrimaryMenu | null = null, catalog: FakeCatalog = new RecommendationsCatalog()): Promise<void> {
     tv.fake.catalog = catalog;
     const settings = new FakeSettings(tv.fake);
     settings.profile().set(PRIMARY_MENU_KEY, menu);
@@ -48,6 +49,87 @@ async function start(tv: Tv, menu: PrimaryMenu | null = null, catalog = new Reco
     await tv.page.locator('.browse[data-view="home"] .browse-card').first().waitFor();
     await homeDetailsRead(tv);
 }
+
+class ProfileDestinationsCatalog extends FakeRequests {
+    constructor() {
+        super();
+        for (const id of ["movie:m0001", "movie:m0002"]) {
+            const title = this.titles.get(id);
+            assert.ok(title);
+            this.titles.set(id, { ...title, backdrop: `/art/${id}.svg` });
+        }
+    }
+    override route(method: string, path: string, profile: string | undefined, body?: Record<string, unknown>): Reply | undefined {
+        if (path.startsWith("/catalog/query") && body?.source === "history") {
+            const card = super.route("GET", "/catalog/items/movie%3Am0002", profile)?.body;
+            return { status: 200, body: { window_cursor: "history", items: [card], total: 1, total_exact: true, page: { has_more: false } } };
+        }
+        return super.route(method, path, profile, body);
+    }
+}
+
+for (const root of ["home", "movies"] as const) for (const destination of ["History", "Requests", "Settings"] as const) test(`${destination} Back restores the selected ${root} tab and its hero`, async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv, null, new ProfileDestinationsCatalog());
+        await tv.page.locator(`[data-focus="${root}"]`).click();
+        const page = tv.page.locator(`.browse[data-view="${root === "home" ? "home" : "library:12"}"]`);
+        await page.locator('.browse-card').first().waitFor();
+        await page.locator('.browse-card').first().focus();
+        await tv.jump(500);
+        await page.locator('.skyline-marquee-layer:not(.skyline-outgoing) .skyline-backdrop').evaluate(async image => { await (image as HTMLImageElement).decode(); });
+        const hero = () => tv.page.locator('.skyline-marquee-layer:not(.skyline-outgoing)').evaluate(node => ({ title: node.querySelector('.skyline-title')?.textContent, image: node.querySelector('img')?.getAttribute('src') }));
+        const expected = await hero();
+        assert.ok(expected.image?.includes("/art/"), "origin has loaded backdrop artwork");
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.getByRole("menuitem", { name: destination, exact: true }).click();
+        await tv.page.locator(destination === "Settings" ? '[data-focus="playback"]' : destination === "History" ? '.browse[data-view="personal:history"] .browse-card' : '.requests-hub .browse-card').first().waitFor();
+        if (destination === "History") {
+            await tv.page.locator('.browse[data-view="personal:history"] .browse-card').last().focus();
+            await tv.jump(500);
+        }
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), root);
+        assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "false");
+        await tv.jump(1000);
+        assert.equal(await tv.focused(), root);
+        assert.deepEqual(await hero(), expected, "Back restores the originating page's title and backdrop");
+        await page.locator('.skyline-marquee-layer:not(.skyline-outgoing) .skyline-backdrop').evaluate(async image => { await (image as HTMLImageElement).decode(); });
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "profiles", "Back from the menu itself still restores the avatar");
+    } finally { await tv.page.context().close(); }
+});
+
+test("focused avatar paints Apple's inset white ring above loaded artwork", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        const avatar = tv.page.locator('[data-focus="profiles"]');
+        await avatar.locator('.navigation-avatar').evaluate(node => {
+            const image = document.createElement("img");
+            image.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="red"/></svg>';
+            node.appendChild(image);
+            return image.decode();
+        });
+        await avatar.focus();
+        const paintedWhite = async (): Promise<boolean> => {
+            const png = await avatar.screenshot({ animations: "disabled" });
+            return tv.page.evaluate(async source => {
+                const image = new Image(); image.src = source; await image.decode();
+                const canvas = document.createElement("canvas"); canvas.width = image.width; canvas.height = image.height;
+                const context = canvas.getContext("2d"); if (context === null) throw new Error("No canvas");
+                context.drawImage(image, 0, 0);
+                const pixel = context.getImageData(Math.floor(image.width / 2), 2, 1, 1).data;
+                return pixel[0] === 255 && pixel[1] === 255 && pixel[2] === 255;
+            }, `data:image/png;base64,${png.toString("base64")}`);
+        };
+        assert.equal(await paintedWhite(), true, "opaque white ring must paint above red artwork");
+        await tv.page.locator('[data-focus="home"]').focus();
+        assert.equal(await avatar.evaluate(node => getComputedStyle(node).outlineStyle), "none");
+        assert.equal(await paintedWhite(), false, "unfocused avatar has no white ring");
+    } finally { await tv.page.context().close(); }
+});
 
 test("Music is library-gated and opens an explicit unavailable page without video queries", async () => {
     const tv = await openTv(browser, { app: "browse" });

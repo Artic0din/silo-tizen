@@ -2,7 +2,7 @@ import { operations } from "../api/operations.ts";
 import { ApiError } from "../api/errors.ts";
 import type { RequestSpec } from "../api/http.ts";
 import type { HomeSection, UserLibrary } from "../contracts/v2/catalog.ts";
-import type { CatalogFilters, CatalogLetters, CatalogSearchCapabilities, FilterGroup, LibraryCollections, MediaScope } from "../contracts/v2/discovery.ts";
+import type { CatalogFilters, CatalogLetters, CatalogQueryRequest, CatalogSearchCapabilities, FilterGroup, LibraryCollections, MediaScope } from "../contracts/v2/discovery.ts";
 import { scopeOf } from "./browseModel.ts";
 import { DEFAULT_FILTER, type BrowseFilter, type Facet } from "./libraryBrowse.ts";
 import type { SectionSnapshot } from "./sectionCatalogState.ts";
@@ -41,6 +41,10 @@ export function discoveryState(): DiscoveryState {
 }
 export function libraryScope(library: UserLibrary): { library_id: string; type: MediaScope } {
     return { library_id: library.id, type: scopeOf(library) };
+}
+/** A library section owns its filters. `type`, `sort`, `order` and `match` are overlay params and the server rejects them. */
+export function librarySectionQuery(libraryId: string, sectionId: string): CatalogQueryRequest {
+    return { source: "section", scope: "library", section_id: sectionId, library_id: libraryId };
 }
 export function genreGroups(name: string): readonly FilterGroup[] {
     return [{ match: "all", rules: [{ field: "genre", op: "is", value: name }] }];

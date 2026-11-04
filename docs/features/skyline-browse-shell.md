@@ -383,6 +383,10 @@ The synopsis dialog exposes the complete detail overview with remote scrolling a
 Optional Details responses retain the active synopsis and its focus; closing shows the latest data, and route or profile teardown removes the dialog.
 
 Pushed Details pages show optional title artwork, server-ordered ratings, facts and credits from the pinned v2 contract.
+Details shares Home's 1228.8×756 top-right artwork frame and fade masks, with an image contained in that frame rather than fixed to the viewport.
+Its page wash follows tvOS `TVDetailPageSurface`: sampled base at 0.42 opacity, shared accent and shadow gradients, and no top menu scrim.
+The content-rating badge follows tvOS `TVDetailHero`; runtime, credits and VERSION / AUDIO / SUBTITLES remain in the editorial column.
+Series entry focuses the current episode after its rail loads unless the viewer has already navigated, and positions it at the rail's leading slot.
 Cast and crew share a rail of at most 24 people, combining roles for the same server person ID.
 Credits without a person ID remain readable without an invented person route.
 Person pages show the biography and the first 24 accessible movie and series credits; related titles use a separate bounded rail with loading, empty and retry states.

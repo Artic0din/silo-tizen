@@ -27,6 +27,43 @@ detailTest("episode focus swaps cached hero and selectors without starting a rea
 
 let browser: Browser;
 
+for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} artwork stays inside Apple's shared top-right frame`, async tv => {
+    await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
+    const image = tv.page.locator('.details-hero .skyline-backdrop');
+    await image.waitFor();
+    const readBounds = () => image.evaluate(node => {
+        const frame = node.parentElement!.getBoundingClientRect();
+        const art = node.getBoundingClientRect();
+        return { heroTop: node.closest('.details-hero')!.getBoundingClientRect().top, frame: { x: frame.x, y: frame.y, width: frame.width, height: frame.height }, art: { x: art.x, y: art.y, width: art.width, height: art.height }, position: getComputedStyle(node).position };
+    });
+    await tv.eventually(async () => (await readBounds()).position === 'static', 'attached artwork uses the frame instead of the viewport');
+    const bounds = await readBounds();
+    assert.equal(bounds.position, 'static', 'the image must not inherit the viewport-fixed legacy backdrop');
+    assert.ok(Math.abs(bounds.frame.x - 691.2) < 0.1, JSON.stringify(bounds));
+    assert.equal(bounds.frame.y, bounds.heroTop, 'artwork scrolls with the hero, as TVDetailPageSurface requires');
+    assert.ok(Math.abs(bounds.frame.width - 1228.8) < 0.1, JSON.stringify(bounds));
+    assert.equal(bounds.frame.height, 756);
+    assert.deepEqual(bounds.art, bounds.frame, 'crop and fade share one frame');
+    assert.equal(await tv.page.locator('.details-hero .skyline-top-scrim').count(), 0, 'tvOS Details has no menu scrim');
+});
+
+detailTest('Details samples the artwork tint and presents the rating badge, runtime, credits and track readout', async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const reply = catalog.route('GET', '/catalog/items/movie%3Am0001', 'p-owner');
+    assert.ok(reply?.body && typeof reply.body === 'object');
+    const body = reply.body;
+    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001?**', route => route.fulfill({ json: { ...body, content_rating: 'TV-MA', backdrop_url: '/art/details-purple.svg' } }));
+    await tv.page.route('**/art/details-purple.svg*', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><path fill="#8040c0" d="M0 0h1600v900H0z"/></svg>' }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.eventually(async () => tv.page.locator('.details-hero .skyline-tint-wash').evaluate(node => (node as HTMLElement).style.background.includes('0.42') && !(node as HTMLElement).style.background.includes('10, 31, 36')), 'sampled artwork replaces fallback tint');
+    const badge = tv.page.locator('.details-rating-badge');
+    assert.equal(await badge.textContent(), 'TV-MA');
+    assert.equal(await badge.evaluate(node => getComputedStyle(node).fontSize), '18px');
+    assert.match(await tv.page.locator('.details-editorial .browse-meta').textContent() ?? '', /1h 30m/);
+    assert.equal(await tv.page.locator('.details-director').textContent(), 'Directed by River Vale');
+    assert.deepEqual(await tv.page.locator('.details-playback-summary strong').allTextContents(), ['VERSION', 'AUDIO', 'SUBTITLES']);
+});
+
 detailTest('Series thumbnail dimensions follow the Apple poster-size scale', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     const art = tv.page.locator('.details-episodes .browse-art').first();
@@ -44,14 +81,24 @@ detailTest('Series current episode occupies the leading slot when entering a lon
     const body = reply.body as { items: Record<string, unknown>[] };
     await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**', route => route.fulfill({ json: { items: Array.from({ length: 12 }, (_, index) => ({ ...body.items[0], content_id: `episode:window${index}`, episode_number: index + 1, user_data: { played: false, in_progress_count: index === 6 ? 1 : 0 } })) } }));
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
-    await tv.page.locator('[data-focus="season:1"]').focus();
     await tv.page.locator('[data-focus="episode:window6"]').waitFor();
-    await tv.remote(40);
+    await tv.eventually(async () => await tv.focused() === 'episode:window6', 'current episode focused on entry');
     assert.equal(await tv.focused(), 'episode:window6');
     await tv.eventually(async () => tv.page.locator('[data-focus="episode:window6"]').evaluate(node => {
         const row = node.closest('.browse-row'); if (row === null) return false;
         return Math.abs(node.getBoundingClientRect().left - row.getBoundingClientRect().left - parseFloat(getComputedStyle(row).paddingLeft)) < 2;
     }), 'current episode anchored at the leading slot');
+});
+
+detailTest('late Series episodes do not steal focus after remote navigation', async tv => {
+    const held = tv.fake.hold('/catalog/series/series%3As1/seasons/1/episodes', true);
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="season:1"]').focus();
+    await tv.remote(39);
+    assert.equal(await tv.focused(), 'season:2');
+    held.release();
+    await tv.page.locator('[data-focus="episode:s1e11"]').waitFor();
+    assert.equal(await tv.focused(), 'season:2');
 });
 
 detailTest('Series watched episodes show a check badge without a text glyph', async tv => {

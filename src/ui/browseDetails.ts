@@ -95,9 +95,6 @@ function metaLine(detail: ItemDetail, state?: DetailsState): string {
     }
     const count = state?.series?.seasons.filter(season => !season.isSpecials).length;
     if (detail.type === "series" && count) parts.push(`${count} season${count === 1 ? "" : "s"}`);
-    if (detail.contentRating !== undefined && detail.contentRating !== "") {
-        parts.push(detail.contentRating);
-    }
     return [...parts, ...detail.genres.slice(0, 3)].join(" · ");
 }
 
@@ -130,9 +127,14 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     const episode = state?.series?.episodes?.find(episode => episode.id === state.focusedEpisodeId);
     const playback = state?.nextEpisodeState;
     const selectedFile = playback?.detail.versions.find(file => file.fileId === playChoices(playback.detail, playback.selectedFileId)?.fromStart.fileId);
-    const meta = episode === undefined ? metaLine(detail, state) : [episodeAirDate(episode.airDate), episodeRuntime(selectedFile?.durationSeconds ? Math.floor(selectedFile.durationSeconds / 60) : episode.runtimeMinutes), detail.contentRating, ...detail.genres.slice(0, 3), episode.seasonNumber === 0 ? "Specials" : `Season ${episode.seasonNumber}`, `Episode ${episode.episodeNumber}`].filter(Boolean).join(" · ");
+    const meta = episode === undefined ? metaLine(detail, state) : [episodeAirDate(episode.airDate), episodeRuntime(selectedFile?.durationSeconds ? Math.floor(selectedFile.durationSeconds / 60) : episode.runtimeMinutes), ...detail.genres.slice(0, 3), episode.seasonNumber === 0 ? "Specials" : `Season ${episode.seasonNumber}`, `Episode ${episode.episodeNumber}`].filter(Boolean).join(" · ");
     const ratings = (episode === undefined ? detail.extra?.ratings : playback?.detail.extra?.ratings ?? episode.ratings)?.map(rating => `${rating.name} ${rating.display}`).join(" · ");
-    if (meta || ratings) nodes.push(el("p", "browse-meta", [meta, ratings].filter(Boolean).join(" · ")));
+    const ratingChip = detail.contentRating?.trim();
+    if (meta || ratings || ratingChip) {
+        const facts = el("p", "browse-meta", [meta, ratings].filter(Boolean).join(" · "));
+        if (ratingChip) facts.prepend(el("span", "details-rating-badge", ratingChip));
+        nodes.push(facts);
+    }
     const overview = episode === undefined ? detail.overview : [playback?.detail.title ?? episode.title, episode.overview || playback?.detail.overview].filter(Boolean).join(" · ");
     if (overview !== undefined && overview !== "") {
         nodes.push(el("p", "browse-text browse-overview", overview));

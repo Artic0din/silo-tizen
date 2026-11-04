@@ -885,7 +885,19 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     return { detail, seasons, contextSeason: current.seriesContext?.seasonNumber ?? (episode?.seriesId === detail.id ? episode.seasonNumber : undefined) };
                 }, (data) => {
                     const previous = current.data?.details;
-                    const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending);
+                    const entryRevision = inputRevision;
+                    let enterEpisodes = previous === undefined && current.focus === undefined;
+                    const details = new DetailsState(data.detail, session, (audioClosed) => {
+                        const episode = details.series?.entryEpisode;
+                        if (enterEpisodes && episode !== undefined && details.series?.episodes !== undefined) {
+                            enterEpisodes = false;
+                            if (top() === current && inputRevision === entryRevision) {
+                                render({ zone: "episodes", key: episode });
+                                return;
+                            }
+                        }
+                        detailsChanged(current, audioClosed);
+                    }, (detail, signal) => refreshWatched(current, detail, signal), personalPending);
                     details.restore(previous);
                     if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, () => details.warmSeriesEpisodes(), previous?.series?.seasonNumber ?? data.contextSeason, current.seriesContext?.episodeId);
                     details.series?.restore(previous?.series);

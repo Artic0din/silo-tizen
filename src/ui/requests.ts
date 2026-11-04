@@ -82,14 +82,17 @@ function errorPlaceholder(state: RequestsState, h: RequestsHandlers, name: strin
     const leaves = goBack !== undefined && (error.headline === "Not found" || error.headline === "Not allowed");
     const items = [...(error.signIn && h.signIn !== undefined ? [actionButton("sign-in", "Sign In Again", h.signIn)] : []), ...(leaves ? [actionButton("go-back", "Go Back", goBack)] : []), actionButton("retry", "Try Again", h.retry)];
     page.appendChild(zoneNode("browse-actions", items));
-    return { name, content: [page], zones: [{ id: "status", layout: "column", items }], focus: { zone: "status", key: items[0]?.key ?? "retry" }, back: h.back, ...(goBack === undefined ? { barEntersDefault: true } : {}) };
+    return { name, content: [page], zones: [{ id: "status", layout: "column", items }], focus: { zone: "status", key: items[0]?.key ?? "retry" }, back: h.back };
 }
 /** Apple TVRequestsPage.placeholder: the whole hub while it has no rows to show. */
 function hubPlaceholder(state: RequestsState, h: RequestsHandlers): View | undefined {
     const data = state.data;
     if (data !== undefined && "sections" in data && (orderRequests(data.mine.items).length > 0 || data.sections.some(section => section.results.some(browsable)))) return undefined;
-    const placeholder = (content: HTMLElement, zone: Zone): View => ({ name: "requests:hub", content: [content], zones: [zone], focus: { zone: zone.id, key: zone.items[0]?.key ?? "" }, back: h.back, barEntersDefault: true });
-    if (h.failure !== undefined) return errorPlaceholder(state, h, "requests:hub");
+    const placeholder = (content: HTMLElement, zone: Zone): View => ({ name: "requests:hub", content: [zoneNode("skyline-content", [{ key: "", element: content }])], zones: [zone], focus: { zone: zone.id, key: zone.items[0]?.key ?? "" }, back: h.back });
+    if (h.failure !== undefined) {
+        const view = errorPlaceholder(state, h, "requests:hub");
+        return { ...view, content: [zoneNode("skyline-content", view.content.map(element => ({ key: "", element })))] };
+    }
     const page = data === undefined ? requestsLoadingPage() : searchState("Nothing here yet", "Use Search to find a movie or series to request", "requests-state requests-empty", TRAY_ICON);
     return placeholder(page, { id: "page", layout: "row", items: [pageOwner(page, data === undefined ? "Loading requests" : "Nothing here yet")] });
 }
@@ -233,5 +236,5 @@ export function requestsView(state: RequestsState, h: RequestsHandlers, baseUrl:
     // Apple's detail has no controls below More like this; these recover failures and hold focus while none is otherwise available.
     const recovering = h.failure !== undefined || state.detailFailed === true || zones.length === 0 || (state.uncertain && !state.writing && !h.busy);
     if (!hub && (!detailPage || recovering)) add("actions", [actionButton("refresh", h.failure !== undefined ? "Retry" : "Refresh", h.retry), actionButton("back", "Back", h.back)]);
-    return { name: `requests:${source.kind}`, content, zones, focus: { zone: zones[0]?.id ?? "actions", key: zones[0]?.items[0]?.key ?? "back" }, back: h.back, ...(hub ? { barEntersDefault: true } : {}) };
+    return { name: `requests:${source.kind}`, content: hub ? [zoneNode("skyline-content", content.map(element => ({ key: "", element })))] : content, zones, focus: { zone: zones[0]?.id ?? "actions", key: zones[0]?.items[0]?.key ?? "back" }, back: h.back };
 }

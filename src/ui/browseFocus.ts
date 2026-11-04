@@ -66,8 +66,6 @@ export interface View {
     readonly focus: FocusTarget | undefined;
     /** Undefined: Back is not handled here and reaches the app's own handler (root exit). */
     readonly back: (() => boolean | void) | undefined;
-    /** Down from the top bar lands on `focus` rather than the item last focused in that zone. */
-    readonly barEntersDefault?: boolean;
 }
 
 export class FocusHost {
@@ -400,7 +398,7 @@ export class FocusHost {
         if (zone === undefined || item === undefined) {
             return;
         }
-        if (zone.id === "nav" || (this.lastZone === "nav" && this.view?.barEntersDefault === true)) this.navigationX = undefined;
+        if (zone.id === "nav") this.navigationX = undefined;
         this.memory.set(zone.id, item.key);
         this.lastZone = zone.id;
         // Opening the cascade must not replace the content return target.
@@ -503,8 +501,6 @@ export class FocusHost {
         const target = moveWithin(zone, zone.items.length, index, key);
         if (target !== undefined) {
             this.focusItem(zone, zone.items[target]);
-        } else if (key === "down" && zone.id === "nav" && view.barEntersDefault === true) {
-            this.focusFirst([view.focus]);
         } else {
             const destination = zone[key];
             const next = view.zones.find(candidate => candidate.id === destination && candidate.items.length > 0);

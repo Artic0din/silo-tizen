@@ -93,7 +93,7 @@ test("Settings uses category, row and picker Back focus with no requests on focu
         assert.equal(await tv.focused(), "playback");
         assert.equal(tv.fake.requests.length, requests);
         await tv.remote(10009);
-        assert.equal(await tv.focused(), "profiles");
+        assert.equal(await tv.focused(), "home");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
@@ -114,9 +114,9 @@ test("hidden libraries persist absent IDs and refresh Home and navigation on ret
         await tv.eventually(async () => tv.fake.requests.filter(request => request.path === "/user/libraries").length === 2, "refreshed Home libraries");
         assert.ok(tv.fake.requests.some(request => request.path === "/user/libraries?include_hidden=true"));
         refreshedLibraries.release();
-        // Rebuilding the tab strip removes the focused Profiles button before the same turn puts it
-        // back. A one-shot read can land on the first title in that gap.
-        await tv.eventually(async () => await tv.page.locator('[role="tab"][data-focus="movies"]').count() === 0 && await tv.focused() === "profiles", "Home drops the hidden library and keeps Profiles focused");
+        // Rebuilding the tab strip removes focus for a moment before the same turn restores it,
+        // so a one-shot read can land on the first title in that gap.
+        await tv.eventually(async () => await tv.page.locator('[role="tab"][data-focus="movies"]').count() === 0 && await tv.focused() === "home", "Movies left the strip and focus returned to Home");
     } finally { await tv.page.context().close(); }
 });
 

@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Restored each page's hero after returning from the profile menu and painted the avatar's white focus ring above its image.
+- Renamed the profile menu's Switch Server row to Change Account, after Settings and before Sign Out.
+
+- Matched Apple TV’s fixed top menu and moved Requests into the profile menu.
+- Returned focus to the selected tab after leaving profile menu destinations and made the avatar's white focus ring visible over artwork.
 - Kept focus on the same top-bar tab when Home rebuilt its library tabs, so hiding a library leaves Profiles focused.
 - Matched Apple TV card focus lift, outlines, caption spacing and colours across Search, cast, related titles, Requests and Calendar.
 - Kept Search posters at their intended top clearance after the focus lift finished.

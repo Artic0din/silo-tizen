@@ -18,6 +18,7 @@ import { operations } from "../api/operations.ts";
 import { detailOperations } from "../api/detailOperations.ts";
 import type { ItemDetail } from "../contracts/v2/catalog.ts";
 import { DetailsState } from "./detailsState.ts";
+import { DescriptionTranslations } from "./descriptionTranslation.ts";
 import { freshPlayPosition } from "./playbackPreparation.ts";
 import { SeriesEpisodes } from "./seriesEpisodes.ts";
 import { CardActions } from "./cardActions.ts";
@@ -89,6 +90,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         throw new Error("mountBrowse needs a selected profile");
     }
     const clock = options.clock ?? systemClock;
+    const translations = new DescriptionTranslations(session, clock);
     const container = el("div", "browse");
     root.appendChild(container);
     const host = new FocusHost(container);
@@ -132,7 +134,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
     applyCardSize();
     let shownOverlays: CardOverlayPrefs | undefined = presentation.cardOverlays;
-    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, cardOverlays: () => presentation.cardOverlays, posterScale: () => presentation.posterScale, savedFileOverlay: card => homeDetails.savedFile(card)?.overlay, open: (destination) => open(destination), preview: (card, row, continuing) => shell.preview(card, row, continuing), resume: (id, title) => {
+    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, cardOverlays: () => presentation.cardOverlays, posterScale: () => presentation.posterScale, savedFileOverlay: card => homeDetails.savedFile(card)?.overlay, open: (destination) => open(destination), preview: (card, row, continuing, featured) => shell.preview(card, row, continuing ?? false, featured === true), resume: (id, title) => {
         if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title }));
     }, playEpisode: (id, title, startOver, selection) => {
         const current = top();
@@ -405,6 +407,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             return;
         }
         torn = true;
+        translations.reset();
         stopSearchSupplement();
         presentation.stop();
         activeSection?.stop();
@@ -897,7 +900,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                             }
                         }
                         detailsChanged(current, audioClosed);
-                    }, (detail, signal) => refreshWatched(current, detail, signal), personalPending);
+                    }, (detail, signal) => refreshWatched(current, detail, signal), personalPending, translations);
                     details.restore(previous);
                     if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, () => details.warmSeriesEpisodes(), previous?.series?.seasonNumber ?? data.contextSeason, current.seriesContext?.episodeId);
                     details.series?.restore(previous?.series);
@@ -930,7 +933,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     const previous = current.data?.details;
                     current.data = data;
                     if (data.detail !== undefined) {
-                        const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending);
+                        const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending, translations);
                         details.restore(previous);
                         current.data.details = details;
                         detailWork = details;
@@ -1577,6 +1580,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         ...(options.onSwitchServer === undefined ? {} : { switchServer: () => { teardown(); options.onSwitchServer?.(); } }),
         ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
     }, focus => render(focus), options.publicStorage, `silo.skyline.scope:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`, context.baseUrl);
+    shell.translations = translations;
+    translations.subscribeMode(() => { if (!torn) shell.armTranslation(); });
+    translations.cards.subscribe(() => { if (!torn) shell.refreshTranslation(); });
+    void translations.ensure();
     shell.titleArt = () => presentation.showsTitleArt;
     const enrichedScene = (): boolean => { const current = top(); return current?.kind === "home" || current?.kind === "for_you" || (current?.kind === "library" && current.discovery?.mode === "Recommended"); };
     shell.details = (card, continuing) => !enrichedScene() ? { line: undefined, badges: undefined } : { line: homeDetails.detailLine(card.id), badges: continuing ? homeDetails.savedFile(card)?.badges : undefined };

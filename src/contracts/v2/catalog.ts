@@ -3,6 +3,7 @@
 // Handwritten from openapi.json at the commit in ./SOURCE; not generated. Unknown members are
 // ignored and unknown item or library types decode to "unknown", so additive changes keep working.
 
+import { translationMembers } from "./descriptionTranslation.ts";
 import { boolean, integer, nonEmptyString, object, optionalString, string, WireError } from "./wire.ts";
 import { decodeDetailExtras, type DetailExtras } from "./details.ts";
 import { decodeAudioTracks, type AudioTrackInfo } from "./playback.ts";
@@ -151,6 +152,10 @@ export interface Card {
     readonly seriesTitle: string | undefined;
     readonly seasonNumber: number | undefined;
     readonly episodeNumber: number | undefined;
+    /** Set while this card's description is missing in the profile's metadata language. */
+    readonly pendingTranslationLanguage?: string;
+    /** Localized fields an AI translation wrote. `overview` is what the marquee labels. */
+    readonly machineTranslatedFields?: readonly string[];
 }
 
 export interface CardOverlay {
@@ -216,6 +221,7 @@ export function decodeCard(value: unknown, path: string): Card {
         seriesTitle: optionalString(obj, "series_title", path),
         seasonNumber: optionalInteger(obj, "season_number", path),
         episodeNumber: optionalInteger(obj, "episode_number", path),
+        ...translationMembers(obj, path),
     };
 }
 
@@ -317,6 +323,8 @@ export interface ItemDetail {
     readonly playContentId: string | undefined;
     readonly versions: readonly PlayableFile[];
     readonly watch: WatchState | undefined;
+    readonly pendingTranslationLanguage?: string;
+    readonly machineTranslatedFields?: readonly string[];
 }
 
 export interface LocalExtra {
@@ -383,6 +391,7 @@ export function decodeItemDetail(value: unknown): ItemDetail {
             return { ...(obj.effective_subtitle_mode === undefined && obj.effective_subtitle_track_signature === undefined ? {} : { effectiveSubtitle: decodeSubtitlePreferences(obj, string(obj, "content_id", path), string(version, "file_id", versionPath), undefined) }), fileId: string(version, "file_id", versionPath), effectiveAudioTrackIndex: optionalInteger(version, "effective_audio_track_index", versionPath), durationSeconds: integer(version, "duration", versionPath), audio: decodeAudioTracks(version, versionPath), ...(version.subtitle_tracks === undefined ? {} : { subtitles: decodeCatalogSubtitles(version, versionPath) }), ...(version.audio_tracks === undefined ? {} : { audioMetadata: JSON.stringify(version.audio_tracks) }), ...(label === "" ? {} : { label }) };
         }),
         watch,
+        ...translationMembers(obj, path),
     };
 }
 
@@ -411,6 +420,8 @@ export interface Season {
     readonly title: string;
     readonly episodeCount: number;
     readonly posterUrl: string | undefined;
+    readonly pendingTranslationLanguage?: string;
+    readonly machineTranslatedFields?: readonly string[];
 }
 
 export function decodeSeasons(value: unknown): Season[] {
@@ -425,6 +436,7 @@ export function decodeSeasons(value: unknown): Season[] {
             title: string(obj, "title", path),
             episodeCount: integer(obj, "episode_count", path),
             posterUrl: optionalString(obj, "poster_url", path),
+            ...translationMembers(obj, path),
         };
     });
 }
@@ -444,6 +456,8 @@ export interface Episode {
     readonly runtimeMinutes: number;
     readonly stillUrl: string | undefined;
     readonly played: boolean;
+    readonly pendingTranslationLanguage?: string;
+    readonly machineTranslatedFields?: readonly string[];
 }
 
 export function decodeEpisodes(value: unknown): Episode[] {
@@ -468,6 +482,7 @@ export function decodeEpisodes(value: unknown): Episode[] {
             runtimeMinutes: integer(obj, "runtime", path),
             stillUrl: optionalString(obj, "still_url", path),
             played: decodeWatch(obj.user_data, `${path}.user_data`)?.played ?? false,
+            ...translationMembers(obj, path),
         };
     });
 }

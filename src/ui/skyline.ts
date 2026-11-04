@@ -14,6 +14,7 @@ import type { PrimaryMenu } from "../contracts/v2/navigation.ts";
 import { navigationIcon } from "./navigationIcon.ts";
 import { remoteKey } from "./keys.ts";
 import { heroBackdrop, type Tints } from "./heroBackdrop.ts";
+import { DescriptionTranslations, MARQUEE_TRANSLATION_DWELL_MS, marqueeTranslationRequest } from "./descriptionTranslation.ts";
 import type { LibraryMode } from "./libraryDiscovery.ts";
 import { PERSONAL_TITLES, type PersonalSource } from "./personalLists.ts";
 
@@ -125,7 +126,9 @@ export class Skyline {
     filled: (card: Card) => Card = card => card;
     /** What Home's detail reads added for a title: the aired and cast line, and Continue Watching's saved-file chips. */
     details: (card: Card, continuing: boolean) => { readonly line: string | undefined; readonly badges: readonly string[] | undefined } = () => ({ line: undefined, badges: undefined });
-    private shown: { card: Card; row: string; continuing: boolean } | undefined;
+    translations: DescriptionTranslations | undefined;
+    private shown: { card: Card; row: string; continuing: boolean; featured: boolean } | undefined;
+    private cancelTranslation = (): void => undefined;
 
     constructor(
         container: HTMLElement,
@@ -289,13 +292,14 @@ export class Skyline {
         this.visible = false;
         this.close();
         this.cancelPreview();
+        this.cancelTranslation();
         this.container.classList.remove("skyline-root", "skyline-preview", "skyline-library", "skyline-home");
     }
 
     /** Redraws the shown preview, as when the title-art answer lands. */
     repaint(): void {
         const shown = this.shown;
-        if (shown !== undefined && this.previewId === `${shown.row}:${shown.card.id}`) this.draw(shown.card, shown.row, shown.continuing);
+        if (shown !== undefined && this.previewId === `${shown.row}:${shown.card.id}`) this.draw(shown.card, shown.row, shown.continuing, shown.featured);
     }
 
     /** Fills in what a detail read added for the shown title, in place, when its answer lands. */
@@ -309,34 +313,87 @@ export class Skyline {
         layer.querySelector(".skyline-meta-line")?.replaceWith(renderMetaLine(this.filled(card), continuing));
         const details = this.details(card, continuing);
         const line = layer.querySelector(".skyline-detail-line");
-        if (line !== null) line.textContent = details.line ?? "";
+        if (line !== null) {
+            let text = line.querySelector(".skyline-detail-text");
+            if (text === null) {
+                text = el("span", "skyline-detail-text");
+                line.appendChild(text);
+            }
+            text.textContent = details.line ?? "";
+        }
         const badges = layer.querySelector(".skyline-badges");
         if (badges !== null) replaceNodes(badges as HTMLElement, (details.badges ?? marqueeBadges(card.overlay)).map(badge => el("span", "skyline-chip", badge)));
     }
 
-    preview(card: Card, row: string, continuing = false): void {
+    preview(card: Card, row: string, continuing = false, featured = false): void {
         this.cancelPreview();
         const apply = (): void => {
             const identity = `${row}:${card.id}`;
-            if (this.previewId === identity && this.shown?.card === card && this.shown.continuing === continuing) return;
+            if (this.previewId === identity && this.shown?.card === card && this.shown.continuing === continuing && this.shown.featured === featured) return;
             this.previewId = identity;
             this.immediatePreview = false;
-            this.draw(card, row, continuing);
+            this.draw(card, row, continuing, featured);
+            this.armTranslation();
         };
         if (this.previewId === undefined || this.immediatePreview) apply();
         else this.cancelPreview = this.clock.schedule(apply, 150);
     }
 
-    private draw(card: Card, row: string, continuing: boolean): void {
-        this.shown = { card, row, continuing };
+    /** Featured cards in auto mode only, after the card has held the marquee. Rolling focus never reaches this. */
+    armTranslation(): void {
+        this.cancelTranslation();
+        const shown = this.shown;
+        const translations = this.translations;
+        if (shown === undefined || translations === undefined) return;
+        const pending = translations.cards.presentation(shown.card).pendingLanguage;
+        if (marqueeTranslationRequest(shown.featured, translations.onView(), shown.card.id, pending) === undefined) return;
+        const card = shown.card;
+        this.cancelTranslation = this.clock.schedule(() => {
+            if (this.shown?.card !== card) return;
+            this.translations?.cards.cardDidAppear(card);
+        }, MARQUEE_TRANSLATION_DWELL_MS);
+    }
+
+    /** Replaces the synopsis and the status that leads the detail line, without redrawing the marquee. */
+    refreshTranslation(): void {
+        const shown = this.shown;
+        const layer = this.marquee.querySelector<HTMLElement>(".skyline-marquee-layer:not(.skyline-outgoing)");
+        if (shown === undefined || layer === null || this.translations === undefined) return;
+        const presentation = this.translations.cards.presentation(shown.card);
+        let synopsis = layer.querySelector<HTMLElement>(".skyline-synopsis");
+        if (presentation.overview !== undefined && presentation.overview !== "") {
+            if (synopsis === null) {
+                synopsis = el("p", "skyline-synopsis", presentation.overview);
+                layer.querySelector(".skyline-detail-line")?.before(synopsis);
+            } else synopsis.textContent = presentation.overview;
+            synopsis.classList.toggle("is-translating", presentation.status?.kind === "translating");
+        }
+        layer.classList.toggle("skyline-translation-visible", presentation.status !== undefined);
+        const line = layer.querySelector(".skyline-detail-line");
+        if (line === null) return;
+        let status = line.querySelector<HTMLElement>(".skyline-translation-status");
+        if (presentation.status === undefined) status?.remove();
+        else if (status === null) {
+            status = el("span", "skyline-translation-status", presentation.status.text);
+            status.dataset.translationStatus = presentation.status.kind;
+            line.prepend(status);
+        } else {
+            status.textContent = presentation.status.text;
+            status.dataset.translationStatus = presentation.status.kind;
+        }
+    }
+
+    private draw(card: Card, row: string, continuing: boolean, featured = false): void {
+        this.shown = { card, row, continuing, featured };
         // Apple's marquee (TVMarqueeBlock): the row name is spoken, never drawn.
         const layer = el("div", "skyline-marquee-layer");
         const title = el("h1", "skyline-title", marqueeTitle(card));
         layer.append(el("span", "skyline-row-name silo-sr-only", row), title);
         layer.appendChild(el("div", "skyline-meta-line"));
-        if (card.overview) layer.appendChild(el("p", "skyline-synopsis", card.overview));
         // Aired date and cast, and saved-file chips, come from Home's detail reads; the line keeps its space until then.
-        layer.append(el("div", "skyline-detail-line"), el("div", "skyline-badges"));
+        const detailLine = el("div", "skyline-detail-line");
+        detailLine.appendChild(el("span", "skyline-detail-text"));
+        layer.append(detailLine, el("div", "skyline-badges"));
         this.fillDetails(layer, card, continuing);
         const seriesArt = card.type === "episode" && card.seriesBackdropUrl !== undefined;
         const background = artworkUrl(seriesArt ? card.seriesBackdropUrl : card.backdropUrl, this.baseUrl);
@@ -354,6 +411,7 @@ export class Skyline {
         this.marquee.appendChild(layer);
         // A two-line title costs the synopsis a line (Apple synopsisLineLimit).
         layer.classList.toggle("skyline-title-wrapped", title.offsetHeight > parseFloat(getComputedStyle(title).fontSize) * 1.4);
+        this.refreshTranslation();
         // The text title shows first; the logo replaces it only once decoded and only while title art is on.
         const logo = this.titleArt() ? artworkUrl(card.logoUrl, this.baseUrl) : undefined;
         if (logo !== undefined) {
@@ -585,6 +643,7 @@ export class Skyline {
 
     destroy(): void {
         this.hide();
+        this.cancelTranslation();
         this.cancelFade();
         this.scroll.stop();
         this.container.removeEventListener("focusin", this.onFocus);

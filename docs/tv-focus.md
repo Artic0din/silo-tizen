@@ -186,7 +186,9 @@ Other layers:
 
 ## Never Fetch on Focus
 
-Search filter pills are the sole exception: focus applies their filter immediately, matching Apple TV's segmented picker, and cancels superseded reads.
+Search filter pills are one exception: focus applies their filter immediately, matching Apple TV's segmented picker, and cancels superseded reads.
+
+Featured cards are the other. In the server's auto mode, the marquee starts a description translation only after that card has held the preview for 1500 ms, matching Apple TV's featured-card dwell. Moving on before then starts nothing. Details translation starts with the page. Focusing another episode does not.
 
 Moving focus never starts a request, activates a route or writes data.
 Fetching belongs to explicit activation (Enter), to a view loading, or to a one-off prefetch.

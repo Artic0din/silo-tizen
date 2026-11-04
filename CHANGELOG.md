@@ -62,6 +62,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added description translation on Details and the featured marquee, matching Apple TV's Translate Description action, Translating… status and Translated by AI label.
+
 - Added a page linking the silo-apple and silo-android design specs that apply to a TV client, for reading before porting a feature.
 - Added the Macroscope visible-change evidence check that silo-apple and silo-android run, tailored to the Samsung TV and its Apple TV comparison.
 - Added a CI check that fails when the app or its tests mention an `/api/v1` path, as silo-apple's does.

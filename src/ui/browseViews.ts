@@ -55,6 +55,15 @@ export function actionButton(key: string, label: string, onPress: () => void): F
     return { key, element };
 }
 
+/** Apple ErrorView.recoveryPlan: a 401 offers sign-in, a 403 or 404 prefers leaving, and otherwise Try Again is the only action. */
+export function recoveryActions(error: { readonly headline: string; readonly signIn: boolean }, retry: FocusItem, back?: FocusItem, signIn?: FocusItem): FocusItem[] {
+    const items: FocusItem[] = [];
+    if (error.signIn && signIn !== undefined) items.push(signIn);
+    if (back !== undefined && (error.headline === "Not found" || error.headline === "Not allowed")) items.push(back);
+    items.push(retry);
+    return items;
+}
+
 /** SectionExploreAllCard keeps the current marquee while its row's trailing tile owns focus. */
 function exploreAllCard(rowTitle: string, key: string, continuing: boolean, onPress: () => void): FocusItem {
     const element = el("button", "browse-card skyline-explore");

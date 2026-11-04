@@ -99,6 +99,101 @@ async function openList(tv: Tv, source: string): Promise<void> {
     await tv.page.locator(`[data-focus="${source}"]`).click({ timeout: 2000 });
     await tv.page.locator(`[data-view="personal:${source}"] .browse-card`).first().waitFor();
 }
+/** Scroll the last card into the grid's viewport so CatalogGrid's lead asks for the next page. */
+async function revealEnd(tv: Tv): Promise<void> {
+    await tv.page.locator('[data-view^="personal:"] .browse-card').last().evaluate(node => {
+        const viewport = node.closest<HTMLElement>(".skyline-content");
+        if (viewport === null) return;
+        const card = node.getBoundingClientRect();
+        const bounds = viewport.getBoundingClientRect();
+        viewport.scrollTop += card.top - bounds.top;
+    });
+}
+async function appendNext(tv: Tv): Promise<void> {
+    const cards = tv.page.locator('[data-view^="personal:"] .browse-card');
+    const before = await cards.count();
+    await tv.eventually(async () => {
+        await revealEnd(tv);
+        return await cards.count() > before;
+    }, "next page appended");
+}
+
+test("watchlist, favorites and history are continuous Apple pages", async () => {
+    const { tv, catalog } = await setup();
+    try {
+        await openList(tv, "watchlist");
+        assert.equal(await tv.page.locator('[data-focus="next"], [data-focus="previous"], .browse-page-status').count(), 0);
+        const before = tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length;
+        await tv.page.locator(".browse .browse-card").first().focus();
+        await tv.page.keyboard.press("ArrowRight");
+        assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length, before);
+        await tv.eventually(async () => {
+            await revealEnd(tv);
+            return await tv.page.locator(".browse .browse-card").count() > 24;
+        }, "watchlist appended the next page");
+        assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).pop()?.body?.cursor, "p-owner:watchlist:video:24");
+        catalog.pageReplies.push(problem(503, "service_unavailable", "Unavailable"), problem(503, "service_unavailable", "Unavailable"));
+        const shown = await tv.page.locator(".browse .browse-card").count();
+        await tv.eventually(async () => {
+            await revealEnd(tv);
+            return tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length > before + 1;
+        }, "failed later page was attempted");
+        await tv.jump(1000);
+        assert.equal(await tv.page.locator(".browse .browse-card").count(), shown);
+        assert.equal(await tv.page.getByRole("heading", { name: "Something went wrong" }).count(), 0);
+        assert.equal(await tv.page.locator('[data-focus="retry"]').count(), 0);
+        await tv.page.locator('[data-focus="profiles"]').click();
+        catalog.pageReplies.push(problem(503, "service_unavailable", "Unavailable"), problem(503, "service_unavailable", "Unavailable"));
+        await tv.page.locator('[data-focus="watchlist"]').click();
+        await tv.page.getByRole("heading", { name: "Something went wrong", exact: true }).waitFor();
+        await tv.page.getByText("Unavailable", { exact: true }).waitFor();
+        assert.equal(await tv.page.locator('[data-focus="retry"]').innerText(), "Try Again");
+        for (const id of catalog.titles.keys()) catalog.excluded.add(id);
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.locator('[data-focus="favorites"]').click();
+        await tv.page.getByText("No favorites", { exact: true }).waitFor();
+        await tv.page.getByText("Tap the heart icon on any item to add it here", { exact: true }).waitFor();
+        assert.equal(await tv.page.locator('[data-focus="filter:movie"]').count(), 0);
+        catalog.excluded.clear();
+        await openList(tv, "history");
+        assert.equal(await tv.page.locator('[data-focus="back"], [data-focus="filter:episode"]').count(), 0);
+        const history = await tv.page.locator('[data-view="personal:history"]').evaluate(view => {
+            const grid = view.querySelector<HTMLElement>(".browse-grid");
+            const art = view.querySelector<HTMLElement>(".browse-art");
+            const title = view.querySelector<HTMLElement>(".browse-title");
+            const count = view.querySelector<HTMLElement>(".personal-count");
+            const gridStyle = grid === null ? undefined : getComputedStyle(grid);
+            const titleStyle = title === null ? undefined : getComputedStyle(title);
+            const countStyle = count === null ? undefined : getComputedStyle(count);
+            return {
+                columns: gridStyle?.gridTemplateColumns.split(" ").length ?? 0,
+                columnGap: gridStyle?.columnGap ?? "",
+                rowGap: gridStyle?.rowGap ?? "",
+                art: { width: art?.offsetWidth ?? 0, height: art?.offsetHeight ?? 0 },
+                title: title?.textContent ?? "",
+                titleSize: titleStyle?.fontSize ?? "",
+                titleWeight: titleStyle?.fontWeight ?? "",
+                count: count?.textContent ?? "",
+                countSize: countStyle?.fontSize ?? "",
+            };
+        });
+        assert.equal(history.columns, 6);
+        assert.equal(history.columnGap, "40px");
+        assert.equal(history.rowGap, "60px");
+        assert.deepEqual(history.art, { width: 260, height: 390 });
+        assert.equal(history.title, "History");
+        assert.equal(history.titleSize, "48px");
+        assert.equal(history.titleWeight, "700");
+        assert.match(history.count, /^\d+ items$/);
+        assert.equal(history.countSize, "22px");
+        await tv.page.locator('[data-focus="for_you"]').focus();
+        await tv.jump(250);
+        await tv.page.locator('.skyline-selector [data-focus="watchlist"]').click();
+        await tv.page.locator('[data-view="personal:watchlist"] .browse-card').first().waitFor();
+        await tv.page.keyboard.press("ArrowUp");
+        assert.equal(await tv.focused(), "for_you");
+    } finally { await tv.page.context().close(); }
+});
 
 test("watchlist and favorites use Apple's 8-column 176px grid without a Back button", async () => {
     const { tv } = await setup();
@@ -168,10 +263,8 @@ for (const source of ["watchlist", "favorites"]) test(`card quick-actions remove
     const { tv } = await setup();
     try {
         await openList(tv, source);
-        for (let page = 2; page <= 3; page++) {
-            await tv.page.locator('[data-focus="next"]').click();
-            await tv.page.getByText(`Page ${page} of 3`, { exact: true }).waitFor();
-        }
+        await appendNext(tv);
+        await appendNext(tv);
         const card = tv.page.locator('[data-focus="movie:m0050"]');
         await card.focus();
         await tv.down(13); await tv.jump(650); await tv.up(13);
@@ -181,7 +274,6 @@ for (const source of ["watchlist", "favorites"]) test(`card quick-actions remove
         await panel.getByRole("button", { name: source === "watchlist" ? "Add to watchlist" : "Add favorite", exact: true }).waitFor();
         await tv.remote(10009);
         await tv.eventually(async () => await card.count() === 0 && await tv.focused() === "movie:m0051", "nearby removal focus");
-        await tv.page.getByText("Page 3 of 3", { exact: true }).waitFor();
         const last = tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).slice(-1)[0];
         assert.equal(last?.body?.cursor, `p-owner:${source}:${source === "watchlist" ? "video" : "movie"}:48`);
         assert.equal(last?.body?.source, source);
@@ -219,16 +311,12 @@ for (const source of ["watchlist", "favorites"]) test(`uncovering ${source} reco
     const { tv, catalog } = await setup();
     try {
         await openList(tv, source);
-        for (let page = 2; page <= 3; page++) {
-            await tv.page.locator('[data-focus="next"]').click();
-            await tv.page.getByText(`Page ${page} of 3`, { exact: true }).waitFor();
-        }
+        await appendNext(tv);
+        await appendNext(tv);
         await tv.page.locator('.browse [data-focus="movie:m0050"]').focus();
         await openList(tv, source === "watchlist" ? "favorites" : "watchlist");
-        for (let page = 2; page <= 3; page++) {
-            await tv.page.locator('[data-focus="next"]').click();
-            await tv.page.getByText(`Page ${page} of 3`, { exact: true }).waitFor();
-        }
+        await appendNext(tv);
+        await appendNext(tv);
         await tv.page.locator('.browse [data-focus="movie:m0050"]').click();
         if (source === "favorites") await tv.page.locator('[data-focus="more"]').click();
         await tv.page.getByRole("button", { name: source === "favorites" ? "Remove favorite" : "Remove from watchlist", exact: true }).click();
@@ -248,8 +336,7 @@ for (const source of ["watchlist", "favorites"]) test(`uncovering ${source} reco
         await tv.page.locator(`[data-view="personal:${source}"]`).waitFor();
         held.release();
         await tv.eventually(async () => await tv.page.locator('.browse [data-focus="movie:m0050"]').count() === 0, "uncovered list reconciles confirmed removal");
-        assert.equal(await tv.page.locator(".browse").getByText("Page 3 of 3", { exact: true }).count(), 1);
-        assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).length, queries + 1);
+        assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).length, queries + 3);
         assert.equal(catalog.mutations.length, 1);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
@@ -259,24 +346,19 @@ test("Details return discards an abandoned personal-page turn", async () => {
     const { tv } = await setup();
     try {
         await openList(tv, "watchlist");
-        await tv.page.locator('[data-focus="next"]').focus();
-        await tv.page.keyboard.press("Enter");
-        await tv.page.getByText("Page 2 of 3", { exact: true }).waitFor();
+        await appendNext(tv);
+        const reads = tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length;
         const held = tv.fake.hold("/catalog/query", true);
-        await tv.page.locator('[data-focus="next"]').focus();
-        await tv.page.keyboard.press("Enter");
-        await tv.eventually(async () => tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).length === 3, "pending third page");
-        await tv.page.keyboard.press("ArrowUp");
-        await tv.page.keyboard.press("ArrowRight");
-        assert.equal(await tv.focused(), "movie:m0026");
-        await tv.page.keyboard.press("Enter");
+        await revealEnd(tv);
+        await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length > reads, "pending later page");
+        await tv.page.locator('[data-focus="movie:m0026"]').click();
         await tv.page.locator('[data-view="item:movie:m0026"]').waitFor();
         await tv.remote(10009);
         const cached = await tv.page.locator('.browse [data-focus="movie:m0026"]').elementHandle();
         assert.ok(cached);
         held.release();
         await tv.eventually(async () => await cached.evaluate(node => !node.isConnected), "personal-page refresh rendered");
-        assert.equal(await tv.page.getByText("Page 2 of 3", { exact: true }).count(), 1);
+        assert.equal(await tv.page.locator(".browse-page-status").count(), 0);
         assert.equal(await tv.focused(), "movie:m0026");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
@@ -286,10 +368,8 @@ for (const source of ["watchlist", "favorites"]) test(`integrated Details remove
     const { tv, catalog } = await setup();
     try {
         await openList(tv, source);
-        for (let page = 2; page <= 3; page++) {
-            await tv.page.locator('[data-focus="next"]').click();
-            await tv.page.getByText(`Page ${page} of 3`, { exact: true }).waitFor();
-        }
+        await appendNext(tv);
+        await appendNext(tv);
         await tv.page.locator('.browse [data-focus="movie:m0050"]').click();
         await tv.page.locator('[data-view="item:movie:m0050"]').waitFor();
         if (source === "favorites") await tv.page.locator('[data-focus="more"]').click();
@@ -304,16 +384,13 @@ for (const source of ["watchlist", "favorites"]) test(`integrated Details remove
         if (source === "favorites") await tv.remote(10009);
         await tv.remote(10009);
         await tv.eventually(async () => await tv.page.locator('.browse [data-focus="movie:m0050"]').count() === 0, "confirmed removal reconciles the current page");
-        assert.equal(await tv.page.getByText("Page 3 of 3", { exact: true }).count(), 1);
         assert.equal(await tv.focused(), "movie:m0051");
         assert.equal(catalog.mutations.length, 1);
         await tv.remote(10009);
         await tv.page.locator('[data-view="home"]').waitFor();
         await openList(tv, source === "watchlist" ? "favorites" : "watchlist");
-        for (let page = 2; page <= 3; page++) {
-            await tv.page.locator('[data-focus="next"]').click();
-            await tv.page.getByText(`Page ${page} of 3`, { exact: true }).waitFor();
-        }
+        await appendNext(tv);
+        await appendNext(tv);
         assert.equal(await tv.page.locator('.browse [data-focus="movie:m0050"]').count(), 1);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
@@ -323,10 +400,8 @@ for (const removed of [false, true]) test(`later-page Details return ${removed ?
     const { tv, catalog } = await setup();
     try {
         await openList(tv, "watchlist");
-        for (let index = 2; index <= 3; index++) {
-            await tv.page.locator('[data-focus="next"]').click();
-            await tv.page.getByText(`Page ${index} of 3`, { exact: true }).waitFor();
-        }
+        await appendNext(tv);
+        await appendNext(tv);
         await tv.page.locator('.browse [data-focus="movie:m0050"]').click();
         await tv.page.locator('[data-view="item:movie:m0050"]').waitFor();
         if (removed) catalog.excluded.add("movie:m0050");
@@ -336,7 +411,6 @@ for (const removed of [false, true]) test(`later-page Details return ${removed ?
         held.release();
         await tv.eventually(async () => tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).length >= 4, "refresh sent");
         await tv.page.waitForTimeout(200);
-        assert.equal(await tv.page.getByText("Page 3 of 3", { exact: true }).count(), 1);
         assert.equal(await tv.focused(), removed ? "movie:m0051" : "movie:m0050");
         assert.equal(await tv.page.locator('.browse [data-focus="movie:m0050"]').count(), removed ? 0 : 1);
     } finally { await tv.page.context().close(); }
@@ -351,13 +425,12 @@ test("personal destinations page on the server, restore Details focus and reconc
             await tv.page.locator(".browse .browse-card").first().focus();
             await tv.page.keyboard.press("ArrowRight");
             assert.equal(tv.fake.requests.length, reads);
-            await tv.page.locator('[data-focus="next"]').click();
-            await tv.page.getByText("Page 2 of 3", { exact: true }).waitFor();
-            const id = await tv.page.locator(".browse .browse-card").first().getAttribute("data-focus");
-            await tv.page.locator(".browse .browse-card").first().click();
-            await tv.page.locator('[data-view^="item:movie:"]').waitFor();
+            await appendNext(tv);
+            const id = await tv.page.locator(".browse .browse-card").last().getAttribute("data-focus");
+            await tv.page.locator(".browse .browse-card").last().click();
+            await tv.page.locator('[data-view^="item:"]').waitFor();
             await tv.remote(10009);
-            await tv.page.getByText("Page 2 of 3", { exact: true }).waitFor();
+            await tv.page.locator('[data-view^="personal:"]').waitFor();
             await tv.eventually(async () => await tv.focused() === id, "unchanged later page identity");
             assert.ok(id);
             await tv.page.locator(".browse .browse-card").first().click();
@@ -382,12 +455,9 @@ test("Favorites filters the whole result before paging and retains opaque contin
     const { tv } = await setup();
     try {
         await openList(tv, "favorites");
-        const seen: string[] = [];
-        for (let page = 1; page <= 3; page++) {
-            await tv.page.getByText(`Page ${page} of 3`, { exact: true }).waitFor();
-            seen.push(...await tv.page.locator(".browse .browse-card").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? "")));
-            if (page < 3) await tv.page.locator('[data-focus="next"]').click();
-        }
+        await appendNext(tv);
+        await appendNext(tv);
+        const seen = await tv.page.locator(".browse .browse-card").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? ""));
         assert.equal(new Set(seen).size, 60);
         assert.ok(seen.every(id => id.startsWith("movie:")));
         await tv.page.locator('[data-focus="filter:series"]').click();
@@ -400,26 +470,33 @@ test("Favorites filters the whole result before paging and retains opaque contin
     } finally { await tv.page.context().close(); }
 });
 
-test("failed subsequent page retains rows and cursor; retry retries that page; invalid cursor restarts", async () => {
+test("a failed later page keeps the rows, and an invalid cursor restarts from the first page", async () => {
     const { tv, catalog } = await setup();
     try {
         await openList(tv, "watchlist");
         catalog.pageReplies.push(problem(503, "service_unavailable", "Unavailable"), problem(503, "service_unavailable", "Unavailable"));
-        await tv.page.locator('[data-focus="next"]').click();
+        const before = tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length;
+        await tv.eventually(async () => {
+            await revealEnd(tv);
+            return tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length > before;
+        }, "later page attempted");
         await tv.jump(1000);
-        await tv.page.locator('[data-focus="retry"]').waitFor();
         assert.equal(await tv.page.locator(".browse .browse-card").count(), 24);
         assert.equal(await tv.page.locator(".browse .browse-card").first().getAttribute("data-focus"), "movie:m0001");
-        await tv.page.locator('[data-focus="retry"]').click();
-        await tv.page.getByText("Page 2 of 3", { exact: true }).waitFor();
-        assert.equal(await tv.page.locator(".browse .browse-card").first().getAttribute("data-focus"), "movie:m0025");
-        assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).pop()?.body?.cursor, "p-owner:watchlist:video:24");
+        assert.equal(await tv.page.locator('[data-focus="retry"]').count(), 0);
+        assert.equal(await tv.page.getByRole("heading", { name: "Something went wrong" }).count(), 0);
+        await tv.page.locator(".skyline-content").evaluate(node => { node.scrollTop = 0; });
+        await appendNext(tv);
+        assert.equal(await tv.page.locator('.browse [data-focus="movie:m0025"]').count(), 1);
+        assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).filter(request => request.body?.cursor === "p-owner:watchlist:video:24").length > 0, true);
         catalog.pageReplies.push(problem(400, "invalid_cursor", "Invalid cursor"));
-        await tv.page.locator('[data-focus="next"]').click();
-        await tv.page.locator('[data-focus="retry"]').waitFor();
-        await tv.page.locator('[data-focus="retry"]').click();
-        await tv.page.getByText("Page 1 of 3", { exact: true }).waitFor();
-        assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).pop()?.body?.cursor, undefined);
+        const mark = tv.fake.requests.length;
+        await tv.eventually(async () => {
+            await revealEnd(tv);
+            return tv.fake.requests.slice(mark).some(request => request.path.startsWith("/catalog/query") && request.body?.cursor === undefined);
+        }, "invalid cursor restarted");
+        assert.equal(await tv.page.locator('.browse [data-focus="movie:m0001"]').count(), 1);
+        assert.equal(await tv.page.locator('[data-focus="retry"]').count(), 0);
     } finally { await tv.page.context().close(); }
 });
 
@@ -429,7 +506,8 @@ test("capability failures are retryable errors, unsupported is explicit, empty r
         catalog.capabilityReplies.push({ status: 200, body: { allowed: true } });
         await tv.page.locator('[data-focus="profiles"]').click();
         await tv.page.locator('[data-focus="watchlist"]').click();
-        await tv.page.getByText("The server sent an answer this TV could not read.").waitFor();
+        await tv.page.getByRole("heading", { name: "Something went wrong", exact: true }).waitFor();
+        await tv.page.getByText("The server response was in an unexpected format.", { exact: true }).waitFor();
         assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).length, 0);
         catalog.unavailable = true;
         await tv.page.locator('[data-focus="retry"]').click();
@@ -506,7 +584,7 @@ test("remote personal journey keeps scrolled focus visible with Reduced Motion a
         await tv.remote(10009);
         await tv.page.locator('[data-view="personal:watchlist"] .browse-card').first().waitFor();
         await tv.eventually(async () => await tv.focused() === "movie:m0024", "restored card identity");
-        assert.equal(await tv.page.locator(".browse .browse-card").count(), 24);
+        assert.ok(await tv.page.locator(".browse .browse-card").count() >= 24);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
@@ -524,21 +602,11 @@ test("History includes episodes and cached Details return remains visible during
         assert.equal(await tv.page.locator(".browse .browse-card").count(), 24);
         assert.equal(await tv.focused(), "movie:m0002");
         held.release();
-        await tv.page.getByText("Page 1 of 3", { exact: true }).waitFor();
-        for (let page = 2; page <= 3; page++) {
-            await tv.page.locator('.browse [data-focus="next"]').click();
-            await tv.page.getByText(`Page ${page} of 3`, { exact: true }).waitFor();
-        }
+        await tv.eventually(async () => await tv.focused() === "movie:m0002", "refresh kept the open card");
+        await appendNext(tv);
+        await appendNext(tv);
         assert.ok(await tv.page.locator('.browse .browse-card[data-focus^="series:"]').count() > 0);
-        await tv.page.getByRole("button", { name: "Episodes", exact: true }).click();
-        await tv.eventually(async () => await tv.page.locator('.browse .browse-card[data-focus^="episode:"]').count() > 0, "episode scope");
-        assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).pop()?.body?.type, "episode");
-        assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).pop()?.body?.cursor, undefined);
-        assert.ok(await tv.page.locator('.browse .browse-card[data-focus^="episode:"]').count() > 0);
-        await tv.page.locator('.browse .browse-card[data-focus^="episode:"]').first().click({ button: "right" });
-        await tv.page.locator('[data-focus="episode-information"]').click();
-        await tv.page.locator('[data-view^="item:episode:"]').waitFor();
-        await tv.remote(10009);
-        await tv.page.locator('[data-view="personal:history"]').waitFor();
+        assert.equal(await tv.page.getByRole("button", { name: "Episodes", exact: true }).count(), 0);
+        assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).every(request => request.body?.type !== "episode"), true);
     } finally { await tv.page.context().close(); }
 });

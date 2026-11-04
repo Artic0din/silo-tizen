@@ -15,6 +15,8 @@ interface FeedNode {
     readonly cards: Card[];
     readonly items: FocusItem[];
     observer: IntersectionObserver | undefined;
+    /** Item count the live observer was armed for. A failed read keeps it, so the end must leave and return. */
+    watched: number;
     more: () => void;
     readonly scale: number;
     readonly overlays: ReturnType<NonNullable<ViewContext["cardOverlays"]>>;
@@ -31,29 +33,30 @@ export interface FeedGrid {
  * `owner` keys the node (one per route list); `lead` is how many cards from the end must be on
  * screen before `more` runs. A list that is not an extension of the shown one is rebuilt.
  */
-export function feedGrid(owner: object, page: CatalogPage, context: ViewContext, lead: number, busy: boolean, more: () => void, columns = FEED_COLUMNS): FeedGrid {
+export function feedGrid(owner: object, page: CatalogPage, context: ViewContext, lead: number, busy: boolean, more: () => void, columns = FEED_COLUMNS, posterWidth = 260, gridWidth?: number): FeedGrid {
     let feed = feeds.get(owner);
     const scale = context.posterScale?.() ?? 1;
     const overlays = context.cardOverlays?.();
     const extends_ = feed !== undefined && feed.cards.length <= page.items.length && feed.cards.every((card, index) => page.items[index] === card);
     if (feed === undefined || !extends_ || feed.scale !== scale || feed.overlays !== overlays) {
         feed?.observer?.disconnect();
-        feed = { node: el("div", "browse-grid catalog-grid"), cards: [], items: [], observer: undefined, more, scale, overlays };
+        feed = { node: el("div", "browse-grid catalog-grid"), cards: [], items: [], observer: undefined, watched: 0, more, scale, overlays };
         feeds.set(owner, feed);
     }
     feed.node.style.setProperty("--grid-columns", String(columns));
-    feed.node.style.width = `${Math.max(1710, columns * 260 * scale + (columns - 1) * 40)}px`;
+    feed.node.style.width = `${gridWidth ?? Math.max(1710, columns * 260 * scale + (columns - 1) * 40)}px`;
     feed.node.style.setProperty("--grid-lift", String((390 * scale + 38) / (390 * scale)));
     feed.more = more;
     const added = page.items.slice(feed.cards.length);
     for (const card of added) {
         feed.cards.push(card);
-        const item = cardItem(card, { ...context, homeCaptions: true, overlays, posterWidth: 260 });
+        const item = cardItem(card, { ...context, homeCaptions: true, overlays, posterWidth });
         if (item === undefined) continue;
         feed.items.push(item);
         feed.node.appendChild(item.element);
     }
-    watchEnd(feed, !busy && page.nextCursor !== undefined, lead);
+    // Leave the armed observer alone while a page is in flight. Recreating it would see the same end and read again.
+    if (!busy) watchEnd(feed, page.nextCursor !== undefined, lead);
     const spinner = busy && feed.items.length > 0 ? [loadingMore()] : [];
     return { content: [feed.node, ...spinner], zones: [{ id: "grid", layout: "grid", columns, items: feed.items }] };
 }
@@ -66,15 +69,21 @@ export function stopFeed(owner: object): void {
 
 /** Re-arms only when the list grows, so a failed read waits for the end to scroll back into view. */
 function watchEnd(feed: FeedNode, hasMore: boolean, lead: number): void {
+    if (!hasMore) {
+        feed.observer?.disconnect();
+        feed.observer = undefined;
+        feed.watched = 0;
+        return;
+    }
+    if (feed.observer !== undefined && feed.watched === feed.items.length) return;
     feed.observer?.disconnect();
-    feed.observer = undefined;
-    if (!hasMore || typeof IntersectionObserver === "undefined") return;
     const targets = feed.items.slice(Math.max(0, feed.items.length - lead)).map(item => item.element);
     const observer = new IntersectionObserver(entries => {
         if (entries.some(entry => entry.isIntersecting && entry.target.isConnected)) feed.more();
     });
     for (const target of targets) observer.observe(target);
     feed.observer = observer;
+    feed.watched = feed.items.length;
 }
 
 function loadingMore(): HTMLElement {

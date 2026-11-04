@@ -1,7 +1,7 @@
 import type { MediaRequest, MyRequests, RequestPage, RequestsCapability, RequestTitle, RequestsHub } from "../contracts/v2/requests.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import type { ErrorState } from "./browseRoutes.ts";
-import { actionButton, artwork, FAILURE_ICON, lines, searchState, zoneNode } from "./browseViews.ts";
+import { actionButton, artwork, FAILURE_ICON, lines, recoveryActions, searchState, zoneNode } from "./browseViews.ts";
 import { requestPosterUrl } from "./browseModel.ts";
 import { el } from "./screen.ts";
 import { orderRequests, requestProgress } from "./requestProgress.ts";
@@ -79,8 +79,7 @@ function errorPlaceholder(state: RequestsState, h: RequestsHandlers, name: strin
     const error = state.error ?? { headline: "Something went wrong", message: h.failure ?? "", signIn: false };
     const page = searchState(error.headline, error.message, "requests-state requests-failure", FAILURE_ICON);
     page.setAttribute("role", "alert");
-    const leaves = goBack !== undefined && (error.headline === "Not found" || error.headline === "Not allowed");
-    const items = [...(error.signIn && h.signIn !== undefined ? [actionButton("sign-in", "Sign In Again", h.signIn)] : []), ...(leaves ? [actionButton("go-back", "Go Back", goBack)] : []), actionButton("retry", "Try Again", h.retry)];
+    const items = recoveryActions(error, actionButton("retry", "Try Again", h.retry), goBack === undefined ? undefined : actionButton("go-back", "Go Back", goBack), h.signIn === undefined ? undefined : actionButton("sign-in", "Sign In Again", h.signIn));
     page.appendChild(zoneNode("browse-actions", items));
     return { name, content: [page], zones: [{ id: "status", layout: "column", items }], focus: { zone: "status", key: items[0]?.key ?? "retry" }, back: h.back, ...(goBack === undefined ? { barEntersDefault: true } : {}) };
 }

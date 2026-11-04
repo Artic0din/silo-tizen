@@ -919,6 +919,8 @@ browseTest("S-D2 aggregate watched reconciles visible episodes in both direction
     await showing(tv, "item:series:s1");
     await seasonDetails(tv);
     assert.equal(await tv.page.locator(".browse-episode", { hasText: "Watched" }).count(), 3);
+    assert.equal(await tv.page.locator('.browse-episode .browse-card-subtitle', { hasText: 'Watched' }).count(), 0, 'watched state is a badge rather than visible caption text');
+    assert.equal(await tv.page.locator('.browse-episode .browse-watched').count(), 3);
     await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Mark all unwatched", exact: true }).click();
     await tv.page.getByRole("button", { name: "Mark all watched", exact: true }).waitFor();

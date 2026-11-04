@@ -23,10 +23,11 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, 
     const content = [zoneNode("browse-row details-season-chips", seasons)];
     const episodes = (state.episodes ?? []).map(episode => {
         const item = episodeCard(episode, context);
-        item.element.addEventListener("focus", () => { state.entryEpisode = undefined; focusEpisode?.(episode.id); });
+        item.element.addEventListener("focus", () => { state.entryEpisode = episode.id; delete row.dataset.scrollEntry; focusEpisode?.(episode.id); });
         return item;
     });
     const row = zoneNode("browse-row details-episodes", episodes);
+    if (state.entryEpisode !== undefined) row.dataset.scrollEntry = state.entryEpisode;
     const section = el("section", "home-section details-series-rail");
     section.setAttribute("aria-label", "Episodes");
     if (state.failed) {
@@ -51,7 +52,7 @@ function episodeCard(episode: Episode, context: ViewContext): FocusItem {
     const code = `S${String(episode.seasonNumber).padStart(2, "0")}E${String(episode.episodeNumber).padStart(2, "0")}`;
     element.append(artwork("browse-art browse-still", episode.stillUrl, context.baseUrl, episode.title), el("span", "browse-card-title", `${code} · ${episode.title}`));
     element.appendChild(el("span", "browse-card-subtitle", [episodeAirDate(episode.airDate), episodeRuntime(episode.runtimeMinutes)].filter(Boolean).join("  ·  ")));
-    if (episode.played) { const badge = el("span", "browse-watched", "✓"); badge.setAttribute("aria-label", "Watched"); element.appendChild(badge); }
+    if (episode.played) { const badge = el("span", "browse-watched"); badge.setAttribute("aria-label", "Watched"); element.firstElementChild?.appendChild(badge); }
     element.addEventListener("click", () => context.playEpisode === undefined ? context.open({ kind: "item", id: episode.id, title: episode.title }) : context.playEpisode(episode.id, episode.title));
     return mediaItem({ key: episode.id, element }, { id: episode.id, title: episode.title, type: "episode" }, context);
 }

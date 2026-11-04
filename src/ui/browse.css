@@ -137,6 +137,9 @@
 .details-season-chips .browse-button:focus { background: #fff; color: #000; }
 .details-series-rail .browse-row { padding-top: 34px; }
 .details-series-rail .browse-card { scroll-margin-top: 24px; }
+.browse.details-series-scene { padding-bottom: 540px; }
+.browse .details-series-rail .browse-card.skyline-continue, .browse .details-series-rail .skyline-continue .browse-art { width: calc(360px * var(--poster-scale, 1)); }
+.browse .details-series-rail .skyline-continue .browse-art { height: calc(200px * var(--poster-scale, 1)); }
 .details-facts { padding: 24px; margin: 32px 0 48px; }
 .details-facts .browse-text { padding: 12px; font-size: 24px; border: 2px solid transparent; border-radius: 12px; }
 .details-facts .browse-text:focus { outline: none; border-color: #fff; }

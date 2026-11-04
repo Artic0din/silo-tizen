@@ -208,7 +208,7 @@ export class FocusHost {
             this.scroll.stop();
             this.applyVisit(visit);
             const element = this.locate(document.activeElement)?.item.element;
-            if ((this.container.dataset.view === "search" || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub")) && element !== undefined) {
+            if ((this.container.dataset.view === "search" || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub") || this.container.classList.contains("details-series-scene")) && element !== undefined) {
                 const viewport = element.closest<HTMLElement>(".browse-panel-list, .skyline-content") ?? this.container;
                 const card = element.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
                 if (card.top < bounds.top + 12 || card.bottom > bounds.bottom - 32 || !this.insideRow(element)) this.scroll.reveal(element, this.container);
@@ -254,7 +254,13 @@ export class FocusHost {
 
     private applyVisit(visit: VisitSnapshot | undefined): void {
         this.viewport().scrollTop = visit?.top ?? 0;
-        this.container.querySelectorAll<HTMLElement>(".browse-row").forEach((row, index) => { row.scrollLeft = visit?.rows.get(this.rowKey(row, index)) ?? 0; });
+        this.container.querySelectorAll<HTMLElement>(".browse-row").forEach((row, index) => {
+            row.scrollLeft = visit?.rows.get(this.rowKey(row, index)) ?? 0;
+            const entry = row.dataset.scrollEntry === undefined ? undefined : Array.from(row.children).find((node): node is HTMLElement => node instanceof HTMLElement && node.dataset.focus === row.dataset.scrollEntry);
+            if (entry !== undefined) {
+                row.scrollLeft = entry.offsetLeft - row.offsetLeft - parseFloat(getComputedStyle(row).paddingLeft);
+            }
+        });
         this.container.querySelectorAll<HTMLElement>(".browse-panel-list[data-scroll-key]").forEach(panel => { panel.scrollTop = visit?.panels.get(panel.dataset.scrollKey ?? "") ?? 0; });
     }
 

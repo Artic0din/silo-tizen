@@ -22,6 +22,11 @@ The inline synopsis clamps to three lines with ellipsis; the full text remains a
 Cast portraits remain 200 px circles, with 60 px gaps and centered two-line names.
 
 Series Details use season chips and an inline landscape episode rail.
+Initial selection follows Apple's resume priority: an explicit season, a season with progress, a partially watched season, then an unplayed numbered season before Specials.
+Episode-row entry uses the in-progress episode, first unwatched episode, or first episode, and remembers the last focused episode on re-entry.
+The rail anchors the current card to the leading slot and applies the profile's poster-size scale to Apple's 360×200 base stills.
+Watched episodes carry a check disc over the still, and moving Down to Cast & Crew centres that section in the viewport.
+These values follow Apple main at `ffa6e5188c70664090a6dc9beb8c7cbbc3ce43e7`; observed 310×174 thumbnails and centered episode placement do not match that revision's Series Swift and remain a native comparison question.
 The accepted initial season loads independently; subsequent season reads require explicit selection and replace obsolete reads.
 Re-selecting a loading chip keeps the same request and Calendar episode context.
 Moving focus makes no request.

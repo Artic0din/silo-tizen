@@ -27,6 +27,61 @@ detailTest("episode focus swaps cached hero and selectors without starting a rea
 
 let browser: Browser;
 
+detailTest('Series thumbnail dimensions follow the Apple poster-size scale', async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    const art = tv.page.locator('.details-episodes .browse-art').first();
+    await art.waitFor();
+    await tv.page.locator('.browse').evaluate(node => (node as HTMLElement).style.setProperty('--poster-scale', '0.86'));
+    const size = await art.evaluate(node => ({ width: (node as HTMLElement).offsetWidth, height: (node as HTMLElement).offsetHeight }));
+    assert.ok(Math.abs(size.width - 360 * 0.86) < 1, `compact width ${size.width}`);
+    assert.ok(Math.abs(size.height - 200 * 0.86) < 1, `compact height ${size.height}`);
+});
+
+detailTest('Series current episode occupies the leading slot when entering a long rail', async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const reply = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner');
+    assert.ok(reply?.body && typeof reply.body === 'object');
+    const body = reply.body as { items: Record<string, unknown>[] };
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**', route => route.fulfill({ json: { items: Array.from({ length: 12 }, (_, index) => ({ ...body.items[0], content_id: `episode:window${index}`, episode_number: index + 1, user_data: { played: false, in_progress_count: index === 6 ? 1 : 0 } })) } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="season:1"]').focus();
+    await tv.page.locator('[data-focus="episode:window6"]').waitFor();
+    await tv.remote(40);
+    assert.equal(await tv.focused(), 'episode:window6');
+    await tv.eventually(async () => tv.page.locator('[data-focus="episode:window6"]').evaluate(node => {
+        const row = node.closest('.browse-row'); if (row === null) return false;
+        return Math.abs(node.getBoundingClientRect().left - row.getBoundingClientRect().left - parseFloat(getComputedStyle(row).paddingLeft)) < 2;
+    }), 'current episode anchored at the leading slot');
+});
+
+detailTest('Series watched episodes show a check badge without a text glyph', async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const reply = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner');
+    assert.ok(reply?.body && typeof reply.body === 'object');
+    const body = reply.body as { items: Record<string, unknown>[] };
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**', route => route.fulfill({ json: { items: body.items.map(episode => ({ ...episode, user_data: { played: true } })) } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    const badge = tv.page.locator('.details-episodes [data-focus="episode:s1e11"] .browse-watched');
+    await badge.waitFor();
+    assert.equal(await badge.getAttribute('aria-label'), 'Watched');
+    assert.equal(await badge.textContent(), '');
+});
+
+detailTest('Series remote navigation scrolls down to Cast and back to episodes', async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:s1e11"]').focus();
+    await tv.remote(40);
+    assert.match(await tv.focused() ?? '', /^person:/);
+    await tv.eventually(async () => tv.page.locator('.details-photo').first().evaluate(node => {
+        const rect = node.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= 1080;
+    }), 'cast visible after remote Down');
+    const scrolled = await tv.page.locator('.browse').evaluate(node => node.scrollTop);
+    assert.ok(scrolled > 0, 'Details owns vertical scrolling');
+    await tv.eventually(async () => tv.page.locator('.details-people').evaluate(node => { const rect = node.getBoundingClientRect(); return Math.abs((rect.top + rect.bottom) / 2 - 540) < 80; }), 'cast rail centred after its scroll animation');
+    await tv.remote(38);
+    assert.match(await tv.focused() ?? '', /^episode:/);
+});
+
 detailTest('Episode information subtitle changes refresh the retained Series cache on Back', async tv => {
     const catalog = tv.fake.catalog;
     assert.ok(catalog instanceof FakeDetails);

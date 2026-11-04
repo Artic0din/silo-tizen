@@ -496,7 +496,12 @@ export function seasonView(name: string, title: string, episodes: readonly Episo
         const info = el("span", "browse-episode-info");
         info.appendChild(el("span", "browse-card-title", `${episode.episodeNumber}. ${episode.title}`));
         const runtime = episode.runtimeMinutes > 0 ? `${episode.runtimeMinutes} min` : "";
-        info.appendChild(el("span", "browse-card-subtitle", [runtime, episode.played ? "Watched" : ""].filter((part) => part !== "").join(" · ")));
+        info.appendChild(el("span", "browse-card-subtitle", runtime));
+        if (episode.played) {
+            const badge = el("span", "browse-watched");
+            badge.appendChild(el("span", "silo-sr-only", "Watched"));
+            element.firstElementChild?.appendChild(badge);
+        }
         element.appendChild(info);
         element.addEventListener("click", () => context.playEpisode === undefined ? context.open({ kind: "item", id: episode.id, title: episode.title }) : context.playEpisode(episode.id, episode.title));
         return mediaItem({ key: episode.id, element }, { id: episode.id, title: episode.title, type: "episode" }, context);

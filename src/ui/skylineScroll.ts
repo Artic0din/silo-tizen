@@ -43,11 +43,21 @@ export class SkylineScroll {
             const style = getComputedStyle(row);
             const left = Math.max(12, parseFloat(style.paddingLeft));
             const right = Math.max(12, parseFloat(style.getPropertyValue("--reveal-end")) || parseFloat(style.paddingRight));
-            const delta = card.left < bounds.left + left ? card.left - bounds.left - left : card.right > bounds.right - right ? card.right - bounds.right + right : 0;
+            // Apple keeps a final group of cards; the terminal episode need not occupy the leading slot.
+            const delta = row.classList.contains("details-episodes") ? card.left - bounds.left - left
+                : card.left < bounds.left + left ? card.left - bounds.left - left : card.right > bounds.right - right ? card.right - bounds.right + right : 0;
             this.move(row, Math.max(0, row.scrollLeft + delta), 0);
         }
         const rect = element.getBoundingClientRect();
         const bounds = viewport.getBoundingClientRect();
+        const cast = element.closest<HTMLElement>(".details-people");
+        if (cast !== null && container.classList.contains("details-series-scene")) {
+            const rail = cast.getBoundingClientRect();
+            const header = cast.previousElementSibling?.getBoundingClientRect();
+            const centre = ((header?.top ?? rail.top) + rail.bottom) / 2;
+            this.move(viewport, 0, Math.max(0, viewport.scrollTop + centre - (bounds.top + bounds.bottom) / 2));
+            return;
+        }
         // Apple's Requests band is view-aligned: the focused row's top sits on the band's top.
         const aligned = element.closest<HTMLElement>(".requests-row");
         if (aligned !== null) {

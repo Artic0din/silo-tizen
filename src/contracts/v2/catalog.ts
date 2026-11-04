@@ -404,6 +404,7 @@ export function decodeResumePosition(value: unknown, contentId: string, fileId: 
 // --- listSeriesSeasons ---
 
 export interface Season {
+    readonly userData?: { readonly played: boolean; readonly watchedCount: number; readonly inProgressCount: number };
     readonly isSpecials?: boolean;
     readonly id: string;
     readonly seasonNumber: number;
@@ -415,7 +416,9 @@ export interface Season {
 export function decodeSeasons(value: unknown): Season[] {
     return items(value, "seasons", (entry, path) => {
         const obj = object(entry, path);
+        const user = obj.user_data === undefined ? undefined : object(obj.user_data, `${path}.user_data`);
         return {
+            ...(user === undefined ? {} : { userData: { played: user.played === undefined ? false : boolean(user, "played", path), watchedCount: optionalInteger(user, "watched_count", path) ?? 0, inProgressCount: optionalInteger(user, "in_progress_count", path) ?? 0 } }),
             isSpecials: obj.is_specials === undefined ? false : boolean(obj, "is_specials", path),
             id: string(obj, "content_id", path),
             seasonNumber: integer(obj, "season_number", path),
@@ -429,6 +432,7 @@ export function decodeSeasons(value: unknown): Season[] {
 // --- listSeasonEpisodes ---
 
 export interface Episode {
+    readonly inProgress?: boolean;
     readonly airDate?: string | undefined;
     readonly overview?: string | undefined;
     readonly ratings?: DetailExtras["ratings"];
@@ -445,7 +449,10 @@ export interface Episode {
 export function decodeEpisodes(value: unknown): Episode[] {
     return items(value, "episodes", (entry, path) => {
         const obj = object(entry, path);
+        const user = obj.user_data === undefined ? undefined : object(obj.user_data, `${path}.user_data`);
+        const inProgress = user !== undefined && (optionalInteger(user, "in_progress_count", `${path}.user_data`) ?? 0) > 0;
         return {
+            ...(inProgress ? { inProgress: true } : {}),
             airDate: optionalString(obj, "air_date", path),
             overview: optionalString(obj, "overview", path),
             ratings: decodeDetailExtras(obj).ratings,

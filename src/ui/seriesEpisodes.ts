@@ -23,7 +23,14 @@ export class SeriesEpisodes {
         this.seasons = seasons;
         this.changed = changed;
         this.entryEpisode = preferredEpisode;
-        this.seasonNumber = seasons.find(season => season.seasonNumber === preferredSeason)?.seasonNumber ?? seasons.find(season => !season.isSpecials)?.seasonNumber ?? seasons[0]?.seasonNumber;
+        const regular = seasons.filter(season => !season.isSpecials && season.seasonNumber !== 0);
+        const initial = seasons.find(season => season.seasonNumber === preferredSeason)
+            ?? seasons.find(season => (season.userData?.inProgressCount ?? 0) > 0)
+            ?? seasons.find(season => (season.userData?.watchedCount ?? 0) > 0 && (season.userData?.watchedCount ?? 0) < season.episodeCount)
+            ?? regular.find(season => !season.userData?.played)
+            ?? seasons.find(season => !season.userData?.played)
+            ?? regular[0] ?? seasons[0];
+        this.seasonNumber = initial?.seasonNumber;
     }
 
     start(): void {
@@ -75,6 +82,7 @@ export class SeriesEpisodes {
             if (!current()) return;
             this.controller = undefined;
             this.episodes = episodes;
+            if (!episodes.some(episode => episode.id === this.entryEpisode)) this.entryEpisode = (episodes.find(episode => episode.inProgress) ?? episodes.find(episode => !episode.played) ?? episodes[0])?.id;
             this.loaded = true;
             this.changed();
         }, () => {

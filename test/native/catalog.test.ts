@@ -86,7 +86,7 @@ test("browse fixtures decode with the production decoders", () => {
     assert.deepEqual(detail.watch, { played: true, positionSeconds: undefined, lastFileId: "120" });
 
     assert.deepEqual(decodeSeasons(fixture("list_series_seasons_ok")), [
-        { isSpecials: false, id: "series:severance-S01", seasonNumber: 1, title: "Season 1", episodeCount: 9, posterUrl: "https://images.example/season.webp" },
+        { userData: { played: false, watchedCount: 1, inProgressCount: 0 }, isSpecials: false, id: "series:severance-S01", seasonNumber: 1, title: "Season 1", episodeCount: 9, posterUrl: "https://images.example/season.webp" },
     ]);
     assert.equal(decodeSeasons(fixture("list_series_seasons_without_artwork"))[0]?.posterUrl, undefined);
 

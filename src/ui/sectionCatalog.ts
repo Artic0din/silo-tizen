@@ -74,7 +74,6 @@ export class SectionCatalog {
         this.grid.style.setProperty("--section-columns", String(columns));
         this.grid.style.width = `${width}px`;
         this.grid.style.setProperty("--section-scale", String(scale));
-        this.grid.style.setProperty("--section-lift", String((390 * scale + 38) / (390 * scale)));
         const { preview: _preview, ...gridContext } = context;
         for (const card of page.items.slice(this.cards.length)) {
             const saved = route.kind === "homeSection" && route.continuing ? context.savedFileOverlay?.(card) : undefined;

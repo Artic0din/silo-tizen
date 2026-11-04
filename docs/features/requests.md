@@ -87,8 +87,6 @@ The backdrop scrolls with the hero while the page tint stays.
 
 ## Accepted differences
 
-The focused poster's sheen and edge are a static CSS approximation of tvOS's system `.card` focus highlight, measured against Apple's pair 02a.
-tvOS moves that highlight as the remote's surface moves, and the web platform has no equivalent input, so the sheen stays still.
 The design of the Series destination page belongs to #92.
 A status detail whose copy is tall enough to pass the hero edge hides the action, as on Apple TV (decision: match Apple).
 
@@ -124,7 +122,7 @@ Search runs on Search or keyboard Done; editing cancels obsolete reads immediate
 
 `npm test` runs the production build, strict typechecking, native contracts and desktop Chromium journeys.
 There is no lint command in package.json or CI.
-Run `REQUESTS_EVIDENCE=artifacts/requests node --test --test-timeout=60000 test/ui/requests.test.ts` to capture matched Home, hub, search, detail, My Requests, empty, failure and loading screenshots from that same test run.
+Run `REQUESTS_EVIDENCE=artifacts/requests node --test --test-timeout=60000 test/ui/requests.test.ts` to capture matched Home, hub, detail, My Requests, empty, failure and loading screenshots from that same test run.
 Artifacts are intentionally ignored by Git.
 The harness bundles for Chrome 108 but runs desktop Chromium against a fake native server; it does not establish real-server deployment, Tizen software-emulator or Samsung TV acceptance.
 Signed packaging requires the Tizen CLI and a configured developer security profile via `scripts/build-wgt.sh`.

@@ -255,7 +255,8 @@ export function homeView(libraries: readonly UserLibrary[], sections: readonly H
         }
         const id = `section:${section.id}`;
         if (handlers.canExpand?.(section) !== false) cards.push(exploreAllCard(section.title, `expand:${section.id}`, layout === "thumbnail", () => handlers.expand(section)));
-        zones.push({ id, layout: "row", items: cards });
+        // Apple `focusSection`: Up and Down between these rows stay geometric, including a row already visited.
+        zones.push({ id, layout: "row", spatial: true, items: cards });
         const block = el("section", "browse-section home-section");
         block.setAttribute("data-section", section.id);
         const title = el("h2", "browse-section-title", section.title);

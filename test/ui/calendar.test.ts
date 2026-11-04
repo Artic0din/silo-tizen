@@ -361,7 +361,7 @@ calendarTest("Calendar Settings hidden-library return reuses current route and c
     await tv.remote(10009); await tv.remote(10009); await tv.remote(10009); await ready(tv, 2);
     assert.equal(await tv.page.locator('[data-focus="filter:everything"]').getAttribute("aria-pressed"), "true");
     assert.ok((await tv.page.locator(".calendar-event").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-content-id")))).every(id => id?.startsWith("episode:") || id?.startsWith("season:")));
-    assert.equal(await tv.focused(), "profiles", "Settings origin remains selected while revalidating");
+    assert.equal(await tv.focused(), "calendar", "selected tab retains focus while revalidating after Settings");
     assert.equal(await tv.page.locator('.browse-nav [data-focus="movies"]').count(), 0, "hidden-library refresh also updates existing Skyline scopes");
 });
 

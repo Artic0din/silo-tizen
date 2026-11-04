@@ -153,14 +153,22 @@ async function openLibrary(tv: Tv): Promise<void> {
 }
 
 for (const reducedMotion of ["no-preference", "reduce"] as const) {
-    test(`returning up from Collections keeps the shared shelf artwork inside ${reducedMotion}`, async () => {
+    test(`returning up between library shelves keeps artwork inside ${reducedMotion}`, async () => {
         const tv = await openTv(browser, { app: "browse" });
         try {
             await tv.page.emulateMedia({ reducedMotion });
-            await signedIn(tv);
+            const catalog = new FakeCatalog();
+            const household = catalog.households.get("p-owner");
+            assert.ok(household);
+            household.librarySections = [
+                { id: "first", title: "First shelf", items: ["movie:m0001"] },
+                { id: "second", title: "Second shelf", items: ["movie:m0004"] },
+            ];
+            await signedIn(tv, catalog);
             await openLibrary(tv);
+            assert.equal(await tv.page.locator('[data-focus="collection:highlights"]').count(), 0);
             await tv.remote(40);
-            assert.equal(await tv.focused(), "collection:highlights");
+            assert.equal(await tv.focused(), "movie:m0004");
             await tv.jump(300);
             await tv.remote(38);
             await tv.jump(300);
@@ -168,6 +176,14 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             assert.equal(await tv.focused(), "movie:m0001");
             const focused = await focusClip(tv);
             assert.equal(focused.inside, true, focused.clippedBy.join("; "));
+            await selectLibraryMode(tv, "Collections");
+            await tv.eventually(async () => await tv.focused() === "collection:highlights", "separate Collections page");
+            await selectLibraryMode(tv, "Recommended");
+            await tv.eventually(async () => await tv.focused() === "movie:m0001", "return to Recommended");
+            await tv.jump(300);
+            await settleFocusMotion(tv);
+            const returned = await focusClip(tv);
+            assert.equal(returned.inside, true, returned.clippedBy.join("; "));
         } finally { await tv.page.context().close(); }
     });
     test(`library shelf focus keeps captions and edge artwork clear ${reducedMotion}`, async () => {
@@ -635,7 +651,7 @@ test("settings, audio, calendar, filmography, personal and card actions keep vis
         await tv.remote(BACK);
         await tv.remote(BACK);
         await showing(tv, "home");
-        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.locator('[data-focus="for_you"]').focus(); await tv.remote(40);
         await tv.page.locator('[data-focus="watchlist"]').click();
         const personalCard = tv.page.locator('[data-view="personal:watchlist"] .browse-card').first();
         await personalCard.waitFor();

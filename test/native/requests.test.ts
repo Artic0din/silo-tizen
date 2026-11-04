@@ -3,10 +3,39 @@ import { test } from "node:test";
 import { requestOperations as operations } from "../../src/api/requestOperations.ts";
 import { decodeDiscover, decodeMediaRequest, decodeMyRequests, decodeRequestsCapability, decodeRequestTitle, decodeRequestPage } from "../../src/contracts/v2/requests.ts";
 import { FakeRequests } from "./support/fakeRequests.ts";
+import { decodeCatalogSearchCapabilities } from "../../src/contracts/v2/discovery.ts";
+import { fixture } from "./support/fakeSilo.ts";
+import { decodePeople } from "../../src/contracts/v2/details.ts";
+import { detailOperations } from "../../src/api/detailOperations.ts";
+import { searchRequestCatalogId } from "../../src/ui/globalSearch.ts";
 import { artworkUrl, requestPosterUrl } from "../../src/ui/browseModel.ts";
 import { errorState, unconfirmedWriteMessage, writeFailureMessage, writeMayHaveApplied } from "../../src/ui/browseRoutes.ts";
 import { ApiError } from "../../src/api/errors.ts";
 import { SessionError } from "../../src/session/session.ts";
+
+test("Search retains optional native People scope and request catalog identity strictly", () => {
+    const capability = { ...fixture("get_catalog_search_capabilities_ok"), people_media_scope: true };
+    assert.equal(Reflect.get(decodeCatalogSearchCapabilities(capability), "peopleMediaScope"), true);
+    assert.throws(() => decodeCatalogSearchCapabilities({ ...capability, people_media_scope: "true" }));
+    const title = { ...new FakeRequests().title(), library_content_id: "movie:heat" };
+    assert.equal(Reflect.get(decodeRequestTitle(title), "libraryContentId"), "movie:heat");
+    assert.throws(() => decodeRequestTitle({ ...title, library_content_id: 42 }));
+});
+
+test("Search People decodes bounded native collections and uses the exact scoped endpoint", () => {
+    assert.equal(detailOperations.people("River & Vale", "series").path, "/catalog/people?q=River%20%26%20Vale&media_scope=series&limit=20");
+    assert.equal(decodePeople({ items: [{ id: "7", name: "River" }] })[0]?.name, "River");
+    for (const value of [{}, { items: {} }, { items: [{ id: 7, name: "River" }] }]) assert.throws(() => decodePeople(value));
+});
+
+test("Search Request routing follows recognized display state before availability and requires a real catalog identity", () => {
+    const title = decodeRequestTitle({ ...new FakeRequests().title(), availability: "available", library_content_id: "movie:heat" });
+    assert.equal(searchRequestCatalogId(title), "movie:heat");
+    for (const state of ["processing", "partially_available", "failed", "pending", "approved", "declined", "cancelled"]) assert.equal(searchRequestCatalogId({ ...title, request: { ...title.request, state } }), undefined);
+    assert.equal(searchRequestCatalogId({ ...title, libraryContentId: " " }), undefined);
+    assert.equal(searchRequestCatalogId({ ...title, libraryContentId: undefined }), undefined);
+    assert.equal(searchRequestCatalogId({ ...title, availability: "missing", request: { ...title.request, state: "new_state", status: "completed" } }), "movie:heat");
+});
 
 test("Request posters resolve TMDB paths before normal image admission", () => {
     assert.equal(requestPosterUrl("/poster.jpg"), "https://image.tmdb.org/t/p/w342/poster.jpg");

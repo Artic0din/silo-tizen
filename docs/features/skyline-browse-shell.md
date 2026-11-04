@@ -122,7 +122,8 @@ If Search is already visible when the write settles, its strip refreshes indepen
 Supplementary capability refusals recheck Requests status without restarting catalog or People reads; that status check cannot automatically retry the refused supplement in a loop.
 Recognized request states take precedence over availability; only In library plus a nonempty `library_content_id` opens catalog Details.
 The Search card presentation boundary delegates to the shared Requests card and progress owners.
-Supplementary posters scale from 220×330 with the existing preference; focus lifts artwork by 40 px without moving captions, while reduced motion retains a visible ring without growth.
+Supplementary posters scale from 220×330 with the existing preference; focus uses the shared 1.05 lift and 4 px outline at 70% white without moving or whitening request captions.
+Search catalog captions use a 16 px gap and Requests use 22 px, matching the tvOS branches of `TVMediaCard` and `RequestMediaCard`.
 The native Samsung text field remains attached across renders; the tvOS alphabet keyboard is an operating-system surface, not a custom keyboard to port.
 Samsung simulator keyboard rendering and final same-state visual acceptance remain unverified.
 These source changes do not diagnose historical keyboard or first-query latency reports.
@@ -142,19 +143,28 @@ With multiple libraries, Down enters the scoped library list, Right enters its m
 Back closes either panel without committing.
 Explicit activation commits one library, never a merged scope.
 Search precedes the centered roots and the profile avatar stays fixed at the right.
-`nav.primary_menu` is read separately from poster preferences through the existing profile-scoped adapter with client family `tv`.
-The default order follows `appleDefaultPrimaryMenuItems`: Home, Movies, Series, For You and Calendar, with Requests appended only when the server enables it.
-Saved order and omissions are preserved; unavailable libraries, unsupported Music/Audiobook roots and section/collection shortcuts are hidden.
-Supported library shortcuts retain their labels and open the existing library modes.
-Failed optional menu reads retain the last confirmed menu, and abandoned answers cannot repaint another profile.
-An updated menu waits for an open dropdown to close, then restores the explicitly chosen root so horizontal navigation keeps its focus.
-Whole-library shortcuts preserve mixed-video scope; Movies and Series category tabs still narrow their own routes.
+The fixed roots follow Apple TVRootDestination.visibleRoots: Home, Movies, Series, Music, For You and Calendar.
+Library types appear only when a matching visible library exists; mixed video libraries appear under Movies and Series.
+Music opens an explicit unavailable page because the existing catalog browser supports video queries only; it sends no library queries and offers Back.
+Saved menu order, omissions and library shortcuts no longer affect the bar.
+Audiobooks requires Apple's opt-in feature; Tizen has no audiobook feature and omits it.
+Watch Party requires both local opt-in and synchronized-party support; Tizen has neither and omits that profile row.
+Search is 58 px wide with an 8 px gap before the roots and an invisible equal-width balance after them, keeping the roots centered at x960.
+Labels retain Apple's 29 px horizontal inset (including the CSS border), 26 px semibold type and 8 px gaps.
+Removing Requests lets the shared flex row recalculate every horizontal anchor from the remaining labels.
 
 The avatar uses the server-resolved image through the existing artwork URL policy, keeping the initial visible until loading succeeds or if it fails.
-The anchored profile menu includes Switch Profile, personal lists, Settings, Switch Server and a red, unfocused Sign Out row.
+Its focused ring is opaque white, 3 px wide and inset within the avatar edge, matching Apple's `strokeBorder`.
+The anchored profile menu includes Switch Profile, History, capability-gated Requests, Settings, Change Account and a red, unfocused Sign Out row.
+Watchlist and Favorites remain under For You.
+Requests pushes a screen without the top bar.
+Back from Requests, History or Settings keeps the profile menu closed and restores the selected tab.
+Back from the open profile menu itself still restores avatar focus.
 The header uses the confirmed server branding name, falling back to the host when none is cached.
 Every focused menu row uses a white platter and black text, including Sign Out.
-Switch Server retires Browse and enters manual server entry without logging out or deleting saved sign-ins.
+Change Account currently opens the existing server selection without logging out or deleting saved sign-ins.
+The real Change Account screen and multi-account support are tracked in [#185](https://github.com/Artic0din/silo-tizen/issues/185).
+The header keeps the server name because Tizen has no multiple saved accounts per server.
 Sign Out requires confirmation; Cancel and Back preserve the session and restore avatar focus.
 Its two-action layout follows `TVSettingsConfirmationOverlay`: centered surface, 48/42 px padding, 38 px title, 22 px message, horizontal 260 px buttons with 16 px spacing and a 0.62 black backdrop.
 The existing focus host owns that row; Up/Down stay inside it, Left/Right select an action, and tapping the backdrop cancels without activating the covered page.
@@ -196,25 +206,37 @@ TMDB scores use TMDB's approved logo instead of a text mark, as Apple does; Sett
 The card's `logo_url` replaces the text title once the image loads, aspect-fit inside 880×200 on Home and 880×150 on a library landing.
 Logos follow Apple `TitleArtPreferences`: they show unless the server's last confirmed `ui.title_art` answer for this server and profile is off.
 That answer comes from the same capability, contract and effective-value reads Details uses and is kept on the TV, so a pending or failed read keeps it and a server without the key drops it.
-Home uses medium row artwork on a server that advertises it, with the 1344 px backdrop fill and 880 px logo slots when per-slot widths are supported, scaled by device pixel ratio.
-An unknown or older image API retains the small-artwork fallback.
+Home uses medium row artwork with the 1344 px backdrop fill and 880 px logo slots when per-slot widths are supported, scaled by device pixel ratio.
+Details uses the same hero query when the capability is known.
+An unknown image API or a server without per-slot widths gets the Apple TV `large` fallback, including on the first Home request; it never starts with a 300 px backdrop.
+At scale 1 the server resolves the 1344 px fill request to a 1920 px backdrop; scale 2 requests 2688 px and may resolve to the original, capped at 3840 px.
+The one-size fallback resolves backdrops to 2560 px and episode stills to 1280 px.
 The probe runs once per Home session, and its last answer for the server is remembered so Home does not wait for it.
 Apple reads item detail when focus rests for the aired-date and cast line and for Continue Watching's last-played file.
-Tizen never reads on focus: when Home's rows load it reads detail once for each distinct title Home draws, four at a time, Continue Watching first, through the same `getCatalogItem` request Details sends.
+Tizen never reads on focus: when Home's rows load it reads detail once for each distinct title Home draws, four at a time, Continue Watching first, using the item-detail endpoint with the `large` fallback.
 Answers are kept for the Home session; a reload reads only titles not read yet and Continue Watching titles whose `progress_updated_at` moved.
 The aired line (`Aired 12 Mar 2026 · first three billed cast`, in an Australian region) fills in place when its answer lands and keeps its space until then.
 Dates follow the device region and retain the server's calendar day.
 Detail also supplies a runtime or content rating omitted by a row, without replacing the row's confirmed values.
 Continue Watching's chips and card badges describe the file in `user_data.last_file_id` when the item still has that file; otherwise they keep `overlay_summary`, the server's best file, and never guess.
 Rows stay usable while the reads run, and focus moves only look answers up.
-Continue Watching keeps landscape geometry, using its backdrop or cropping its poster when no backdrop is available.
-Home cards follow Apple `MediaCard` and `EpisodeThumbCard`: standard 176×264 posters and 360×200 Continue Watching stills, 40 px apart.
+Continue Watching, In Progress, any row whose server type contains "next", and a row made only of TV items that includes an episode use landscape stills. The still uses the backdrop, or the poster when no backdrop is available. A shared row that also contains a movie stays a poster, including when it has one episode.
+Home cards follow Apple `MediaCard` and `EpisodeThumbCard`: standard 176×264 posters (`SiloTheme.Skyline.densePosterCardWidth`) and 360×200 stills (`SiloTheme.thumbnailCardWidth` / `thumbnailCardHeight`), 40 px apart. A focused Home row's top sits on the row band's top.
 The effective `ui.card_presentation` value is read for the `tv` client family through the existing presentation-settings owner; Compact, Standard and Large scale artwork by 0.86, 1 and 1.2.
 The last confirmed size is cached per server/profile, a transient failure keeps it, an older incompatible server restores Standard, and optional storage failure does not block a successful in-memory answer.
-Poster badge sizes use the actual scaled artwork width; Continue Watching badges retain their fixed wide-card size.
+Poster badge sizes use the actual scaled artwork width; still badges retain their fixed wide-card size.
 Episode cards are captioned with their series and an `S01E02 · Pilot` line.
 Unfocused captions dim; focus brightens and drops the caption below a lift of the artwork only.
-The lift size comes from Apple's measured native card lift (about 38 px of height), not from the tvOS system effect itself.
+Cards use Apple's shared 1.05 artwork lift and 4px white outline at 70% opacity.
+The focused shadow uses SwiftUI radius 18, converted to CSS box-shadow blur 36 px, with an 8 px vertical offset and 45% black opacity, with 120ms ease-out timing.
+CSS box-shadow blur is twice the Gaussian standard deviation ([CSS specification](https://www.w3.org/TR/css-backgrounds-3/#shadow-blur)); the SwiftUI radius is treated as the Gaussian radius, so radius 18 maps to blur 36 and cast radius 14 maps to blur 28.
+This rendering conversion requires same-state native comparison before merge.
+Caption weights stay fixed; their glow uses white at 22% with an 8px radius and 12% with a 3px radius.
+Caption drop is `max(0, artwork height × .025 + 8px - caption gap)` and is zero with reduced motion.
+Related Details captions use a 16 px gap; Requests and Calendar captions have no focus drop or glow.
+Cast scales the whole button, including its name and role, at 1.05; its focused name is `#EDEDED` and its role stays at 60% of that colour.
+Calendar titles change from 85% to full `#EDEDED` on focus and their subtitles stay at 60%; request titles stay at full `#EDEDED`.
+Reference: silo-apple `ffa6e5188c70664090a6dc9beb8c7cbbc3ce43e7`, source only; the installed Apple build was not verified.
 With reduced motion the artwork does not grow and shows Apple's 4 px focus ring instead.
 Library Recommended now uses these same media rows and the calibrated Home hero/marquee scene, independently of its selected navigation root or library shortcut.
 Its headings are plain text; Explore All retains the section route and library scope.
@@ -228,7 +250,7 @@ Watched titles show a check disc on every card.
 Home cards draw the profile's poster badges (Apple `CardOverlays`): the profile's `ui.card_overlays` document wins outright, else the administrator's baseline from `/settings/overlay-config`, else the registry defaults.
 The profile's `ui.card_overlays_enabled` choice overrides the server-wide default in either direction.
 As in Apple `OverlayPrefsStore`, the registry defaults show until the reads answer; a failed read keeps that half's last answer, so a known administrator or profile off stays off.
-Poster badges scale from Apple's 185 px poster reference; Continue Watching badges keep their size and clear the progress bar.
+Poster badges scale from Apple's 185 px poster reference; still badges keep their size and clear the progress bar.
 Brand marks (DV, HDR10, ATMOS, AV1) are text as in Apple; Apple's other badge icons are SF Symbols and are not drawn.
 The settings are read when Home loads and again after Settings closes, never on focus.
 Home shows non-empty rows in the server's profile order, matching the Apple TV client.
@@ -252,10 +274,10 @@ Canvas sampling first uses the already loaded image; a tainted canvas tries a se
 If sampling is refused, the matching backdrop ThumbHash supplies the wash, or black when there is no valid hash; an episode-still hash is never used with its series backdrop.
 Real local HTTP tests cover allowed/refused CORS while retaining visible artwork, but do not establish the packaged TV's origin policy.
 Inter is the licensed substitute for SF Pro; drawn symbols and CSS lift/ring approximate native focus effects, with no claim of tvOS parallax or specular equivalence.
-Continue Watching uses a separately measured landscape lift: the Compact still is about 199 px high when focused, including `EpisodeThumbCard`'s 1.025 scale; the poster's 38 px lift does not apply to stills.
+Continue Watching uses the same 1.05 lift as posters, with a caption drop calculated from its still height and 14px caption gap.
 The [Home comparison](../evidence/screenshots/107-home/home-comparison.png) pairs this signed candidate in Samsung's software simulator with the historical Apple r13 frame in the same Continue Watching state; the earlier Tizen r13 build is not used as current-build proof.
 Apple's native 960×540 frame is displayed at 100%, and the current 1920×1080 Tizen frame at 50%, without upscaling.
-On the Compact profile, current measurements are y596 for the first heading, y939.99 for the next heading, and 357.92×198.85 for focused landscape artwork, against Apple's 358.8×199 accessibility frame.
+That Compact capture measured the first heading at y596, the following heading at y939.99, and focused landscape artwork at 357.92×198.85, against Apple's 358.8×199 accessibility frame. A focused row now top-aligns in the band, so the following heading's old position is not the current scroll position.
 The [focused poster capture](../evidence/screenshots/107-home/home-poster.png) is current Tizen evidence only, without a matching Apple frame.
 The simulator uses Chromium 137 with a legacy Tizen user-agent string, so it establishes this software runtime's rendering rather than physical Tizen 8/AVPlay compatibility.
 The [actual S95C capture](../evidence/screenshots/107-home/home-actual-tv.png) records PR #112's `117314f` build on Tizen 9 / Chromium 120; restored and fresh device-code sign-in, profile selection, Home and native AVPlay playback were exercised.

@@ -1024,7 +1024,7 @@
 .personal-history .personal-page { padding: 16px 0 60px; }
 .personal-history .browse-title { margin: 0 0 48px; font-size: 48px; font-weight: 700; line-height: 48px; color: #ededed; }
 .personal-history .personal-count { margin: 0 0 48px; font-size: 22px; font-weight: 400; line-height: 26px; color: rgba(237,237,237,.6); }
-.personal-history .catalog-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; width: 1824px; margin: 0; padding: 0; }
+.personal-history .catalog-grid { grid-template-columns: repeat(var(--grid-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; width: 1824px; margin: 0; padding: 0; }
 
 /* ErrorView, shared with the Requests hub: 48pt icon, 36 semibold headline, 26 body, Try Again 200 wide. */
 .personal-lists .personal-failure,

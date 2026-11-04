@@ -6,6 +6,8 @@ import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem, type Reply } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 import { personalQuery } from "../../src/ui/personalLists.ts";
+import { FakeSettings } from "../native/support/fakeSettings.ts";
+import { CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
 
 class PersonalCatalog extends FakeDetails {
     readonly excluded = new Set<string>();
@@ -80,10 +82,11 @@ test("History episode filter requests the public episode scope", () => {
 });
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
-async function setup(record = false): Promise<{ tv: Tv; catalog: PersonalCatalog }> {
+async function setup(record = false, large = false): Promise<{ tv: Tv; catalog: PersonalCatalog }> {
     const tv = await openTv(browser, { app: "browse", ...(!record || process.env.PERSONAL_VIDEO === undefined ? {} : { video: process.env.PERSONAL_VIDEO }) });
     const catalog = new PersonalCatalog();
     tv.fake.catalog = catalog;
+    if (large) new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "large", caption: "title_metadata" });
     await tv.page.evaluate(() => window.browseHarness.connect());
     await tv.eventually(async () => tv.fake.devices.size > 0, "device code");
     tv.fake.approve([...tv.fake.devices.keys()][0] ?? "");
@@ -109,14 +112,75 @@ async function revealEnd(tv: Tv): Promise<void> {
         viewport.scrollTop += card.top - bounds.top;
     });
 }
-async function appendNext(tv: Tv): Promise<void> {
+async function loadThrough(tv: Tv, minimum: number): Promise<void> {
     const cards = tv.page.locator('[data-view^="personal:"] .browse-card');
-    const before = await cards.count();
+    // IntersectionObserver can prefetch before this helper starts; wait for the required rows.
     await tv.eventually(async () => {
+        if (await cards.count() >= minimum) return true;
         await revealEnd(tv);
-        return await cards.count() > before;
-    }, "next page appended");
+        return await cards.count() >= minimum;
+    }, `${minimum} personal rows loaded`);
 }
+
+for (const source of ["watchlist", "favorites", "history"]) test(`review: ${source} matches blank tvOS loading and retains focus`, async () => {
+    const { tv } = await setup();
+    try {
+        const held = tv.fake.hold("/catalog/query", true);
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.locator(`[data-focus="${source}"]`).click();
+        await tv.page.locator(".personal-loading").waitFor();
+        const loading = tv.page.locator(".personal-loading");
+        assert.equal(await loading.innerText(), "");
+        assert.equal(await loading.getAttribute("aria-label"), source === "history" ? null : `Loading ${source}`);
+        await loading.focus();
+        assert.equal(await tv.focused(), "status");
+        held.release();
+    } finally { await tv.page.context().close(); }
+});
+
+for (const source of ["watchlist", "favorites", "history"]) test(`review: ${source} keeps card focus after later-page failure`, async () => {
+    const { tv, catalog } = await setup();
+    try {
+        await openList(tv, source);
+        const held = tv.fake.hold("/catalog/query", true);
+        const before = tv.fake.requests.length;
+        catalog.pageReplies.push(problem(500, "internal_error", "Synthetic failure"));
+        await tv.eventually(async () => {
+            await revealEnd(tv);
+            return tv.fake.requests.slice(before).some(r => r.path.startsWith("/catalog/query"));
+        }, "later read");
+        await tv.page.locator('.browse [data-focus="movie:m0020"]').focus();
+        held.release();
+        await tv.page.locator(".section-catalog-loading").waitFor({ state: "detached" });
+        assert.equal(await tv.focused(), "movie:m0020");
+    } finally { await tv.page.context().close(); }
+});
+
+for (const source of ["watchlist", "history"]) test(`review: ${source} 404 is an error rather than empty`, async () => {
+    const { tv, catalog } = await setup();
+    try {
+        catalog.pageReplies.push(problem(404, "not_found", "Synthetic missing catalog"));
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.locator(`[data-focus="${source}"]`).click();
+        await tv.eventually(async () => await tv.page.locator(".personal-failure, .personal-empty").count() > 0, "settled catalog");
+        assert.equal(await tv.page.locator(".personal-failure").count(), 1);
+    } finally { await tv.page.context().close(); }
+});
+
+test("review: large History posters fit five columns and remote rows", async () => {
+    const { tv } = await setup(false, true);
+    try {
+        await openList(tv, "history");
+        const cards = tv.page.locator(".browse .browse-card");
+        await tv.eventually(async () => await cards.first().evaluate(n => n.getBoundingClientRect().width) === 312, "large cards");
+        const boxes = await cards.evaluateAll(nodes => nodes.slice(0, 6).map(n => n.getBoundingClientRect().toJSON()));
+        assert.ok(boxes[5].top > boxes[0].top);
+        assert.ok(boxes[4].right <= 1872);
+        await cards.first().focus();
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), await cards.nth(5).getAttribute("data-focus"));
+    } finally { await tv.page.context().close(); }
+});
 
 test("watchlist, favorites and history are continuous Apple pages", async () => {
     const { tv, catalog } = await setup();
@@ -263,8 +327,7 @@ for (const source of ["watchlist", "favorites"]) test(`card quick-actions remove
     const { tv } = await setup();
     try {
         await openList(tv, source);
-        await appendNext(tv);
-        await appendNext(tv);
+        await loadThrough(tv, 60);
         const card = tv.page.locator('[data-focus="movie:m0050"]');
         await card.focus();
         await tv.down(13); await tv.jump(650); await tv.up(13);
@@ -311,12 +374,10 @@ for (const source of ["watchlist", "favorites"]) test(`uncovering ${source} reco
     const { tv, catalog } = await setup();
     try {
         await openList(tv, source);
-        await appendNext(tv);
-        await appendNext(tv);
+        await loadThrough(tv, 60);
         await tv.page.locator('.browse [data-focus="movie:m0050"]').focus();
         await openList(tv, source === "watchlist" ? "favorites" : "watchlist");
-        await appendNext(tv);
-        await appendNext(tv);
+        await loadThrough(tv, 60);
         await tv.page.locator('.browse [data-focus="movie:m0050"]').click();
         if (source === "favorites") await tv.page.locator('[data-focus="more"]').click();
         await tv.page.getByRole("button", { name: source === "favorites" ? "Remove favorite" : "Remove from watchlist", exact: true }).click();
@@ -346,7 +407,7 @@ test("Details return discards an abandoned personal-page turn", async () => {
     const { tv } = await setup();
     try {
         await openList(tv, "watchlist");
-        await appendNext(tv);
+        await loadThrough(tv, 48);
         const reads = tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length;
         const held = tv.fake.hold("/catalog/query", true);
         await revealEnd(tv);
@@ -368,8 +429,7 @@ for (const source of ["watchlist", "favorites"]) test(`integrated Details remove
     const { tv, catalog } = await setup();
     try {
         await openList(tv, source);
-        await appendNext(tv);
-        await appendNext(tv);
+        await loadThrough(tv, 60);
         await tv.page.locator('.browse [data-focus="movie:m0050"]').click();
         await tv.page.locator('[data-view="item:movie:m0050"]').waitFor();
         if (source === "favorites") await tv.page.locator('[data-focus="more"]').click();
@@ -389,8 +449,7 @@ for (const source of ["watchlist", "favorites"]) test(`integrated Details remove
         await tv.remote(10009);
         await tv.page.locator('[data-view="home"]').waitFor();
         await openList(tv, source === "watchlist" ? "favorites" : "watchlist");
-        await appendNext(tv);
-        await appendNext(tv);
+        await loadThrough(tv, 60);
         assert.equal(await tv.page.locator('.browse [data-focus="movie:m0050"]').count(), 1);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
@@ -400,8 +459,7 @@ for (const removed of [false, true]) test(`later-page Details return ${removed ?
     const { tv, catalog } = await setup();
     try {
         await openList(tv, "watchlist");
-        await appendNext(tv);
-        await appendNext(tv);
+        await loadThrough(tv, 60);
         await tv.page.locator('.browse [data-focus="movie:m0050"]').click();
         await tv.page.locator('[data-view="item:movie:m0050"]').waitFor();
         if (removed) catalog.excluded.add("movie:m0050");
@@ -425,7 +483,7 @@ test("personal destinations page on the server, restore Details focus and reconc
             await tv.page.locator(".browse .browse-card").first().focus();
             await tv.page.keyboard.press("ArrowRight");
             assert.equal(tv.fake.requests.length, reads);
-            await appendNext(tv);
+            await loadThrough(tv, 48);
             const id = await tv.page.locator(".browse .browse-card").last().getAttribute("data-focus");
             await tv.page.locator(".browse .browse-card").last().click();
             await tv.page.locator('[data-view^="item:"]').waitFor();
@@ -455,8 +513,7 @@ test("Favorites filters the whole result before paging and retains opaque contin
     const { tv } = await setup();
     try {
         await openList(tv, "favorites");
-        await appendNext(tv);
-        await appendNext(tv);
+        await loadThrough(tv, 60);
         const seen = await tv.page.locator(".browse .browse-card").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? ""));
         assert.equal(new Set(seen).size, 60);
         assert.ok(seen.every(id => id.startsWith("movie:")));
@@ -486,7 +543,7 @@ test("a failed later page keeps the rows, and an invalid cursor restarts from th
         assert.equal(await tv.page.locator('[data-focus="retry"]').count(), 0);
         assert.equal(await tv.page.getByRole("heading", { name: "Something went wrong" }).count(), 0);
         await tv.page.locator(".skyline-content").evaluate(node => { node.scrollTop = 0; });
-        await appendNext(tv);
+        await loadThrough(tv, 48);
         assert.equal(await tv.page.locator('.browse [data-focus="movie:m0025"]').count(), 1);
         assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).filter(request => request.body?.cursor === "p-owner:watchlist:video:24").length > 0, true);
         catalog.pageReplies.push(problem(400, "invalid_cursor", "Invalid cursor"));
@@ -603,8 +660,7 @@ test("History includes episodes and cached Details return remains visible during
         assert.equal(await tv.focused(), "movie:m0002");
         held.release();
         await tv.eventually(async () => await tv.focused() === "movie:m0002", "refresh kept the open card");
-        await appendNext(tv);
-        await appendNext(tv);
+        await loadThrough(tv, 60);
         assert.ok(await tv.page.locator('.browse .browse-card[data-focus^="series:"]').count() > 0);
         assert.equal(await tv.page.getByRole("button", { name: "Episodes", exact: true }).count(), 0);
         assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).every(request => request.body?.type !== "episode"), true);

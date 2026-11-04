@@ -181,7 +181,8 @@ function historyView(route: PersonalRoute, handlers: RouteHandlers): View {
         zones.push({ id: "status", layout: "row", items: [status] });
     } else {
         const count = el("p", "personal-count", historyCount(page));
-        const grid = continuousGrid(route, handlers, HISTORY_COLUMNS, 260, HISTORY_WIDTH);
+        const columns = (handlers.context.posterScale?.() ?? 1) > 1 ? 5 : HISTORY_COLUMNS;
+        const grid = continuousGrid(route, handlers, columns, 260, HISTORY_WIDTH);
         content.push(count, ...grid.content);
         zones.push(...grid.zones);
     }

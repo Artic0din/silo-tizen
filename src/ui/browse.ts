@@ -499,7 +499,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (current.kind === "personal" && (current.pages.page?.items.length ?? 0) > 0 && text !== undefined) {
                     current.failure = undefined;
                     current.error = undefined;
-                    if (top() === current) render();
+                    if (top() === current) render(host.focused());
                     return;
                 }
                 current.failure = text ?? "Something went wrong. Try again.";
@@ -651,6 +651,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (blocked) return { capability, snapshot: undefined as SectionSnapshot | undefined, elsewhere: false };
             // The personal query stays at its fenced page size. readSectionCatalog still appends that page when the end is on screen.
             const snapshot = await readSectionCatalog(previous, append, async cursor => read(readPersonalPage(current.source, current.filter, cursor), signal), signal);
+            if (snapshot.unavailable) throw new ApiError({ kind: "http", status: 404, retryAfterSeconds: undefined });
             let elsewhere = false;
             if (!append && current.source === "favorites" && snapshot.page.items.length === 0 && snapshot.page.nextCursor === undefined) {
                 const other = current.filter === "series" ? "movie" : "series";

@@ -35,7 +35,7 @@ const ICONS = {
     selectedCircle: '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M7.5 12.5l3 3 6-6.5" stroke="var(--icon-ink, #000)"/>',
 } as const;
 
-function icon(name: keyof typeof ICONS): HTMLElement {
+export function icon(name: keyof typeof ICONS): HTMLElement {
     const node = el("span", "browse-icon");
     node.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
     return node;

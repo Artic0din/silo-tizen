@@ -4,7 +4,7 @@ import { newPages, newRoute, type Route, type RouteHandlers } from "./browseRout
 import { actionButton, artwork, homeView, homeRows, lines, pagedGrid, zoneNode } from "./browseViews.ts";
 import { LIBRARY_MODES, type DiscoveryState, type LibrarySource } from "./libraryDiscovery.ts";
 import { el } from "./screen.ts";
-import { browsePage, panelFocus, shuffleAlert } from "./libraryBrowseViews.ts";
+import { browsePage, icon, panelFocus, shuffleAlert } from "./libraryBrowseViews.ts";
 
 type LibraryRoute = Extract<Route, { kind: "library" }>;
 export function availableModes(caps: DiscoveryState["capabilities"]): readonly import("./libraryDiscovery.ts").LibraryMode[] {
@@ -161,6 +161,7 @@ export function resultsView(route: Extract<Route, { kind: "libraryResults" }>, g
         const button = shuffle === undefined ? undefined : actionButton("shuffle", "Shuffle", () => shuffle.start(route));
         if (button !== undefined) {
             button.element.classList.add("browse-shuffle");
+            button.element.prepend(icon("shuffle"));
             button.element.setAttribute("aria-busy", String(shuffle?.starting === true));
         }
         const page = route.pages.page;

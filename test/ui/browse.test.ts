@@ -19,6 +19,40 @@ const BACK = 10009;
 const IME_DONE = 65376;
 const PAGE_SIZE = 24;
 
+browseTest("collection detail matches measured Apple layout and truncates long captions", async (tv, catalog) => {
+    await tv.page.route("**/api/v2/shuffles/capabilities", route => route.fulfill({ json: { allowed: true, state: "available", scope_kinds: ["library_collection"] } }));
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    const collection = { id: "highlights", library_id: "12", library_ids: ["12"], group_id: null, title: "Now Playing in Theaters", poster_url: "", item_count: 12, poster_is_collage: false };
+    catalog.failNext("/library/12/collections", { status: 200, body: { library_id: "12", collections: [collection], groups: [], ungrouped: { sort_order: 1, collections: [collection] } } });
+    await selectLibraryMode(tv, "Collections");
+    const items = Array.from({ length: 12 }, (_, i) => ({ content_id: `movie:layout-${i}`, type: "movie", title: "Now Playing in Theaters", year: 2026 }));
+    catalog.failNext("/library/12/collections/highlights/items", { status: 200, body: { items, total: 12, total_exact: true, page: { has_more: false } } });
+    await tv.page.locator('[data-focus="collection:highlights"]').click();
+    await shows(tv, "12 items");
+    await tv.page.locator('[data-focus="shuffle"]').waitFor();
+    assert.equal(await tv.page.locator('.collection-detail-title').innerText(), "Now Playing in Theaters");
+    const layout = await tv.page.locator('.collection-detail-grid').evaluate(grid => {
+        const rect = (selector: string) => {
+            const node = document.querySelector(selector)!;
+            const box = node.getBoundingClientRect();
+            return { x: box.x, y: box.y, width: box.width, height: box.height, font: getComputedStyle(node).fontSize };
+        };
+        const caption = grid.querySelector('.browse-card-title')!;
+        return { poster: rect('.collection-detail-grid .browse-art'), title: rect('.collection-detail-title'), count: rect('.collection-detail-actions .browse-text'),
+            caption: rect('.collection-detail-grid .browse-card-title'), metadata: rect('.collection-detail-grid .browse-card-subtitle'),
+            columns: getComputedStyle(grid).gridTemplateColumns.split(' ').length,
+            truncation: [getComputedStyle(caption).whiteSpace, getComputedStyle(caption).textOverflow, getComputedStyle(caption).overflow, caption.scrollWidth > caption.clientWidth] };
+    });
+    assert.deepEqual({ x: Math.round(layout.poster.x), y: layout.poster.y, columns: layout.columns, titleFont: layout.title.font, titleCentre: layout.title.y + layout.title.height / 2,
+        countFont: layout.count.font, countCentre: layout.count.y + layout.count.height / 2, caption: layout.caption.font, metadata: layout.metadata.font, truncation: layout.truncation },
+    { x: 138, y: 262, columns: 6, titleFont: "59px", titleCentre: 97.5, countFont: "22px", countCentre: 176.5, caption: "24px", metadata: "22px", truncation: ["nowrap", "ellipsis", "hidden", true] });
+    await tv.eventually(async () => {
+        const box = await tv.page.locator('[data-focus="shuffle"]').boundingBox();
+        return box !== null && Math.abs(box.x - 124.5) < 1 && Math.abs(box.width - 182) < 1 && Math.abs(box.height - 55) < 1;
+    }, "Apple Shuffle pill geometry");
+}, { beforeConnect: tv => { new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" }); } });
+
 browseTest("collection members do not wait for optional Shuffle capabilities", async (tv) => {
     let release: (() => void) | undefined;
     const held = new Promise<void>(resolve => { release = resolve; });
@@ -2755,10 +2789,13 @@ browseTest("Home lists visible video libraries and supported rows, and every row
 
     await press(tv, "ArrowRight");
     assert.equal(await tv.focused(), "episode:s1e12");
-    await press(tv, "ArrowDown", "ArrowRight", "ArrowRight");
-    assert.equal(await tv.focused(), "movie:m0001", "Recently Added: series first, then movies");
+    const added = await cardIds(tv, '[data-section="recently_added"] .browse-card');
+    assert.deepEqual(added.slice(0, 3), ["series:s1", "series:s2", "movie:m0001"], "Recently Added: series first, then movies");
+    await press(tv, "ArrowDown");
+    // The old assertion pressed Right twice and expected movie:m0001, which encoded Down landing on the first card.
+    assert.equal(await tv.focused(), "movie:m0001", "Down from the second Continue Watching still keeps that column");
     await press(tv, "ArrowUp");
-    assert.equal(await tv.focused(), "episode:s1e12", "back to the card last focused in the row above");
+    assert.equal(await tv.focused(), "episode:s1e12", "Up along the same column returns to the still above");
     await press(tv, "ArrowUp", "ArrowRight");
     assert.equal(await tv.focused(), "movies");
     await press(tv, "ArrowUp");

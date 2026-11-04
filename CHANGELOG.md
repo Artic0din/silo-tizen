@@ -6,9 +6,13 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Matched collection page spacing, Shuffle controls, and truncated poster captions to Apple TV.
 - Opened collection pages without requiring catalog totals, showed their item count and Shuffle action, and aligned the Collections grid with Apple TV.
 
 - Displayed Collections as portrait posters with visible missing-artwork placeholders and moved library mode selection into the navigation menu.
+- Moved the Home logo slot up to Apple's marquee stack and landed Down from a landscape card on the poster nearest that card.
+- Kept the column when moving down between Home rows, and fitted hero title art in Apple's 200px logo slot.
+- Down from the top bar lands on the leftmost card instead of the card remembered in the row.
 - Matched Apple TV library shelf order and the Recommended, Collections and Browse section menu, keeping Collections in its own destination.
 - Restored each page's hero after returning from the profile menu and painted the avatar's white focus ring above its image.
 - Renamed the profile menu's Switch Server row to Change Account, after Settings and before Sign Out.

@@ -780,12 +780,18 @@
 /* TMDB's approved logo replaces its text mark at the score's cap height (0.7x), undimmed, on the baseline. */
 .skyline-rating-logo { height: 14px; width: auto; margin-right: 7px; vertical-align: baseline; }
 .skyline-library .skyline-rating-logo { height: 13px; }
-/* Apple marquee logo: aspect-fit inside 880 x 200 (Home) or 880 x 150 (library), leading. */
-.skyline-title.skyline-title-logo { display: block; max-height: none; overflow: visible; text-shadow: none; line-height: 0; }
-.skyline-logo { display: block; max-width: 880px; max-height: 200px; }
-.skyline-library .skyline-logo { max-height: 150px; }
-/* Apple detailLine: one line at the meta size, medium weight, on-surface at half opacity, synopsis width. */
-.skyline-detail-line { max-width: 780px; height: 24px; margin: 0 0 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 20px; line-height: 24px; font-weight: 500; color: rgba(237,237,237,.5); }
+/* Apple TVMarqueeBlock titleSlot (TVFocusMarquee.swift): resizable aspect-fit
+   inside maxWidth 880 and maxHeight scale.logoMaxHeight, alignment .leading
+   (left, vertical centre). Home, For You and library Recommended use
+   TVSkylineSectionFeed's default .home scale, so the slot is 200
+   (SiloTheme.Skyline marqueeLogoMaxWidth and marqueeLogoMaxHeightHome).
+   The 150px library scale applies only when a landing opts into .library. */
+.skyline-title.skyline-title-logo { display: block; width: 880px; height: 200px; max-height: none; overflow: visible; text-shadow: none; line-height: 0; }
+.skyline-logo { display: block; width: 100%; height: 100%; object-fit: contain; object-position: left center; }
+.skyline-library .skyline-title.skyline-title-logo { height: 150px; }
+/* Apple detailLine: one line at the meta size. The marquee stack's meta and badge rows are framed at 27
+   (TVFocusMarquee.swift); a 24px estimate sat the bottom-anchored logo slot 3px too low. */
+.skyline-detail-line { max-width: 780px; height: 27px; margin: 0 0 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 20px; line-height: 27px; font-weight: 500; color: rgba(237,237,237,.5); }
 .skyline-library .skyline-detail-line { font-size: 19px; }
 .skyline-badges { display: flex; align-items: center; height: 27px; }
 .browse-section { margin-bottom: 32px; position: relative; }
@@ -876,10 +882,18 @@
 .browse .calendar-event:not(:focus) .browse-card-title { color: rgba(237,237,237,.85); }
 /* Requests and Calendar captions live outside their focus-styled buttons. */
 .browse .browse-card:is(.details-person, .requests-card, .calendar-event) :is(.browse-card-title, .browse-card-subtitle) { transform: none; text-shadow: none; }
-.collection-detail-title { text-align: center; width: 100%; }
-.collection-detail-actions { display: flex; align-items: center; gap: 40px; }
-.browse .collection-detail-grid { display: grid; grid-template-columns: repeat(var(--collection-detail-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; }
-.browse .collection-detail-grid .browse-card { width: calc(260px * var(--poster-scale, 1)); }
+.browse:has(> .collection-detail-title) { padding: 62px 128px 60px; }
+.collection-detail-title { text-align: center; width: 100%; margin: 0 0 17px; font-size: 59px; line-height: 71px; }
+.collection-detail-actions { display: flex; align-items: center; gap: 48px; height: 53px; margin: 0 0 59px; }
+.collection-detail-actions .browse-text { margin: 0; font-size: 22px; line-height: 27px; }
+.browse .collection-detail-actions .browse-button { display: inline-flex; align-items: center; justify-content: center; width: 175px; height: 53px; margin: 0; padding: 12px 22px; border: 1px solid rgba(255,255,255,.09); border-radius: 27px; font-size: 24px; font-weight: 500; background: rgba(255,255,255,.07); }
+.browse .collection-detail-actions .browse-button:focus { transform: scale(1.04); background: #ededed; color: #000; border-color: transparent; }
+.browse .collection-detail-grid { display: grid; width: 100%; padding: 0 0 48px; grid-template-columns: repeat(var(--collection-detail-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; }
+.collection-detail-grid .browse-card-title { margin: 16px 0 4px; padding: 0; font-size: 24px; line-height: 29px; }
+/* The measured tvOS collection metadata is larger than the shared source token. */
+.collection-detail-grid .browse-card-subtitle { margin: 0; padding: 0; font-size: 22px; line-height: 27px; }
+.collection-detail-grid .browse-card { --card-art-height: calc(390px * var(--poster-scale, 1)); --card-caption-gap: 16px; }
+.browse .collection-detail-grid .browse-card { width: calc(260px * var(--poster-scale, 1)); border: 0; }
 .browse .collection-detail-grid .browse-art { width: calc(260px * var(--poster-scale, 1)); height: calc(390px * var(--poster-scale, 1)); }
 /* Collection tiles contain the collage and caption, so the tile owns focus. */
 .browse .discovery-collection:focus { transform: scale(1.05); outline: 4px solid rgba(255,255,255,.7); outline-offset: -2px; box-shadow: 0 8px 36px rgba(0,0,0,.45); }

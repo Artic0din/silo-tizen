@@ -1475,6 +1475,6 @@ test("hub marquee uses Apple's title width, synopsis rhythm, rating row and focu
         await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => { for (const animation of node.getAnimations()) animation.finish(); });
         assert.equal(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node).outline), "rgba(255, 255, 255, 0.7) solid 4px", "the focused card carries Apple's shared white outline");
         assert.equal(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node, "::after").backgroundImage), "none", "the outlined focus treatment removes the system glass sheen");
-        assert.equal(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node).boxShadow), "rgba(0, 0, 0, 0.45) 0px 8px 18px 0px", "the focused poster uses Apple's shared shadow");
+        assert.equal(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node).boxShadow), "rgba(0, 0, 0, 0.45) 0px 8px 36px 0px", "the focused poster uses Apple's shared shadow");
     } finally { await tv.page.context().close(); }
 });

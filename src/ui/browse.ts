@@ -125,7 +125,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const applyCardSize = (): void => {
         const scale = presentation.posterScale;
         container.style.setProperty("--poster-scale", String(scale));
-        container.style.setProperty("--request-lift", String((330 * scale + 40) / (330 * scale)));
     };
     applyCardSize();
     let shownOverlays: CardOverlayPrefs | undefined = presentation.cardOverlays;

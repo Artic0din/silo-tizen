@@ -26,12 +26,56 @@ const surfaces = [
     ["Library Recommended", "skyline-library", "library-media-shelf", "browse-row", ""],
     ["Library grid", "library-browse", "", "catalog-grid", ""],
     ["Section and Person filmography", "section-catalog", "", "section-catalog-grid", ""],
-    ["Search", "", "", "browse-row", ""],
+    ["Search", "search-scene", "", "browse-grid", ""],
+    ["Search requests", "search-scene", "", "search-request-rail", "requests-card"],
     ["Details", "", "", "browse-row", ""],
     ["Calendar", "", "calendar-shelf", "browse-row", "calendar-event"],
     ["Person", "", "", "browse-row", ""],
     ["Requests", "requests-scene", "", "requests-rail", "requests-card"],
 ] as const;
+
+test("tvOS caption exceptions preserve colours, spacing and cast label lift", async () => {
+    const page = await browser.newPage();
+    try {
+        await page.setContent(`<main class="browse">
+            <div class="search-scene"><div class="browse-grid"><button class="browse-card"><div class="browse-art"></div><span class="browse-card-title">Search</span></button></div><div class="search-request-rail"><button class="browse-card requests-card"><div class="browse-art"></div><span class="browse-card-title">Request</span><span class="browse-card-subtitle">2026</span></button></div></div>
+            <div class="browse-row" data-detail-section="related"><button class="browse-card"><div class="browse-art"></div><span class="browse-card-title">Related</span></button></div>
+            <div class="browse-row details-people"><button class="browse-card details-person"><div class="browse-art details-photo"></div><span class="browse-card-title">Person</span><span class="browse-card-subtitle">Role</span></button></div>
+            <div class="browse-row"><button class="browse-card calendar-event"><div class="browse-art"></div><span class="browse-card-title">Calendar</span><span class="browse-card-subtitle">Episode</span></button></div>
+        </main>`);
+        await page.addStyleTag({ content: readFileSync(new URL("../../src/theme.css", import.meta.url), "utf8") + readFileSync(new URL("../../src/ui/browse.css", import.meta.url), "utf8") });
+        await page.addStyleTag({ content: "* { transition: none !important; }" });
+        for (const [selector, gap] of [[".browse-grid", 16], [".search-request-rail", 22], ['[data-detail-section="related"]', 16]] as const) {
+            assert.equal(await page.locator(`${selector} .browse-card-title`).evaluate(node => parseFloat(getComputedStyle(node).marginTop)), gap);
+        }
+        await page.locator('[data-detail-section="related"] button').focus();
+        assert.equal(await page.locator('[data-detail-section="related"] .browse-card-title').evaluate(node => getComputedStyle(node).transform), "matrix(1, 0, 0, 1, 0, 0)");
+        for (const selector of [".requests-card", ".calendar-event"]) {
+            await page.locator(selector).focus();
+            assert.deepEqual(await page.locator(`${selector} .browse-card-title, ${selector} .browse-card-subtitle`).evaluateAll(nodes => nodes.map(node => getComputedStyle(node).color)), ["rgb(237, 237, 237)", "rgba(237, 237, 237, 0.6)"]);
+        }
+        await page.locator(".calendar-event").blur();
+        assert.equal(await page.locator(".calendar-event .browse-card-title").evaluate(node => getComputedStyle(node).color), "rgba(237, 237, 237, 0.85)");
+        const cast = page.locator(".details-person");
+        const readCast = () => cast.evaluate(node => {
+            const rect = node.getBoundingClientRect();
+            return { center: rect.y + rect.height / 2, labels: Array.from(node.querySelectorAll<HTMLElement>(".browse-card-title, .browse-card-subtitle"), label => ({ y: label.getBoundingClientRect().y, color: getComputedStyle(label).color, glow: getComputedStyle(label).textShadow })) };
+        });
+        const rest = await readCast();
+        await cast.evaluate(node => (node as HTMLElement).focus({ preventScroll: true }));
+        const focused = await readCast();
+        assert.deepEqual(focused.labels.map(label => label.color), ["rgb(237, 237, 237)", "rgba(237, 237, 237, 0.6)"]);
+        for (const [index, label] of rest.labels.entries()) {
+            const focusedLabel = focused.labels[index];
+            assert.ok(focusedLabel);
+            assert.ok(Math.abs(focusedLabel.y - (rest.center + (label.y - rest.center) * 1.05)) < 0.02, "the entire cast label scales around the button centre");
+            assert.equal(focusedLabel.glow, "none");
+        }
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        const reduced = await readCast();
+        assert.deepEqual(reduced.labels.map(label => label.y), rest.labels.map(label => label.y));
+    } finally { await page.close(); }
+});
 
 test("collection collage tiles outline the whole tile and cast portraits keep their lighter shadow", async () => {
     const page = await browser.newPage();
@@ -41,9 +85,9 @@ test("collection collage tiles outline the whole tile and cast portraits keep th
         await page.addStyleTag({ content: "* { transition: none !important; }" });
         const tile = page.locator(".discovery-collection");
         await tile.focus();
-        assert.deepEqual(await tile.evaluate(node => { const style = getComputedStyle(node); return [style.transform, style.outline, style.boxShadow]; }), ["matrix(1.05, 0, 0, 1.05, 0, 0)", "rgba(255, 255, 255, 0.7) solid 4px", "rgba(0, 0, 0, 0.45) 0px 8px 18px 0px"]);
+        assert.deepEqual(await tile.evaluate(node => { const style = getComputedStyle(node); return [style.transform, style.outline, style.boxShadow]; }), ["matrix(1.05, 0, 0, 1.05, 0, 0)", "rgba(255, 255, 255, 0.7) solid 4px", "rgba(0, 0, 0, 0.45) 0px 8px 36px 0px"]);
         await page.locator(".details-person").focus();
-        assert.deepEqual(await page.locator(".details-photo").evaluate(node => { const style = getComputedStyle(node); return [style.transform, style.outline, style.boxShadow]; }), ["matrix(1.05, 0, 0, 1.05, 0, 0)", "rgba(255, 255, 255, 0.7) solid 4px", "rgba(0, 0, 0, 0.35) 0px 6px 14px 0px"]);
+        assert.deepEqual(await page.locator(".details-photo").evaluate(node => { const style = getComputedStyle(node); return [style.transform, style.outline, style.boxShadow]; }), ["none", "rgba(255, 255, 255, 0.7) solid 4px", "rgba(0, 0, 0, 0.35) 0px 6px 28px 0px"]);
         await page.emulateMedia({ reducedMotion: "reduce" });
         await tile.focus();
         assert.equal(await tile.evaluate(node => getComputedStyle(node).transform), "none");
@@ -70,11 +114,12 @@ for (const [name, root, section, row, card] of surfaces) {
             const focused = await read();
             await t.test("lift", () => assert.equal(focused.transform, "matrix(1.05, 0, 0, 1.05, 0, 0)"));
             await t.test("outline", () => assert.equal(focused.outline, "rgba(255, 255, 255, 0.7) solid 4px"));
-            await t.test("shadow", () => assert.equal(focused.shadow, "rgba(0, 0, 0, 0.45) 0px 8px 18px 0px"));
+            await t.test("shadow", () => assert.equal(focused.shadow, "rgba(0, 0, 0, 0.45) 0px 8px 36px 0px"));
             await t.test("fixed caption weight", () => assert.deepEqual(focused.weight, rest.weight, "focus never changes truncation weight"));
+            const fixedCaption = card === "requests-card" || card === "calendar-event";
             const drop = Math.max(0, focused.height * 0.025 + 8 - focused.gap);
-            await t.test("caption drop", () => assert.equal(focused.drop, `matrix(1, 0, 0, 1, 0, ${Number(drop.toFixed(4))})`));
-            await t.test("caption glow", () => assert.equal(focused.glow, "rgba(255, 255, 255, 0.22) 0px 0px 8px, rgba(255, 255, 255, 0.12) 0px 0px 3px"));
+            await t.test("caption drop", () => assert.equal(focused.drop, fixedCaption ? "none" : `matrix(1, 0, 0, 1, 0, ${Number(drop.toFixed(4))})`));
+            await t.test("caption glow", () => assert.equal(focused.glow, fixedCaption ? "none" : "rgba(255, 255, 255, 0.22) 0px 0px 8px, rgba(255, 255, 255, 0.12) 0px 0px 3px"));
             await t.test("no sheen", () => assert.equal(focused.pseudo, "none", "no system glass sheen"));
             await page.emulateMedia({ reducedMotion: "reduce" });
             const reduced = await read();

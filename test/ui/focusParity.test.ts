@@ -212,7 +212,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
                 if (reducedMotion === "reduce") {
                     assert.equal(focused.artGrowth, 0);
                     assert.equal(style.cue, "rgba(255, 255, 255, 0.7) solid 4px", "reduced motion keeps Apple's shared outline");
-                    assert.equal(style.shadow, "rgba(0, 0, 0, 0.45) 0px 8px 18px 0px", "reduced motion retains the focused shadow");
+                    assert.equal(style.shadow, "rgba(0, 0, 0, 0.45) 0px 8px 36px 0px", "reduced motion retains the focused shadow");
                     assert.deepEqual(style.transitions, ["0s", "0s", "0s"], "reduced motion disables artwork and caption transitions");
                 }
             }

@@ -122,7 +122,8 @@ If Search is already visible when the write settles, its strip refreshes indepen
 Supplementary capability refusals recheck Requests status without restarting catalog or People reads; that status check cannot automatically retry the refused supplement in a loop.
 Recognized request states take precedence over availability; only In library plus a nonempty `library_content_id` opens catalog Details.
 The Search card presentation boundary delegates to the shared Requests card and progress owners.
-Supplementary posters scale from 220×330 with the existing preference; focus lifts artwork by 40 px without moving captions, while reduced motion retains a visible ring without growth.
+Supplementary posters scale from 220×330 with the existing preference; focus uses the shared 1.05 lift and 4 px outline at 70% white without moving or whitening request captions.
+Search catalog captions use a 16 px gap and Requests use 22 px, matching the tvOS branches of `TVMediaCard` and `RequestMediaCard`.
 The native Samsung text field remains attached across renders; the tvOS alphabet keyboard is an operating-system surface, not a custom keyboard to port.
 Samsung simulator keyboard rendering and final same-state visual acceptance remain unverified.
 These source changes do not diagnose historical keyboard or first-query latency reports.
@@ -215,9 +216,15 @@ Poster badge sizes use the actual scaled artwork width; Continue Watching badges
 Episode cards are captioned with their series and an `S01E02 · Pilot` line.
 Unfocused captions dim; focus brightens and drops the caption below a lift of the artwork only.
 Cards use Apple's shared 1.05 artwork lift and 4px white outline at 70% opacity.
-The focused shadow has an 18px radius, 8px vertical offset and 45% black opacity, with 120ms ease-out timing.
+The focused shadow uses SwiftUI radius 18, converted to CSS box-shadow blur 36 px, with an 8 px vertical offset and 45% black opacity, with 120ms ease-out timing.
+CSS box-shadow blur is twice the Gaussian standard deviation ([CSS specification](https://www.w3.org/TR/css-backgrounds-3/#shadow-blur)); the SwiftUI radius is treated as the Gaussian radius, so radius 18 maps to blur 36 and cast radius 14 maps to blur 28.
+This rendering conversion requires same-state native comparison before merge.
 Caption weights stay fixed; their glow uses white at 22% with an 8px radius and 12% with a 3px radius.
 Caption drop is `max(0, artwork height × .025 + 8px - caption gap)` and is zero with reduced motion.
+Related Details captions use a 16 px gap; Requests and Calendar captions have no focus drop or glow.
+Cast scales the whole button, including its name and role, at 1.05; its focused name is `#EDEDED` and its role stays at 60% of that colour.
+Calendar titles change from 85% to full `#EDEDED` on focus and their subtitles stay at 60%; request titles stay at full `#EDEDED`.
+Reference: silo-apple `ffa6e5188c70664090a6dc9beb8c7cbbc3ce43e7`, source only; the installed Apple build was not verified.
 With reduced motion the artwork does not grow and shows Apple's 4 px focus ring instead.
 Library Recommended now uses these same media rows and the calibrated Home hero/marquee scene, independently of its selected navigation root or library shortcut.
 Its headings are plain text; Explore All retains the section route and library scope.

@@ -438,12 +438,12 @@ export class PlaybackController implements PlayerControls {
 
     togglePause(): void {
         const attempt = this.active();
-        if (attempt !== undefined) this.setPaused(!attempt.paused);
+        if (attempt !== undefined) this.setPaused(!(attempt.pauseAfterSeek ?? attempt.paused));
     }
 
     setPaused(paused: boolean): void {
         const attempt = this.active();
-        if (attempt === undefined || !attempt.started || attempt.paused === paused) {
+        if (attempt === undefined || !attempt.started) {
             return;
         }
         // AVPlay rejects play and pause while seekTo is outstanding. Keep the request and apply it when the seek ends.
@@ -451,6 +451,7 @@ export class PlaybackController implements PlayerControls {
             attempt.pauseAfterSeek = paused;
             return;
         }
+        if (attempt.paused === paused) return;
         if (attempt.busy && !(attempt.change.state === "changing" && attempt.change.kind === "quality")) {
             return;
         }

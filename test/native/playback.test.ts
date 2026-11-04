@@ -450,6 +450,23 @@ test("a resume asked for during an in-flight seek plays once that seek settles",
     r.controller.destroy();
 });
 
+test("the latest pause request wins while a local seek is pending", async () => {
+    const r = await rig();
+    await playMovie(r);
+    r.controller.setPaused(true);
+    r.controller.seekToSeconds(45);
+    r.controller.setPaused(false);
+    r.controller.setPaused(true);
+    r.avplay.finishSeek();
+    assert.equal(r.avplay.state, "PAUSED");
+    r.controller.seekToSeconds(60);
+    r.controller.togglePause();
+    r.controller.togglePause();
+    r.avplay.finishSeek();
+    assert.equal(r.avplay.state, "PAUSED");
+    r.controller.destroy();
+});
+
 test("committing an absolute source seek does not drift with live progress", async () => {
     const r = await rig();
     await playMovie(r);

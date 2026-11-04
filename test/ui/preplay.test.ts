@@ -148,7 +148,7 @@ for (const phase of ["catalog", "watch"] as const) {
     preplay(`direct episode ${phase} resolution ignores duplicate Select and an abandoned late answer`, async (tv, catalog) => {
         catalog.fileIds.set("episode:s1e12", "42");
         await series(tv);
-        const path = phase === "catalog" ? "/catalog/items/episode%3As1e12?image_size=medium" : "/watch/episode%3As1e12?file_id=42";
+        const path = phase === "catalog" ? "/catalog/items/episode%3As1e12?image_size=large" : "/watch/episode%3As1e12?file_id=42";
         const before = tv.fake.requests.filter(request => request.path === path).length;
         const held = tv.fake.hold(path, true);
         await tv.page.evaluate(() => {
@@ -204,7 +204,7 @@ for (const failure of ["identity", "files"] as const) {
         const reply = catalog.route("GET", "/catalog/items/episode%3As1e12", "p-owner");
         assert.ok(reply);
         assert.ok(typeof reply.body === "object" && reply.body !== null);
-        tv.fake.script("/catalog/items/episode%3As1e12?image_size=medium", { status: 200, body: { ...reply.body, ...(failure === "identity" ? { content_id: "wrong-target" } : { versions: [] }) } });
+        tv.fake.script("/catalog/items/episode%3As1e12?image_size=large", { status: 200, body: { ...reply.body, ...(failure === "identity" ? { content_id: "wrong-target" } : { versions: [] }) } });
         await tv.page.locator('.details-episodes [data-focus="episode:s1e12"]').click();
         await tv.page.getByRole("button", { name: "Try again", exact: true }).waitFor();
         assert.equal(starts(tv).length, 0);

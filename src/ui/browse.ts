@@ -124,9 +124,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const applyCardSize = (): void => {
         const scale = presentation.posterScale;
         container.style.setProperty("--poster-scale", String(scale));
-        container.style.setProperty("--row-lift", String((264 * scale + 38) / (264 * scale)));
-        // Apple's Compact still measures 199px focused: ~22px native lift plus EpisodeThumbCard's 1.025.
-        container.style.setProperty("--still-lift", String((200 * scale + 22) / (200 * scale) * 1.025));
     };
     applyCardSize();
     let shownOverlays: CardOverlayPrefs | undefined = presentation.cardOverlays;

@@ -1378,8 +1378,9 @@ test("hub marquee uses Apple's title width, synopsis rhythm, rating row and focu
         assert.deepEqual(synopsis, ["32px", 780]);
         const row = await tv.page.locator(".requests-preview .requests-metadata").evaluate(node => { const text = node.querySelector("span")?.getBoundingClientRect(), logo = node.querySelector("img")?.getBoundingClientRect(), value = node.querySelector(".requests-tmdb span") as HTMLElement; return { dot: Math.round((logo?.left ?? 0) - (text?.right ?? 0)), gap: Math.round(value.getBoundingClientRect().left - (logo?.right ?? 0)), color: getComputedStyle(value).color, weight: getComputedStyle(value).fontWeight }; });
         assert.deepEqual(row, { dot: 15, gap: 7, color: "rgb(160, 160, 160)", weight: "700" });
-        assert.equal(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node, "::after").content !== "none" && getComputedStyle(node, "::after").boxShadow !== "none"), true, "the focused card carries Apple's light edge");
-        assert.match(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node, "::after").backgroundImage), /radial-gradient\(145% 70% at 25% 0(px|%)/, "the focused poster carries the upper-left sheen measured against Apple's pair 02a");
-        assert.equal((await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node, "::after").boxShadow)).split(/,\s*(?=rgba)/).length, 3, "top, even and bottom edge strokes");
+        await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => { for (const animation of node.getAnimations()) animation.finish(); });
+        assert.equal(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node).outline), "rgba(255, 255, 255, 0.7) solid 4px", "the focused card carries Apple's shared white outline");
+        assert.equal(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node, "::after").backgroundImage), "none", "the outlined focus treatment removes the system glass sheen");
+        assert.equal(await tv.page.locator(".requests-card:focus .browse-art").evaluate(node => getComputedStyle(node).boxShadow), "rgba(0, 0, 0, 0.45) 0px 8px 18px 0px", "the focused poster uses Apple's shared shadow");
     } finally { await tv.page.context().close(); }
 });

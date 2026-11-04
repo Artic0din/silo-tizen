@@ -79,8 +79,6 @@ The backdrop scrolls with the hero while the page tint stays.
 
 ## Accepted differences
 
-The focused poster's sheen and edge are a static CSS approximation of tvOS's system `.card` focus highlight, measured against Apple's pair 02a.
-tvOS moves that highlight as the remote's surface moves, and the web platform has no equivalent input, so the sheen stays still.
 The design of the Series destination page belongs to #92.
 A status detail whose copy is tall enough to pass the hero edge hides the action, as on Apple TV (decision: match Apple).
 

@@ -305,19 +305,23 @@ export function searchView(head: readonly HTMLElement[], input: HTMLInputElement
     const zones: Zone[] = [{ id: "field", layout: "row", items: [field] }];
     switch (results.status) {
         case "idle":
+            content.push(searchState("Search Silo", "Find movies, series, and people", "search-prompt"));
             break;
         case "searching":
-            content.push(...lines(["Searching."]));
+            content.push(searchLoading());
             break;
         case "failed": {
-            const retry = actionButton("retry", "Try again", results.retry);
-            content.push(...lines([results.text], "error"), zoneNode("browse-actions", [retry]));
+            const retry = actionButton("retry", "Try Again", results.retry);
+            const failure = searchState("Something went wrong", results.text, "search-failure");
+            failure.setAttribute("role", "alert");
+            failure.appendChild(zoneNode("browse-actions", [retry]));
+            content.push(failure);
             zones.push({ id: "status", layout: "row", items: [retry] });
             break;
         }
         case "ready":
             if (results.grid.zones[0]?.items.length === 0) {
-                content.push(...lines([`No results for "${results.query}".`]));
+                content.push(searchState("No results", "Try a different search term", "search-empty"));
             }
             content.push(...results.grid.content);
             zones.push(...results.grid.zones);
@@ -326,6 +330,14 @@ export function searchView(head: readonly HTMLElement[], input: HTMLInputElement
 }
 
 export const FAILURE_ICON = '<svg viewBox="0 0 48 48"><path fill="currentColor" d="M20 5a4.6 4.6 0 0 1 8 0l19 33a4.6 4.6 0 0 1-4 7H5a4.6 4.6 0 0 1-4-7Z"/><path d="M24 16v12m0 7v1" stroke="#000" stroke-width="4" stroke-linecap="round"/></svg>';
+
+export function searchLoading(): HTMLElement {
+    const progress = el("div", "search-progress");
+    progress.setAttribute("role", "status");
+    progress.setAttribute("aria-label", "Searching");
+    progress.appendChild(el("span", "search-progress-icon"));
+    return progress;
+}
 
 /** Apple EmptyStateView and ErrorView: an icon, a title and a line, sized by `className`. */
 export function searchState(title: string, subtitle: string, className: string, iconMarkup?: string): HTMLElement {

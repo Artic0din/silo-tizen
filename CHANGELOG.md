@@ -12,6 +12,7 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - Required demonstrated Apple TV parity before merging parity changes, preserved regression checks, and clarified component reuse and simulator ownership for coding agents.
+- Added People results, All/Movies/Series filters, result counts, an idle prompt and an independent Available to request rail to Search, and opened Search above its originating page without the root navigation, starting empty on each visit.
 - Preset profile avatars showed the flat image Apple TV shows when the server supplied an SVG avatar address.
 - Rebuilt Requests to match Apple TV: the hub showed Your requests first with focused title previews, horizontal shelves and Apple's loading, error and empty pages, and no longer had its own Search requests, My Requests, Refresh or Back buttons; details gained posters, backdrops, title metadata, a status tracker and related recommendations, with title fallbacks for missing artwork; and the top bar's tab positions and Search icon used Apple's values. A request or cancellation kept focus on its action while it ran, a refused or unconfirmed one explained itself beside the action, a failed title read showed the full error page, hub rows no longer ended in a See all tile, and a focused poster gained Apple's sheen.
 - Played episodes directly from cards and season lists with fresh resume progress, added numbered Play/Resume series actions, and kept episode information available in Card actions.

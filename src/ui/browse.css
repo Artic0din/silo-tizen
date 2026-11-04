@@ -988,5 +988,8 @@
 .browse[data-view^="person:"] .person-filmography-filters .browse-button:focus { outline: none; background: rgba(14, 15, 18, 0.8); color: var(--silo-text); border-color: rgba(237, 237, 237, 0.85); box-shadow: inset 0 0 0 1px rgba(237, 237, 237, 0.85); transform: scale(1.06); }
 .browse[data-view^="person:"] .person-filmography-filters .browse-button[aria-pressed="true"]:focus { background: #0e0f12; }
 .browse[data-view^="person:"] .browse-grid { width: auto; margin: 0; padding: 0; grid-template-columns: repeat(var(--grid-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; }
-/* The focus viewport also excludes tvOS's 60px vertical safe area. */
-.browse[data-view^="person:"] .browse-grid .browse-card { scroll-margin-top: 72px; scroll-margin-bottom: 92px; }
+/* PersonDetailView.swift:440 pads the scroll content 72pt at the bottom. The focus
+   viewport also excludes tvOS's 60px vertical safe area, so the shared scroll owner
+   keeps the focused card 132px above the screen. The generic 32px margin (92px with
+   the safe area) left the row 40px too low. */
+.browse[data-view^="person:"] .browse-grid .browse-card { scroll-margin-top: 72px; scroll-margin-bottom: 132px; }

@@ -44,6 +44,8 @@ export interface Zone {
     readonly columns?: number;
     /** Apple's focus engine: between two such zones, Up and Down land on the item nearest the focused one's centre. */
     readonly spatial?: boolean | "aligned";
+    /** A horizontal ScrollView remembers its focused child. Up returns there, or to `entry` before the row has been focused. */
+    readonly remembersFocus?: boolean;
     readonly items: readonly FocusItem[];
 }
 
@@ -383,6 +385,11 @@ export class FocusHost {
             const zone = zones[next];
             if (zone !== undefined && zone.items.length > 0) {
                 const remembered = this.memory.get(zone.id);
+                if (zone.remembersFocus === true) {
+                    const key = remembered ?? zone.entry;
+                    this.focusItem(zone, zone.items.find(item => item.key === key) ?? zone.items[0]);
+                    return true;
+                }
                 const spatial = zone.spatial && zones[zoneIndex]?.spatial;
                 const columns = Math.max(1, zone.columns ?? 1);
                 const edge = step === 1 ? 0 : Math.floor((zone.items.length - 1) / columns) * columns;

@@ -152,13 +152,13 @@ journey("Person uses the Apple source geometry and remote zones", async tv => {
     const first = await grid(tv).first().getAttribute("data-focus");
     assert.equal(await tv.focused(), first);
     await tv.jump(300);
-    assert.equal(await tv.page.locator(".browse").evaluate(node => node.scrollTop), 237, "grid reveal includes the tvOS bottom safe area");
+    assert.equal(await tv.page.locator(".browse").evaluate(node => node.scrollTop), 277, "was 237 when the reveal used a 92px bottom margin");
     await tv.page.keyboard.press("ArrowLeft");
     assert.equal(await tv.focused(), first);
     await tv.page.keyboard.press("ArrowRight");
     assert.equal(await tv.focused(), await grid(tv).nth(1).getAttribute("data-focus"));
     await tv.page.keyboard.press("ArrowUp");
-    assert.equal(await tv.focused(), await grid(tv).nth(1).getAttribute("data-focus"), "no chip above this card");
+    assert.equal(await tv.focused(), "filter:movie", "was the second card when no chip contained its centre");
     await grid(tv).first().focus();
     await tv.page.keyboard.press("ArrowUp");
     await tv.jump(300);

@@ -271,6 +271,78 @@ test("Back cancels a late portrait image before it can paint", async () => {
     } finally { await tv.page.context().close(); }
 });
 
+async function filmography(tv: Tv): Promise<void> {
+    await signIn(tv);
+    await person(tv, {});
+    await tv.page.locator('.browse[data-view="person:7"] .browse-grid .browse-card').first().waitFor();
+}
+
+async function firstRowCount(tv: Tv): Promise<number> {
+    return tv.page.locator(".browse-grid").evaluate(grid => {
+        const cards = [...grid.querySelectorAll<HTMLElement>(".browse-card")];
+        const top = cards[0]?.getBoundingClientRect().top ?? 0;
+        return cards.filter(card => Math.abs(card.getBoundingClientRect().top - top) < 2).length;
+    });
+}
+
+test("Up from each first-row column returns to the focused filter chip", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await filmography(tv);
+        const columns = await firstRowCount(tv);
+        assert.ok(columns >= 2, "the first filmography row has more than one column");
+        await tv.page.locator('[data-focus="filter:video"]').focus();
+        const filters = ["filter:video", "filter:movie", "filter:series"];
+        for (const [index, filter] of filters.entries()) {
+            if (index > 0) await tv.page.keyboard.press("ArrowRight");
+            assert.equal(await tv.focused(), filter);
+            for (let column = 0; column < columns; column += 1) {
+                await tv.page.keyboard.press("ArrowDown");
+                for (let guard = 0; guard < columns; guard += 1) {
+                    const before = await tv.focused();
+                    await tv.page.keyboard.press("ArrowLeft");
+                    if (await tv.focused() === before) break;
+                }
+                for (let step = 0; step < column; step += 1) await tv.page.keyboard.press("ArrowRight");
+                await tv.page.keyboard.press("ArrowUp");
+                assert.equal(await tv.focused(), filter, `column ${column} used to land on the nearest chip, or stay on the card`);
+            }
+        }
+        assert.equal(await tv.page.locator('[data-focus="filter:video"]').getAttribute("aria-pressed"), "true", "focusing Movies or Series does not select them");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("Down into the filmography grid uses Apple's bottom scroll inset", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await filmography(tv);
+        await tv.page.locator('[data-focus="filter:video"]').focus();
+        await tv.page.keyboard.press("ArrowDown");
+        await tv.jump(300);
+        const placed = await tv.page.locator(".browse").evaluate(node => {
+            const browse = node.getBoundingClientRect();
+            const card = node.querySelector(".browse-grid .browse-card:focus")?.getBoundingClientRect();
+            const title = node.querySelector(".person-filmography-heading")?.getBoundingClientRect();
+            const name = node.querySelector(".details-person-hero .browse-title")?.getBoundingClientRect();
+            const art = node.querySelector(".browse-grid .browse-card:focus .browse-art")?.getBoundingClientRect();
+            return {
+                scroll: node.scrollTop,
+                clearance: card === undefined ? -1 : browse.bottom - card.bottom,
+                titleTop: title?.top ?? -1,
+                titleBottom: title?.bottom ?? -1,
+                nameBottom: name?.bottom ?? 1,
+                outlineTop: art?.top ?? -1,
+            };
+        });
+        // Was 92: the generic 32px reveal plus the 60px safe area, 40px short of PersonDetailView's 72px bottom padding.
+        assert.equal(Math.round(placed.clearance), 132, `was 92; scroll ${placed.scroll}, title ${placed.titleTop}, outline ${placed.outlineTop}`);
+        assert.ok(placed.titleTop >= 0 && placed.titleBottom > placed.titleTop, "the filmography title stays fully below the top edge");
+        assert.ok(placed.nameBottom <= 0, `person title bottom ${placed.nameBottom} still shows a descender at the top edge`);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 test("an authority change cancels a late portrait image", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

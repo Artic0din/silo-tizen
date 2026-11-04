@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Returned Up from a Person filmography card to the focused filter, and scrolled that first row to the page's 72 px bottom padding plus the tvOS safe area.
+
 - Reset fresh Person visits from Search and applied delayed poster and badge preferences on Person.
 
 - Corrected Person safe-area insets, title-count spacing, biography weight, server-driven filters, fresh-visit focus and independent metadata loading, restored catalog status badges, and returned the full hero when focus moved back to its chips.

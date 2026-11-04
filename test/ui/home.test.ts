@@ -665,7 +665,7 @@ journey("fresh slot sizing upgrades incomplete remembered Home artwork", async (
     heldImageProbe.release();
     assert.equal(await (await cached).finished(), null);
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), "one-size capability cached");
-    await tv.eventually(async () => tv.fake.requests.filter(request => request.path === "/home/sections?image_size=medium").length === 1, "one-size upgrade completed");
+    await tv.eventually(async () => tv.fake.requests.filter(request => request.path === "/home/sections?image_size=large").length === 1, "one-size upgrade completed");
     await detailsRead(tv);
     imageCapabilities(catalog, true);
     heldImageProbe = tv.fake.hold("/images/capabilities", true);
@@ -680,7 +680,7 @@ journey("fresh slot sizing upgrades incomplete remembered Home artwork", async (
 journey("a pending optional image probe cannot block cold Home", async tv => {
     const titles = await homeTitles(tv);
     assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, 1);
-    assert.equal(tv.fake.requests.find(request => request.path.startsWith("/home/sections"))?.path, "/home/sections?image_size=small");
+    assert.equal(tv.fake.requests.find(request => request.path.startsWith("/home/sections"))?.path, "/home/sections?image_size=large");
     await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0012"]').focus();
     await tv.jump(200);
     const focus = await tv.focused();
@@ -757,21 +757,22 @@ journey("a late image answer waits for Home return without replacing Details", a
 
 for (const [server, setup, expected] of [
     ["takes per-slot widths", (catalog: FakeHome) => imageCapabilities(catalog, true), "/home/sections?image_size=medium&logo_width=880&backdrop_width=1344"],
-    ["takes one size only", (catalog: FakeHome) => imageCapabilities(catalog, false), "/home/sections?image_size=medium"],
-    ["has no image capability", () => undefined, "/home/sections?image_size=small"],
+    ["takes one size only", (catalog: FakeHome) => imageCapabilities(catalog, false), "/home/sections?image_size=large"],
+    ["has no image capability", () => undefined, "/home/sections?image_size=large"],
 ] as const) {
     journey(`Home asks for title logos at the marquee's width only when the server ${server}`, async tv => {
         assert.equal(tv.fake.requests.filter(request => request.path === "/images/capabilities").length, 1, "one probe per Home session");
         if (server === "has no image capability") {
-            assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path), ["/home/sections?image_size=small"]);
+            assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path), ["/home/sections?image_size=large"]);
             return;
         }
-        await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length === 2, "cold Home upgraded once");
+        const initial = server === "takes per-slot widths" ? ["/home/sections?image_size=large", expected] : [expected];
+        await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length === initial.length, "cold Home sizing settled");
         await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), "capability cached for next mount");
         const held = tv.fake.hold("/images/capabilities", true);
         await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
         await tv.page.locator('[data-view="home"] [data-section]').first().waitFor();
-        assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path), ["/home/sections?image_size=small", expected, expected], "cached sizing applies even while the refresh probe is pending");
+        assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path), [...initial, expected], "cached sizing applies even while the refresh probe is pending");
         held.release();
     }, setup);
 }

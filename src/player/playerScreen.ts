@@ -15,7 +15,9 @@ import { remoteKey } from "../ui/keys.ts";
 import { el } from "../ui/screen.ts";
 import { artworkUrl } from "../ui/browseModel.ts";
 import type { AVPlay } from "./avplay.ts";
-import { type PlaybackError, type PlaybackExits, PlaybackController, type PlaybackView, type PlayerControls, type PlayRequest, type TrackView } from "./controller.ts";
+import { type PlaybackError, type PlaybackExits, PlaybackController, type PlaybackView, type PlayerControls, type PlayRequest, type SubtitleToolAction, type TrackView } from "./controller.ts";
+import { fillSubtitleTools, pickerFor, type SubtitlePane } from "./subtitleMenu.ts";
+import type { AppearanceMember } from "./subtitleAppearance.ts";
 import { closeIcon, optionsIcon, pauseIcon, playIcon, skipIcon } from "./playerIcons.ts";
 import { mountSeekThumbnail } from "./seekThumbnailView.ts";
 import { mountSubtitles } from "./subtitleView.ts";
@@ -120,14 +122,49 @@ function fillAudio(list: HTMLElement, tracks: TrackView): void {
     }
 }
 
-function fillSubtitles(list: HTMLElement, tracks: TrackView, languages = false): void {
-    list.appendChild(el("h2", "player-menu-heading", "TRACKS"));
+function isAppearanceMember(field: string): field is AppearanceMember {
+    switch (field) {
+        case "fontSize":
+        case "fontFamily":
+        case "fontColor":
+        case "textOpacity":
+        case "textOutline":
+        case "textOutlineColor":
+        case "backgroundStyle":
+        case "backgroundOpacity":
+        case "backgroundColor":
+        case "position":
+            return true;
+        default: return false;
+    }
+}
+
+function pickerAction(field: string, id: string): SubtitleToolAction | undefined {
+    if (field === "delay") {
+        const milliseconds = Number(id);
+        return Number.isInteger(milliseconds) ? { kind: "delay", milliseconds } : undefined;
+    }
+    if (field === "fontSize" && (id === "small" || id === "medium" || id === "large" || id === "xlarge" || id === "xxlarge")) return { kind: "size", size: id };
+    if (field === "position" && (id === "bottom" || id === "lower-third" || id === "top")) return { kind: "position", position: id };
+    if (!isAppearanceMember(field)) return undefined;
+    const value = field === "textOutline" ? id === "true" : field === "textOpacity" || field === "backgroundOpacity" ? Number(id) : id;
+    return { kind: "appearance", member: field, value };
+}
+
+function fillSubtitles(list: HTMLElement, tracks: TrackView, languages = false, pane: SubtitlePane = { kind: "tracks" }): void {
     const ai = tracks.ai;
     if (languages && ai !== undefined) {
+        list.appendChild(el("h2", "player-menu-heading", "TRACKS"));
         list.appendChild(choice("ai-language-back", "Back to subtitles", false));
         for (const language of ai.languages) list.appendChild(choice(`ai-language:${language}`, `Translate to ${language.toUpperCase()}`, false));
         return;
     }
+    const searching = tracks.subtitleTools !== undefined && tracks.subtitleTools.search.phase !== "closed";
+    if (pane.kind !== "tracks" || searching) {
+        fillSubtitleTools(list, tracks, pane, true);
+        return;
+    }
+    list.appendChild(el("h2", "player-menu-heading", "TRACKS"));
     list.appendChild(choice(OFF, "Off", tracks.selectedSubtitleId === undefined));
     for (const track of tracks.subtitles) {
         list.appendChild(choice(track.id, track.label, track.id === tracks.selectedSubtitleId, track.detail));
@@ -142,6 +179,7 @@ function fillSubtitles(list: HTMLElement, tracks: TrackView, languages = false):
         if (ai.available.transcribe) list.appendChild(choice("ai-transcribe", "Transcribe current audio", false));
         for (const result of ai.results) list.appendChild(choice(`ai-result:${result.id}`, result.label, false));
     }
+    fillSubtitleTools(list, tracks, pane, false);
 }
 
 function fillQuality(list: HTMLElement, tracks: TrackView): void {
@@ -362,6 +400,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     let column = 0;
     let drawn: string | undefined;
     let aiLanguages = false;
+    let subtitlePane: SubtitlePane = { kind: "tracks" };
 
     const buttons = (index: number): HTMLElement[] => Array.from(lists[index]?.querySelectorAll<HTMLElement>("[data-focus]") ?? []);
     const focusedId = (): string | null => (menu.contains(document.activeElement) ? (document.activeElement?.getAttribute("data-focus") ?? null) : null);
@@ -416,7 +455,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
 
     const drawMenu = (tracks: TrackView): void => {
         const identity = view.phase === "playing" || view.phase === "paused" ? [view.title, view.durationSeconds] : [];
-        const key = JSON.stringify([tracks, aiLanguages, identity]);
+        const key = JSON.stringify([tracks, aiLanguages, subtitlePane, identity]);
         if (key !== drawn) {
             drawn = key;
             const keep = focusedId();
@@ -426,19 +465,21 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                 list.style.display = index === 3 && !hasQuality ? "none" : "";
                 if (index === 0) fillInfo(list, tracks);
                 else if (index === 1) fillAudio(list, tracks);
-                else if (index === 2) fillSubtitles(list, tracks, aiLanguages);
+                else if (index === 2) fillSubtitles(list, tracks, aiLanguages, subtitlePane);
                 else fillQuality(list, tracks);
                 for (const button of buttons(index)) {
                     const id = button.getAttribute("data-focus") ?? "";
                     const aiAction = id === "ai-translate" || id === "ai-transcribe" || id.startsWith("ai-language:");
                     const quota = tracks.ai?.quota;
-                    const blocked = tracks.change.state === "changing" || (id === SERIES_SUBTITLE && tracks.seriesSubtitle?.busy === true) || (aiAction && tracks.ai?.busy === true) || (id === "ai-transcribe" && (quota === undefined || (quota.limited && quota.remaining <= 0)));
+                    const downloading = tracks.subtitleTools?.search.downloadingKey;
+                    const toolBusy = tracks.subtitleTools?.display?.busy === true || downloading !== undefined;
+                    const blocked = tracks.change.state === "changing" || (id === SERIES_SUBTITLE && tracks.seriesSubtitle?.busy === true) || (aiAction && tracks.ai?.busy === true) || (id === "ai-transcribe" && (quota === undefined || (quota.limited && quota.remaining <= 0))) || (toolBusy && id.startsWith("subtitle-") && id !== `subtitle-result:${downloading ?? ""}`);
                     button.setAttribute("aria-disabled", String(blocked));
                 }
             }
             const quota = tracks.ai?.quota;
             const quotaText = tracks.ai?.available.transcribe !== true ? "" : quota === undefined ? "Transcription quota unavailable." : quota.limited ? `Transcription quota: ${Math.max(0, quota.remaining)} remaining (${quota.period}).${quota.remaining <= 0 ? " Quota exhausted." : ""}` : "Transcription quota: unlimited.";
-            menuStatus.textContent = [changeText(tracks), tracks.seriesSubtitle?.message, quotaText, tracks.ai?.message].filter(Boolean).join(" ");
+            menuStatus.textContent = [changeText(tracks), tracks.seriesSubtitle?.message, quotaText, tracks.ai?.message, tracks.subtitleTools?.search.status, tracks.subtitleTools?.search.message, tracks.subtitleTools?.display?.message].filter(Boolean).join(" ");
             const same = keep === null ? undefined : buttons(column).find((button) => button.getAttribute("data-focus") === keep);
             if (same !== undefined) {
                 same.focus();
@@ -451,6 +492,9 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
 
     const closeMenu = (): void => {
         aiLanguages = false;
+        subtitlePane = { kind: "tracks" };
+        const phase = view.phase === "playing" || view.phase === "paused" ? view.tracks.subtitleTools?.search.phase : undefined;
+        if (phase !== undefined && phase !== "closed") controls.subtitleTool({ kind: "search-close" });
         menuOpen = false;
         drawn = undefined;
     };
@@ -781,6 +825,9 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const menuKey = (key: string): void => {
         if (key === "back") {
             if (aiLanguages) { aiLanguages = false; return; }
+            if (subtitlePane.kind !== "tracks") { subtitlePane = subtitlePane.kind === "picker" && subtitlePane.field !== "delay" && subtitlePane.field !== "fontSize" && subtitlePane.field !== "position" ? { kind: "appearance" } : { kind: "tracks" }; return; }
+            const phase = view.phase === "playing" || view.phase === "paused" ? view.tracks.subtitleTools?.search.phase : undefined;
+            if (phase !== undefined && phase !== "closed") { controls.subtitleTool({ kind: "search-back" }); return; }
             closeMenu();
             reveal();
             return;
@@ -817,6 +864,36 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                 aiLanguages = false;
             } else if (id?.startsWith("ai-result:")) {
                 controls.selectAIResult(id.slice("ai-result:".length));
+            } else if (id === "subtitle-search") {
+                controls.subtitleTool({ kind: "search-open" });
+            } else if (id?.startsWith("subtitle-language:")) {
+                controls.subtitleTool({ kind: "search-language", code: id.slice("subtitle-language:".length) });
+            } else if (id === "subtitle-search-back" || id === "subtitle-search-cancel") {
+                controls.subtitleTool({ kind: "search-back" });
+            } else if (id === "subtitle-search-retry") {
+                const code = view.phase === "playing" || view.phase === "paused" ? view.tracks.subtitleTools?.search.language : undefined;
+                if (code !== undefined) controls.subtitleTool({ kind: "search-language", code });
+            } else if (id?.startsWith("subtitle-result:")) {
+                controls.subtitleTool({ kind: "search-download", key: id.slice("subtitle-result:".length) });
+            } else if (id === "subtitle-delay" || id === "subtitle-size" || id === "subtitle-position") {
+                const field = id === "subtitle-delay" ? "delay" : id === "subtitle-size" ? "fontSize" : "position";
+                const next = view.phase === "playing" || view.phase === "paused" ? pickerFor(view.tracks, field) : undefined;
+                if (next !== undefined) subtitlePane = next;
+            } else if (id === "subtitle-appearance") {
+                subtitlePane = { kind: "appearance" };
+            } else if (id === "subtitle-appearance-back" || id === "subtitle-picker-back") {
+                subtitlePane = id === "subtitle-picker-back" && subtitlePane.kind === "picker" && subtitlePane.field !== "delay" && subtitlePane.field !== "fontSize" && subtitlePane.field !== "position" ? { kind: "appearance" } : { kind: "tracks" };
+            } else if (id?.startsWith("subtitle-appearance:")) {
+                const field = id.slice("subtitle-appearance:".length);
+                const next = view.phase === "playing" || view.phase === "paused" ? pickerFor(view.tracks, field) : undefined;
+                if (next !== undefined) subtitlePane = next;
+            } else if (id?.startsWith("subtitle-picker:") && subtitlePane.kind === "picker") {
+                const action = pickerAction(subtitlePane.field, id.slice("subtitle-picker:".length));
+                if (action !== undefined) controls.subtitleTool(action);
+                subtitlePane = subtitlePane.field === "delay" || subtitlePane.field === "fontSize" || subtitlePane.field === "position" ? { kind: "tracks" } : { kind: "appearance" };
+            } else if (id === "subtitle-device") {
+                const enabled = view.phase === "playing" || view.phase === "paused" ? view.tracks.subtitleTools?.display?.deviceOverride === true : false;
+                controls.subtitleTool({ kind: "device", enabled: !enabled });
             } else if (id === "audio-empty") {
                 return;
             } else if (id !== null) {

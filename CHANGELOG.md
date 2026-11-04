@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added subtitle search and download, plus in-player delay, size, position and appearance controls, during playback.
 - Showed Up Next before playback ended with Play Now, Keep Watching and an On Deck row, and refreshed autoplay at episode completion.
 
 ### Fixed

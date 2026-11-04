@@ -1139,3 +1139,37 @@ test("an empty audio list does not trap remote movement between Info and Subtitl
         await page.close();
     }
 });
+
+test("subtitle search and the delay, size, position and appearance rows are remote-operable", async () => {
+    const { page, logs } = await open();
+    const tracks: TrackView = {
+        ...TRACKS,
+        subtitleTools: {
+            search: { offered: true, unavailableReason: "", phase: "closed", suggested: [], other: [], language: undefined, status: "", message: "", warnings: [], canRetry: false, results: [], downloadingKey: undefined },
+            display: { delay: true, styling: true, deviceScope: true, textOpacity: true, delayMs: 0, appearance: DEFAULT_APPEARANCE, deviceOverride: false, busy: false, message: "" },
+            overlay: true,
+        },
+    };
+    try {
+        await show(page, playing(tracks));
+        await openPanel(page);
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
+        assert.match(await text(page, ".player-menu-subtitles"), /Search Subtitles/);
+        assert.match(await text(page, ".player-menu-subtitles"), /Delay[\s\S]*0 ms/);
+        assert.match(await text(page, ".player-menu-subtitles"), /Size[\s\S]*Large/);
+        assert.match(await text(page, ".player-menu-subtitles"), /Position[\s\S]*Bottom/);
+        assert.match(await text(page, ".player-menu-subtitles"), /Appearance[\s\S]*Box, Large, Bottom/);
+        for (let step = 0; step < 5; step += 1) await remote(page, DOWN);
+        assert.equal(await focused(page), "subtitle-delay");
+        await remote(page, ENTER);
+        assert.equal(await focused(page), "subtitle-picker:0");
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "subtitle-picker:100");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ['subtitleTool {"kind":"delay","milliseconds":100}']);
+        assert.deepEqual(logs, []);
+    } finally {
+        await page.close();
+    }
+});

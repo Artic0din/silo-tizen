@@ -492,6 +492,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     }, 0);
                 }
                 current.failure = text ?? "Something went wrong. Try again.";
+                if (current.kind === "calendar") current.calendar.error = error instanceof CalendarTimezoneError ? { headline: "Something went wrong", message: error.message, signIn: false } : errorState(error);
                 if (current.kind === "requests") { current.requests.error = errorState(error); if (!current.requests.unconfirmed && !current.requests.writing) current.requests.action = undefined; }
                 if (current.kind === "requests" && error instanceof ApiError && ["capability_disabled", "capability_not_configured", "capability_unsupported", "permission_denied"].includes(error.problemId ?? "")) void probeRequests();
                 if (top() === current) {
@@ -1380,7 +1381,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             state.data = undefined;
             current.failure = undefined;
             loadRoute(current, true);
-            render();
+            render(value === 0 ? { zone: "days", key: `day:${state.selectedDay}` } : undefined);
         },
     });
     const personalFilter = (current: Extract<Route, { kind: "personal" }>, filter: PersonalFilter): void => {

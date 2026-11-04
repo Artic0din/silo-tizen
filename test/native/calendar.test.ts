@@ -81,14 +81,14 @@ test("authoritative groups and date-only events survive extreme zones and the re
     assert.equal(calendarDestination({ ...repeated[0], type: "future_kind" }), undefined);
 });
 
-test("Calendar instant times use local 12-hour PM, noon and midnight without converting source wall clocks", () => {
+test("Calendar instant and wall times use the viewer's 12-hour clock", () => {
     const timed = decodeCalendar({ events: [{ date: "2026-10-04", items: [event] }] })[0]?.items[0];
     assert.ok(timed);
     for (const [airAt, expected] of [["2026-10-04T04:30:00Z", "3:30 PM"], ["2026-10-04T01:00:00Z", "12:00 PM"], ["2026-10-03T14:00:00Z", "12:00 AM"]]) {
         assert.equal(eventTime({ ...timed, airAt }, "Australia/Melbourne")?.replace(/\s/g, " "), expected);
     }
-    assert.equal(eventTime({ ...timed, airAt: undefined, airTime: "21:00", airTimezone: "America/New_York" }, "Australia/Melbourne"), "21:00 (America/New_York)");
-    assert.equal(eventTime({ ...timed, airAt: undefined, airTime: "21:00", airTimezone: undefined }, "Australia/Melbourne"), "21:00 (source time)");
+    assert.equal(eventTime({ ...timed, airAt: undefined, airTime: "19:30", airTimezone: "America/New_York" }, "Australia/Melbourne"), "7:30 PM");
+    assert.equal(eventTime({ ...timed, airAt: undefined, airTime: "00:00", airTimezone: undefined }, "Australia/Melbourne"), "12:00 AM");
 });
 
 test("Calendar decoder retains all events, metadata and unknown enum values; rejects malformed boundaries", () => {

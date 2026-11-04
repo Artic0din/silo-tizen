@@ -1,8 +1,11 @@
 import type { CalendarDay, CalendarEvent, CalendarFilter } from "../contracts/v2/calendar.ts";
 import type { CalendarQuery } from "../api/calendarOperations.ts";
 import type { Destination } from "./browseModel.ts";
+import type { ErrorState } from "./browseRoutes.ts";
 
 export interface CalendarState {
+    error?: ErrorState;
+    emptyLinkFocus?: boolean;
     start: string | undefined;
     timezone: string | undefined;
     selectedDay: string | undefined;
@@ -61,8 +64,10 @@ export function eventTime(event: CalendarEvent, timezone: string): string | unde
         try { return new Intl.DateTimeFormat(undefined, { timeZone: timezone, hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(event.airAt)); }
         catch { throw new CalendarTimezoneError("Could not format this TV’s timezone. Try again."); }
     }
-    // Without an instant the network wall time is not a viewer-local time.
-    return event.airTime === undefined ? undefined : `${event.airTime}${event.airTimezone ? ` (${event.airTimezone})` : " (source time)"}`;
+    if (event.airTime === undefined) return undefined;
+    const [hour, minute] = event.airTime.split(":").map(Number);
+    const local = new Date(2000, 0, 1, hour, minute);
+    return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hour12: true }).format(local);
 }
 export function calendarDateLabel(date: string, weekday: "short" | "long"): string {
     try { return new Intl.DateTimeFormat(undefined, { weekday, month: "short", day: "numeric" }).format(dayDate(date)); }

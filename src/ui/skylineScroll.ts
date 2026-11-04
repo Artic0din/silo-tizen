@@ -31,6 +31,10 @@ export class SkylineScroll {
     reveal(element: HTMLElement, container: HTMLElement): void {
         if (element.closest(".browse-nav, .skyline-selector:not(.details-audio-picker)") !== null) return;
         const viewport = element.closest<HTMLElement>(".browse-panel-list, .details-audio-picker, .skyline-content") ?? container;
+        if (element.closest("[data-scroll-top]") !== null) {
+            this.move(viewport, 0, 0);
+            return;
+        }
         if (container.dataset.view === "search" && element.closest(".search-filters") !== null) {
             this.move(viewport, 0, 0);
             return;
@@ -48,6 +52,14 @@ export class SkylineScroll {
         }
         const rect = element.getBoundingClientRect();
         const bounds = viewport.getBoundingClientRect();
+        const shelf = element.closest<HTMLElement>('[data-scroll-align="bottom"]');
+        if (shelf !== null) {
+            const section = shelf.getBoundingClientRect();
+            const bottom = viewport.scrollTop + section.bottom - bounds.bottom;
+            const heading = viewport.scrollTop + section.top - bounds.top;
+            this.move(viewport, 0, Math.max(0, Math.min(bottom, heading)));
+            return;
+        }
         // Apple's Requests band is view-aligned: the focused row's top sits on the band's top.
         const aligned = element.closest<HTMLElement>(".requests-row");
         if (aligned !== null) {

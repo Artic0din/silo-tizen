@@ -1,6 +1,6 @@
 import type { CalendarEvent, CalendarFilter } from "../contracts/v2/calendar.ts";
 import type { FocusItem, FocusTarget, View, Zone } from "./browseFocus.ts";
-import { actionButton, artwork, lines, mediaItem, zoneNode, type ViewContext } from "./browseViews.ts";
+import { actionButton, artwork, FAILURE_ICON, mediaItem, searchState, zoneNode, type ViewContext } from "./browseViews.ts";
 import { calendarDateLabel, calendarDestination, calendarEventKeys, calendarWeek, CalendarTimezoneError, dayDate, eventTime, localDateKey, shiftDay, type CalendarState } from "./calendarState.ts";
 import { el } from "./screen.ts";
 
@@ -16,6 +16,8 @@ export interface CalendarHandlers {
 }
 const FILTERS = [["following", "Following"], ["trending", "Trending"], ["everything", "All"]] as const;
 const BADGES: Readonly<Record<string, string>> = { series_premiere: "PREMIERE", season_premiere: "NEW SEASON", finale: "FINALE" };
+const CALENDAR_ICON = '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3"><rect x="5" y="9" width="38" height="34" rx="4"/><path d="M5 19h38M15 3v12M33 3v12M24 25v8m0 4v1"/></svg>';
+const MOON_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 18A9 9 0 0 1 7 4a9 9 0 1 0 13 12zM18 1l1 3 3 1-3 1-1 3-1-3-3-1 3-1z"/></svg>';
 
 function eventCard(event: CalendarEvent, key: string, timezone: string, context: ViewContext): FocusItem {
     const destination = calendarDestination(event);
@@ -49,7 +51,7 @@ export function calendarView(state: CalendarState, handlers: CalendarHandlers): 
     try { return calendarContent(state, handlers); }
     catch (error) {
         if (!(error instanceof CalendarTimezoneError)) throw error;
-        return calendarContent({ ...state, start: undefined, data: undefined }, { ...handlers, busy: false, failure: error.message });
+        return calendarContent({ ...state, start: undefined, data: undefined, error: { headline: "Something went wrong", message: error.message, signIn: false } }, { ...handlers, busy: false, failure: error.message });
     }
 }
 function calendarContent(state: CalendarState, handlers: CalendarHandlers): View {
@@ -74,8 +76,8 @@ function calendarContent(state: CalendarState, handlers: CalendarHandlers): View
     });
     const zones: Zone[] = [{ id: "filters", layout: "row", items: filters, entry: `filter:${state.filter}` }];
     const content = [zoneNode("browse-actions calendar-filters", filters)];
-    const status = el("div", `calendar-status${state.data === undefined && (busy || failure !== undefined) ? " calendar-pending" : ""}`);
-    status.append(...lines(failure !== undefined ? [failure] : busy ? ["Loading the week."] : [], failure === undefined ? "info" : "error"));
+    const status = el("div", "calendar-status");
+    status.setAttribute("data-calendar-busy", String(busy));
     const shelves = dates.map(date => {
         const day = state.data?.days.find(day => day.date === date);
         const keys = calendarEventKeys(day?.items ?? []);
@@ -112,15 +114,35 @@ function calendarContent(state: CalendarState, handlers: CalendarHandlers): View
     const stripItems = [...controls.slice(0, 1), ...days, ...controls.slice(1)];
     const strip = zoneNode("calendar-week", stripItems);
     if (dates[3] !== undefined) strip.appendChild(el("span", "calendar-month", new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(dayDate(dates[3]))));
+    strip.setAttribute("data-scroll-top", "");
+    content[0]?.setAttribute("data-scroll-top", "");
     content.push(strip, status);
     const dayZone: Zone = { id: "days", layout: "row", items: stripItems, get entry() { return `day:${state.selectedDay ?? dates[0]}`; } };
     zones.push(dayZone);
+    if (state.data === undefined) {
+        if (failure !== undefined) {
+            const error = state.error ?? { headline: "Something went wrong", message: failure };
+            const page = searchState(error.headline, error.message, "calendar-failure", FAILURE_ICON);
+            page.setAttribute("role", "alert");
+            const action = actionButton("retry", "Try Again", retry);
+            page.appendChild(zoneNode("browse-actions", [action]));
+            content.push(page);
+            zones.push({ id: "status", layout: "row", items: [action] });
+        } else {
+            const page = el("div", "calendar-loading");
+            page.tabIndex = -1;
+            page.setAttribute("data-focus", "calendar-page");
+            page.setAttribute("aria-label", "Loading Calendar");
+            page.setAttribute("role", "status");
+            content.push(page);
+            zones.push({ id: "status", layout: "row", items: [{ key: "calendar-page", element: page }] });
+        }
+    }
     const empty = state.data !== undefined && !busy && failure === undefined && shelves.every(shelf => shelf.items.length === 0);
     if (empty) {
         const copy = state.filter === "following" ? ["Nothing from shows you follow", "No upcoming releases this week from shows you watch, favorite, or watchlist."] : state.filter === "trending" ? ["Nothing trending this week", "No trending movie releases or episode airings in this week."] : ["Nothing scheduled this week", "No movie releases or episode airings in this week."];
-        const panel = el("section", "calendar-empty");
-        panel.append(el("h2", "calendar-empty-title", copy[0]), el("p", "calendar-empty-subtitle", copy[1]));
-        const links = FILTERS.filter(([value]) => value !== state.filter).map(([value, label]) => actionButton(`empty:${value}`, label, () => change(value)));
+        const panel = searchState(copy[0] ?? "", copy[1] ?? "", "calendar-empty", CALENDAR_ICON);
+        const links = FILTERS.filter(([value]) => value !== state.filter).map(([value, label]) => actionButton(`empty:${value}`, label, () => { state.emptyLinkFocus = true; change(value); }));
         panel.appendChild(zoneNode("calendar-empty-links", links));
         content.push(panel);
         zones.push({ id: "empty", layout: "row", items: links });
@@ -129,20 +151,34 @@ function calendarContent(state: CalendarState, handlers: CalendarHandlers): View
         const section = el("section", "calendar-shelf");
         section.style.setProperty("--calendar-scale", String(context.posterScale?.() ?? 1));
         section.setAttribute("data-section", shelf.date);
+        section.setAttribute("data-scroll-align", "bottom");
         const heading = shelf.date === today ? "Today" : shelf.date === shiftDay(today, 1) ? "Tomorrow" : new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" }).format(dayDate(shelf.date));
         section.appendChild(el("h2", "browse-section-title", heading));
         section.classList.toggle("calendar-shelf-empty", shelf.items.length === 0);
         section.appendChild(shelf.items.length === 0 ? el("p", "browse-text", "Nothing scheduled") : zoneNode("browse-row", shelf.items));
-        for (const item of shelf.items) item.element.addEventListener("focus", () => {
-            state.selectedDay = shelf.date;
-            for (const day of days) day.element.setAttribute("aria-pressed", String(day.key === `day:${shelf.date}`));
-        });
+        if (shelf.items.length === 0) {
+            const icon = el("span", "calendar-moon");
+            icon.setAttribute("aria-hidden", "true");
+            icon.innerHTML = MOON_ICON;
+            section.lastElementChild?.prepend(icon);
+        }
         content.push(section);
-        zones.push({ id: shelf.date, layout: "row", items: shelf.items, entry: shelf.items[0]?.key });
+        zones.push({ id: shelf.date, layout: "row", items: shelf.items, spatial: true });
     }
-    const actions = [...(busy || failure !== undefined ? [actionButton("retry", "Try again", retry)] : []), actionButton("back", "Back", back)];
-    content.push(zoneNode("browse-actions", actions));
-    zones.push({ id: "status", layout: "row", items: actions });
+    if (failure !== undefined && state.data !== undefined) {
+        // A failed quiet refresh retains its cards, as CalendarViewModel.load does.
+        const action = actionButton("retry", "Try Again", retry);
+        status.setAttribute("role", "alert");
+        status.appendChild(el("p", "browse-text", state.error?.message ?? failure));
+        content.push(zoneNode("browse-actions", [action]));
+        zones.push({ id: "status", layout: "row", items: [action] });
+    }
     const first = days.find(day => day.key === `day:${state.selectedDay}`) ?? days[0];
-    return { name: "calendar", content, zones, focus: first === undefined ? { zone: "status", key: failure === undefined ? "back" : "retry" } : { zone: "filters", key: `filter:${state.filter}` }, back };
+    let initial = first === undefined ? { zone: "status", key: failure === undefined ? "calendar-page" : "retry" } : { zone: "filters", key: `filter:${state.filter}` };
+    if (state.emptyLinkFocus) {
+        if (empty) initial = { zone: "empty", key: `empty:${FILTERS.find(([value]) => value !== state.filter)?.[0]}` };
+        else if (state.data === undefined) initial = { zone: "status", key: failure === undefined ? "calendar-page" : "retry" };
+        if (state.data !== undefined) state.emptyLinkFocus = false;
+    }
+    return { name: "calendar", content, zones, focus: initial, back };
 }

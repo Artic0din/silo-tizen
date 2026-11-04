@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Corrected Calendar wall-clock times, spatial shelf return and top restoration, clipped captions, strip placement, and Apple-style loading, empty and error states after native comparison.
+
 - Prevented large Search posters from overlapping and kept catalog errors and Try Again visible while People results were pending.
 - Restored related titles on Details when the server returned cards without catalog pagination totals.
 - Made Enter on the player's default focus skip the intro, recap or credits while the Skip control shows, instead of pausing.

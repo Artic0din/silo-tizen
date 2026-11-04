@@ -63,7 +63,7 @@ async function activate(tv: Tv, key: string): Promise<void> {
 const reads = (tv: Tv) => tv.fake.requests.filter(request => request.path.startsWith("/calendar?"));
 async function ready(tv: Tv, count?: number): Promise<void> {
     try {
-        await tv.eventually(async () => await tv.page.locator('.browse[data-view="calendar"]').count() === 1 && await tv.page.getByText("Loading the week.", { exact: true }).count() === 0 && (count === undefined || await tv.page.locator(".calendar-event").count() === count), "loaded Calendar");
+        await tv.eventually(async () => await tv.page.locator('.browse[data-view="calendar"]').count() === 1 && await tv.page.locator('[data-calendar-busy="false"]').count() === 1 && await tv.page.locator('.calendar-loading').count() === 0 && (count === undefined || await tv.page.locator(".calendar-event").count() === count), "loaded Calendar");
     } catch (error: unknown) {
         const state = await tv.page.evaluate(() => ({
             view: document.querySelector("[data-view]")?.getAttribute("data-view"),
@@ -86,12 +86,54 @@ function calendarTest(name: string, body: (tv: Tv, catalog: FakeCalendar) => Pro
     });
 }
 
+calendarTest("Calendar spatial shelf return preserves selection, row and heading", async (tv, catalog) => {
+    catalog.events = catalog.events.flatMap(event => event.type === "movie" && event.content_id.startsWith("movie:m") ? [event, { ...event, local_air_date: "2025-12-30", air_date: "2025-12-30" }] : [event]);
+    await activate(tv, "calendar"); await ready(tv);
+    await activate(tv, "filter:everything"); await ready(tv);
+    await activate(tv, "day:2026-01-02");
+    await tv.page.locator('[data-section="2025-12-29"] .calendar-event').nth(7).focus();
+    await tv.page.keyboard.press("ArrowRight"); await tv.page.clock.runFor(500);
+    const key = await tv.focused();
+    await tv.page.keyboard.press("ArrowDown"); await tv.page.clock.runFor(500);
+    await tv.page.keyboard.press("ArrowUp"); await tv.page.clock.runFor(500);
+    assert.equal(await tv.focused(), key, "Up retains the spatial column instead of choosing the first card");
+    const section = await tv.page.locator('[data-section="2025-12-29"] h2').boundingBox();
+    const viewport = await tv.page.locator('.skyline-content').boundingBox();
+    assert.ok(section && viewport && section.y >= viewport.y, "shelf heading stays visible");
+    await tv.page.keyboard.press("ArrowUp"); await tv.page.clock.runFor(500);
+    assert.equal(await tv.focused(), "day:2026-01-02", "shelf focus does not change the selected date");
+    assert.equal(await tv.page.locator('.skyline-content').evaluate(node => node.scrollTop), 0);
+});
+
+calendarTest("Calendar native comparison placeholders and captions", async (tv, catalog) => {
+    const held = tv.fake.hold("/calendar", true);
+    await activate(tv, "calendar");
+    await tv.page.locator('.calendar-loading').waitFor();
+    assert.equal(await tv.page.locator('.calendar-loading').innerText(), "");
+    assert.equal(await tv.page.locator('[data-focus="retry"], [data-focus="back"]').count(), 0);
+    held.release(); await ready(tv, 3);
+    assert.equal(await tv.page.locator('.calendar-week').evaluate(node => node.getBoundingClientRect().y), 281, JSON.stringify(await tv.page.locator('.calendar-filters').evaluate(node => ({ height: node.getBoundingClientRect().height, margin: getComputedStyle(node).margin, y: node.getBoundingClientRect().y }))));
+    const card = tv.page.locator('.calendar-event').first();
+    assert.deepEqual(await card.locator('.browse-card-title').evaluate(node => [getComputedStyle(node).fontSize, getComputedStyle(node).fontWeight]), ["28px", "600"]);
+    assert.equal(await card.locator('.browse-card-subtitle').evaluate(node => getComputedStyle(node).whiteSpace), "nowrap");
+    await activate(tv, "next-week"); await ready(tv, 0);
+    assert.equal(await tv.page.locator('.calendar-empty svg').count(), 1);
+    assert.equal(await tv.page.locator('[data-focus="back"]').count(), 0);
+    await activate(tv, "empty:trending"); await ready(tv, 0);
+    assert.equal(await tv.focused(), "empty:following");
+    catalog.calendarFailure = problem(503, "service_unavailable", "Unavailable");
+    await activate(tv, "filter:everything");
+    await tv.page.getByText("Something went wrong", { exact: true }).waitFor();
+    assert.equal(await tv.page.locator('.calendar-failure svg').count(), 1);
+    assert.equal(await tv.page.locator('.calendar-failure [data-focus="retry"]').evaluate(node => node.getBoundingClientRect().width), 200);
+});
+
 for (const reducedMotion of ["no-preference", "reduce"] as const) {
     calendarTest(`Calendar combined week presentation and remote entry (${reducedMotion})`, async tv => {
         await tv.page.emulateMedia({ reducedMotion });
         const held = tv.fake.hold("/calendar", true);
         await activate(tv, "calendar");
-        await tv.page.getByText("Loading the week.", { exact: true }).waitFor();
+        await tv.page.locator('.calendar-loading').waitFor();
         assert.equal(await tv.page.locator('.calendar-day[data-has-events]').count(), 0, "pending days are unknown");
         assert.equal(await tv.page.locator('.calendar-event-dot').count(), 0);
         held.release(); await ready(tv, 3);
@@ -236,8 +278,8 @@ calendarTest("Calendar complete remote journey retains every event and restores 
 calendarTest("Calendar filters, empty weeks, Today, loading, decode failure and generic 404 recover", async (tv, catalog) => {
     const held = tv.fake.hold("/calendar", true);
     await activate(tv, "calendar");
-    await tv.page.getByText("Loading the week.", { exact: true }).waitFor();
-    assert.equal(await tv.page.locator('[data-focus="retry"]').count(), 1); assert.equal(await tv.page.locator('[data-focus="back"]').count(), 1);
+    await tv.page.locator('.calendar-loading').waitFor();
+    assert.equal(await tv.page.locator('[data-focus="retry"]').count(), 0); assert.equal(await tv.page.locator('[data-focus="back"]').count(), 0);
     await activate(tv, "filter:trending"); await ready(tv, 2);
     held.release(); await tv.jump(0); assert.equal(await tv.page.locator(".calendar-event").count(), 2);
     await activate(tv, "next-week"); await ready(tv, 0);
@@ -250,10 +292,10 @@ calendarTest("Calendar filters, empty weeks, Today, loading, decode failure and 
     assert.equal(await tv.page.locator('[data-focus="today"]').count(), 0);
     catalog.calendarFailure = problem(404, "not_found", "Not found");
     await activate(tv, "filter:everything");
-    await tv.page.getByText("Could not load Calendar. Try again.").waitFor();
+    await tv.page.getByText("We couldn't find what you were looking for. It may have been removed or moved.").waitFor();
     assert.equal(await tv.page.getByText(/unsupported/i).count(), 0);
     catalog.calendarFailure = { status: 200, body: { events: null } };
-    await activate(tv, "retry"); await tv.page.getByText("The server sent an answer this TV could not read.").waitFor();
+    await activate(tv, "retry"); await tv.page.getByText("The server response was in an unexpected format.").waitFor();
     catalog.calendarFailure = undefined;
     await activate(tv, "retry"); await ready(tv, 32);
     assert.deepEqual(reads(tv).map(r => new URL(r.path, "https://fake.invalid").searchParams.get("filter")).slice(0, 3), ["following", "trending", "trending"]);
@@ -383,7 +425,7 @@ calendarTest("Calendar failed revalidation retains only the current window with 
     await tv.eventually(async () => await tv.page.locator('.browse[data-view="item:movie:m0001"]').count() === 1, "Details");
     catalog.calendarFailure = problem(503, "service_unavailable", "Unavailable", { "Retry-After": "30" });
     await tv.remote(10009); await tv.jump(1000);
-    await tv.page.getByText("The server had a problem. Try again in a moment.").waitFor();
+    await tv.page.getByText("Unavailable", { exact: true }).waitFor();
     const statusBox = await tv.page.locator('.calendar-status .browse-text').boundingBox();
     const shelfBox = await tv.page.locator('.calendar-shelf').first().boundingBox();
     assert.ok(statusBox && shelfBox && statusBox.y + statusBox.height <= shelfBox.y, "retained error does not overlap the shelf heading");
@@ -490,7 +532,7 @@ calendarTest("Calendar loading status leaves the origin shelf geometry unchanged
     const before = await shelfTop(); await tv.page.keyboard.press("Enter");
     await tv.eventually(async () => await tv.page.locator('.browse[data-view="item:movie:m0001"]').count() === 1, "Details");
     const held = tv.fake.hold("/calendar", true); await tv.remote(10009);
-    await tv.page.getByText("Loading the week.", { exact: true }).waitFor();
+    await tv.page.locator('.calendar-event').first().waitFor();
     assert.equal(await shelfTop(), before, "a refresh status must not move event shelves above restored focus");
     held.release();
 });

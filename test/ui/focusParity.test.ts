@@ -676,9 +676,9 @@ test("calendar return keeps the focused event visible", async () => {
         assert.equal(await visibleFocus(tv), true, "calendar return keeps the event visible");
         const reads = tv.fake.requests.filter(request => request.path.startsWith("/calendar?")).length;
         await tv.page.keyboard.press("ArrowUp");
-        assert.equal(await tv.focused(), "day:2025-12-29", "shelf return enters the combined strip on its selected day");
+        assert.equal(await tv.focused(), "day:2026-01-02", "shelf return preserves the selected date instead of changing it on card focus");
         assert.equal(await visibleFocus(tv), true, "selected strip day remains visible above the shelf");
-        await tv.page.keyboard.press("ArrowLeft");
+        for (let index = 0; index < 5; index++) await tv.page.keyboard.press("ArrowLeft");
         assert.equal(await tv.focused(), "previous-week");
         assert.equal(await visibleFocus(tv), true, "the strip chevron has visible focus");
         assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/calendar?")).length, reads);

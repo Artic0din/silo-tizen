@@ -68,7 +68,8 @@ export function harnessBundle(app: TvApp = "signIn"): Promise<string> {
 }
 
 export function launchBrowser(): Promise<Browser> {
-    return chromium.launch();
+    // Hinted glyph advances differ on Linux and shift text by a few pixels; geometry tests compare against Apple's values.
+    return chromium.launch({ args: ["--font-render-hinting=none"] });
 }
 
 export interface Tv {

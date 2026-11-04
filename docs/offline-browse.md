@@ -21,12 +21,13 @@ It keeps at most 32 responses overall, including at most 20 Details/season respo
 Oldest written responses leave first.
 Metadata writes and returning from playback invalidate snapshots, with a generation fence against older reads.
 While a cached page is unreachable, the visible route retries its normal reads after 15 seconds.
-Recovery replaces the metadata and removes the notice.
+Cached metadata stays on screen without an unreachable notice, matching Apple TV.
+Recovery replaces the metadata.
 The app uses native API v2 reads for recovery, because Apple's unversioned health endpoint is outside this client's contract.
 
 ## Apple reference
 
-Read-only source: `Silo-Server/silo-apple`, commit `bbd1e470f0e1d3a99f486d0d7246d11ed1c97d55`.
+Read-only `origin/main` source: `Silo-Server/silo-apple`, commit `bef81e8652a89c23a1c3cf07e312e9444baa6c4c`.
 This identifies source, not an installed Apple build.
 
 - `iosApp/iosApp/Networking/ResponseCache.swift:7-12`: decoded responses, stale while revalidating, no TTL or LRU at this owner.
@@ -36,11 +37,12 @@ This identifies source, not an installed Apple build.
 - `iosApp/iosApp/Screens/Home/HomeView.swift:53-107`: reachable tvOS feed, Retry/Manage Servers on a cold failure; `:177-185` belongs to the non-tvOS branch.
 - `iosApp/iosApp/Screens/Recommendations/RecommendationsViewModel.swift:16-51`: hydrate recommendations and retain them on failure.
 - `iosApp/iosApp/tvOS/Caching/ItemDetailCache.swift:34`: 20 view models, bounded LRU.
-- `iosApp/iosApp/Components/ServerUnreachablePill.swift:19-22`: unreachable/offline copy.
+- `iosApp/iosApp/Screens/Recommendations/RecommendationsView.swift:106-159`: tvOS keeps its Skyline feed with no unreachable notice.
+- `iosApp/iosApp/tvOS/Screens/Detail/TVItemDetailView.swift:63-84`: cached Details paints while refreshing, with no unreachable notice.
 - `iosApp/iosApp/Networking/ConnectionMonitor.swift:189-190`: 15-second recovery interval; `:264-275` uses a health path Tizen does not call.
 
-The requested Tizen notice is shown on cached Home, For You and Details.
-It is not claimed as a tvOS Home overlay match: the cited shared-view overlay is not reachable on tvOS.
+Home's `ServerUnreachablePill` at line 180 sits after the non-tvOS `#else` at line 107.
+Tizen follows the tvOS branch and keeps cached Home, For You and Details visible without that notice.
 Downloads are excluded; no tvOS download flow is ported.
 The byte budget, metadata-only artwork fallback, conservative cache invalidation and recovery through page reads are explicit Tizen choices.
 
@@ -57,12 +59,12 @@ The PR must remain unmerged until same-state Apple/Samsung comparison passes.
    The platform transport calls `window.fetch` dynamically (`src/platform.ts:66`), so this affects the current app session without changing the server.
    Restore the saved function to recover; do not reload the app while that temporary override is required.
 4. Navigate away and return, including opening the previously loaded Details page.
-   Record retained metadata, artwork fallbacks, unreachable notice, remote focus and Back navigation.
+   Record retained metadata, artwork fallbacks, absence of an unreachable notice, remote focus and Back navigation.
    Check a cold uncached title and a failed action for honest failure handling.
-5. Restore network access and record fresh content and notice removal after the next recovery read.
+5. Restore network access and record fresh content after the next recovery read.
    Switch profiles, sign out and remove the saved account in separate runs; verify old content never appears under the new authority.
    Repeat with optional storage unavailable.
 
 Use the Apple platform's own authorised network controls for the same-state unreachable capture.
-Record differences rather than claiming the requested notice already matches tvOS.
+Record any differences from the tvOS cached-content behavior.
 Simulator proof does not establish physical-TV CORS, AVPlay or hardware acceptance.

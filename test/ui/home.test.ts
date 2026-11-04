@@ -39,10 +39,11 @@ journey("Home retains cached rows after remount offline and refreshes on recover
     await tv.jump(35000);
     await tv.eventually(async () => (await homeTitles(tv)).length > 0, "cached Home rows");
     assert.deepEqual(await homeTitles(tv), before);
-    assert.match(await tv.page.locator(".browse").innerText(), /Can't reach server — showing cached content/);
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.cacheOffline()), "cached transport failure");
+    assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Can't reach server|showing cached content/);
     await tv.page.unroute("**/api/v2/**");
     await tv.jump(50000);
-    await tv.eventually(async () => !(await tv.page.locator(".browse").innerText()).includes("Can't reach server"), "recovered Home");
+    await tv.eventually(() => tv.page.evaluate(() => !window.browseHarness.cacheOffline()), "recovered Home");
 });
 
 journey("Details reopens cached metadata while unreachable", async tv => {
@@ -54,7 +55,8 @@ journey("Details reopens cached metadata while unreachable", async tv => {
     await tv.page.locator(card).click();
     await tv.page.locator('[data-view="item:movie:m0004"] h1').waitFor();
     await tv.jump(35000);
-    await tv.eventually(async () => (await tv.page.locator(".browse").innerText()).includes("Can't reach server — showing cached content"), "cached Details notice");
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.cacheOffline("movie:m0004")), "cached transport failure");
+    assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Can't reach server|showing cached content/);
     assert.match(await tv.page.locator(".browse").innerText(), /Movie 0004/);
 });
 
@@ -62,7 +64,7 @@ journey("Home resumes cached recovery after a hidden retry deadline", async tv =
     await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
     await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
     await tv.jump(35000);
-    await tv.eventually(async () => (await tv.page.locator(".browse").innerText()).includes("Can't reach server"), "offline notice");
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.cacheOffline()), "cached transport failure");
     await tv.page.evaluate(() => {
         Object.defineProperty(document, "hidden", { configurable: true, value: true });
         Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
@@ -75,7 +77,7 @@ journey("Home resumes cached recovery after a hidden retry deadline", async tv =
         Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
         document.dispatchEvent(new Event("visibilitychange"));
     });
-    await tv.eventually(async () => !(await tv.page.locator(".browse").innerText()).includes("Can't reach server"), "foreground recovery");
+    await tv.eventually(() => tv.page.evaluate(() => !window.browseHarness.cacheOffline()), "foreground recovery");
 });
 
 journey("automatic cached Details recovery preserves an open More panel", async tv => {
@@ -92,7 +94,7 @@ journey("automatic cached Details recovery preserves an open More panel", async 
     await tv.remote(10009);
     await tv.page.unroute("**/api/v2/**");
     await tv.jump(35000);
-    await tv.eventually(async () => !(await tv.page.locator(".browse").innerText()).includes("Can't reach server"), "recovery after panel closes");
+    await tv.eventually(() => tv.page.evaluate(() => !window.browseHarness.cacheOffline("movie:m0004")), "recovery after panel closes");
 });
 
 journey("Details retries a recovery response deferred by a newly opened control", async tv => {
@@ -110,7 +112,7 @@ journey("Details retries a recovery response deferred by a newly opened control"
     await tv.page.locator('[data-focus="more"]').click();
     await tv.page.getByRole("dialog", { name: "More", exact: true }).waitFor();
     held.release(); await tv.jump(0);
-    await tv.eventually(async () => !(await tv.page.locator(".browse").innerText()).includes("Can't reach server"), "successful recovery deferred");
+    await tv.eventually(() => tv.page.evaluate(() => !window.browseHarness.cacheOffline("movie:m0004")), "successful recovery deferred");
     const deferred = reads();
     await tv.remote(10009);
     await tv.eventually(async () => reads() > deferred, "idle Details refresh resumes");

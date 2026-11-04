@@ -213,7 +213,9 @@ test("For You retains cached recommendations after remount while unreachable", a
         await tv.page.locator('[data-focus="for_you"]').click();
         await tv.page.locator('[data-view="for_you"] .browse-card').first().waitFor();
         await tv.jump(35000);
-        await tv.eventually(async () => (await tv.page.locator(".browse").innerText()).includes("Can't reach server — showing cached content"), "cached For You notice");
+        await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.cacheOffline("for_you")), "cached transport failure");
+        assert.ok(await tv.page.locator('[data-view="for_you"] .browse-card').count() > 0);
+        assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Can't reach server|showing cached content/);
     } finally { await tv.page.context().close(); }
 });
 

@@ -1319,7 +1319,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         container.classList.toggle("requests-hub", current.kind === "requests" && current.requests.source.kind === "hub");
         if (browsing) activeBrowse = current.pages;
         if (isSectionRoute(current)) activeSection = sectionCatalog(current);
-        let view = activeSection !== undefined && isSectionRoute(current)
+        const view = activeSection !== undefined && isSectionRoute(current)
             ? activeSection.view(current, context, loading !== undefined, pop, () => retry(current), () => {
                 if (top() !== current || torn || playing || loading !== undefined || cardActions.active || synopsis.active || settingsScreen !== undefined || current.failure !== undefined || current.pages.page?.nextCursor === undefined) return;
                 loadSection(current, true, true);
@@ -1331,11 +1331,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || current.kind === "personal" || current.kind === "calendar";
         cancelOfflineRefresh();
         if (routeOffline(current) || deferredDetails.has(current)) {
-            if (routeOffline(current) && hasData(current)) {
-                const notice = el("p", "browse-offline", "Can't reach server — showing cached content");
-                notice.setAttribute("role", "status");
-                view = { ...view, content: [notice, ...view.content] };
-            }
             cancelOfflineRefresh = clock.schedule(() => recoverCachedRoute(current), 15000);
         }
         if (rootRoute) {

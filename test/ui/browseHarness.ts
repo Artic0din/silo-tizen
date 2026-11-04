@@ -6,7 +6,8 @@
 import type { ConnectedServer } from "../../src/session/core.ts";
 import { connect } from "../../src/session/core.ts";
 import { type Browse, mountBrowse, type PlayRequest } from "../../src/ui/browse.ts";
-import { clearBrowseCache } from "../../src/session/browseCache.ts";
+import { browseCache, clearBrowseCache } from "../../src/session/browseCache.ts";
+import { operations } from "../../src/api/operations.ts";
 import { FakeKeyManager, MemoryPublicStorage } from "../native/support/keyManager.ts";
 
 export interface BrowseHarness {
@@ -22,6 +23,7 @@ export interface BrowseHarness {
     resume(): void;
     destroy(): void;
     clearResponseCache(): void;
+    cacheOffline(route?: "home" | "for_you" | "movie:m0004"): boolean;
     failPublicStorage(read: boolean, write: boolean): void;
     hasImageCapabilityCache(): boolean;
     /** As the profile screens do on Switch profile: clear the profile, which ends browse's authority. */
@@ -129,6 +131,16 @@ const harness: BrowseHarness = {
         browse?.destroy();
     },
     clearResponseCache() { clearBrowseCache(publicStorage); },
+    cacheOffline(route = "home") {
+        const server = connected();
+        const session = server.session;
+        if (session.activeProfile === undefined) throw new Error("missing active profile");
+        const cache = browseCache(publicStorage, [server.server.serverId, session.account?.id ?? "", session.activeProfile.id], session.authoritySignal);
+        const specs = route === "home" ? [operations.listHomeSections(), operations.listUserLibraries(), operations.hiddenLibraries()]
+            : route === "for_you" ? [operations.recommendations()]
+            : [operations.getCatalogItem(route), operations.listSeriesSeasons(route)];
+        return specs.some(spec => cache.isOffline(spec));
+    },
     failPublicStorage(read, write) {
         publicStorage.failGet = read;
         publicStorage.failSet = write;

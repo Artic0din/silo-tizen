@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Drew the TV icon on Returning, Cancelled and Ended badges and raised Home headings by using Skyline's 14px card padding.
 - Raised the focused Search poster, darkened the Continue Watching focus shadow, showed the Returning badge on Search cards, and hid the watched tick on Related titles.
 - Matched Apple TV library shelf order and the Recommended, Collections and Browse section menu, keeping Collections in its own destination.
 - Restored each page's hero after returning from the profile menu and painted the avatar's white focus ring above its image.

@@ -121,7 +121,7 @@ detailTest('Movie uses rounded runtime, rating artwork, comma genres and compact
     assert.equal(await tv.page.locator('.details-external-rating img').getAttribute('alt'), 'TMDB');
     assert.equal(await tv.page.locator('[data-track-summary="version"] span').textContent(), 'Auto · 1080p');
     assert.equal(await tv.page.locator('[data-track-summary="audio"] span').textContent(), 'Auto · English · EAC3 · 5.1');
-    const title = await tv.page.locator('.details-editorial .browse-title').boundingBox(); assert.equal(title?.y, 116);
+    await tv.eventually(async () => tv.page.locator('.details-editorial .browse-title').evaluate(node => node.isConnected && node.getBoundingClientRect().y === 116), 'title retains the y116 anchor after optional-data repaint');
 });
 
 detailTest('Auto subtitle readout resolves forced tracks using effective and explicitly selected audio', async tv => {

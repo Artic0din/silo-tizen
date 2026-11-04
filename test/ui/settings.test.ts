@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
-import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY } from "../../src/contracts/v2/settings.ts";
+import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, SHOW_FORCED_KEY } from "../../src/contracts/v2/settings.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
@@ -35,6 +35,45 @@ async function openSettings(tv: Tv): Promise<void> {
     await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
     await tv.page.getByRole("button", { name: /Hidden libraries/ }).waitFor();
 }
+
+test("Subtitles, the profile account line and sign-out confirmation follow Apple TV", async () => {
+    const { tv, settings } = await setup();
+    settings.profileSubtitles = true;
+    try {
+        await openSettings(tv);
+        assert.deepEqual(await tv.page.locator(".settings-categories [data-focus]").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus"))), ["settings-profile", "general", "playback", "subtitles", "server", "settings-signout"]);
+        const profile = tv.page.locator('[data-focus="settings-profile"]');
+        assert.equal(await profile.locator(".settings-profile-name").textContent(), "Laura");
+        assert.equal(await profile.locator(".settings-profile-account").textContent(), "laura");
+        assert.equal(await tv.page.locator(".settings-version").textContent(), "Silo 0.0.1");
+        assert.equal(await tv.page.getByRole("button", { name: /Diagnostics/ }).count(), 0);
+        assert.equal(await tv.page.locator('[data-focus="subtitles"] .settings-category-detail').textContent(), "Language and appearance");
+        await tv.page.locator('[data-focus="subtitles"]').click();
+        assert.equal(await tv.page.locator(".settings-blurb").textContent(), "Language, behavior, and on-screen appearance.");
+        assert.equal(await tv.page.locator('[data-focus="subtitle-language"] .settings-row-value').textContent(), "None");
+        assert.equal(await tv.page.locator('[data-focus="subtitle-mode"] .settings-row-value').textContent(), "Auto");
+        assert.equal(await tv.page.locator('[data-focus="subtitle-forced"]').getAttribute("aria-checked"), "true");
+        await tv.page.getByText("Used to pick a matching track when one is available. Forced subtitles cover foreign-language dialogue even when subtitles are off or set to auto.", { exact: true }).waitFor();
+        await tv.page.locator('[data-focus="subtitle-language"]').click();
+        await tv.page.getByRole("radio", { name: "en", exact: true }).click();
+        await tv.page.locator('[data-focus="subtitle-language"]').waitFor();
+        assert.equal(settings.profile().get(SUBTITLE_LANGUAGE_KEY), "en");
+        assert.equal(await tv.page.locator('[data-focus="subtitle-language"] .settings-row-value').textContent(), "en");
+        await tv.page.locator('[data-focus="subtitle-mode"]').click();
+        assert.deepEqual(await tv.page.getByRole("radio").allTextContents(), ["Auto", "Always", "Off"]);
+        await tv.page.getByRole("radio", { name: "Always", exact: true }).click();
+        await tv.page.locator('[data-focus="subtitle-mode"]').waitFor();
+        assert.equal(settings.profile().get(SUBTITLE_MODE_KEY), "always");
+        await tv.page.locator('[data-focus="subtitle-forced"]').click();
+        await tv.eventually(async () => settings.profile().get(SHOW_FORCED_KEY) === false, "forced subtitles off");
+        assert.equal(tv.fake.requests.filter(request => request.method === "PUT" && request.path.startsWith(`/settings/values/${SHOW_FORCED_KEY}?scope=profile`)).length, 1);
+        await tv.page.locator('[data-focus="settings-signout"]').click();
+        await tv.page.getByRole("heading", { name: "Sign out of laura on this server?" }).waitFor();
+        await tv.page.getByText("This account's profiles and settings leave this TV. The server stays saved, so you can sign in again.", { exact: true }).waitFor();
+        assert.equal(await tv.focused(), "cancel-signout");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
 
 test("Apple Settings rail enters the first row, shows separate values and restores modal focus", async () => {
     const { tv } = await setup(true);

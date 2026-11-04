@@ -1,5 +1,5 @@
 import type { NativeSession } from "../session/session.ts";
-import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, TITLE_ART_KEY, numericLibraryId, type SettingValue, type SettingsKey } from "../contracts/v2/settings.ts";
+import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SHOW_FORCED_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, TITLE_ART_KEY, numericLibraryId, type SettingValue, type SettingsKey } from "../contracts/v2/settings.ts";
 import { FocusHost, type FocusItem, type FocusTarget } from "./browseFocus.ts";
 import { actionButton, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
@@ -8,15 +8,24 @@ import { SettingsState } from "./settingsState.ts";
 import type { ProfileLaunch } from "../session/profileLaunch.ts";
 import { acknowledgementsDocument } from "./acknowledgements.ts";
 
-type Category = "general" | "playback" | "server";
-const CATEGORY_LABELS = { general: "General", playback: "Playback", server: "Server" } as const;
+type Category = "general" | "playback" | "subtitles" | "server";
+const CATEGORY_LABELS = { general: "General", playback: "Playback", subtitles: "Subtitles", server: "Server" } as const;
+const CATEGORY_DETAILS = { general: "App and navigation", playback: "Quality and episodes", subtitles: "Language and appearance", server: "Connection and version" } as const;
+const CATEGORY_BLURBS = {
+    general: "App-level options for this TV.",
+    playback: "Streaming quality and episode behavior for this TV.",
+    subtitles: "Language, behavior, and on-screen appearance.",
+    server: "The Silo server this TV is connected to.",
+} as const;
+const SUBTITLE_FOOTER = "Used to pick a matching track when one is available. Forced subtitles cover foreign-language dialogue even when subtitles are off or set to auto.";
+const MODE_CHOICES = [["auto", "Auto"], ["always", "Always"], ["off", "Off"]] as const;
 /** Apple scrolls its Acknowledgements document by remote presses while the document holds focus. */
 const DOCUMENT_STEP = 160;
-type Picker = "hidden" | "audio" | "quality" | "bitrate" | "seek-back" | "seek-forward";
-const PICKER_KEYS = { hidden: HIDDEN_KEY, audio: AUDIO_KEY, quality: QUALITY_KEY, bitrate: BITRATE_KEY, "seek-back": SEEK_BACK_KEY, "seek-forward": SEEK_FORWARD_KEY } as const;
-const PICKER_LABELS = { hidden: "Hidden libraries", audio: "Audio Language", quality: "Resolution", bitrate: "Maximum Bitrate", "seek-back": "Skip Back", "seek-forward": "Skip Forward" } as const;
+type Picker = "hidden" | "audio" | "quality" | "bitrate" | "seek-back" | "seek-forward" | "subtitle-language" | "subtitle-mode";
+const PICKER_KEYS = { hidden: HIDDEN_KEY, audio: AUDIO_KEY, quality: QUALITY_KEY, bitrate: BITRATE_KEY, "seek-back": SEEK_BACK_KEY, "seek-forward": SEEK_FORWARD_KEY, "subtitle-language": SUBTITLE_LANGUAGE_KEY, "subtitle-mode": SUBTITLE_MODE_KEY } as const;
+const PICKER_LABELS = { hidden: "Hidden libraries", audio: "Audio Language", quality: "Resolution", bitrate: "Maximum Bitrate", "seek-back": "Skip Back", "seek-forward": "Skip Forward", "subtitle-language": "Language", "subtitle-mode": "Behavior" } as const;
 const BITRATE_CHOICES = [200000, 100000, 60000, 40000, 20000, 15000, 10000, 6000, 4000, 2000, 1500];
-export interface SettingsActions { readonly profileName: string; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: () => void }
+export interface SettingsActions { readonly profileName: string; readonly accountName?: string | undefined; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: () => void }
 export interface SettingsScreen { destroy(): void }
 
 export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions): SettingsScreen {
@@ -26,7 +35,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     const host = new FocusHost(container);
     let category: Category = "general";
     let picker: Picker | undefined;
-    let returnRow: Picker | "acknowledgements" = "hidden";
+    let returnRow: Picker | "acknowledgements" | "subtitle-forced" = "hidden";
     let acknowledging = false;
     let confirmingSignOut = false;
     let choosingLaunch = false;
@@ -119,6 +128,13 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         if (blocked) item.element.setAttribute("aria-disabled", "true");
         return item;
     };
+    const subtitleEntry = (): Picker | "subtitle-forced" => state.definitions.some(def => def.key === SUBTITLE_LANGUAGE_KEY) ? "subtitle-language" : state.definitions.some(def => def.key === SUBTITLE_MODE_KEY) ? "subtitle-mode" : "subtitle-forced";
+    const subtitlePicker = (id: "subtitle-language" | "subtitle-mode", value: SettingValue): FocusItem => {
+        const text = id === "subtitle-language" ? (typeof value === "string" ? value : "None") : value === "always" ? "Always" : value === "off" ? "Off" : "Auto";
+        const item = button(id, PICKER_LABELS[id], () => openPicker(id));
+        item.element.replaceChildren(el("span", "settings-row-title", PICKER_LABELS[id]), el("span", "settings-row-value", text), el("span", "settings-chevron", "›"));
+        return item;
+    };
     const profileValue = (key: SettingsKey): string => {
         const stored = state.explicit.get(key);
         return stored?.isSet ? label(stored.value, key) : "Inherited";
@@ -180,6 +196,18 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 item.element.setAttribute("aria-checked", String(stored?.isSet === true && current === value));
                 controls.push(item);
             }
+        } else if (picker === "subtitle-language" || picker === "subtitle-mode") {
+            const current = state.effective.get(key)?.value ?? null;
+            const choices: readonly (readonly [SettingValue, string])[] = picker === "subtitle-language" ? [[null, "None"], ...state.subtitleOptions.map(value => [value, value] as const)] : MODE_CHOICES;
+            for (const [value, text] of choices) {
+                const item = button(`${picker}:${value ?? "none"}`, text, () => {
+                    if ((state.effective.get(key)?.value ?? null) === value) { picker = undefined; render(rowFocus()); return; }
+                    void commit(key, value);
+                });
+                item.element.setAttribute("role", "radio");
+                item.element.setAttribute("aria-checked", String(current === value));
+                controls.push(item);
+            }
         } else if (picker === "quality" || picker === "seek-back" || picker === "seek-forward") {
             const current = stored?.isSet ? stored.value : undefined;
             const options = picker === "quality" ? ["auto", "2160p", "1080p", "720p", "480p"].flatMap(value => state.qualityOptions.filter(option => option.value === value)) : state.definitions.find(def => def.key === key)?.options ?? [];
@@ -229,7 +257,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             }));
             controls.push(button("no-limit", "No limit", () => { void commit(key, null); }));
         }
-        if (state.scope(key) === "profile_device" || stored?.isSet) {
+        if (picker !== "subtitle-language" && picker !== "subtitle-mode" && (state.scope(key) === "profile_device" || stored?.isSet)) {
             const reset = button("reset", state.scope(key) === "profile_device" ? "Use Profile Setting" : "Use inherited default", () => { void commit(key, undefined); });
             if (state.scope(key) === "profile_device") { reset.element.setAttribute("role", "radio"); reset.element.setAttribute("aria-checked", String(stored?.isSet === false)); }
             controls.push(reset);
@@ -271,25 +299,40 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             return;
         }
         if (confirmingSignOut) {
+            const account = actions?.accountName?.trim() || "this account";
+            const server = actions?.serverName?.trim() || "this server";
             const controls = [actionButton("cancel-signout", "Cancel", back), actionButton("confirm-signout", "Sign Out", () => { destroy(); actions?.signOut?.(); })];
-            host.show({ name: "settings:signout", content: [el("h1", "browse-title", "Sign Out"), el("p", "settings-value", "Sign out of Silo on this TV?"), zoneNode("settings-controls", controls)], zones: [{ id: "settings-confirm", layout: "column", items: controls }], focus: { zone: "settings-confirm", key: "cancel-signout" }, back });
+            host.show({ name: "settings:signout", content: [el("h1", "browse-title", `Sign out of ${account} on ${server}?`), el("p", "settings-value", "This account's profiles and settings leave this TV. The server stays saved, so you can sign in again."), zoneNode("settings-controls", controls)], zones: [{ id: "settings-confirm", layout: "column", items: controls }], focus: { zone: "settings-confirm", key: "cancel-signout" }, back });
             return;
         }
         if (acknowledging) { renderAcknowledgements(); return; }
         if (picker !== undefined) { renderPicker(); return; }
-        const categories = (["general", "playback", "server"] as const).map(id => {
-            const item = actionButton(id, CATEGORY_LABELS[id], () => { category = id; returnRow = id === "general" ? "hidden" : id === "playback" ? "quality" : "acknowledgements"; render(rowFocus()); });
+        const categories = (["general", "playback", "subtitles", "server"] as const).map(id => {
+            const item = actionButton(id, CATEGORY_LABELS[id], () => { category = id; returnRow = id === "general" ? "hidden" : id === "playback" ? "quality" : id === "subtitles" ? subtitleEntry() : "acknowledgements"; render(rowFocus()); });
+            item.element.replaceChildren(el("span", "settings-category-title", CATEGORY_LABELS[id]), el("span", "settings-category-detail", CATEGORY_DETAILS[id]));
+            item.element.setAttribute("aria-label", `${CATEGORY_LABELS[id]}, ${CATEGORY_DETAILS[id]}`);
             item.element.setAttribute("aria-current", id === category ? "page" : "false");
             item.element.addEventListener("focus", () => { if (category !== id) { category = id; render({ zone: "settings-categories", key: id }); } });
             return item;
         });
         if (actions !== undefined) {
-            categories.unshift(actionButton("settings-profile", actions.profileName, () => { destroy(); actions.switchProfile(); }));
-            if (actions.signOut !== undefined) categories.push(actionButton("settings-signout", "Sign Out", () => { confirmingSignOut = true; render(); }));
+            const account = actions.accountName?.trim() || "Signed in";
+            const profile = actionButton("settings-profile", actions.profileName, () => { destroy(); actions.switchProfile(); });
+            profile.element.classList.add("settings-profile");
+            const copy = el("span", "settings-profile-copy");
+            copy.append(el("span", "settings-profile-name", actions.profileName), el("span", "settings-profile-account", account));
+            profile.element.replaceChildren(copy, el("span", "settings-chevron", "›"));
+            profile.element.setAttribute("aria-label", `${actions.profileName}, ${account}`);
+            categories.unshift(profile);
+            if (actions.signOut !== undefined) {
+                const signOut = actionButton("settings-signout", "Sign Out", () => { confirmingSignOut = true; render(); });
+                signOut.element.classList.add("settings-signout");
+                categories.push(signOut);
+            }
         }
         const rows: FocusItem[] = [];
         const body = el("div", "settings-pane");
-        body.append(el("h2", "browse-section-title", CATEGORY_LABELS[category]), ...(category === "server" ? [] : feedback()));
+        body.append(el("h2", "browse-section-title", CATEGORY_LABELS[category]), el("p", "settings-blurb", CATEGORY_BLURBS[category]), ...(category === "server" ? [] : feedback()));
         const pickers: readonly Picker[] = category === "general" ? ["hidden"] : category === "playback" ? ["quality", "bitrate", "audio", "seek-back", "seek-forward"] : [];
         if (category === "server") {
             body.append(el("h3", "settings-section-header", "ACTIVE SERVER"), el("p", "settings-value", `Server: ${actions?.serverName ?? session.http.base.baseUrl}`));
@@ -332,6 +375,29 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             rows.push(item);
             body.append(item.element, note(key));
         }
+        if (category === "subtitles" && state.loaded) {
+            const language = state.definitions.some(def => def.key === SUBTITLE_LANGUAGE_KEY);
+            const mode = state.definitions.some(def => def.key === SUBTITLE_MODE_KEY);
+            const forced = state.definitions.some(def => def.key === SHOW_FORCED_KEY);
+            if (language || mode || forced) {
+                body.appendChild(el("h3", "settings-section-header", "PROFILE"));
+                if (language) rows.push(subtitlePicker("subtitle-language", state.effective.get(SUBTITLE_LANGUAGE_KEY)?.value ?? null));
+                if (mode) rows.push(subtitlePicker("subtitle-mode", state.effective.get(SUBTITLE_MODE_KEY)?.value ?? "auto"));
+                if (forced) {
+                    const on = state.effective.get(SHOW_FORCED_KEY)?.value === true;
+                    const item = button("subtitle-forced", "Show Forced Subtitles", () => { void state.save(SHOW_FORCED_KEY, !on); });
+                    item.element.appendChild(el("span", "settings-row-value", on ? "On" : "Off"));
+                    item.element.setAttribute("role", "switch");
+                    item.element.setAttribute("aria-label", "Show Forced Subtitles");
+                    item.element.setAttribute("aria-checked", String(on));
+                    rows.push(item);
+                }
+                for (const item of rows) body.appendChild(item.element);
+                body.appendChild(el("p", "settings-value", SUBTITLE_FOOTER));
+                const override = subtitleOverride(state);
+                if (override !== undefined) body.appendChild(el("p", "settings-value", `Override active — ${override}`));
+            }
+        }
         if (category === "general" && launch !== undefined) {
             const item = actionButton("remember-profile", "Profile Selection", () => { choosingLaunch = true; render(); });
             item.element.append(el("span", "settings-row-value", launch.remembered ? "Automatic" : "Every Time"), el("span", "settings-chevron", "›"));
@@ -365,6 +431,27 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     render();
     void state.load();
     return { destroy };
+}
+
+const SUBTITLE_OVERRIDE: Readonly<Record<string, string>> = {
+    profile_client: "This device family has a more specific subtitle setting. Changes here update the profile default, but the family override still applies.",
+    profile_device: "This device, for this profile, has a more specific subtitle setting. Changes here update the profile default, but the device override still applies.",
+    profile_library: "A library-specific subtitle setting overrides this profile default. Changes here are saved for the profile, but the library override still applies.",
+    profile_series: "A series-specific subtitle setting overrides this profile default. Changes here are saved for the profile, but the series override still applies.",
+};
+const MIXED_SUBTITLE_OVERRIDE = "More specific device, library, or series subtitle settings override this profile default. Changes here are saved for the profile, but those overrides still apply where configured.";
+
+function subtitleOverride(state: SettingsState): string | undefined {
+    const scopes = new Set<string>();
+    for (const key of [SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, SHOW_FORCED_KEY] as const) {
+        const source = state.effective.get(key)?.source;
+        if (source === undefined || source === "profile" || source === "account" || source === "default") continue;
+        scopes.add(source);
+    }
+    if (scopes.size === 0) return undefined;
+    if (scopes.size > 1) return MIXED_SUBTITLE_OVERRIDE;
+    const [scope] = [...scopes];
+    return scope === undefined ? undefined : SUBTITLE_OVERRIDE[scope] ?? "A more specific subtitle setting overrides this profile default. Changes here are saved for the profile, but the override still applies.";
 }
 
 function valueLabel(value: SettingValue, key: SettingsKey = AUDIO_KEY): string {

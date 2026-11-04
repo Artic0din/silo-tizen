@@ -35,8 +35,16 @@
 .settings-chevron { margin-left: 16px; font-size: 18px; opacity: .55; }
 .settings-controls .browse-button:has(.settings-row-value) { display: flex; align-items: center; gap: 16px; }
 .settings-version { margin: 24px 20px; font-size: 18px; color: var(--silo-secondary); }
+.settings-blurb { margin: -8px 0 28px; color: var(--silo-secondary); font-size: 24px; line-height: 1.35; }
+.settings-category-title, .settings-profile-name { display: block; font-size: 28px; line-height: 1.2; }
+.settings-category-detail, .settings-profile-account { display: block; margin-top: 4px; font-size: 20px; line-height: 1.2; color: var(--silo-secondary); }
+.settings-profile-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; }
 .settings-controls .browse-button,
 .settings-categories .browse-button { display: block; width: 100%; margin: 0 0 16px; border-radius: 12px; text-align: left; }
+.settings-categories .settings-profile { display: flex; align-items: center; }
+.settings-categories .settings-signout { color: #ff453a; }
+.settings .browse-button:focus .settings-category-detail,
+.settings .browse-button:focus .settings-profile-account { color: inherit; }
 .settings-controls .browse-button { padding: 17px 24px; font-size: 26px; }
 .settings-categories .browse-button[aria-current="page"],
 .settings-controls .browse-button[aria-checked="true"] { background: var(--silo-selected); }

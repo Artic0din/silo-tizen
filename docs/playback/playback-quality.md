@@ -10,7 +10,7 @@ No server or Apple source changes are required by this supported subset.
 
 | Apple source | Rows, values and ownership | Tizen candidate |
 | --- | --- | --- |
-| `tvOS/Screens/Settings/TVSettingsView.swift:164` | 490-point rail, 52-point gap; profile card, General, Playback, Subtitles, conditional Diagnostics, Server, Sign Out, Silo version | Supported categories, profile action, Sign Out confirmation and package version; SF font, avatar and native focus animation remain comparison gaps |
+| `tvOS/Screens/Settings/TVSettingsView.swift:164` | 490-point rail, 52-point gap; profile card, General, Playback, Subtitles, conditional Diagnostics, Server, Sign Out, Silo version | Profile card shows the active profile and account line; General, Playback, Subtitles and Server are present; Diagnostics stays out until #137; Sign Out confirmation and package version are present |
 | `tvOS/Screens/Settings/TVGeneralSettingsView.swift:23` | APPLE TV USER: Paired Silo Profile; PROFILE AT LAUNCH: Profile Selection | Launch picker offers Automatic and Every Time through the existing protected launch owner; no Apple TV OS user pairing |
 | `Shared/ProfileLaunchBehavior.swift:5` | Automatic, Every Time, After 1 Hour, After 12 Hours | Timed choices omitted: need an away-time lifecycle policy and persistence in ProfileLaunch |
 | `tvOS/Screens/Settings/TVGeneralSettingsView.swift:166` | TITLE PAGES: Show Title Art, Apply to All Devices, each On/Off | Existing title-art owner and profile/device reconciliation retained |
@@ -22,11 +22,11 @@ No server or Apple source changes are required by this supported subset.
 | `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:266` | EPISODES: Auto-Play Next Episode, Show Next Up, Skip Intros, Skip Credits | Omitted: existing EOF continuation is manual; need automatic successor and prompt policy owners and skip-policy consumption |
 | `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:305` | SPOILERS: Blur unwatched episode images, Hide unwatched episode descriptions; profile-wide, revision 17, only unstarted episodes | #177 belongs here. Omitted until episode card, season and Details consumers apply both server settings and refresh on profile/foreground transitions; no inert switches |
 | `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:342` | VIDEO and AUDIOBOOKS: Skip Back and Skip Forward; 5, 10, 15, 30, 45, 60, 90 seconds | Video rows supported, profile-scoped; audiobook rows need an audiobook player |
-| `tvOS/Screens/Settings/TVSubtitleSettingsView.swift:37` | PROFILE: Language, Behavior, Show Forced Subtitles; conditional METADATA: Metadata Language | No pane added: needs a capability-gated profile editor and reconciliation against existing server-resolved playback subtitle preferences (#137) |
+| `tvOS/Screens/Settings/TVSubtitleSettingsView.swift:37` | PROFILE: Language, Behavior, Show Forced Subtitles; conditional METADATA: Metadata Language | Language, Behavior and Show Forced Subtitles write `playback.subtitle_language`, `playback.subtitle_mode` and `playback.show_forced_subtitles` at profile scope. Metadata Language is omitted: nothing in this client reads `catalog.metadata_language` |
 | `tvOS/Screens/Settings/TVSubtitleSettingsView.swift:103` | APPEARANCE: preview, Use Device Settings, Only on This Apple TV, Font Size/Family/Color, Text Opacity, Text Outline, Outline Color, Background Style/Opacity/Color, Position, Reset Appearance confirmation | Needs a scoped appearance writer and verified renderer support; OS Accessibility caption bridge has no established Tizen equivalent |
 | `tvOS/Screens/Settings/TVDiagnosticsSettingsPane.swift:12` | FEATURE STATE Status/Destination; CAPTURE Send Reports To, Debug Logging, Crash Reports (Ask/Always/Never); pending reports, Send Diagnostics Now, sent history, None empty states | No Diagnostics pane: needs consent, redaction, capture, queue, expiry, destination and upload owners (#137) |
 | `tvOS/Screens/Settings/TVSettingsView.swift:534` | ACTIVE SERVER Server/Address, Manage Servers; ABOUT App Version, Privacy Policy, Acknowledgements; EXTRA FEATURES feature toggles | Server/version info, existing switch-server callback when available and credits supported; privacy overlay and experimental-feature registry omitted |
-| `tvOS/Screens/Settings/TVSettingsView.swift:46` | Sign Out confirmation: Cancel, Sign Out, Sign Out & Remove Server | Existing sign-out callback reused; remove-server omitted because no saved-server removal owner exists |
+| `tvOS/Screens/Settings/TVSettingsView.swift:46` and `Components/AccountRemovalConfirmation.swift` | Sign Out asks to confirm; Cancel stays focused; the message says the account's profiles and settings leave the device | Confirmation is `Sign out of {account} on {server}?` with Cancel focused and Sign Out. The message says the server stays saved, because logout clears the account and does not remove the saved server |
 
 Apple focus follows `docs/tvos-focus.md:131`: Up/Down stays in the current pane; focus on a category previews its pane; Right/OK enters the first available control; Left/Back returns to that category.
 Back from a picker restores its invoking row; cancelling Sign Out restores Sign Out; Back from the rail exits Settings to Home.
@@ -52,11 +52,13 @@ Capture actual dimensions without resizing; record remote movement for focus and
 3. Use profile defaults Audio=fr, Resolution=1080p and bitrate=6000, with device overrides Audio=yue-Hant-HK, Resolution=480p and bitrate=null.
    Capture each picker and its inherited reset; clear each override and verify the profile values did not change.
    Capture VIDEO Skip Back=10 seconds and Skip Forward=30 seconds, then 15/45 and the restored focus after each choice.
+   Focus Subtitles. Capture Language None, Behavior Auto and Show Forced Subtitles On, then a changed value and Back to that row.
 4. Disconnect the server before opening Settings and capture loading, failure and Reload settings; reconnect and capture recovery.
    Separately interrupt a fake/test write response and capture Check and retry without a duplicate write.
    Never change production preferences solely to obtain this proof.
 5. Capture Server/version and Acknowledgements; scroll Down/Up, Back and verify row restoration.
-   Focus Sign Out, open confirmation, Cancel and capture Sign Out focused again.
+   Capture the profile card name and account line, and the version line under the rail.
+   Focus Sign Out, open the confirmation with Cancel focused, Cancel, and capture Sign Out focused again.
    Select the profile card and verify the existing profile picker; do not confirm sign out on a live account for this capture.
 
 Native comparison, signed-package proof and physical-TV acceptance remain outstanding.

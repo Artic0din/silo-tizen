@@ -285,30 +285,63 @@ async function firstRowCount(tv: Tv): Promise<number> {
     });
 }
 
-test("Up from each first-row column returns to the focused filter chip", async () => {
+async function columnAgainstChips(tv: Tv): Promise<{ overlaps: boolean; centreInside: boolean }[]> {
+    return tv.page.locator(".browse-grid").evaluate(grid => {
+        const cards = [...grid.querySelectorAll<HTMLElement>(".browse-card")].slice(0, 3);
+        const chips = [...document.querySelectorAll<HTMLElement>(".person-filmography-filters [data-focus]")];
+        return cards.map(card => {
+            const origin = card.getBoundingClientRect();
+            const centre = origin.left + origin.width / 2;
+            const rects = chips.map(chip => chip.getBoundingClientRect());
+            return {
+                overlaps: rects.some(chip => origin.left < chip.right && chip.left < origin.right),
+                centreInside: rects.some(chip => centre >= chip.left && centre <= chip.right),
+            };
+        });
+    });
+}
+
+/** Movies is focused and is not the selected filter. Up uses the card frame, not that chip. */
+async function upFromColumns(tv: Tv, columns: number, selected: string): Promise<void> {
+    assert.equal(await tv.page.locator(`[data-focus="${selected}"]`).getAttribute("aria-pressed"), "true");
+    const placement = await columnAgainstChips(tv);
+    assert.deepEqual(placement.map(item => item.overlaps), [true, true, false], "columns 0 and 1 meet the chip row; column 2 has no chip above it");
+    assert.equal(placement[1]?.centreInside, false, "column 1's centre used to miss every chip; its wider frame still overlaps the row");
+    await tv.page.locator('[data-focus="filter:movie"]').focus();
+    assert.equal(await tv.focused(), "filter:movie");
+    for (let column = 0; column < columns; column += 1) {
+        await tv.page.keyboard.press("ArrowDown");
+        for (let guard = 0; guard < columns; guard += 1) {
+            const before = await tv.focused();
+            await tv.page.keyboard.press("ArrowLeft");
+            if (await tv.focused() === before) break;
+        }
+        for (let step = 0; step < column; step += 1) await tv.page.keyboard.press("ArrowRight");
+        const card = await tv.focused();
+        assert.match(card ?? "", /^(movie|series):/, `column ${column} kept a card`);
+        await tv.page.keyboard.press("ArrowUp");
+        // Replaces `assert.equal(await tv.focused(), filter, "column ${column} used to land on the nearest chip, or stay on the card")`
+        // from "Up from each first-row column returns to the focused filter chip".
+        const landed = await tv.focused();
+        assert.equal(landed, column <= 1 ? selected : card, `column ${column} used to return to the focused Movies chip`);
+        assert.ok(landed, "focus was lost");
+        await tv.page.locator('[data-focus="filter:movie"]').focus();
+    }
+    assert.equal(await tv.page.locator(`[data-focus="${selected}"]`).getAttribute("aria-pressed"), "true", "moving Up does not select Movies");
+}
+
+test("Up from a filmography card follows that card against the chips", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         await filmography(tv);
         const columns = await firstRowCount(tv);
-        assert.ok(columns >= 2, "the first filmography row has more than one column");
-        await tv.page.locator('[data-focus="filter:video"]').focus();
-        const filters = ["filter:video", "filter:movie", "filter:series"];
-        for (const [index, filter] of filters.entries()) {
-            if (index > 0) await tv.page.keyboard.press("ArrowRight");
-            assert.equal(await tv.focused(), filter);
-            for (let column = 0; column < columns; column += 1) {
-                await tv.page.keyboard.press("ArrowDown");
-                for (let guard = 0; guard < columns; guard += 1) {
-                    const before = await tv.focused();
-                    await tv.page.keyboard.press("ArrowLeft");
-                    if (await tv.focused() === before) break;
-                }
-                for (let step = 0; step < column; step += 1) await tv.page.keyboard.press("ArrowRight");
-                await tv.page.keyboard.press("ArrowUp");
-                assert.equal(await tv.focused(), filter, `column ${column} used to land on the nearest chip, or stay on the card`);
-            }
-        }
-        assert.equal(await tv.page.locator('[data-focus="filter:video"]').getAttribute("aria-pressed"), "true", "focusing Movies or Series does not select them");
+        assert.ok(columns >= 3, "the first filmography row has a column with no chip above it");
+        await upFromColumns(tv, columns, "filter:video");
+        await tv.page.locator('[data-focus="filter:series"]').click();
+        await tv.eventually(async () => await tv.page.locator(".browse-grid .browse-card").count() === 3, "Series filmography");
+        const seriesColumns = await firstRowCount(tv);
+        assert.equal(seriesColumns, 3, "Series uses the wider card positions in the first three columns");
+        await upFromColumns(tv, seriesColumns, "filter:series");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

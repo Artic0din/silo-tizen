@@ -42,10 +42,8 @@ export interface Zone {
     /** row: Left/Right move. column: Up/Down move. grid: both, `columns` items per row. */
     readonly layout: "row" | "column" | "grid";
     readonly columns?: number;
-    /** Apple's focus engine: between two such zones, Up and Down land on the item nearest the focused one's centre. */
+    /** `true`: nearest centre between zones. `"aligned"`: a target whose horizontal span meets the focused item; otherwise the move stays. */
     readonly spatial?: boolean | "aligned";
-    /** A horizontal ScrollView remembers its focused child. Up returns there, or to `entry` before the row has been focused. */
-    readonly remembersFocus?: boolean;
     readonly items: readonly FocusItem[];
 }
 
@@ -385,11 +383,6 @@ export class FocusHost {
             const zone = zones[next];
             if (zone !== undefined && zone.items.length > 0) {
                 const remembered = this.memory.get(zone.id);
-                if (zone.remembersFocus === true) {
-                    const key = remembered ?? zone.entry;
-                    this.focusItem(zone, zone.items.find(item => item.key === key) ?? zone.items[0]);
-                    return true;
-                }
                 const spatial = zone.spatial && zones[zoneIndex]?.spatial;
                 const columns = Math.max(1, zone.columns ?? 1);
                 const edge = step === 1 ? 0 : Math.floor((zone.items.length - 1) / columns) * columns;
@@ -397,8 +390,7 @@ export class FocusHost {
                 const candidates = zone.spatial === "aligned" ? edgeItems.filter(item => {
                     const origin = from.element.getBoundingClientRect();
                     const target = item.element.getBoundingClientRect();
-                    const x = origin.left + origin.width / 2;
-                    return x >= target.left && x <= target.right;
+                    return origin.left < target.right && target.left < origin.right;
                 }) : edgeItems;
                 if (spatial && candidates.length === 0) return true;
                 const nearest = spatial ? nearestItem(candidates, from.element, this.navigationX) : undefined;

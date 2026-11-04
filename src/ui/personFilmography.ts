@@ -24,7 +24,7 @@ export function personFilmographyView(route: Extract<Route, { kind: "person" }>,
     if (page !== undefined) title.appendChild(el("span", "person-title-count", `${page.totalExact ? "" : "About "}${page.total} ${page.total === 1 ? "title" : "titles"}`));
     const person = route.data?.person ?? { id: route.id, name: route.title, bio: undefined, photoUrl: undefined, photoThumbhash: undefined, birthDate: undefined, deathDate: undefined, birthplace: undefined };
     const content = [personHero(person, handlers.context.baseUrl, route.metadataLoading === true || (route.data === undefined && route.metadataFailure === undefined)), title, zoneNode("skyline-pills person-filmography-filters", filters), ...(actions.length === 0 ? [] : [zoneNode("browse-actions", actions)])];
-    const zones: Zone[] = [{ id: "filters", layout: "row", spatial: "aligned", remembersFocus: true, entry: `filter:${route.filter}`, items: filters }, { id: "actions", layout: "row", items: actions }];
+    const zones: Zone[] = [{ id: "filters", layout: "row", spatial: "aligned", entry: `filter:${route.filter}`, items: filters }, { id: "actions", layout: "row", items: actions }];
     if (route.metadataFailure !== undefined) content.push(...lines([route.metadataFailure], "error"));
     if (route.failure !== undefined) content.push(...lines([route.failure], "error"));
     if (page !== undefined) {

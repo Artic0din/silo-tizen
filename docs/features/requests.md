@@ -1,10 +1,10 @@
 # Requests
 
-Requests appears in the browse navigation only after `/api/v2/requests/status` reports `requests_enabled`, `allowed` and `state=available`.
-Unknown or failed initial probes leave the root hidden.
+Requests appears in the profile menu only after `/api/v2/requests/status` reports `requests_enabled`, `allowed` and `state=available`.
+Unknown or failed initial probes leave the row hidden.
 A transient later probe failure preserves the last confirmed value.
 Status is checked on foreground return and before loading each Requests route.
-Capability and permission refusals trigger another status check; a confirmed unavailable feature removes its retained root and returns open Requests journeys to Home.
+Capability and permission refusals trigger another status check; a confirmed unavailable feature removes its menu row and returns open Requests journeys to Home.
 
 The hub reads My Requests in 50-record pages, with a 100-page bound and advancing cursors, alongside the server's ordered discovery title rows.
 It groups active requests before attention states and landed titles, sorts newest first within each group, and omits unavailable or cancelled records.
@@ -20,11 +20,12 @@ Discovery rows show only the first page the discover read returns, with no See a
 Rows are view-aligned to the band's top at y=596: a plain row's heading is at 596 with art at 662, and the row with the Discover eyebrow has the eyebrow at 596, heading at 621 and art at 687.
 Up and Down between rows land on the card nearest the focused card's centre, as Apple's focus engine does.
 Each hub read goes out once; Try Again is the retry.
-Selecting the Requests tab from another tab rebuilds the page: loading, a fresh read, then focus on the first card.
-Selecting it again while shown moves focus to the first card and scrolls the band to the top without a read or a loading page, as on Apple TV.
+Selecting Requests in the profile menu pushes a fresh page: loading, a fresh read, then focus on the first card.
+The pushed hub has no top bar; Back returns to the originating screen with its profile menu open and Requests focused.
 A hub with no rows shows one of Apple's three full pages: the loading skeleton, ErrorView with status-aware copy and Try Again (Sign In Again first for a 401), or Nothing here yet.
 The loading and empty pages hold focus with no highlight, and Try Again takes focus on entry and returns to the loading page.
-Up from any of them, or from the first row, reaches the Requests tab; Down from the top bar returns to the page or the first card of the first row.
+Up from the first row preserves its focused card; Up from loading, error and empty states stays on that state.
+There is no shown Requests tab to select; reopening the profile menu entry starts a fresh visit.
 Unknown discovery row types are skipped.
 Media detail uses server requestability, status and follow decisions.
 Request detail shows the server state and offers cancellation for the active profile's pending request.

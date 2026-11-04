@@ -634,7 +634,7 @@ test("settings, audio, calendar, filmography, personal and card actions keep vis
         await tv.remote(BACK);
         await tv.remote(BACK);
         await showing(tv, "home");
-        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.locator('[data-focus="for_you"]').focus(); await tv.remote(40);
         await tv.page.locator('[data-focus="watchlist"]').click();
         const personalCard = tv.page.locator('[data-view="personal:watchlist"] .browse-card').first();
         await personalCard.waitFor();

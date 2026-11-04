@@ -49,7 +49,24 @@ async function start(tv: Tv, menu: PrimaryMenu | null = null, catalog = new Reco
     await homeDetailsRead(tv);
 }
 
-test("the bar centers authored roots with fixed Search and avatar utilities", async () => {
+test("Music is library-gated and opens an explicit unavailable page without video queries", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = new RecommendationsCatalog();
+        catalog.households.get("p-owner")?.libraries.push({ id: "99", name: "Music", type: "music", sort_order: 3 });
+        await start(tv, null, catalog);
+        await tv.page.locator('[data-focus="music"]').click();
+        await tv.page.getByText("Music browsing is not available on this TV.", { exact: true }).waitFor();
+        assert.equal(tv.fake.requests.some(request => request.path.startsWith("/library/99/") || request.body?.library_id === "99"), false);
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "music");
+        await tv.remote(10009);
+        assert.equal(await tv.page.locator('.browse').getAttribute("data-view"), "home");
+        assert.equal(await tv.focused(), "movie:m0001");
+    } finally { await tv.page.context().close(); }
+});
+
+test("the bar centers fixed roots despite authored order with fixed Search and avatar utilities", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         await tv.page.emulateMedia({ reducedMotion: "reduce" });
@@ -58,8 +75,8 @@ test("the bar centers authored roots with fixed Search and avatar utilities", as
             { type: "builtin", destination: "movies" }, { type: "builtin", destination: "for_you" },
             { type: "builtin", destination: "calendar" },
         ] });
-        await tv.page.waitForFunction(() => document.querySelector(".skyline-roots")?.textContent === "HomeSeriesMoviesFor YouCalendar");
-        assert.deepEqual(await tv.page.locator(".browse-nav [data-focus]").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus"))), ["search", "home", "series", "movies", "for_you", "calendar", "profiles"]);
+        await tv.page.waitForFunction(() => document.querySelector(".skyline-roots")?.textContent === "HomeMoviesSeriesFor YouCalendar");
+        assert.deepEqual(await tv.page.locator(".browse-nav [data-focus]").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus"))), ["search", "home", "movies", "series", "for_you", "calendar", "profiles"]);
         const geometry = await tv.page.evaluate(() => {
             const roots = document.querySelector(".skyline-roots")?.getBoundingClientRect();
             const avatar = document.querySelector('[data-focus="profiles"]')?.getBoundingClientRect();
@@ -141,7 +158,7 @@ test("For You dwell is passive, Down enters and Back suppresses reopening", asyn
     } finally { await tv.page.context().close(); }
 });
 
-test("a late authored menu preserves content focus and a library shortcut keeps its own selection", async () => {
+test("a late authored menu preserves content focus and cannot add a library shortcut", async () => {
     const tv = await openTv(browser, { app: "browse" });
     const held = tv.fake.hold("/settings/values/effective?keys=nav.primary_menu", true);
     try {
@@ -150,20 +167,21 @@ test("a late authored menu preserves content focus and a library shortcut keeps 
         await card.focus();
         const focused = await tv.focused();
         held.release();
-        await tv.page.locator('.skyline-roots [data-focus="library:12"]').waitFor();
+        await tv.page.clock.runFor(0);
+        assert.equal(await tv.page.locator('.skyline-roots [data-focus="library:12"]').count(), 0);
         assert.equal(await tv.focused(), focused);
-        await tv.page.locator('.skyline-roots [data-focus="library:12"]').click();
+        await tv.page.locator('.skyline-roots [data-focus="movies"]').click();
         await tv.page.locator('[data-view="library:12"] .home-section').waitFor();
-        assert.equal(await tv.page.locator('.skyline-roots [aria-current="page"]').getAttribute("data-focus"), "library:12");
-        await tv.page.locator('[data-focus="library:12"]').first().focus();
+        assert.equal(await tv.page.locator('.skyline-roots [aria-current="page"]').getAttribute("data-focus"), "movies");
+        await tv.page.locator('[data-focus="movies"]').first().focus();
         await tv.remote(40);
         assert.equal(await tv.focused(), "section:Recommended");
         await tv.remote(10009);
-        assert.equal(await tv.focused(), "library:12");
+        assert.equal(await tv.focused(), "movies");
     } finally { held.release(); await tv.page.context().close(); }
 });
 
-test("a mixed-library shortcut keeps its whole scope when a mode is selected", async () => {
+test("a mixed library appears under Movies and keeps its video category when a mode is selected", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const catalog = new RecommendationsCatalog();
@@ -171,15 +189,15 @@ test("a mixed-library shortcut keeps its whole scope when a mode is selected", a
         assert.ok(library);
         library.type = "mixed";
         await start(tv, { items: [{ type: "builtin", destination: "home" }, { type: "library", library_id: 12, label: "Mixed" }] }, catalog);
-        await tv.page.locator('[data-focus="library:12"]').waitFor();
-        await tv.page.locator('[data-focus="library:12"]').focus();
+        assert.equal(await tv.page.locator('[data-focus="library:12"]').count(), 0);
+        await tv.page.locator('[data-focus="movies"]').focus();
         await tv.remote(40); await tv.remote(40); await tv.remote(40);
         assert.equal(await tv.focused(), "section:browse");
         await tv.page.keyboard.press("Enter");
         await tv.page.locator('.library-browse .catalog-grid .browse-card').first().waitFor();
         const query = tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).pop();
         assert.ok(query);
-        assert.equal(query.body?.type, "video", "mixed shortcuts must not become a Movies slice");
+        assert.equal(query.body?.type, "movie", "Movies narrows a mixed library to movies");
     } finally { await tv.page.context().close(); }
 });
 
@@ -199,7 +217,7 @@ test("a late authored menu waits for an entered dropdown to close", async () => 
         assert.equal(await row.evaluate(node => node.isConnected), true);
         assert.equal(await tv.focused(), "section:Recommended");
         await tv.remote(10009);
-        await tv.page.waitForFunction(() => document.querySelector(".skyline-roots")?.textContent === "HomeMoviesFor You");
+        await tv.page.waitForFunction(() => document.querySelector(".skyline-roots")?.textContent === "HomeMoviesSeriesFor YouCalendar");
         assert.equal(await tv.focused(), "movies");
     } finally { held.release(); await tv.page.context().close(); }
 });
@@ -233,7 +251,7 @@ test("a deferred menu keeps root focus when leaving a passive dropdown horizonta
         await tv.page.clock.runFor(0);
         await tv.remote(39);
         assert.equal(await tv.focused(), "series");
-        assert.equal(await tv.page.locator(".skyline-roots").textContent(), "HomeMoviesSeriesFor You");
+        assert.equal(await tv.page.locator(".skyline-roots").textContent(), "HomeMoviesSeriesFor YouCalendar");
     } finally { held.release(); await tv.page.context().close(); }
 });
 
@@ -251,7 +269,7 @@ test("horizontal navigation between passive dropdowns keeps normal dwell", async
     } finally { await tv.page.context().close(); }
 });
 
-test("a long authored menu scrolls roots while Search and the avatar remain fixed", async () => {
+test("a long authored menu cannot add roots and Search and the avatar remain fixed", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         await tv.page.emulateMedia({ reducedMotion: "reduce" });
@@ -261,11 +279,11 @@ test("a long authored menu scrolls roots while Search and the avatar remain fixe
         const shortcuts = Array.from({ length: 10 }, (_, index) => ({ type: "library" as const, library_id: 100 + index, label: `A long library label ${index}` }));
         for (const shortcut of shortcuts) household.libraries.push({ id: String(shortcut.library_id), name: shortcut.label, type: "movies", sort_order: 100 + shortcut.library_id });
         await start(tv, { items: [{ type: "builtin", destination: "home" }, ...shortcuts] }, catalog);
-        await tv.page.locator('[data-focus="library:109"]').waitFor();
+        assert.equal(await tv.page.locator('.skyline-roots [data-focus^="library:"]').count(), 0);
         await tv.page.locator('[data-focus="home"]').focus();
         const reads = tv.fake.requests.length;
-        for (let i = 0; i < 10; i++) await tv.remote(39);
-        assert.equal(await tv.focused(), "library:109");
+        for (let i = 0; i < 4; i++) await tv.remote(39);
+        assert.equal(await tv.focused(), "calendar");
         const geometry = await tv.page.evaluate(() => {
             const roots = document.querySelector<HTMLElement>(".skyline-roots");
             const search = document.querySelector('[data-focus="search"]')?.getBoundingClientRect();
@@ -275,7 +293,7 @@ test("a long authored menu scrolls roots while Search and the avatar remain fixe
             const bounds = roots.getBoundingClientRect();
             return { scroll: roots.scrollLeft, left: focused.left >= bounds.left - 1, right: focused.right <= bounds.right + 1, search: search.right <= bounds.left, avatar: avatar.x };
         });
-        assert.ok(geometry.scroll > 0);
+        assert.equal(geometry.scroll, 0);
         assert.equal(geometry.left && geometry.right && geometry.search, true);
         assert.equal(geometry.avatar, 1774);
         assert.equal(tv.fake.requests.length, reads, "root focus never fetches");

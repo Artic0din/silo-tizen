@@ -95,7 +95,8 @@ async function setup(record = false): Promise<{ tv: Tv; catalog: PersonalCatalog
     return { tv, catalog };
 }
 async function openList(tv: Tv, source: string): Promise<void> {
-    await tv.page.locator('[data-focus="profiles"]').click();
+    if (source === "history") await tv.page.locator('[data-focus="profiles"]').click();
+    else { await tv.page.locator('[data-focus="for_you"]').focus(); await tv.remote(40); }
     await tv.page.locator(`[data-focus="${source}"]`).click({ timeout: 2000 });
     await tv.page.locator(`[data-view="personal:${source}"] .browse-card`).first().waitFor();
 }
@@ -128,7 +129,7 @@ for (const destination of ["unchanged", "navigation", "profile menu"]) test(`ini
     const { tv } = await setup();
     try {
         const held = tv.fake.hold("/catalog/query", true);
-        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.locator('[data-focus="for_you"]').focus(); await tv.remote(40);
         await tv.page.locator('[data-focus="watchlist"]').click();
         await tv.eventually(async () => tv.fake.requests.some(r => r.path.startsWith("/catalog/query")), "initial personal read held");
         assert.equal(await tv.focused(), "back");
@@ -307,7 +308,7 @@ test("personal destinations page on the server, restore Details focus and reconc
                 const state = await tv.page.evaluate(() => ({ view: document.querySelector('.browse')?.getAttribute('data-view'), focus: document.activeElement?.getAttribute('data-focus'), alerts: [...document.querySelectorAll('[role="alert"]')].map(node => node.textContent), targets: [...document.querySelectorAll('.browse [data-focus]')].map(node => node.getAttribute('data-focus')) }));
                 throw new Error(`${String(error)}; source=${source}; state=${JSON.stringify(state)}`);
             }
-            assert.equal(await tv.focused(), "profiles");
+            assert.equal(await tv.focused(), source === "history" ? "profiles" : "for_you");
         }
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
@@ -362,7 +363,7 @@ test("capability failures are retryable errors, unsupported is explicit, empty r
     const { tv, catalog } = await setup();
     try {
         catalog.capabilityReplies.push({ status: 200, body: { allowed: true } });
-        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.locator('[data-focus="for_you"]').focus(); await tv.remote(40);
         await tv.page.locator('[data-focus="watchlist"]').click();
         await tv.page.getByText("The server sent an answer this TV could not read.").waitFor();
         assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/catalog/query")).length, 0);
@@ -372,7 +373,7 @@ test("capability failures are retryable errors, unsupported is explicit, empty r
         await tv.page.locator('[data-focus="back"]').click();
         catalog.unavailable = false;
         for (const id of catalog.titles.keys()) catalog.excluded.add(id);
-        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.locator('[data-focus="for_you"]').focus(); await tv.remote(40);
         await tv.page.locator('[data-focus="watchlist"]').click();
         await tv.page.getByText("No watchlist", { exact: true }).waitFor();
         assert.equal(await tv.focused(), "back");
@@ -411,14 +412,13 @@ test("remote personal journey keeps scrolled focus visible with Reduced Motion a
             if (process.env.PERSONAL_VIDEO !== undefined) await tv.page.waitForTimeout(350);
         };
         await step("ArrowUp");
-        for (let i = 0; i < 5; i++) await step("ArrowRight");
-        await step("Enter");
+        for (let i = 0; i < 3; i++) await step("ArrowRight");
+        await step("ArrowDown");
         const output = process.env.PERSONAL_CAPTURE;
         if (output !== undefined) {
             await mkdir(output, { recursive: true });
-            await tv.page.screenshot({ path: `${output}/profile-after.png` });
+            await tv.page.screenshot({ path: `${output}/for-you-after.png` });
         }
-        await step("ArrowDown");
         assert.equal(await tv.focused(), "watchlist");
         await step("Enter");
         await tv.page.locator('[data-view="personal:watchlist"] .browse-card').first().waitFor();

@@ -17,9 +17,10 @@ import { heroBackdrop, type Tints } from "./heroBackdrop.ts";
 import type { LibraryMode } from "./libraryDiscovery.ts";
 import { PERSONAL_TITLES, type PersonalSource } from "./personalLists.ts";
 
-type VideoTab = "movies" | "series";
+type VideoTab = "movies" | "series" | "music";
 
 interface ProfileMenu {
+    readonly requests?: () => void;
     readonly settings?: () => void;
     readonly personal?: (source: PersonalSource, anchor?: "for_you" | "profiles") => void;
     readonly name: string;
@@ -29,7 +30,7 @@ interface ProfileMenu {
     readonly serverName?: () => string | undefined;
 }
 
-type RootTarget = "home" | "search" | "calendar" | "requests" | "for_you" | UserLibrary;
+type RootTarget = "home" | "search" | "calendar" | "for_you" | UserLibrary;
 
 function replaceNodes(container: HTMLElement, nodes: readonly HTMLElement[]): void {
     while (container.firstChild !== null) container.removeChild(container.firstChild);
@@ -69,8 +70,10 @@ function renderMetaLine(card: Card, continuing: boolean): HTMLElement {
 export class Skyline {
     private requestsEnabled = false;
     setRequestsEnabled(enabled: boolean): void {
+        if (this.requestsEnabled === enabled) return;
         this.requestsEnabled = enabled;
-        this.update(this.libraries);
+        if (this.profileOpen) this.openProfile();
+        else if (!enabled) this.selector.querySelector('[data-focus="requests"]')?.remove();
     }
 
     private routeBack: (() => void) | undefined;
@@ -172,14 +175,13 @@ export class Skyline {
         this.close();
         const rootItems = roots.map(root => {
             const item = actionButton(root.key, root.title, () => {
-                if ("library" in root) { this.panelAnchor = root.key; this.commit(root.library); }
-                else if (root.key === "movies" || root.key === "series") {
+                if (root.key === "movies" || root.key === "series" || root.key === "music") {
                     const library = this.scope(root.key);
                     if (library !== undefined) this.commit({ ...library, type: root.key });
                 } else this.commit(root.key);
             });
             item.element.setAttribute("role", "tab");
-            if (root.key === "movies" || root.key === "series" || root.key === "for_you" || "library" in root) item.element.setAttribute("aria-haspopup", "menu");
+            if (root.key === "movies" || root.key === "series" || root.key === "for_you") item.element.setAttribute("aria-haspopup", "menu");
             return item;
         });
         const searchItem = actionButton("search", "", () => this.commit("search"));
@@ -201,7 +203,7 @@ export class Skyline {
     setMenu(menu: PrimaryMenu | null): void { this.menu = menu; this.update(this.libraries); }
 
     private forType(type: VideoTab): readonly UserLibrary[] {
-        return this.libraries.filter((library) => library.type === type || library.type === "mixed");
+        return this.libraries.filter((library) => library.type === type || (type !== "music" && library.type === "mixed"));
     }
 
     private scope(type: VideoTab): UserLibrary | undefined {
@@ -231,7 +233,7 @@ export class Skyline {
         if (!this.visible) return;
         this.shortcutSelection = typeof target !== "string" && this.panelAnchor?.startsWith("library:") ? this.panelAnchor : undefined;
         if (typeof target !== "string") {
-            const type = this.panelTab ?? (target.type === "series" ? "series" : "movies");
+            const type = this.panelTab ?? (target.type === "series" ? "series" : target.type === "music" ? "music" : "movies");
             this.scopes.set(type, target.id);
             try { this.storage?.setItem(`${this.storageKey}:${type}`, target.id); } catch { /* Keep the selection for this session. */ }
         }
@@ -250,8 +252,8 @@ export class Skyline {
     }
 
     decorate(view: View, selected: string, preview: boolean, routeBack?: () => void, libraryKey?: string): View {
-        const libraryRoot = selected === "movies" || selected === "series";
-        if ((selected === "movies" || selected === "series") && this.shortcutSelection !== undefined && libraryKey?.startsWith(`${this.shortcutSelection}:`)) selected = this.shortcutSelection;
+        const libraryRoot = selected === "movies" || selected === "series" || selected === "music";
+        if ((selected === "movies" || selected === "series" || selected === "music") && this.shortcutSelection !== undefined && libraryKey?.startsWith(`${this.shortcutSelection}:`)) selected = this.shortcutSelection;
         this.routeBack = routeBack;
         this.visible = true;
         if (this.selected !== selected) this.immediatePreview = true;
@@ -491,7 +493,7 @@ export class Skyline {
             this.panel.push(this.menuItem("recommendations", "Recommendations", () => this.commit("for_you"), "Recommended"));
         } else {
             const shortcut = this.libraries.find(library => item.key === `library:${library.id}`);
-            const type = item.key === "series" || shortcut?.type === "series" ? "series" : "movies";
+            const type = item.key === "music" ? "music" : item.key === "series" || shortcut?.type === "series" ? "series" : "movies";
             this.panelTab = type;
             this.panelLibrary = shortcut;
             const libraries = this.forType(type);
@@ -593,6 +595,11 @@ export class Skyline {
     }
     private cancelFade = (): void => undefined;
 
+    restoreProfileRow(key: string): void {
+        this.openProfile();
+        this.refresh({ zone: "selector", key });
+    }
+
     private openProfile(enter = false): void {
         if (!this.visible) return;
         this.close();
@@ -602,9 +609,11 @@ export class Skyline {
         this.selector.setAttribute("aria-label", "Profile menu");
         this.panel = [this.menuItem("switch-profile", "Switch Profile", this.profiles.switchProfile)];
         const personal = this.profiles.personal;
-        if (personal !== undefined) for (const source of ["watchlist", "favorites", "history"] as const) {
+        if (personal !== undefined) for (const source of ["history"] as const) {
             this.panel.push(this.menuItem(source, PERSONAL_TITLES[source], () => { this.close(); personal(source); }));
         }
+        const requests = this.profiles.requests;
+        if (this.requestsEnabled && requests !== undefined) this.panel.push(this.menuItem("requests", "Requests", () => { this.close(); requests(); }));
         const settings = this.profiles.settings;
         if (settings !== undefined) this.panel.push(this.menuItem("settings", "Settings", () => { this.close(); settings(); }));
         const switchServer = this.profiles.switchServer;

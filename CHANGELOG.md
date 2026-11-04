@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Matched Apple TV’s fixed top menu and moved Requests into the profile menu with Back restoring its row.
+
 - Restored related titles on Details when the server returned cards without catalog pagination totals.
 - Made Enter on the player's default focus skip the intro, recap or credits while the Skip control shows, instead of pausing.
 
@@ -93,6 +95,8 @@ All notable changes to this project are documented in this file.
 - Added a CI workflow that runs the type checks, the build and all tests.
 
 ### Fixed
+
+- Matched Apple TV’s fixed top menu and moved Requests into the profile menu with Back restoring its row.
 
 - Kept a rating write running when the details page restarted, and read the rating only after it settled, so the page shows the stored rating instead of the old one.
 - Measured current Continue Watching artwork in geometry regressions without retaining nodes across Home redraws.

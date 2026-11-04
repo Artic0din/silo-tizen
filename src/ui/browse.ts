@@ -765,6 +765,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 return;
             }
             case "library":
+                if (current.library.type === "music") return;
                 current.discovery ??= discoveryState();
                 if (current.discovery.mode === "Recommended") presentation.ensure();
                 if (current.discovery.data !== undefined && (current.discovery.mode === "Recently Added" || current.discovery.mode === "A–Z" || current.discovery.genre !== undefined)) {
@@ -1021,6 +1022,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 current.stale = true;
             }
             showRoute(current, current.focus);
+            if (active?.kind === "requests" && active.requests.source.kind === "hub" && current.focus?.key === "requests") shell.restoreProfileRow("requests");
         }
     };
 
@@ -1143,10 +1145,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (top() !== current || torn || playing || loading !== undefined || cardActions.active || synopsis.active || settingsScreen !== undefined || current.failure !== undefined || current.pages.page?.nextCursor === undefined) return;
                 loadSection(current, true, true);
             }) : routeView(current, handlers);
-        const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || current.kind === "search" || current.kind === "personal" || current.kind === "calendar" || (current.kind === "requests" && current.requests.source.kind === "hub");
+        const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || current.kind === "search" || current.kind === "personal" || current.kind === "calendar";
         if (rootRoute) {
-            const selected = current.kind === "library" ? (current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? current.anchor ?? "profiles" : current.kind;
-            const preview = current.kind === "home" || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && (current.discovery?.mode ?? "Recommended") === "Recommended");
+            const selected = current.kind === "library" ? (current.library.type === "music" ? "music" : current.library.type === "series" ? "series" : "movies") : current.kind === "personal" ? current.anchor ?? "profiles" : current.kind;
+            const preview = current.kind === "home" || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
             const modal = browsing && (current.discovery?.panel !== undefined || shuffleFailure?.route === current);
             const decorated = shell.decorate(view, selected, preview, modal ? () => { view.back?.(); } : current.kind === "personal" || (current.kind === "library" && current.discovery?.genre !== undefined) ? pop : undefined, current.kind === "library" ? `library:${current.library.id}:${current.library.type}:${current.discovery?.mode ?? "Recommended"}` : undefined);
             const nav = container.querySelector<HTMLElement>(".browse-nav");
@@ -1356,7 +1358,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         let route = roots.get(key);
         if (route === undefined) {
             route = typeof target === "string"
-                ? target === "for_you" ? newRoute({ kind: "for_you", data: undefined }) : target === "requests" ? newRoute({ kind: "requests", requests: requestsState({ kind: "hub" }) }) : target === "calendar" ? newRoute({ kind: "calendar", calendar: calendarState() }) : newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
+                ? target === "for_you" ? newRoute({ kind: "for_you", data: undefined }) : target === "calendar" ? newRoute({ kind: "calendar", calendar: calendarState() }) : newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
                 : newRoute({ kind: "library", library: target, pages: newPages() });
             roots.set(key, route);
         }
@@ -1365,18 +1367,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             route.discovery = { ...discoveryState(), mode: destinationMode, capabilities: route.discovery?.capabilities };
             route.pages = newPages();
         }
-        // Apple's shown tab hands focus to the first card and reads nothing (TVRequestsPage.requestEntryFocus).
-        if (route === current && route.kind === "requests") {
-            host.focusDefault();
-            route.focus = host.focused();
-            return;
-        }
-        // Apple rebuilds TVRequestsPage on each visit: loading, a fresh read, then the first card.
-        if (route.kind === "requests") {
-            route = newRoute({ kind: "requests", requests: requestsState({ kind: "hub" }) });
-            roots.set(key, route);
-            host.forgetVisit("requests:hub");
-        }
         loading?.abort();
         loading = undefined;
         cancelSearch();
@@ -1384,6 +1374,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         showRoute(route, route.focus?.zone === "nav" ? undefined : route.focus);
         if (hasData(route) && (route.focus === undefined || route.focus.zone === "nav")) host.focusDefault();
     }, {
+        requests: () => { host.forgetVisit("requests:hub"); openRequests({ kind: "hub" }); },
         name: options.profileName ?? "Profiles",
         serverName: () => cachedBranding(options.publicStorage, context.baseUrl)?.serverName,
         settings: () => {

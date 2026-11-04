@@ -660,7 +660,7 @@ appTest("the profile menu opens without changing content, stays dismissed after 
     assert.equal(await tv.focused(), "profiles");
     await tv.page.keyboard.press("Enter");
     assert.equal(await tv.focused(), "switch-profile", "Select enters the menu immediately");
-    for (const destination of ["watchlist", "favorites", "history", "settings", "switch-server"]) {
+    for (const destination of ["history", "settings", "switch-server"]) {
         await tv.page.keyboard.press("ArrowDown");
         assert.equal(await tv.focused(), destination);
     }

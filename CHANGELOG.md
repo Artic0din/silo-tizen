@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Renamed the profile menu's Switch Server row to Change Account, after Settings and before Sign Out.
+
 - Matched Apple TV’s fixed top menu and moved Requests into the profile menu with Back restoring its row.
 
 - Prevented large Search posters from overlapping and kept catalog errors and Try Again visible while People results were pending.

@@ -153,12 +153,14 @@ Labels retain Apple's 29 px horizontal inset (including the CSS border), 26 px s
 Removing Requests lets the shared flex row recalculate every horizontal anchor from the remaining labels.
 
 The avatar uses the server-resolved image through the existing artwork URL policy, keeping the initial visible until loading succeeds or if it fails.
-The anchored profile menu includes Switch Profile, History, capability-gated Requests, Settings, Switch Server and a red, unfocused Sign Out row.
+The anchored profile menu includes Switch Profile, History, capability-gated Requests, Settings, Change Account and a red, unfocused Sign Out row.
 Watchlist and Favorites remain under For You.
 Requests pushes a screen without the top bar; Back restores its profile menu row.
 The header uses the confirmed server branding name, falling back to the host when none is cached.
 Every focused menu row uses a white platter and black text, including Sign Out.
-Switch Server retires Browse and enters manual server entry without logging out or deleting saved sign-ins.
+Change Account currently opens the existing server selection without logging out or deleting saved sign-ins.
+The real Change Account screen and multi-account support are tracked in [#185](https://github.com/Artic0din/silo-tizen/issues/185).
+The header keeps the server name because Tizen has no multiple saved accounts per server.
 Sign Out requires confirmation; Cancel and Back preserve the session and restore avatar focus.
 Its two-action layout follows `TVSettingsConfirmationOverlay`: centered surface, 48/42 px padding, 38 px title, 22 px message, horizontal 260 px buttons with 16 px spacing and a 0.62 black backdrop.
 The existing focus host owns that row; Up/Down stay inside it, Left/Right select an action, and tapping the backdrop cancels without activating the covered page.

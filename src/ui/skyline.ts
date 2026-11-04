@@ -617,7 +617,7 @@ export class Skyline {
         const settings = this.profiles.settings;
         if (settings !== undefined) this.panel.push(this.menuItem("settings", "Settings", () => { this.close(); settings(); }));
         const switchServer = this.profiles.switchServer;
-        if (switchServer !== undefined) this.panel.push(this.menuItem("switch-server", "Switch Server", switchServer));
+        if (switchServer !== undefined) this.panel.push(this.menuItem("switch-server", "Change Account", switchServer));
         if (this.profiles.signOut !== undefined) {
             const item = this.menuItem("signout", "Sign Out", () => this.confirmSignOut());
             item.element.classList.add("skyline-destructive");

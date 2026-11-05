@@ -12,6 +12,25 @@ export function matchesSubtitle(track: SubtitleSignature, signature: SubtitleSig
         && (!signature.label || normalized(track.label) === normalized(signature.label)) && track.forced === signature.forced && track.hearingImpaired === signature.hearingImpaired;
 }
 
+/** Apple Details scoring requires a language or label hit before seeding a saved choice. */
+export function preferredCatalogSubtitle(tracks: readonly SubtitleSignature[], signature: SubtitleSignature | undefined): SubtitleSignature | undefined {
+    if (signature === undefined) return undefined;
+    let best: SubtitleSignature | undefined;
+    let bestScore = 0;
+    for (const track of tracks) {
+        if (track.source === "embedded" && !track.codec?.trim()) continue;
+        const wanted = language(signature.language), actual = language(track.language);
+        if (wanted && actual && wanted.split("-")[0] !== actual.split("-")[0]) continue;
+        const languageHit = Boolean(wanted && actual && wanted.split("-")[0] === actual.split("-")[0]);
+        const labelHit = Boolean(signature.label && normalized(track.label).includes(normalized(signature.label)));
+        if (!languageHit && !labelHit) continue;
+        const score = (languageHit ? 5 : 0) + (labelHit ? 2 : 0) + (signature.forced === track.forced ? 1 : 0)
+            + (signature.hearingImpaired === track.hearingImpaired ? 1 : 0) + (signature.codec !== undefined && track.codec !== undefined && normalized(signature.codec) === normalized(track.codec) ? 1 : 0);
+        if (score > bestScore) { best = track; bestScore = score; }
+    }
+    return best;
+}
+
 function preferred(tracks: readonly SubtitleTrack[], wanted: string | undefined, signature?: SubtitleSignature): SubtitleTrack | undefined {
     const tag = language(wanted);
     if (!tag) return undefined;

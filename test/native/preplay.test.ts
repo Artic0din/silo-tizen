@@ -80,7 +80,8 @@ test("returning to retained Series completes its interrupted playback episode re
     state.stop();
 });
 
-test("season acceptance hydrates only its playback episode and cancels late work", async () => {
+test("episode focus dwell bounds concurrent reads, drops superseded queued work and cancels late work", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
     const r = await rig(); r.state.stop();
     const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
     const seasons = decodeSeasons(r.catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body);
@@ -95,14 +96,23 @@ test("season acceptance hydrates only its playback episode and cancels late work
     state.warmSeriesEpisodes(); await settle();
     const reads = (): number => r.h.fake.requests.filter(request => request.path.startsWith('/catalog/items/episode%3Abatch-')).length;
     assert.equal(reads(), 1);
-    state.focusEpisode(ids[5] ?? '');
-    assert.equal(reads(), 1, 'focus starts no read');
+    state.focusedEpisodeId = ids[1];
+    state.focusEpisode(ids[1] ?? '');
+    t.mock.timers.tick(119); await settle();
+    assert.equal(reads(), 1, 'focus starts no read before the Apple dwell');
+    t.mock.timers.tick(1); await settle();
+    assert.equal(reads(), 2);
+    for (const id of ids.slice(2)) {
+        state.focusEpisode(id); t.mock.timers.tick(120); await settle();
+    }
+    assert.equal(reads(), 4, 'at most four detail reads run concurrently');
     held[0]?.release(); await settle();
-    assert.equal(reads(), 1, 'completion does not drain a per-card queue');
+    assert.equal(reads(), 5, 'only the latest queued focused episode starts');
+    assert.equal(r.h.fake.requests.filter(request => request.path.includes('episode%3Abatch-4')).length, 0, 'superseded queued focus never reads');
     state.stop();
     for (const request of held) request.release();
     await settle();
-    assert.equal(reads(), 1, 'cancellation does not launch another card read');
+    assert.equal(reads(), 5, 'cancellation does not launch another card read');
     assert.equal(state.cachedEpisode(ids[5] ?? ''), undefined);
 });
 

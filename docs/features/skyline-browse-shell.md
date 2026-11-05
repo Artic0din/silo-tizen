@@ -17,9 +17,9 @@ Auto audio stays server-resolved until a viewer explicitly picks a track.
 Local extras and YouTube listings appear together in Trailers & More. Local extras start at zero through the existing player and restore their card on Back.
 If the embedded extra omits its file ID, Select resolves its existing catalog versions endpoint before playback; failure keeps Retry on that card and Back cancels the lookup.
 YouTube cards use the same rail. Select does not start playback and does not leave Silo, because AVPlay cannot play a site key and no Samsung YouTube handoff has been verified.
-More retains watched/favorite actions, the full-synopsis dialog and the movie/series rating dialog.
+More retains watched/favorite actions.
 Each dialog owns focus, hides the underlying page from accessibility, and restores its initiating control on Back.
-The inline synopsis clamps to three lines with ellipsis; the full text remains available in More.
+The inline synopsis clamps to three lines with ellipsis, matching the non-focusable tvOS synopsis.
 Cast portraits remain 200 px circles, with 60 px gaps and centered two-line names.
 
 Series Details use season chips and an inline landscape episode rail.
@@ -58,7 +58,7 @@ While a detail is pending or failed, the loaded episode row still supplies its s
 More > Show Series Info restores the overview without a read.
 Rail Select carries confirmed version/audio/subtitle selections through the existing fresh catalog and progress resolution route.
 Ordinary episode Details/Back retains the selected season, loaded rail and focused episode.
-The existing season-information destination remains available in More.
+Season tabs select the inline episode rail.
 Episode Select on the rail, season list and ordinary media cards prepares playback directly.
 The existing resolution route owns catalog/file selection, fresh resume, loading, Retry and cancellation before the player handoff.
 It checks fresh progress even when cached progress is zero, while explicit Start Over sends zero without a progress read.
@@ -80,7 +80,7 @@ Paths below are relative to `iosApp/iosApp/`.
 | Title | `tvOS/Screens/Detail/TVDetailHero.swift:505`: 92-point compressed primary, 40-point secondary | Requests shared title treatment; colon-separated fallback; guarded logo loading retained |
 | Summary | `tvOS/Screens/Detail/TVDetailHero.swift:763`: gap 8; slots 313/364/338; height 44 | Three passive slots above actions |
 | Series baseline | `tvOS/Screens/Detail/TVSeriesDetailView.swift:405`: editorial 435, metadata 36, synopsis 112, credit 28, action spacing 4 | Primary editorial clipped at 351; 80-point disclosure bottom-locked inside 435; actions at y=557 |
-| Controls | `tvOS/Screens/Detail/TVDetailActions.swift:354`: minimum circle width 76 and height 76; `TVMovieDetailView.swift:176`: primary width 340 | Existing dialogs and personal/rating ownership retained; next-episode controls now use the same selection owner |
+| Controls | `tvOS/Screens/Detail/TVDetailActions.swift:354`: minimum circle width 76 and height 76; `TVMovieDetailView.swift:176`: primary width 340 | Existing playback dialogs and personal-action ownership retained; next-episode controls now use the same selection owner |
 | Credits | `tvOS/Screens/Detail/TVDetailHero.swift:741`: first two directors for movies; first three cast names otherwise | Same text and limits |
 | Cast | `tvOS/Screens/Detail/TVDetailCastRail.swift:15`: 200-point circles | Existing circular cards, role deduplication and focus unchanged |
 | Extras | `tvOS/Screens/Detail/TVTrailersRail.swift:23`: gap 48; `:24` and `TVDetailHero.swift:16`: 12px rail padding plus 64px section spacing, 76px from the caption to the next heading; `:74-76`: 470×264 cards, radius 18 | Local extras and YouTube listings. Same card geometry. YouTube Select stays on the card |
@@ -94,7 +94,7 @@ Version labels retain the server edition, resolution and codec fields.
 
 Native acceptance remains required before merge.
 Compare identical Movie and Series items, profile, selected file and tracks, card-size setting and 1920×1080 viewport on both clients.
-Capture entry with Play focused; each selector open; subtitle Off selected; More then rating and full synopsis; Cast focused; Trailers & More focused; related focused; and Back restoration.
+Capture entry with Play focused; each selector open; subtitle Off selected; More; Cast focused; Trailers & More focused; related focused; and Back restoration.
 For Series additionally capture Season 1 selected, the first episode focused, the second episode focused, another season explicitly selected, Specials selected, and Back from Episode information.
 Apple's Movie hero uses an unreserved editorial stack inside `heroComposition.clipped()` (`TVDetailHero.swift:149-166,263-270`); title and synopsis retain their vertical size (`:493,501`, `TVHeroSynopsis.swift:24`).
 It has no grow-the-hero or shrink-the-title rule.
@@ -416,8 +416,6 @@ The shell receives a library/type/mode identity separately from the loading view
 Loading, data completion and selector refreshes do not start a second transition.
 Rapid changes replace the outgoing layer, and stopping or destroying the focus host removes that layer, incoming motion classes and its cleanup timer.
 The noninteractive outgoing layer keeps its CSS classes and scroll position without serializing computed styles for each card.
-The synopsis dialog exposes the complete detail overview with remote scrolling and restores focus on close.
-Optional Details responses retain the active synopsis and its focus; closing shows the latest data, and route or profile teardown removes the dialog.
 
 Pushed Details pages show optional title artwork, server-ordered ratings, facts and credits from the pinned v2 contract.
 Details shares Home's 1228.8×756 top-right artwork frame and fade masks, with an image contained in that frame rather than fixed to the viewport.

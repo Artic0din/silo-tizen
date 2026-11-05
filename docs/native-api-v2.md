@@ -121,7 +121,6 @@ It is set to `false` for these calls:
 
 - PIN verification (`src/session/profiles.ts`)
 - personal-list and watched mutations (`src/ui/detailsState.ts`)
-- rating writes (`src/ui/ratingState.ts`)
 - shuffle creation (`src/ui/browse.ts`)
 - request create, cancel and follow (`src/ui/browse.ts`)
 - series subtitle preference saves (`src/player/controller.ts`)
@@ -297,21 +296,6 @@ All are Bearer plus Profile.
 Gating: `decodePersonalCapability` is true only when `state === "available"`, `allowed` and `membership_supported` are all true (`src/contracts/v2/details.ts`).
 Mutations are sent once, with refresh replay off, and repeat only when the person presses again (comment in `detailOperations.ts`).
 The list screens decode the same capability with a second decoder in `src/ui/personalLists.ts`, which requires a `revision` string.
-
-### Ratings
-
-Defined in `src/ui/ratingState.ts` as `ratingOperations`.
-All are Bearer plus Profile.
-
-| Operation | Method and path | Retry |
-| --- | --- | --- |
-| read | `GET /ratings/{id}` | safe |
-| set | `PUT /ratings/{id}` with body `{ "rating": 1..5 }` | never |
-| clear | `DELETE /ratings/{id}` | never |
-
-A 404 on read means unrated.
-Writes send once with refresh replay off, then read back to confirm; an explicit Retry reads first (`docs/features/ratings.md`).
-A star value outside 1 to 5 throws `RangeError` before any request.
 
 ### Recommendations
 

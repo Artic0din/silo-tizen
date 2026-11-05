@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { detailOperations, type PersonalAction } from "../../src/api/detailOperations.ts";
-import { decodeCatalogPage, decodeItemDetail } from "../../src/contracts/v2/catalog.ts";
+import { decodeCatalogPage, decodeItemDetail, decodeEpisodes } from "../../src/contracts/v2/catalog.ts";
 import { decodePerson, decodeMembership, decodePersonalCapability } from "../../src/contracts/v2/details.ts";
 import { playChoices } from "../../src/ui/browseModel.ts";
 import { fixture } from "./support/fakeSilo.ts";
 import { FakeDetails } from "./support/fakeDetails.ts";
 import type { FakeCatalog } from "./support/fakeCatalog.ts";
+
+test("Details episode suggestions read Apple's is_in_progress flag rather than the aggregate count", () => {
+    const episode = { content_id: "episode:one", season_number: 1, episode_number: 1, title: "One", runtime: 30 };
+    assert.equal(decodeEpisodes({ items: [{ ...episode, user_data: { played: false, is_in_progress: true, in_progress_count: 0 } }] })[0]?.inProgress, true);
+    assert.equal(decodeEpisodes({ items: [{ ...episode, user_data: { played: false, is_in_progress: false, in_progress_count: 1 } }] })[0]?.inProgress, undefined);
+});
 
 test("combined Details fake preserves scoped catalog query bodies", () => {
     const catalog: FakeCatalog = new FakeDetails();

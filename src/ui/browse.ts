@@ -1833,7 +1833,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 host.listen();
                 const current = top();
                 if (current !== undefined) showRoute(current, tabFocus(current));
-            }, server.profileLaunch, options.onAccounts);
+            }, server.profileLaunch, {
+                profileName: options.profileName ?? "Profiles",
+                accountName: session.account?.username,
+                switchProfile: chooseProfile,
+                serverName: cachedBranding(options.publicStorage, context.baseUrl)?.serverName,
+                ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
+                ...(options.onSwitchServer === undefined ? {} : { switchServer: options.onSwitchServer }),
+            }, options.onAccounts);
         },
         personal: (source, anchor = "profiles") => {
             const origin = top();

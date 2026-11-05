@@ -20,12 +20,25 @@
 /* Settings shares the browse focus grammar and one scrollable control pane. */
 .settings { overflow-y: auto; }
 .settings-scope { margin: -12px 0 40px; color: var(--silo-secondary); font-size: 26px; }
-.settings-panes { display: flex; align-items: flex-start; }
-.settings-categories { width: 340px; flex-shrink: 0; padding-right: 40px; }
-.settings-pane { width: 1332px; padding-left: 48px; border-left: 1px solid var(--silo-hairline); }
+.settings-panes { display: flex; align-items: flex-start; gap: 52px; }
+.settings-categories { width: 490px; flex-shrink: 0; }
+.settings-pane { flex: 1; min-width: 0; padding: 0 18px; }
+.settings-row-title { font-size: 26px; }
+.settings-row-value { margin-left: auto; font-size: 24px; opacity: .68; }
+.settings-chevron { margin-left: 16px; font-size: 18px; opacity: .55; }
+.settings-controls .browse-button:has(.settings-row-value) { display: flex; align-items: center; gap: 16px; }
+.settings-version { margin: 24px 20px; font-size: 18px; color: var(--silo-secondary); }
+.settings-blurb { margin: -8px 0 28px; color: var(--silo-secondary); font-size: 24px; line-height: 1.35; }
+.settings-category-title, .settings-profile-name { display: block; font-size: 28px; line-height: 1.2; }
+.settings-category-detail, .settings-profile-account { display: block; margin-top: 4px; font-size: 20px; line-height: 1.2; color: var(--silo-secondary); }
+.settings-profile-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; }
 .settings-controls .browse-button,
 .settings-categories .browse-button { display: block; width: 100%; margin: 0 0 16px; border-radius: 12px; text-align: left; }
-.settings-controls .browse-button { padding: 24px 32px; font-size: 30px; }
+.settings-categories .settings-profile { display: flex; align-items: center; }
+.settings-categories .settings-signout { color: #ff453a; }
+.settings .browse-button:focus .settings-category-detail,
+.settings .browse-button:focus .settings-profile-account { color: inherit; }
+.settings-controls .browse-button { padding: 17px 24px; font-size: 26px; }
 .settings-categories .browse-button[aria-current="page"],
 .settings-controls .browse-button[aria-checked="true"] { background: var(--silo-selected); }
 .settings .browse-button:focus { outline: none; background: #fff; color: #000; border-color: #fff; }

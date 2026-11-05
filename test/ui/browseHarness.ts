@@ -48,6 +48,7 @@ if (root === null) {
     throw new Error("missing #root");
 }
 let server: ConnectedServer | undefined;
+let profileName: string | undefined;
 let browse: Browse | undefined;
 const publicStorage = new MemoryPublicStorage();
 
@@ -100,6 +101,7 @@ const harness: BrowseHarness = {
         if (profile === undefined) {
             throw new Error(`no profile ${id}`);
         }
+        profileName = profile.name;
         const selection = profiles.select(profile);
         if (selection.status === "selected") {
             return "selected";
@@ -110,6 +112,7 @@ const harness: BrowseHarness = {
         document.getElementById("successor")?.remove();
         browse = mountBrowse(root, {
             server: connected(),
+            ...(profileName === undefined ? {} : { profileName }),
             publicStorage,
             onPlay: (request) => {
                 harness.plays.push(request);

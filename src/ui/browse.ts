@@ -1121,7 +1121,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                         detailsChanged(current, audioClosed);
                     }, (detail, signal) => refreshWatched(current, detail, signal), personalPending, translations);
                     details.restore(previous);
-                    if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, () => details.warmSeriesEpisodes(), previous?.series?.seasonNumber ?? data.contextSeason, current.seriesContext?.episodeId);
+                    if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, reason => details.warmSeriesEpisodes(reason === "load"), previous?.series?.seasonNumber ?? data.contextSeason, current.seriesContext?.episodeId);
                     details.series?.restore(previous?.series);
                     details.related = quiet ? previous?.related : undefined;
                     current.data = { ...data, details };

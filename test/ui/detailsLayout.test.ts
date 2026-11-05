@@ -7,9 +7,202 @@ import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
+detailTest("episode boundary failure requires explicit Retry while loaded-season focus stays read-free", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const seasons = catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body as { items: Record<string, unknown>[] };
+    const episodes = catalog.route("GET", "/catalog/series/series%3As1/seasons/1/episodes", "p-owner")?.body as { items: Record<string, unknown>[] };
+    await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons?**", route => route.fulfill({ json: { items: [1, 2, 3, 4, 5].map(number => ({ ...seasons.items[0], content_id: `season:${number}`, season_number: number, episode_count: 14, user_data: { played: number === 1, in_progress_count: number === 2 ? 1 : 0 } })) } }));
+    const reads: number[] = [];
+    let failBoundary = true;
+    for (const season of [1, 2, 3, 4, 5]) await tv.page.route(`**/api/v2/catalog/series/series%3As1/seasons/${season}/episodes?**`, route => {
+        reads.push(season);
+        if (season === 4 && failBoundary) return route.fulfill({ status: 422, json: problem(422, "validation_failed", "Unavailable").body });
+        return route.fulfill({ json: { items: Array.from({ length: 14 }, (_, index) => ({ ...episodes.items[0], content_id: `episode:rail:${season}:${index}`, season_number: season, episode_number: index + 1 })) } });
+    });
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    const card = (season: number, index: number) => tv.page.locator(`[data-focus="episode:rail:${season}:${index}"]`);
+    await card(3, 13).waitFor(); await card(1, 0).waitFor();
+    assert.deepEqual([...reads].sort(), [1, 2, 3]);
+    for (const [season, index] of [[2, 13], [3, 0], [3, 12], [2, 13], [3, 12]] as const) {
+        await card(season, index).focus(); await tv.jump(100);
+    }
+    assert.equal(reads.length, 3, "crossing cached seasons starts no reads");
+    await card(3, 13).focus();
+    await tv.page.locator('[data-focus="audio"]').focus(); await tv.jump(100);
+    assert.equal(reads.length, 3, "leaving the rail cancels boundary dwell");
+    await card(3, 13).focus(); await tv.jump(100);
+    const retry = tv.page.getByRole("button", { name: "Retry more episodes", exact: true });
+    await retry.waitFor();
+    assert.deepEqual(reads.slice(3), [4]);
+    for (let index = 0; index < 3; index++) {
+        await card(3, 12).focus(); await card(3, 13).focus(); await tv.jump(100);
+    }
+    assert.equal(reads.length, 4, "failed boundary revisits never retry");
+    failBoundary = false;
+    await retry.focus(); await tv.page.keyboard.press("Enter");
+    await card(4, 13).waitFor();
+    assert.deepEqual(reads.slice(3), [4, 4], "explicit Retry reads only the failed season");
+    assert.equal(await retry.count(), 0);
+    assert.notEqual(await tv.focused(), "retry-neighbors", "the removed Retry control cannot retain focus");
+});
+
+detailTest("an empty boundary response does not chain reads when the focused edge is restored", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const seasons = catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body as { items: Record<string, unknown>[] };
+    const episodes = catalog.route("GET", "/catalog/series/series%3As1/seasons/1/episodes", "p-owner")?.body as { items: Record<string, unknown>[] };
+    await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons?**", route => route.fulfill({ json: { items: [1, 2, 3, 4, 5, 6].map(number => ({ ...seasons.items[0], content_id: `season:${number}`, season_number: number, episode_count: 14, user_data: { played: number === 1, in_progress_count: number === 2 ? 1 : 0 } })) } }));
+    const reads: number[] = [];
+    for (const season of [1, 2, 3, 4, 5, 6]) await tv.page.route(`**/api/v2/catalog/series/series%3As1/seasons/${season}/episodes?**`, route => {
+        reads.push(season);
+        return route.fulfill({ json: { items: season > 3 ? [] : Array.from({ length: 14 }, (_, index) => ({ ...episodes.items[0], content_id: `episode:empty:${season}:${index}`, season_number: season, episode_number: index + 1 })) } });
+    });
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:empty:1:0"]').waitFor();
+    const edge = tv.page.locator('[data-focus="episode:empty:3:13"]'); await edge.waitFor();
+    await edge.focus(); await tv.jump(100);
+    await tv.eventually(async () => reads.includes(4), "the one boundary read finishes");
+    for (let index = 0; index < 4; index++) await tv.jump(100);
+    assert.deepEqual([...reads].sort(), [1, 2, 3, 4], "restoring the same edge never chains into further empty seasons");
+    assert.equal(await tv.focused(), "episode:empty:3:13");
+});
+
+detailTest("Episode rail paints neighbouring stills to both screen edges without changing scroll steps", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog);
+    const body = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner')?.body as { items: Record<string, unknown>[] };
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**', route => route.fulfill({ json: { items: Array.from({ length: 8 }, (_, index) => ({ ...body.items[0], content_id: `episode:edge${index}`, episode_number: index + 1 })) } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:edge7"]').waitFor(); await tv.jump(500);
+    const row = tv.page.locator('.details-episodes');
+    await row.evaluate(node => { node.scrollLeft = 150; });
+    const bounds = await row.evaluate(node => {
+        const art = node.querySelector('.browse-art')!.getBoundingClientRect();
+        return { left: node.getBoundingClientRect().left, right: node.getBoundingClientRect().right, visible: document.elementFromPoint(1, art.y + art.height / 2)?.closest('[data-focus]')?.getAttribute('data-focus') };
+    });
+    assert.equal(bounds.left, 0);
+    assert.equal(bounds.right, 1920);
+    assert.equal(bounds.visible, 'episode:edge0', JSON.stringify(bounds));
+    await tv.page.locator('[data-focus="episode:edge0"]').focus(); await tv.jump(500);
+    assert.equal(await row.evaluate(node => node.scrollLeft), 0);
+    await tv.remote(39); await tv.jump(500);
+    assert.equal(await row.evaluate(node => node.scrollLeft), 400);
+    const lastVisible = await row.evaluate(node => {
+        const art = node.querySelector('.browse-art')!.getBoundingClientRect();
+        return document.elementFromPoint(1919, art.y + art.height / 2)?.closest('[data-focus]')?.getAttribute('data-focus');
+    });
+    assert.equal(lastVisible, 'episode:edge5');
+});
+
+detailTest("Episode resume bar uses TVEpisodeRail's exact bottom edge metrics and visibility rules", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog);
+    const body = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner')?.body as { items: Record<string, unknown>[] };
+    const states = [
+        { played: false, position_seconds: 60, duration_seconds: 240 },
+        { played: true, position_seconds: 60, duration_seconds: 240 },
+        { played: false, position_seconds: 0, duration_seconds: 240 },
+        { played: false, position_seconds: 240, duration_seconds: 240 },
+        { played: false, position_seconds: 300, duration_seconds: 240 },
+        { played: false, position_seconds: 60, duration_seconds: 0 },
+        { played: false, position_seconds: 60 },
+    ];
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**', route => route.fulfill({ json: { items: states.map((user_data, index) => ({ ...body.items[0], content_id: `episode:progress${index}`, episode_number: index + 1, user_data })) } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:progress0"]').waitFor();
+    assert.equal(await tv.page.locator('.details-episodes .skyline-progress').count(), 2);
+    for (const index of [0, 1]) {
+        const metrics = await tv.page.locator(`[data-focus="episode:progress${index}"] .skyline-progress`).evaluate(node => {
+            const style = getComputedStyle(node), fill = node.firstElementChild!;
+            return { height: style.height, bottom: style.bottom, left: style.left, right: style.right, background: style.backgroundColor, fill: getComputedStyle(fill).backgroundColor, width: (fill as HTMLElement).style.width };
+        });
+        assert.deepEqual(metrics, { height: '5px', bottom: '0px', left: '0px', right: '0px', background: 'rgba(0, 0, 0, 0.6)', fill: 'rgb(255, 255, 255)', width: '25%' });
+    }
+});
+
+detailTest("Final season E05 clamps with one successor while start and interior anchors remain bounded", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog);
+    const seasons = catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body as { items: Record<string, unknown>[] };
+    const episodes = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner')?.body as { items: Record<string, unknown>[] };
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons?**', route => route.fulfill({ json: { items: [13, 14].map(season => ({ ...seasons.items[0], content_id: `season:${season}`, season_number: season, episode_count: season === 13 ? 10 : 6, user_data: { played: season === 13, in_progress_count: season === 14 ? 1 : 0 } })) } }));
+    for (const season of [13, 14]) await tv.page.route(`**/api/v2/catalog/series/series%3As1/seasons/${season}/episodes?**`, route => route.fulfill({ json: { items: Array.from({ length: season === 13 ? 10 : 6 }, (_, index) => ({ ...episodes.items[0], content_id: `episode:s${season}e${index + 1}`, season_number: season, episode_number: index + 1, user_data: { played: season === 13 || index < 4, playback_position_seconds: season === 14 && index === 4 ? 60 : 0 } })) } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:s13e10"]').waitFor();
+    const card = (id: string) => tv.page.locator(`[data-focus="episode:${id}"]`);
+    const measure = () => tv.page.locator('.details-episodes').evaluate(row => ({ scroll: row.scrollLeft, cards: [...row.querySelectorAll('.browse-art')].map(node => ({ x: node.getBoundingClientRect().x, frameX: node.parentElement!.getBoundingClientRect().x, right: node.getBoundingClientRect().right })) }));
+    await card('s14e5').focus(); await tv.jump(1500);
+    await tv.eventually(async () => card('s14e5').locator('.browse-art').evaluate(node => node.getBoundingClientRect().width > 325), 'E05 focus lift settled');
+    const end = await measure();
+    // The row-local leading slot is now Swift's 100px, 7px left of its old
+    // 107px slot. Keep painted focus bounds separate from the unscaled frame.
+    // Integer scrollLeft rounds the 3845.6px terminal offset to 3846px.
+    assert.ok(Math.abs(end.cards[14]!.frameX - 1158) < 1, JSON.stringify(end));
+    assert.ok(Math.abs(end.cards[14]!.x - 1151) < 2, JSON.stringify(end));
+    assert.ok(Math.abs(end.cards[15]!.right - 1817) < 1, JSON.stringify(end));
+    assert.equal(end.scroll, 3846);
+    const reads = tv.fake.requests.length;
+    await card('s13e5').focus(); await tv.jump(500);
+    await tv.eventually(async () => card('s13e5').locator('.browse-art').evaluate(node => node.getBoundingClientRect().width > 325), 'interior focus lift settled');
+    const middle = await measure();
+    assert.ok(Math.abs(middle.cards[4]!.x - 102) < 2, JSON.stringify(middle));
+    assert.ok(Math.abs(middle.scroll - 1398.4) < 1, JSON.stringify(middle));
+    await card('s13e1').focus(); await tv.jump(500); await tv.remote(37);
+    await tv.eventually(async () => card('s13e1').locator('.browse-art').evaluate(node => node.getBoundingClientRect().width > 325), 'first focus lift settled');
+    const start = await measure();
+    assert.equal(start.scroll, 0);
+    assert.ok(Math.abs(start.cards[0]!.frameX - 109) < 1, JSON.stringify(start));
+    assert.ok(Math.abs(start.cards[0]!.x - 102) < 2, JSON.stringify(start));
+    assert.equal(await tv.focused(), 'episode:s13e1');
+    assert.equal(tv.fake.requests.length, reads, 'loaded neighbour and interior focus start no reads');
+}, 'compact');
+
+detailTest("Apple loaded-season window rebases E05 and retains remote focus across its boundaries", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const seasonBody = catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body as { items: Record<string, unknown>[] };
+    const episodeBody = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner')?.body as { items: Record<string, unknown>[] };
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons?**', route => route.fulfill({ json: { items: [13, 14].map(season => ({ ...seasonBody.items[0], content_id: `season:${season}`, season_number: season, episode_count: season === 13 ? 10 : 14, user_data: { played: season === 13, in_progress_count: season === 14 ? 1 : 0 } })) } }));
+    for (const season of [13, 14]) await tv.page.route(`**/api/v2/catalog/series/series%3As1/seasons/${season}/episodes?**`, route => route.fulfill({ json: { items: Array.from({ length: season === 13 ? 10 : 14 }, (_, index) => ({ ...episodeBody.items[0], content_id: `episode:s${season}e${index + 1}`, season_number: season, episode_number: index + 1, user_data: { played: season === 13 || index < 4, playback_position_seconds: season === 14 && index === 4 ? 60 : 0 } })) } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:s13e10"]').waitFor();
+    const scroll = () => tv.page.locator('.details-episodes').evaluate(row => row.scrollLeft);
+    await tv.eventually(async () => await scroll() === 5600, 'resume E05 rebased after ten predecessors');
+    assert.equal(await tv.page.locator('[data-focus="episode:s14e5"]').evaluate(node => node.getBoundingClientRect().x), 111);
+    await tv.page.locator('[data-focus="episode:s14e5"]').focus();
+    await tv.jump(1500);
+    const reads = tv.fake.requests.length;
+    await tv.remote(37);
+    assert.equal(await tv.focused(), 'episode:s14e4');
+    await tv.jump(400);
+    assert.equal(await scroll(), 5200);
+    await tv.remote(39);
+    await tv.jump(400);
+    assert.equal(await tv.focused(), 'episode:s14e5');
+    assert.equal(await scroll(), 5600);
+    await tv.remote(40);
+    await tv.remote(38);
+    assert.equal(await tv.focused(), 'episode:s14e5', 'return from Cast retains episode identity');
+    await tv.page.locator('[data-focus="episode:s14e14"]').focus();
+    await tv.jump(400);
+    assert.equal(await scroll(), 8000, 'last episode stays in the terminal group');
+    await tv.remote(39);
+    assert.equal(await tv.focused(), 'episode:s14e14');
+    assert.equal(tv.fake.requests.length, reads, 'ordinary moves and terminal focus make no reads');
+    await tv.page.locator('[data-focus="season:13"]').click();
+    await tv.page.locator('[data-focus="episode:s13e1"][aria-current="true"]').waitFor();
+    await tv.remote(40);
+    assert.equal(await tv.focused(), 'episode:s13e1');
+    await tv.jump(400);
+    assert.equal(await scroll(), 0);
+    await tv.remote(37);
+    assert.equal(await tv.focused(), 'episode:s13e1');
+    await tv.page.locator('[data-focus="episode:s14e1"]').focus();
+    assert.equal(await tv.page.locator('[data-focus="season:14"]').getAttribute('aria-pressed'), 'true');
+    await tv.remote(37);
+    assert.equal(await tv.focused(), 'episode:s13e10', 'Left crosses the loaded season boundary');
+    assert.equal(await tv.page.locator('[data-focus="season:13"]').getAttribute('aria-pressed'), 'true');
+});
+
 for (const current of [1, 5]) detailTest(`Measured five-card episode rail with E0${current} current`, async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
     const body = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner')?.body as { items: Record<string, unknown>[] };
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/2/episodes?**', route => route.fulfill({ json: { items: [] } }));
     await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**', route => route.fulfill({ json: { items: Array.from({ length: 5 }, (_, i) => ({ ...body.items[0], content_id: `episode:s1e1${i + 1}`, episode_number: i + 1, user_data: { played: i + 1 < current, playback_position_seconds: i + 1 === current ? 60 : 0 } })) } }));
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('[data-focus="episode:s1e15"]').waitFor();
@@ -19,15 +212,14 @@ for (const current of [1, 5]) detailTest(`Measured five-card episode rail with E
     await tv.page.locator('[data-focus="episode:s1e11"]').focus();
     await tv.jump(500);
     await tv.eventually(async () => (await measure()).cards[0]!.width > 377, 'first card lift settled');
-    assert.ok(Math.abs((await measure()).cards[0]!.x - 109) < 2);
+    assert.ok(Math.abs((await measure()).cards[0]!.x - 102) < 2);
     await tv.page.locator('[data-focus="episode:s1e15"]').focus();
     await tv.jump(500);
     await tv.eventually(async () => (await measure()).cards[4]!.width > 377, 'E05 lift settled');
     const focused = await measure();
-    console.log('EPISODE MEASUREMENT', current, JSON.stringify({ rest, focused }));
     assert.ok(Math.abs(rest.cards[0]!.width - 360) < 1, JSON.stringify(rest));
     assert.equal(rest.scroll, current === 1 ? 0 : 400);
-    assert.ok(Math.abs(focused.cards[4]!.x - 1309) < 2, JSON.stringify(focused));
+    assert.ok(Math.abs(focused.cards[4]!.x - 1302) < 2, JSON.stringify(focused));
 });
 
 for (const art of [
@@ -60,7 +252,12 @@ detailTest('Hero uses measured series colours and genres only at rest', async tv
     await tv.page.locator('[data-focus="audio"]').waitFor();
     await tv.eventually(async () => tv.page.locator('.details-editorial .browse-meta').evaluateAll(nodes => nodes.length === 1 && getComputedStyle(nodes[0]!).color === 'rgb(225, 227, 228)'), 'series metadata colour after optional-data repaint');
     assert.equal(await tv.page.locator('.details-genres').count(), 1);
-    assert.equal(await tv.page.locator('.details-editorial .browse-overview').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).color)[0]), 'rgb(244, 245, 246)');
+    // A node handle can detach during an optional-data repaint; resolve and measure atomically.
+    assert.equal(await tv.page.evaluate(() => {
+        const overview = document.querySelector('.details-editorial .browse-overview');
+        if (overview === null) throw new Error('Series overview missing');
+        return getComputedStyle(overview).color;
+    }), 'rgb(244, 245, 246)');
     await tv.page.locator('[data-focus="audio"]').focus();
     assert.equal(await tv.page.locator('.details-play').evaluate(node => getComputedStyle(node).backgroundColor), 'rgb(31, 51, 57)');
     assert.equal(await tv.page.locator('.details-playback-summary strong').first().evaluate(node => getComputedStyle(node).color), 'rgba(237, 237, 237, 0.5)');
@@ -163,7 +360,7 @@ detailTest('Down into an alternate season starts at its first episode and retarg
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
     const reply = catalog.route('GET', '/catalog/series/series%3As1/seasons/2/episodes', 'p-owner');
     const body = reply?.body as { items: Record<string, unknown>[] };
-    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/2/episodes?**', route => route.fulfill({ json: { ...body, items: body.items.map((item, index) => ({ ...item, user_data: { played: index === 0, playback_position_seconds: index === 1 ? 60 : 0 } })) } }));
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/2/episodes?**', route => route.fulfill({ json: { ...body, items: Array.from({ length: 14 }, (_, index) => ({ ...body.items[0], content_id: `episode:s1e2${index + 1}`, episode_number: index + 1, user_data: { played: index === 0, playback_position_seconds: index === 1 ? 60 : 0 } })) } }));
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('[data-focus="season:2"]').focus();
     await tv.jump(100);
@@ -293,7 +490,7 @@ detailTest('Up returns to a selected season beyond the visible pill window and r
     const body = reply?.body as { items: Record<string, unknown>[] };
     await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons?**', route => route.fulfill({ json: { items: Array.from({ length: 14 }, (_, index) => ({ ...body.items[0], content_id: `season:long${index + 1}`, season_number: index + 1, title: `Season ${index + 1}` })) } }));
     const episodes = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner')?.body as { items: Record<string, unknown>[] };
-    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/14/episodes?**', route => route.fulfill({ json: { items: episodes.items.map(episode => ({ ...episode, season_number: 14 })) } }));
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/14/episodes?**', route => route.fulfill({ json: { items: episodes.items.map((episode, index) => ({ ...episode, content_id: `episode:s14e${index + 1}`, season_number: 14 })) } }));
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('[data-focus="season:14"]').click();
     await tv.page.locator('.details-episodes [data-focus]').first().waitFor();

@@ -113,8 +113,9 @@ trailerTest("local extras stay ahead of YouTube cards and keep a 48px gap", asyn
         { key: "extra:extra:1", caption: "1:30" },
         { key: "remote:YouTube:abc_def-1", caption: "YouTube" },
     ]);
-    const gap = await tv.page.locator(".details-extras").evaluate(row => {
-        const [first, second] = [...row.querySelectorAll(".details-extra")].map(node => node.getBoundingClientRect());
+    // A Details repaint can replace the row between resolving a locator and reading it, and a detached row measures 0.
+    const gap = await tv.page.evaluate(() => {
+        const [first, second] = [...document.querySelectorAll(".details-extras .details-extra")].map(node => node.getBoundingClientRect());
         return second!.left - first!.right;
     });
     assert.ok(Math.abs(gap - 48) < 1, String(gap));

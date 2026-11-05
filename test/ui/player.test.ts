@@ -165,6 +165,16 @@ test("every audio transport and chapter control stays visible on remote Down", a
     } finally { await page.close(); }
 });
 
+test("audio player without real chapters follows the tvOS control availability and label", async () => {
+    const { page } = await open();
+    try {
+        await page.evaluate(() => window.player.audio(false));
+        await show(page, playing(NO_TRACKS));
+        assert.equal(await page.getByRole("button", { name: "Chapters", exact: true }).count(), 0);
+        assert.equal(await page.getByText("Audiobook", { exact: true }).count(), 1);
+    } finally { await page.close(); }
+});
+
 test("autoplay countdown and Cancel are remote-operable without losing manual Play next", async () => {
     const { page } = await open();
     const view: PlaybackView = { phase: "completion", title: "Playback ended", state: "ready", retryable: false, next: { contentId: "next", fileId: "43", title: "Next episode", startSeconds: 0, episode: true }, countdown: 10 };

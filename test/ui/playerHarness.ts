@@ -7,7 +7,7 @@ import { mountAudioScreen } from "../../src/player/audioScreen.ts";
 import { systemClock } from "../../src/api/clock.ts";
 
 export interface PlayerHarness {
-    audio(): void;
+    audio(withChapters?: boolean): void;
     rejectSleepPause(): void;
     readonly commands: string[];
     show(view: PlaybackView): void;
@@ -71,9 +71,9 @@ const controls: PlayerControls = {
 let screen: PlayerScreen = mountPlayerScreen(root, controls);
 
 window.player = {
-    audio() {
+    audio(withChapters = true) {
         screen.destroy();
-        screen = mountAudioScreen(root, controls, { id: "book", title: "Book", overview: "", poster: undefined, position: 0, duration: 200, parts: [{ fileId: "1", duration: 200, offset: 0 }], chapters: [{ title: "Opening", start: 0 }, { title: "Ending", start: 100 }] }, systemClock);
+        screen = mountAudioScreen(root, controls, { id: "book", title: "Book", overview: "", poster: undefined, position: 0, duration: 200, parts: [{ fileId: "1", duration: 200, offset: 0 }], chapters: withChapters ? [{ title: "Opening", start: 0 }, { title: "Ending", start: 100 }] : [] }, systemClock);
     },
     commands,
     rejectSleepPause() { rejectedPauseView = { phase: "playing", title: "Book", positionSeconds: 0, durationSeconds: 200, buffering: false, seekIntervals: { backward: 10, forward: 30 }, tracks: { audio: { state: "loading" }, selectedAudioId: undefined, subtitles: [], selectedSubtitleId: undefined, subtitleMode: "off", change: { state: "idle" }, notices: [] } }; },

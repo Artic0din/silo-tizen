@@ -28,15 +28,15 @@ export function mountAudioScreen(root: HTMLElement, controls: PlayerControls, bo
     };
     const render = (): void => {
         const focus = host.focused();
-        const content: HTMLElement[] = [el("h1", "browse-title", book.title), el("p", "browse-text", "Audiobook · Beta")];
+        const content: HTMLElement[] = [el("h1", "browse-title", book.title), el("p", "browse-text", "Audiobook")];
         const buttons = [actionButton("stop", "Stop Listening", () => controls.back())];
         if (view.phase === "playing" || view.phase === "paused") {
             const intervals = view.seekIntervals;
             content.push(el("p", "browse-text", `${clockTime(view.positionSeconds)} / ${clockTime(view.durationSeconds ?? 0)}`));
             buttons.push(actionButton("rewind", `Back ${intervals.backward} seconds`, () => controls.seekBy(-intervals.backward)),
                 actionButton("pause", view.phase === "paused" ? "Play" : "Pause", () => controls.togglePause()),
-                actionButton("forward", `Forward ${intervals.forward} seconds`, () => controls.seekBy(intervals.forward)),
-                actionButton("chapters", chapters ? "Close Chapters" : "Chapters", () => { chapters = !chapters; render(); }));
+                actionButton("forward", `Forward ${intervals.forward} seconds`, () => controls.seekBy(intervals.forward)));
+            if (book.chapters.length > 0) buttons.push(actionButton("chapters", chapters ? "Close Chapters" : "Chapters", () => { chapters = !chapters; render(); }));
             for (const minutes of [0, 15, 30, 60]) buttons.push(actionButton(`sleep:${minutes}`, `Sleep: ${minutes === 0 ? "Off" : `${minutes} min`}${sleep === minutes ? " (selected)" : ""}`, () => {
                 cancelSleep?.(); sleepExpired = false; sleep = minutes;
                 if (minutes > 0) cancelSleep = clock.schedule(() => { sleepExpired = true; pauseForSleep(); render(); }, minutes * 60000);

@@ -1,6 +1,6 @@
 import type { RequestSpec } from "../api/http.ts";
 import { audiobookOperations, type AudioGroup } from "../api/audiobookOperations.ts";
-import { audiobookResume, bookPosition, type Audiobook, type AudioPage } from "../contracts/v2/audiobooks.ts";
+import { audiobookResume, audiobookPrimaryLabel, bookPosition, type Audiobook, type AudioPage } from "../contracts/v2/audiobooks.ts";
 import type { UserLibrary } from "../contracts/v2/catalog.ts";
 import type { View } from "./browseFocus.ts";
 import type { PlayRequest } from "./browseModel.ts";
@@ -109,7 +109,7 @@ export class Audiobooks {
             } else {
                 if (book.parts.length) {
                     const resume = audiobookResume(book.position, book.duration);
-                    controls.push(actionButton("play", resume === undefined ? "Play" : "Resume", () => this.start(book, resume ?? 0)));
+                    controls.push(actionButton("play", audiobookPrimaryLabel(book), () => this.start(book, resume ?? 0)));
                     if (book.chapters.length || book.parts.length > 1) controls.push(actionButton("chapters", "Chapters", () => { this.stack.push({ ...page, chapters: true }); this.changed(); }));
                     controls.push(actionButton("start-over", "Start Over", () => this.start(book, 0)));
                 } else content.push(el("p", "browse-text", "No playable versions available."));

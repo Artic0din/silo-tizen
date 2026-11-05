@@ -150,6 +150,28 @@ browseTest("audiobook Favorite and Finished remain available without playable pa
     assert.equal(await tv.page.locator('[data-focus="play"]').count(), 0);
 }, { catalog: new AudiobookCatalog() });
 
+for (const state of ["marked", "near-end"] as const) browseTest(`audiobook ${state} without resume offers Play Again from the beginning`, async (tv, catalog) => {
+    assert.ok(catalog instanceof AudiobookCatalog);
+    catalog.detailFails = false; catalog.position = state === "marked" ? 0 : 215;
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+    await tv.page.getByRole("switch", { name: "Show Audiobooks", exact: true }).click();
+    await tv.remote(BACK); await tv.remote(BACK);
+    await tv.page.locator('[data-focus="audiobooks"]').click();
+    await tv.page.getByRole("button", { name: "Audio Library", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Test Book", exact: true }).click();
+    await tv.page.locator('[data-focus="play"]').waitFor();
+    if (state === "marked") {
+        await tv.page.getByRole("button", { name: "Mark as Finished", exact: true }).click();
+        await tv.page.getByRole("button", { name: "Mark as Not Finished", exact: true }).waitFor();
+    }
+    assert.equal(await tv.page.getByRole("button", { name: "Play Again", exact: true }).count(), 1);
+    await tv.page.getByRole("button", { name: "Play Again", exact: true }).click();
+    const play = await tv.page.evaluate(() => window.browseHarness.plays.at(-1));
+    assert.equal(play?.fileId, "1");
+    assert.equal(play?.startSeconds, 0);
+}, { catalog: new AudiobookCatalog() });
+
 browseTest("Audiobooks opt-in gates library, groups, detail retry and stitched chapter handoff", async (tv, catalog) => {
     assert.equal(await tv.page.locator('[data-focus="audiobooks"]').count(), 0);
     await tv.page.locator('[data-focus="profiles"]').click();

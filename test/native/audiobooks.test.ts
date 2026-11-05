@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decodeAudiobook, bookPosition, audiobookResume, decodeGroups } from "../../src/contracts/v2/audiobooks.ts";
+import { decodeAudiobook, bookPosition, audiobookResume, audiobookPrimaryLabel, decodeGroups } from "../../src/contracts/v2/audiobooks.ts";
 import { navigationRoots } from "../../src/ui/navigation.ts";
 import { AudiobookPreference } from "../../src/ui/audiobookPreference.ts";
 import { MemoryPublicStorage } from "./support/keyManager.ts";
@@ -37,6 +37,16 @@ test("Apple resume grace and end margin", () => {
     assert.equal(audiobookResume(30, 220), undefined);
     assert.equal(audiobookResume(31, 220), 31);
     assert.equal(audiobookResume(215, 220), undefined);
+});
+test("Apple audiobook primary label prioritizes Resume then Play Again then Play", () => {
+    const book = decodeAudiobook(detail);
+    assert.equal(audiobookPrimaryLabel({ ...book, position: 0, finished: false }), "Play");
+    assert.equal(audiobookPrimaryLabel({ ...book, position: 0, finished: true }), "Play Again");
+    assert.equal(audiobookPrimaryLabel({ ...book, position: 31, finished: true }), "Resume");
+    assert.equal(audiobookPrimaryLabel({ ...book, position: 215, finished: false }), "Play Again");
+    assert.equal(audiobookPrimaryLabel({ ...book, position: 214.9, finished: false }), "Resume");
+    assert.equal(audiobookPrimaryLabel({ ...book, duration: 0, position: 0, finished: false }), "Play");
+    assert.equal(audiobookPrimaryLabel({ ...book, duration: 3, position: 0, finished: false }), "Play");
 });
 test("multipart duration requires the final chapter endpoint, never its start", () => {
     for (const chapters of [

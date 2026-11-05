@@ -2,6 +2,7 @@ import { boolean, object, string, optionalString, WireError } from "./wire.ts";
 
 export const SHOW_AUDIOBOOKS_KEY = "nav.show_audiobooks";
 export const AUDIOBOOK_SEEK_KEYS = ["player.audiobook_skip_back_seconds", "player.audiobook_skip_forward_seconds"] as const;
+const END_MARGIN_SECONDS = 5;
 export interface AudioPart { readonly fileId: string; readonly duration: number; readonly offset: number }
 export interface AudioChapter { readonly title: string; readonly start: number }
 export interface Audiobook {
@@ -46,7 +47,12 @@ export function decodeAudiobook(value: unknown): Audiobook {
         duration: Math.max(offset, time(extension?.total_duration_seconds ?? 0, "audiobook.duration")), parts, chapters: chapters.sort((a, b) => a.start - b.start) };
 }
 export function audiobookResume(position: number, duration: number): number | undefined {
-    return position > 30 && (duration <= 0 || position < duration - 5) ? position : undefined;
+    return position > 30 && (duration <= 0 || position < duration - END_MARGIN_SECONDS) ? position : undefined;
+}
+export function audiobookPrimaryLabel(book: Audiobook): "Resume" | "Play Again" | "Play" {
+    if (audiobookResume(book.position, book.duration) !== undefined) return "Resume";
+    const finished = book.finished === true || (book.duration > 0 && book.position > 0 && book.position >= book.duration - END_MARGIN_SECONDS);
+    return finished ? "Play Again" : "Play";
 }
 export function bookPosition(book: Audiobook, seconds: number): { fileId: string; startSeconds: number; index: number } {
     const target = Math.max(0, book.duration > 0 ? Math.min(seconds, book.duration) : seconds);

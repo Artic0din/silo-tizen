@@ -1051,7 +1051,9 @@
 .details-track-popover [aria-checked="true"]::before { content: "✓"; position: absolute; left: 20px; top: 20px; }
 .skyline-selector.details-track-popover .browse-button[aria-checked="true"]:not(:focus) { background: transparent; }
 .details-track-popover .browse-section-title { font-size: 18px; letter-spacing: 2px; opacity: .6; }
-.details-more-popover .browse-button { height: 54px; font-size: 22px; }
+.details-more-popover .browse-button { --icon-ink: #000; height: 54px; font-size: 22px; border-radius: 14px; }
+.details-more-popover .browse-button:focus { --icon-ink: #fff; }
+.details-more-popover .browse-section-title { margin: 0; padding: 8px 16px 10px; font-family: ui-monospace, monospace; font-size: 14px; font-weight: 400; letter-spacing: 3.64px; color: rgba(255,255,255,.38); opacity: 1; }
 /* Liquid Glass has no published blur radius; reuse the sign-in glass blur. */
 .details-more-popover {
     background: rgba(0,0,0,.45);
@@ -1068,7 +1070,7 @@
 .details-editorial .browse-meta { line-height: 29px; }
 .details-hero[data-media-type="series"] .browse-meta { height: 36px; }
 .details-hero[data-media-type="series"] .details-editorial .browse-meta { color: rgb(225,227,228); }
-.details-editorial .browse-overview { line-height: 34px; max-height: 102px; color: rgba(255,255,255,.92); }
+.details-editorial .browse-overview { font-family: var(--silo-font); font-weight: 400; line-height: 34px; max-height: 102px; color: rgba(255,255,255,.92); }
 .details-hero[data-media-type="series"] .details-editorial .browse-overview { height: 102px; max-height: 102px; }
 .details-editorial .browse-meta { margin-bottom: 10px; }
 .details-hero[data-media-type="movie"] .browse-overview { margin-bottom: 16px; }
@@ -1120,7 +1122,8 @@
 .browse:has(.details-hero) > .details-series-rail { margin-bottom: calc(79px - 12px); }
 .browse:has(.details-hero) .details-facts { margin-top: 34px; }
 /* TVDetailCastRail pads both edges by 12px so its 1.05 focus lift fits. */
-.browse:has(.details-hero) > .details-people { padding-top: 12px; }
+.browse:has(.details-hero) > .details-people { padding-top: 12px; padding-right: 100px; }
+.browse:has(.details-hero) > .details-people .details-person:last-child { margin-right: 0; }
 .browse .details-series-rail .browse-card { margin-right: 40px; }
 .browse .details-series-rail .browse-card .browse-card-title { padding: 0; font-size: 20px; font-weight: 600; line-height: 28px; margin-top: 18px; }
 .browse .details-series-rail .browse-card .browse-card-subtitle { padding: 0; line-height: 24px; }

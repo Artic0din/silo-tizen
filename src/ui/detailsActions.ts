@@ -3,6 +3,7 @@ import type { FocusItem, View } from "./browseFocus.ts";
 import { zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
 import { remoteKey } from "./keys.ts";
+import { icon as libraryIcon } from "./libraryBrowseViews.ts";
 
 const ICONS: Readonly<Record<string, string>> = {
     play: "M8 4 21 12 8 20Z",
@@ -73,7 +74,7 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
         for (const item of items) {
             const title = item.element.firstChild;
             if (title?.nodeType === Node.TEXT_NODE) title.replaceWith(el("span", "details-option-title", title.textContent ?? ""));
-            if (name === "more" && ["favorites", "watched", "season-watched", "series-overview", "find-trailers"].includes(item.key)) {
+            if (name === "more" && ["shuffle-series", "favorites", "watched", "season-watched", "series-overview", "find-trailers", "translate-description"].includes(item.key)) {
                 const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
                 icon.setAttribute("viewBox", "0 0 24 24");
                 icon.setAttribute("aria-hidden", "true");
@@ -82,11 +83,30 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
                 icon.setAttribute("stroke-width", "2");
                 const path = document.createElementNS(icon.namespaceURI, "path");
                 path.setAttribute("d", item.key === "favorites" ? "M12 21 3 12C-3 3 8-1 12 6 16-1 27 3 21 12Z" : item.key === "series-overview" ? "M12 11V17M12 7V8M22 12A10 10 0 1 1 2 12 10 10 0 0 1 22 12" : "M7 12 10 15 17 8M22 12A10 10 0 1 1 2 12 10 10 0 0 1 22 12");
+                const selected = item.key === "favorites" ? state.values.get("favorites") === true : item.key === "season-watched" ? state.series?.seasonNumber !== undefined && state.seasonStates.get(state.series.seasonNumber)?.values.get("watched") === true : state.values.get("watched") === true;
+                icon.dataset.symbol = item.key === "favorites" ? selected ? "heart.fill" : "heart" : item.key === "series-overview" ? "info.circle" : selected ? "checkmark.circle.fill" : "checkmark.circle";
+                if (item.key === "favorites" && selected) path.setAttribute("fill", "currentColor");
+                if (["watched", "season-watched"].includes(item.key) && selected) {
+                    const circle = document.createElementNS(icon.namespaceURI, "circle");
+                    circle.setAttribute("cx", "12"); circle.setAttribute("cy", "12"); circle.setAttribute("r", "10"); circle.setAttribute("fill", "currentColor");
+                    icon.append(circle);
+                    path.setAttribute("d", "M7 12 10 15 17 8");
+                    path.setAttribute("stroke", "var(--icon-ink, #000)");
+                }
+                if (item.key === "shuffle-series") {
+                    icon.dataset.symbol = "shuffle";
+                    icon.replaceChildren(...Array.from(libraryIcon("shuffle").querySelector("svg")?.childNodes ?? []));
+                }
                 if (item.key === "find-trailers") {
                     icon.dataset.symbol = "film.stack";
                     path.setAttribute("d", "M3 6H21V21H3ZM6 3H18M3 11H21M3 16H21M7 6V21M17 6V21");
                 }
-                icon.append(path); item.element.prepend(icon);
+                if (item.key === "translate-description") {
+                    icon.dataset.symbol = "translate";
+                    path.setAttribute("d", "M2 5H14M8 2V5M5 5C5 11 10 14 14 15M12 5C12 11 7 14 3 15M13 22 18 10 23 22M15 18H21");
+                }
+                if (item.key !== "shuffle-series") icon.append(path);
+                item.element.prepend(icon);
                 icon.classList.add("details-more-icon");
             }
         }

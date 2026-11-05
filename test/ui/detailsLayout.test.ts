@@ -1799,6 +1799,91 @@ detailTest("episode rail Select carries its cached subtitle Off choice", async t
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length > 0), 'rail handoff');
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.at(-1)?.subtitle?.kind), 'off');
 });
+for (const media of ['movie:m0001', 'series:s1']) {
+    detailTest(`275 signed Cast terminal inset on ${media}`, async tv => {
+        const body = tv.fake.catalog?.route('GET', `/catalog/items/${encodeURIComponent(media)}`, 'p-owner')?.body as Record<string, unknown>;
+        await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(media)}?**`, route => route.fulfill({ json: { ...body, cast: Array.from({ length: 25 }, (_, order) => ({ person_id: String(order), name: `Actor ${order}`, character: 'Role', order })) } }));
+        await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
+        const cards = tv.page.locator('.details-people [data-focus]');
+        await cards.last().focus();
+        await tv.jump(1000);
+        const focused = await readLive(tv, () => {
+            const row = document.querySelector('.details-people');
+            const last = row?.lastElementChild;
+            if (!(row instanceof HTMLElement) || !(last instanceof HTMLElement)) return null;
+            const box = last.getBoundingClientRect();
+            return { right: box.right, width: box.width, railRight: row.getBoundingClientRect().right, scroll: row.scrollLeft, maximum: row.scrollWidth - row.clientWidth };
+        }, null, value => Math.abs(value.width - 210) < 0.1, 'settled final Cast focus lift');
+        assert.ok(Math.abs(focused.right - 1825) < 1, JSON.stringify(focused));
+        assert.equal(focused.railRight, 1920, 'focus lift paints beyond the page inset');
+        assert.ok(focused.right < focused.railRight, 'focused portrait is unclipped');
+        await cards.nth(22).focus();
+        await tv.jump(1000);
+        const resting = await readLive(tv, () => {
+            const last = document.querySelector('.details-people')?.lastElementChild;
+            if (!(last instanceof HTMLElement)) return null;
+            const box = last.getBoundingClientRect();
+            return { right: box.right, width: box.width };
+        }, null, value => Math.abs(value.width - 200) < 0.1, 'settled resting final Cast card');
+        assert.ok(Math.abs(resting.right - 1820) < 1, JSON.stringify(resting));
+    });
+
+    detailTest(`275 signed More icons on ${media}`, async tv => {
+        await tv.page.route('**/api/v2/shuffles/capabilities', route => route.fulfill({ json: { allowed: true, state: 'available', scope_kinds: ['series'] } }));
+        await tv.page.route('**/api/v2/capabilities/metadata-ai', route => route.fulfill({ json: { allowed: true, on_view: 'button', revision: 'test', state: 'available' } }));
+        const body = tv.fake.catalog?.route('GET', `/catalog/items/${encodeURIComponent(media)}`, 'p-owner')?.body as Record<string, unknown>;
+        await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(media)}?**`, route => route.fulfill({ json: { ...body, pending_translation_language: 'de' } }));
+        await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
+        if (media.startsWith('series')) {
+            await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+            await tv.eventually(async () => await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).count() === 1, 'episode hero');
+        }
+        await tv.page.locator('[data-focus="more"]').click();
+        await tv.page.locator('[data-focus="translate-description"]').waitFor();
+        const symbols = await tv.page.locator('.details-more-popover [data-focus]').evaluateAll(nodes => nodes.map(node => [node.getAttribute('data-focus'), node.querySelector('svg')?.getAttribute('data-symbol')]));
+        assert.deepEqual(symbols, [
+            ...(media.startsWith('series') ? [['shuffle-series', 'shuffle'], ['series-overview', 'info.circle']] : []),
+            ['favorites', 'heart'], ['watched', 'checkmark.circle'],
+            ...(media.startsWith('series') ? [['season-watched', 'checkmark.circle']] : []),
+            ['find-trailers', 'film.stack'], ['translate-description', 'translate'],
+        ]);
+    });
+
+    detailTest(`275 signed More header and focus shape on ${media}`, async tv => {
+        await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
+        await tv.page.locator('[data-focus="more"]').click();
+        await tv.jump(1000);
+        const style = await readLive(tv, () => {
+            const header = document.querySelector('.details-more-popover h2');
+            const focused = document.querySelector('.details-more-popover :focus');
+            if (header === null || focused === null) return null;
+            const h = getComputedStyle(header); const f = getComputedStyle(focused);
+            return { size: h.fontSize, weight: h.fontWeight, family: h.fontFamily, color: h.color, opacity: h.opacity, tracking: h.letterSpacing, padding: h.padding, margin: h.margin, radius: f.borderRadius };
+        }, null, value => value.radius !== '', 'settled More focus');
+        assert.equal(style.size, '14px'); assert.equal(style.weight, '400');
+        assert.ok(style.family.includes('monospace'), JSON.stringify(style));
+        assert.equal(style.color, 'rgba(255, 255, 255, 0.38)'); assert.equal(style.opacity, '1');
+        assert.equal(style.tracking, '3.64px'); assert.equal(style.padding, '8px 16px 10px'); assert.equal(style.margin, '0px');
+        assert.equal(style.radius, '14px');
+    });
+
+    detailTest(`275 signed regular synopsis on ${media}`, async tv => {
+        // The Samsung simulator injects this rule; desktop Chromium does not.
+        await tv.page.addStyleTag({ content: '* { font-family: SamsungOne; font-weight: 600; }' });
+        await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
+        await tv.page.evaluate(() => document.fonts.ready);
+        const font = await readLive(tv, () => {
+            const node = document.querySelector('.details-editorial .browse-overview');
+            if (node === null) return null;
+            const style = getComputedStyle(node);
+            return { size: style.fontSize, weight: style.fontWeight, color: style.color, family: style.fontFamily, available: document.fonts.check('400 26px Inter') };
+        }, null, value => value.available, 'loaded regular synopsis font');
+        assert.equal(font.size, '26px'); assert.equal(font.weight, '400');
+        assert.ok(font.family.includes('Inter'), JSON.stringify(font));
+        assert.equal(font.color, 'rgba(255, 255, 255, 0.92)');
+    });
+}
+
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
 

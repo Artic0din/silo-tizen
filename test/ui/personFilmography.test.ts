@@ -53,9 +53,10 @@ test("late Person poster settings redraw the mounted grid", async () => {
         await start(tv, population(), false, () => {
             new FakeSettings(tv.fake).profile().set("ui.card_presentation" as SettingsKey, { poster_size: "large", caption: "title_metadata" });
         });
-        assert.equal(await grid(tv).first().evaluate(node => node.getBoundingClientRect().width), 260);
+        // Metadata can replace a card between locator resolution and evaluation.
+        assert.equal(await tv.page.evaluate(() => document.querySelector('.browse[data-view="person:7"] .browse-grid .browse-card')?.getBoundingClientRect().width), 260);
         held.release();
-        await tv.eventually(async () => await grid(tv).first().evaluate(node => (node as HTMLElement).offsetWidth) === 312, "late Person size");
+        await tv.eventually(async () => await tv.page.evaluate(() => document.querySelector<HTMLElement>('.browse[data-view="person:7"] .browse-grid .browse-card')?.offsetWidth) === 312, "late Person size");
     } finally { await tv.page.context().close(); }
 });
 

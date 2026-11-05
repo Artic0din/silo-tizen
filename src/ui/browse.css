@@ -1193,3 +1193,15 @@
    keeps the focused card 132px above the screen. The generic 32px margin (92px with
    the safe area) left the row 40px too low. */
 .browse[data-view^="person:"] .browse-grid .browse-card { scroll-margin-top: 72px; scroll-margin-bottom: 132px; }
+
+.settings-modal-scrim { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.88); }
+.settings-modal { box-sizing: border-box; width: 760px; max-height: 760px; padding: 30px; border-radius: 30px; background: #202020; border: 1px solid rgba(255,255,255,.2); box-shadow: 0 22px 48px rgba(0,0,0,.58); display: flex; flex-direction: column; }
+.settings-modal .browse-title { font-size: 42px; margin: 0 0 18px; }
+.settings-modal-options { overflow-y: auto; min-height: 0; padding: 8px; }
+.settings-option-detail { display: block; margin-top: 6px; font-size: 20px; line-height: 1.35; }
+.settings-checkmark { float: right; margin-left: 16px; }
+.settings-checkmark::after { content: "✓"; }
+.settings-modal:has(.settings-privacy-card) { width: 1152px; padding: 52px 64px; border-radius: 32px; }
+.settings-privacy-card { display: flex; gap: 54px; align-items: center; }
+.settings-privacy-qr { background: white; padding: 22px; border-radius: 24px; }
+.settings-privacy-copy { width: 560px; }

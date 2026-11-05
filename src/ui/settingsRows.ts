@@ -1,5 +1,5 @@
 import { APPEARANCE_KEY, ADVISORY_KEY, METADATA_KEY, INTRO_SKIP_KEY, CREDITS_SKIP_KEY } from "../contracts/v2/settingsRows.ts";
-import { AUTO_NEXT_KEY, CARD_PRESENTATION_KEY, type SettingValue, type SettingsKey } from "../contracts/v2/settings.ts";
+import { AUTO_NEXT_KEY, NEXT_UP_KEY, CARD_PRESENTATION_KEY, type SettingValue, type SettingsKey } from "../contracts/v2/settings.ts";
 import { DEFAULT_APPEARANCE } from "../contracts/v2/subtitles.ts";
 import type { SettingsState } from "./settingsState.ts";
 
@@ -13,10 +13,11 @@ const appearance = (member: string, title: string, values: readonly Choice[]): S
 
 export function settingsRows(category: string, state: SettingsState): readonly SettingsRow[] {
     const rows: readonly SettingsRow[] = category === "general" ? [
-        { id: "poster-size", title: "Poster Size", key: CARD_PRESENTATION_KEY, member: "poster_size", choices: [["compact", "Compact"], ["standard", "Standard"], ["large", "Large"]] },
         { id: "advisory-age", title: "Show Advisory Age", key: ADVISORY_KEY, choices: onOff },
+        { id: "poster-size", title: "Poster Size", key: CARD_PRESENTATION_KEY, member: "poster_size", choices: [["compact", "Compact"], ["standard", "Standard"], ["large", "Large"]] },
     ] : category === "playback" ? [
         { id: "auto-next", title: "Auto-Play Next Episode", key: AUTO_NEXT_KEY, choices: onOff },
+        { id: "next-up", title: "Show Next Up", key: NEXT_UP_KEY, choices: [[0, "At end"], [10, "10 seconds before end"], [30, "30 seconds before end"], [60, "1 minute before end"], [120, "2 minutes before end"]] },
         { id: "skip-intros", title: "Skip Intros", key: INTRO_SKIP_KEY, choices: [["never", "Never"], ["ask", "Ask to skip"], ["always", "Skip automatically"]] },
         { id: "skip-credits", title: "Skip Credits", key: CREDITS_SKIP_KEY, choices: onOff },
     ] : category === "subtitles" ? [

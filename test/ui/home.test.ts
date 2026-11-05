@@ -111,6 +111,7 @@ journey("a delayed Home libraries read cannot put back a library hidden in Setti
     await tv.page.locator('[data-focus="profiles"]').focus();
     await tv.page.keyboard.press("Enter");
     await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+    await tv.page.locator('[data-focus="server"]').click();
     await tv.page.locator('[data-focus="hidden"]').click();
     await tv.page.locator('[data-focus="library:12"]').click();
     await tv.eventually(async () => JSON.stringify(hiddenLibrarySettings.profile().get(HIDDEN_KEY)) === "[15,12]", "Movies hidden");

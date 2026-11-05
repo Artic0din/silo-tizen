@@ -16,12 +16,13 @@ export const SEEK_BACK_KEY = "player.video_skip_back_seconds";
 export const SEEK_FORWARD_KEY = "player.video_skip_forward_seconds";
 export const SEEK_KEYS = [SEEK_BACK_KEY, SEEK_FORWARD_KEY] as const;
 const SEEK_SECONDS = [5, 10, 15, 30, 45, 60, 90];
+export const NEXT_UP_KEY = "playback.next_up_prompt_seconds";
 export const AUTO_NEXT_KEY = "playback.auto_play_next";
 /** Read-only here: the profile's poster-badge document (`card-overlays.json`) and its on/off choice. */
 export const CARD_OVERLAYS_KEY = "ui.card_overlays";
 export const CARD_OVERLAYS_ENABLED_KEY = "ui.card_overlays_enabled";
 export const CARD_PRESENTATION_KEY = "ui.card_presentation";
-export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY, QUALITY_KEY, BITRATE_KEY, ...SEEK_KEYS, TITLE_ART_KEY, AUTO_NEXT_KEY, ...ROW_KEYS] as const;
+export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY, QUALITY_KEY, BITRATE_KEY, ...SEEK_KEYS, TITLE_ART_KEY, AUTO_NEXT_KEY, NEXT_UP_KEY, ...ROW_KEYS] as const;
 export type SettingsKey = (typeof SETTINGS_KEYS)[number] | typeof AUTO_NEXT_KEY | typeof SUBTITLE_LANGUAGE_KEY | typeof SUBTITLE_MODE_KEY | typeof SHOW_FORCED_KEY | typeof CARD_OVERLAYS_KEY | typeof CARD_OVERLAYS_ENABLED_KEY | typeof CARD_PRESENTATION_KEY | typeof PRIMARY_MENU_KEY;
 type Json = null | boolean | string | number | readonly Json[] | { readonly [member: string]: Json | undefined };
 export type SettingValue = null | boolean | string | number | readonly number[] | { readonly [member: string]: Json | undefined };
@@ -109,14 +110,15 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
         const subtitleLanguage = key === SUBTITLE_LANGUAGE_KEY;
         const subtitleMode = key === SUBTITLE_MODE_KEY;
         const showForced = key === SHOW_FORCED_KEY;
+        if (key === NEXT_UP_KEY && (def.persistence !== "remote" || schema.type !== "integer" || schema.nullable === true || schema.minimum !== 0 || schema.maximum !== 120 || def.default_value !== 30)) continue;
         if (key === AUTO_NEXT_KEY && (def.persistence !== "remote" || schema.type !== "boolean" || schema.nullable === true || def.default_value !== true || def.introduced_in !== 1 || JSON.stringify(def.allowed_scopes) !== JSON.stringify(["profile", "profile_device"]) || JSON.stringify(def.resolution_order) !== JSON.stringify(["profile_device", "profile", "default"]))) continue;
         if (titleArt && (def.persistence !== "remote" || schema.type !== "boolean" || (schema.nullable !== undefined && schema.nullable !== false) || def.default_value !== true || def.introduced_in !== 16 || def.recommended_control !== "switch")) continue;
         if (seek && (def.persistence !== "remote" || schema.type !== "enum" || schema.nullable === true || def.default_value !== (key === SEEK_BACK_KEY ? 10 : 30) || def.unit !== "seconds" || def.recommended_control !== "select" || def.introduced_in !== 9)) continue;
         if ((key === QUALITY_KEY || key === BITRATE_KEY) && def.persistence !== "remote") continue;
         if (key === AUDIO_KEY && (schema.nullable !== true || schema.type !== "language_tag")) continue;
         if (subtitleLanguage && (schema.nullable !== true || schema.type !== "language_tag" || def.default_value !== null || def.recommended_control !== "select" || def.unset_label !== "None" || typeof def.suggested_options !== "string")) continue;
-        if (subtitleMode && (schema.type !== "enum" || schema.nullable !== false || def.default_value !== "auto" || def.recommended_control !== "select")) continue;
-        if (showForced && (schema.type !== "boolean" || schema.nullable !== false || def.default_value !== true || def.recommended_control !== "switch")) continue;
+        if (subtitleMode && (schema.type !== "enum" || schema.nullable === true || def.default_value !== "auto" || def.recommended_control !== "select")) continue;
+        if (showForced && (schema.type !== "boolean" || schema.nullable === true || def.default_value !== true || def.recommended_control !== "switch")) continue;
         if (key === HIDDEN_KEY && (schema.nullable !== true || schema.type !== "object" || schema.schema_ref !== "library-id-list.json")) continue;
         if (key === QUALITY_KEY && (schema.type !== "enum" || schema.nullable === true || def.default_value !== "auto" || def.recommended_control !== "select")) continue;
         if (key === BITRATE_KEY && (schema.type !== "integer" || schema.nullable !== true || schema.minimum !== 100 || schema.maximum !== 200000 || def.default_value !== null || def.unit !== "kbps" || def.recommended_control !== "select")) continue;
@@ -212,6 +214,10 @@ export function decodeSettingValue(key: SettingsKey, value: unknown): SettingVal
     }
     if (key === CARD_OVERLAYS_ENABLED_KEY) {
         if (value !== null && typeof value !== "boolean") throw new WireError("card_overlays_enabled.value", "a JSON boolean or null");
+        return value;
+    }
+    if (key === NEXT_UP_KEY) {
+        if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 120) throw new WireError(key, "an integer from 0 to 120");
         return value;
     }
     if (key === AUTO_NEXT_KEY) {

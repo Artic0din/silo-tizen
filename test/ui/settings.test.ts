@@ -33,7 +33,7 @@ async function openSettings(tv: Tv): Promise<void> {
     await tv.page.keyboard.press("Enter");
     assert.equal(await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).count(), 1, "avatar menu exposes Settings");
     await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
-    await tv.page.getByRole("button", { name: /Hidden libraries/ }).waitFor();
+    await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).waitFor();
 }
 
 test("remaining settings expose only honoured rows and save profile appearance", async () => {
@@ -93,6 +93,73 @@ test("remaining settings expose only honoured rows and save profile appearance",
         await tv.page.getByRole("button", { name: "Privacy Policy", exact: true }).click();
         assert.equal(await tv.page.getByRole("img", { name: "Privacy Policy QR code" }).count(), 1);
         assert.equal(await tv.page.getByRole("button", { name: /HDR|Lossless|Seek Cache/ }).count(), 0);
+    } finally { await tv.page.context().close(); }
+});
+
+test("revision 25 nonnullable subtitle rows and Next Up stay available", async () => {
+    const { tv, settings } = await setup(true);
+    settings.revision = 25;
+    settings.profileSubtitles = true;
+    const contract = fixture("settings_contract_ok");
+    const definitions = [
+        { key: SUBTITLE_MODE_KEY, introduced_in: 1, persistence: "remote", allowed_scopes: ["profile"], value_schema: { type: "enum", values: [{ value: "auto", label: "Auto" }, { value: "always", label: "Always" }, { value: "off", label: "Off" }] }, default_value: "auto", recommended_control: "select" },
+        { key: SHOW_FORCED_KEY, introduced_in: 1, persistence: "remote", allowed_scopes: ["profile"], value_schema: { type: "boolean" }, default_value: true, recommended_control: "switch" },
+        { key: "playback.next_up_prompt_seconds", introduced_in: 1, persistence: "remote", allowed_scopes: ["profile", "profile_device"], value_schema: { type: "integer", minimum: 0, maximum: 120 }, default_value: 30, recommended_control: "slider" },
+    ];
+    tv.fake.script("/settings/contract", { status: 200, body: { ...contract, revision: 25, definitions: [...contract.definitions as object[], ...definitions] } });
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="subtitles"]').click();
+        assert.equal(await tv.page.locator('[data-focus="subtitle-mode"]').count(), 1);
+        assert.equal(await tv.page.getByRole("switch", { name: "Show Forced Subtitles", exact: true }).count(), 1);
+        await tv.page.locator('[data-focus="playback"]').click();
+        await tv.page.getByRole("button", { name: /Show Next Up/ }).click();
+        await tv.page.getByRole("radio", { name: "1 minute before end", exact: true }).click();
+        await tv.eventually(async () => tv.fake.requests.some(r => r.method === "PUT" && r.path.includes("next_up_prompt_seconds?scope=profile_device")), "device Next Up write");
+    } finally { await tv.page.context().close(); }
+});
+
+test("measured Settings pickers centre the selected choice and privacy handoff", async () => {
+    const { tv, settings } = await setup(true);
+    settings.remainingRows = true;
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="remember-profile"]').click();
+        assert.equal(await tv.page.getByRole("dialog").count(), 1);
+        assert.equal(await tv.page.getByRole("radio", { checked: true }).evaluate(node => node === document.activeElement), true);
+        assert.equal(await tv.page.getByText("Show Who's Watching whenever you return to Silo.", { exact: true }).count(), 1);
+        assert.equal(await tv.page.locator('.settings-checkmark').count(), 1);
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "remember-profile");
+        assert.equal(await tv.page.locator('[data-focus="settings-back"]').count(), 0);
+        await tv.page.locator('[data-focus="playback"]').click();
+        await tv.page.locator('[data-focus="quality"]').click();
+        assert.equal(await tv.page.locator('.settings-modal [data-focus]').first().getAttribute("data-focus"), "reset");
+        assert.equal(await tv.focused(), "reset");
+        await tv.remote(10009);
+        await tv.page.locator('[data-focus="server"]').click();
+        await tv.page.locator('[data-focus="privacy"]').click();
+        assert.equal(await tv.page.getByRole("dialog").count(), 1);
+        assert.equal(await tv.page.getByText("Scan this code with your phone or tablet to read Silo's privacy policy.", { exact: true }).count(), 1);
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "privacy");
+        await tv.page.locator('[data-focus="subtitles"]').click();
+        await tv.page.getByRole("button", { name: /Text Opacity/ }).click();
+        const selected = tv.page.getByRole("radio", { name: "100%", exact: true });
+        const inList = async (): Promise<boolean> => selected.evaluate(node => {
+            const list = node.closest(".settings-modal-options");
+            if (list === null) return false;
+            const bounds = node.getBoundingClientRect();
+            const viewport = list.getBoundingClientRect();
+            return bounds.top >= viewport.top && bounds.bottom <= viewport.bottom;
+        });
+        await tv.jump(250);
+        assert.equal(await inList(), true, "selected option opens inside its scroll viewport");
+        for (let index = 0; index < 19; index++) await tv.remote(38);
+        for (let index = 0; index < 19; index++) await tv.remote(40);
+        await tv.jump(250);
+        assert.equal(await tv.focused(), "choice:100");
+        assert.equal(await inList(), true, "remote movement reveals the last option");
     } finally { await tv.page.context().close(); }
 });
 
@@ -351,7 +418,8 @@ test("device pickers preserve profile, show inheritance, retain legacy audio nul
         await tv.page.locator('[data-focus="quality"]').click();
         assert.equal(await tv.page.locator('[data-focus="quality:720p"]').getAttribute("aria-checked"), "true");
         await tv.page.getByRole("radio", { name: "Use Profile Setting", exact: true }).click();
-        await tv.page.getByText("On this TV: 1080p · Profile default", { exact: true }).waitFor();
+        await tv.page.locator('[data-focus="quality"]').waitFor();
+        assert.equal(await tv.page.locator('[data-focus="quality"] .settings-row-value').textContent(), "1080p");
         assert.equal(device.has(QUALITY_KEY), false);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
@@ -363,8 +431,8 @@ test("video intervals show numeric server labels, profile values and independent
         settings.supportsBatchedEffective = false;
         await openSettings(tv);
         await tv.page.locator('[data-focus="playback"]').click();
-        await tv.page.getByText("On this TV: 10 seconds · Inherited default", { exact: true }).waitFor();
-        await tv.page.getByText("On this TV: 30 seconds · Inherited default", { exact: true }).waitFor();
+        assert.equal(await tv.page.locator('[data-focus="seek-back"] .settings-row-value').textContent(), "10 seconds");
+        assert.equal(await tv.page.locator('[data-focus="seek-forward"] .settings-row-value').textContent(), "30 seconds");
         for (const [picker, seconds] of [["seek-back", 15], ["seek-forward", 45]] as const) {
             await tv.page.locator(`[data-focus="${picker}"]`).click();
             assert.deepEqual(await tv.page.getByRole("radio").allTextContents(), ["5 seconds", "10 seconds", "15 seconds", "30 seconds", "45 seconds", "60 seconds", "90 seconds"]);
@@ -389,7 +457,7 @@ test("video intervals show numeric server labels, profile values and independent
             await tv.page.locator('[data-focus="reset"]').click();
             await tv.page.locator(`[data-focus="${picker}"]`).waitFor();
             assert.equal(settings.profile().has(key), false);
-            await tv.page.getByText(`On this TV: ${defaultSeconds} seconds · Inherited default`, { exact: true }).waitFor();
+            assert.equal(await tv.page.locator(`[data-focus="${picker}"] .settings-row-value`).textContent(), `${defaultSeconds} seconds`);
             if (key === SEEK_BACK_KEY) assert.equal(settings.profile().get(SEEK_FORWARD_KEY), 45);
         }
         assert.deepEqual(tv.fake.requests.filter(r => r.method === "DELETE").map(r => r.path), [`/settings/values/${SEEK_BACK_KEY}?scope=profile`, `/settings/values/${SEEK_FORWARD_KEY}?scope=profile`]);
@@ -425,6 +493,7 @@ test("hidden libraries persist absent IDs and refresh Home and navigation on ret
     try {
         settings.profile().set(HIDDEN_KEY, [15, 999]);
         await openSettings(tv);
+        await tv.page.locator('[data-focus="server"]').click();
         await tv.page.locator('[data-focus="hidden"]').click();
         await tv.page.locator('[data-focus="library:12"]').click();
         await tv.eventually(async () => JSON.stringify(settings.profile().get(HIDDEN_KEY)) === "[15,999,12]", "confirmed hidden libraries");
@@ -454,7 +523,7 @@ test("audio picker preserves unfamiliar explicit tags, null and inherited reset 
         await tv.page.locator('[data-focus="audio:null"]').click();
         await tv.page.locator('[data-focus="audio"]').waitFor();
         assert.equal(settings.profile().get(AUDIO_KEY), null);
-        await tv.page.getByText(/On this TV: fr/).waitFor();
+        assert.equal(await tv.page.locator('[data-focus="audio"] .settings-row-value').textContent(), "fr");
         await tv.page.locator('[data-focus="audio"]').click();
         await tv.page.locator('[data-focus="reset"]').click();
         await tv.page.locator('[data-focus="audio"]').waitFor();
@@ -474,13 +543,26 @@ test("settings refusal is retryable by reload, and a late answer cannot outlive 
         const hold = tv.fake.hold("/settings/contract/capabilities", true);
         await tv.page.getByRole("button", { name: "Reload settings" }).click();
         await tv.page.getByRole("status").waitFor();
-        assert.ok(await tv.page.getByRole("button", { name: "Back", exact: true }).isVisible());
+        assert.ok(await tv.page.locator('[data-focus="general"]').isVisible());
         await tv.page.evaluate(() => window.browseHarness.clearProfile());
         hold.release();
         await tv.page.locator("#successor").waitFor();
         assert.equal(await tv.page.locator(".settings").count(), 0);
         assert.equal(tv.fake.requests.filter(request => request.method === "PUT" || request.method === "DELETE").length, 0);
         assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("hidden-library save preserves the later checkbox focus", async () => {
+    const { tv, settings } = await setup();
+    settings.profile().set(HIDDEN_KEY, [12]);
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="server"]').click();
+        await tv.page.locator('[data-focus="hidden"]').click();
+        await tv.page.locator('[data-focus="library:15"]').click();
+        await tv.page.getByText("Saving…", { exact: true }).waitFor({ state: "hidden" });
+        assert.equal(await tv.focused(), "library:15");
     } finally { await tv.page.context().close(); }
 });
 
@@ -494,9 +576,10 @@ test("empty hidden-library editor keeps Back and explicit-null controls reachabl
         tv.fake.catalog = catalog;
         new FakeSettings(tv.fake);
         await openSettings(tv);
+        await tv.page.locator('[data-focus="server"]').click();
         await tv.page.locator('[data-focus="hidden"]').click();
         await tv.page.getByText("No accessible libraries.", { exact: true }).waitFor();
-        assert.equal(await tv.focused(), "back");
+        assert.equal(await tv.focused(), "clear-hidden");
         await tv.page.keyboard.press("ArrowDown");
         assert.equal(await tv.focused(), "clear-hidden");
         assert.equal(tv.fake.requests.filter(request => request.method === "PUT").length, 0);
@@ -520,7 +603,7 @@ test("quality picker uses server labels, keeps legacy current values honest and 
         assert.equal(await tv.focused(), "quality");
         assert.equal(settings.profile().get(QUALITY_KEY), "2160p");
         assert.equal(settings.overrides.get(QUALITY_KEY), "480p");
-        await tv.page.getByText("On this TV: 480p · Device override", { exact: true }).waitFor();
+        assert.equal(await tv.page.locator('[data-focus="quality"] .settings-row-value').textContent(), "480p");
         assert.equal(await tv.page.getByText("Saved", { exact: true }).count(), 0);
         await tv.page.locator('[data-focus="quality"]').click();
         await tv.page.locator('[data-focus="reset"]').click();
@@ -556,6 +639,12 @@ test("bitrate editor validates whole kbps, saves only explicitly, cancels and ke
             await tv.page.getByRole("button", { name: "Save", exact: true }).click();
             await tv.page.getByRole("alert").waitFor();
             assert.equal(await input.getAttribute("aria-invalid"), "true");
+            await tv.jump(250);
+            assert.equal(await tv.page.locator('[data-focus="save"]').evaluate(node => {
+                const bounds = node.getBoundingClientRect();
+                const list = node.closest(".settings-modal-options")?.getBoundingClientRect();
+                return list !== undefined && bounds.top >= list.top && bounds.bottom <= list.bottom;
+            }), true, "invalid bitrate save keeps its focused control visible");
         }
         assert.equal(tv.fake.requests.length, count, "invalid inputs never send reads or writes");
         await input.fill("100");
@@ -572,7 +661,7 @@ test("bitrate editor validates whole kbps, saves only explicitly, cancels and ke
         assert.equal(settings.profile().get(BITRATE_KEY), 200000);
         await tv.page.keyboard.press("Enter");
         await input.fill("1234");
-        await tv.page.getByRole("button", { name: "Cancel", exact: true }).click();
+        await tv.remote(10009);
         assert.equal(await tv.focused(), "bitrate");
         assert.equal(settings.profile().get(BITRATE_KEY), 200000);
         await tv.page.keyboard.press("Enter");
@@ -590,7 +679,7 @@ test("bitrate editor validates whole kbps, saves only explicitly, cancels and ke
         await tv.page.locator('[data-focus="bitrate"]').waitFor();
         assert.equal(settings.profile().has(BITRATE_KEY), false);
         assert.equal(settings.overrides.get(BITRATE_KEY), 1500);
-        await tv.page.getByText("On this TV: 1500 kbps · Device override", { exact: true }).waitFor();
+        assert.equal(await tv.page.locator('[data-focus="bitrate"] .settings-row-value').textContent(), "1.5 Mbps");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

@@ -630,6 +630,7 @@ calendarTest("Calendar Settings hidden-library return reuses current route and c
     await activate(tv, "calendar"); await ready(tv, 3); await activate(tv, "filter:everything"); await ready(tv, 32);
     assert.equal(await tv.page.locator('.calendar-event[data-content-id="movie:archived"]').count(), 0);
     await activate(tv, "profiles"); await activate(tv, "settings");
+    await tv.page.locator('[data-focus="server"]').click();
     await tv.page.locator('[data-focus="hidden"]').click();
     await tv.page.locator('[data-focus="library:12"]').click();
     await tv.eventually(async () => JSON.stringify(settings.profile().get(HIDDEN_KEY)) === "[15,12]", "hidden library write");

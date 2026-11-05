@@ -46,7 +46,7 @@ export class SettingsState {
     scope(key: SettingsKey): SettingsScope {
         if (key === APPEARANCE_KEY && this.device.get(key)?.isSet) return "profile_device";
         if (key === "ui.card_presentation" && this.definitions.some(def => def.key === key && def.client)) return "profile_client";
-        return [AUDIO_KEY, QUALITY_KEY, "playback.max_bitrate_kbps", "playback.auto_play_next", INTRO_SKIP_KEY, CREDITS_SKIP_KEY].includes(key) && this.definitions.some(def => def.key === key && def.device) ? "profile_device" : "profile";
+        return [AUDIO_KEY, QUALITY_KEY, "playback.max_bitrate_kbps", "playback.auto_play_next", "playback.next_up_prompt_seconds", INTRO_SKIP_KEY, CREDITS_SKIP_KEY].includes(key) && this.definitions.some(def => def.key === key && def.device) ? "profile_device" : "profile";
     }
     stored(key: SettingsKey): ExplicitSetting | undefined { return (this.scope(key) === "profile_device" ? this.device : this.scope(key) === "profile_client" ? this.client : this.explicit).get(key); }
     subtitleProfileValue(key: typeof SUBTITLE_LANGUAGE_KEY | typeof SUBTITLE_MODE_KEY | typeof SHOW_FORCED_KEY): SettingValue {

@@ -11,7 +11,7 @@ test("login decodes the pinned TokenPair fixture and auth discovery decodes pass
     const pair = decodeTokenPair(fixture("login_ok"));
     assert.deepEqual(pair, {
         tokens: { accessToken: "acc", refreshToken: "ref", expiresInSeconds: 3600 },
-        account: { id: "1", username: "laura", passwordChangeRequired: false },
+        account: { id: "1", username: "laura", role: "user", passwordChangeRequired: false },
     });
     assert.throws(() => decodeTokenPair({ ...fixture("login_ok"), user: undefined }), /token_pair\.user/);
     assert.deepEqual(decodeAuthProviders(fixture("list_auth_providers_ok")), { passwordLogin: true, oauthProviders: ["Example SSO"] });

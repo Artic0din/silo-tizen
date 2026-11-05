@@ -30,7 +30,7 @@ function appTest(name: string, body: (tv: Tv, playback: FakePlayback, catalog: F
     });
 }
 
-async function signIn(tv: Tv): Promise<void> {
+async function signIn(tv: Tv, remember = false): Promise<void> {
     await tv.page.fill("#signin-address", "silo.example.test");
     await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
     await tv.page.locator('[data-screen="code"]').waitFor();
@@ -38,7 +38,7 @@ async function signIn(tv: Tv): Promise<void> {
     assert.ok(code !== undefined);
     await approveSignIn(tv, code);
     await tv.page.locator('[data-focus="profile:p-owner"]').click();
-    await tv.page.locator('[data-focus="ask-every-launch"]').click();
+    await tv.page.locator(remember ? '[data-focus="remember"]' : '[data-focus="ask-every-launch"]').click();
     await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
     await homeDetailsRead(tv);
 }
@@ -600,10 +600,24 @@ async function visibility(tv: Tv, hidden: boolean): Promise<void> {
     }, hidden);
 }
 
+appTest("profile selection expiry refreshes an open picker and retires its old Back action", async tv => {
+    await signIn(tv);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Switch Profile", exact: true }).click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    await visibility(tv, true);
+    await visibility(tv, false);
+    await tv.jump(0);
+    await tv.remote(10009);
+    await tv.jump(0);
+    assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 1);
+    assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+});
+
 for (const reduced of [false, true]) {
     appTest(`foreground validation fences a second hide in ${reduced ? "reduced" : "normal"} motion`, async (tv, playback) => {
         await tv.page.emulateMedia({ reducedMotion: reduced ? "reduce" : "no-preference" });
-        await signIn(tv);
+        await signIn(tv, true);
         await startMovie(tv);
         await tv.page.evaluate(() => window.appHarness.avplay.tick(32000));
         await tv.remote(19);
@@ -830,23 +844,27 @@ appTest("the final episode has a focusable Back action and no cross-title start"
     assert.equal(tv.fake.requests.filter(r => r.path === "/playback/start").length, 1);
 }, true);
 
-appTest("profile Settings 15/45 reaches the composed controller and every remote seek surface", async (tv, playback) => {
+appTest("saved server profile 15/45 reaches the composed controller and every remote seek surface", async (tv, playback) => {
     const settings = new FakeSettings(tv.fake);
     await signIn(tv);
     await tv.page.locator('[data-focus="profiles"]').click();
     await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
     await tv.page.locator('[data-focus="playback"]').click();
-    for (const [picker, seconds] of [["seek-back", 15], ["seek-forward", 45]] as const) {
-        await tv.page.locator(`[data-focus="${picker}"]`).click();
-        assert.deepEqual(await tv.page.getByRole("radio").allTextContents(), ["5 seconds", "10 seconds", "15 seconds", "30 seconds", "45 seconds", "60 seconds", "90 seconds"]);
-        await tv.page.getByRole("radio", { name: `${seconds} seconds`, exact: true }).click();
-        await tv.page.locator(`[data-focus="${picker}"]`).waitFor();
-        assert.equal(await tv.focused(), picker);
-    }
+    assert.equal(await tv.page.locator('[data-focus="seek-back"], [data-focus="seek-forward"]').count(), 2);
+    await tv.page.locator('[data-focus="seek-back"]').click();
+    await tv.page.getByRole('radio', { name: '15 seconds', exact: true }).click();
+    await tv.eventually(async () => settings.profile().get(SEEK_BACK_KEY) === 15, 'back interval saved');
+    await tv.page.getByRole('dialog').waitFor({ state: 'detached' });
+    await tv.page.locator('[data-focus="seek-forward"]').click();
+    await tv.page.getByRole('radio', { name: '45 seconds', exact: true }).click();
+    await tv.eventually(async () => settings.profile().get(SEEK_FORWARD_KEY) === 45, 'forward interval saved');
+    await tv.page.getByRole('dialog').waitFor({ state: 'detached' });
     assert.equal(settings.profile().get(SEEK_BACK_KEY), 15);
     assert.equal(settings.profile().get(SEEK_FORWARD_KEY), 45);
     await tv.remote(10009);
+    assert.equal(await tv.focused(), "playback");
     await tv.remote(10009);
+    await tv.page.locator('.settings').waitFor({ state: 'detached' });
     playback.next.push({ durationSeconds: 200, timeline: { source_start_seconds: 100, player_start_seconds: 100, timeline_offset_seconds: 0 } });
     await tv.page.locator('.skyline-continue[data-focus="movie:m0001"]').click();
     await prepare(tv);

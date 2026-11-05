@@ -95,8 +95,12 @@ trailerTest("a series with a YouTube video shows the rail and hides it when the 
     assert.equal(await tv.page.getByRole("heading", { name: "Trailers & More", exact: true }).count(), 1);
     catalog.videos = [];
     await tv.remote(10009);
+    const fresh = tv.fake.hold("/catalog/items/series%3As1", true);
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('[data-focus="next-episode"]').waitFor();
+    assert.equal(await tv.page.locator(".details-extras").count(), 1, "the cached rail remains while the fresh read is pending");
+    fresh.release();
+    await tv.eventually(async () => await tv.page.locator(".details-extras").count() === 0, "fresh empty videos remove the cached rail");
     assert.equal(await tv.page.locator(".details-extras").count(), 0);
 });
 

@@ -7,6 +7,8 @@ import { remoteKey } from "./keys.ts";
 import { SettingsState } from "./settingsState.ts";
 import type { ProfileLaunch, LaunchBehavior } from "../session/profileLaunch.ts";
 import { acknowledgementsDocument } from "./acknowledgements.ts";
+import type { AudiobookPreference } from "./audiobookPreference.ts";
+import { AUDIOBOOK_SEEK_KEYS } from "../contracts/v2/audiobooks.ts";
 import type { EpisodeSpoilerPreferences } from "./episodeSpoilers.ts";
 import { settingsRows, rowValue, rowEdit, type SettingsRow } from "./settingsRows.ts";
 import { APPEARANCE_KEY } from "../contracts/v2/settingsRows.ts";
@@ -33,14 +35,14 @@ const MODE_CHOICES = [["auto", "Auto"], ["always", "Always"], ["off", "Off"]] as
 const LAUNCH_CHOICES = [["automatic", "Automatic"], ["askEveryLaunch", "Every Time"], ["afterOneHour", "After 1 Hour"], ["afterTwelveHours", "After 12 Hours"]] as const;
 /** Apple scrolls its Acknowledgements document by remote presses while the document holds focus. */
 const DOCUMENT_STEP = 160;
-type Picker = "audio" | "quality" | "bitrate" | "seek-back" | "seek-forward" | "subtitle-language" | "subtitle-mode";
-const PICKER_KEYS = { audio: AUDIO_KEY, quality: QUALITY_KEY, bitrate: BITRATE_KEY, "seek-back": SEEK_BACK_KEY, "seek-forward": SEEK_FORWARD_KEY, "subtitle-language": SUBTITLE_LANGUAGE_KEY, "subtitle-mode": SUBTITLE_MODE_KEY } as const;
-const PICKER_LABELS = { audio: "Audio Language", quality: "Resolution", bitrate: "Maximum Bitrate", "seek-back": "Skip Back", "seek-forward": "Skip Forward", "subtitle-language": "Language", "subtitle-mode": "Behavior" } as const;
+type Picker = "audio" | "quality" | "bitrate" | "seek-back" | "seek-forward" | "audio-seek-back" | "audio-seek-forward" | "subtitle-language" | "subtitle-mode";
+const PICKER_KEYS = { audio: AUDIO_KEY, quality: QUALITY_KEY, bitrate: BITRATE_KEY, "seek-back": SEEK_BACK_KEY, "seek-forward": SEEK_FORWARD_KEY, "audio-seek-back": AUDIOBOOK_SEEK_KEYS[0], "audio-seek-forward": AUDIOBOOK_SEEK_KEYS[1], "subtitle-language": SUBTITLE_LANGUAGE_KEY, "subtitle-mode": SUBTITLE_MODE_KEY } as const;
+const PICKER_LABELS = { audio: "Audio Language", quality: "Resolution", bitrate: "Maximum Bitrate", "seek-back": "Skip Back", "seek-forward": "Skip Forward", "audio-seek-back": "Skip Back", "audio-seek-forward": "Skip Forward", "subtitle-language": "Language", "subtitle-mode": "Behavior" } as const;
 const BITRATE_CHOICES = [200000, 100000, 60000, 40000, 20000, 15000, 10000, 6000, 4000, 2000, 1500];
 export interface SettingsActions { readonly profileName: string; readonly profileAvatarUrl?: string | undefined; readonly accountName?: string | undefined; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: (back: () => void) => void }
 export interface SettingsScreen { destroy(): void }
 
-export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions, accounts?: (back: () => void) => void, spoilers?: EpisodeSpoilerPreferences): SettingsScreen {
+export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions, accounts?: (back: () => void) => void, spoilers?: EpisodeSpoilerPreferences, audiobooks?: AudiobookPreference): SettingsScreen {
     const container = el("section", "browse settings");
     container.setAttribute("aria-label", "Settings");
     root.appendChild(container);
@@ -162,7 +164,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         item.element.replaceChildren(el("span", "settings-row-title", PICKER_LABELS[id]), el("span", "settings-row-value", text), el("span", "settings-chevron", "›"));
         return item;
     };
-    const label = (value: SettingValue, key: SettingsKey): string => key === QUALITY_KEY ? value === "2160p" ? "4K" : value === "auto" ? "Auto" : state.definitions.find(def => def.key === key)?.options.find(option => option.value === value)?.label ?? String(value) : key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY
+    const label = (value: SettingValue, key: SettingsKey): string => key === QUALITY_KEY ? value === "2160p" ? "4K" : value === "auto" ? "Auto" : state.definitions.find(def => def.key === key)?.options.find(option => option.value === value)?.label ?? String(value) : key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY || AUDIOBOOK_SEEK_KEYS.some(seek => seek === key)
         ? state.definitions.find(def => def.key === key)?.options.find(option => option.value === value)?.label ?? String(value)
         : valueLabel(value, key);
     const note = (key: SettingsKey): HTMLElement => {
@@ -267,7 +269,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 item.element.setAttribute("aria-checked", String(current === value));
                 controls.push(item);
             }
-        } else if (picker === "quality" || picker === "seek-back" || picker === "seek-forward") {
+        } else if (picker === "quality" || picker === "seek-back" || picker === "seek-forward" || picker === "audio-seek-back" || picker === "audio-seek-forward") {
             const current = stored?.isSet ? stored.value : state.scope(key) === "profile" ? state.effective.get(key)?.value : undefined;
             const options = picker === "quality" ? ["auto", "2160p", "1080p", "720p", "480p"].flatMap(value => state.qualityOptions.filter(option => option.value === value)) : state.definitions.find(def => def.key === key)?.options ?? [];
             if (current !== undefined && !options.some(option => option.value === current)) content.push(el("p", "browse-text", `Current ${state.scope(key) === "profile_device" ? "device" : "profile"} value: ${label(current, key)} · Not offered`));
@@ -626,14 +628,16 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                     }
                     body.appendChild(el("p", "settings-value", spoilers.footer));
                 }
-                const skipRows = (["seek-back", "seek-forward"] as const).filter(id => state.definitions.some(def => def.key === PICKER_KEYS[id]));
-                if (skipRows.length > 0) body.appendChild(el("h3", "settings-section-header", "VIDEO"));
-                for (const id of skipRows) {
-                    const item = button(id, PICKER_LABELS[id], () => openPicker(id));
-                    item.element.replaceChildren(el("span", "settings-row-title", PICKER_LABELS[id]), el("span", "settings-row-value", label(state.effective.get(PICKER_KEYS[id])?.value ?? (id === "seek-back" ? 10 : 30), PICKER_KEYS[id])), el("span", "settings-chevron", "›"));
-                    rows.push(item); body.appendChild(item.element);
+                for (const [section, ids] of [["VIDEO", ["seek-back", "seek-forward"]], ["AUDIOBOOKS", ["audio-seek-back", "audio-seek-forward"]]] as const) {
+                    const skipRows = ids.filter(id => state.definitions.some(def => def.key === PICKER_KEYS[id]));
+                    if (skipRows.length > 0) body.appendChild(el("h3", "settings-section-header", section));
+                    for (const id of skipRows) {
+                        const item = button(id, PICKER_LABELS[id], () => openPicker(id));
+                        item.element.replaceChildren(el("span", "settings-row-title", PICKER_LABELS[id]), el("span", "settings-row-value", label(state.effective.get(PICKER_KEYS[id])?.value ?? (id.endsWith("back") ? 10 : 30), PICKER_KEYS[id])), el("span", "settings-chevron", "›"));
+                        rows.push(item); body.appendChild(item.element);
+                    }
+                    if (skipRows.length > 0) body.appendChild(el("p", "settings-value", section === "AUDIOBOOKS" ? "Used by the audiobook player's skip buttons. Applies to every device signed in to this profile." : "Used by the remote and on-screen skip buttons. Applies to every device signed in to this profile."));
                 }
-                if (skipRows.length > 0) body.appendChild(el("p", "settings-value", "Used by the remote and on-screen skip buttons. Applies to every device signed in to this profile."));
                 const playbackKeys: readonly SettingsKey[] = [QUALITY_KEY, BITRATE_KEY, AUDIO_KEY, ...settingsRows("playback", state).map(row => row.key)];
                 if (playbackKeys.some(key => state.scope(key) === "profile_device")) {
                     const reset = button("reset-playback", "Use Profile Settings", () => { confirmingPlaybackReset = true; render(); });
@@ -668,6 +672,16 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                     rows.push(toggle); body.appendChild(toggle.element);
                 }
             }
+        }
+        if (category === "general" && audiobooks !== undefined) {
+            const toggle = actionButton("show-audiobooks", "Show Audiobooks", () => { audiobooks.set(!audiobooks.value); render({ zone: "settings-rows", key: "show-audiobooks" }); });
+            toggle.element.setAttribute("role", "switch");
+            toggle.element.setAttribute("aria-label", "Show Audiobooks");
+            toggle.element.setAttribute("aria-checked", String(audiobooks.value));
+            toggle.element.appendChild(el("span", "settings-row-value", audiobooks.value ? "On" : "Off"));
+            rows.push(toggle);
+            body.append(el("h3", "settings-section-header", "TOP MENU"), toggle.element, el("p", "settings-value", "Adds an Audiobooks tab when an audiobook library is available."));
+            if (audiobooks.error) body.appendChild(el("p", "browse-error", "Could not save Show Audiobooks. Try again."));
         }
         if (state.loaded && rows.length === 0) body.appendChild(el("p", "browse-text", "No supported settings in this category."));
         if (category === "server") {

@@ -415,6 +415,7 @@ export type ClientPlaybackContext = {
 };
 
 export type StartPlaybackBody = {
+    readonly progress_persistence?: "client";
     readonly installation_id: string;
     readonly protocol_version: 3;
     readonly client_features: readonly string[];

@@ -7,6 +7,7 @@ import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
 
 /** What the player needs to call startPlayback: the item, one file and where to start. */
 export interface PlayRequest {
+    readonly audiobook?: import("../contracts/v2/audiobooks.ts").Audiobook;
     readonly shuffleId?: string;
     readonly episode?: true;
     readonly contentId: string;
@@ -82,7 +83,7 @@ export function browseCardDestination(card: Card): Destination | undefined {
 }
 
 /**
- * Video libraries in the server's order, without those the profile hid itself. Access limits are
+ * Supported libraries in the server's order, without those the profile hid itself. Access limits are
  * the server's: it lists only libraries the profile may see. The hidden list is a preference.
  */
 export function visibleLibraries(libraries: readonly UserLibrary[], hiddenIds: readonly string[]): UserLibrary[] {

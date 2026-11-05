@@ -8,6 +8,7 @@ import { NativeSession, SessionError } from "../session/session.ts";
 import { APPEARANCE_KEY, METADATA_KEY, INTRO_SKIP_KEY, CREDITS_SKIP_KEY } from "../contracts/v2/settingsRows.ts";
 import { descriptionTranslationOperations } from "../api/descriptionTranslationOperations.ts";
 import { DEFAULT_APPEARANCE } from "../contracts/v2/subtitles.ts";
+import { AUDIOBOOK_SEEK_KEYS } from "../contracts/v2/audiobooks.ts";
 
 type TitleEdit = { key: typeof TITLE_ART_KEY; kind: "title"; profile: ExplicitSetting; steps: { scope: SettingsScope; value?: boolean; done?: boolean }[] };
 type Edit = TitleEdit | ({ key: SettingsKey; scope?: SettingsScope; snapshot?: ExplicitSetting } & ({ kind: "reset" } | { kind: "device-reset" } | { kind: "appearance-device" } | { kind: "appearance-profile" } | { kind: "value"; value: SettingValue } | { kind: "hidden"; id: number; hidden: boolean }));
@@ -187,7 +188,7 @@ export class SettingsState {
             if (edit.kind === "value") {
                 decodeSettingValue(edit.key, edit.value);
                 if (edit.key === QUALITY_KEY && !this.qualityOptions.some(option => option.value === edit.value)) throw new Error("Choose a supported quality.");
-                if (SEEK_KEYS.some(key => key === edit.key) && !this.definitions.find(def => def.key === edit.key)?.options.some(option => option.value === edit.value)) throw new Error("Choose a supported seek interval.");
+                if ([...SEEK_KEYS, ...AUDIOBOOK_SEEK_KEYS].some(key => key === edit.key) && !this.definitions.find(def => def.key === edit.key)?.options.some(option => option.value === edit.value)) throw new Error("Choose a supported seek interval.");
             }
             await this.readValues([edit.key]);
             if ((edit.kind === "value" || edit.kind === "reset") && originalScope !== this.scope(edit.key)) throw new SettingsConflict("The setting scope changed. Reload settings before editing it.");

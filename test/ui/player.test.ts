@@ -8,6 +8,7 @@ import { build } from "esbuild";
 import { type Browser, chromium, type Page } from "playwright";
 import type { PlaybackView, TrackView } from "../../src/player/controller.ts";
 import { DEFAULT_APPEARANCE } from "../../src/contracts/v2/subtitles.ts";
+import { liveReader, readLive } from "./support/tv.ts";
 
 const ORIGIN = "https://tv.example.test";
 const CSS = ["theme.css", "player/player.css"].map((name) => readFileSync(new URL(`../../src/${name}`, import.meta.url), "utf8")).join("\n");
@@ -96,7 +97,139 @@ const remote = (page: Page, keyCode: number): Promise<void> =>
     }, keyCode);
 const show = (page: Page, view: PlaybackView): Promise<void> => page.evaluate((next) => window.player.show(next), view);
 const commands = (page: Page): Promise<string[]> => page.evaluate(() => window.player.commands.slice());
+
+test("audio tvOS chapter thresholds and adjustable chapter-ticked progress", async () => {
+    const { page } = await open();
+    try {
+        await page.evaluate(() => window.player.audio());
+        await show(page, { ...playing(NO_TRACKS), positionSeconds: 104, durationSeconds: 200 });
+        await page.getByRole('button', { name: 'Previous Chapter', exact: true }).click();
+        await page.getByRole('button', { name: 'Next Chapter', exact: true }).click();
+        assert.deepEqual(await commands(page), ['seekToSeconds 0']);
+        await show(page, { ...playing(NO_TRACKS), positionSeconds: 106, durationSeconds: 200 });
+        await page.getByRole('button', { name: 'Previous Chapter', exact: true }).click();
+        assert.equal((await commands(page)).at(-1), 'seekToSeconds 100');
+        const slider = page.getByRole('slider', { name: 'Playback Position' });
+        await slider.focus();
+        await remote(page, RIGHT);
+        assert.equal((await commands(page)).at(-1), 'seekBy 10');
+        assert.equal(await page.locator('.audio-chapter-tick').count(), 1);
+        assert.equal(await page.getByRole('button', { name: 'Sleep Timer' }).count(), 1);
+    } finally { await page.close(); }
+});
+
+test("audio artwork, spacing and progress use Swift geometry and every transport stays on screen", async () => {
+    const { page } = await open();
+    try {
+        await page.addStyleTag({ content: readFileSync(new URL("../../src/ui/browse.css", import.meta.url), "utf8") });
+        await page.evaluate(() => window.player.audio());
+        await show(page, playing(NO_TRACKS));
+        const geometry = await readLive(liveReader(page), () => {
+            const cover = document.querySelector('.audio-cover')?.getBoundingClientRect();
+            const bar = document.querySelector('.audio-progress')?.getBoundingClientRect();
+            if (cover === undefined || bar === undefined) return null;
+            return { width: cover.width, height: cover.height, left: cover.left, gap: bar.left - cover.right, track: bar.height, controls: [...document.querySelectorAll('.audio-transport button')].map(node => ({ key: node.getAttribute('data-focus'), left: node.getBoundingClientRect().left, right: node.getBoundingClientRect().right })) };
+        }, undefined, () => true, 'audio player geometry');
+        assert.deepEqual({ width: geometry.width, height: geometry.height, left: geometry.left, gap: geometry.gap, track: geometry.track }, { width: 620, height: 620, left: 80, gap: 90, track: 10 });
+        for (const control of geometry.controls) assert.ok(control.left >= 0 && control.right <= 1920, JSON.stringify(control));
+    } finally { await page.close(); }
+});
 const focused = (page: Page): Promise<string | null> => page.evaluate(() => document.activeElement?.getAttribute("data-focus") ?? null);
+
+test("audio TV Stop copy and sixty-minute countdown match Swift", async () => {
+    const { page } = await open();
+    try {
+        await page.evaluate(() => window.player.audio());
+        await show(page, playing(NO_TRACKS));
+        const stop = await page.getByRole('button', { name: 'Stop Listening', exact: true }).innerText();
+        await page.getByRole('button', { name: 'Sleep Timer' }).click();
+        await page.getByRole('button', { name: '60 min', exact: true }).click();
+        const sleep = await page.getByRole('button', { name: 'Sleep Timer' }).innerText();
+        assert.deepEqual({ stop, sleep }, { stop: 'Stop', sleep: '60:00' });
+    } finally { await page.close(); }
+});
+
+test("audio transport uses audiobook intervals, chapters and cancellable sleep timer", async () => {
+    const { page, logs } = await open();
+    try {
+        await page.evaluate(() => window.player.audio());
+        await show(page, { ...playing(NO_TRACKS), seekIntervals: { backward: 15, forward: 45 } });
+        await page.getByRole("button", { name: "Back 15 seconds", exact: true }).click();
+        await page.getByRole("button", { name: "Forward 45 seconds", exact: true }).click();
+        await page.getByRole("button", { name: "Chapters", exact: true }).click();
+        await page.getByRole("button", { name: "Ending", exact: true }).click();
+        assert.deepEqual(await commands(page), ["seekBy -15", "seekBy 45", "seekToSeconds 100"]);
+        for (const code of [10252, 415, 19, 412, 417]) await remote(page, code);
+        assert.deepEqual((await commands(page)).slice(-5), ["togglePause", "setPaused false", "setPaused true", "seekBy -15", "seekBy 45"]);
+        await page.getByRole('button', { name: 'Sleep Timer' }).click();
+        await page.locator('[data-focus="sleep:15"]').click();
+        await page.clock.runFor(15 * 60000);
+        assert.equal((await commands(page)).at(-1), "setPaused true");
+        await page.getByRole('button', { name: 'Sleep Timer' }).click();
+        await page.locator('[data-focus="sleep:30"]').click();
+        await page.getByRole('button', { name: 'Sleep Timer' }).click();
+        await page.locator('[data-focus="sleep:0"]').click();
+        await page.clock.runFor(30 * 60000);
+        assert.equal((await commands(page)).filter(command => command === "setPaused true").length, 2);
+        await page.getByRole('button', { name: 'Sleep Timer' }).click();
+        await page.locator('[data-focus="sleep:15"]').click();
+        await show(page, { phase: "loading", title: "Book" });
+        await page.clock.runFor(15 * 60000);
+        assert.equal((await commands(page)).filter(command => command === "setPaused true").length, 2, "loading transport cannot apply pause yet");
+        await show(page, playing(NO_TRACKS));
+        assert.equal((await commands(page)).filter(command => command === "setPaused true").length, 3, "sleep pause is applied when the new transport is ready");
+        await show(page, playing(NO_TRACKS));
+        assert.equal((await commands(page)).filter(command => command === "setPaused true").length, 4, "a busy transport retries the sleep pause until confirmed");
+        await show(page, { ...playing(NO_TRACKS), phase: "paused" });
+        await show(page, playing(NO_TRACKS));
+        assert.equal((await commands(page)).filter(command => command === "setPaused true").length, 4);
+        await page.evaluate(() => window.player.destroy());
+        assert.deepEqual(logs, []);
+    } finally { await page.close(); }
+});
+
+test("audio sleep pause rejection cannot recursively republish a pause", async () => {
+    const { page, logs } = await open();
+    try {
+        await page.evaluate(() => { window.player.audio(); window.player.rejectSleepPause(); });
+        await show(page, playing(NO_TRACKS));
+        await page.getByRole('button', { name: 'Sleep Timer' }).click();
+        await page.locator('[data-focus="sleep:15"]').click();
+        await page.clock.runFor(15 * 60000);
+        assert.equal((await commands(page)).filter(command => command === "setPaused true").length, 1);
+        assert.deepEqual(logs, []);
+        await show(page, playing(NO_TRACKS));
+        assert.equal((await commands(page)).filter(command => command === "setPaused true").length, 2);
+    } finally { await page.close(); }
+});
+
+test("every audio transport and chapter control stays visible on remote Down", async () => {
+    const { page } = await open();
+    try {
+        await page.addStyleTag({ content: readFileSync(new URL("../../src/ui/browse.css", import.meta.url), "utf8") });
+        await page.evaluate(() => window.player.audio());
+        await show(page, playing(NO_TRACKS));
+        await page.locator('[data-focus="chapters"]').click();
+        await page.locator('[data-focus="stop"]').focus();
+        for (let i = 0; i < 11; i++) {
+            await page.clock.runFor(300);
+            const box = await page.evaluate(() => document.activeElement!.getBoundingClientRect().toJSON());
+            assert.ok(box.left >= 0 && box.right <= 1920 && box.top >= 0 && box.bottom <= 1080, JSON.stringify(box));
+            await remote(page, DOWN);
+        }
+        assert.equal(await focused(page), "chapter:1");
+    } finally { await page.close(); }
+});
+
+test("audio player without real chapters follows the tvOS control availability and label", async () => {
+    const { page } = await open();
+    try {
+        await page.evaluate(() => window.player.audio(false));
+        await show(page, playing(NO_TRACKS));
+        assert.equal(await page.getByRole("button", { name: "Chapters", exact: true }).count(), 0);
+        assert.equal(await page.getByText("Audiobook", { exact: true }).count(), 1);
+    } finally { await page.close(); }
+});
 
 test("autoplay countdown and Cancel are remote-operable without losing manual Play next", async () => {
     const { page } = await open();

@@ -38,6 +38,7 @@ export interface Pages {
 }
 
 export type RouteData =
+    | { readonly kind: "audiobooks"; data: import("./audiobooks.ts").Audiobooks | undefined }
     | { readonly kind: "for_you"; data: RecommendationRow[] | undefined }
     | { readonly kind: "recommendationSection"; readonly locator: RecommendationLocator; readonly title: string; pages: Pages }
     | { readonly kind: "requests"; readonly requests: RequestsState }
@@ -131,6 +132,7 @@ export interface RouteHandlers {
 }
 
 export function routeView(current: Route, handlers: RouteHandlers): View {
+    if (current.kind === "audiobooks" && current.data !== undefined) return current.data.view();
     if (current.kind === "for_you" || current.kind === "recommendationSection") return recommendationsView(current, handlers);
     if (current.kind === "requests") return requestsView(current.requests, handlers.requests(current), handlers.context.baseUrl);
     const { context, pop } = handlers;

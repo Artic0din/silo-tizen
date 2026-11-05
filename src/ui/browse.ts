@@ -9,6 +9,8 @@
 
 import { type Clock, systemClock } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
+import { Audiobooks } from "./audiobooks.ts";
+import { AudiobookPreference } from "./audiobookPreference.ts";
 import type { CatalogPage } from "../contracts/v2/catalog.ts";
 import { requestOperations } from "../api/requestOperations.ts";
 import type { MediaRequest, MyRequests, RequestsCapability } from "../contracts/v2/requests.ts";
@@ -117,6 +119,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const container = el("div", "browse");
     root.appendChild(container);
     const host = new FocusHost(container);
+    const audiobookPreference = new AudiobookPreference(options.publicStorage, JSON.stringify([server.server.serverId, session.activeProfile.id]));
     const sectionCatalogs = new WeakMap<SectionRoute, SectionCatalog>();
     let activeSection: SectionCatalog | undefined;
     let activeBrowse: Pages | undefined;
@@ -539,6 +542,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             return;
         }
         torn = true;
+        for (const route of stack) if (route.kind === "audiobooks") route.data?.stop();
         translations.reset();
         stopSearchSupplement();
         presentation.stop();
@@ -959,6 +963,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (loadSection(current, quiet)) return;
         if (current.kind === "library" && current.discovery?.mode === "Browse") { loadBrowse(current, quiet); return; }
         switch (current.kind) {
+            case "audiobooks": current.data?.refresh(); return;
             case "requests": {
                 presentation.ensure();
                 const state = current.requests, source = state.source;
@@ -1661,10 +1666,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 searchPeople(route, route.filter ?? route.searchType);
                 render(host.focused());
             } });
-        const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || (current.kind === "personal" && current.source !== "history") || current.kind === "calendar";
+        const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || (current.kind === "audiobooks" && current.data?.isLibrary === true) || (current.kind === "personal" && current.source !== "history") || current.kind === "calendar";
         if (rootRoute) {
             const selected = tabFocus(current).key;
-            const preview = (current.kind === "home" && current.data !== undefined) || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
+            const preview = (current.kind === "home" && current.data !== undefined) || (current.kind === "audiobooks" && current.data?.recommends === true) || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
             const modal = browsing && (current.discovery?.panel !== undefined || shuffleFailure?.route === current);
             const decorated = shell.decorate(view, selected, preview, modal ? () => { view.back?.(); } : current.kind === "personal" ? () => {
                 if (host.focused()?.zone === "nav") pop();
@@ -1911,6 +1916,27 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (homeRoute?.kind === "home") readHomeLibraries(homeRoute);
     };
     const shell = new Skyline(container, clock, (target, destinationMode) => {
+        if (target === "audiobooks" || typeof target !== "string" && target.type === "audiobooks") {
+            const libraries = pendingHomeLibraries ?? [];
+            const library = typeof target === "string" ? libraries.find(library => library.type === "audiobooks") : target;
+            const key = `audio:${library?.id ?? ""}`;
+            let route = roots.get(key);
+            if (route === undefined) {
+                route = newRoute({ kind: "audiobooks", data: new Audiobooks(libraries, read, () => {
+                const current = top();
+                render(current?.kind === "audiobooks" && current.data?.view().name === host.name ? host.focused() : undefined);
+                }, handoff, pop, context.baseUrl, library, context) });
+                roots.set(key, route);
+            }
+            loading?.abort(); loading = undefined; cancelSearch();
+            stack = [home, route];
+            if (route.kind === "audiobooks") {
+                if (destinationMode !== undefined) route.data?.selectMode(destinationMode);
+                else route.data?.enter();
+            }
+            showRoute(route, undefined);
+            return;
+        }
         shuffleGeneration++;
         const current = top();
         if (current !== undefined) current.focus = host.focused();
@@ -1963,6 +1989,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 settingsScreen = undefined;
                 if (torn) return;
                 container.hidden = false;
+                shell.setAudiobooks(audiobookPreference.value);
                 presentation.reload();
                 void navigation.reload();
                 if (hiddenChanged) {
@@ -1989,7 +2016,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 serverName: cachedBranding(options.publicStorage, context.baseUrl)?.serverName,
                 ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
                 ...(options.onSwitchServer === undefined ? {} : { switchServer: options.onSwitchServer }),
-            }, options.onAccounts, episodeSpoilers);
+            }, options.onAccounts, episodeSpoilers, audiobookPreference);
         },
         personal: (source, anchor = "profiles") => {
             const origin = top();
@@ -2043,6 +2070,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     // This profile's last bar, or no library tabs when it has none. An empty
     // update here would drop Movies and Series that a later failed read should keep.
     shell.update(pendingHomeLibraries ?? []);
+    shell.setAudiobooks(audiobookPreference.value);
     void navigation.reload();
     void probeRequests();
     stack = [home];

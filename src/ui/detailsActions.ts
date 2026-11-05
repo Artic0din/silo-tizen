@@ -13,6 +13,8 @@ const ICONS: Readonly<Record<string, string>> = {
     subtitles: "M5 4H19Q22 4 22 7V15Q22 18 19 18H10L5 22V18Q2 18 2 15V7Q2 4 5 4ZM6 9H11M6 13H10M14 9H18M13 13H18",
     watchlist: "M6 3H18V22L12 18 6 22Z",
     more: "M4 12H5M11 12H12M18 12H19",
+    favorite: "M12 21 3 12C-3 3 8-1 12 6 16-1 27 3 21 12Z",
+    finished: "M7 12 10 15 17 8M22 12A10 10 0 1 1 2 12 10 10 0 0 1 22 12",
 };
 
 export function detailAction(item: FocusItem): FocusItem {
@@ -39,7 +41,10 @@ export function detailAction(item: FocusItem): FocusItem {
     const shape = document.createElementNS(icon.namespaceURI, "path");
     shape.setAttribute("d", path);
     if (startOver || ["play", "resume", "next-episode"].includes(item.key)) shape.setAttribute("fill", "currentColor");
-    if (item.key === "watchlist" && button.getAttribute("aria-pressed") === "true") shape.setAttribute("fill", "currentColor");
+    if (["watchlist", "favorite", "finished"].includes(item.key) && button.getAttribute("aria-pressed") === "true") {
+        shape.setAttribute("fill", "currentColor");
+        if (item.key === "finished") { shape.setAttribute("fill-rule", "evenodd"); shape.setAttribute("d", "M22 12A10 10 0 1 1 2 12 10 10 0 0 1 22 12M6 12 10 16 18 8 16 6 10 12 8 10Z"); }
+    }
     icon.appendChild(shape);
     if (item.key === "more") {
         icon.dataset.symbol = "ellipsis";

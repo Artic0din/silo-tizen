@@ -76,7 +76,7 @@ File pointers are repository-relative.
 | Collections (fan-card grid, personal collections) | ✅ | ✅ | ✅ | Layout parity open (#100). Android: `TvCollectionsScreen` |
 | Library Shuffle | ✅ | ✅ | ✅ | Server-owned; hidden in mixed-library scope. Apple: `ShuffleFeatureStore`. Android: no mixed-library screen on TV |
 | Music | 🚧 | ✅ | 🟡 | Blocked on the server parity contract (#56). Android: Music tab browses the library (`TvLibraryTabType.Music`); no music player found in `androidTvApp` |
-| Audiobooks | 🚧 | ✅ | ✅ | #55. Apple: `TVAudiobookDetailView`, `AudioFullPlayerView`. Android: `TvAudiobookPlayerScreen`; top-bar tab is opt-in (Settings → Show Audiobooks) |
+| Audiobooks | 🚧 | ✅ | ✅ | #55. Beta browsing, chapters, resume, Favorite/Finished, skip intervals and sleep timer; General → TOP MENU → Show Audiobooks defaults Off and requires a visible audiobook library. Apple's shared library shell, full hero/player presentation and native acceptance remain pending |
 
 ## Search
 
@@ -146,7 +146,7 @@ File pointers are repository-relative.
 | Up Next panel before the episode ends (Play Now, Keep Watching) | ➖ | ✅ | ✅ | Tizen offers Play next only after the episode ends. Apple: `PlayerView`, with a Show Next Up time setting. Android: `TvPlayerScreen` |
 | Retry after playback fails to start | 🟡 | ✅ | ✅ | Tizen offers Retry only for a next-episode start, a settings read and a lost connection; a failed first start offers Back (`src/player/controller.ts`). Apple: `PlayerViewModel.retry()`. Android: `TvPlayerScreen` |
 | Playback speed | ➖ | ✅ | ✅ | Apple: HUD Speed row, 0.75× to 2.0×. AVPlay `setSpeed` takes only whole-number rates (±1, 2, 4, 8, 16×), so Apple's range cannot be matched |
-| Sleep timer | ➖ | 🟡 | ✅ | Apple: audiobook player only (`AudioFullPlayerView`); the video HUD has no way to start it |
+| Sleep timer | 🟡 | 🟡 | ✅ | Audiobook player only: Off, 15, 30 or 60 minutes (`AudioFullPlayerView`); the video HUD has no way to start it |
 | Chapters | ➖ | ✅ | ✅ | Apple: HUD Chapters tab. Android: scrubber markers |
 | Info / stats HUD | ➖ | ✅ | ✅ | Apple: `TVPlayerInfoHUD`. Android: `TvPlayerHud` |
 | In-player aspect mode, auto-play switch, subtitle appearance and delay | ➖ | ✅ | ✅ | #103. AVPlay has no crop mode for Fill. Apple: `TVPlayerInfoHUD`. Android: `TvPlayerHud` |
@@ -182,7 +182,7 @@ File pointers are repository-relative.
 | Episode spoiler protection (hide unwatched stills and descriptions) | ✅ | ✅ | ✅ | Apple: `TVPlaybackSettingsView`. Android: `TvSettingsScreen` |
 | Subtitle settings (language, behaviour, appearance) | 🟡 | ✅ | ✅ | Profile language/behaviour, metadata language and profile/device appearance; OS subtitle accessibility settings are unavailable |
 | HDR, Dolby Vision, buffering, lossless audio, deinterlacing | ➖ | ✅ | 🟡 | Android has Dolby Vision, Force HDR Passthrough, buffering quality and frame-rate matching; lossless audio and deinterlacing settings not found |
-| Poster size, advisory age, theme music, Show Audiobooks | ➖ | ✅ | 🟡 | Tizen honours the saved poster size but has no editor. Android has Poster Size, Theme Music and Show Audiobooks; advisory age not found |
+| Poster size, advisory age, theme music, Show Audiobooks | 🟡 | ✅ | 🟡 | Tizen offers supported poster-size/advisory-age rows and client-local Show Audiobooks (Off by default); theme music remains unavailable. Android has Poster Size, Theme Music and Show Audiobooks; advisory age not found |
 | Acknowledgements (TMDB and open source) | ✅ | ✅ | ➖ | Android: Settings → Server → About shows App Version and Privacy Policy only |
 | Privacy policy | ➖ | ✅ | ✅ | Android: `TvPrivacyPolicyDialog` |
 

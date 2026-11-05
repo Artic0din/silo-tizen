@@ -20,6 +20,8 @@ import { type Clock, sleep } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
 import { abortedError, type RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
+import { audiobookOperations } from "../api/audiobookOperations.ts";
+import { bookPosition, AUDIOBOOK_SEEK_KEYS, type Audiobook } from "../contracts/v2/audiobooks.ts";
 import { isPermittedUrl } from "../api/serverUrl.ts";
 import type { AudioTrackInfo, FileVersionTracks, PlaybackDecision, PlaybackDefaults, PlaybackMutation, PlaybackPlan, ReplanOperation, SelectedTracks, StartPlaybackBody, SubtitleTrack } from "../contracts/v2/playback.ts";
 import type { RandomBytes } from "../session/deviceIdentity.ts";
@@ -42,6 +44,7 @@ import { PlaybackRecovery, recoveryVerdict, type RecoveryStep, type RecoveryVerd
 
 /** What browse hands over: one file of one catalog item. */
 export interface PlayRequest {
+    readonly audiobook?: Audiobook;
     readonly shuffleId?: string;
     readonly episode?: true;
     readonly audioTrackId?: string;
@@ -298,7 +301,7 @@ export class PlaybackController implements PlayerControls {
     private readonly listeners: ((view: PlaybackView) => void)[] = [];
     private readonly stopAuthority: () => void;
     private startupDue: number | undefined;
-    private completion: { readonly attempt: Attempt; readonly abort: AbortController; pending: boolean } | undefined;
+    private completion: { readonly attempt: Attempt; readonly abort: AbortController; readonly audioNext?: PlayRequest; pending: boolean } | undefined;
     private cancelAutoplayTimer: (() => void) | undefined;
     private nextStart: PlayRequest | undefined;
 
@@ -321,7 +324,7 @@ export class PlaybackController implements PlayerControls {
     }
 
     /** Starts a new attempt; one already running is stopped and never plays. */
-    play(request: PlayRequest): void {
+    play(request: PlayRequest, paused = false): void {
         if (this.completion !== undefined) return;
         const previous = this.attempt;
         if (previous !== undefined) {
@@ -346,7 +349,7 @@ export class PlaybackController implements PlayerControls {
             recoveries: 0,
             sequence: 0,
             sourceSeconds: request.startSeconds ?? 0,
-            paused: false,
+            paused,
             qualityPreference: "auto",
             bandwidthCapKbps: undefined,
             autoBandwidthCapKbps: undefined,
@@ -434,7 +437,7 @@ export class PlaybackController implements PlayerControls {
 
     seekBy(seconds: number): void {
         const attempt = this.active();
-        if (attempt !== undefined) this.seekToSeconds(attempt.sourceSeconds + seconds);
+        if (attempt !== undefined) this.seekToSeconds(this.bookSeconds(attempt) + seconds);
     }
 
     retrySettings(): void {
@@ -462,6 +465,15 @@ export class PlaybackController implements PlayerControls {
         const plan = attempt?.plan;
         if (attempt === undefined || plan === undefined || !attempt.started || attempt.busy) {
             return;
+        }
+        const book = attempt.request.audiobook;
+        if (book !== undefined) {
+            const target = bookPosition(book, seconds);
+            if (target.fileId !== attempt.request.fileId) {
+                this.changeAudioPart(attempt, target.fileId, target.startSeconds);
+                return;
+            }
+            seconds = target.startSeconds;
         }
         const duration = plan.durationSeconds;
         const target = Math.max(0, Math.min(seconds, duration ?? Number.MAX_VALUE));
@@ -587,6 +599,18 @@ export class PlaybackController implements PlayerControls {
     }
 
     back(): void {
+        const audio = this.attempt;
+        if (audio?.request.audiobook !== undefined && this.completion !== undefined && !(this.current.phase === "completion" && this.current.state === "failed")) {
+            this.audioExit = true;
+            return;
+        }
+        if (audio?.request.audiobook !== undefined && audio.presented && this.completion === undefined) {
+            this.audioExit = true;
+            this.beginCompletion(audio);
+            return;
+        }
+        if (this.audioExit && this.completion !== undefined && !(this.current.phase === "completion" && this.current.state === "failed")) return;
+        this.audioExit = false;
         this.cancelCompletion();
         this.nextStart = undefined;
         if (this.shownError !== undefined) {
@@ -740,6 +764,8 @@ export class PlaybackController implements PlayerControls {
     // --- planning ---
 
     private async readSeekIntervals(attempt: Attempt): Promise<boolean> {
+        const seekKeys = attempt.request.audiobook === undefined ? SEEK_KEYS : AUDIOBOOK_SEEK_KEYS;
+        if (attempt.request.audiobook !== undefined) attempt.seekIntervals = { backward: 10, forward: 30 };
         const call = <T>(spec: RequestSpec<T>): Promise<T> => this.deps.session.call({ ...spec, profileScoped: true, signal: attempt.signal });
         let optionalOnly = false;
         try {
@@ -774,12 +800,12 @@ export class PlaybackController implements PlayerControls {
                     if (attempt.live) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
                 } catch { /* Unavailable autoplay preferences leave Play next manual. */ }
             }
-            if (!SEEK_KEYS.every(key => definitions.some(def => def.key === key))) return true;
-            const values = await Promise.all((capability.supportsBatchedEffective ? [SEEK_KEYS] : SEEK_KEYS.map(key => [key])).map(keys => call(operations.effectiveSettings(keys))));
+            if (!seekKeys.every(key => definitions.some(def => def.key === key))) return true;
+            const values = await Promise.all((capability.supportsBatchedEffective ? [seekKeys] : seekKeys.map(key => [key])).map(keys => call(operations.effectiveSettings(keys))));
             if (!attempt.live) return false;
             const effective = new Map(values.flatMap(values => [...values]));
-            const backward = effective.get(SEEK_BACK_KEY)?.value;
-            const forward = effective.get(SEEK_FORWARD_KEY)?.value;
+            const backward = effective.get(seekKeys[0])?.value;
+            const forward = effective.get(seekKeys[1])?.value;
             if (typeof backward !== "number" || typeof forward !== "number") throw new Error("Missing seek intervals");
             attempt.seekIntervals = { backward, forward };
             return true;
@@ -831,6 +857,7 @@ export class PlaybackController implements PlayerControls {
                 protocol_version: 3,
                 client_features: CLIENT_FEATURES,
                 file_id: attempt.request.fileId,
+                ...(attempt.request.audiobook === undefined ? {} : { progress_persistence: "client" }),
                 profile_id: profile.id,
                 playback_attempt_id: attempt.playbackAttemptId,
                 quality_preference: attempt.qualityPreference,
@@ -1331,6 +1358,8 @@ export class PlaybackController implements PlayerControls {
             },
             onstreamcompleted: () => {
                 if (!current() || !attempt.started) return;
+                const audioPart = attempt.request.audiobook?.parts.find(part => part.fileId === attempt.request.fileId);
+                if (audioPart !== undefined && audioPart.duration > 0) attempt.sourceSeconds = audioPart.duration;
                 if (attempt.busy) {
                     if (attempt.change.state === "changing") attempt.endedDuringChange = true;
                     return;
@@ -1420,6 +1449,23 @@ export class PlaybackController implements PlayerControls {
 
     // --- progress and stop ---
 
+    private bookSeconds(attempt: Attempt): number {
+        const part = attempt.request.audiobook?.parts.find(part => part.fileId === attempt.request.fileId);
+        return (part?.offset ?? 0) + attempt.sourceSeconds;
+    }
+
+    private syncBook(attempt: Attempt): Promise<unknown> {
+        const book = attempt.request.audiobook;
+        if (book === undefined || !attempt.presented || attempt.signal.aborted || attempt.signal !== this.deps.session.authoritySignal) return Promise.resolve();
+        return this.deps.session.call({ ...audiobookOperations.progress(book.id, this.bookSeconds(attempt), book.duration), profileScoped: true, signal: attempt.signal });
+    }
+
+    private changeAudioPart(attempt: Attempt, fileId: string, startSeconds: number): void {
+        this.leave(attempt, "abandon");
+        this.completion = { attempt, abort: new AbortController(), pending: false, audioNext: { ...attempt.request, fileId, startSeconds } };
+        this.retryCompletion();
+    }
+
     private scheduleProgress(attempt: Attempt): void {
         attempt.cancelTimer?.();
         const due = this.deps.clock.now() + PROGRESS_INTERVAL_MS;
@@ -1447,14 +1493,18 @@ export class PlaybackController implements PlayerControls {
             position: attempt.sourceSeconds,
             is_paused: samplePaused(attempt),
         });
-        attempt.progress = this.deps.session.call({ ...spec, profileScoped: true, signal: attempt.signal }).then(
+        attempt.progress = Promise.allSettled([this.deps.session.call({ ...spec, profileScoped: true, signal: attempt.signal }), this.syncBook(attempt)]).then(results => {
+            for (const result of results) if (result.status === "rejected") throw result.reason;
+        }).then(
             () => {
                 if (attempt.sessionId !== sessionId) return;
                 attempt.progress = undefined;
+                if (attempt.request.audiobook !== undefined) attempt.change = { state: "idle" };
             },
             (error: unknown) => {
                 if (attempt.sessionId !== sessionId) return;
                 attempt.progress = undefined;
+                if (attempt.request.audiobook !== undefined) { attempt.change = { state: "failed" }; this.showPlayback(attempt); }
                 if (error instanceof ApiError && (error.status === 401 || error.status === 403 || error.status === 404 || error.status === 410 || error.problemId === "installation_changed")) attempt.progressRefusal = error;
                 if (!attempt.live || !(error instanceof ApiError)) {
                     return;
@@ -1468,7 +1518,7 @@ export class PlaybackController implements PlayerControls {
         );
     }
 
-    private async stopSession(attempt: Attempt): Promise<void> {
+    private async stopSession(attempt: Attempt, persistBook = true): Promise<void> {
         if (attempt.stopped) return;
         const sessionId = attempt.sessionId;
         const installationId = attempt.installationId;
@@ -1478,6 +1528,7 @@ export class PlaybackController implements PlayerControls {
         // Stop is the last word: it waits for the sample in flight and carries the next sequence.
         await attempt.progress;
         if (attempt.progressRefusal !== undefined) throw attempt.progressRefusal;
+        if (persistBook) await this.syncBook(attempt);
         const spec = attempt.stopSpec ?? operations.stopPlayback(sessionId, {
             installation_id: installationId,
             stop_id: this.newId(),
@@ -1505,6 +1556,7 @@ export class PlaybackController implements PlayerControls {
         const completion = this.completion;
         if (completion === undefined) {
             const attempt = this.attempt;
+            if (attempt?.request.audiobook !== undefined && !attempt.presented && this.shownError !== undefined && retryableStart(this.shownError)) { this.play(attempt.request); return; }
             if (attempt?.live === true && attempt.presented && this.shownError?.kind === "network") {
                 this.shownError = undefined;
                 const step = attempt.recovery?.step ?? "replan";
@@ -1567,6 +1619,29 @@ export class PlaybackController implements PlayerControls {
         try {
             await this.stopSession(attempt);
             if (!current()) return;
+            if (this.audioExit) {
+                this.audioExit = false;
+                this.cancelCompletion();
+                this.attempt = undefined;
+                this.show({ phase: "closed" });
+                this.deps.exits.onBack();
+                return;
+            }
+            const book = attempt.request.audiobook;
+            if (completion.audioNext !== undefined) {
+                this.cancelCompletion();
+                this.play(completion.audioNext, attempt.paused);
+                return;
+            }
+            if (book !== undefined) {
+                const index = book.parts.findIndex(part => part.fileId === attempt.request.fileId);
+                const next = book.parts[index + 1];
+                if (next !== undefined) {
+                    this.cancelCompletion();
+                    this.play({ ...attempt.request, fileId: next.fileId, startSeconds: 0 });
+                    return;
+                }
+            }
             if (attempt.request.shuffleId !== undefined) {
                 show("resolving");
                 const next = await nextShuffle(spec => {
@@ -1603,6 +1678,7 @@ export class PlaybackController implements PlayerControls {
     }
 
     // --- endings ---
+    private audioExit = false;
 
     /** Leaves an attempt: no callback of it acts again. `stop` also ends its server session. */
     private leave(attempt: Attempt, how: "stop" | "abandon"): void {
@@ -1912,6 +1988,7 @@ export class PlaybackController implements PlayerControls {
             protocol_version: 3,
             client_features: CLIENT_FEATURES,
             file_id: plan.effectiveMediaFileId,
+            ...(attempt.request.audiobook === undefined ? {} : { progress_persistence: "client" }),
             profile_id: profile.id,
             playback_attempt_id: this.newId(),
             quality_preference: attempt.qualityPreference,
@@ -1932,13 +2009,18 @@ export class PlaybackController implements PlayerControls {
             return;
         }
         try {
+            if (attempt.request.audiobook !== undefined) {
+                // Forced book writes belong to the listening attempt, across session identities.
+                await attempt.progress;
+                if (!current()) return;
+            }
             const body = attempt.replacementBody ?? this.replacementBody(attempt);
             attempt.replacementBody = body;
             const decision = await this.deps.session.call({ ...operations.startPlayback(body), profileScoped: true, signal: attempt.signal });
             if (!attempt.live && decision.outcome === "playable") {
                 // A late replacement owns a separate session and cannot reuse the retired STOP.
                 const retired: Attempt = { ...attempt, playbackAttemptId: body.playback_attempt_id, sessionId: decision.sessionId, sequence: 0, stopped: false, stopSpec: undefined, stopRetryAt: 0, progress: undefined, progressRefusal: undefined };
-                void this.stopSession(retired).catch(() => undefined);
+                void this.stopSession(retired, false).catch(() => undefined);
                 return;
             }
             if (!current()) {
@@ -1952,7 +2034,7 @@ export class PlaybackController implements PlayerControls {
             }
             if (attempt.retirePredecessor) {
                 // A stale plan does not prove the predecessor session has ended.
-                void this.stopSession({ ...attempt }).catch(() => undefined);
+                void this.stopSession({ ...attempt }, false).catch(() => undefined);
                 attempt.retirePredecessor = false;
             }
             attempt.playbackAttemptId = body.playback_attempt_id;
@@ -2308,8 +2390,8 @@ export class PlaybackController implements PlayerControls {
         this.show({
             phase: attempt.paused ? "paused" : "playing",
             title: attempt.request.title,
-            positionSeconds: attempt.sourceSeconds,
-            durationSeconds: plan.durationSeconds,
+            positionSeconds: this.bookSeconds(attempt),
+            durationSeconds: attempt.request.audiobook?.duration || plan.durationSeconds,
             buffering: attempt.buffering,
             tracks: trackView(attempt, plan),
             seekIntervals: attempt.seekIntervals,

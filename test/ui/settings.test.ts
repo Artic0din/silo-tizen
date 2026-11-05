@@ -37,6 +37,32 @@ async function openSettings(tv: Tv): Promise<void> {
     await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).waitFor();
 }
 
+test("audiobook Settings follow Apple section order and save profile skip intervals", async () => {
+    const { tv, settings } = await setup();
+    settings.remainingRows = true;
+    settings.audiobooks = true;
+    try {
+        await openSettings(tv);
+        const toggle = tv.page.getByRole("switch", { name: "Show Audiobooks", exact: true });
+        await toggle.waitFor();
+        assert.equal(await toggle.getAttribute("aria-checked"), "false");
+        const order = await tv.page.locator('.settings-pane h3, .settings-pane [data-focus]').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? node.textContent));
+        assert.ok(order.indexOf("TOP MENU") > order.indexOf("poster-size"));
+        assert.equal(order[order.indexOf("TOP MENU") + 1], "show-audiobooks");
+        await toggle.click();
+        assert.equal(await toggle.getAttribute("aria-checked"), "true");
+        await tv.page.locator('[data-focus="playback"]').click();
+        await tv.page.locator('[data-focus="audio-seek-back"]').click();
+        assert.deepEqual(await tv.page.getByRole("radio").allTextContents(), ["5 seconds", "10 seconds", "15 seconds", "30 seconds", "45 seconds", "60 seconds", "90 seconds"]);
+        await tv.page.getByRole("radio", { name: "15 seconds", exact: true }).click();
+        await tv.eventually(async () => settings.profile().get("player.audiobook_skip_back_seconds") === 15, "saved audiobook interval");
+        const sections = await tv.page.locator('.settings-pane h3').allTextContents();
+        assert.equal(sections[sections.indexOf("VIDEO") + 1], "AUDIOBOOKS");
+        assert.equal(await tv.page.locator('[data-focus="audio-seek-back"] .settings-row-value').textContent(), "15 seconds");
+        assert.equal(await tv.page.locator('[data-focus="audio-seek-forward"] .settings-row-value').textContent(), "30 seconds");
+    } finally { await tv.page.context().close(); }
+});
+
 test("Settings pins its rail, resets pane scroll and keeps modal background geometry", async () => {
     const { tv, settings } = await setup();
     settings.remainingRows = true;

@@ -141,7 +141,8 @@ test("unknown media and library kinds decode as unknown; wrong shapes fail witho
         sections: [{ id: "books", section_type: "recommendations", title: "Books", items: [{ content_id: "ebook:1", type: "ebook", title: "Dune" }] }],
     });
     assert.equal(sections[0]?.items[0]?.type, "unknown");
-    assert.equal(decodeUserLibraries({ items: [{ id: "3", name: "Audio", type: "audiobooks", sort_order: 1 }] })[0]?.type, "unknown");
+    assert.equal(decodeUserLibraries({ items: [{ id: "3", name: "Audio", type: "audiobooks", sort_order: 1 }] })[0]?.type, "audiobooks");
+    assert.equal(decodeUserLibraries({ items: [{ id: "3", name: "Future", type: "future", sort_order: 1 }] })[0]?.type, "unknown");
     assert.deepEqual(
         decodeHiddenLibraries({ items: [{ key: "ui.disabled_library_ids", value: [13, 15], source: "profile", definition_revision: 1 }], revision: 1 }),
         ["13", "15"],

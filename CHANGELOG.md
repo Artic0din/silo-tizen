@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added profile-gated audiobook libraries with the Recommended, Collections and Browse cascade, square covers, a cover-tinted Details hero, chapter controls, resume, audio seeking and sleep menus.
+- Added audiobook Favorite and Finished toggles, the General top-menu switch, and profile skip intervals; kept listening position and visible focus through recovery and navigation.
 - Hid unwatched episode stills and descriptions from Playback when the server supports the profile spoiler settings.
 - Show Trailers & More on movie and series Details for local extras and YouTube listings, using Apple's card size and the 76px gap to the next heading. Local extras still play from the start. YouTube listings stay on their card because this TV cannot play them.
 - Added description translation on Details and the featured marquee, matching Apple TV's Translate Description action, Translating… status and Translated by AI label.
@@ -130,6 +132,8 @@ All notable changes to this project are documented in this file.
 - Kept scrolled personal-list cards visible when pages appended or reads failed.
 - Opened History without the top menu, with a centered title, exact counts and Apple's unfiltered 60-item pages.
 - Kept personal-list focus and cached cards after failed reads and fitted large History posters to five columns.
+
+- Matched audiobook Play Again labels and chapter-control availability to Apple TV.
 
 ### Changed
 

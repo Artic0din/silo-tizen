@@ -3,8 +3,12 @@
 
 import type { PlaybackView, PlayerControls } from "../../src/player/controller.ts";
 import { mountPlayerScreen, type PlayerScreen } from "../../src/player/playerScreen.ts";
+import { mountAudioScreen } from "../../src/player/audioScreen.ts";
+import { systemClock } from "../../src/api/clock.ts";
 
 export interface PlayerHarness {
+    audio(withChapters?: boolean): void;
+    rejectSleepPause(): void;
     readonly commands: string[];
     show(view: PlaybackView): void;
     destroy(): void;
@@ -27,6 +31,7 @@ root.appendChild(sibling);
 
 const commands: string[] = [];
 let listener: ((view: PlaybackView) => void) | undefined;
+let rejectedPauseView: PlaybackView | undefined;
 const controls: PlayerControls = {
     subscribe(next) {
         listener = next;
@@ -36,7 +41,10 @@ const controls: PlayerControls = {
         };
     },
     togglePause: () => commands.push("togglePause"),
-    setPaused: (paused) => commands.push(`setPaused ${paused}`),
+    setPaused: (paused) => {
+        commands.push(`setPaused ${paused}`);
+        if (paused && rejectedPauseView !== undefined) listener?.(rejectedPauseView);
+    },
     seekBy: (seconds) => commands.push(`seekBy ${seconds}`),
     seekToSeconds: (seconds) => commands.push(`seekToSeconds ${seconds}`),
     back: () => commands.push("back"),
@@ -60,10 +68,15 @@ const controls: PlayerControls = {
     selectAIResult: id => commands.push(`selectAIResult ${id}`),
     seekThumbnail: async () => undefined,
 };
-const screen: PlayerScreen = mountPlayerScreen(root, controls);
+let screen: PlayerScreen = mountPlayerScreen(root, controls);
 
 window.player = {
+    audio(withChapters = true) {
+        screen.destroy();
+        screen = mountAudioScreen(root, controls, { id: "book", title: "Book", overview: "", poster: undefined, position: 0, duration: 200, parts: [{ fileId: "1", duration: 200, offset: 0 }], chapters: withChapters ? [{ title: "Opening", start: 0 }, { title: "Ending", start: 100 }] : [] }, systemClock);
+    },
     commands,
+    rejectSleepPause() { rejectedPauseView = { phase: "playing", title: "Book", positionSeconds: 0, durationSeconds: 200, buffering: false, seekIntervals: { backward: 10, forward: 30 }, tracks: { audio: { state: "loading" }, selectedAudioId: undefined, subtitles: [], selectedSubtitleId: undefined, subtitleMode: "off", change: { state: "idle" }, notices: [] } }; },
     show: (view) => listener?.(view),
     destroy: () => screen.destroy(),
 };

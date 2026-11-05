@@ -1,5 +1,6 @@
 import type { FakeSilo, Reply } from "./fakeSilo.ts";
 import { fixture, problem } from "./fakeSilo.ts";
+import { AUDIOBOOK_SEEK_KEYS } from "../../../src/contracts/v2/audiobooks.ts";
 import { AUDIO_KEY, QUALITY_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SETTINGS_KEYS, SHOW_FORCED_KEY, SPOILER_IMAGE_KEY, SPOILER_OVERVIEW_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, type SettingsKey, type SettingValue } from "../../../src/contracts/v2/settings.ts";
 const TITLE = "ui.title_art" as SettingsKey;
 
@@ -20,6 +21,7 @@ export class FakeSettings {
     /** Adds the profile subtitle definitions Apple TV edits. The vendored fixture omits them. */
     profileSubtitles = false;
     remainingRows = false;
+    audiobooks = false;
     /** `GET /settings/overlay-config`; undefined answers 404. */
     overlayConfig: { enabled: boolean; defaults?: string } | undefined = { enabled: true };
     constructor(fake: FakeSilo) {
@@ -46,6 +48,10 @@ export class FakeSettings {
         if (pathname === "/settings/contract/capabilities") return { status: 200, body: { api_version: 1, revision: "opaque-24", manifest_revision: this.revision, state: "available", allowed: this.allowed, scopes: ["profile", "profile_client", "profile_device"], supports_batched_effective: this.supportsBatchedEffective, supports_atomic_shortcuts: this.supportsAtomicShortcuts, client_families: this.clientFamilies } };
         if (pathname === "/settings/contract") {
             const contract = fixture("settings_contract_ok");
+            if (this.audiobooks && Array.isArray(contract.definitions)) {
+                const video = contract.definitions.filter(def => typeof def === "object" && def !== null && "key" in def && [SEEK_BACK_KEY, SEEK_FORWARD_KEY].includes(String(def.key)));
+                contract.definitions = [...contract.definitions, ...video.map((def, index) => ({ ...def, key: AUDIOBOOK_SEEK_KEYS[index] }))];
+            }
             if (this.remainingRows && Array.isArray(contract.definitions)) {
                 const extra = fixture("settings_rows_216");
                 if (Array.isArray(extra.definitions)) {
@@ -100,7 +106,7 @@ export class FakeSettings {
                 const override = this.overrides.has(typed) || deviceOverride;
                 const defaults = fixture("settings_rows_216").definitions;
                 const fallback = typed === SPOILER_IMAGE_KEY || typed === SPOILER_OVERVIEW_KEY ? false : Array.isArray(defaults) ? defaults.find(def => def.key === key)?.default_value : undefined;
-                const value = this.overrides.has(typed) ? this.overrides.get(typed) : deviceOverride ? deviceRows.get(typed) : profileRows.has(typed) ? profileRows.get(typed) : key === "ui.card_presentation" ? { poster_size: "standard", caption: "title_metadata" } : typed === QUALITY_KEY ? "auto" : typed === SEEK_BACK_KEY ? 10 : typed === SEEK_FORWARD_KEY ? 30 : typed === SUBTITLE_MODE_KEY ? "auto" : typed === SHOW_FORCED_KEY ? true : fallback ?? null;
+                const value = this.overrides.has(typed) ? this.overrides.get(typed) : deviceOverride ? deviceRows.get(typed) : profileRows.has(typed) ? profileRows.get(typed) : key === "ui.card_presentation" ? { poster_size: "standard", caption: "title_metadata" } : typed === QUALITY_KEY ? "auto" : typed === SEEK_BACK_KEY || typed === AUDIOBOOK_SEEK_KEYS[0] ? 10 : typed === SEEK_FORWARD_KEY || typed === AUDIOBOOK_SEEK_KEYS[1] ? 30 : typed === SUBTITLE_MODE_KEY ? "auto" : typed === SHOW_FORCED_KEY ? true : fallback ?? null;
                 return { key, value, source: override ? "profile_device" : rows.has(typed) ? "profile" : "default", definition_revision: this.revision, ...(this.constrained && typed === AUDIO_KEY ? { constrained: true, requested_value: rows.get(typed) ?? null, permitted_values: [null, "en"] } : {}) };
             });
             return { status: 200, body: { items, revision: this.revision } };

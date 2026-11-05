@@ -53,6 +53,54 @@ browseTest("collection detail matches measured Apple layout and truncates long c
     }, "Apple Shuffle pill geometry");
 }, { beforeConnect: tv => { new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" }); } });
 
+for (const check of ["icon", "title", "badges", "focus"] as const) browseTest(`collection native regression ${check}`, async (tv, catalog) => {
+    await tv.page.emulateMedia({ reducedMotion: "reduce" });
+    await tv.page.route("**/api/v2/shuffles/capabilities", route => route.fulfill({ json: { allowed: true, state: "available", scope_kinds: ["library_collection"] } }));
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await selectLibraryMode(tv, "Collections");
+    if (check === "focus") {
+        const tile = tv.page.locator('[data-focus="collection:highlights"]');
+        await tile.focus();
+        assert.deepEqual(await tile.evaluate(node => ({ shadow: getComputedStyle(node).boxShadow, outline: getComputedStyle(node).outlineStyle, art: getComputedStyle(node.querySelector('.browse-art')!).outlineColor })), { shadow: "none", outline: "none", art: "rgba(255, 255, 255, 0.7)" });
+        return;
+    }
+    catalog.failNext("/library/12/collections/highlights/items", { status: 200, body: { items: [{ content_id: "movie:badge", type: "movie", title: "Badge movie", overlay_summary: { resolution: "2160p" }, user_state: { played: true } }], page: { has_more: false } } });
+    await tv.page.locator('[data-focus="collection:highlights"]').click();
+    const card = tv.page.locator('.collection-detail-grid .browse-card').first();
+    await card.waitFor();
+    if (check === "icon") {
+        const svg = tv.page.locator('[data-focus="shuffle"] svg');
+        assert.equal(await svg.count(), 1);
+        assert.ok(await svg.evaluate(node => node instanceof SVGSVGElement && node.getBoundingClientRect().width > 0));
+    } else if (check === "title") {
+        assert.equal(await tv.page.locator('.collection-detail-title').evaluate(node => getComputedStyle(node).color), "rgba(237, 237, 237, 0.6)");
+    } else if (check === "badges") {
+        await tv.eventually(async () => await card.locator('.card-overlay').count() > 0, "collection profile badges");
+        assert.equal(await card.locator('.browse-watched').count(), 1);
+    }
+});
+
+for (const multipleLibraries of [false, true]) browseTest(`section selection closes the dropdown after entering Recommended ${multipleLibraries}`, async tv => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await selectLibraryMode(tv, "Collections");
+    const loading = tv.fake.hold("/library/12/sections", true);
+    await tv.page.locator('[data-focus="movies"]').focus();
+    await tv.remote(40);
+    if (multipleLibraries) {
+        await tv.page.locator('[data-focus="library:12"]').focus();
+        await tv.remote(39);
+    } else await tv.page.locator('[data-focus="section:Recommended"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.jump(1000);
+    loading.release();
+    await tv.page.locator('.home-section .browse-card').first().waitFor();
+    await tv.jump(1000);
+    assert.equal(await tv.page.locator('.skyline-selector:visible').count(), 0);
+    assert.ok((await tv.focused())?.startsWith("movie:"));
+}, { multipleLibraries });
+
 browseTest("collection members do not wait for optional Shuffle capabilities", async (tv) => {
     let release: (() => void) | undefined;
     const held = new Promise<void>(resolve => { release = resolve; });

@@ -209,7 +209,9 @@ function grid(current: Route, pages: Pages, page: CatalogPage, handlers: RouteHa
             previous: () => handlers.turn(current, pages, -1),
             next: () => handlers.turn(current, pages, 1),
         },
-        handlers.context,
+        current.kind === "libraryResults" && current.source.kind === "collection"
+            ? { ...handlers.context, overlays: handlers.context.cardOverlays?.(), posterWidth: 260 * (handlers.context.posterScale?.() ?? 1) }
+            : handlers.context,
     );
 }
 

@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Dimmed collection titles, showed profile poster overlays, kept collection focus rings on artwork, and closed section menus during content loading.
 - Matched collection page spacing, Shuffle controls, and truncated poster captions to Apple TV.
 - Opened collection pages without requiring catalog totals, showed their item count and Shuffle action, and aligned the Collections grid with Apple TV.
 

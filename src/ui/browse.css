@@ -883,7 +883,7 @@
 /* Requests and Calendar captions live outside their focus-styled buttons. */
 .browse .browse-card:is(.details-person, .requests-card, .calendar-event) :is(.browse-card-title, .browse-card-subtitle) { transform: none; text-shadow: none; }
 .browse:has(> .collection-detail-title) { padding: 62px 128px 60px; }
-.collection-detail-title { text-align: center; width: 100%; margin: 0 0 17px; font-size: 59px; line-height: 71px; }
+.collection-detail-title { text-align: center; width: 100%; margin: 0 0 17px; font-size: 59px; line-height: 71px; color: rgba(237,237,237,.6); }
 .collection-detail-actions { display: flex; align-items: center; gap: 48px; height: 53px; margin: 0 0 59px; }
 .collection-detail-actions .browse-text { margin: 0; font-size: 22px; line-height: 27px; }
 .browse .collection-detail-actions .browse-button { display: inline-flex; align-items: center; justify-content: center; width: 175px; height: 53px; margin: 0; padding: 12px 22px; border: 1px solid rgba(255,255,255,.09); border-radius: 27px; font-size: 24px; font-weight: 500; background: rgba(255,255,255,.07); }
@@ -896,13 +896,13 @@
 .browse .collection-detail-grid .browse-card { width: calc(260px * var(--poster-scale, 1)); border: 0; }
 .browse .collection-detail-grid .browse-art { width: calc(260px * var(--poster-scale, 1)); height: calc(390px * var(--poster-scale, 1)); }
 /* Collection tiles contain the collage and caption, so the tile owns focus. */
-.browse .discovery-collection:focus { transform: scale(1.05); outline: 4px solid rgba(255,255,255,.7); outline-offset: -2px; box-shadow: 0 8px 36px rgba(0,0,0,.45); }
+.browse .discovery-collection:not(.collection-poster):focus { transform: scale(1.05); outline: 4px solid rgba(255,255,255,.7); outline-offset: -2px; box-shadow: 0 8px 36px rgba(0,0,0,.45); }
 @media (prefers-reduced-motion: reduce) {
     .browse .browse-card:focus .browse-art { --card-focus-scale: 1; }
     .browse .browse-card:is(:focus, [aria-current="true"]) .browse-art,
     .browse .browse-card:is(:focus, [aria-current="true"]) :is(.browse-card-title, .browse-card-subtitle),
     .browse .details-person:focus,
-    .browse .discovery-collection:focus { transform: none; }
+    .browse .discovery-collection:not(.collection-poster):focus { transform: none; }
 }
 /* Keep the file-bound picker over Details, using Skyline's existing glass and focus grammar. */
 .details-audio-picker { position: fixed; left: 88px; top: 420px; width: 620px; max-height: 560px; overflow-y: auto; z-index: 12; }

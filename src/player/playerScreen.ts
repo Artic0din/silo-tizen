@@ -357,6 +357,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     let timelineMoved = false;
     /** Playing when timeline scrub began, so a later Select resumes. */
     let resumeAfterTimeline = false;
+    let timelinePendingResume = false;
+    let holdPausedAtCommandCount: number | undefined;
     /** 0 when auto-seek is idle. Otherwise one of SEEK_RATES. */
     let autoRate = 0;
     let pendingTap: "left" | "right" | undefined;
@@ -670,14 +672,18 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     };
 
     /** Drop a preview or timeline scrub without seeking. A timeline pause stays paused. */
-    const cancelScrub = (): void => {
+    const cancelScrub = (returnHeldResume = false): void => {
+        const resume = returnHeldResume && holdPausedAtCommandCount !== undefined && (view.phase === "playing" || view.phase === "paused") && view.transportCommandCount === holdPausedAtCommandCount;
+        holdPausedAtCommandCount = undefined;
         stopSeekTimers();
         seekPreview = undefined;
         timeline = false;
+        timelinePendingResume = false;
         timelineMoved = false;
         resumeAfterTimeline = false;
         autoRate = 0;
         thumbnail.clear();
+        if (resume) controls.setPaused(false);
     };
 
     const clampSeek = (raw: number): number => {
@@ -729,8 +735,14 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         cancelDebounce?.();
         cancelDebounce = undefined;
         if (!timeline) {
-            resumeAfterTimeline = view.phase === "playing";
-            if (resumeAfterTimeline) controls.setPaused(true);
+            const pendingResume = view.resumePending === true;
+            timelinePendingResume = pendingResume;
+            resumeAfterTimeline = view.phase === "playing" || pendingResume;
+            if (pendingResume) {
+                const command = view.transportCommandCount ?? 0;
+                controls.setPaused(true);
+                holdPausedAtCommandCount = command + 1;
+            }
             timeline = true;
             timelineMoved = false;
             seekPreview = view.positionSeconds;
@@ -771,7 +783,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         if (duration === undefined || duration <= 0) return;
         cancelDebounce?.();
         cancelDebounce = undefined;
-        resumeAfterTimeline = view.phase === "playing";
+        resumeAfterTimeline = view.phase === "playing" || view.resumePending === true;
+        timelinePendingResume = view.resumePending === true;
         if (resumeAfterTimeline) controls.setPaused(true);
         timeline = true;
         timelineMoved = false;
@@ -915,6 +928,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         if (view.phase !== "playing" && view.phase !== "paused") {
             return;
         }
+        if (timeline) cancelScrub(true);
         menuOpen = true;
         render();
         if (!focusList(0)) {
@@ -1021,7 +1035,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }
         if (key === "back") {
             if (timeline || seekPreview !== undefined || autoRate !== 0) {
-                cancelScrub();
+                cancelScrub(true);
                 bar.focus();
                 render();
                 return;
@@ -1070,7 +1084,14 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     document.addEventListener("visibilitychange", onVisibility);
     const unsubscribe = controls.subscribe((next) => {
         const starting = next.phase === "playing" && view.phase !== "playing" && view.phase !== "paused";
-        if ((next.phase === "playing" || next.phase === "paused") && (view.phase === "playing" || view.phase === "paused") && next.previewKey !== view.previewKey) {
+        if (next.phase === "playing" && view.phase === "paused" && timeline) {
+            cancelScrub();
+            reveal();
+        }
+        // The same local seek can land paused under a newly opened scrub.
+        const heldLanding = timelinePendingResume && next.phase === "paused" && view.phase === "paused" && view.previewKey === undefined && next.previewKey !== undefined;
+        if (heldLanding) timelinePendingResume = false;
+        if (!heldLanding && (next.phase === "playing" || next.phase === "paused") && (view.phase === "playing" || view.phase === "paused") && next.previewKey !== view.previewKey) {
             cancelScrub();
         }
         view = next;

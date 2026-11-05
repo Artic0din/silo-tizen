@@ -5,7 +5,7 @@ import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakePlayback } from "../native/support/fakePlayback.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { SEEK_BACK_KEY, SEEK_FORWARD_KEY } from "../../src/contracts/v2/settings.ts";
-import { homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { homeDetailsRead, launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -870,6 +870,7 @@ appTest("saved server profile 15/45 reaches the composed controller and every re
     await tv.page.locator('[data-focus="profiles"]').click();
     await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
     await tv.page.locator('[data-focus="playback"]').click();
+    await tv.page.locator('[data-focus="seek-back"]').waitFor();
     assert.equal(await tv.page.locator('[data-focus="seek-back"], [data-focus="seek-forward"]').count(), 2);
     await tv.page.locator('[data-focus="seek-back"]').click();
     await tv.page.getByRole('radio', { name: '15 seconds', exact: true }).click();
@@ -999,6 +1000,45 @@ appTest("completion Back replays the tail; Stop and dismissed errors restore ori
     await tv.remote(10009);
     await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
     assert.equal(await tv.page.getByRole("dialog").count(), 0);
+});
+
+appTest("reopening a committed scrub holds its pending resume until Select", async tv => {
+    await signIn(tv);
+    await startMovie(tv);
+    await pauseTvClock(tv);
+    await tv.remote(13);
+    await tv.remote(39);
+    await tv.remote(13);
+    const seeks = await tv.page.evaluate(() => window.appHarness.avplay.calls.filter(call => call.startsWith("seekTo ")).length);
+    await tv.remote(13);
+    await tv.page.evaluate(() => window.appHarness.avplay.finishSeek());
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.state), "PAUSED");
+    assert.equal(await tv.page.locator(".player-bar-preview").count(), 1);
+    await tv.remote(13);
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.state), "PLAYING");
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.calls.filter(call => call.startsWith("seekTo ")).length), seeks);
+});
+
+for (const [command, state] of [[415, "PLAYING"], [19, "PAUSED"], [10252, "PAUSED"]] as const) appTest(`a moved reopened scrub keeps its target and latest transport command (${command})`, async tv => {
+    await signIn(tv);
+    await startMovie(tv);
+    await pauseTvClock(tv);
+    await tv.remote(13);
+    await tv.remote(39);
+    await tv.remote(13);
+    const seeks = await tv.page.evaluate(() => window.appHarness.avplay.calls.filter(call => call.startsWith("seekTo ")).length);
+    await tv.remote(13);
+    await tv.remote(39);
+    const target = Number(await tv.page.getByRole("slider").getAttribute("aria-valuenow"));
+    await tv.remote(13);
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.calls.filter(call => call.startsWith("seekTo ")).length), seeks);
+    await tv.remote(command);
+    await tv.page.evaluate(() => window.appHarness.avplay.finishSeek());
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.calls.filter(call => call.startsWith("seekTo ")).at(-1)), `seekTo ${target * 1000}`);
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.state), "PAUSED");
+    await tv.page.evaluate(() => window.appHarness.avplay.finishSeek());
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.positionMs), target * 1000);
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.state), state);
 });
 
 appTest("the composed remote seeks and changes audio through the real playback owner", async (tv, playback) => {

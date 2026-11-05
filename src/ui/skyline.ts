@@ -133,6 +133,10 @@ export class Skyline {
     details: (card: Card, continuing: boolean) => { readonly line: string | undefined; readonly badges: readonly string[] | undefined } = () => ({ line: undefined, badges: undefined });
     translations: DescriptionTranslations | undefined;
     private shown: { card: Card; row: string; continuing: boolean; featured: boolean } | undefined;
+    /** True while this visit's scene includes the marquee. Calendar and Settings do not. */
+    private marqueeShown = false;
+    /** True after a dwell is scheduled and until it fires or is cancelled. */
+    private translationArmed = false;
     private cancelTranslation = (): void => undefined;
 
     constructor(
@@ -269,6 +273,9 @@ export class Skyline {
         if ((selected === "movies" || selected === "series" || selected === "music") && this.shortcutSelection !== undefined && libraryKey?.startsWith(`${this.shortcutSelection}:`)) selected = this.shortcutSelection;
         this.routeBack = routeBack;
         this.visible = true;
+        this.marqueeShown = preview;
+        // Home to Calendar drops the marquee without hide(). The dwell must not finish off screen.
+        if (!preview) this.cancelTranslation();
         if (this.selected !== selected) this.immediatePreview = true;
         this.selected = selected;
         this.sharedScene = preview && (libraryRoot || selected === "home" || selected === "for_you");
@@ -298,12 +305,14 @@ export class Skyline {
         this.body.inert = this.confirmation;
         if (this.confirmation) { this.nav.setAttribute("aria-hidden", "true"); this.body.setAttribute("aria-hidden", "true"); }
         else { this.nav.removeAttribute("aria-hidden"); this.body.removeAttribute("aria-hidden"); }
+        if (preview && !this.translationArmed) this.armTranslation();
         return { ...view, prepare, transition: { key: libraryKey ?? selected, group: selected }, content: [this.scrim, this.nav, this.selector, this.flyout, ...(preview ? [this.marquee] : []), this.body], zones: this.confirmation ? zones.filter(zone => zone.id === "selector") : [...zones, ...view.zones], back: selected === "search" ? view.back : () => this.back() };
     }
 
     hide(): void {
         this.routeBack = undefined;
         this.visible = false;
+        this.marqueeShown = false;
         this.close();
         this.cancelPreview();
         this.cancelTranslation();
@@ -343,7 +352,11 @@ export class Skyline {
         this.cancelPreview();
         const apply = (): void => {
             const identity = `${row}:${card.id}`;
-            if (this.previewId === identity && this.shown?.card === card && this.shown.continuing === continuing && this.shown.featured === featured) return;
+            if (this.previewId === identity && this.shown?.card === card && this.shown.continuing === continuing && this.shown.featured === featured) {
+                // hide() cancels the dwell and keeps this card. Coming back has to arm it again.
+                if (!this.translationArmed) this.armTranslation();
+                return;
+            }
             this.previewId = identity;
             this.immediatePreview = false;
             this.draw(card, row, continuing, featured);
@@ -358,20 +371,28 @@ export class Skyline {
         this.cancelTranslation();
         const shown = this.shown;
         const translations = this.translations;
-        if (shown === undefined || translations === undefined) return;
+        if (!this.marqueeOnScreen() || shown === undefined || translations === undefined) return;
         const pending = translations.cards.presentation(shown.card).pendingLanguage;
         if (marqueeTranslationRequest(shown.featured, translations.onView(), shown.card.id, pending) === undefined) return;
         const card = shown.card;
-        this.cancelTranslation = this.clock.schedule(() => {
-            if (this.shown?.card !== card) return;
+        this.translationArmed = true;
+        const cancel = this.clock.schedule(() => {
+            this.translationArmed = false;
+            this.cancelTranslation = () => undefined;
+            if (!this.marqueeOnScreen() || this.shown?.card !== card) return;
             this.translations?.cards.cardDidAppear(card);
         }, MARQUEE_TRANSLATION_DWELL_MS);
+        this.cancelTranslation = () => {
+            cancel();
+            this.translationArmed = false;
+            this.cancelTranslation = () => undefined;
+        };
     }
 
     /** Replaces the synopsis and the status that leads the detail line, without redrawing the marquee. */
-    refreshTranslation(): void {
+    refreshTranslation(target?: HTMLElement): void {
         const shown = this.shown;
-        const layer = this.marquee.querySelector<HTMLElement>(".skyline-marquee-layer:not(.skyline-outgoing)");
+        const layer = target ?? this.marquee.querySelector<HTMLElement>(".skyline-marquee-layer:not(.skyline-outgoing)");
         if (shown === undefined || layer === null || this.translations === undefined) return;
         const presentation = this.translations.cards.presentation(shown.card);
         let synopsis = layer.querySelector<HTMLElement>(".skyline-synopsis");
@@ -426,7 +447,12 @@ export class Skyline {
         this.marquee.appendChild(layer);
         // A two-line title costs the synopsis a line (Apple synopsisLineLimit).
         layer.classList.toggle("skyline-title-wrapped", title.offsetHeight > parseFloat(getComputedStyle(title).fontSize) * 1.4);
-        this.refreshTranslation();
+        // Mark the previous layer before filling this one. The refresh selector otherwise hits it first.
+        if (outgoing !== null) {
+            outgoing.setAttribute("aria-hidden", "true");
+            outgoing.classList.add("skyline-outgoing");
+        }
+        this.refreshTranslation(layer);
         // The text title shows first; the logo replaces it only once decoded and only while title art is on.
         const logo = this.titleArt() ? artworkUrl(card.logoUrl, this.baseUrl) : undefined;
         if (logo !== undefined) {
@@ -443,8 +469,6 @@ export class Skyline {
             image.src = logo;
         }
         if (outgoing !== null) {
-            outgoing.setAttribute("aria-hidden", "true");
-            outgoing.classList.add("skyline-outgoing");
             this.cancelFade();
             this.cancelFade = this.clock.schedule(() => {
                 for (const old of Array.from(this.marquee.children)) if (old !== layer) old.remove();
@@ -666,6 +690,11 @@ export class Skyline {
         this.scopes.clear();
     }
     private cancelFade = (): void => undefined;
+
+    /** The marquee the dwell was armed for is still the one on screen. */
+    private marqueeOnScreen(): boolean {
+        return this.visible && this.marqueeShown && this.marquee.isConnected;
+    }
 
     private openProfile(enter = false): void {
         if (!this.visible) return;

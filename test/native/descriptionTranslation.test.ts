@@ -9,12 +9,14 @@ import {
     MARQUEE_TRANSLATION_DWELL_MS,
     CardDescriptionTranslation,
     DescriptionTranslationCoordinator,
+    DescriptionTranslations,
     descriptionTargets,
     descriptionTranslationStatus,
     marqueeTranslationRequest,
     type DescriptionJob,
 } from "../../src/ui/descriptionTranslation.ts";
 import { WireError } from "../../src/contracts/v2/wire.ts";
+import type { NativeSession } from "../../src/session/session.ts";
 import { ManualClock } from "./support/clock.ts";
 import { fixture } from "./support/fakeSilo.ts";
 
@@ -203,6 +205,29 @@ test("a series page translates its own description and the selected season's mis
     assert.deepEqual(descriptionTargets(series, { id: "season:1", number: 1 }, episodes).season, { contentId: "season:1", targetLanguage: "de" });
     assert.equal(descriptionTargets(series, { id: "season:1", number: 1 }, episodes).item, undefined);
     assert.equal(descriptionTargets(series, { id: "season:2", number: 2 }, episodes).season, undefined);
+});
+
+test("a failed metadata capability read is asked again the next time a page needs it", async () => {
+    const clock = new ManualClock();
+    let calls = 0;
+    let fail = true;
+    const session = {
+        async call(): Promise<{ enabled: boolean; onView: "auto" }> {
+            calls += 1;
+            if (fail) throw new ApiError({ kind: "http", status: 503, retryAfterSeconds: undefined });
+            return { enabled: true, onView: "auto" };
+        },
+    } as unknown as NativeSession;
+    const translations = new DescriptionTranslations(session, clock);
+    await translations.ensure();
+    assert.equal(translations.onView(), "off");
+    assert.equal(calls, 1);
+    fail = false;
+    await translations.ensure();
+    assert.equal(calls, 2, "a transient failure must not stick for the rest of the visit");
+    assert.equal(translations.onView(), "auto");
+    await translations.ensure();
+    assert.equal(calls, 2, "a successful read stays cached");
 });
 
 test("cancelling an automatic run lets the same card start again", async () => {

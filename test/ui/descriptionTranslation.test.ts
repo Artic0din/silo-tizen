@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
+import { FakeCalendar } from "../native/support/fakeCalendar.ts";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakeHome } from "../native/support/fakeHome.ts";
 import type { CatalogRoutes, FakeSilo, Reply } from "../native/support/fakeSilo.ts";
@@ -186,6 +187,142 @@ test("leaving a featured card before the dwell starts nothing", async () => {
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
+
+test("a replaced marquee keeps the new card's translation on the incoming layer", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    const catalog = new FakeHome();
+    tv.fake.catalog = catalog;
+    install(tv.fake, catalog, "auto", ["movie:m0004"]);
+    try {
+        await signIn(tv);
+        await tv.page.evaluate(() => window.browseHarness.mount());
+        await tv.page.locator('[data-view="home"] .skyline-marquee h1').waitFor();
+        await tv.eventually(() => Promise.resolve(tv.fake.requests.some((request) => request.path.startsWith("/capabilities/metadata-ai"))), "metadata AI capability");
+        await tv.jump(1500);
+        await tv.page.locator(".skyline-translation-status").waitFor();
+        await tv.jump(1000);
+        await tv.eventually(async () => await tv.page.locator(".skyline-synopsis").textContent() === "Translated overview", "landed marquee translation");
+        await tv.page.locator('[data-view="home"] [data-section="recent/12"] .browse-card').first().focus();
+        await tv.jump(200);
+        await tv.page.locator('[data-section="hero/opaque"] [data-focus="movie:m0004"]').focus();
+        await tv.jump(200);
+        const crossing = await marqueeLayers(tv);
+        assert.equal(crossing.incoming?.title, "Movie 0004");
+        assert.equal(crossing.incoming?.synopsis, "Translated overview");
+        assert.equal(crossing.incoming?.status, "Translated by AI");
+        assert.notEqual(crossing.outgoing?.title, "Movie 0004");
+        assert.notEqual(crossing.outgoing?.synopsis, "Translated overview");
+        assert.equal(crossing.outgoing?.status, "");
+        await tv.jump(300);
+        const settled = await marqueeLayers(tv);
+        assert.equal(settled.outgoing, null);
+        assert.equal(settled.incoming?.synopsis, "Translated overview");
+        assert.equal(settled.incoming?.status, "Translated by AI");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("returning from Settings rearms a featured dwell that hide cancelled", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    const catalog = new FakeHome();
+    tv.fake.catalog = catalog;
+    const translation = install(tv.fake, catalog, "auto", ["movie:m0004"]);
+    try {
+        await signIn(tv);
+        await tv.page.evaluate(() => window.browseHarness.mount());
+        await tv.page.locator('[data-view="home"] .skyline-marquee h1').waitFor();
+        await tv.eventually(() => Promise.resolve(tv.fake.requests.some((request) => request.path.startsWith("/capabilities/metadata-ai"))), "metadata AI capability");
+        await tv.jump(0);
+        assert.equal(translation.posts().length, 0);
+        await openSettings(tv);
+        await tv.jump(2000);
+        assert.equal(translation.posts().length, 0, "Settings cancels the dwell");
+        await leaveSettings(tv);
+        await tv.page.locator('[data-view="home"] .skyline-marquee h1').waitFor();
+        assert.equal(translation.posts().length, 0);
+        await tv.jump(1499);
+        assert.equal(translation.posts().length, 0, "the restored card waits out its dwell again");
+        await tv.jump(1);
+        await tv.eventually(() => Promise.resolve(translation.posts().length === 1), "restored featured dwell");
+        assert.equal(translation.posts()[0]?.path.split("?")[0], "/catalog/items/movie%3Am0004/translate-description");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("leaving the marquee cancels the dwell and a late capability does not start it", async () => {
+    const departed = await openTv(browser, { app: "browse" });
+    const departedCatalog = new FakeHome();
+    departed.fake.catalog = departedCatalog;
+    const departedTranslation = install(departed.fake, departedCatalog, "auto", ["movie:m0004"]);
+    serveCalendar(departedCatalog);
+    try {
+        await signIn(departed);
+        await departed.page.evaluate(() => window.browseHarness.mount());
+        await departed.page.locator('[data-view="home"] .skyline-marquee h1').waitFor();
+        await departed.eventually(() => Promise.resolve(departed.fake.requests.some((request) => request.path.startsWith("/capabilities/metadata-ai"))), "metadata AI capability");
+        await departed.jump(0);
+        await openCalendar(departed);
+        await departed.jump(2000);
+        assert.equal(departedTranslation.posts().length, 0, "Calendar removes the marquee before the dwell");
+        assert.deepEqual(departed.console, []);
+    } finally { await departed.page.context().close(); }
+
+    const delayed = await openTv(browser, { app: "browse" });
+    const delayedCatalog = new FakeHome();
+    delayed.fake.catalog = delayedCatalog;
+    const delayedTranslation = install(delayed.fake, delayedCatalog, "auto", ["movie:m0004"]);
+    try {
+        await signIn(delayed);
+        const held = delayed.fake.hold("/capabilities/metadata-ai");
+        await delayed.page.evaluate(() => window.browseHarness.mount());
+        await delayed.page.locator('[data-view="home"] .skyline-marquee h1').waitFor();
+        await openSettings(delayed);
+        held.release();
+        await delayed.jump(0);
+        await delayed.eventually(() => Promise.resolve(delayed.fake.requests.some((request) => request.path.startsWith("/capabilities/metadata-ai"))), "metadata AI capability");
+        await delayed.jump(2000);
+        assert.equal(delayedTranslation.posts().length, 0, "a capability answer after Settings must not start a hidden card");
+        assert.deepEqual(delayed.console, []);
+    } finally { await delayed.page.context().close(); }
+});
+
+async function marqueeLayers(tv: Tv): Promise<{ incoming: { title: string; synopsis: string; status: string } | null; outgoing: { title: string; synopsis: string; status: string } | null }> {
+    return tv.page.locator(".skyline-marquee").evaluate((marquee) => {
+        const read = (layer: Element | null): { title: string; synopsis: string; status: string } | null => layer === null ? null : {
+            title: layer.querySelector("h1")?.textContent ?? "",
+            synopsis: layer.querySelector(".skyline-synopsis")?.textContent ?? "",
+            status: layer.querySelector(".skyline-translation-status")?.textContent ?? "",
+        };
+        return {
+            incoming: read(marquee.querySelector(".skyline-marquee-layer:not(.skyline-outgoing)")),
+            outgoing: read([...marquee.querySelectorAll(".skyline-marquee-layer.skyline-outgoing")].at(-1) ?? null),
+        };
+    });
+}
+
+async function openSettings(tv: Tv): Promise<void> {
+    await tv.page.locator('[data-focus="profiles"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+    await tv.page.locator(".settings").waitFor();
+}
+
+async function leaveSettings(tv: Tv): Promise<void> {
+    for (let step = 0; step < 4 && await tv.page.locator(".settings").count() > 0; step++) await tv.remote(10009);
+    assert.equal(await tv.page.locator(".settings").count(), 0);
+}
+
+function serveCalendar(catalog: FakeHome): void {
+    const calendar = new FakeCalendar();
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): ReturnType<FakeHome["route"]> => path.startsWith("/calendar") ? calendar.route(method, path, profileId, body) : read(method, path, profileId, body);
+}
+
+async function openCalendar(tv: Tv): Promise<void> {
+    await tv.page.locator('[data-focus="calendar"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="calendar"]').count() === 1, "Calendar");
+}
 
 test("an ordinary row never starts a description translation", async () => {
     const tv = await openTv(browser, { app: "browse" });

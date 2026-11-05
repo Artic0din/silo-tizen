@@ -479,13 +479,16 @@ export class DescriptionTranslations {
 
     ensure(): Promise<void> {
         if (this.loading === undefined) {
-            this.loading = this.session.call({ ...descriptionTranslationOperations.metadataAI(), profileScoped: true }).then((status) => {
+            // A failed probe is not an answer. Apple asks again on the next refresh.
+            const request = this.session.call({ ...descriptionTranslationOperations.metadataAI(), profileScoped: true }).then((status) => {
                 this.mode = status.onView;
                 this.emitMode();
             }, () => {
                 this.mode = "off";
+                if (this.loading === request) this.loading = undefined;
                 this.emitMode();
             });
+            this.loading = request;
         }
         return this.loading;
     }

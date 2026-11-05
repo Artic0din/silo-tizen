@@ -35,7 +35,7 @@ import { HomeEnrichment } from "./homeEnrichment.ts";
 import { el } from "./screen.ts";
 import { discoveryState, genreGroups, libraryScope, librarySectionQuery, readDiscovery, type LibraryMode } from "./libraryDiscovery.ts";
 import { availableModes } from "./libraryDiscoveryViews.ts";
-import { personalListCapability, readPersonalPage, type PersonalFilter } from "./personalLists.ts";
+import { personalEndCanReenter, personalListCapability, readPersonalPage, type PersonalFilter } from "./personalLists.ts";
 import type { MediaScope } from "../contracts/v2/discovery.ts";
 import type { CatalogQueryRequest } from "../contracts/v2/discovery.ts";
 import { personQuery } from "./personFilmography.ts";
@@ -48,7 +48,7 @@ import { getCalendar } from "../api/calendarOperations.ts";
 import { calendarEventKeys, calendarState, calendarWeek, CalendarTimezoneError, deviceTimezone, localDateKey, shiftDay } from "./calendarState.ts";
 import type { CalendarHandlers } from "./calendarView.ts";
 import { isSectionRoute, SectionCatalog, type SectionRoute } from "./sectionCatalog.ts";
-import { readSectionCatalog } from "./sectionCatalogState.ts";
+import { readSectionCatalog, type SectionSnapshot } from "./sectionCatalogState.ts";
 import { BrowsePrefs, browseQuery } from "./libraryBrowse.ts";
 import { stopFeed } from "./catalogFeed.ts";
 import type { BrowseChange, DiscoveryState } from "./libraryDiscovery.ts";
@@ -116,6 +116,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const sectionCatalogs = new WeakMap<SectionRoute, SectionCatalog>();
     let activeSection: SectionCatalog | undefined;
     let activeBrowse: Pages | undefined;
+    let activePersonal: object | undefined;
+    const personalSnapshots = new WeakMap<Extract<Route, { kind: "personal" }>, SectionSnapshot>();
     const browsePrefs = new BrowsePrefs(options.publicStorage, `silo.browse:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`);
     const navigation = new NavigationSettings((spec, signal) => session.call({ ...spec, profileScoped: true, signal }), () => {
         if (torn) return;
@@ -135,7 +137,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const resized = shownScale !== presentation.posterScale;
         if (resized) { shownScale = presentation.posterScale; applyCardSize(); }
         const current = top();
-        if (!playing && current !== undefined && (current.kind === "home" || current.kind === "for_you" || current.kind === "search" || current.kind === "person" || current.kind === "recommendationSection" || isSectionRoute(current) || (current.kind === "library" && (current.discovery?.mode === "Browse" || current.discovery?.mode === "Recommended"))) && (resized || shownOverlays !== presentation.cardOverlays)) {
+        if (!playing && current !== undefined && (current.kind === "home" || current.kind === "for_you" || current.kind === "personal" || current.kind === "search" || current.kind === "person" || current.kind === "recommendationSection" || isSectionRoute(current) || (current.kind === "library" && (current.discovery?.mode === "Browse" || current.discovery?.mode === "Recommended"))) && (resized || shownOverlays !== presentation.cardOverlays)) {
             shownOverlays = presentation.cardOverlays;
             render(host.focused());
             if (resized) host.revealFocused();
@@ -165,6 +167,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         shuffleGeneration++;
         activeSection?.stop();
         if (activeBrowse !== undefined) stopFeed(activeBrowse);
+        if (activePersonal !== undefined) stopFeed(activePersonal);
         loading?.abort();
         loading = undefined;
         cancelSlow();
@@ -471,6 +474,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         presentation.stop();
         activeSection?.stop();
         if (activeBrowse !== undefined) stopFeed(activeBrowse);
+        if (activePersonal !== undefined) stopFeed(activePersonal);
         homeDetails.stop();
         navigation.destroy();
         requestsController.abort();
@@ -543,6 +547,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     Object.assign(current.pages, newPages());
                     current.focus = undefined;
                     if (current.kind === "personal" || current.kind === "homeSection" || current.kind === "person") current.pendingIndex = undefined;
+                    if (current.kind === "personal") personalSnapshots.delete(current);
                     if (current.kind === "library" && current.discovery !== undefined) {
                         current.discovery.windowCursor = undefined;
                         current.discovery.seek = undefined;
@@ -556,7 +561,15 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                         throw error;
                     }, 0);
                 }
+                // Apple WatchlistView, FavoritesView and HistoryViewModel: a failed later page keeps the rows and does not become the error screen.
+                if (current.kind === "personal" && (current.pages.page?.items.length ?? 0) > 0 && text !== undefined) {
+                    current.failure = current.source === "favorites" && !personalEndCanReenter(container) ? text : undefined;
+                    current.error = undefined;
+                    if (top() === current) render(host.focused());
+                    return;
+                }
                 current.failure = text ?? "Something went wrong. Try again.";
+                if (current.kind === "personal") current.error = errorState(error);
                 if (current.kind === "requests") { current.requests.error = errorState(error); if (!current.requests.unconfirmed && !current.requests.writing) current.requests.action = undefined; }
                 if (current.kind === "requests" && error instanceof ApiError && ["capability_disabled", "capability_not_configured", "capability_unsupported", "permission_denied"].includes(error.problemId ?? "")) void probeRequests();
                 if (top() === current) {
@@ -762,6 +775,49 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }, quiet);
         render(host.focused());
     };
+    const loadPersonal = (current: Extract<Route, { kind: "personal" }>, quiet: boolean, append: boolean): void => {
+        const previous = personalSnapshots.get(current);
+        load(current, async signal => {
+            const capability = current.source === "history" ? undefined : append && current.capability !== undefined ? current.capability : await read(personalListCapability(), signal);
+            const blocked = capability !== undefined && (!capability.allowed || capability.state !== "available");
+            if (blocked) return { capability, snapshot: undefined as SectionSnapshot | undefined, elsewhere: false };
+            // The personal query stays at its fenced page size. readSectionCatalog still appends that page when the end is on screen.
+            const snapshot = await readSectionCatalog(previous, append, async cursor => read(readPersonalPage(current.source, current.filter, cursor), signal), signal);
+            if (snapshot.unavailable) throw new ApiError({ kind: "http", status: 404, retryAfterSeconds: undefined });
+            let elsewhere = false;
+            if (!append && current.source === "favorites" && snapshot.page.items.length === 0 && snapshot.page.nextCursor === undefined) {
+                const other = current.filter === "series" ? "movie" : "series";
+                elsewhere = (await readSectionCatalog(undefined, false, async cursor => read(readPersonalPage("favorites", other, cursor), signal), signal)).page.items.length > 0;
+            }
+            return { capability, snapshot, elsewhere };
+        }, ({ capability, snapshot, elsewhere }) => {
+            const focus = host.focused();
+            const oldItems = current.pages.page?.items ?? [];
+            const oldIndex = oldItems.findIndex(item => item.id === focus?.key);
+            current.capability = capability;
+            current.elsewhere = elsewhere;
+            current.error = undefined;
+            current.pendingIndex = undefined;
+            if (snapshot === undefined) {
+                personalSnapshots.delete(current);
+                current.pages = newPages();
+                return focus;
+            }
+            personalSnapshots.set(current, snapshot);
+            current.pages.page = snapshot.page;
+            current.pages.index = 0;
+            current.pages.cursors = [undefined, snapshot.page.nextCursor];
+            if (focus?.zone === "grid" && oldIndex >= 0 && !snapshot.page.items.some(item => item.id === focus.key)) {
+                const nearby = snapshot.page.items[Math.min(oldIndex, snapshot.page.items.length - 1)];
+                if (nearby !== undefined) return { zone: "grid", key: nearby.id };
+            }
+            return focus;
+        }, quiet || current.pages.page !== undefined);
+    };
+    const morePersonal = (current: Extract<Route, { kind: "personal" }>): void => {
+        if (torn || playing || top() !== current || loading !== undefined || cardActions.active || synopsis.active || settingsScreen !== undefined || current.failure !== undefined || current.pages.page?.nextCursor === undefined) return;
+        loadPersonal(current, true, true);
+    };
     const moreBrowse = (current: Extract<Route, { kind: "library" }>): void => {
         if (torn || playing || top() !== current || loading !== undefined || cardActions.active || synopsis.active || settingsScreen !== undefined || current.discovery?.panel !== undefined || shuffleFailure?.route === current || current.failure !== undefined || current.discovery?.snapshot?.page.nextCursor === undefined) return;
         loadBrowse(current, true, true);
@@ -924,7 +980,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 loadPage(current, current.pages, current.pendingIndex ?? current.pages.index, quiet);
                 return;
             case "personal":
-                loadPage(current, current.pages, current.pendingIndex ?? current.pages.index, quiet);
+                loadPersonal(current, quiet, false);
                 return;
             case "for_you":
                 presentation.ensure();
@@ -1119,29 +1175,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }, quiet || pages.page !== undefined);
             return;
         }
-        if (current.kind === "personal") {
-            current.pendingIndex = index;
-            load(current, async signal => {
-                const capability = current.source === "history" ? undefined : await read(personalListCapability(), signal);
-                const page = capability !== undefined && (!capability.allowed || capability.state !== "available") ? undefined : await read(readPersonalPage(current.source, current.filter, pages.cursors[index]), signal);
-                return { capability, page };
-            }, ({ capability, page }) => {
-                const focus = host.focused();
-                const oldIndex = pages.page?.items.findIndex(item => item.id === focus?.key) ?? -1;
-                let replacement: FocusTarget | undefined;
-                if (index === pages.index && focus?.zone === "grid" && oldIndex >= 0 && page !== undefined && !page.items.some(item => item.id === focus.key)) {
-                    const nearby = page.items[Math.min(oldIndex, page.items.length - 1)];
-                    if (nearby !== undefined) replacement = { zone: "grid", key: nearby.id };
-                }
-                current.capability = capability;
-                pages.page = page;
-                pages.index = index;
-                pages.cursors = [...pages.cursors.slice(0, index + 1), page?.nextCursor];
-                current.pendingIndex = undefined;
-                return replacement;
-            }, quiet || pages.page !== undefined);
-            return;
-        }
         if (current.kind === "library" || current.kind === "libraryResults") {
             load(current, async signal => {
                 const cursor = pages.cursors[index];
@@ -1270,7 +1303,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (current.kind === "personal" || current.kind === "person") current.pendingIndex = undefined;
                 current.stale = true;
             }
-            const fromProfileMenu = (active?.kind === "requests" && active.requests.source.kind === "hub") || (active?.kind === "personal" && active.anchor === "profiles");
+            const fromProfileMenu = (active?.kind === "requests" && active.requests.source.kind === "hub") || active?.kind === "personal";
             showRoute(current, fromProfileMenu ? tabFocus(current) : current.focus);
         }
     };
@@ -1400,14 +1433,23 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             loading?.abort(); loading = undefined; cancelSlow();
             route.filter = filter; route.pages = undefined; search(route);
         };
-        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, searchFilter, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: current.kind === "library" && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
+        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, searchFilter, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, morePersonal, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: current.kind === "library" && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
         container.classList.toggle("section-catalog", isSectionRoute(current) || current.kind === "recommendationSection");
         const browsing = current.kind === "library" && current.discovery?.mode === "Browse";
         container.classList.toggle("library-browse", browsing);
+        container.classList.toggle("personal-lists", current.kind === "personal" && current.source !== "history");
+        container.classList.toggle("personal-history", current.kind === "personal" && current.source === "history");
         container.classList.toggle("requests-scene", current.kind === "requests");
         container.classList.toggle("search-scene", current.kind === "search");
         container.classList.toggle("requests-hub", current.kind === "requests" && current.requests.source.kind === "hub");
         if (browsing) activeBrowse = current.pages;
+        if (current.kind === "personal") {
+            if (activePersonal !== undefined && activePersonal !== current.pages) stopFeed(activePersonal);
+            activePersonal = current.pages;
+        } else if (activePersonal !== undefined) {
+            stopFeed(activePersonal);
+            activePersonal = undefined;
+        }
         if (isSectionRoute(current)) activeSection = sectionCatalog(current);
         const view = activeSection !== undefined && isSectionRoute(current)
             ? activeSection.view(current, context, loading !== undefined, pop, () => retry(current), () => {
@@ -1418,12 +1460,15 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 searchPeople(route, route.filter ?? route.searchType);
                 render(host.focused());
             } });
-        const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || current.kind === "personal" || current.kind === "calendar";
+        const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || (current.kind === "personal" && current.source !== "history") || current.kind === "calendar";
         if (rootRoute) {
             const selected = tabFocus(current).key;
             const preview = (current.kind === "home" && current.data !== undefined) || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
             const modal = browsing && (current.discovery?.panel !== undefined || shuffleFailure?.route === current);
-            const decorated = shell.decorate(view, selected, preview, modal ? () => { view.back?.(); } : current.kind === "personal" || (current.kind === "library" && current.discovery?.genre !== undefined) ? pop : undefined, current.kind === "library" ? `library:${current.library.id}:${current.library.type}:${current.discovery?.mode ?? "Recommended"}` : undefined);
+            const decorated = shell.decorate(view, selected, preview, modal ? () => { view.back?.(); } : current.kind === "personal" ? () => {
+                if (host.focused()?.zone === "nav") pop();
+                else render(tabFocus(current));
+            } : (current.kind === "library" && current.discovery?.genre !== undefined) ? pop : undefined, current.kind === "library" ? `library:${current.library.id}:${current.library.type}:${current.discovery?.mode ?? "Recommended"}` : undefined);
             // A bar-focused return does not focus a card to restore this page's hero.
             if (preview && host.name !== view.name) previews.get(current)?.();
             const nav = container.querySelector<HTMLElement>(".browse-nav");
@@ -1438,6 +1483,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const retry = (current: Route): void => {
         current.failure = undefined;
+        if (current.kind === "personal") current.error = undefined;
         render();
         loadRoute(current);
     };
@@ -1562,9 +1608,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const personalFilter = (current: Extract<Route, { kind: "personal" }>, filter: PersonalFilter): void => {
         if (current.filter === filter) return;
         current.filter = filter;
+        personalSnapshots.delete(current);
         current.pages = newPages();
         current.pendingIndex = undefined;
         current.failure = undefined;
+        current.error = undefined;
+        current.elsewhere = false;
         loadRoute(current, true);
         render({ zone: "filters", key: `filter:${filter}` });
     };
@@ -1713,8 +1762,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         },
         personal: (source, anchor = "profiles") => {
             const origin = top();
-            push(newRoute({ kind: "personal", source, anchor, filter: "movie", pages: newPages(), capability: undefined, pendingIndex: undefined }));
-            if (origin !== undefined) origin.focus = { zone: "nav", key: anchor };
+            const selected = source === "history" ? anchor : origin === undefined ? "home" : tabFocus(origin).key;
+            push(newRoute({ kind: "personal", source, anchor: selected, filter: "movie", pages: newPages(), capability: undefined, pendingIndex: undefined }));
+            if (origin !== undefined) origin.focus = { zone: "nav", key: selected };
         },
         switchProfile: chooseProfile,
         ...(options.onSwitchServer === undefined ? {} : { switchServer: () => {

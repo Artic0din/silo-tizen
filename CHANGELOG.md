@@ -18,6 +18,14 @@ All notable changes to this project are documented in this file.
 - Kept Change Account reachable when a saved server is offline, prevented removed accounts from being restored by late refreshes, and scrolled account lists to keep remote focus visible.
 - Prevented failed replacement sign-ins from restoring old credentials and kept saved-sign-in removal scoped to the selected account.
 - Prevented replaced account sessions from overwriting a new sign-in and required fresh PIN proof after committing an account switch.
+- Kept History's focused artwork and captions on screen at every poster size and repainted personal lists when presentation preferences arrived.
+- Preserved History's outer posters and focus outlines inside the scroll viewport's horizontal padding.
+- Offered an explicit retry when a Favorites continuation failed and the observed end cards could not scroll out of view.
+- Resumed personal-list pagination after dismissing card actions that cancelled a pending continuation.
+- Restored the For You menu on Down from the retained tab over Watchlist and Favorites, focusing Watchlist as on Apple TV.
+- Matched History's Apple TV title position and focused poster scroll clearance.
+- Matched Apple TV personal-list loading, root selection, Back navigation, grid spacing, and saved-list ordering.
+- Kept saved-list requests and response validation in the shared API adapter and contract modules.
 - Kept a Person filter the viewer already chose when a slower availability probe would have removed its chip.
 - Moved Up from a Person filmography card to the chip closest to that card's left edge, leaving the card in place when no chip meets it, and scrolled the first row to the page's 72 px bottom padding plus the tvOS safe area.
 
@@ -49,8 +57,13 @@ All notable changes to this project are documented in this file.
 - Prevented large Search posters from overlapping and kept catalog errors and Try Again visible while People results were pending.
 - Restored related titles on Details when the server returned cards without catalog pagination totals.
 - Made Enter on the player's default focus skip the intro, recap or credits while the Skip control shows, instead of pausing.
+- Kept scrolled personal-list cards visible when pages appended or reads failed.
+- Opened History without the top menu, with a centered title, exact counts and Apple's unfiltered 60-item pages.
+- Kept personal-list focus and cached cards after failed reads and fitted large History posters to five columns.
 
 ### Changed
+
+- Showed Watchlist, Favorites and History as continuous scrolling grids with Apple TV layouts and empty states.
 
 - Showed the title count, All/Movies/Series filters and paged filmography beneath the Person hero, with one Back returning to the originating credit.
 - Matched Apple TV's outlined card focus with a smaller lift, softer captions and a persistent outline on the Series row's current episode.

@@ -14,7 +14,7 @@ import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 class SeamCatalog extends FakeDetails {
     override route(method: string, path: string, profile: string | undefined, body?: Record<string, unknown>): Reply | undefined {
-        if (path.startsWith("/catalog/query") && body?.source === "watchlist") {
+        if (method === "GET" && path.startsWith("/watchlist?")) {
             const scoped = [...this.titles.values()].filter(title => title.type === "movie" || title.type === "series");
             const items = scoped.slice(0, 8).flatMap(title => {
                 const reply = super.route("GET", `/catalog/items/${encodeURIComponent(title.id)}`, profile);

@@ -67,7 +67,8 @@ export interface BrowseOptions {
     /** The person asked for the profile screens; browse has already removed itself. */
     readonly onChooseProfile: () => void;
     readonly onSignOut?: () => void;
-    readonly onSwitchServer?: () => void;
+    readonly onSwitchServer?: (back: () => void) => void;
+    readonly onAccounts?: (back: () => void) => void;
     readonly profileName?: string;
     readonly profileAvatarUrl?: string;
     readonly clock?: Clock;
@@ -160,8 +161,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         preview();
     }, resume: (id, title) => {
         if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title }));
-    }, playEpisode: (id, title, startOver) => {
-        if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title, episode: true, startOver: startOver === true }));
+    }, playEpisode: (id, title, startOver, selection) => {
+        const current = top();
+        if ((current?.kind === "item" || current?.kind === "season") && current.data?.details?.episodePreferencesBlocked) return;
+        if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title, episode: true, startOver: startOver === true, ...(selection === undefined ? {} : { selection }) }));
     }, quickActions: card => {
         const current = top();
         if (current === undefined || torn || playing || cardActions.active) return;
@@ -661,7 +664,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (error instanceof ApiError && error.status === 404) rememberHomeLimit(null);
         }).finally(() => { if (homeLimitFlight === flight) homeLimitFlight = undefined; });
         homeLimitFlight = flight;
-        return flight;
+        // The shared read keeps the first visit's signal. A return that joined it
+        // after that visit left starts its own read instead of keeping the abort.
+        return flight.catch((error: unknown) => {
+            if (error instanceof ApiError && error.aborted && !signal.aborted) return probeHomeLimit(signal);
+            throw error;
+        });
     };
     // Library tabs are not part of the Home rows. Apple paints sections without waiting
     // for them (HomeViewModel.fetchAndApplySections, HomeViewModel.swift:237).
@@ -729,6 +737,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const detailsChanged = (current: Route, returnKey?: string): void => {
         if (current.kind === "item" || current.kind === "season") {
+            const details = current.data?.details;
+            if (details?.detail.type === "episode" && (details.audioPreference.pending || details.subtitlePreference.pending)) {
+                for (const entry of stack) {
+                    if (entry.kind === "item" || entry.kind === "season") entry.data?.details?.noteEpisodePreference(details.detail.id, true, details.detail.seriesId);
+                }
+            }
             const changes = current.data?.details?.changes;
             if (changes !== undefined && [...changes.values()].some(change => change.pending)) {
                 invalidateCalendar();
@@ -1042,10 +1056,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 load(current, async signal => {
                     const detail = await read(operations.getCatalogItem(current.id), signal);
                     if (detail.id !== current.id || (detail.type !== "movie" && detail.type !== "episode") || (current.episode === true && detail.type !== "episode")) throw new ApiError({ kind: "invalid_response", path: "resume.item" });
-                    const choices = playChoices(detail);
+                    const choices = playChoices(detail, current.selection?.fileId);
                     if (choices === undefined) return undefined;
                     let request = current.startOver === true ? choices.fromStart : choices.resume ?? choices.fromStart;
-                    if (detail.type === "episode") request = { ...request, subtitle: { kind: "auto" } };
+                    if (detail.type === "episode") request = { ...request, subtitle: { kind: "auto" }, ...current.selection };
                     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
                     return detail.type === "episode" && current.startOver !== true ? { ...request, startSeconds: await freshPlayPosition(session, request, clock, signal) } : request;
                 }, request => {
@@ -1155,9 +1169,22 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     return { detail, seasons, contextSeason: current.seriesContext?.seasonNumber ?? (episode?.seriesId === detail.id ? episode.seasonNumber : undefined) };
                 }, (data) => {
                     const previous = current.data?.details;
-                    const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending);
+                    let seasonFocus: { season: number | undefined; revision: number } | undefined;
+                    const details = new DetailsState(data.detail, session, (audioClosed) => {
+                        if (details.series?.focusSelectedEpisode && seasonFocus?.season !== details.series.seasonNumber) {
+                            seasonFocus = { season: details.series.seasonNumber, revision: inputRevision };
+                        }
+                        if (details.series?.focusSelectedEpisode && details.series.episodes !== undefined) {
+                            details.series.focusSelectedEpisode = false;
+                            const episode = details.series.entryEpisode;
+                            const enter = seasonFocus?.revision === inputRevision;
+                            seasonFocus = undefined;
+                            if (top() === current && enter && episode !== undefined) { render({ zone: "seasons", key: `season:${details.series.seasonNumber}` }); return; }
+                        }
+                        detailsChanged(current, audioClosed);
+                    }, (detail, signal) => refreshWatched(current, detail, signal), personalPending);
                     details.restore(previous);
-                    if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, () => detailsChanged(current), previous?.series?.seasonNumber ?? data.contextSeason, current.seriesContext?.episodeId);
+                    if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, () => details.warmSeriesEpisodes(), previous?.series?.seasonNumber ?? data.contextSeason, current.seriesContext?.episodeId);
                     details.series?.restore(previous?.series);
                     details.related = quiet ? previous?.related : undefined;
                     current.data = { ...data, details };
@@ -1207,9 +1234,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     ]);
                     return { episodes, detail };
                 }, (data) => {
+                    const previous = current.data?.details;
                     current.data = data;
                     if (data.detail !== undefined) {
                         const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending);
+                        details.restore(previous);
                         current.data.details = details;
                         detailWork = details;
                         details.start();
@@ -1504,7 +1533,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (activeBrowse !== undefined) stopFeed(activeBrowse);
         const current = top();
         if (current === undefined || torn || playing) return;
-        const details = current.kind === "item" ? current.data?.details : undefined;
+        const details = current.kind === "item" || current.kind === "season" ? current.data?.details : undefined;
+        if (request.episode === true && details?.episodePreferencesBlocked) return;
         const focus = host.focused();
         if (details === undefined) handoff(request);
         else {
@@ -1513,7 +1543,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             cancelSlow();
             detailWork = details;
             details.start();
-            details.preparePlay(request, clock, resolved => handoff(resolved, focus));
+            const playbackState = details.nextEpisodeState?.detail.id === request.contentId ? details.nextEpisodeState : details;
+            playbackState.preparePlay(request, clock, resolved => {
+                if (resolved.episode === true && details.episodePreferencesBlocked) { playbackState.deferPlay(request); return; }
+                handoff(resolved, focus);
+            });
         }
     };
 
@@ -1573,6 +1607,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         container.classList.toggle("personal-history", current.kind === "personal" && current.source === "history");
         container.classList.toggle("requests-scene", current.kind === "requests");
         container.classList.toggle("search-scene", current.kind === "search");
+        container.classList.toggle("details-series-scene", current.kind === "item" && current.data?.detail.type === "series");
         container.classList.toggle("requests-hub", current.kind === "requests" && current.requests.source.kind === "hub");
         if (browsing) activeBrowse = current.pages;
         if (current.kind === "personal") {
@@ -1902,7 +1937,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 host.listen();
                 const current = top();
                 if (current !== undefined) showRoute(current, tabFocus(current));
-            }, server.profileLaunch);
+            }, server.profileLaunch, options.onAccounts);
         },
         personal: (source, anchor = "profiles") => {
             const origin = top();
@@ -1911,8 +1946,27 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (origin !== undefined) origin.focus = { zone: "nav", key: selected };
         },
         switchProfile: chooseProfile,
-        ...(options.onSwitchServer === undefined ? {} : { switchServer: () => { teardown(); options.onSwitchServer?.(); } }),
+        ...(options.onSwitchServer === undefined ? {} : { switchServer: () => {
+            host.holdVisit();
+            shell.hide();
+            host.stop();
+            container.hidden = true;
+            playing = true;
+            options.onSwitchServer?.(() => {
+                if (torn) return;
+                playing = false;
+                container.hidden = false;
+                host.listen();
+                const current = top();
+                if (current !== undefined) showRoute(current, tabFocus(current));
+            });
+        } }),
         ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
+        ...(session.account ? { accountName: session.account.username } : {}),
+        lastAccount: (() => {
+            try { return server.accounts.directory.list().filter(row => row.baseUrl === context.baseUrl).length === 1; }
+            catch { return false; } // Optional dialog copy cannot block Browse; logout checks storage itself.
+        })(),
     }, focus => render(focus), options.publicStorage, `silo.skyline.scope:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`, context.baseUrl);
     shell.titleArt = () => presentation.showsTitleArt;
     const enrichedScene = (): boolean => { const current = top(); return current?.kind === "home" || current?.kind === "for_you" || (current?.kind === "library" && current.discovery?.mode === "Recommended"); };

@@ -109,7 +109,14 @@ export function serverHost(serverUrl: string): string {
     return rest.split(/[/?]/)[0] ?? rest;
 }
 
-export function codeLead(typed: string | undefined): string {
+/**
+ * The paragraph under the headline. It points at the code on screen, so a declined sign-in,
+ * which withdraws the code, says what to do instead.
+ */
+export function codeLead(status: CodeStatus, typed: string | undefined): string {
+    if (status.kind === "denied") {
+        return "Show a new code to try again.";
+    }
     return `Scan the code with your phone's camera, or go to ${typed ?? "your server's /activate page"} and enter it. Approve on your phone and this TV signs in by itself.`;
 }
 
@@ -148,7 +155,7 @@ export function statusLine(status: CodeStatus, host: string): string {
         case "could_not_finish":
             return "Couldn't finish signing in on this TV.";
         case "denied":
-            return "Sign-in was declined on your phone.";
+            return "Sign-in was declined.";
         case "paused":
             return "Sign-in paused.";
         case "unreachable":
@@ -226,12 +233,11 @@ export function waitText(seconds: number): string {
     return `${Math.ceil(seconds / 60)} minutes`;
 }
 
-export function passwordChange(baseUrl: string): string[] {
-    return [
-        "An administrator set a temporary password for this account. This TV can't use the account until it has a new password.",
-        `In a web browser, open ${baseUrl}, sign in and choose a new password. Then get a new code here.`,
-    ];
-}
+/**
+ * `ErrorState.passwordChangeRequiredMessage` on tvOS (`ErrorState.swift`). Apple TV has no
+ * password change, so the profile picker shows this instead of the server's protocol detail.
+ */
+export const PASSWORD_CHANGE_REQUIRED_MESSAGE = "Your password needs to be reset. Use the Silo mobile app or website to set a new one, then come back.";
 
 // The Apple TV app's password screen (TVLoginView, LoginViewModel), word for word.
 export const PASSWORD_TITLE = "Sign in with\na password";

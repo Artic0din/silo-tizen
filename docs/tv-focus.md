@@ -186,7 +186,11 @@ Other layers:
 
 ## Never Fetch on Focus
 
-Search filter pills are the sole exception: focus applies their filter immediately, matching Apple TV's segmented picker, and cancels superseded reads.
+Search filter pills apply their filter immediately, matching Apple TV's segmented picker, and cancel superseded reads.
+Series season pills are another read-on-focus exception: after 70 ms of resting focus, a different season activates and loads its episodes, matching `TVSeriesDetailView.scheduleModeActivation`.
+Leaving a pill cancels its pending activation; selecting it remains immediate.
+The current season keeps its current episode on focus, while a different season starts at E01 and retains pill focus until Down.
+Episode-card focus still uses prefetched data and never starts a detail read.
 
 Moving focus never starts a request, activates a route or writes data.
 Fetching belongs to explicit activation (Enter), to a view loading, or to a one-off prefetch.
@@ -213,6 +217,7 @@ The app honours `prefers-reduced-motion: reduce`.
 Focus itself and key handling are synchronous in both modes.
 Reduced motion changes how things move, never where focus lands or when.
 Focus moves use `focus({ preventScroll: true })` and the host scrolls via `SkylineScroll.reveal`, so the browser never scrolls on its own.
+Account chooser columns and the Accounts settings list use the same reveal owner to keep focused rows and Add actions visible.
 (`ScreenHost` uses a plain `focus()`.)
 
 ## Player Keys

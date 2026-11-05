@@ -311,6 +311,44 @@ journey("Home reads sections again without the row cap when the server rejects i
     };
 });
 
+let heldRowCap: { release(): void };
+journey("returning to Home during a held row-cap read still paints rows", async tv => {
+    assert.ok(await tv.page.locator('[data-view="home"] [data-section] .browse-card').count() > 0);
+    assert.equal(await tv.page.locator('[data-view="home"] [role="alert"]').count(), 0);
+    const caps = tv.fake.requests.filter(request => new URL(request.path, "https://fake.invalid").pathname === "/home/capabilities");
+    assert.equal(caps.length, 2, "the return reads the row cap again after the cancelled join");
+    const sections = tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path);
+    assert.ok(sections.some(path => path.includes("item_limit=20")), sections.join(" "));
+}, catalog => {
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const url = new URL(path, "https://fake.invalid");
+        if (url.pathname === "/home/capabilities") return { status: 200, body: { state: "available", section_item_limit_max: 100 } };
+        return read(method, path, profile, body);
+    };
+}, undefined, {
+    beforeMount: tv => { heldRowCap = tv.fake.hold("/home/capabilities", true); },
+    beforeReady: async tv => {
+        try {
+            await tv.eventually(async () => tv.fake.requests.some(request => new URL(request.path, "https://fake.invalid").pathname === "/home/capabilities"), "row-cap read started");
+            assert.equal(await tv.page.locator('[data-view="home"] [data-section]').count(), 0);
+            // One turn, so the return joins the read the leave is still cancelling.
+            await tv.page.evaluate(() => {
+                const press = (key: string): void => {
+                    const button = document.querySelector<HTMLButtonElement>(`[data-focus="${key}"]`);
+                    if (button === null) throw new Error(`missing ${key}`);
+                    button.click();
+                };
+                press("calendar");
+                press("home");
+            });
+            await tv.eventually(async () => await tv.page.locator('[data-view="home"] [data-section] .browse-card').count() > 0, "Home rows after returning during the held row-cap read");
+        } finally { heldRowCap.release(); }
+    },
+    readyTimeout: 4000,
+    whileReading: true,
+});
+
 journey("Home keeps the server's row order and shows featured rows as ordinary rows", async tv => {
     assert.deepEqual(await tv.page.locator('[data-section]').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-section"))), ["hero/opaque", "recent/12", "because/opaque", "resume/opaque", "future/opaque", "for/you"]);
     assert.equal(await tv.page.locator('[data-section="hero/opaque"] .browse-section-title').innerText(), "Featured");
@@ -1630,6 +1668,20 @@ journey("Down from the top bar lands on the leftmost card", async tv => {
     ];
 });
 
+journey("Home Highway Patrol aspect art retains Apple's measured slot and painted top", async tv => {
+    await tv.page.route("**/art/highway-logo.svg*", route => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg(650, 102) }));
+    await tv.page.locator('[data-section="because/opaque"] [data-focus="movie:m0005"]').focus();
+    await tv.jump(300);
+    const logo = await paintedLogo(tv);
+    near(logo.slotTop, 143, "measured Home slot top");
+    near(logo.slotHeight, 200, "fixed Home slot height");
+    near(logo.paintTop, 174.3, "measured Home Highway Patrol painted top");
+    near(logo.paintWidth, 880, "Home fits wide art to its width");
+}, catalog => {
+    enrichHome(catalog, { "movie:m0005": { logo_url: "/art/highway-logo.svg", overview: "A two-line hero synopsis that fills the marquee stack the signed comparison measured." } });
+    enrichDetails(catalog, { "movie:m0005": { logo_url: "/art/highway-logo.svg" } });
+});
+
 journey("Hero title art scales to fit and centres in Apple's home logo slot", async tv => {
     await tv.page.route("**/art/full-logo.svg*", route => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg(880, 200) }));
     await tv.page.route("**/art/wide-logo.svg*", route => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg(880, 130) }));
@@ -1692,9 +1744,9 @@ journey("Hero title art scales to fit and centres in Apple's home logo slot", as
     const details = await tv.page.locator(".details-logo").evaluate(node => {
         const art = node.getBoundingClientRect();
         const slot = node.parentElement?.getBoundingClientRect();
-        return { art: art.top, slot: slot?.top, height: art.height };
+        return { art: art.bottom, slot: slot?.bottom, height: art.height };
     });
-    assert.equal(details.art, details.slot, "Details title art stays at the top of its heading");
+    assert.equal(details.art, details.slot, "Details title art stays at the bottom of its 160px heading");
     assert.ok(details.height < 180);
 }, catalog => {
     const overview = "A two-line hero synopsis that fills the marquee stack the signed comparison measured.";

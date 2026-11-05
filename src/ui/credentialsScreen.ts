@@ -23,6 +23,8 @@ export interface CredentialsView {
     readonly password: string;
     readonly shown: boolean;
     readonly error: string | undefined;
+    /** A missing username outlines that field. Any other error outlines the password. */
+    readonly errorField: "username" | undefined;
     /** Shake the fields: a sign-in was just refused. */
     readonly shake: boolean;
     readonly submitting: boolean;
@@ -32,6 +34,7 @@ export interface CredentialsView {
     /** Undefined on a server without code sign-in: no phone route to point at. */
     readonly phone: (() => void) | undefined;
     readonly change: () => void;
+    readonly changeLabel?: string;
     readonly back: () => void;
 }
 
@@ -45,7 +48,12 @@ export function credentialsScreen(view: CredentialsView): CredentialsScreen {
     const password = textInput("signin-password", "secret", "Password", "Password", view.password);
     password.type = view.shown ? "text" : "password";
     password.autocomplete = "current-password";
-    if (view.error !== undefined) {
+    const usernameError = view.errorField === "username";
+    const passwordError = view.error !== undefined && !usernameError;
+    if (usernameError) {
+        username.setAttribute("aria-invalid", "true");
+    }
+    if (passwordError) {
         password.setAttribute("aria-invalid", "true");
     }
     const update = (): void => view.onInput(username.value, password.value);
@@ -57,10 +65,10 @@ export function credentialsScreen(view: CredentialsView): CredentialsScreen {
     toggle.element.setAttribute("aria-label", view.shown ? "Hide password" : "Show password");
 
     const passwordRow = el("div", "signin-password-row");
-    passwordRow.appendChild(field(password, "lock", view.error !== undefined));
+    passwordRow.appendChild(field(password, "lock", passwordError));
     passwordRow.appendChild(toggle.element);
     const fields = el("div", view.shake ? "signin-fields signin-shake" : "signin-fields");
-    fields.appendChild(field(username, "person"));
+    fields.appendChild(field(username, "person", usernameError));
     fields.appendChild(passwordRow);
 
     const lines: HTMLElement[] = [];
@@ -77,12 +85,11 @@ export function credentialsScreen(view: CredentialsView): CredentialsScreen {
     if (view.phone !== undefined) {
         row.push(marqueeButton("phone", "Use your phone instead", "plain", view.phone, { glyph: "qrcode" }));
     }
-    row.push(marqueeButton("change", "Change server", "plain", view.change));
+    row.push(marqueeButton("change", view.changeLabel ?? "Change server", "plain", view.change));
     // Nothing else may start, or leave, while a sign-in is in flight.
     for (const control of row.slice(1)) {
         control.element.toggleAttribute("disabled", view.submitting);
     }
-
     const controls: Control[] = [
         { key: "username", element: username, row: 0 },
         { key: "secret", element: password, row: 1 },

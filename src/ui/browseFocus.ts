@@ -209,8 +209,8 @@ export class FocusHost {
             this.scroll.stop();
             this.applyVisit(visit);
             const element = this.locate(document.activeElement)?.item.element;
-            if ((this.container.dataset.view === "search" || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub")) && element !== undefined) {
-                const viewport = element.closest<HTMLElement>(".browse-panel-list, .skyline-content") ?? this.container;
+            if ((this.container.dataset.view === "search" || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub") || this.container.classList.contains("details-series-scene") || this.container.classList.contains("accounts-screen")) && element !== undefined) {
+                const viewport = element.closest<HTMLElement>(".browse-panel-list, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? this.container;
                 const card = element.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
                 if (card.top < bounds.top + 12 || card.bottom > bounds.bottom - 32 || !this.insideRow(element)) this.scroll.reveal(element, this.container);
             }
@@ -255,7 +255,14 @@ export class FocusHost {
 
     private applyVisit(visit: VisitSnapshot | undefined): void {
         this.viewport().scrollTop = visit?.top ?? 0;
-        this.container.querySelectorAll<HTMLElement>(".browse-row").forEach((row, index) => { row.scrollLeft = visit?.rows.get(this.rowKey(row, index)) ?? 0; });
+        this.container.querySelectorAll<HTMLElement>(".browse-row").forEach((row, index) => {
+            SkylineScroll.prepareEpisodeRow(row);
+            row.scrollLeft = visit?.rows.get(this.rowKey(row, index)) ?? 0;
+            const entry = row.dataset.scrollEntry === undefined ? undefined : Array.from(row.children).find((node): node is HTMLElement => node instanceof HTMLElement && node.dataset.focus === row.dataset.scrollEntry);
+            if (entry !== undefined) {
+                row.scrollLeft = entry.offsetLeft - row.offsetLeft - parseFloat(getComputedStyle(row).paddingLeft);
+            }
+        });
         this.container.querySelectorAll<HTMLElement>(".browse-panel-list[data-scroll-key]").forEach(panel => { panel.scrollTop = visit?.panels.get(panel.dataset.scrollKey ?? "") ?? 0; });
     }
 
@@ -550,6 +557,11 @@ export class FocusHost {
         if (target !== undefined) {
             this.focusItem(zone, zone.items[target]);
         } else {
+            if (zone.id === "seasons" && key === "up") {
+                const actions = view.zones.find(candidate => candidate.id === "actions");
+                this.focusItem(actions, actions?.items.find(item => item.key === "more"));
+                return;
+            }
             const destination = zone[key];
             const next = view.zones.find(candidate => candidate.id === destination && candidate.items.length > 0);
             if (next !== undefined) this.focusItem(next, next.items.find(item => item.key === next.entry) ?? next.items.find(item => item.key === this.memory.get(next.id)) ?? next.items[0]);
@@ -598,6 +610,11 @@ export function moveWithin(zone: Pick<Zone, "layout" | "columns">, count: number
 
 /** Makes `nodes` the container's children; a node already in its place is not moved, so it keeps focus. */
 function place(container: HTMLElement, nodes: readonly HTMLElement[]): void {
+    // Remove replaced siblings first so retained focus/press hosts never need a DOM move.
+    const retained = new Set(nodes);
+    for (const child of Array.from(container.children)) {
+        if (child instanceof HTMLElement && !retained.has(child)) child.remove();
+    }
     nodes.forEach((node, index) => {
         const current = container.children[index];
         if (current !== node) {

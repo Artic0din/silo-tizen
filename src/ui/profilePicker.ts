@@ -83,7 +83,7 @@ export function profilePickerScreen(options: PickerOptions): Screen {
     });
     main.appendChild(grid);
     const footer = el("div", "profile-footer");
-    const change = button("change-server", "Change server", options.changeServer);
+    const change = button("change-server", "Change account", options.changeServer);
     const out = button("signout", "Sign out", options.signOut);
     change.element.prepend(navigationIcon("switch-server"));
     out.element.prepend(navigationIcon("signout"));

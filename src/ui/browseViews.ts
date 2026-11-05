@@ -4,7 +4,7 @@
 
 import type { Card, CardOverlay, CatalogPage, HomeSection, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
-import { artworkUrl, type Destination, destinationOf } from "./browseModel.ts";
+import { artworkUrl, type Destination, type EpisodeSelection, destinationOf } from "./browseModel.ts";
 import { type CardOverlayPrefs, overlayLayer } from "./cardOverlays.ts";
 import { homeCaption } from "./cardPresentation.ts";
 import { el } from "./screen.ts";
@@ -37,7 +37,7 @@ export interface ViewContext {
     /** Continue Watching badges for the file the viewer last played, once Home's detail reads know it. */
     readonly savedFileOverlay?: (card: Card) => CardOverlay | undefined;
     readonly resume?: (id: string, title: string) => void;
-    readonly playEpisode?: (id: string, title: string, startOver?: boolean) => void;
+    readonly playEpisode?: (id: string, title: string, startOver?: boolean, selection?: EpisodeSelection) => void;
     readonly quickActions?: (card: Pick<Card, "id" | "title" | "type">) => void;
 }
 

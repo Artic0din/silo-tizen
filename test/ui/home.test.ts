@@ -4,6 +4,7 @@ import type { Browser } from "playwright";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { build } from "esbuild";
+import { FakeCalendar } from "../native/support/fakeCalendar.ts";
 import { FakeHome } from "../native/support/fakeHome.ts";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
@@ -34,7 +35,7 @@ function sectionReplyProduced(catalog: FakeHome): Promise<void> {
     });
 }
 
-function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void>, setup?: (catalog: FakeHome) => void, settings?: (settings: FakeSettings, tv: Tv) => void, options: { readonly whileReading?: boolean } = {}): void {
+function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void>, setup?: (catalog: FakeHome) => void, settings?: (settings: FakeSettings, tv: Tv) => void, options: { readonly whileReading?: boolean; readonly beforeMount?: (tv: Tv) => void; readonly beforeReady?: (tv: Tv) => Promise<void>; readonly readyTimeout?: number } = {}): void {
     test(name, async () => {
         const tv = await openTv(browser, { app: "browse" });
         const catalog = new FakeHome();
@@ -49,8 +50,10 @@ function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void
             await tv.jump(5000);
             await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.loginPhase) === "signed_in", "sign in");
             await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner"));
+            options.beforeMount?.(tv);
             await tv.page.evaluate(() => window.browseHarness.mount());
-            await tv.page.locator('[data-view="home"] [data-section]').first().waitFor();
+            if (options.beforeReady !== undefined) await options.beforeReady(tv);
+            await tv.page.locator('[data-view="home"] [data-section]').first().waitFor(options.readyTimeout === undefined ? undefined : { timeout: options.readyTimeout });
             // Home reads detail for its titles as it loads; journeys start once those reads are out.
             if (options.whileReading !== true) await detailsRead(tv);
             await body(tv, catalog);
@@ -58,6 +61,242 @@ function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void
         } finally { await tv.page.context().close(); }
     });
 }
+
+let heldLibraries: { release(): void };
+let heldSections: { release(): void };
+
+journey("Home paints its rows while libraries are still out and does not say it is still waiting", async tv => {
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0, "library tabs wait for their own read");
+    heldLibraries.release();
+    await tv.eventually(async () => await tv.page.locator('[data-focus="movies"]').count() === 1, "library tabs follow the rows");
+}, undefined, undefined, { beforeMount: tv => { heldLibraries = tv.fake.hold("/user/libraries", true); }, readyTimeout: 4000 });
+
+let heldCalendarLibraries: { release(): void };
+journey("library tabs that arrive on Calendar keep Up on the new bar", async tv => {
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0);
+    await tv.page.locator('[data-focus="calendar"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="calendar"] [data-focus="previous-week"]').count() === 1 && await tv.page.getByText("Loading the week.", { exact: true }).count() === 0, "Calendar settled");
+    await tv.page.locator('[data-focus="previous-week"]').focus();
+    heldCalendarLibraries.release();
+    await tv.eventually(async () => await tv.page.locator('.browse-nav [data-focus="movies"]').count() === 1, "library tabs on Calendar");
+    await tv.page.keyboard.press("ArrowUp");
+    const landed = await tv.page.evaluate(() => ({ key: document.activeElement?.getAttribute("data-focus"), connected: document.activeElement?.isConnected === true }));
+    assert.deepEqual(landed, { key: "calendar", connected: true });
+}, undefined, undefined, { beforeMount: tv => { heldCalendarLibraries = tv.fake.hold("/user/libraries", true); }, readyTimeout: 4000 });
+
+let heldStaleLibraries: { release(): void };
+let hiddenLibrarySettings: FakeSettings;
+journey("a delayed Home libraries read cannot put back a library hidden in Settings", async tv => {
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0);
+    await tv.eventually(async () => tv.fake.requests.some(request => request.path.includes("ui.disabled_library_ids")), "initial hidden-libraries read");
+    await tv.page.locator('[data-focus="calendar"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="calendar"] [data-focus="previous-week"]').count() === 1 && await tv.page.getByText("Loading the week.", { exact: true }).count() === 0, "Calendar settled");
+    await tv.page.locator('[data-focus="profiles"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+    await tv.page.locator('[data-focus="hidden"]').click();
+    await tv.page.locator('[data-focus="library:12"]').click();
+    await tv.eventually(async () => JSON.stringify(hiddenLibrarySettings.profile().get(HIDDEN_KEY)) === "[15,12]", "Movies hidden");
+    await tv.page.getByText("Saving…", { exact: true }).waitFor({ state: "hidden" });
+    for (let step = 0; step < 4 && await tv.page.locator(".settings").count() > 0; step++) await tv.remote(10009);
+    assert.equal(await tv.page.locator(".settings").count(), 0);
+    assert.equal(await tv.page.locator('.browse[data-view="calendar"]').count(), 1);
+    await tv.eventually(async () => await tv.page.locator('[data-focus="series"]').count() === 1 && await tv.page.locator('[data-focus="movies"]').count() === 0, "Calendar refresh hid Movies");
+    heldStaleLibraries.release();
+    const deadline = performance.now() + 1500;
+    do {
+        assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0, "the delayed Home libraries read put Movies back");
+        await tv.page.evaluate(() => undefined);
+    } while (performance.now() < deadline);
+    assert.equal(await tv.page.locator('[data-focus="series"]').count(), 1);
+}, catalog => {
+    const calendar = new FakeCalendar();
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => path.startsWith("/calendar") ? calendar.route(method, path, profile, body) : read(method, path, profile, body);
+}, settings => {
+    hiddenLibrarySettings = settings;
+    settings.profile().set(HIDDEN_KEY, [15]);
+}, { beforeMount: tv => { heldStaleLibraries = tv.fake.hold("/user/libraries", true); }, readyTimeout: 4000 });
+
+journey("a failed libraries read keeps Home and retries the tabs after the app returns", async tv => {
+    const libraryReads = (): number => tv.fake.requests.filter(request => request.path === "/user/libraries").length;
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    await tv.jump(1000);
+    await tv.eventually(async () => libraryReads() >= 2, "libraries read exhausted its retry");
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0);
+    await tv.page.locator('[data-focus="calendar"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="calendar"]').count() === 1, "left Home");
+    await tv.page.locator('[data-focus="home"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="home"] [data-section="recent/12"]').count() === 1, "Home again");
+    assert.equal(libraryReads(), 2, "leaving Home and returning does not reread libraries");
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0);
+    await tv.page.evaluate(() => {
+        Object.defineProperty(document, "hidden", { configurable: true, value: true });
+        document.dispatchEvent(new Event("visibilitychange"));
+        Object.defineProperty(document, "hidden", { configurable: true, value: false });
+        document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await tv.eventually(async () => await tv.page.locator('[data-focus="movies"]').count() === 1, "library tabs after returning to the app");
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    assert.ok(libraryReads() > 2);
+}, catalog => {
+    catalog.failNext("/user/libraries", problem(503, "service_unavailable", "Unavailable"), problem(503, "service_unavailable", "Unavailable"));
+});
+
+journey("a failed libraries read after returning to a profile keeps that profile's Movies and Series", async (tv, catalog) => {
+    const libraryReads = (): number => tv.fake.requests.filter(request => request.path === "/user/libraries").length;
+    await tv.eventually(async () => await tv.page.locator('[data-focus="movies"]').count() === 1 && await tv.page.locator('[data-focus="series"]').count() === 1, "owner library tabs");
+    const before = libraryReads();
+    catalog.failNext("/user/libraries", problem(503, "service_unavailable", "Unavailable"), problem(503, "service_unavailable", "Unavailable"));
+    await tv.page.evaluate(() => window.browseHarness.clearProfile());
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner")), "selected");
+    await tv.page.evaluate(() => window.browseHarness.mount());
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="home"] [data-section="recent/12"]').count() === 1, "rows after returning");
+    await tv.jump(1000);
+    await tv.eventually(async () => libraryReads() >= before + 2, "libraries read exhausted its retry");
+    assert.equal(libraryReads(), before + 2, "the failed read is not followed by a successful one");
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 1);
+    assert.equal(await tv.page.locator('[data-focus="series"]').count(), 1);
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+    assert.equal(await tv.page.locator('[data-view="home"] [role="alert"]').count(), 0);
+});
+
+journey("a failed libraries read after switching to a restricted profile drops the previous profile's Series", async (tv, catalog) => {
+    const libraryReads = (): number => tv.fake.requests.filter(request => request.path === "/user/libraries").length;
+    await tv.eventually(async () => await tv.page.locator('[data-focus="series"]').count() === 1, "owner Series tab");
+    const before = libraryReads();
+    catalog.failNext("/user/libraries", problem(503, "service_unavailable", "Unavailable"), problem(503, "service_unavailable", "Unavailable"));
+    await tv.page.evaluate(() => window.browseHarness.clearProfile());
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.selectProfile("p-kid", "2468")), "verified");
+    await tv.page.evaluate(() => window.browseHarness.mount());
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="home"] [data-section="kids_picks"]').count() === 1, "restricted profile rows");
+    await tv.jump(1000);
+    await tv.eventually(async () => libraryReads() >= before + 2, "libraries read exhausted its retry");
+    assert.equal(libraryReads(), before + 2);
+    assert.equal(await tv.page.locator('[data-focus="series"]').count(), 0, "the previous profile's Series stays off the bar");
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0, "this profile has no last-known tabs to keep");
+    assert.equal(await tv.page.locator('[data-section="kids_picks"]').count(), 1);
+    assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+    assert.equal(await tv.page.locator('[data-view="home"] [role="alert"]').count(), 0);
+});
+
+journey("a delayed Home sections read never says it is still waiting", async tv => {
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+}, undefined, undefined, {
+    beforeMount: tv => { heldSections = tv.fake.hold("/home/sections", true); },
+    beforeReady: async tv => {
+        await tv.jump(5000);
+        assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+        heldSections.release();
+    },
+});
+
+let heldLoadingFocus: { release(): void };
+journey("Loading home holds focus on the blank page, and Up and Back reach the bar before the rows do", async tv => {
+    const landed = await tv.page.evaluate(() => ({ key: document.activeElement?.getAttribute("data-focus"), connected: document.activeElement?.isConnected === true }));
+    assert.deepEqual(landed, { key: "movie:m0004", connected: true });
+}, undefined, undefined, {
+    beforeMount: tv => { heldLoadingFocus = tv.fake.hold("/home/sections", true); },
+    beforeReady: async tv => {
+        await tv.eventually(async () => await tv.focused() === "loading", "blank Loading home owns focus");
+        assert.equal(await tv.page.locator('[aria-label="Loading home"]').count(), 1);
+        await tv.page.keyboard.press("ArrowLeft");
+        await tv.page.keyboard.press("ArrowRight");
+        await tv.page.keyboard.press("Enter");
+        assert.equal(await tv.focused(), "loading", "Left, Right and Enter stay on the blank page");
+        await tv.page.keyboard.press("ArrowUp");
+        assert.equal(await tv.focused(), "home");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "loading");
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "home", "Back from the blank page lands on Home");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "loading");
+        heldLoadingFocus.release();
+    },
+    readyTimeout: 4000,
+});
+
+let heldBarFocus: { release(): void };
+journey("Home rows that arrive while the bar is focused leave focus on Home", async tv => {
+    const landed = await tv.page.evaluate(() => ({ key: document.activeElement?.getAttribute("data-focus"), connected: document.activeElement?.isConnected === true }));
+    assert.deepEqual(landed, { key: "home", connected: true });
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+}, undefined, undefined, {
+    beforeMount: tv => { heldBarFocus = tv.fake.hold("/home/sections", true); },
+    beforeReady: async tv => {
+        await tv.eventually(async () => await tv.focused() === "loading", "blank page before the rows");
+        await tv.page.keyboard.press("ArrowUp");
+        assert.equal(await tv.focused(), "home");
+        heldBarFocus.release();
+    },
+    readyTimeout: 4000,
+});
+
+let heldHomeLoading: { release(): void };
+journey("while Home sections are out, the page is an empty Loading home and the library tabs are already up", async tv => {
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    assert.equal(await tv.page.locator('[aria-label="Loading home"]').count(), 0);
+    assert.equal(await tv.page.locator(".skyline-content").getByRole("heading", { name: "Loading", exact: true }).count(), 0);
+}, undefined, undefined, {
+    beforeMount: tv => { heldHomeLoading = tv.fake.hold("/home/sections", true); },
+    beforeReady: async tv => {
+        await tv.eventually(async () => await tv.page.locator('[aria-label="Loading home"]').count() === 1, "empty Loading home page");
+        assert.equal(await tv.page.locator(".skyline-content").getByRole("heading", { name: "Loading", exact: true }).count(), 0);
+        assert.equal(await tv.page.locator(".skyline-content").getByRole("button", { name: "Profiles", exact: true }).count(), 0);
+        assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+        await tv.eventually(async () => await tv.page.locator('[data-focus="movies"]').count() === 1, "library tabs while Home is still loading");
+        heldHomeLoading.release();
+    },
+    readyTimeout: 4000,
+});
+
+journey("Home asks for the server's row cap and does not wait on an uncapped sections read", async tv => {
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+    const sections = tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path);
+    assert.ok(sections.some(path => path.includes("item_limit=20")), sections.join(" "));
+    assert.equal(sections.filter(path => !path.includes("item_limit=")).length, 0, sections.join(" "));
+}, catalog => {
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const url = new URL(path, "https://fake.invalid");
+        if (url.pathname === "/home/capabilities") return { status: 200, body: { state: "available", section_item_limit_max: 100 } };
+        return read(method, path, profile, body);
+    };
+}, undefined, {
+    beforeMount: tv => {
+        // image_size=small was the list size before sharp Home artwork. Cold Home now asks for large.
+        tv.fake.hold("/home/sections?image_size=large", true);
+        tv.fake.hold("/home/sections?image_size=large", true);
+    },
+    readyTimeout: 4000,
+});
+
+journey("Home reads sections again without the row cap when the server rejects it", async tv => {
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    const sections = tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path);
+    // image_size=small was the list size before sharp Home artwork. Cold Home now asks for large.
+    assert.deepEqual(sections, ["/home/sections?image_size=large&item_limit=20", "/home/sections?image_size=large"]);
+}, catalog => {
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const url = new URL(path, "https://fake.invalid");
+        if (url.pathname === "/home/capabilities") return { status: 200, body: { state: "available", section_item_limit_max: 100 } };
+        if (url.pathname === "/home/sections" && url.searchParams.has("item_limit")) {
+            return { status: 422, headers: { "Content-Type": "application/problem+json" }, body: { type: "https://siloserver.org/docs/api/v2/problems/validation_failed", title: "Validation failed", status: 422, errors: [{ location: "query.item_limit", code: "unknown_parameter" }] } };
+        }
+        return read(method, path, profile, body);
+    };
+});
 
 journey("Home keeps the server's row order and shows featured rows as ordinary rows", async tv => {
     assert.deepEqual(await tv.page.locator('[data-section]').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-section"))), ["hero/opaque", "recent/12", "because/opaque", "resume/opaque", "future/opaque", "for/you"]);
@@ -707,6 +946,43 @@ function imageCapabilities(catalog: FakeHome, slotWidths: boolean): void {
         ...(slotWidths ? { slot_width_params: { poster: "poster_width", backdrop: "backdrop_width", logo: "logo_width", still: "still_width", photo: "photo_width" } } : {}),
     } };
 }
+
+/** Named `image_size` values are not numbers. A later answer that only renames one must still refetch, and that refetch keeps `item_limit`. */
+function namedArtworkCapabilities(catalog: FakeHome, includeMedium: boolean): void {
+    const route = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const url = new URL(path, "https://fake.invalid");
+        if (url.pathname === "/home/capabilities") return { status: 200, body: { state: "available", section_item_limit_max: 100 } };
+        if (url.pathname !== "/images/capabilities") return route(method, path, profile, body);
+        return { status: 200, body: {
+            revision: "r1", state: "available", allowed: true, param: "image_size",
+            sizes: includeMedium ? ["small", "medium", "large", "original"] : ["small", "large", "original"],
+            widths: {}, original_max_width_px: 3840,
+            episode_still_provenance: true, episode_parent_artwork: true, extended_item_artwork: true,
+            season_list_artwork_param: "include_artwork", storage_backend: "local", delivery: "server",
+            slot_width_params: { poster: "poster_width", backdrop: "backdrop_width", logo: "logo_width", still: "still_width", photo: "photo_width" },
+        } };
+    };
+}
+
+function sectionParams(tv: Tv, imageSize: string, backdrop: string | null): URLSearchParams | undefined {
+    return tv.fake.requests.map(request => new URL(request.path, "https://fake.invalid")).find(url => url.pathname === "/home/sections" && url.searchParams.get("image_size") === imageSize && url.searchParams.get("backdrop_width") === backdrop)?.searchParams;
+}
+
+let heldNamedArtwork: { release(): void };
+journey("a named artwork size still refetches Home and keeps the row cap", async (tv, catalog) => {
+    heldNamedArtwork.release();
+    await tv.eventually(async () => sectionParams(tv, "medium", "1344")?.get("item_limit") === "20", "medium rows keep the row cap");
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), "medium capability remembered");
+    namedArtworkCapabilities(catalog, false);
+    heldNamedArtwork = tv.fake.hold("/images/capabilities", true);
+    await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+    await tv.page.locator('[data-view="home"] [data-section]').first().waitFor();
+    assert.equal(sectionParams(tv, "large", "1344"), undefined, "a remembered medium size is not a numeric step up to large");
+    heldNamedArtwork.release();
+    await tv.eventually(async () => sectionParams(tv, "large", "1344")?.get("item_limit") === "20", "named size change refetches with the row cap");
+}, catalog => namedArtworkCapabilities(catalog, true), (_settings, tv) => { heldNamedArtwork = tv.fake.hold("/images/capabilities", true); }, { whileReading: true });
+
 let heldImageProbe: { release(): void };
 journey("a late artwork probe defers to Card actions and preserves watched invalidation", async (tv, catalog) => {
     const reads = tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length;

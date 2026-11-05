@@ -1199,6 +1199,56 @@ journey("Down from a landscape card uses that card, and Up from a poster still u
     ];
 });
 
+journey("Down then Up returns to the same card for every Home row kind", async tv => {
+    const rows = [
+        { id: "recent-movies", kind: "poster" },
+        { id: "resume", kind: "continue watching" },
+        { id: "next-up", kind: "next up" },
+        { id: "recent-tv", kind: "tv stills" },
+        { id: "because-movies", kind: "poster" },
+        { id: "more-movies", kind: "poster" },
+    ] as const;
+    const content = async (section: string): Promise<CardBox[]> => (await rowBoxes(tv, section)).filter(box => !box.id.startsWith("expand:"));
+    const focus = async (section: string, id: string): Promise<void> => {
+        await tv.page.locator(`[data-section="${section}"] [data-focus="${id}"]`).focus();
+    };
+    for (let index = 0; index < rows.length; index += 1) {
+        const row = rows[index];
+        assert.ok(row !== undefined);
+        const cards = await content(row.id);
+        const origin = cards[1];
+        assert.ok(origin !== undefined, row.id);
+        if (row.id === "recent-movies") assert.equal(origin.id, "movie:m0009");
+        if (index + 1 < rows.length) {
+            await focus(row.id, origin.id);
+            await tv.page.keyboard.press("ArrowDown");
+            await tv.page.keyboard.press("ArrowUp");
+            assert.equal(await tv.focused(), origin.id, `Down then Up keeps the ${row.kind} card`);
+        }
+        const above = rows[index - 1];
+        if (above === undefined) continue;
+        // Up into a landscape row and back measures that card on the way down, so the
+        // poster that returns is the one nearest the still. That is column 0.
+        const returning = row.kind === "poster" && above.kind !== "poster" ? cards[0] : origin;
+        assert.ok(returning !== undefined);
+        await focus(row.id, returning.id);
+        await tv.page.keyboard.press("ArrowUp");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), returning.id, `Up then Down keeps the ${row.kind} card`);
+    }
+}, catalog => {
+    const home = catalog.households.get("p-owner");
+    assert.ok(home !== undefined);
+    home.sections = [
+        { id: "recent-movies", sectionType: "recently_added", title: "Recently Added", items: ["movie:m0008", "movie:m0009", "movie:m0010", "movie:m0011"] },
+        { id: "resume", sectionType: "continue_watching", title: "Continue Watching", items: ["episode:s1e11", "episode:s1e12", "episode:s1e13"] },
+        { id: "next-up", sectionType: "next_up", title: "Next Up", items: ["episode:s1e21", "episode:s1e22", "episode:s1e23"] },
+        { id: "recent-tv", sectionType: "recently_added", title: "Recently Added TV", items: ["episode:s2e11", "episode:s2e12", "episode:s2e13", "series:s1"] },
+        { id: "because-movies", sectionType: "because_you_watched", title: "Because you watched", items: ["movie:m0012", "movie:m0013", "movie:m0014", "movie:m0015"] },
+        { id: "more-movies", sectionType: "recently_added", title: "More Movies", items: ["movie:m0016", "movie:m0017", "movie:m0018", "movie:m0019"] },
+    ];
+});
+
 function logoSvg(width: number, height: number): string {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#fff"/></svg>`;
 }

@@ -391,11 +391,12 @@ export class FocusHost {
                 const columns = Math.max(1, zone.columns ?? 1);
                 const edge = step === 1 ? 0 : Math.floor((zone.items.length - 1) / columns) * columns;
                 const candidates = zone.layout === "grid" ? zone.items.slice(edge, edge + columns) : zone.items;
-                // A landscape card is wider than the poster column it was reached from, so the
-                // remembered axis points at a different poster. Measure this card instead.
+                // Down only. A landscape card is wider than the poster column it was
+                // reached from, so the remembered axis points at a different poster.
+                // Up keeps that column; measuring this card would land on another poster.
                 const fromWide = landscapeArt(from.element);
                 const toPoster = candidates[0] !== undefined && !landscapeArt(candidates[0].element);
-                if (fromWide && toPoster) {
+                if (step === 1 && fromWide && toPoster) {
                     const rect = from.element.getBoundingClientRect();
                     this.navigationX = rect.left + rect.width / 2;
                 }

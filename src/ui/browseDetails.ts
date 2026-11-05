@@ -141,7 +141,7 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
             } else badge.append(el("span", "", rating.name));
             badge.append(" ", el("span", "details-rating-score", rating.display)); facts.append("\u2002·\u2002", badge);
         }
-        if (detail.genres.length) facts.append("\u2002·\u2002", el("span", "details-genres", detail.genres.slice(0, 3).join(", ")));
+        if (detail.type !== "series" && detail.genres.length) facts.append("\u2002·\u2002", el("span", "details-genres", detail.genres.slice(0, 3).join(", ")));
         if (ratingChip) facts.prepend(el("span", "details-rating-badge", ratingChip));
         nodes.push(facts);
     }
@@ -433,7 +433,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
             const preference = (track: SubtitleSignature): number => preferred !== undefined && language(track) === (languageName(preferred) ?? preferred) ? 0 : 1;
             const rank = (track: SubtitleSignature): number => ['srt|subrip', 'ass', 'ssa', 'vtt|webvtt', 'mov_text|movtext|tx3g', 'sup|pgs|hdmv', 'dvd|vobsub|dvb'].findIndex(pattern => new RegExp(pattern, 'i').test(track.codec ?? ''));
             const format = (track: SubtitleSignature): number => rank(track) < 0 ? 7 : rank(track);
-            const variant = (track: SubtitleSignature): number => track.hearingImpaired ? 2 : track.forced ? 1 : 0;
+            const variant = (track: SubtitleSignature): number => track.hearingImpaired || /\b(SDH|CC)\b/i.test(track.label ?? '') ? 2 : track.forced ? 1 : 0;
             return preference(a.track) - preference(b.track) || language(a.track).localeCompare(language(b.track)) || format(a.track) - format(b.track) || variant(a.track) - variant(b.track) || a.index - b.index;
         });
         const choices = [undefined, "off" as const, ...ordered.map(item => item.index)];
@@ -442,8 +442,9 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
             const item = actionButton(`subtitle:${choice ?? "auto"}`, track === undefined ? choice === "off" ? "Off" : "Auto" : languageName(track.language) ?? track.label ?? `Track ${Number(choice) + 1}`, () => { if (tracks !== undefined) state.noteEpisodePreference(tracks.detail.id); tracks?.selectSubtitle(choice); if (tracks !== state) state.closePanel(); });
             if (track !== undefined) {
                 const codec = /subrip|srt/i.test(track.codec ?? '') ? 'SRT' : track.codec?.toUpperCase();
-                const label = track.label && ![track.codec?.toUpperCase(), codec, languageName(track.language)?.toUpperCase()].includes(track.label.toUpperCase()) ? track.label : undefined;
-                item.element.append(el('small', 'details-option-subtext', [label, codec, track.forced ? 'Forced' : undefined, track.hearingImpaired ? 'SDH' : undefined, track.source === 'external' ? 'External' : undefined].filter(Boolean).join(' · ')));
+                const label = track.label && ![track.codec?.toUpperCase(), codec, languageName(track.language)?.toUpperCase(), 'SDH', 'CC'].includes(track.label.toUpperCase()) ? track.label : undefined;
+                const variant = /\bCC\b/i.test(track.label ?? '') ? 'CC' : track.hearingImpaired || /\bSDH\b/i.test(track.label ?? '') ? 'SDH' : undefined;
+                item.element.append(el('small', 'details-option-subtext', [label, codec, track.forced ? 'Forced' : undefined, variant, track.source === 'external' ? 'External' : undefined].filter(Boolean).join(' · ')));
             }
             item.element.setAttribute("role", "radio");
             item.element.setAttribute("aria-checked", String(track === undefined ? subtitle?.kind === (choice === "off" ? "off" : "auto") : subtitle?.kind === "track" && matchesSubtitle(track, subtitle.signature)));
@@ -511,26 +512,25 @@ function titleCards(cards: readonly Card[], context: ViewContext): FocusItem[] {
     return items;
 }
 
-export function personView(person: Person, cards: readonly Card[], context: ViewContext, back: () => void, synopsis: Synopsis, seeAll: () => void): View {
-    const actions = [actionButton("back", "Back", back)];
-    const bio = person.bio;
-    actions.push(actionButton("see-all", "See all", seeAll));
-    if (bio) actions.push(actionButton("synopsis", "Read synopsis", () => synopsis.show(bio)));
+export function personHero(person: Person, baseUrl: string, metadataLoading = false): HTMLElement {
     const hero = el("div", "browse-detail details-person-hero");
-    hero.appendChild(personPortrait(person, context.baseUrl));
+    hero.appendChild(personPortrait(person, baseUrl));
     const info = el("div", "browse-detail-info");
     info.appendChild(heading(person.name));
     const facts = personMetadataBadges(person, new Date());
-    if (facts.length > 0) {
+    if (facts.length > 0 || metadataLoading) {
         const row = el("div", "person-facts");
         for (const fact of facts) row.appendChild(el("span", "person-fact", fact));
+        if (metadataLoading) {
+            const loading = el("span", "person-fact person-metadata-loading", "Loading metadata");
+            loading.setAttribute("role", "status");
+            row.appendChild(loading);
+        }
         info.appendChild(row);
     }
     if (person.bio) info.appendChild(el("p", "browse-text browse-overview", person.bio));
-    info.appendChild(zoneNode("browse-actions", actions));
     hero.appendChild(info);
-    const titles = titleCards(cards, context);
-    return { name: `person:${person.id}`, content: [hero, el("h2", "browse-section-title", "Filmography"), ...(titles.length === 0 ? lines(["No available titles for this person."]) : []), zoneNode("browse-row", titles)], zones: [{ id: "actions", layout: "row", items: actions }, { id: "filmography", layout: "row", items: titles }], focus: { zone: "actions", key: "back" }, back };
+    return hero;
 }
 
 function seasonItem(seriesId: string, seriesTitle: string, season: Season, context: ViewContext): FocusItem {

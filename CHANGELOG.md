@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Activated Series seasons on resting focus, preserved complete episode scroll steps, and corrected Details spacing, hero contrast, Versions and SDH subtitle presentation.
 - Corrected the Home title-art regression test to preserve Details' bottom-aligned logo slot, with separate Home, Series and Movie geometry checks.
 - Corrected Details season entry, cast scrolling, rail spacing, hero text and playback picker sizing, labels and selection checks against Apple TV.
 - Kept season selection on its pill, restored the Details hero on Up, and aligned title art, episode spacing, recommendations and playback popovers with Apple TV.
@@ -19,6 +20,15 @@ All notable changes to this project are documented in this file.
 - Opened Series Details on the current season and episode, positioned its episode rail, respected thumbnail sizing, and centred Cast & Crew when navigating down.
 - Refreshed episode preferences when returning to Series Details and kept ordinary Play from overriding effective audio defaults.
 - Remembered Details audio and subtitle choices, including Off and Auto, with confirmation before playback and recovery after uncertain saves; native Apple/Samsung parity remains pending.
+- Kept a Person filter the viewer already chose when a slower availability probe would have removed its chip.
+- Moved Up from a Person filmography card to the chip closest to that card's left edge, leaving the card in place when no chip meets it, and scrolled the first row to the page's 72 px bottom padding plus the tvOS safe area.
+
+- Reset fresh Person visits from Search and applied delayed poster and badge preferences on Person.
+
+- Corrected Person safe-area insets, title-count spacing, biography weight, server-driven filters, fresh-visit focus and independent metadata loading, restored catalog status badges, and returned the full hero when focus moved back to its chips.
+- Drew the series status TV glyph as Apple's flat `tv` symbol, at that symbol's layout size, and stopped Search from pinning an upward move over the field and filters.
+- Drew the TV icon on Returning, Cancelled and Ended badges and raised Home headings by using Skyline's 14px card padding.
+- Raised the focused Search poster, darkened the Continue Watching focus shadow, showed the Returning badge on Search cards, and hid the watched tick on Related titles.
 - Showed Home rows as soon as they arrived, without waiting on library tabs or an uncapped sections read, and stopped the Home page from saying the server was still waiting. While those rows are still out, Home is an empty page labelled "Loading home" and the library tabs fill in on their own.
 - Stopped a delayed Home libraries read from putting a library back after it was hidden in Settings.
 - Kept remote navigation when those library tabs arrived on another page, and read them again after the app returned if that read had failed.
@@ -47,6 +57,7 @@ All notable changes to this project are documented in this file.
 - Updated the Series hero and playback target as episode focus moved, added episode air dates and runtimes, restored Apple's fixed detail frames, and resolved local extras whose embedded file ID was absent.
 
 - Updated Movie and Series detail heroes and playback readouts, added Series track selectors and local extras, and aligned episode captions with Apple TV.
+- Showed the title count, All/Movies/Series filters and paged filmography beneath the Person hero, with one Back returning to the originating credit.
 - Matched Apple TV's outlined card focus with a smaller lift, softer captions and a persistent outline on the Series row's current episode.
 - Started the horizontal navigation column after leaving a text field, and reset it at the top bar or a page's first card.
 

@@ -164,7 +164,7 @@ export class FakeDetails extends FakeCatalog {
     }
 
     private personPage(method: string, url: URL, profileId: string | undefined, body?: Record<string, unknown>): Reply {
-        const answer = this.personReplies.shift();
+        const answer = body?.limit === 1 ? undefined : this.personReplies.shift();
         if (answer !== undefined) return answer;
         const id = String(body?.person_id ?? url.searchParams.get("person_id"));
         const type = body?.type ?? url.searchParams.get("type");

@@ -7,6 +7,29 @@ import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
+for (const current of [1, 5]) detailTest(`Measured five-card episode rail with E0${current} current`, async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const body = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner')?.body as { items: Record<string, unknown>[] };
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**', route => route.fulfill({ json: { items: Array.from({ length: 5 }, (_, i) => ({ ...body.items[0], content_id: `episode:s1e1${i + 1}`, episode_number: i + 1, user_data: { played: i + 1 < current, playback_position_seconds: i + 1 === current ? 60 : 0 } })) } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:s1e15"]').waitFor();
+    await tv.page.evaluate(() => document.fonts.ready);
+    const measure = () => tv.page.locator('.details-episodes').evaluate(row => ({ left: row.getBoundingClientRect().left, width: row.clientWidth, scroll: row.scrollLeft, padding: getComputedStyle(row).paddingLeft, cards: [...row.querySelectorAll('.browse-art')].map(card => ({ x: card.getBoundingClientRect().x, width: card.getBoundingClientRect().width })) }));
+    const rest = await measure();
+    await tv.page.locator('[data-focus="episode:s1e11"]').focus();
+    await tv.jump(500);
+    await tv.eventually(async () => (await measure()).cards[0]!.width > 377, 'first card lift settled');
+    assert.ok(Math.abs((await measure()).cards[0]!.x - 109) < 2);
+    await tv.page.locator('[data-focus="episode:s1e15"]').focus();
+    await tv.jump(500);
+    await tv.eventually(async () => (await measure()).cards[4]!.width > 377, 'E05 lift settled');
+    const focused = await measure();
+    console.log('EPISODE MEASUREMENT', current, JSON.stringify({ rest, focused }));
+    assert.ok(Math.abs(rest.cards[0]!.width - 360) < 1, JSON.stringify(rest));
+    assert.equal(rest.scroll, current === 1 ? 0 : 400);
+    assert.ok(Math.abs(focused.cards[4]!.x - 1309) < 2, JSON.stringify(focused));
+});
+
 for (const art of [
     { type: 'series', id: 'series:s1', width: 650, height: 102, top: 174 },
     { type: 'movie', id: 'movie:m0001', width: 468, height: 160, top: 116 },
@@ -30,6 +53,15 @@ for (const art of [
     for (const [key, expected] of Object.entries({ top: art.top, width: art.width, height: art.height, slotTop: 116, slotHeight: 160 })) {
         assert.ok(Math.abs(geometry[key as keyof typeof geometry] - expected) < 0.5, `${key}: ${JSON.stringify(geometry)}`);
     }
+});
+
+detailTest('Hero uses stepped text colours, resting Play fill and omits series genres', async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="audio"]').waitFor();
+    assert.equal(await tv.page.locator('.details-genres').count(), 0);
+    await tv.page.locator('[data-focus="audio"]').focus();
+    assert.equal(await tv.page.locator('.details-play').evaluate(node => getComputedStyle(node).backgroundColor), 'rgb(31, 51, 57)');
+    assert.equal(await tv.page.locator('.details-playback-summary strong').first().evaluate(node => getComputedStyle(node).color), 'rgba(237, 237, 237, 0.5)');
 });
 
 detailTest('track picker truncates a long edition title within its 76px row', async tv => {
@@ -56,7 +88,7 @@ detailTest('measured Apple movie typography and version popover geometry', async
         });
         return styles.color !== '';
     }, 'overview style sample survives optional-data repaint');
-    assert.deepEqual(styles, { color: 'rgb(238, 231, 211)', maxHeight: '102px', lineHeight: '34px' });
+    assert.deepEqual(styles, { color: 'rgb(237, 237, 237)', maxHeight: '102px', lineHeight: '34px' });
     await tv.page.locator('[data-focus="version"]').click();
     assert.equal(await tv.page.locator('[data-focus="version"] .details-action-label').evaluate(node => getComputedStyle(node).position), 'static');
     await tv.eventually(async () => Math.abs((await tv.page.locator('.details-track-popover').boundingBox())!.width - 560) < .1, 'popover opening animation settled');
@@ -76,7 +108,7 @@ detailTest('Details rail clearances and white focus styling follow the measured 
         const facts = document.querySelector('.details-facts .browse-section-title')!;
         return {
             railGap: related.previousElementSibling!.getBoundingClientRect().top - previous.getBoundingClientRect().bottom,
-            factsGap: facts.getBoundingClientRect().top - related.querySelector('.browse-art')!.getBoundingClientRect().bottom,
+            factsGap: facts.getBoundingClientRect().top - related.querySelector('.browse-card-title')!.getBoundingClientRect().bottom,
         };
     });
     assert.ok(Math.abs(metrics.railGap - 79) < 3, JSON.stringify(metrics));
@@ -86,7 +118,7 @@ detailTest('Details rail clearances and white focus styling follow the measured 
     const trigger = tv.page.locator('[data-focus="version"]');
     assert.equal(await trigger.evaluate(node => getComputedStyle(node).backgroundColor), 'rgb(255, 255, 255)');
     const width = (await trigger.boundingBox())!.width;
-    assert.ok(Math.abs(width - 194.9) < 2, `Versions width ${width}`);
+    assert.ok(Math.abs(width - 210) < 2, `Versions width ${width}`);
 });
 
 detailTest('Down into an alternate season starts at its first episode and retargets the hero', async tv => {
@@ -95,7 +127,8 @@ detailTest('Down into an alternate season starts at its first episode and retarg
     const body = reply?.body as { items: Record<string, unknown>[] };
     await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/2/episodes?**', route => route.fulfill({ json: { ...body, items: body.items.map((item, index) => ({ ...item, user_data: { played: index === 0, playback_position_seconds: index === 1 ? 60 : 0 } })) } }));
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
-    await tv.page.locator('[data-focus="season:2"]').click();
+    await tv.page.locator('[data-focus="season:2"]').focus();
+    await tv.jump(100);
     await tv.page.locator('[data-focus="episode:s1e21"]').waitFor();
     await tv.remote(40);
     assert.equal(await tv.focused(), 'episode:s1e21');
@@ -135,8 +168,8 @@ detailTest('Select on the current season during its initial load supersedes resu
 detailTest('Subtitle display order keeps original selection keys and separates language from format', async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
     catalog.subtitleFiles.set('42', [
-        { language: 'fra', codec: 'subrip', hearing_impaired: true, index: 4 },
-        { language: 'eng', codec: 'subrip', hearing_impaired: true, index: 5 },
+        { language: 'fra', codec: 'subrip', title: 'SDH', index: 4 },
+        { language: 'eng', codec: 'subrip', title: 'SDH', index: 5 },
         { language: 'fra', codec: 'subrip', index: 6 },
         { language: 'eng', codec: 'subrip', index: 7 },
     ]);
@@ -254,7 +287,7 @@ for (const failed of [true, false]) detailTest(`Related ${failed ? 'failure' : '
     assert.equal(await tv.page.locator('[data-detail-section="related"]').count(), 0);
 });
 
-detailTest('Genres have spacing on unrated Movies and appear once in an episode hero', async tv => {
+detailTest('Genres have spacing on unrated Movies and stay omitted in the Series episode hero', async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
     for (const id of ['movie:m0001', 'series:s1']) {
         const reply = catalog.route('GET', `/catalog/items/${encodeURIComponent(id)}`, 'p-owner');
@@ -263,8 +296,8 @@ detailTest('Genres have spacing on unrated Movies and appear once in an episode 
         await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).first().click();
         if (id === 'series:s1') await tv.page.locator('[data-focus="episode:s1e11"]').focus();
         const text = await tv.page.locator('.details-editorial .browse-meta').textContent() ?? '';
-        assert.equal(text.split('Drama').length - 1, 1);
-        assert.match(text, /\sDrama, Thriller/);
+        assert.equal(text.split('Drama').length - 1, id === 'series:s1' ? 0 : 1);
+        if (id !== 'series:s1') assert.match(text, /\sDrama, Thriller/);
         await tv.remote(10009);
     }
 });
@@ -512,7 +545,7 @@ detailTest('Series remote navigation scrolls down to Cast and back to episodes',
     const scrolled = await tv.page.locator('.browse').evaluate(node => node.scrollTop);
     assert.ok(scrolled > 0, 'Details owns vertical scrolling');
     await tv.jump(400);
-    assert.ok(await tv.page.locator('.details-people').evaluate(node => Math.abs((node.previousElementSibling?.getBoundingClientRect().top ?? 0) - 540) < 2), 'cast leading anchor remains centred after its scroll animation');
+    assert.ok(await tv.page.locator('.details-people').evaluate(node => Math.abs((node.previousElementSibling?.getBoundingClientRect().top ?? 0) - 546) < 2), 'cast heading settles at the measured Apple anchor');
     await tv.remote(38);
     assert.match(await tv.focused() ?? '', /^episode:/);
 });
@@ -742,7 +775,7 @@ detailTest("series current episode keeps its outline while season chips own focu
     assert.equal(await current.getAttribute('data-focus'), 'episode:s1e21', "selected season highlights its retargeted episode");
 });
 
-detailTest("series Details selects season chips explicitly and restores its inline episode rail", async tv => {
+detailTest("series Details activates season chips on focus and restores its inline episode rail", async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('[data-view="item:series:s1"]').waitFor();
     assert.equal(await tv.page.locator('[data-focus="season:1"].browse-card').count(), 0, "seasons are chips");
@@ -752,8 +785,7 @@ detailTest("series Details selects season chips explicitly and restores its inli
     await tv.page.locator('[data-focus="season:1"]').focus();
     await tv.remote(39);
     assert.equal(await tv.focused(), "season:2");
-    assert.equal(episodeReads(), before, "focus does not load another season");
-    await tv.page.keyboard.press("Enter");
+    await tv.jump(100);
     await tv.page.locator('.details-episodes [data-focus="episode:s1e21"]').waitFor();
     assert.equal(episodeReads(), before + 1);
     await tv.page.locator('[data-focus="episode:s1e21"]').click({ button: "right" });

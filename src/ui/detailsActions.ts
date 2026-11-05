@@ -7,7 +7,7 @@ const ICONS: Readonly<Record<string, string>> = {
     play: "M8 4 21 12 8 20Z",
     resume: "M8 4 21 12 8 20Z",
     "next-episode": "M8 4 21 12 8 20Z",
-    version: "M2 7 12 2 22 7 12 12ZM2 12 12 17 22 12M2 17 12 22 22 17",
+    version: "M7 2H17M5 5H19M4 8H20V22H4Z",
     audio: "M3 9H7L13 4V20L7 15H3ZM17 8Q23 12 17 16",
     subtitles: "M3 5H21V19H3ZM6 11H10M6 14H11M14 11H18M14 14H18",
     watchlist: "M6 3H18V22L12 18 6 22Z",

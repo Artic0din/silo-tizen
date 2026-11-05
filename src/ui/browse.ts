@@ -182,7 +182,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const current = top();
         if ((current?.kind === "item" || current?.kind === "season") && current.data?.details?.episodePreferencesBlocked) return;
         if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title, episode: true, startOver: startOver === true, ...(selection === undefined ? {} : { selection }) }));
-    }, quickActions: card => {
+    }, quickActions: (card, play) => {
         const current = top();
         if (current === undefined || torn || playing || cardActions.active) return;
         shuffleGeneration++;
@@ -194,7 +194,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         cancelSlow();
         if (current.kind === "homeSection" || current.kind === "person" || current.kind === "personal") current.pendingIndex = undefined;
         menuOrigin = { route: current, focus: host.focused() };
-        cardActions.open(card);
+        cardActions.open(card, play);
     } };
     const input = el("input", "browse-input");
     input.id = "browse-search";
@@ -1208,7 +1208,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     detailWork = details;
                     details.start();
                     const season = data.contextSeason;
-                    if (current.focus === undefined && season !== undefined && data.seasons.some(item => item.seasonNumber === season)) return { zone: "seasons", key: `season:${season}` };
+                    if (current.seriesContext?.episodeId === undefined && current.focus === undefined && season !== undefined && data.seasons.some(item => item.seasonNumber === season)) return { zone: "seasons", key: `season:${season}` };
                 }, quiet);
                 return;
             case "season":
@@ -1588,6 +1588,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         options.onChooseProfile();
     };
 
+    const detailVisits = new WeakMap<Route, string>();
+    let detailVisitSequence = 0;
     const render = (focus?: FocusTarget): void => {
         activeSection?.stop();
         if (activeBrowse !== undefined) stopFeed(activeBrowse);
@@ -1668,7 +1670,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const removedEpisodeRetry = host.focused()?.key === "retry-episodes" && !view.zones.some(zone => zone.items.some(item => item.key === "retry-episodes"));
             host.holdVisit();
             shell.hide();
-            host.show(view, focus);
+            if (current.kind === "item") {
+                let visitKey = detailVisits.get(current);
+                if (visitKey === undefined) {
+                    visitKey = `details-visit:${++detailVisitSequence}`;
+                    detailVisits.set(current, visitKey);
+                }
+                host.show({ ...view, visitKey: `${visitKey}:${view.name}` }, focus);
+            } else host.show(view, focus);
             if (removedEpisodeRetry && host.focused()?.zone === "actions") host.scrollToTop();
         }
     };

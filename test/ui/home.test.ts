@@ -750,7 +750,7 @@ journey("Home refreshes the same title's marquee progress after playback", async
     await tv.jump(300);
     const meta = tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) .skyline-meta");
     assert.match(await meta.innerText(), /14m left/);
-    await tv.page.keyboard.press("Enter");
+    await tv.remote(415);
     await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "player handoff");
     enrichHome(catalog, { [id]: { position_seconds: 900, progress_updated_at: "after-playback" } });
     await tv.page.evaluate(() => window.browseHarness.resume());
@@ -1497,20 +1497,20 @@ journey("Home expansion restarts an invalid cursor and keeps remote Back reachab
     assert.equal(await tv.focused(), "expand:recent/12");
 });
 
-for (const [id, activation, position] of [["movie:m0001", "Enter", 321.5], ["episode:s1e12", "pointer", 1195]] as const) {
+for (const [id, activation, position] of [["movie:m0001", "MediaPlay", 321.5], ["episode:s1e12", "MediaPlayPause", 1195]] as const) {
     journey(`Continue ${id} resolves authorised chosen version once (${activation})`, async (tv, catalog) => {
         catalog.progress.set(id, position);
         const item = tv.page.locator(`[data-section="resume/opaque"] [data-focus="${id}"]`);
         const held = tv.fake.hold(`/catalog/items/${encodeURIComponent(id)}`, true);
         await item.focus();
-        if (activation === "pointer") await item.click(); else await tv.page.keyboard.press("Enter");
+        await tv.remote(activation === "MediaPlay" ? 415 : 10252);
         await tv.eventually(async () => tv.fake.requests.some(request => request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(id)}`), "authorised detail resolution");
         assert.equal(await tv.page.locator('[data-view^="item:"]').count(), 0, "Details never flashes");
         assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0);
         held.release();
         await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "one player handoff");
         assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays[0]), { contentId: id, fileId: "chosen", title: id === "movie:m0001" ? "Movie 0001" : "Harbor Lights chapter 1.2", startSeconds: position === 1195 ? 0 : position, ...(id === "episode:s1e12" ? { episode: true, subtitle: { kind: "auto" } } : {}) });
-        await tv.page.keyboard.press("Enter");
+        await tv.page.keyboard.press("MediaPlayPause");
         await tv.jump(30000);
         assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 1);
         const request = tv.fake.requests.find(request => request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(id)}`);
@@ -1526,7 +1526,7 @@ for (const mode of ["missing", "restricted", "unreadable", "mismatch"] as const)
     journey(`Continue ${mode} leaves Retry and Back without playback`, async (tv, catalog) => {
         catalog.detailMode = mode;
         await tv.page.locator('[data-section="resume/opaque"] [data-focus="movie:m0001"]').focus();
-        await tv.page.keyboard.press("Enter");
+        await tv.page.keyboard.press("MediaPlayPause");
         await tv.page.getByRole("alert").waitFor();
         assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0);
         assert.equal(await tv.page.locator('[data-view^="item:"]').count(), 0);
@@ -1540,7 +1540,7 @@ for (const cancel of ["Back", "profile", "logout"] as const) {
     journey(`Continue ${cancel} cancels an already processed late answer`, async tv => {
         const held = tv.fake.hold("/catalog/items/movie%3Am0001", true);
         await tv.page.locator('[data-section="resume/opaque"] [data-focus="movie:m0001"]').focus();
-        await tv.page.keyboard.press("Enter");
+        await tv.page.keyboard.press("MediaPlayPause");
         await tv.eventually(async () => tv.fake.requests.some(request => request.path.split("?")[0] === "/catalog/items/movie%3Am0001"), "resolution");
         if (cancel === "Back") await tv.remote(10009);
         else if (cancel === "logout") await tv.page.evaluate(() => window.browseHarness.logout());
@@ -1556,7 +1556,7 @@ for (const cancel of ["Back", "profile", "logout"] as const) {
 journey("Continue network failure never sends playback and Retry resolves only on activation", async tv => {
     tv.offline = true;
     await tv.page.locator('[data-section="resume/opaque"] [data-focus="movie:m0001"]').focus();
-    await tv.page.keyboard.press("Enter");
+    await tv.page.keyboard.press("MediaPlayPause");
     await tv.jump(1000);
     await tv.page.getByRole("alert").waitFor();
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0);
@@ -1570,6 +1570,15 @@ journey("Continue network failure never sends playback and Retry resolves only o
 journey("expanded Continue keeps episode cards and resumes while ordinary rows still open Details", async tv => {
     await tv.page.locator('[data-focus="expand:resume/opaque"]').click();
     await tv.page.locator('[data-view="homeSection:resume/opaque"] [data-focus="episode:s1e12"]').click();
+    await tv.page.locator('[data-view="item:series:s1"]').waitFor();
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0);
+    await tv.remote(10009);
+    assert.equal(await tv.focused(), "episode:s1e12");
+    await tv.page.locator('[data-view="homeSection:resume/opaque"] [data-focus="episode:s1e12"]').click({ button: "right" });
+    await tv.page.locator('[data-focus="card-play"]').waitFor();
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="homeSection:resume/opaque"] [data-focus="episode:s1e12"]').focus();
+    await tv.remote(415);
     await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "expanded episode handoff");
     await tv.page.evaluate(() => window.browseHarness.resume());
     await tv.page.locator('[data-view="homeSection:resume/opaque"] .browse-card').first().waitFor();

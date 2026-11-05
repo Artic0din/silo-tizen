@@ -726,7 +726,8 @@ appTest("natural episode EOF offers manual Play next instead of returning to Bro
         playback.items.set(id, ["42"]);
     }
     await signIn(tv);
-    await tv.page.locator('.skyline-continue[data-focus="episode:s1e12"]').click();
+    await tv.page.locator('.skyline-continue[data-focus="episode:s1e12"]').focus();
+    await tv.remote(415);
     await prepare(tv);
     await tv.page.evaluate(() => { window.appHarness.avplay.tick(5399000); window.appHarness.avplay.listener?.onstreamcompleted(); });
     await tv.page.getByRole("button", { name: "Play next", exact: true }).waitFor();
@@ -746,7 +747,8 @@ async function startEpisode(tv: Tv, playback: FakePlayback, catalog: FakeCatalog
     assert.ok(household !== undefined);
     household.sections[0]?.items.push(id);
     await signIn(tv);
-    await tv.page.locator(`.skyline-continue[data-focus="${id}"]`).first().click();
+    await tv.page.locator(`.skyline-continue[data-focus="${id}"]`).first().focus();
+    await tv.remote(415);
     await prepare(tv);
 }
 
@@ -913,7 +915,8 @@ appTest("saved server profile 15/45 reaches the composed controller and every re
     await tv.remote(10009);
     await tv.page.locator('.settings').waitFor({ state: 'detached' });
     playback.next.push({ durationSeconds: 200, timeline: { source_start_seconds: 100, player_start_seconds: 100, timeline_offset_seconds: 0 } });
-    await tv.page.locator('.skyline-continue[data-focus="movie:m0001"]').click();
+    await tv.page.locator('.skyline-continue[data-focus="movie:m0001"]').focus();
+    await tv.remote(415);
     await prepare(tv);
     assert.equal(await tv.page.locator('[data-view^="item:"]').count(), 0);
     const position = () => tv.page.getByRole("slider").getAttribute("aria-valuenow");
@@ -960,7 +963,8 @@ appTest("the composed app signs in, selects a profile, plays and returns to the 
 appTest("Home Continue uses the existing app player owner once and returns without replaying", async (tv, playback) => {
     await signIn(tv);
     const detail = tv.fake.hold("/catalog/items/movie%3Am0001", true);
-    await tv.page.locator('.skyline-continue[data-focus="movie:m0001"]').click();
+    await tv.page.locator('.skyline-continue[data-focus="movie:m0001"]').focus();
+    await tv.remote(415);
     await tv.page.locator('[data-view="resume:loading"]').waitFor();
     assert.equal(await tv.page.locator('[data-view^="item:"]').count(), 0);
     detail.release();
@@ -981,7 +985,8 @@ appTest("Home Continue uses the existing app player owner once and returns witho
 appTest("Home Continue keeps an unreadable playback source in the existing error owner without resending", async (tv, playback) => {
     await signIn(tv);
     playback.next.push({ terminal: "source_unreadable" });
-    await tv.page.locator('.skyline-continue[data-focus="movie:m0001"]').click();
+    await tv.page.locator('.skyline-continue[data-focus="movie:m0001"]').focus();
+    await tv.remote(415);
     await tv.page.locator('.player-error').waitFor();
     assert.equal(await tv.page.locator('[data-view^="item:"]').count(), 0);
     await tv.jump(30000);

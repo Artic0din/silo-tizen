@@ -10,7 +10,7 @@ import type { DetailsState } from "./detailsState.ts";
 import { SessionError, SessionRefreshError } from "../session/session.ts";
 import type { FocusTarget, View } from "./browseFocus.ts";
 import { itemView, seasonView } from "./browseDetails.ts";
-import { searchCardDestination, type EpisodeSelection, type PlayRequest, type SeriesContext } from "./browseModel.ts";
+import { browseCardDestination, type EpisodeSelection, type PlayRequest, type SeriesContext } from "./browseModel.ts";
 import type { CalendarState } from "./calendarState.ts";
 import { calendarView, type CalendarHandlers } from "./calendarView.ts";
 import { actionButton, FAILURE_ICON, homeView, lines, pagedGrid, type SearchResults, searchState, searchView, statusView, type ViewContext, zoneNode } from "./browseViews.ts";
@@ -243,8 +243,7 @@ function grid(current: Route, pages: Pages, page: CatalogPage, handlers: RouteHa
  * Select opens the card's detail route. It does not use the shared episode play shortcut.
  */
 function searchCards(context: ViewContext): ViewContext {
-    const { playEpisode: _playEpisode, ...browse } = context;
-    return { ...browse, overlays: context.cardOverlays?.(), posterWidth: 220 * (context.posterScale?.() ?? 1), cardDestination: searchCardDestination };
+    return { ...context, overlays: context.cardOverlays?.(), posterWidth: 220 * (context.posterScale?.() ?? 1), cardDestination: browseCardDestination };
 }
 
 function searchResults(current: Extract<Route, { kind: "search" }>, handlers: RouteHandlers): SearchResults {

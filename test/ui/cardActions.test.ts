@@ -175,7 +175,8 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             assert.equal(await menu(tv).count(), 0, "modal Back precedes Skyline capture");
             assert.equal(await tv.focused(), "movie:m0001");
             await tv.page.keyboard.press("Enter");
-            await tv.eventually(async () => continuing ? await tv.page.evaluate(() => window.browseHarness.plays.length === 1) : await tv.page.locator('.browse').getAttribute("data-view") === "item:movie:m0001", "one short activation");
+            await tv.eventually(async () => await tv.page.locator('.browse').getAttribute("data-view") === "item:movie:m0001", "short Select opens Details on either row");
+            assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays), []);
             assert.deepEqual(tv.console, []);
         } finally { await tv.page.context().close(); }
     });

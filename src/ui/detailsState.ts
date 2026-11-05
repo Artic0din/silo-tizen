@@ -1,5 +1,6 @@
 // Optional Details reads and explicit personal writes. The route owns and stops this work.
 import { ApiError } from "../api/errors.ts";
+import { shufflePick } from "../player/nextShuffle.ts";
 import type { RequestSpec } from "../api/http.ts";
 import { detailOperations, type PersonalAction } from "../api/detailOperations.ts";
 import { operations } from "../api/operations.ts";
@@ -8,7 +9,7 @@ import { playChoices, type PlayRequest } from "./browseModel.ts";
 import type { Clock } from "../api/clock.ts";
 import type { NativeSession } from "../session/session.ts";
 import { readSettingsCapability, readTitleArt } from "./presentationSettings.ts";
-import { RatingState } from "./ratingState.ts";
+import { ADVISORY_KEY } from "../contracts/v2/settingsRows.ts";
 import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
 import { SeriesEpisodes } from "./seriesEpisodes.ts";
 import { freshPlayPosition } from "./playbackPreparation.ts";
@@ -16,6 +17,7 @@ import { PreplayAudioPreference } from "./preplayAudioPreference.ts";
 import { PreplayTrackPreference } from "./preplayTrackPreference.ts";
 import { subtitlePreferenceOperations, type SubtitlePreferencePick, type SubtitlePreference } from "../api/subtitlePreferenceOperations.ts";
 import { matchesSubtitle, preferredCatalogSubtitle } from "../player/preplaySubtitles.ts";
+import { DescriptionTranslations, type ItemDescriptionTranslation } from "./descriptionTranslation.ts";
 
 export interface PersonalChange {
     readonly target: boolean;
@@ -26,13 +28,14 @@ export interface PersonalChange {
 const EPISODE_PREFETCH_CONCURRENCY = 4;
 
 export class DetailsState {
-    readonly rating: RatingState;
+    showAdvisoryAge = false;
+    readonly descriptions: ItemDescriptionTranslation | undefined;
     readonly audioPreference: PreplayAudioPreference;
     readonly subtitlePreference: PreplayTrackPreference<SubtitlePreferencePick, SubtitlePreference>;
     series: SeriesEpisodes | undefined;
     detail: ItemDetail;
     selectedFileId: string | undefined;
-    panel: "audio" | "version" | "subtitles" | "more" | "rating" | undefined;
+    panel: "audio" | "version" | "subtitles" | "more" | undefined;
     get audioOpen(): boolean { return this.panel === "audio"; }
     preparingPlay = false;
     failedPlay: PlayRequest | undefined;
@@ -48,17 +51,26 @@ export class DetailsState {
     private episodeWorkers = 0;
     private episodeEpoch = 0;
     private episodeController: AbortController | undefined;
+    private pendingEpisodePanel: { id: string; panel: "audio" | "subtitles" | "version" } | undefined;
     private episodePreferenceDirty = false;
     private episodePreferenceSource: string | undefined;
     get unsettledEpisode(): DetailsState | undefined {
         return [...this.episodeStates.values(), ...this.previousEpisodeStates.values()].find(state => state.audioPreference.pending || state.audioPreference.failed || state.subtitlePreference.pending || state.subtitlePreference.failed);
     }
     get episodePreferencesBlocked(): boolean { return this.unsettledEpisode !== undefined; }
-    get playbackTargetId(): string | undefined { return this.focusedEpisodeId ?? this.detail.playContentId; }
+    get playbackTargetId(): string | undefined {
+        const episodes = this.series?.episodes;
+        if (this.series?.selectionOwnsHero) return episodes?.[0]?.id;
+        return this.focusedEpisodeId ?? (episodes?.find(episode => episode.inProgress) ?? episodes?.find(episode => !episode.played) ?? episodes?.[0])?.id ?? this.detail.playContentId;
+    }
+    get heroEpisodeId(): string | undefined { return this.series?.selectionOwnsHero ? this.series.episodes?.[0]?.id : this.focusedEpisodeId; }
     nextEpisodeLoading = false;
     nextEpisodeFailed = false;
     extraPending: string | undefined;
     extraFailed: string | undefined;
+    shuffleSupported = false;
+    shuffleStarting = false;
+    shuffleFailed = false;
     private full = false;
     private audioPick: { fileId: string; ordinal: number; inventory: string } | undefined;
     private audioAuto = false;
@@ -79,13 +91,37 @@ export class DetailsState {
     private readonly watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>;
     private readonly pendingElsewhere: () => boolean;
 
-    constructor(detail: ItemDetail, session: NativeSession, changed: (returnKey?: string) => void, watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>, pendingElsewhere: () => boolean = () => false) {
+    constructor(detail: ItemDetail, session: NativeSession, changed: (returnKey?: string) => void, watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>, pendingElsewhere: () => boolean = () => false, translations?: DescriptionTranslations) {
         this.detail = detail;
         this.session = session;
+        this.descriptions = translations?.open({
+            detail: () => this.detail,
+            season: () => {
+                const series = this.series;
+                const number = series?.seasonNumber;
+                if (series === undefined || number === undefined) return undefined;
+                const season = series.seasons.find((item) => item.seasonNumber === number);
+                return season === undefined ? undefined : { id: season.id, number };
+            },
+            episodes: () => this.series?.episodes,
+            seriesId: () => this.detail.type === "series" ? this.detail.id : undefined,
+            replaceDetail: (next) => {
+                if (this.controller === undefined || this.controller.signal.aborted || next.id !== this.detail.id) return true;
+                this.detail = next;
+                this.changed();
+                return next.pendingTranslationLanguage === undefined;
+            },
+            replaceEpisodes: (season, episodes) => {
+                const series = this.series;
+                if (series === undefined || series.seasonNumber !== season) return true;
+                series.publishTranslatedEpisodes(season, episodes);
+                return !episodes.some((episode) => episode.pendingTranslationLanguage !== undefined);
+            },
+            changed: () => this.changed(),
+        });
         this.changed = changed;
         this.watchedChanged = watchedChanged;
         this.pendingElsewhere = pendingElsewhere;
-        this.rating = new RatingState(session, detail.id, () => this.changed(), () => this.pending || this.pendingElsewhere());
         this.audioPreference = new PreplayAudioPreference(session, detail.seriesId || detail.id, () => this.changed(), async signal => {
             const refreshed = await session.call({ ...operations.getCatalogItem(detail.id), profileScoped: true, signal });
             if (refreshed.id !== detail.id) throw new Error("Audio readback item mismatch");
@@ -103,17 +139,19 @@ export class DetailsState {
         if (detail.played !== undefined && ["movie", "episode", "series", "season"].includes(detail.type)) this.values.set("watched", detail.played);
     }
 
-    get pending(): boolean { return [...this.changes.values()].some(change => change.pending); }
-    get busy(): boolean { return this.pending || this.rating.pending || this.pendingElsewhere() || this.episodePreferencesBlocked; }
+    get pending(): boolean { return [...this.changes.values()].some(change => change.pending) || [...this.seasonStates.values()].some(state => state.pending); }
+    readonly seasonStates = new Map<number, DetailsState>();
+    private aggregateWatched: boolean | undefined;
+    get busy(): boolean { return this.pending || this.pendingElsewhere() || this.episodePreferencesBlocked; }
 
     start(mode: "full" | "personal" | "playback" = "full"): void {
         if (this.controller !== undefined) return;
         this.controller = new AbortController();
+        for (const state of this.seasonStates.values()) state.start("personal");
         if (["movie", "episode"].includes(this.detail.type)) this.audioPreference.start();
         if (["movie", "episode"].includes(this.detail.type)) this.subtitlePreference.start();
         this.full = mode === "full";
         if (this.full && this.episodePreferenceDirty) this.episodePreferenceChanged(this);
-        if (mode === "full" && ["movie", "series"].includes(this.detail.type)) this.rating.start();
         this.stopAuthority = this.session.onAuthorityChange(() => { this.stop(); this.changed(); });
         if (mode === "playback") return;
         this.nextEpisodeState?.start("playback");
@@ -122,6 +160,22 @@ export class DetailsState {
         if (mode === "full") this.series?.start();
         if (mode === "full") this.warmSeriesEpisodes();
         if (mode === "full") this.loadTitleArt();
+        if (mode === "full") {
+            const controller = this.controller;
+            void this.read(operations.effectiveSettings([ADVISORY_KEY]), controller).then(values => {
+                if (!this.current(controller)) return;
+                this.showAdvisoryAge = values.get(ADVISORY_KEY)?.value === true;
+                this.changed();
+            }, () => { /* Missing advisory preferences keep the optional badge hidden. */ });
+        }
+        if (mode === "full" && this.detail.type === "series") {
+            const controller = this.controller;
+            void this.read(operations.shuffleCapabilities(), controller).then(capability => {
+                if (!this.current(controller)) return;
+                this.shuffleSupported = capability.usable && capability.scopeKinds.includes("series");
+                this.changed();
+            }, () => undefined);
+        }
         if (mode === "full" && this.nextEpisode === undefined && !this.nextEpisodeFailed) this.loadNextEpisode();
         let interrupted = false;
         for (const [kind, change] of this.changes) {
@@ -133,9 +187,14 @@ export class DetailsState {
         if (interrupted) this.changed();
         if (mode === "full" && this.related === undefined) this.loadRelated();
         if (this.personalSupported === undefined) this.loadPersonal();
+        if (this.full && this.controller !== undefined) this.descriptions?.attach(this.controller.signal);
     }
 
     stop(): void {
+        this.pendingEpisodePanel = undefined;
+        this.shuffleStarting = false;
+        for (const state of this.seasonStates.values()) state.stop();
+        this.descriptions?.stop();
         this.extraPending = undefined;
         this.episodeEpoch++;
         this.episodeController?.abort();
@@ -147,7 +206,6 @@ export class DetailsState {
         this.episodeWorkers = 0;
         this.audioPreference.stop();
         this.subtitlePreference.stop();
-        this.rating.stop();
         this.series?.stop();
         this.controller?.abort();
         this.controller = undefined;
@@ -230,11 +288,22 @@ export class DetailsState {
         return `file:${pick.fileId}:audio:${pick.ordinal}`;
     }
 
-    showPanel(panel: NonNullable<DetailsState["panel"]>): void { this.panel = panel; this.changed(); }
+    showPanel(panel: NonNullable<DetailsState["panel"]>): void {
+        if (panel !== "more" && this.detail.type === "series" && (this.nextEpisodeFailed || this.episodePreferencesBlocked || this.nextEpisode !== undefined && playChoices(this.nextEpisode, this.nextEpisodeState?.selectedFileId) === undefined)) return;
+        this.pendingEpisodePanel = undefined;
+        const id = this.playbackTargetId;
+        if (panel !== "more" && this.detail.type === "series" && this.nextEpisode === undefined && id !== undefined) {
+            this.pendingEpisodePanel = { id, panel };
+            this.loadNextEpisode();
+            return;
+        }
+        this.panel = panel; this.changed();
+    }
     closePanel(): void {
+        this.pendingEpisodePanel = undefined;
         const panel = this.panel;
-        this.panel = panel === "rating" ? "more" : undefined;
-        this.changed(panel === "rating" ? "rate" : panel);
+        this.panel = undefined;
+        this.changed(panel);
     }
     showAudio(): void { this.showPanel("audio"); }
     closeAudio(): void { this.closePanel(); }
@@ -331,6 +400,29 @@ export class DetailsState {
         });
     }
 
+    startShuffle(handoff: (request: PlayRequest) => void): void {
+        const controller = this.controller;
+        if (controller === undefined || !this.shuffleSupported || this.shuffleStarting || this.detail.type !== "series") return;
+        this.shuffleStarting = true;
+        this.shuffleFailed = false;
+        this.changed();
+        void (async () => {
+            try {
+                const shuffle = await this.session.call({ ...operations.createShuffle(this.detail.id, "series"), profileScoped: true, replayAfterRefresh: false, signal: controller.signal });
+                if (!this.current(controller)) return;
+                const request = await shufflePick(spec => this.read(spec, controller), shuffle);
+                if (!this.current(controller)) return;
+                if (request === undefined) throw new Error("Shuffle has no playable file");
+                this.closePanel();
+                handoff(request);
+            } catch {
+                if (this.current(controller)) this.shuffleFailed = true;
+            } finally {
+                if (this.current(controller)) { this.shuffleStarting = false; this.changed(); }
+            }
+        })();
+    }
+
     private read<T>(spec: RequestSpec<T>, controller: AbortController): Promise<T> {
         return this.session.call({ ...spec, profileScoped: true, signal: controller.signal });
     }
@@ -347,24 +439,52 @@ export class DetailsState {
         this.changed();
     }
 
-    warmSeriesEpisodes(): void {
+    warmSeriesEpisodes(translate = true): void {
         if (!["series", "season"].includes(this.detail.type)) return;
-        if (this.series?.focusSelectedEpisode && this.series.episodes !== undefined) {
-            this.focusedEpisodeId = this.series.entryEpisode;
+        const season = this.series?.seasons.find(season => season.seasonNumber === this.series?.seasonNumber);
+        if (season !== undefined && (this.aggregateWatched !== undefined || season.userData !== undefined) && !this.seasonStates.has(season.seasonNumber)) {
+            const owner = new DetailsState({ ...this.detail, id: season.id, type: "season", seriesId: this.detail.id, seasonNumber: season.seasonNumber, played: this.aggregateWatched ?? season.userData?.played },
+                this.session, () => this.changed(), (detail, signal) => this.seasonWatchedChanged(detail, signal),
+                () => this.pending || this.pendingElsewhere());
+            this.seasonStates.set(season.seasonNumber, owner);
+            owner.start("personal");
         }
-        if (this.detail.playContentId !== undefined) this.queueEpisode(this.detail.playContentId);
-        if (this.series?.episodes !== undefined && this.focusedEpisodeId !== undefined && !this.series.episodes.some(episode => episode.id === this.focusedEpisodeId)) this.focusedEpisodeId = undefined;
-        for (const episode of this.series?.episodes ?? []) this.queueEpisode(episode.id);
+        // A pill selection applies once, while it still owns the hero. Episode
+        // focus and Show Series Info clear that ownership; a later refresh must
+        // not put the season's first episode back. TVSeriesDetailView.swift:740-745.
+        if (this.series?.focusSelectedEpisode && this.series.selectionOwnsHero) {
+            this.focusedEpisodeId = this.series.episodes?.[0]?.id;
+        }
+        if (this.series?.railEpisodes !== undefined && this.focusedEpisodeId !== undefined && !this.series.railEpisodes.some(episode => episode.id === this.focusedEpisodeId)) this.focusedEpisodeId = undefined;
+        const target = this.playbackTargetId;
+        if (target !== undefined && !this.series?.selectionOwnsHero && this.focusedEpisodeId === undefined) this.queueEpisode(target);
         this.syncEpisode();
         this.changed();
+        this.descriptions?.consider(translate);
     }
 
     focusEpisode(id: string): void {
-        if (this.focusedEpisodeId === id || !this.series?.episodes?.some(episode => episode.id === id)) return;
+        if (this.focusedEpisodeId === id || !this.series?.railEpisodes?.some(episode => episode.id === id)) return;
         this.focusedEpisodeId = id;
         // Focus only selects a preloaded owner. Reads belong to season acceptance and explicit Retry.
         this.syncEpisode();
         this.changed();
+    }
+
+    private async seasonWatchedChanged(detail: ItemDetail, signal: AbortSignal): Promise<void> {
+        await this.watchedChanged(detail, signal);
+        const [series, seasons] = await Promise.all([
+            this.session.call({ ...operations.getCatalogItem(this.detail.id), profileScoped: true, signal }),
+            this.session.call({ ...operations.listSeriesSeasons(this.detail.id), profileScoped: true, signal }),
+        ]);
+        if (series.id !== this.detail.id || series.played === undefined) throw new Error("Series watch state missing");
+        if (signal.aborted) return;
+        this.invalidateEpisodes();
+        this.detail = series;
+        this.values.set("watched", series.played);
+        this.aggregateWatched = undefined;
+        if (this.series !== undefined) this.series.seasons = seasons;
+        this.warmSeriesEpisodes();
     }
 
     cachedEpisode(id: string): DetailsState | undefined { return this.episodeStates.get(id); }
@@ -387,7 +507,22 @@ export class DetailsState {
         else owner.subtitlePreference.retry();
     }
 
-    showSeriesOverview(): void { this.focusedEpisodeId = undefined; this.syncEpisode(); this.closePanel(); }
+    showSeriesOverview(): void {
+        this.focusedEpisodeId = undefined;
+        if (this.series !== undefined) this.series.selectionOwnsHero = false;
+        this.warmSeriesEpisodes(); this.closePanel();
+    }
+
+    restoreSeasonStates(previous: DetailsState | undefined): void {
+        for (const [number, prior] of previous?.seasonStates ?? []) {
+            const season = this.series?.seasons.find(season => season.seasonNumber === number);
+            if (season === undefined) continue;
+            const owner = new DetailsState({ ...prior.detail, played: season.userData?.played }, this.session, () => this.changed(),
+                (detail, signal) => this.seasonWatchedChanged(detail, signal), () => this.pending || this.pendingElsewhere());
+            for (const [kind, change] of prior.changes) owner.changes.set(kind, { ...change, pending: false, failed: true });
+            this.seasonStates.set(number, owner);
+        }
+    }
 
     private syncEpisode(): void {
         const id = this.playbackTargetId;
@@ -427,6 +562,11 @@ export class DetailsState {
                 this.episodeWorkers--;
                 this.episodeReads.delete(id);
                 this.syncEpisode();
+                const pending = this.pendingEpisodePanel;
+                if (pending?.id === id) {
+                    this.pendingEpisodePanel = undefined;
+                    if (this.playbackTargetId === id && this.nextEpisode !== undefined) this.panel = pending.panel;
+                }
                 this.changed();
                 this.drainEpisodes();
             });
@@ -452,7 +592,7 @@ export class DetailsState {
         if (this.episodePreferenceDirty && !this.episodePreferencesBlocked && this.controller !== undefined) {
             this.episodePreferenceDirty = false;
             const owners = new Map([...this.previousEpisodeStates, ...this.episodeStates]);
-            const ids = [...new Set([...owners.keys(), ...this.episodeReads, ...(this.series?.episodes ?? []).map(episode => episode.id)])];
+            const ids = [...new Set([...owners.keys(), ...this.episodeReads])];
             for (const [episodeId, owner] of owners) {
                 if (episodeId !== this.episodePreferenceSource) {
                     owner.audioPick = undefined; owner.subtitlePick = undefined;
@@ -530,13 +670,13 @@ export class DetailsState {
         this.changed();
         const run = async (): Promise<void> => {
             if (reconcile) {
-                const actual = await this.refresh(kind, controller);
+                const actual = await this.refresh(kind, controller, target, false);
                 if (!this.current(controller) || actual === target) return;
             }
             if (!this.current(controller)) return;
             await this.session.call({ ...detailOperations.setPersonal(kind, this.detail.id, target), profileScoped: true, replayAfterRefresh: false, signal: controller.signal });
             if (!this.current(controller)) return;
-            const actual = await this.refresh(kind, controller);
+            const actual = await this.refresh(kind, controller, target, true);
             if (actual !== target) throw new Error("Personal state was not applied");
         };
         run().then(() => {
@@ -550,15 +690,43 @@ export class DetailsState {
         });
     }
 
-    private async refresh(kind: PersonalAction, controller: AbortController): Promise<boolean> {
+    private async refresh(kind: PersonalAction, controller: AbortController, requested = false, writeAccepted = false): Promise<boolean> {
         if (kind === "watched") {
             const detail = await this.read(operations.getCatalogItem(this.detail.id), controller);
             if (detail.id !== this.detail.id || detail.played === undefined) throw new Error("Watch state missing");
             if (!this.current(controller)) return detail.played;
             await this.watchedChanged(detail, controller.signal);
             if (this.current(controller)) {
+                // Series played:false only means the show is incomplete. Copy it onto seasons
+                // after that write was accepted, or when the read shows the whole series watched.
+                // A lost unwatched answer is separate: the series was fully watched and this read
+                // matches that request, so the write took effect. Refresh the seasons already
+                // loaded from their rollups, and drop the series aggregate so a season opened
+                // later uses the rollup it was read with. Do that before accepting the read; if
+                // the refresh fails, the series stays watched and Retry can try again.
+                const unwatchedLanded = detail.type === "series" && !writeAccepted && requested === false && detail.played === false && this.values.get(kind) === true;
+                const rollups = unwatchedLanded ? await this.read(operations.listSeriesSeasons(this.detail.id), controller) : undefined;
+                if (!this.current(controller)) return detail.played;
                 this.detail = detail;
                 this.values.set(kind, detail.played);
+                if (detail.type === "series" && detail.played === requested && (detail.played === true || writeAccepted)) {
+                    this.aggregateWatched = detail.played;
+                    for (const owner of this.seasonStates.values()) {
+                        owner.values.set("watched", detail.played);
+                        owner.detail = { ...owner.detail, played: detail.played };
+                        owner.changes.delete("watched");
+                    }
+                } else if (rollups !== undefined) {
+                    if (this.series !== undefined) this.series.seasons = rollups;
+                    this.aggregateWatched = undefined;
+                    for (const [number, owner] of this.seasonStates) {
+                        const played = rollups.find(season => season.seasonNumber === number)?.userData?.played;
+                        if (played === undefined) continue;
+                        owner.values.set("watched", played);
+                        owner.detail = { ...owner.detail, played };
+                        owner.changes.delete("watched");
+                    }
+                }
                 this.invalidateEpisodes();
                 this.focusedEpisodeId = undefined;
                 this.nextEpisode = undefined;

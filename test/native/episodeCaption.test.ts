@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { spawnSync } from "node:child_process";
 import { episodeAirDate, episodeRuntime } from "../../src/ui/episodeCaption.ts";
 
 test("episode captions format local calendar dates without shifting the day", () => {
@@ -15,4 +16,12 @@ test("episode runtimes use Apple's hours and minutes and omit unknown runtimes",
     assert.equal(episodeRuntime(60), "1h 0m");
     assert.equal(episodeRuntime(92), "1h 32m");
     assert.equal(episodeRuntime(0), undefined);
+});
+
+test("September uses Apple's medium-date abbreviation", () => {
+    const module = new URL("../../src/ui/episodeCaption.ts", import.meta.url).href;
+    const script = `import { episodeAirDate } from ${JSON.stringify(module)}; process.stdout.write(episodeAirDate("2026-09-05"));`;
+    const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script], { env: { ...process.env, LANG: "en_AU.UTF-8", LC_ALL: "en_AU.UTF-8" }, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, "5 Sep 2026");
 });

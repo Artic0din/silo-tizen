@@ -217,6 +217,7 @@ export function decodeDeviceLoginStart(value: unknown): DeviceLoginStart {
 }
 
 export interface AccountSummary {
+    readonly role?: string;
     readonly id: string;
     readonly username: string;
     readonly passwordChangeRequired: boolean;
@@ -225,6 +226,7 @@ export interface AccountSummary {
 function decodeAccount(value: unknown, path: string): AccountSummary {
     const obj = object(value, path);
     return {
+        ...(obj.role === undefined ? {} : { role: string(obj, "role", path) }),
         id: nonEmptyString(obj, "id", path),
         username: string(obj, "username", path),
         passwordChangeRequired: boolean(obj, "password_change_required", path),

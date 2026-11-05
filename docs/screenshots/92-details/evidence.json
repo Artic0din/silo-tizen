@@ -70,7 +70,7 @@
         },
         {
           "key": "version",
-          "label": "Version: 1080p \u00b7 h264 \u00b7 eac3",
+          "label": "Version: 1080p · h264 · eac3",
           "rect": {
             "x": 406,
             "y": 499,
@@ -212,7 +212,7 @@
         },
         {
           "key": "version",
-          "label": "Version: 1080p \u00b7 h264 \u00b7 eac3",
+          "label": "Version: 1080p · h264 · eac3",
           "rect": {
             "x": 406,
             "y": 499,
@@ -354,7 +354,7 @@
         },
         {
           "key": "version",
-          "label": "Version: 1080p \u00b7 h264 \u00b7 eac3",
+          "label": "Version: 1080p · h264 · eac3",
           "rect": {
             "x": 406,
             "y": 499,
@@ -496,7 +496,7 @@
         },
         {
           "key": "version",
-          "label": "Version: 1080p \u00b7 h264 \u00b7 eac3",
+          "label": "Version: 1080p · h264 · eac3",
           "rect": {
             "x": 406,
             "y": 499,
@@ -638,149 +638,7 @@
         },
         {
           "key": "version",
-          "label": "Version: 1080p \u00b7 h264 \u00b7 eac3",
-          "rect": {
-            "x": 406,
-            "y": 499,
-            "width": 76,
-            "height": 76,
-            "top": 499,
-            "right": 482,
-            "bottom": 575,
-            "left": 406
-          }
-        },
-        {
-          "key": "audio",
-          "label": "Audio: Auto",
-          "rect": {
-            "x": 500,
-            "y": 499,
-            "width": 76,
-            "height": 76,
-            "top": 499,
-            "right": 576,
-            "bottom": 575,
-            "left": 500
-          }
-        },
-        {
-          "key": "subtitles",
-          "label": "Subtitles: Auto",
-          "rect": {
-            "x": 594,
-            "y": 499,
-            "width": 76,
-            "height": 76,
-            "top": 499,
-            "right": 670,
-            "bottom": 575,
-            "left": 594
-          }
-        },
-        {
-          "key": "watchlist",
-          "label": "Add to watchlist",
-          "rect": {
-            "x": 688,
-            "y": 499,
-            "width": 76,
-            "height": 76,
-            "top": 499,
-            "right": 764,
-            "bottom": 575,
-            "left": 688
-          }
-        },
-        {
-          "key": "more",
-          "label": "More",
-          "rect": {
-            "x": 782,
-            "y": 499,
-            "width": 76,
-            "height": 76,
-            "top": 499,
-            "right": 858,
-            "bottom": 575,
-            "left": 782
-          }
-        }
-      ],
-      "dialogCount": 1,
-      "inertChildren": 8,
-      "seasons": [],
-      "episodeCount": 0
-    },
-    {
-      "label": "r4-valid-rating-dialog",
-      "source": "602adac960eff4235420d93f8fb80631fd4f1022",
-      "capturedAt": "2026-11-03T10:08:35.479Z",
-      "view": "item:movie-tmdb-1561726:rating",
-      "focus": "rating:1",
-      "resources": [
-        {
-          "name": "main.js",
-          "sha256": "ac3db5aed0238fbce43c6124f953d34c472aa45cf4c52a4e086eedb6169a7f45"
-        },
-        {
-          "name": "main.css",
-          "sha256": "ca57f2768d2a289c664b69cb30b9a6729dd4e8556ff39bec82c87a57f8fabd5a",
-          "rendererCssomSha256": "007012af614a8190b0d1a300ba9b533e469f0b3fab7c50d9c7ee17f22f8a03ac",
-          "rules": 665,
-          "verification": "Renderer CSSOM equals packaged stylesheet parsed by the same engine"
-        }
-      ],
-      "cast": [
-        {
-          "x": 96,
-          "y": 752,
-          "width": 200,
-          "height": 200,
-          "top": 752,
-          "right": 296,
-          "bottom": 952,
-          "left": 96
-        },
-        {
-          "x": 356,
-          "y": 752,
-          "width": 200,
-          "height": 200,
-          "top": 752,
-          "right": 556,
-          "bottom": 952,
-          "left": 356
-        },
-        {
-          "x": 616,
-          "y": 752,
-          "width": 200,
-          "height": 200,
-          "top": 752,
-          "right": 816,
-          "bottom": 952,
-          "left": 616
-        }
-      ],
-      "actions": [
-        {
-          "key": "play",
-          "label": "Play",
-          "rect": {
-            "x": 88,
-            "y": 499,
-            "width": 300,
-            "height": 76,
-            "top": 499,
-            "right": 388,
-            "bottom": 575,
-            "left": 88
-          }
-        },
-        {
-          "key": "version",
-          "label": "Version: 1080p \u00b7 h264 \u00b7 eac3",
+          "label": "Version: 1080p · h264 · eac3",
           "rect": {
             "x": 406,
             "y": 499,
@@ -1122,7 +980,7 @@
         },
         {
           "key": "version",
-          "label": "Version: 720p \u00b7 h264 \u00b7 aac",
+          "label": "Version: 720p · h264 · aac",
           "rect": {
             "x": 406,
             "y": 472.09375,
@@ -1353,16 +1211,6 @@
       "view": "item:series-tvdb-324126",
       "focus": "episode-tvdb-324126-2-2",
       "catalogReadCount": 0
-    },
-    {
-      "label": "r4-valid-rating-return",
-      "keys": [
-        "back",
-        "back"
-      ],
-      "view": "item:movie-tmdb-1561726",
-      "focus": "more",
-      "catalogReadCount": 0
     }
   ],
   "assets": [
@@ -1453,19 +1301,6 @@
       "name": "movie-dialog-focus.mp4",
       "sha256": "17b0293f17449bfdd7f09add28450216dc87b2fd7a16700d160db7f98042fd48",
       "bytes": 1412917
-    },
-    {
-      "name": "rating.png",
-      "sha256": "49be9444226c7a59e50c2a561a7378a5934b98b23aa9a5158ec20c2d29e1a91d",
-      "bytes": 1037190,
-      "pngChunks": [
-        "IHDR",
-        "iCCP",
-        "IDAT",
-        "IEND"
-      ],
-      "width": 1920,
-      "height": 1080
     },
     {
       "name": "series-entry.png",

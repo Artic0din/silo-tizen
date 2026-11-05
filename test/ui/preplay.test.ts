@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakePlayback } from "../native/support/fakePlayback.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, pauseTvClock, readLive, type Tv } from "./support/tv.ts";
 import { object } from "../../src/contracts/v2/wire.ts";
 
 class AudioPreferenceDetails extends FakeDetails {
@@ -199,8 +199,7 @@ for (const destination of ["series", "season"]) preplay(`${destination} Resume r
     playback.items.set("episode:s1e11", ["42"]);
     await series(tv);
     if (destination === "season") {
-        await tv.page.locator('[data-focus="more"]').click();
-        await tv.page.locator('[data-focus="season-info"]').click();
+        await tv.page.locator('[data-focus="series:s1-S1"]').click();
     }
     await tv.page.getByRole("button", { name: "Resume S1:E1", exact: true }).waitFor();
     const path = "/watch/episode%3As1e11?file_id=42";
@@ -229,8 +228,7 @@ for (const destination of ["series", "season"]) preplay(`${destination} keeps an
     playback.items.set("episode:s1e11", ["42"]);
     await series(tv);
     if (destination === "season") {
-        await tv.page.locator('[data-focus="more"]').click();
-        await tv.page.locator('[data-focus="season-info"]').click();
+        await tv.page.locator('[data-focus="series:s1-S1"]').click();
     }
     await tv.page.locator('[data-focus="version"]').click();
     await tv.page.locator('[data-focus="version:42"]').click();
@@ -640,6 +638,7 @@ preplay("malformed watch offers a reachable retry without fabricating playback",
 });
 
 preplay("bounded unavailable watch uses cached progress once and ignores a late success", async (tv) => {
+    await pauseTvClock(tv);
     const held = tv.fake.hold(WATCH, true);
     await tv.page.locator('[data-focus="resume"]').click();
     await tv.eventually(async () => tv.fake.requests.some(r => r.path === WATCH), "watch read");
@@ -675,23 +674,25 @@ for (const reduced of [false, true]) {
         await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
         await tv.page.locator('[data-focus="audio"]').click();
         assert.equal(await tv.focused(), "audio:auto");
-        const visible = () => tv.page.evaluate(() => {
-            const panel = document.querySelector<HTMLElement>(".details-audio-picker");
+        const visible = (scrolled: boolean, what: string) => readLive(tv, () => {
+            const panel = document.querySelector(".details-audio-picker");
             const option = document.activeElement;
-            if (panel === null || !(option instanceof HTMLElement)) throw new Error("audio focus missing");
-            const p = panel.getBoundingClientRect();
-            const o = option.getBoundingClientRect();
-            return { visible: o.top >= p.top && o.bottom <= p.bottom, scrollTop: panel.scrollTop };
-        });
+            if (!(panel instanceof HTMLElement) || !(option instanceof HTMLElement) || !panel.isConnected || !option.isConnected) return null;
+            const bounds = panel.getBoundingClientRect();
+            const optionBounds = option.getBoundingClientRect();
+            return { visible: optionBounds.top >= bounds.top && optionBounds.bottom <= bounds.bottom, scrollTop: panel.scrollTop };
+        }, null, value => value.visible && (!scrolled || value.scrollTop > 0), what);
         for (let index = 0; index < 16; index++) await tv.remote(40);
         await tv.jump(250);
         assert.equal(await tv.focused(), "audio:15");
-        assert.equal((await visible()).visible, true, "the focused final track is inside the picker viewport");
-        assert.ok((await visible()).scrollTop > 0);
+        const finalTrack = await visible(true, "the focused final track is inside the picker viewport");
+        assert.equal(finalTrack.visible, true, "the focused final track is inside the picker viewport");
+        assert.ok(finalTrack.scrollTop > 0);
         for (let index = 0; index < 16; index++) await tv.remote(38);
         await tv.jump(250);
         assert.equal(await tv.focused(), "audio:auto");
-        assert.equal((await visible()).visible, true, "Auto is visible again after moving upward");
+        const autoTrack = await visible(false, "Auto is visible again after moving upward");
+        assert.equal(autoTrack.visible, true, "Auto is visible again after moving upward");
         await tv.remote(10009);
         assert.equal(await tv.focused(), "audio");
         assert.equal(starts(tv).length, 0);

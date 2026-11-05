@@ -95,7 +95,7 @@ File pointers are repository-relative.
 | Related titles | 🟡 | ✅ | ✅ | Series page shows "Could not load related titles" (#90). Apple: `TVSimilarRail` |
 | Person page (bio, age, photo, filmography preview) | ✅ | ✅ | ✅ | Layout parity open (#102). Android: `TvPersonDetailScreen` |
 | Full filmography (All, Movies, Series) | ✅ | ✅ | ✅ | Server-filtered, paged. Android: filter chips on `TvPersonDetailScreen`. Apple: `TVPersonDetailContent` with `PersonFilterBar`, paged |
-| Trailers | ➖ | ✅ | ✅ | Server gives a site key, not an AVPlay stream URL. Apple: `TVTrailersRail`. Android: `TvDetailTrailersSection` |
+| Trailers | 🟡 | ✅ | ✅ | Movie and series Details show YouTube cards in Trailers & More. Select stays on the card: AVPlay cannot play them, and a Samsung YouTube handoff is unproven. Apple: `TVTrailersRail`. Android: `TvDetailTrailersSection` |
 | Local extras | ✅ | ✅ | ✅ | Tizen's Trailers & More plays local extras from zero; absent embedded file IDs resolve through catalog versions, with Retry, cancellation and Back restoration. Fake-server/AVPlay tests pass; native playback and comparison remain pending. Apple: `TVTrailersRail`. Android: `TvDetailTrailersSection`, played from `TvItemDetailScreen` |
 | Synopsis dialog | ✅ | ➖ | ✅ | Android: `TvExpandableSynopsis`. Apple: `TVHeroSynopsis` is a non-focusable 3-line clamp, no dialog |
 
@@ -165,7 +165,7 @@ File pointers are repository-relative.
 | Text subtitles (VTT/SRT, ASS dialogue) in an app overlay | ✅ | ✅ | ✅ | Captions not yet verified on a TV or simulator (#80). Android: Media3 `SubtitleManager` |
 | Embedded subtitle burn-in | ✅ | ✅ | ✅ | Server burns in when transcoding is allowed. Android: server plans render, convert or burn-in. Apple: server burn-in (`needsBurnIn`) |
 | ASS styling, bitmap subtitles | ➖ | ✅ | ✅ | Apple: ASS renderer ([`docs/tvos-player/ass-subtitles.md`](https://github.com/Silo-Server/silo-apple/blob/main/docs/tvos-player/ass-subtitles.md)). Android: libass in the TV player (`AndroidTvModule`) and PGS bitmap cues (`PgsSupExtractor`) |
-| Profile subtitle appearance and sync offset applied | ✅ | ✅ | ✅ | Read-only; no editor (see Settings) |
+| Profile subtitle appearance and sync offset applied | ✅ | ✅ | ✅ | Appearance has a profile/device editor in Settings; sync offset remains in the player |
 | Series subtitle choice (keep or Off) | ✅ | ✅ | ✅ | Apple: `TrackSelectionPersistence` saves per-series picks, including Off. Android: `SeriesTrackChoiceWriter` saves manual picks automatically; Tizen saves from a menu action |
 | Subtitle labels by language | 🟡 | ✅ | ✅ | #77. Android: `subtitleChoiceLabel`. Apple: `TrackLabels`, used by `TVPlaybackSelectorRow` |
 | AI subtitle translate / transcribe (quota-aware) | ✅ | ✅ | ✅ | Retry and duplicate-job fixes open (#83). Android: `TvAiTranslateDialog` |
@@ -175,12 +175,12 @@ File pointers are repository-relative.
 
 | Feature | Tizen | Apple TV | Android TV | Notes |
 |---|:---:|:---:|:---:|---|
-| Settings categories | 🟡 | ✅ | ✅ | Tizen: General, Playback, Server. Apple adds Subtitles and Diagnostics (#104). Android: General, Playback, Subtitles, Diagnostics, Server (`TvSettingsCategory`) |
+| Settings categories | 🟡 | ✅ | ✅ | Tizen: General, Playback, Subtitles, Server; Diagnostics is owned by #137. Android: General, Playback, Subtitles, Diagnostics, Server (`TvSettingsCategory`) |
 | Hidden libraries | ✅ | ✅ | ✅ | Apple: `HiddenLibraryPreference` applied in `TVMainTabView`; no tvOS editor. Android: `TvMainShell` leaves hidden libraries out |
 | Preferred audio, quality, maximum bitrate, seek intervals | ✅ | ✅ | ✅ | Server-confirmed writes |
 | Autoplay, Next Up, Skip Intros, Skip Credits switches | ➖ | ✅ | ✅ | Tizen reads autoplay but never writes it |
-| Episode spoiler protection (hide unwatched stills and descriptions) | ➖ | ✅ | ✅ | Apple: `TVPlaybackSettingsView`. Android: `TvSettingsScreen` |
-| Subtitle settings (language, behaviour, appearance) | ➖ | ✅ | ✅ | Apple: `TVSubtitleSettingsView` |
+| Episode spoiler protection (hide unwatched stills and descriptions) | ✅ | ✅ | ✅ | Apple: `TVPlaybackSettingsView`. Android: `TvSettingsScreen` |
+| Subtitle settings (language, behaviour, appearance) | 🟡 | ✅ | ✅ | Profile language/behaviour, metadata language and profile/device appearance; OS subtitle accessibility settings are unavailable |
 | HDR, Dolby Vision, buffering, lossless audio, deinterlacing | ➖ | ✅ | 🟡 | Android has Dolby Vision, Force HDR Passthrough, buffering quality and frame-rate matching; lossless audio and deinterlacing settings not found |
 | Poster size, advisory age, theme music, Show Audiobooks | ➖ | ✅ | 🟡 | Tizen honours the saved poster size but has no editor. Android has Poster Size, Theme Music and Show Audiobooks; advisory age not found |
 | Acknowledgements (TMDB and open source) | ✅ | ✅ | ➖ | Android: Settings → Server → About shows App Version and Privacy Policy only |

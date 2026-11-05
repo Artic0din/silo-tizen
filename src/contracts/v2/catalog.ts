@@ -3,6 +3,7 @@
 // Handwritten from openapi.json at the commit in ./SOURCE; not generated. Unknown members are
 // ignored and unknown item or library types decode to "unknown", so additive changes keep working.
 
+import { translationMembers } from "./descriptionTranslation.ts";
 import { boolean, integer, nonEmptyString, object, optionalString, string, WireError } from "./wire.ts";
 import { decodeDetailExtras, type DetailExtras } from "./details.ts";
 import { decodeAudioTracks, type AudioTrackInfo } from "./playback.ts";
@@ -131,6 +132,10 @@ export interface Card {
     readonly played?: boolean | undefined;
     /** Title logo art (`logo_url`); shown only where the profile's title-art setting allows. */
     readonly logoUrl?: string | undefined;
+    /** True when the poster is an episode still. Absent means unknown. */
+    readonly posterIsEpisodeStill?: boolean;
+    /** True when the backdrop is an episode still. Absent means unknown. */
+    readonly backdropIsEpisodeStill?: boolean;
     /** Fields the card overlay badges and the marquee rating read. */
     readonly ratingImdb?: number | undefined;
     readonly ratingTmdb?: number | undefined;
@@ -151,6 +156,10 @@ export interface Card {
     readonly seriesTitle: string | undefined;
     readonly seasonNumber: number | undefined;
     readonly episodeNumber: number | undefined;
+    /** Set while this card's description is missing in the profile's metadata language. */
+    readonly pendingTranslationLanguage?: string;
+    /** Localized fields an AI translation wrote. `overview` is what the marquee labels. */
+    readonly machineTranslatedFields?: readonly string[];
 }
 
 export interface CardOverlay {
@@ -212,10 +221,13 @@ export function decodeCard(value: unknown, path: string): Card {
         title: string(obj, "title", path),
         year: optionalInteger(obj, "year", path),
         posterUrl: optionalString(obj, "poster_url", path),
+        ...(obj.poster_is_episode_still === undefined ? {} : { posterIsEpisodeStill: boolean(obj, "poster_is_episode_still", path) }),
+        ...(obj.backdrop_is_episode_still === undefined ? {} : { backdropIsEpisodeStill: boolean(obj, "backdrop_is_episode_still", path) }),
         seriesId: optionalString(obj, "series_id", path),
         seriesTitle: optionalString(obj, "series_title", path),
         seasonNumber: optionalInteger(obj, "season_number", path),
         episodeNumber: optionalInteger(obj, "episode_number", path),
+        ...translationMembers(obj, path),
     };
 }
 
@@ -325,13 +337,18 @@ export interface PlayableFile {
 
 export interface WatchState {
     readonly played: boolean;
+    /** Present only when the wire object includes `is_in_progress`. */
+    readonly isInProgress?: boolean;
     readonly positionSeconds: number | undefined;
     readonly lastFileId: string | undefined;
 }
 
 export interface ItemDetail {
+    readonly advisoryAge?: number | undefined;
     readonly airDate?: string | undefined;
     readonly extras?: readonly LocalExtra[];
+    /** Remote provider videos. Absent on the wire decodes as an empty list. */
+    readonly videos: readonly ItemVideo[];
     readonly played: boolean | undefined;
     readonly extra?: DetailExtras;
     readonly id: string;
@@ -344,7 +361,9 @@ export interface ItemDetail {
     readonly contentRating: string | undefined;
     readonly genres: readonly string[];
     readonly posterUrl: string | undefined;
+    readonly posterIsEpisodeStill?: boolean;
     readonly backdropUrl: string | undefined;
+    readonly backdropIsEpisodeStill?: boolean;
     readonly durationSeconds: number | undefined;
     readonly seriesId: string | undefined;
     readonly seriesTitle: string | undefined;
@@ -354,6 +373,8 @@ export interface ItemDetail {
     readonly playContentId: string | undefined;
     readonly versions: readonly PlayableFile[];
     readonly watch: WatchState | undefined;
+    readonly pendingTranslationLanguage?: string;
+    readonly machineTranslatedFields?: readonly string[];
 }
 
 export interface LocalExtra {
@@ -363,6 +384,33 @@ export interface LocalExtra {
     readonly title: string | undefined;
     readonly durationSeconds: number | undefined;
     readonly stillUrl: string | undefined;
+}
+
+/** Remote provider video (`ItemVideoInfo`). `site` + `siteKey` identify the clip. */
+export interface ItemVideo {
+    readonly isOfficial: boolean;
+    readonly kind: string;
+    readonly language: string | undefined;
+    readonly name: string | undefined;
+    readonly site: string;
+    readonly siteKey: string;
+}
+
+function decodeVideos(obj: WireObject): ItemVideo[] {
+    if (obj.videos === undefined) return [];
+    return array(obj, "videos", "item_detail").map((entry, index) => {
+        const path = `item_detail.videos[${index}]`, video = object(entry, path);
+        // OpenAPI requires is_official. Apple still defaults a missing flag so one
+        // omitted boolean cannot reject the whole detail (ItemVideo.init).
+        return {
+            isOfficial: video.is_official === undefined ? false : boolean(video, "is_official", path),
+            kind: string(video, "kind", path),
+            language: optionalString(video, "language", path),
+            name: optionalString(video, "name", path),
+            site: string(video, "site", path),
+            siteKey: string(video, "site_key", path),
+        };
+    });
 }
 
 function decodeExtras(obj: WireObject): LocalExtra[] {
@@ -382,6 +430,7 @@ function decodeWatch(value: unknown, path: string): WatchState | undefined {
     const obj = object(value, path);
     return {
         played: boolean(obj, "played", path),
+        ...(obj.is_in_progress === undefined ? {} : { isInProgress: boolean(obj, "is_in_progress", path) }),
         positionSeconds: optionalNumber(obj, "position_seconds", path),
         lastFileId: optionalString(obj, "last_file_id", path),
     };
@@ -392,9 +441,11 @@ export function decodeItemDetail(value: unknown): ItemDetail {
     const obj = object(value, path);
     const watch = decodeWatch(obj.user_data, `${path}.user_data`);
     return {
+        advisoryAge: optionalInteger(obj, "advisory_age", path),
         played: obj.user_state === undefined ? watch?.played : boolean(object(obj.user_state, `${path}.user_state`), "played", `${path}.user_state`),
         extra: decodeDetailExtras(value),
         extras: decodeExtras(obj),
+        videos: decodeVideos(obj),
         airDate: optionalString(obj, "air_date", path),
         id: string(obj, "content_id", path),
         type: oneOf(string(obj, "type", path), CARD_TYPES),
@@ -406,7 +457,9 @@ export function decodeItemDetail(value: unknown): ItemDetail {
         contentRating: optionalString(obj, "content_rating", path),
         genres: stringArray(obj, "genres", path),
         posterUrl: optionalString(obj, "poster_url", path),
+        ...(obj.poster_is_episode_still === undefined ? {} : { posterIsEpisodeStill: boolean(obj, "poster_is_episode_still", path) }),
         backdropUrl: optionalString(obj, "backdrop_url", path),
+        ...(obj.backdrop_is_episode_still === undefined ? {} : { backdropIsEpisodeStill: boolean(obj, "backdrop_is_episode_still", path) }),
         durationSeconds: optionalNumber(obj, "duration_seconds", path),
         seriesId: optionalString(obj, "series_id", path),
         seriesTitle: optionalString(obj, "series_title", path),
@@ -425,6 +478,7 @@ export function decodeItemDetail(value: unknown): ItemDetail {
             return { detailLabel, ...(obj.effective_subtitle_mode === undefined && obj.effective_subtitle_track_signature === undefined ? {} : { effectiveSubtitle: decodeSubtitlePreferences(obj, string(obj, "content_id", path), string(version, "file_id", versionPath), undefined) }), fileId: string(version, "file_id", versionPath), effectiveAudioTrackIndex: optionalInteger(version, "effective_audio_track_index", versionPath), durationSeconds: integer(version, "duration", versionPath), audio: decodeAudioTracks(version, versionPath), ...(version.subtitle_tracks === undefined ? {} : { subtitles: decodeCatalogSubtitles(version, versionPath) }), ...(version.audio_tracks === undefined ? {} : { audioMetadata: JSON.stringify(version.audio_tracks) }), ...(label === "" ? {} : { label }) };
         }),
         watch,
+        ...translationMembers(obj, path),
     };
 }
 
@@ -453,6 +507,8 @@ export interface Season {
     readonly title: string;
     readonly episodeCount: number;
     readonly posterUrl: string | undefined;
+    readonly pendingTranslationLanguage?: string;
+    readonly machineTranslatedFields?: readonly string[];
 }
 
 export function decodeSeasons(value: unknown): Season[] {
@@ -467,6 +523,7 @@ export function decodeSeasons(value: unknown): Season[] {
             title: string(obj, "title", path),
             episodeCount: integer(obj, "episode_count", path),
             posterUrl: optionalString(obj, "poster_url", path),
+            ...translationMembers(obj, path),
         };
     });
 }
@@ -474,6 +531,9 @@ export function decodeSeasons(value: unknown): Season[] {
 // --- listSeasonEpisodes ---
 
 export interface Episode {
+    /** Present only when episode `user_data` includes `position_seconds`. */
+    readonly positionSeconds?: number | undefined;
+    readonly durationSeconds?: number | undefined;
     readonly inProgress?: boolean;
     readonly airDate?: string | undefined;
     readonly overview?: string | undefined;
@@ -485,16 +545,27 @@ export interface Episode {
     readonly title: string;
     readonly runtimeMinutes: number;
     readonly stillUrl: string | undefined;
+    /** True when `stillUrl` is an episode still. Absent means unknown. */
+    readonly stillIsEpisodeStill?: boolean;
     readonly played: boolean;
+    /** Present only when episode `user_data` includes `is_in_progress`. */
+    readonly isInProgress?: boolean;
+    readonly pendingTranslationLanguage?: string;
+    readonly machineTranslatedFields?: readonly string[];
 }
 
 export function decodeEpisodes(value: unknown): Episode[] {
     return items(value, "episodes", (entry, path) => {
         const obj = object(entry, path);
+        const watch = decodeWatch(obj.user_data, `${path}.user_data`);
         const user = obj.user_data === undefined ? undefined : object(obj.user_data, `${path}.user_data`);
-        const inProgress = user !== undefined && (optionalInteger(user, "in_progress_count", `${path}.user_data`) ?? 0) > 0;
+        const inProgress = user?.is_in_progress === undefined ? false : boolean(user, "is_in_progress", `${path}.user_data`);
         return {
             ...(inProgress ? { inProgress: true } : {}),
+            ...(user === undefined ? {} : {
+                positionSeconds: watch?.positionSeconds,
+                durationSeconds: optionalNumber(user, "duration_seconds", `${path}.user_data`),
+            }),
             airDate: optionalString(obj, "air_date", path),
             overview: optionalString(obj, "overview", path),
             ratings: decodeDetailExtras(obj).ratings,
@@ -509,7 +580,10 @@ export function decodeEpisodes(value: unknown): Episode[] {
             title: string(obj, "title", path),
             runtimeMinutes: integer(obj, "runtime", path),
             stillUrl: optionalString(obj, "still_url", path),
-            played: decodeWatch(obj.user_data, `${path}.user_data`)?.played ?? false,
+            ...(obj.still_is_episode_still === undefined ? {} : { stillIsEpisodeStill: boolean(obj, "still_is_episode_still", path) }),
+            played: watch?.played ?? false,
+            ...(watch?.isInProgress === undefined ? {} : { isInProgress: watch.isInProgress }),
+            ...translationMembers(obj, path),
         };
     });
 }

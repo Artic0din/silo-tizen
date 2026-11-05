@@ -216,6 +216,8 @@ export function decodeLibraryCollections(value: unknown): LibraryCollections {
 
 export interface CatalogSearchCapabilities {
     readonly peopleMediaScope?: boolean | undefined;
+    /** `searchCatalogBoxSets` and `getCatalogBoxSet`. Absent on older servers. */
+    readonly boxSets?: boolean | undefined;
     readonly revision: string;
     readonly state: "available" | "disabled" | "not_configured" | "unsupported" | "unknown";
     readonly allowed: boolean;
@@ -235,6 +237,7 @@ export function decodeCatalogSearchCapabilities(value: unknown): CatalogSearchCa
         extendedQueryRules: optionalBoolean(obj, "extended_query_rules", path),
         videoWithEpisodesScope: optionalBoolean(obj, "video_with_episodes_scope", path),
         peopleMediaScope: optionalBoolean(obj, "people_media_scope", path),
+        boxSets: optionalBoolean(obj, "box_sets", path),
         provider: provider === undefined ? undefined : enumValue<"postgres" | "meilisearch">(provider, ["postgres", "meilisearch"]),
     };
 }

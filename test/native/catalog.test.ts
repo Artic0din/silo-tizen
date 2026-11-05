@@ -23,11 +23,33 @@ test("episode rows retain air date, overview and episode ratings", () => {
     assert.deepEqual(episodes[0]?.ratings, [{ name: "IMDb", display: "8.1" }]);
 });
 
+test("episode rows retain resume seconds from user data", () => {
+    const episode = { content_id: "episode:1", season_number: 1, episode_number: 2, title: "Pilot", runtime: 52 };
+    const decode = (user_data: Record<string, unknown>) => decodeEpisodes({ items: [{ ...episode, user_data }] })[0];
+    assert.equal(decode({ played: true, position_seconds: 60.5, duration_seconds: 240 })?.positionSeconds, 60.5);
+    assert.equal(decode({ played: true, position_seconds: 60.5, duration_seconds: 240 })?.durationSeconds, 240);
+    assert.throws(() => decode({ played: false, position_seconds: "60", duration_seconds: 240 }), WireError);
+    assert.throws(() => decode({ played: false, position_seconds: 60, duration_seconds: "240" }), WireError);
+});
+
 test("local extras retain authoritative watch targets and numeric file IDs", () => {
     const detail = decodeItemDetail({ ...fixture("get_catalog_item_ok"), extras: [{ content_id: "extra:1", file_id: 71, kind: "trailer", title: "Trailer", duration_seconds: 90, still_url: "/extra.jpg" }] });
     assert.deepEqual(detail.extras, [{ contentId: "extra:1", fileId: "71", kind: "trailer", title: "Trailer", durationSeconds: 90, stillUrl: "/extra.jpg" }]);
 });
-import { artworkUrl, clockTime, destinationOf, playChoices, resumeSeconds, visibleLibraries } from "../../src/ui/browseModel.ts";
+
+test("item videos keep the contract fields and a missing official flag does not reject the detail", () => {
+    const detail = decodeItemDetail({ ...fixture("get_catalog_item_ok"), videos: [
+        { kind: "trailer", site: "YouTube", site_key: "abc_def-1", name: "Official Trailer", language: "en", is_official: true },
+        { kind: "teaser", site: "vimeo", site_key: "v1" },
+    ] });
+    assert.deepEqual(detail.videos, [
+        { kind: "trailer", site: "YouTube", siteKey: "abc_def-1", name: "Official Trailer", language: "en", isOfficial: true },
+        { kind: "teaser", site: "vimeo", siteKey: "v1", name: undefined, language: undefined, isOfficial: false },
+    ]);
+    assert.deepEqual(decodeItemDetail(fixture("get_catalog_item_ok")).videos, []);
+    assert.throws(() => decodeItemDetail({ ...fixture("get_catalog_item_ok"), videos: [{ kind: "trailer", site: "youtube", site_key: "k", is_official: "yes" }] }), WireError);
+});
+import { artworkUrl, clockTime, destinationOf, playChoices, resumeSeconds, browseCardDestination, visibleLibraries } from "../../src/ui/browseModel.ts";
 import { moveWithin } from "../../src/ui/browseFocus.ts";
 import { fixture } from "./support/fakeSilo.ts";
 
@@ -182,6 +204,23 @@ test("Home keeps movies, series, seasons and episodes, and leaves other media ou
     assert.deepEqual(destinationOf({ ...card, type: "season", seriesId: "s", seasonNumber: 0 }), { kind: "season", id: "x", seriesId: "s", seasonNumber: 0, title: "X" });
     assert.equal(destinationOf({ ...card, type: "season" }), undefined, "a season without its series cannot open");
     assert.equal(destinationOf({ ...card, type: "unknown" }), undefined);
+});
+
+test("Search Select opens an episode or season on its series and leaves movies and series on themselves", () => {
+    const card = { id: "episode:s1e12", title: "Pilot", year: undefined, posterUrl: undefined, seriesId: "series:s1", seriesTitle: "Harbor Lights", seasonNumber: 1, episodeNumber: 2 };
+    assert.deepEqual(browseCardDestination({ ...card, type: "episode" }), {
+        kind: "item", id: "series:s1", title: "Harbor Lights", seriesContext: { seasonNumber: 1, episodeId: "episode:s1e12" },
+    });
+    assert.deepEqual(browseCardDestination({ ...card, type: "episode", seriesTitle: "  " }), {
+        kind: "item", id: "series:s1", title: "Pilot", seriesContext: { seasonNumber: 1, episodeId: "episode:s1e12" },
+    });
+    assert.deepEqual(browseCardDestination({ ...card, type: "episode", seriesId: " episode:s1e12 " }), { kind: "item", id: "episode:s1e12", title: "Pilot" });
+    assert.deepEqual(browseCardDestination({ ...card, id: "season:s1", type: "season", episodeNumber: undefined, title: "Season 1" }), {
+        kind: "item", id: "series:s1", title: "Harbor Lights", seriesContext: { seasonNumber: 1, episodeId: undefined },
+    });
+    assert.deepEqual(browseCardDestination({ ...card, id: "movie:heat", type: "movie", seriesId: undefined, title: "Heat" }), { kind: "item", id: "movie:heat", title: "Heat" });
+    assert.deepEqual(browseCardDestination({ ...card, id: "series:s1", type: "series", seriesId: undefined, title: "Harbor Lights" }), { kind: "item", id: "series:s1", title: "Harbor Lights" });
+    assert.equal(browseCardDestination({ ...card, type: "unknown" }), undefined);
 });
 
 test("libraries: video kinds in server order, minus the profile's own hidden list", () => {

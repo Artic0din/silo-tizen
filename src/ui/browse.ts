@@ -17,12 +17,14 @@ import { requestsState, type RequestsHandlers, type RequestsSource } from "./req
 import type { RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import { detailOperations } from "../api/detailOperations.ts";
+import { BOX_SET_SEARCH_LIMIT, boxSetOperations } from "../api/boxSetOperations.ts";
+import { BoxSetRowState } from "./boxSetRow.ts";
 import type { ItemDetail, UserLibrary } from "../contracts/v2/catalog.ts";
 import { DetailsState } from "./detailsState.ts";
+import { DescriptionTranslations } from "./descriptionTranslation.ts";
 import { freshPlayPosition } from "./playbackPreparation.ts";
 import { SeriesEpisodes } from "./seriesEpisodes.ts";
 import { CardActions } from "./cardActions.ts";
-import { Synopsis } from "./browseDetails.ts";
 import type { ConnectedServer } from "../session/core.ts";
 import type { PublicStorage } from "../session/deviceIdentity.ts";
 import { Skyline } from "./skyline.ts";
@@ -42,6 +44,7 @@ import { personQuery } from "./personFilmography.ts";
 import { mountSettings, type SettingsScreen } from "./settings.ts";
 import type { CardOverlayPrefs } from "./cardOverlays.ts";
 import { PresentationSettings } from "./presentationSettings.ts";
+import { EpisodeSpoilerPreferences } from "./episodeSpoilers.ts";
 import { NavigationSettings } from "./navigationSettings.ts";
 import { cachedBranding } from "./brandingCache.ts";
 import { getCalendar } from "../api/calendarOperations.ts";
@@ -110,6 +113,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         throw new Error("mountBrowse needs a selected profile");
     }
     const clock = options.clock ?? systemClock;
+    const translations = new DescriptionTranslations(session, clock);
     const container = el("div", "browse");
     root.appendChild(container);
     const host = new FocusHost(container);
@@ -151,10 +155,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
     applyCardSize();
     let shownOverlays: CardOverlayPrefs | undefined = presentation.cardOverlays;
+    let episodeSpoilers: EpisodeSpoilerPreferences | undefined;
     const previews = new WeakMap<Route, () => void>();
-    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, cardOverlays: () => presentation.cardOverlays, posterScale: () => presentation.posterScale, savedFileOverlay: card => homeDetails.savedFile(card)?.overlay, open: (destination) => open(destination), preview: (card, row, continuing) => {
+    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, cardOverlays: () => presentation.cardOverlays, posterScale: () => presentation.posterScale, spoilers: () => episodeSpoilers?.settings ?? { hidesImages: false, hidesOverviews: false }, savedFileOverlay: card => homeDetails.savedFile(card)?.overlay, open: (destination) => open(destination), preview: (card, row, continuing, featured) => {
         const current = top();
-        const preview = (): void => shell.preview(card, row, continuing);
+        const preview = (): void => shell.preview(card, row, continuing ?? false, featured === true);
         if (current !== undefined) previews.set(current, preview);
         preview();
     }, resume: (id, title) => {
@@ -163,7 +168,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const current = top();
         if ((current?.kind === "item" || current?.kind === "season") && current.data?.details?.episodePreferencesBlocked) return;
         if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title, episode: true, startOver: startOver === true, ...(selection === undefined ? {} : { selection }) }));
-    }, quickActions: card => {
+    }, quickActions: (card, play) => {
         const current = top();
         if (current === undefined || torn || playing || cardActions.active) return;
         shuffleGeneration++;
@@ -175,7 +180,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         cancelSlow();
         if (current.kind === "homeSection" || current.kind === "person" || current.kind === "personal") current.pendingIndex = undefined;
         menuOrigin = { route: current, focus: host.focused() };
-        cardActions.open(card);
+        cardActions.open(card, play);
     } };
     const input = el("input", "browse-input");
     input.id = "browse-search";
@@ -196,6 +201,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     container.addEventListener("scroll", () => { container.classList.toggle("search-scrolled", container.scrollTop >= SEARCH_TITLE_COLLAPSE_OFFSET); });
 
     let stack: Route[] = [];
+    const seriesSeasons = new Map<string, number>();
     let loading: AbortController | undefined;
     let personRead: { route: Route; controller: AbortController } | undefined;
     let personFilterGeneration = 0;
@@ -226,16 +232,27 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             render(origin.focus);
         }
     }, personalPending, card => open({ kind: "item", id: card.id, title: card.title }));
-    const synopsis = new Synopsis(container, () => {
-        const current = top();
-        const more = (current?.kind === "item" || current?.kind === "season") && current.data?.details?.panel === "more";
-        render({ zone: more ? "more" : "actions", key: "synopsis" });
-    });
     const stopDetails = (): void => {
-        synopsis.destroy(); detailWork?.stop(); detailWork = undefined;
+        detailWork?.stop(); detailWork = undefined;
         personRead?.controller.abort();
         if (personRead?.route.kind === "person") { personRead.route.metadataLoading = false; personRead.route.availabilityLoading = false; }
         personRead = undefined;
+        boxSetRowWork?.stop(); boxSetRowWork = undefined;
+    };
+    let boxSetRowWork: BoxSetRowState | undefined;
+    let boxSetsAnswer: Promise<boolean> | undefined;
+    const boxSetsSupported = (): Promise<boolean> => {
+        if (boxSetsAnswer !== undefined) return boxSetsAnswer;
+        const pending = session.call({ ...operations.getCatalogSearchCapabilities(), profileScoped: true }).then(capability => {
+            const yes = capability.boxSets === true;
+            boxSetsAnswer = Promise.resolve(yes);
+            return yes;
+        }, () => {
+            if (boxSetsAnswer === pending) boxSetsAnswer = undefined;
+            return false;
+        });
+        boxSetsAnswer = pending;
+        return pending;
     };
     let inputRevision = 0;
     const recordInput = (): void => { inputRevision++; container.classList.remove("search-restored"); };
@@ -245,6 +262,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const top = (): Route | undefined => stack[stack.length - 1];
     let requestsCapability: RequestsCapability = { enabled: false, follow: false };
     let searchPeopleController: AbortController | undefined;
+    let searchBoxSetController: AbortController | undefined;
     let searchRequestsController: AbortController | undefined;
     const acceptRequestsCapability = (capability: RequestsCapability): void => {
         requestsCapability = capability;
@@ -256,6 +274,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
     const stopSearchSupplement = (): void => {
         searchPeopleController?.abort(); searchPeopleController = undefined;
+        searchBoxSetController?.abort(); searchBoxSetController = undefined;
         searchRequestsController?.abort(); searchRequestsController = undefined;
     };
     const searchRequests = (current: Extract<Route, { kind: "search" }>): void => {
@@ -296,6 +315,52 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (!owns()) return;
             supplement.peoplePending = false; supplement.peopleFailure = true; render(host.focused());
         });
+    };
+    /** Box sets are movies, so only All and Movies ask. A failed read shows none and leaves titles alone. */
+    const searchBoxSets = (current: Extract<Route, { kind: "search" }>): void => {
+        searchBoxSetController?.abort();
+        const supplement = current.supplement ??= {};
+        const wants = current.boxSetsSupported === true && (current.filter === undefined || current.filter === "movie");
+        if (!wants) {
+            searchBoxSetController = undefined;
+            supplement.boxSets = [];
+            supplement.boxSetsPending = false;
+            return;
+        }
+        const query = current.query.trim();
+        if (query === "") {
+            searchBoxSetController = undefined;
+            supplement.boxSets = [];
+            supplement.boxSetsPending = false;
+            return;
+        }
+        const controller = new AbortController();
+        searchBoxSetController = controller;
+        supplement.boxSetsPending = true;
+        const owns = (): boolean => !torn && !controller.signal.aborted && top() === current && current.supplement === supplement && current.query.trim() === query && (current.filter === undefined || current.filter === "movie");
+        const miss = (): void => {
+            if (!owns()) return;
+            searchBoxSetController = undefined;
+            supplement.boxSets = [];
+            supplement.boxSetsPending = false;
+            render(host.focused());
+        };
+        // search() throws before a request exists. That miss stays here, as Apple's
+        // box-set task does, so the title search in load() is still sent.
+        let request: ReturnType<typeof boxSetOperations.search>;
+        try {
+            request = boxSetOperations.search(query, BOX_SET_SEARCH_LIMIT);
+        } catch {
+            miss();
+            return;
+        }
+        void read(request, controller.signal).then(found => {
+            if (!owns()) return;
+            searchBoxSetController = undefined;
+            supplement.boxSets = found.slice(0, BOX_SET_SEARCH_LIMIT);
+            supplement.boxSetsPending = false;
+            render(host.focused());
+        }, miss);
     };
     let probeOrdinal = 0;
     let requestWritePending = false;
@@ -474,8 +539,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             return;
         }
         torn = true;
+        translations.reset();
         stopSearchSupplement();
         presentation.stop();
+        episodeSpoilers?.stop();
         activeSection?.stop();
         if (activeBrowse !== undefined) stopFeed(activeBrowse);
         if (activePersonal !== undefined) stopFeed(activePersonal);
@@ -498,6 +565,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         document.removeEventListener("pointerdown", recordInput, true);
         stack = [];
         roots.clear();
+        seriesSeasons.clear();
         shell.destroy();
         host.destroy();
         if (container.parentNode === root) {
@@ -573,6 +641,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     return;
                 }
                 current.failure = text ?? "Something went wrong. Try again.";
+                if (current.kind === "search" && current.pages?.page === undefined) {
+                    searchBoxSetController?.abort();
+                    searchBoxSetController = undefined;
+                    if (current.supplement !== undefined) {
+                        current.supplement.boxSets = [];
+                        current.supplement.boxSetsPending = false;
+                    }
+                }
                 if (current.kind === "calendar") current.calendar.error = error instanceof CalendarTimezoneError ? { headline: "Something went wrong", message: error.message, signIn: false } : errorState(error);
                 if (current.kind === "personal") current.error = errorState(error);
                 if (current.kind === "requests") { current.requests.error = errorState(error); if (!current.requests.unconfirmed && !current.requests.writing) current.requests.action = undefined; }
@@ -642,7 +718,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const shownShell = shown?.kind === "home" || shown?.kind === "for_you" || shown?.kind === "library" || shown?.kind === "personal" || shown?.kind === "calendar";
             // The page in front has to take the new buttons. Calendar and For You can open
             // before this read finishes (TVMainTabView reconcileVisibleRootsChange, TVMainTabView.swift:1065).
-            if (!playing && shownShell && settingsScreen === undefined && !cardActions.active && !synopsis.active) render(focus);
+            if (!playing && shownShell && settingsScreen === undefined && !cardActions.active) render(focus);
         }, (error: unknown) => {
             if (signal.aborted || torn || (error instanceof ApiError && error.aborted)) return;
             if (error instanceof ApiError) {
@@ -674,6 +750,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const detailsChanged = (current: Route, returnKey?: string): void => {
         if (current.kind === "item" || current.kind === "season") {
             const details = current.data?.details;
+            for (const owner of details?.seasonStates.values() ?? []) if (owner.pending) invalidateWatched(current, owner.detail);
             if (details?.detail.type === "episode" && (details.audioPreference.pending || details.subtitlePreference.pending)) {
                 for (const entry of stack) {
                     if (entry.kind === "item" || entry.kind === "season") entry.data?.details?.noteEpisodePreference(details.detail.id, true, details.detail.seriesId);
@@ -692,7 +769,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
         if (top() === current) {
             if (cardActions.active) cardActions.render();
-            else render(returnKey === undefined ? undefined : { zone: returnKey === "rate" ? "more" : "actions", key: returnKey });
+            else {
+                const focus = host.focused();
+                const retry = focus?.key === "retry-episodes" && (current.kind === "item" || current.kind === "season") && current.data?.details?.series?.failed;
+                render(returnKey === undefined ? retry ? focus : undefined : { zone: "actions", key: returnKey });
+            }
         }
     };
 
@@ -720,6 +801,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (signal.aborted || top() !== current || current.data === undefined) return;
             current.data.episodes = episodes;
         }
+        if (current.kind === "item" && current.data?.detail.type === "movie") current.data.boxSet?.start();
         if (current.kind === "item" && current.data?.details?.series !== undefined) {
             const series = current.data.details.series;
             const season = series.seasonNumber;
@@ -831,11 +913,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }, quiet || current.pages.page !== undefined);
     };
     const morePersonal = (current: Extract<Route, { kind: "personal" }>): void => {
-        if (torn || playing || top() !== current || loading !== undefined || cardActions.active || synopsis.active || settingsScreen !== undefined || current.failure !== undefined || current.pages.page?.nextCursor === undefined) return;
+        if (torn || playing || top() !== current || loading !== undefined || cardActions.active || settingsScreen !== undefined || current.failure !== undefined || current.pages.page?.nextCursor === undefined) return;
         loadPersonal(current, true, true);
     };
     const moreBrowse = (current: Extract<Route, { kind: "library" }>): void => {
-        if (torn || playing || top() !== current || loading !== undefined || cardActions.active || synopsis.active || settingsScreen !== undefined || current.discovery?.panel !== undefined || shuffleFailure?.route === current || current.failure !== undefined || current.discovery?.snapshot?.page.nextCursor === undefined) return;
+        if (torn || playing || top() !== current || loading !== undefined || cardActions.active || settingsScreen !== undefined || current.discovery?.panel !== undefined || shuffleFailure?.route === current || current.failure !== undefined || current.discovery?.snapshot?.page.nextCursor === undefined) return;
         loadBrowse(current, true, true);
     };
     const changeBrowse = (current: Extract<Route, { kind: "library" }>, change: BrowseChange): void => {
@@ -1091,7 +1173,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             case "search":
                 search(current, quiet);
                 return;
-            case "item":
+            case "item": {
+                const previousRow = current.data?.boxSet;
                 stopDetails();
                 load(current, async (signal) => {
                     // Slots follow response fields: backdrop_width also sizes a still returned in backdrop_url.
@@ -1116,19 +1199,48 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                             if (top() === current && enter && episode !== undefined) { render({ zone: "seasons", key: `season:${details.series.seasonNumber}` }); return; }
                         }
                         detailsChanged(current, audioClosed);
-                    }, (detail, signal) => refreshWatched(current, detail, signal), personalPending);
+                    }, (detail, signal) => refreshWatched(current, detail, signal), personalPending, translations);
                     details.restore(previous);
-                    if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, () => details.warmSeriesEpisodes(), previous?.series?.seasonNumber ?? data.contextSeason, current.seriesContext?.episodeId);
-                    details.series?.restore(previous?.series);
+                    if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, reason => details.warmSeriesEpisodes(reason === "load"), previous?.series?.seasonNumber ?? data.contextSeason ?? (current.seriesContext === undefined ? seriesSeasons.get(data.detail.id) : undefined), current.seriesContext?.episodeId);
+                    details.series?.restore(previous?.series, true);
+                    details.restoreSeasonStates(previous);
+                    details.focusedEpisodeId ??= current.seriesContext?.episodeId;
                     details.related = quiet ? previous?.related : undefined;
                     current.data = { ...data, details };
                     detailWork = details;
                     details.start();
                     if (details.related !== undefined) details.loadRelated();
+                    if (data.detail.type === "movie") {
+                        const row = new BoxSetRowState(session, data.detail.id, boxSetsSupported, () => { if (top() === current && !playing) render(host.focused()); });
+                        row.restore(previousRow);
+                        row.open = found => { if (top() === current && !playing) push(newRoute({ kind: "boxSet", id: found.boxSet.id, libraryId: found.boxSet.libraryId, title: found.boxSet.title, data: undefined })); };
+                        current.data.boxSet = row;
+                        boxSetRowWork = row;
+                        row.start();
+                    }
                     const season = data.contextSeason;
-                    if (current.focus === undefined && season !== undefined && data.seasons.some(item => item.seasonNumber === season)) return { zone: "seasons", key: `season:${season}` };
+                    if (current.seriesContext?.episodeId === undefined && current.focus === undefined && season !== undefined && data.seasons.some(item => item.seasonNumber === season)) return { zone: "seasons", key: `season:${season}` };
                 }, quiet);
                 return;
+            }
+            case "boxSet": {
+                const had = current.data !== undefined;
+                load(current, async signal => {
+                    try {
+                        return await read(boxSetOperations.get(current.id, current.libraryId), signal);
+                    } catch (error) {
+                        if (signal.aborted || (error instanceof ApiError && error.aborted)) throw error;
+                        const missing = error instanceof ApiError && error.status === 404;
+                        if (!missing && current.data !== undefined) return current.data;
+                        if (missing) current.data = undefined;
+                        throw error;
+                    }
+                }, detail => {
+                    current.data = detail;
+                    if (had) return host.focused() ?? current.focus;
+                }, quiet || had);
+                return;
+            }
             case "season":
                 stopDetails();
                 load(current, async (signal) => {
@@ -1144,7 +1256,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     const previous = current.data?.details;
                     current.data = data;
                     if (data.detail !== undefined) {
-                        const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending);
+                        const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending, translations);
                         details.restore(previous);
                         current.data.details = details;
                         detailWork = details;
@@ -1275,10 +1387,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (!signal.aborted && top() === current && current.query === query) {
                     current.searchType = type;
                     current.peopleSupported = capability.allowed && capability.state === "available" && capability.peopleMediaScope === true;
+                    current.boxSetsSupported = capability.boxSets === true;
+                    boxSetsAnswer = Promise.resolve(current.boxSetsSupported);
                 }
             }
             if (signal.aborted || top() !== current || current.query !== query) throw new DOMException("Aborted", "AbortError");
             if (current.supplement?.people === undefined) searchPeople(current, current.filter ?? type);
+            if (current.supplement?.boxSetsPending !== false) searchBoxSets(current);
             return read(operations.listCatalogItems({ q: query.trim(), type: current.filter ?? type, limit: PAGE_SIZE, cursor: pages.cursors[index] }), signal);
         }, (page) => {
             pages.page = page;
@@ -1290,11 +1405,18 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     let searchReturnFocus: { readonly route: Extract<Route, { kind: "search" }>; readonly target: FocusTarget } | undefined;
+    /** All and Movies keep the cards already on screen until the replacement lookup answers. */
+    const resetSearchSupplement = (current: Extract<Route, { kind: "search" }>): void => {
+        const wants = current.boxSetsSupported === true && (current.filter === undefined || current.filter === "movie") && current.query.trim() !== "";
+        const shown = current.supplement?.boxSets;
+        const kept = wants && shown !== undefined && shown.length > 0 ? shown : undefined;
+        stopSearchSupplement();
+        current.supplement = kept === undefined ? {} : { boxSets: kept, boxSetsPending: true };
+    };
     const search = (current: Extract<Route, { kind: "search" }>, quiet = false): void => {
         searchReturnFocus = undefined;
         cancelSearch();
-        stopSearchSupplement();
-        current.supplement = {};
+        resetSearchSupplement(current);
         searchRequests(current);
         current.failure = undefined;
         if (current.query.trim() === "") {
@@ -1321,8 +1443,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         cancelSlow();
         current.slow = false;
         current.query = input.value;
-        stopSearchSupplement();
-        current.supplement = {};
+        resetSearchSupplement(current);
         render(host.focused());
         cancelSearch();
         // Only the replacement request is debounced; an obsolete read stops immediately.
@@ -1352,6 +1473,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         loading?.abort();
         loading = undefined;
         cancelSearch();
+        if (active?.kind === "item" && active.data?.details?.series?.seasonNumber !== undefined) seriesSeasons.set(active.id, active.data.details.series.seasonNumber);
         stack.pop();
         const current = top();
         if (current !== undefined) {
@@ -1361,6 +1483,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 current.stale = true;
             }
             const fromProfileMenu = (active?.kind === "requests" && active.requests.source.kind === "hub") || active?.kind === "personal";
+            if (current.kind === "item" && current.data?.details?.series !== undefined && (active?.kind === "season" || active?.kind === "item" && active.data?.detail.type === "episode")) {
+                const details = current.data.details, series = details.series;
+                details.focusedEpisodeId = undefined;
+                if (series !== undefined) { series.selectionOwnsHero = false; series.focusSelectedEpisode = false; }
+                current.focus = { zone: "actions", key: "next-episode" };
+                host.forgetVisit(`item:${current.id}`);
+            }
             showRoute(current, fromProfileMenu ? tabFocus(current) : current.focus);
         }
     };
@@ -1372,8 +1501,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const panel = (current?.kind === "item" || current?.kind === "season") ? current.data?.details?.panel : undefined;
         stopDetails();
         if (current !== undefined) {
-            current.focus = panel === undefined ? host.focused() : { zone: "actions", key: panel === "rating" ? "more" : panel };
+            current.focus = panel === undefined ? host.focused() : { zone: "actions", key: panel };
             if (current.kind === "homeSection" || current.kind === "person") current.pendingIndex = undefined;
+            if (current.kind === "boxSet") current.stale = true;
         }
         loading?.abort();
         loading = undefined;
@@ -1394,6 +1524,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (current.kind === "search") {
             input.value = current.query;
             if (current.supplement?.peoplePending && current.searchType !== undefined && current.query === current.resultsFor) searchPeople(current, current.filter ?? current.searchType);
+            if (current.supplement?.boxSetsPending === true && current.boxSetsSupported === true && current.query === current.resultsFor) searchBoxSets(current);
             if (current.supplement !== undefined && current.supplement.requests === undefined) current.supplement.requestsFor = undefined;
             searchRequests(current);
         }
@@ -1406,6 +1537,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (!hasData(current) || current.stale || current.failure !== undefined || queryChanged) {
             loadRoute(current, hasData(current) && !queryChanged);
             if (current.kind === "calendar") render(focus);
+        } else if (current.kind === "item" && current.data !== undefined && current.data.detail.type === "movie" && current.data.boxSet !== undefined) {
+            // push() stopped this read. The cached movie is not loaded again, so start it once.
+            boxSetRowWork = current.data.boxSet;
+            boxSetRowWork.start();
         } else if ((current.kind === "home" || current.kind === "for_you") && current.data !== undefined) {
             const sections = current.kind === "home" ? current.data.sections : current.data;
             homeDetails.load(homeRows(sections).flatMap(row => row.cards.map(card => ({ card, continuing: current.kind === "home" && row.continuing }))));
@@ -1417,6 +1552,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     const open = (destination: Destination): void => {
+        if (destination.kind === "item") host.forgetVisit(`item:${destination.id}`);
         if (destination.kind === "person") host.forgetVisit(`person:${destination.id}`);
         push(destination.kind === "item"
             ? newRoute({ kind: "item", id: destination.id, title: destination.title, ...(destination.seriesContext === undefined ? {} : { seriesContext: destination.seriesContext }), data: undefined })
@@ -1469,6 +1605,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         options.onChooseProfile();
     };
 
+    const detailVisits = new WeakMap<Route, string>();
+    let detailVisitSequence = 0;
     const render = (focus?: FocusTarget): void => {
         activeSection?.stop();
         if (activeBrowse !== undefined) stopFeed(activeBrowse);
@@ -1476,7 +1614,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         activeBrowse = undefined;
         cancelCalendarDay();
         const current = top();
-        if (current === undefined || torn || playing || synopsis.active || cardActions.active || settingsScreen !== undefined) {
+        if (current === undefined || torn || playing || cardActions.active || settingsScreen !== undefined) {
             return;
         }
         if (searchReturnFocus?.route === current && current.kind === "search" && current.supplement?.requests !== undefined) {
@@ -1495,7 +1633,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             loading?.abort(); loading = undefined; cancelSlow();
             route.filter = filter; route.pages = undefined; search(route);
         };
-        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, searchFilter, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, morePersonal, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: (current.kind === "library" || current.kind === "libraryResults" && current.source.kind === "collection") && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
+        const handlers = { context, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, searchFilter, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, morePersonal, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: (current.kind === "library" || current.kind === "libraryResults" && current.source.kind === "collection") && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
         container.classList.toggle("section-catalog", isSectionRoute(current) || current.kind === "recommendationSection");
         const browsing = current.kind === "library" && current.discovery?.mode === "Browse";
         container.classList.toggle("library-browse", browsing);
@@ -1516,7 +1654,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (isSectionRoute(current)) activeSection = sectionCatalog(current);
         const view = activeSection !== undefined && isSectionRoute(current)
             ? activeSection.view(current, context, loading !== undefined, pop, () => retry(current), () => {
-                if (top() !== current || torn || playing || loading !== undefined || cardActions.active || synopsis.active || settingsScreen !== undefined || current.failure !== undefined || current.pages.page?.nextCursor === undefined) return;
+                if (top() !== current || torn || playing || loading !== undefined || cardActions.active || settingsScreen !== undefined || current.failure !== undefined || current.pages.page?.nextCursor === undefined) return;
                 loadSection(current, true, true);
             }) : routeView(current, { ...handlers, retryPeople: route => {
                 if (top() !== route || route.searchType === undefined || route.query.trim() === "") return;
@@ -1540,7 +1678,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         } else {
             host.holdVisit();
             shell.hide();
-            host.show(view, focus);
+            if (current.kind === "item") {
+                let visitKey = detailVisits.get(current);
+                if (visitKey === undefined) {
+                    visitKey = `details-visit:${++detailVisitSequence}`;
+                    detailVisits.set(current, visitKey);
+                }
+                host.show({ ...view, visitKey: `${visitKey}:${view.name}` }, focus);
+            } else host.show(view, focus);
         }
     };
 
@@ -1801,6 +1946,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         name: options.profileName ?? "Profiles",
         serverName: () => cachedBranding(options.publicStorage, context.baseUrl)?.serverName,
         settings: () => {
+            const spoilersBeforeSettings = episodeSpoilers?.settings;
             stopSearchSupplement();
             shuffleGeneration++;
             stopDetails();
@@ -1833,7 +1979,17 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 host.listen();
                 const current = top();
                 if (current !== undefined) showRoute(current, tabFocus(current));
-            }, server.profileLaunch, options.onAccounts);
+                const spoilersAfterSettings = episodeSpoilers?.settings;
+                if (spoilersBeforeSettings?.hidesImages !== spoilersAfterSettings?.hidesImages || spoilersBeforeSettings?.hidesOverviews !== spoilersAfterSettings?.hidesOverviews) shell.repaint();
+            }, server.profileLaunch, {
+                profileName: options.profileName ?? "Profiles",
+                profileAvatarUrl: options.profileAvatarUrl,
+                accountName: session.account?.username,
+                switchProfile: chooseProfile,
+                serverName: cachedBranding(options.publicStorage, context.baseUrl)?.serverName,
+                ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
+                ...(options.onSwitchServer === undefined ? {} : { switchServer: options.onSwitchServer }),
+            }, options.onAccounts, episodeSpoilers);
         },
         personal: (source, anchor = "profiles") => {
             const origin = top();
@@ -1864,7 +2020,23 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             catch { return false; } // Optional dialog copy cannot block Browse; logout checks storage itself.
         })(),
     }, focus => render(focus), options.publicStorage, `silo.skyline.scope:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`, context.baseUrl);
+    shell.translations = translations;
+    translations.subscribeMode(() => { if (!torn) shell.armTranslation(); });
+    translations.cards.subscribe(() => { if (!torn) shell.refreshTranslation(); });
+    void translations.ensure();
     shell.titleArt = () => presentation.showsTitleArt;
+    episodeSpoilers = new EpisodeSpoilerPreferences(session, options.publicStorage);
+    shell.spoilers = () => episodeSpoilers?.settings ?? { hidesImages: false, hidesOverviews: false };
+    let shownSpoilers = episodeSpoilers.settings;
+    episodeSpoilers.subscribe(() => {
+        const next = episodeSpoilers?.settings;
+        if (next === undefined || (next.hidesImages === shownSpoilers.hidesImages && next.hidesOverviews === shownSpoilers.hidesOverviews)) return;
+        shownSpoilers = next;
+        if (torn || playing || settingsScreen !== undefined) return;
+        render(host.focused());
+        shell.repaint();
+    });
+    episodeSpoilers.start();
     const enrichedScene = (): boolean => { const current = top(); return current?.kind === "home" || current?.kind === "for_you" || (current?.kind === "library" && current.discovery?.mode === "Recommended"); };
     shell.details = (card, continuing) => !enrichedScene() ? { line: undefined, badges: undefined } : { line: homeDetails.detailLine(card.id), badges: continuing ? homeDetails.savedFile(card)?.badges : undefined };
     shell.filled = card => enrichedScene() ? homeDetails.filled(card) : card;

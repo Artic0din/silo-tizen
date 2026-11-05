@@ -81,6 +81,8 @@ export interface Tv {
     offline: boolean;
     /** Requests that failed as unreachable. */
     blocked: number;
+    /** API calls whose reply has not been delivered to the page. */
+    pendingReplies: number;
     /** Moves both clocks; due timers fire once, so one poll runs per step. */
     jump(ms: number): Promise<void>;
     /** Sends a key code the way the TV remote does (Back is 10009). */
@@ -123,6 +125,7 @@ export async function openTv(
         console: logs,
         offline: false,
         blocked: 0,
+        pendingReplies: 0,
         async jump(ms) {
             await clock.advance(ms);
             await page.clock.fastForward(ms);
@@ -201,25 +204,30 @@ export async function openTv(
             await route.fulfill({ status: 404 });
             return;
         }
-        const body = request.postData();
-        let response: Response;
+        tv.pendingReplies++;
         try {
-            response = await fake.fetch(request.url(), {
-                method: request.method(),
-                headers: await request.allHeaders(),
-                ...(body === null ? {} : { body }),
+            const body = request.postData();
+            let response: Response;
+            try {
+                response = await fake.fetch(request.url(), {
+                    method: request.method(),
+                    headers: await request.allHeaders(),
+                    ...(body === null ? {} : { body }),
+                });
+            } catch {
+                // The fake processed the request but lost its answer (dropNextAnswer).
+                await route.abort("connectionreset");
+                return;
+            }
+            const headers: Record<string, string> = {};
+            response.headers.forEach((value, key) => {
+                headers[key] = value;
             });
-        } catch {
-            // The fake processed the request but lost its answer (dropNextAnswer).
-            await route.abort("connectionreset");
-            return;
+            // The page may have abandoned the request while the fake held its answer.
+            await route.fulfill({ status: response.status, headers, body: await response.text() }).catch(() => undefined);
+        } finally {
+            tv.pendingReplies--;
         }
-        const headers: Record<string, string> = {};
-        response.headers.forEach((value, key) => {
-            headers[key] = value;
-        });
-        // The page may have abandoned the request while the fake held its answer.
-        await route.fulfill({ status: response.status, headers, body: await response.text() }).catch(() => undefined);
     });
     await page.clock.install({ time: clock.now() });
     await page.goto(`${origin}/tv/index.html${options.profiles === true ? "?flow=profiles" : ""}${options.production === true ? "#production" : options.sessionOnly === true ? "#session-only" : ""}`);
@@ -250,6 +258,14 @@ export async function readLive<T, Arg>(tv: Tv, read: (arg: Arg) => T | null, arg
     }
     if (last === null || !accept(last)) throw new Error(`timed out waiting for ${what}; last ${JSON.stringify(last)}`);
     return last;
+}
+
+/** Call before starting a deadline or intermediate animation under test. */
+export async function pauseTvClock(tv: Tv): Promise<void> {
+    // pauseAt advances existing timers; leave room for the protocol round trip
+    // before starting the timed action, then fastForward keeps the clock paused.
+    const protocolMarginMs = 1000;
+    await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now()) + protocolMarginMs);
 }
 
 /** The titles whose item detail was read, in request order. */

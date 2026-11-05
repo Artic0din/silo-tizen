@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Show Trailers & More on movie and series Details for local extras and YouTube listings, using Apple's card size and the 76px gap to the next heading. Local extras still play from the start. YouTube listings stay on their card because this TV cannot play them.
 - Added Change Account with several saved accounts per server and account management.
 
 ### Fixed

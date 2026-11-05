@@ -332,6 +332,8 @@ export interface WatchState {
 export interface ItemDetail {
     readonly airDate?: string | undefined;
     readonly extras?: readonly LocalExtra[];
+    /** Remote provider videos. Absent on the wire decodes as an empty list. */
+    readonly videos: readonly ItemVideo[];
     readonly played: boolean | undefined;
     readonly extra?: DetailExtras;
     readonly id: string;
@@ -365,6 +367,33 @@ export interface LocalExtra {
     readonly stillUrl: string | undefined;
 }
 
+/** Remote provider video (`ItemVideoInfo`). `site` + `siteKey` identify the clip. */
+export interface ItemVideo {
+    readonly isOfficial: boolean;
+    readonly kind: string;
+    readonly language: string | undefined;
+    readonly name: string | undefined;
+    readonly site: string;
+    readonly siteKey: string;
+}
+
+function decodeVideos(obj: WireObject): ItemVideo[] {
+    if (obj.videos === undefined) return [];
+    return array(obj, "videos", "item_detail").map((entry, index) => {
+        const path = `item_detail.videos[${index}]`, video = object(entry, path);
+        // OpenAPI requires is_official. Apple still defaults a missing flag so one
+        // omitted boolean cannot reject the whole detail (ItemVideo.init).
+        return {
+            isOfficial: video.is_official === undefined ? false : boolean(video, "is_official", path),
+            kind: string(video, "kind", path),
+            language: optionalString(video, "language", path),
+            name: optionalString(video, "name", path),
+            site: string(video, "site", path),
+            siteKey: string(video, "site_key", path),
+        };
+    });
+}
+
 function decodeExtras(obj: WireObject): LocalExtra[] {
     if (obj.extras === undefined) return [];
     return array(obj, "extras", "item_detail").map((entry, index) => {
@@ -395,6 +424,7 @@ export function decodeItemDetail(value: unknown): ItemDetail {
         played: obj.user_state === undefined ? watch?.played : boolean(object(obj.user_state, `${path}.user_state`), "played", `${path}.user_state`),
         extra: decodeDetailExtras(value),
         extras: decodeExtras(obj),
+        videos: decodeVideos(obj),
         airDate: optionalString(obj, "air_date", path),
         id: string(obj, "content_id", path),
         type: oneOf(string(obj, "type", path), CARD_TYPES),

@@ -29,13 +29,23 @@ function liveScroll(_arg: null): number | null {
     return row.scrollLeft;
 }
 
-/** Episode item reads are issued four at a time. Count focus only after every painted episode has been read. */
+/** Episode details are read four at a time. Count focus only after every painted episode's reply, and every read that reply starts, has finished. */
 async function settledEpisodePrefetch(tv: Tv): Promise<void> {
+    let stable = -1;
     await tv.eventually(async () => {
         const ids = await tv.page.locator('.details-episodes [data-focus^="episode:"]').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? ""));
-        if (ids.length === 0) return false;
         const read = new Set(tv.fake.requests.filter(request => request.path.startsWith("/catalog/items/")).map(request => decodeURIComponent((request.path.split("?")[0] ?? "").slice("/catalog/items/".length))));
-        return ids.every(id => read.has(id));
+        const count = tv.fake.requests.length;
+        if (ids.length === 0 || !ids.every(id => read.has(id)) || tv.pendingReplies !== 0) {
+            stable = -1;
+            return false;
+        }
+        // Same count on the next turn: a delivered reply did not record another read.
+        if (stable !== count) {
+            stable = count;
+            return false;
+        }
+        return true;
     }, "opening episode prefetches settled");
 }
 

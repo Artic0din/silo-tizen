@@ -17,9 +17,10 @@ import { heroBackdrop, type Tints } from "./heroBackdrop.ts";
 import type { LibraryMode } from "./libraryDiscovery.ts";
 import { PERSONAL_TITLES, type PersonalSource } from "./personalLists.ts";
 
-type VideoTab = "movies" | "series";
+type VideoTab = "movies" | "series" | "music";
 
 interface ProfileMenu {
+    readonly requests?: () => void;
     readonly settings?: () => void;
     readonly personal?: (source: PersonalSource, anchor?: "for_you" | "profiles") => void;
     readonly name: string;
@@ -29,7 +30,7 @@ interface ProfileMenu {
     readonly serverName?: () => string | undefined;
 }
 
-type RootTarget = "home" | "search" | "calendar" | "requests" | "for_you" | UserLibrary;
+type RootTarget = "home" | "search" | "calendar" | "for_you" | UserLibrary;
 
 function replaceNodes(container: HTMLElement, nodes: readonly HTMLElement[]): void {
     while (container.firstChild !== null) container.removeChild(container.firstChild);
@@ -69,8 +70,10 @@ function renderMetaLine(card: Card, continuing: boolean): HTMLElement {
 export class Skyline {
     private requestsEnabled = false;
     setRequestsEnabled(enabled: boolean): void {
+        if (this.requestsEnabled === enabled) return;
         this.requestsEnabled = enabled;
-        this.update(this.libraries);
+        if (this.profileOpen) this.openProfile();
+        else if (!enabled) this.selector.querySelector('[data-focus="requests"]')?.remove();
     }
 
     private routeBack: (() => void) | undefined;
@@ -168,18 +171,18 @@ export class Skyline {
         const roots = navigationRoots(this.menu, libraries, this.requestsEnabled);
         const identity = JSON.stringify(roots);
         if (identity === this.navigationIdentity || !this.selector.hidden) return;
+        const focusedKey = this.items.find((item) => item.element === document.activeElement)?.key;
         this.navigationIdentity = identity;
         this.close();
         const rootItems = roots.map(root => {
             const item = actionButton(root.key, root.title, () => {
-                if ("library" in root) { this.panelAnchor = root.key; this.commit(root.library); }
-                else if (root.key === "movies" || root.key === "series") {
+                if (root.key === "movies" || root.key === "series" || root.key === "music") {
                     const library = this.scope(root.key);
                     if (library !== undefined) this.commit({ ...library, type: root.key });
                 } else this.commit(root.key);
             });
             item.element.setAttribute("role", "tab");
-            if (root.key === "movies" || root.key === "series" || root.key === "for_you" || "library" in root) item.element.setAttribute("aria-haspopup", "menu");
+            if (root.key === "movies" || root.key === "series" || root.key === "for_you") item.element.setAttribute("aria-haspopup", "menu");
             return item;
         });
         const searchItem = actionButton("search", "", () => this.commit("search"));
@@ -196,12 +199,15 @@ export class Skyline {
         balance.setAttribute("aria-hidden", "true");
         replaceNodes(this.tabs, [searchItem.element, this.roots, balance]);
         replaceNodes(this.tools, this.items.slice(-1).map(item => item.element));
+        // Removing the focused tab moves focus to the next control, the first title. Put the same
+        // tab back when it is still in the strip, before that move can be recorded as content focus.
+        if (focusedKey !== undefined) this.items.find((item) => item.key === focusedKey)?.element.focus({ preventScroll: true });
     }
 
     setMenu(menu: PrimaryMenu | null): void { this.menu = menu; this.update(this.libraries); }
 
     private forType(type: VideoTab): readonly UserLibrary[] {
-        return this.libraries.filter((library) => library.type === type || library.type === "mixed");
+        return this.libraries.filter((library) => library.type === type || (type !== "music" && library.type === "mixed"));
     }
 
     private scope(type: VideoTab): UserLibrary | undefined {
@@ -229,13 +235,17 @@ export class Skyline {
 
     private commit(target: RootTarget, mode?: LibraryMode): void {
         if (!this.visible) return;
+        const anchor = this.panelAnchor;
         this.shortcutSelection = typeof target !== "string" && this.panelAnchor?.startsWith("library:") ? this.panelAnchor : undefined;
         if (typeof target !== "string") {
-            const type = this.panelTab ?? (target.type === "series" ? "series" : "movies");
+            const type = this.panelTab ?? (target.type === "series" ? "series" : target.type === "music" ? "music" : "movies");
             this.scopes.set(type, target.id);
             try { this.storage?.setItem(`${this.storageKey}:${type}`, target.id); } catch { /* Keep the selection for this session. */ }
         }
         this.close();
+        // Loading can briefly restore the tab before content takes focus.
+        this.dismissedAnchor = anchor;
+        this.cancelDwell();
         this.activate(target, mode);
     }
 
@@ -250,8 +260,8 @@ export class Skyline {
     }
 
     decorate(view: View, selected: string, preview: boolean, routeBack?: () => void, libraryKey?: string): View {
-        const libraryRoot = selected === "movies" || selected === "series";
-        if ((selected === "movies" || selected === "series") && this.shortcutSelection !== undefined && libraryKey?.startsWith(`${this.shortcutSelection}:`)) selected = this.shortcutSelection;
+        const libraryRoot = selected === "movies" || selected === "series" || selected === "music";
+        if ((selected === "movies" || selected === "series" || selected === "music") && this.shortcutSelection !== undefined && libraryKey?.startsWith(`${this.shortcutSelection}:`)) selected = this.shortcutSelection;
         this.routeBack = routeBack;
         this.visible = true;
         if (this.selected !== selected) this.immediatePreview = true;
@@ -266,6 +276,8 @@ export class Skyline {
         if (!this.selector.hidden) zones.push({ id: "selector", layout: this.confirmation ? "row" : "column", items: this.panel });
         if (!this.flyout.hidden) zones.push({ id: "flyout", layout: "column", items: this.flyoutItems });
         const prepare = (): void => {
+            // FocusHost has saved the viewport before child views move cached nodes.
+            view.prepare?.();
             this.container.classList.add("skyline-root");
             this.container.classList.toggle("skyline-preview", preview);
             this.container.classList.toggle("skyline-home", this.sharedScene);
@@ -491,7 +503,7 @@ export class Skyline {
             this.panel.push(this.menuItem("recommendations", "Recommendations", () => this.commit("for_you"), "Recommended"));
         } else {
             const shortcut = this.libraries.find(library => item.key === `library:${library.id}`);
-            const type = item.key === "series" || shortcut?.type === "series" ? "series" : "movies";
+            const type = item.key === "music" ? "music" : item.key === "series" || shortcut?.type === "series" ? "series" : "movies";
             this.panelTab = type;
             this.panelLibrary = shortcut;
             const libraries = this.forType(type);
@@ -602,13 +614,15 @@ export class Skyline {
         this.selector.setAttribute("aria-label", "Profile menu");
         this.panel = [this.menuItem("switch-profile", "Switch Profile", this.profiles.switchProfile)];
         const personal = this.profiles.personal;
-        if (personal !== undefined) for (const source of ["watchlist", "favorites", "history"] as const) {
+        if (personal !== undefined) for (const source of ["history"] as const) {
             this.panel.push(this.menuItem(source, PERSONAL_TITLES[source], () => { this.close(); personal(source); }));
         }
+        const requests = this.profiles.requests;
+        if (this.requestsEnabled && requests !== undefined) this.panel.push(this.menuItem("requests", "Requests", () => { this.close(); requests(); }));
         const settings = this.profiles.settings;
         if (settings !== undefined) this.panel.push(this.menuItem("settings", "Settings", () => { this.close(); settings(); }));
         const switchServer = this.profiles.switchServer;
-        if (switchServer !== undefined) this.panel.push(this.menuItem("switch-server", "Switch Server", switchServer));
+        if (switchServer !== undefined) this.panel.push(this.menuItem("switch-server", "Change Account", switchServer));
         if (this.profiles.signOut !== undefined) {
             const item = this.menuItem("signout", "Sign Out", () => this.confirmSignOut());
             item.element.classList.add("skyline-destructive");
@@ -661,7 +675,8 @@ export class Skyline {
     }
 
     private modeItems(library: UserLibrary, type: VideoTab): FocusItem[] {
-        return this.libraryModes.map(mode => {
+        // tvOS's cascade offers three destinations; legacy filters stay within Browse.
+        return (["Recommended", "Collections", "Browse"] as const).filter(mode => this.libraryModes.includes(mode)).map(mode => {
             const item = this.menuItem(`section:${mode === "Browse" ? "browse" : mode}`, mode, () => this.commit(this.panelAnchor === `library:${library.id}` ? library : { ...library, type }, mode), mode);
             item.element.setAttribute("role", "menuitem");
             return item;

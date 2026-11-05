@@ -19,13 +19,13 @@ const libraries = [
     { id: "7", name: "Films", type: "movies" as const, sortOrder: 0 },
     { id: "8", name: "Television", type: "series" as const, sortOrder: 1 },
 ];
-test("navigation uses Apple's default order and capability-owned Requests", () => {
-    assert.deepEqual(navigationRoots(null, libraries, true).map(root => root.key), ["home", "movies", "series", "for_you", "calendar", "requests"]);
+test("navigation uses Apple's fixed order and keeps Requests out of the bar", () => {
+    assert.deepEqual(navigationRoots(null, libraries, true).map(root => root.key), ["home", "movies", "series", "for_you", "calendar"]);
     assert.deepEqual(navigationRoots(null, [], false).map(root => root.key), ["home", "for_you", "calendar"]);
     assert.deepEqual(navigationRoots(null, [{ id: "9", name: "Mixed", type: "mixed", sortOrder: 0 }], false).map(root => root.key), ["home", "movies", "series", "for_you", "calendar"]);
 });
 
-test("navigation preserves authored order, omissions and supported library shortcuts", () => {
+test("navigation ignores authored order, omissions and library shortcuts", () => {
     const menu = decodePrimaryMenu({ items: [
         { type: "builtin", destination: "calendar" }, home,
         { type: "library", library_id: 8, label: "Shows" },
@@ -36,8 +36,14 @@ test("navigation preserves authored order, omissions and supported library short
         { type: "builtin", destination: "series" },
     ] });
     const roots = navigationRoots(menu, libraries, false);
-    assert.deepEqual(roots.map(root => root.key), ["calendar", "home", "library:8", "series"]);
-    assert.equal(roots[2]?.title, "Shows");
+    assert.deepEqual(roots.map(root => root.key), ["home", "movies", "series", "for_you", "calendar"]);
+    assert.equal(roots[2]?.title, "Series");
+});
+
+test("Music requires a music library; mixed video does not enable Music and Audiobooks stays opt-in", () => {
+    const music = { id: "9", name: "Music", type: "music" as const, sortOrder: 2 };
+    assert.deepEqual(navigationRoots(null, [...libraries, music], false).map(root => root.key), ["home", "movies", "series", "music", "for_you", "calendar"]);
+    assert.deepEqual(navigationRoots(null, [music], true).map(root => root.key), ["home", "music", "for_you", "calendar"]);
 });
 
 test("navigation rejects malformed and semantically repeated destinations", () => {

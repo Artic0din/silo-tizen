@@ -95,7 +95,7 @@ File pointers are repository-relative.
 | Related titles | 🟡 | ✅ | ✅ | Series page shows "Could not load related titles" (#90). Apple: `TVSimilarRail` |
 | Person page (bio, age, photo, filmography preview) | ✅ | ✅ | ✅ | Layout parity open (#102). Android: `TvPersonDetailScreen` |
 | Full filmography (All, Movies, Series) | ✅ | ✅ | ✅ | Server-filtered, paged. Android: filter chips on `TvPersonDetailScreen`. Apple: `TVPersonDetailContent` with `PersonFilterBar`, paged |
-| Trailers | ➖ | ✅ | ✅ | Server gives a site key, not an AVPlay stream URL. Apple: `TVTrailersRail`. Android: `TvDetailTrailersSection` |
+| Trailers | 🟡 | ✅ | ✅ | Movie and series Details show YouTube cards in Trailers & More. Select stays on the card: AVPlay cannot play them, and a Samsung YouTube handoff is unproven. Apple: `TVTrailersRail`. Android: `TvDetailTrailersSection` |
 | Local extras | ✅ | ✅ | ✅ | Tizen's Trailers & More plays local extras from zero; absent embedded file IDs resolve through catalog versions, with Retry, cancellation and Back restoration. Fake-server/AVPlay tests pass; native playback and comparison remain pending. Apple: `TVTrailersRail`. Android: `TvDetailTrailersSection`, played from `TvItemDetailScreen` |
 | Synopsis dialog | ✅ | ➖ | ✅ | Android: `TvExpandableSynopsis`. Apple: `TVHeroSynopsis` is a non-focusable 3-line clamp, no dialog |
 

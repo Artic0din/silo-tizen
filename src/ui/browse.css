@@ -78,6 +78,9 @@
 .details-editorial .browse-meta { font-size: 24px; line-height: 36px; margin: 0 0 14px; }
 .details-logo { display: block; max-width: 650px; max-height: 160px; object-fit: contain; object-position: left center; }
 .details-editorial .browse-overview { max-width: 1080px; font-size: 26px; line-height: 36px; max-height: 108px; margin-bottom: 14px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.details-editorial .browse-overview.has-translation-status { -webkit-line-clamp: 2; max-height: 72px; margin-bottom: 6px; }
+.details-editorial .browse-overview.is-translating { opacity: 0.5; }
+.description-translation-status { margin: 0 0 14px; font-size: 21px; line-height: 26px; font-weight: 500; color: var(--silo-secondary); }
 .details-editorial .browse-actions { margin-bottom: 0; }
 .details-editorial .browse-button { padding: 18px 28px; margin-right: 16px; }
 .details-director, .details-playback-summary { margin: 0 0 20px; color: var(--silo-secondary); font-size: 20px; line-height: 26px; }
@@ -89,6 +92,7 @@
 .details-playback-summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .details-playback-summary strong { font-size: 23px; }
 .details-hero[data-media-type="series"] .details-editorial .browse-overview { height: 112px; max-height: 112px; }
+.details-hero[data-media-type="series"] .details-editorial .browse-overview.has-translation-status { height: auto; max-height: 72px; }
 .details-series-editorial { position: relative; height: 435px; overflow: hidden; }
 .details-hero[data-media-type="series"] { overflow: visible; }
 .details-hero:not([data-media-type="series"]) { height: auto; min-height: 690px; }
@@ -112,8 +116,6 @@
 .details-genres { margin-left: 14px; }
 .details-related-placeholder { display: inline-block; width: calc(220px * var(--poster-scale, 1)); height: calc(330px * var(--poster-scale, 1)); margin-right: 44px; border-radius: 12px; background: rgba(255,255,255,.1); }
 .details-versions { margin-bottom: 28px; padding-bottom: 12px; }
-.details-extras .details-extra { width: 470px; margin-right: 48px; }
-.details-extras .browse-still { width: 470px; height: 264px; border-radius: 18px; }
 .details-versions .browse-button[aria-pressed="true"] { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.4); }
 .details-versions .browse-button:focus { background: #fff; color: #000; }
 .browse-row .browse-card.details-person { width: 200px; margin-right: 60px; border: 0; border-radius: 0; }
@@ -813,6 +815,10 @@
 .skyline-library .skyline-meta { font-size: 19px; }
 .skyline-chip { flex-shrink: 0; display: inline-block; margin-right: 10px; padding: 5px 10px; border: 1px solid rgba(255,255,255,.24); border-radius: 6px; background: rgba(255,255,255,.07); color: rgba(255,255,255,.92); font-size: 15px; font-weight: 600; letter-spacing: 1.2px; line-height: 1.2; }
 .skyline-synopsis { max-width: 780px; margin: 0 0 14px; overflow: hidden; font-size: 22px; line-height: 28px; color: rgba(237,237,237,.6); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.skyline-synopsis.is-translating { opacity: 0.5; }
+.skyline-translation-visible .skyline-synopsis { -webkit-line-clamp: 2; }
+.skyline-title-wrapped.skyline-translation-visible .skyline-synopsis, .skyline-library .skyline-translation-visible .skyline-synopsis { -webkit-line-clamp: 1; }
+.skyline-translation-status { flex: none; margin-right: 18px; font-size: 0.85em; font-weight: 500; }
 .skyline-title-wrapped .skyline-synopsis, .skyline-library .skyline-synopsis { -webkit-line-clamp: 2; }
 .skyline-meta-lead, .skyline-meta-trailing { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .skyline-meta-dot { flex-shrink: 0; white-space: pre; }
@@ -834,7 +840,8 @@
 .skyline-library .skyline-title.skyline-title-logo { height: 150px; }
 /* Apple detailLine: one line at the meta size. The marquee stack's meta and badge rows are framed at 27
    (TVFocusMarquee.swift); a 24px estimate sat the bottom-anchored logo slot 3px too low. */
-.skyline-detail-line { max-width: 780px; height: 27px; margin: 0 0 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 20px; line-height: 27px; font-weight: 500; color: rgba(237,237,237,.5); }
+.skyline-detail-line { display: flex; max-width: 780px; height: 27px; margin: 0 0 14px; overflow: hidden; white-space: nowrap; font-size: 20px; line-height: 27px; font-weight: 500; color: rgba(237,237,237,.5); }
+.skyline-detail-text { overflow: hidden; text-overflow: ellipsis; }
 .skyline-library .skyline-detail-line { font-size: 19px; }
 .skyline-badges { display: flex; align-items: center; height: 27px; }
 .browse-section { margin-bottom: 32px; position: relative; }
@@ -996,6 +1003,22 @@
 .details-season-chips { padding: 4px 0; }
 .details-series-rail .details-episodes { padding: 12px calc(59px + 360px * var(--poster-scale, 1) * .025 + 2px); }
 .browse:has(.details-hero) > .browse-row:has(+ .browse-section-title) { margin-bottom: 35px; }
+/* TVTrailersRail rail padding 12 plus body section spacing 64 is the 76px caption-to-heading gap. */
+.browse:has(.details-hero) > .browse-row.details-extras { margin-bottom: 64px; padding: 12px 0; }
+.browse .browse-row.details-extras .details-extra { box-sizing: border-box; width: 470px; margin: 0 48px 0 0; border: 0; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,.3); }
+.browse .browse-row.details-extras .details-extra:last-child { margin-right: 0; }
+.browse .browse-row.details-extras .browse-still { width: 470px; height: 264px; border-radius: 18px; background: #15171c; }
+.browse .browse-row.details-extras .details-extra .browse-card-title { margin: 14px 0 0; padding: 0; font-size: 21px; font-weight: 600; line-height: normal; color: rgba(237,237,237,.92); }
+.browse .browse-row.details-extras .details-extra .browse-card-subtitle { margin: 5px 0 0; padding: 0; font-size: 17px; font-weight: 500; color: rgba(237,237,237,.6); }
+.browse .details-extra .browse-art-fallback { display: flex; align-items: center; justify-content: center; height: 100%; padding: 0; color: rgba(237,237,237,.6); }
+.browse .details-extra .details-extra-play { position: absolute; z-index: 1; left: 50%; top: 50%; width: 60px; height: 60px; margin: -30px 0 0 -30px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: rgba(0,0,0,.55); box-shadow: 0 3px 16px rgba(0,0,0,.35); }
+.browse .details-extra .details-extra-play svg { display: block; width: 24px; height: 24px; }
+.browse .details-extra:focus { box-shadow: 0 8px 36px rgba(0,0,0,.45); }
+.browse .details-extra:focus .details-extra-play { background: rgba(0,0,0,.72); }
+.browse .details-extra:focus .browse-still { transform: none; box-shadow: none; }
+.browse .browse-row.details-extras .details-extra:is(:focus) .browse-card-title { color: #ededed; }
+.browse .browse-row.details-extras .details-extra:is(:focus) .browse-card-subtitle { color: rgba(237,237,237,.6); }
+.browse .browse-row.details-extras .details-extra:is(:focus) :is(.browse-card-title, .browse-card-subtitle) { transform: none; text-shadow: none; }
 /* The episode row already contributes 12px of bottom padding. */
 .browse:has(.details-hero) > .details-series-rail { margin-bottom: calc(79px - 12px); }
 .browse:has(.details-hero) .details-facts { margin-top: 34px; }

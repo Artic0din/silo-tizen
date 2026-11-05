@@ -32,6 +32,10 @@ function settingsRevealBottom(element: HTMLElement, rowBottom: number): number {
 }
 
 export class SkylineScroll {
+    /** TVSeriesDetailView.swift:653-674 centers the selected mode. */
+    static seasonOffset(row: HTMLElement, element: HTMLElement): number {
+        return Math.max(0, Math.min(row.scrollWidth - row.clientWidth, element.offsetLeft - row.offsetLeft + element.offsetWidth / 2 - row.clientWidth / 2));
+    }
     private readonly frames = new Map<HTMLElement, number>();
     /** Shelf already bottom-aligned. Horizontal moves inside it do not scroll again. */
     private pinnedShelf: HTMLElement | null = null;
@@ -110,7 +114,7 @@ export class SkylineScroll {
             const right = Math.max(12, parseFloat(style.getPropertyValue("--reveal-end")) || parseFloat(style.paddingRight));
             // Apple keeps a final group of cards; the terminal episode need not occupy the leading slot.
             const delta = card.left < bounds.left + left ? card.left - bounds.left - left : card.right > bounds.right - right ? card.right - bounds.right + right : 0;
-            this.move(row, row.classList.contains("details-episodes") ? SkylineScroll.episodeOffset(row, element) : Math.max(0, row.scrollLeft + delta), 0);
+            this.move(row, row.classList.contains("details-episodes") ? SkylineScroll.episodeOffset(row, element) : row.classList.contains("details-season-chips") && element.getAttribute("aria-pressed") === "true" ? SkylineScroll.seasonOffset(row, element) : Math.max(0, row.scrollLeft + delta), 0);
         }
         if (container.dataset.view === "search" && element.closest(".search-people-rail") !== null) {
             this.move(viewport, 0, 0);

@@ -197,6 +197,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     container.addEventListener("scroll", () => { container.classList.toggle("search-scrolled", container.scrollTop >= SEARCH_TITLE_COLLAPSE_OFFSET); });
 
     let stack: Route[] = [];
+    const seriesSeasons = new Map<string, number>();
     let loading: AbortController | undefined;
     let personRead: { route: Route; controller: AbortController } | undefined;
     let personFilterGeneration = 0;
@@ -495,6 +496,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         document.removeEventListener("pointerdown", recordInput, true);
         stack = [];
         roots.clear();
+        seriesSeasons.clear();
         shell.destroy();
         host.destroy();
         if (container.parentNode === root) {
@@ -690,7 +692,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
         if (top() === current) {
             if (cardActions.active) cardActions.render();
-            else render(returnKey === undefined ? undefined : { zone: "actions", key: returnKey });
+            else {
+                const focus = host.focused();
+                const retry = focus?.key === "retry-episodes" && (current.kind === "item" || current.kind === "season") && current.data?.details?.series?.failed;
+                render(returnKey === undefined ? retry ? focus : undefined : { zone: "actions", key: returnKey });
+            }
         }
     };
 
@@ -1116,8 +1122,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                         detailsChanged(current, audioClosed);
                     }, (detail, signal) => refreshWatched(current, detail, signal), personalPending, translations);
                     details.restore(previous);
-                    if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, reason => details.warmSeriesEpisodes(reason === "load"), previous?.series?.seasonNumber ?? data.contextSeason, current.seriesContext?.episodeId);
-                    details.series?.restore(previous?.series);
+                    if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, reason => details.warmSeriesEpisodes(reason === "load"), previous?.series?.seasonNumber ?? data.contextSeason ?? (current.seriesContext === undefined ? seriesSeasons.get(data.detail.id) : undefined), current.seriesContext?.episodeId);
+                    details.series?.restore(previous?.series, true);
                     details.restoreSeasonStates(previous);
                     details.focusedEpisodeId ??= current.seriesContext?.episodeId;
                     details.related = quiet ? previous?.related : undefined;
@@ -1352,6 +1358,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         loading?.abort();
         loading = undefined;
         cancelSearch();
+        if (active?.kind === "item" && active.data?.details?.series?.seasonNumber !== undefined) seriesSeasons.set(active.id, active.data.details.series.seasonNumber);
         stack.pop();
         const current = top();
         if (current !== undefined) {
@@ -1361,6 +1368,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 current.stale = true;
             }
             const fromProfileMenu = (active?.kind === "requests" && active.requests.source.kind === "hub") || active?.kind === "personal";
+            if (current.kind === "item" && current.data?.details?.series !== undefined && (active?.kind === "season" || active?.kind === "item" && active.data?.detail.type === "episode")) {
+                const details = current.data.details, series = details.series;
+                details.focusedEpisodeId = undefined;
+                if (series !== undefined) { series.selectionOwnsHero = false; series.focusSelectedEpisode = false; }
+                current.focus = { zone: "actions", key: "next-episode" };
+                host.forgetVisit(`item:${current.id}`);
+            }
             showRoute(current, fromProfileMenu ? tabFocus(current) : current.focus);
         }
     };
@@ -1417,6 +1431,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     const open = (destination: Destination): void => {
+        if (destination.kind === "item") host.forgetVisit(`item:${destination.id}`);
         if (destination.kind === "person") host.forgetVisit(`person:${destination.id}`);
         push(destination.kind === "item"
             ? newRoute({ kind: "item", id: destination.id, title: destination.title, ...(destination.seriesContext === undefined ? {} : { seriesContext: destination.seriesContext }), data: undefined })

@@ -19,6 +19,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Showed the full runtime and version, audio and subtitle details for each focused episode after focus settled.
+- Cancelled episode detail dwell on leaving a card, preserved explicit selector requests, and released older settled episode playback owners.
 - Restored the last available Details hero action on Up, falling back to Play or Watchlist when Start Over disappeared or a selector was disabled.
 - Refreshed episode spoiler protection after Settings changes and preserved saved switches during overlapping requests and failures.
 

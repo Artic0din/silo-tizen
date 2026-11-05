@@ -9,7 +9,7 @@ import { episodeAirDate, episodeRuntime } from "./episodeCaption.ts";
 interface EpisodeView { content: HTMLElement[]; zones: Zone[] }
 const visits = new WeakMap<SeriesEpisodes, { context: ViewContext; episodes: readonly Episode[] | undefined; season: number | undefined; loading: boolean; failed: boolean; boundaryFailed: boolean; hidesImages: boolean; view: EpisodeView }>();
 
-export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, focusEpisode?: (id: string) => void, currentEpisode?: string): { content: HTMLElement[]; zones: Zone[] } {
+export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, focusEpisode?: (id: string) => void, currentEpisode?: string, blurEpisode?: (id: string) => void): { content: HTMLElement[]; zones: Zone[] } {
     const previous = visits.get(state);
     const hidesImages = context.spoilers?.().hidesImages === true;
     // A hero repaint must not detach the episode receiving a pointer press or held Select.
@@ -40,7 +40,7 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, 
         const item = episodeCard(episode, context);
         if (episode.id === currentEpisode) item.element.setAttribute("aria-current", "true");
         item.element.addEventListener("focus", () => { state.entryEpisode = episode.id; delete row.dataset.scrollEntry; state.focus(episode.id); focusEpisode?.(episode.id); });
-        item.element.addEventListener("blur", () => state.blur());
+        item.element.addEventListener("blur", () => { state.blur(); blurEpisode?.(episode.id); });
         return item;
     });
     const row = zoneNode("browse-row details-episodes", episodes);

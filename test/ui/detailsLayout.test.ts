@@ -48,8 +48,9 @@ detailTest("focused episode hero loads full versions after Apple's dwell and reu
     await tv.jump(119);
     assert.equal(reads(), before, 'no request before 120ms');
     await tv.jump(1);
-    await tv.eventually(async () => /24m/.test(await tv.page.locator('.details-editorial .browse-meta').textContent() ?? ''), 'full episode duration');
+    await tv.eventually(async () => (await tv.page.locator('.details-editorial .browse-meta').textContent() ?? '').split('·').map(value => value.trim()).includes('24m'), 'full episode duration');
     assert.deepEqual(await tv.page.locator('.details-playback-summary strong').allTextContents(), ['VERSION', 'AUDIO', 'SUBTITLES']);
+    assert.deepEqual(await tv.page.locator('.details-playback-summary span').allTextContents(), ['Auto · 1080p', 'Auto · Unknown', 'Auto · None']);
     assert.equal(reads(), before + 1, 'one detail read for the settled episode');
     await settledEpisodePrefetch(tv);
     const loaded = reads();
@@ -62,12 +63,18 @@ detailTest("focused episode hero loads full versions after Apple's dwell and reu
     await tv.page.locator('[data-focus="episode:s1e12"]').focus();
     await tv.jump(200);
     assert.equal(reads(), loaded, 'leaving before dwell cancels the read');
+    await tv.page.locator('[data-focus="episode:s1e21"]').focus();
+    await tv.jump(119);
+    await tv.page.locator('[data-focus="more"]').focus();
+    await tv.jump(200);
+    assert.equal(reads(), loaded, 'leaving the rail for hero controls cancels the read');
     await tv.page.locator('[data-focus="season:2"]').click();
     await tv.page.locator('[data-focus="episode:s1e21"][aria-current="true"]').waitFor();
     await tv.page.locator('[data-focus="episode:s1e21"]').focus();
     await tv.jump(120);
-    await tv.eventually(async () => /24m/.test(await tv.page.locator('.details-editorial .browse-meta').textContent() ?? ''), 'neighbour full duration');
+    await tv.eventually(async () => (await tv.page.locator('.details-editorial .browse-meta').textContent() ?? '').split('·').map(value => value.trim()).includes('24m'), 'neighbour full duration');
     assert.deepEqual(await tv.page.locator('.details-playback-summary strong').allTextContents(), ['VERSION', 'AUDIO', 'SUBTITLES']);
+    assert.deepEqual(await tv.page.locator('.details-playback-summary span').allTextContents(), ['Auto · 1080p', 'Auto · Unknown', 'Auto · None']);
     assert.equal(reads(), before + 2, 'one detail read for each settled episode across seasons');
 });
 

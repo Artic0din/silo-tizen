@@ -14,6 +14,61 @@ import { fixture, problem } from "./support/fakeSilo.ts";
 const ID = "movie:m0001";
 const WATCH = "/watch/movie%3Am0001?file_id=42";
 
+for (const explicit of [false, "before", "after"] as const) test(`episode dwell cancellation preserves explicit work: ${explicit}`, async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const r = await rig(); r.state.stop();
+    const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
+    const seasons = decodeSeasons(r.catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body);
+    const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
+    state.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes());
+    state.start(); await settle();
+    const row = state.series.episodes?.[0], title = r.catalog.titles.get('episode:s1e11');
+    assert.ok(row && title);
+    const ids = Array.from({ length: 6 }, (_, i) => `episode:cancel-${i}`);
+    const held = ids.map(id => { r.catalog.titles.set(id, { ...title, id }); return r.h.fake.hold(`/catalog/items/${encodeURIComponent(id)}?image_size=large`, true); });
+    state.series.replace(state.series.seasonNumber!, ids.map(id => ({ ...row, id })));
+    state.warmSeriesEpisodes(); await settle();
+    for (const id of ids.slice(1, 4)) { state.focusEpisode(id); state.loadNextEpisode(); await settle(); }
+    const id = ids[4]!;
+    state.focusEpisode(id);
+    if (explicit === "before") state.showPanel('audio');
+    t.mock.timers.tick(explicit ? 120 : 119); await settle();
+    if (explicit === "after") state.showPanel('audio');
+    // Blurring to a hero control leaves the selected episode in the hero.
+    state.blurEpisode(id);
+    t.mock.timers.tick(200); await settle();
+    held[0]!.release(); await settle();
+    assert.equal(r.h.fake.requests.filter(request => request.path.includes(encodeURIComponent(id))).length, explicit ? 1 : 0);
+    held[4]!.release(); await settle();
+    if (explicit) assert.equal(state.panel, 'audio', 'the explicit selector completes after blur');
+    state.stop(); held.forEach(request => request.release()); await settle();
+});
+
+test("episode playback owners evict old settled details and retain the selected owner", async () => {
+    const r = await rig(); r.state.stop();
+    const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
+    const seasons = decodeSeasons(r.catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body);
+    const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
+    state.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes());
+    state.start(); await settle();
+    const row = state.series.episodes?.[0], title = r.catalog.titles.get('episode:s1e11');
+    assert.ok(row && title);
+    const ids = Array.from({ length: 24 }, (_, i) => `episode:retain-${i}`);
+    ids.forEach(id => r.catalog.titles.set(id, { ...title, id }));
+    state.series.replace(state.series.seasonNumber!, ids.map(id => ({ ...row, id })));
+    state.focusEpisode(ids[0]!); state.loadNextEpisode(); await settle();
+    const retryOwner = state.cachedEpisode(ids[0]!);
+    assert.ok(retryOwner);
+    retryOwner.failedPlay = playChoices(retryOwner.detail)?.fromStart;
+    assert.ok(retryOwner.failedPlay);
+    for (const id of ids.slice(1)) { state.focusEpisode(id); state.loadNextEpisode(); await settle(); }
+    assert.equal(state.cachedEpisode(ids[1]!), undefined, 'old settled owners are released');
+    assert.equal(state.cachedEpisode(ids[0]!), retryOwner, 'unfinished playback retry stays available');
+    assert.equal(ids.filter(id => state.cachedEpisode(id)).length, 16);
+    assert.equal(state.nextEpisode?.id, ids.at(-1));
+    state.stop();
+});
+
 for (const dismiss of [false, true]) test(`a deferred episode picker cannot replace a newer ${dismiss ? "dismissal" : "menu"}`, async () => {
     const r = await rig(); r.state.stop();
     const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);

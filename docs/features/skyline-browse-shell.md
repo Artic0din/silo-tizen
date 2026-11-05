@@ -224,8 +224,8 @@ Back from Requests, History or Settings keeps the profile menu closed and restor
 Back from the open profile menu itself still restores avatar focus.
 The header uses the confirmed server branding name, falling back to the host when none is cached.
 Every focused menu row uses a white platter and black text, including Sign Out.
-Change Account currently opens the existing server selection without logging out or deleting saved sign-ins.
-The real Change Account screen and multi-account support are tracked in [#185](https://github.com/Artic0din/silo-tizen/issues/185).
+Change Account opens saved accounts without logging out or deleting saved sign-ins.
+Back leaves the profile menu closed and restores the selected tab and its page.
 The header keeps the server name because Tizen has no multiple saved accounts per server.
 Sign Out requires confirmation; Cancel and Back preserve the session and restore avatar focus.
 Its two-action layout follows `TVSettingsConfirmationOverlay`: centered surface, 48/42 px padding, 38 px title, 22 px message, horizontal 260 px buttons with 16 px spacing and a 0.62 black backdrop.
@@ -265,7 +265,7 @@ Movies and series show `year · genre · runtime`; time left appears only in Con
 The content rating leads the meta line as a chip, and resolution, dynamic range and audio from `overlay_summary` follow as chips.
 Movies and series add one score after the meta text: IMDb, else TMDB, out of 10 with one decimal, as a dimmed text mark and a bold score.
 TMDB scores use TMDB's approved logo instead of a text mark, as Apple does; Settings > Server > Acknowledgements carries the notice TMDB's terms require (see `app/third-party/README.md`).
-The card's `logo_url` replaces the text title once the image loads, aspect-fit inside 880×200 on Home and 880×150 on a library landing.
+The card's `logo_url` replaces the text title once the image loads. It scales to fit a fixed 880×200 slot and sits on the left, vertically centred. Home, For You and library Recommended share that home-scale slot.
 Logos follow Apple `TitleArtPreferences`: they show unless the server's last confirmed `ui.title_art` answer for this server and profile is off.
 That answer comes from the same capability, contract and effective-value reads Details uses and is kept on the TV, so a pending or failed read keeps it and a server without the key drops it.
 Home uses medium row artwork with the 1344 px backdrop fill and 880 px logo slots when per-slot widths are supported, scaled by device pixel ratio.
@@ -413,9 +413,12 @@ Auto subtitle previews resolve using the explicit audio track or the file's effe
 Shared episode preference changes invalidate retained Series and Season owners by series identity, including when the edited episode was not cached.
 Ordinary Series entry focuses Play and retains the series overview, matching Apple `bbd1e47`.
 The current episode is positioned at the rail's leading slot without taking focus.
-Selecting a season retargets Play and enters that season's episode rail; Up returns to the selected season pill.
+Selecting a season retains pill focus and retargets Play to its first episode; Down enters that episode and Up returns to the selected season pill.
+Reselecting the current season resets to its first episode using the loaded page, while other seasons load their page before retargeting.
 The page tint sits behind the entire browse surface so headings, pills and captions remain painted.
 Track selectors use anchored popovers with Auto entry focus, preference subtext and selection checkmarks.
+The 560px track popovers use 76px rows; Audio checks both Auto and its effective track, and subtitle rows group by language and format without changing selection identity.
+The cast section's leading anchor is centered on focus, following tvOS at `bef81e8`.
 Remote YouTube trailers remain omitted because this client has no verified YouTube application handoff or direct stream resolver; local playable extras remain available.
 Calendar's explicit season context retains its season-chip entry focus instead.
 Cast and crew share a rail of at most 24 people, combining roles for the same server person ID.

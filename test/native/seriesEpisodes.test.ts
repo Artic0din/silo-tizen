@@ -48,11 +48,12 @@ test("series episodes retain accepted data and reject abandoned or replaced seas
     state.select(1);
     await settle();
     assert.equal(h.fake.requests.filter(request => request.path.includes("/episodes")).length, 1, "reselecting a loading chip keeps its existing read");
-    assert.equal(state.entryEpisode, "episode:s1e12");
+    assert.equal(state.entryEpisode, undefined, "explicit Select supersedes resume while the current season is loading");
     initial.release();
     await settle();
     assert.equal(state.seasonNumber, 1);
     assert.equal(state.episodes?.[0]?.id, "episode:s1e11");
+    assert.equal(state.entryEpisode, "episode:s1e11");
     const reads = h.fake.requests.filter(request => request.path.includes("/episodes")).length;
     state.stop(); state.start();
     await settle();

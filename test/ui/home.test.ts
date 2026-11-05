@@ -4,6 +4,7 @@ import type { Browser } from "playwright";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { build } from "esbuild";
+import { FakeCalendar } from "../native/support/fakeCalendar.ts";
 import { FakeHome } from "../native/support/fakeHome.ts";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
@@ -34,7 +35,7 @@ function sectionReplyProduced(catalog: FakeHome): Promise<void> {
     });
 }
 
-function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void>, setup?: (catalog: FakeHome) => void, settings?: (settings: FakeSettings, tv: Tv) => void, options: { readonly whileReading?: boolean } = {}): void {
+function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void>, setup?: (catalog: FakeHome) => void, settings?: (settings: FakeSettings, tv: Tv) => void, options: { readonly whileReading?: boolean; readonly beforeMount?: (tv: Tv) => void; readonly beforeReady?: (tv: Tv) => Promise<void>; readonly readyTimeout?: number } = {}): void {
     test(name, async () => {
         const tv = await openTv(browser, { app: "browse" });
         const catalog = new FakeHome();
@@ -49,8 +50,10 @@ function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void
             await tv.jump(5000);
             await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.loginPhase) === "signed_in", "sign in");
             await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner"));
+            options.beforeMount?.(tv);
             await tv.page.evaluate(() => window.browseHarness.mount());
-            await tv.page.locator('[data-view="home"] [data-section]').first().waitFor();
+            if (options.beforeReady !== undefined) await options.beforeReady(tv);
+            await tv.page.locator('[data-view="home"] [data-section]').first().waitFor(options.readyTimeout === undefined ? undefined : { timeout: options.readyTimeout });
             // Home reads detail for its titles as it loads; journeys start once those reads are out.
             if (options.whileReading !== true) await detailsRead(tv);
             await body(tv, catalog);
@@ -58,6 +61,293 @@ function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void
         } finally { await tv.page.context().close(); }
     });
 }
+
+let heldLibraries: { release(): void };
+let heldSections: { release(): void };
+
+journey("Home paints its rows while libraries are still out and does not say it is still waiting", async tv => {
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0, "library tabs wait for their own read");
+    heldLibraries.release();
+    await tv.eventually(async () => await tv.page.locator('[data-focus="movies"]').count() === 1, "library tabs follow the rows");
+}, undefined, undefined, { beforeMount: tv => { heldLibraries = tv.fake.hold("/user/libraries", true); }, readyTimeout: 4000 });
+
+let heldCalendarLibraries: { release(): void };
+const focusPlace = (tv: Tv) => tv.page.evaluate(() => ({ key: document.activeElement?.getAttribute("data-focus") ?? null, connected: document.activeElement?.isConnected === true }));
+journey("library tabs that arrive on Calendar keep Up on the new bar", async tv => {
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0);
+    await tv.page.locator('[data-focus="calendar"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="calendar"] [data-focus="filter:following"]').count() === 1 && await tv.page.locator('.browse[data-view="calendar"] [data-focus="previous-week"]').count() === 1 && await tv.page.getByText("Loading the week.", { exact: true }).count() === 0, "Calendar settled");
+    // The week chevron (`previous-week`) used to be the first focusable, and Up from it was expected to land on `calendar`.
+    // That press now stops on the filter row (`filter:following`); the bar is the next Up from there.
+    await tv.page.locator('[data-focus="filter:following"]').focus();
+    heldCalendarLibraries.release();
+    await tv.eventually(async () => await tv.page.locator('.browse-nav [data-focus="movies"]').count() === 1, "library tabs on Calendar");
+    assert.deepEqual(await focusPlace(tv), { key: "filter:following", connected: true }, "late tabs leave focus on the filter row");
+    await tv.page.keyboard.press("ArrowUp");
+    assert.deepEqual(await focusPlace(tv), { key: "calendar", connected: true }, "Up from the filter row reaches Calendar; the old assertion expected calendar from previous-week");
+}, undefined, undefined, { beforeMount: tv => { heldCalendarLibraries = tv.fake.hold("/user/libraries", true); }, readyTimeout: 4000 });
+
+journey("Up from Calendar's filter row reaches the Calendar tab when library tabs are already on the bar", async tv => {
+    await tv.eventually(async () => await tv.page.locator('.browse-nav [data-focus="movies"]').count() === 1, "library tabs before Calendar");
+    await tv.page.locator('[data-focus="calendar"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="calendar"] [data-focus="filter:following"]').count() === 1 && await tv.page.getByText("Loading the week.", { exact: true }).count() === 0, "Calendar settled");
+    await tv.page.locator('[data-focus="filter:following"]').focus();
+    await tv.page.keyboard.press("ArrowUp");
+    assert.deepEqual(await focusPlace(tv), { key: "calendar", connected: true });
+});
+
+let heldStaleLibraries: { release(): void };
+let hiddenLibrarySettings: FakeSettings;
+journey("a delayed Home libraries read cannot put back a library hidden in Settings", async tv => {
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0);
+    await tv.eventually(async () => tv.fake.requests.some(request => request.path.includes("ui.disabled_library_ids")), "initial hidden-libraries read");
+    await tv.page.locator('[data-focus="calendar"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="calendar"] [data-focus="previous-week"]').count() === 1 && await tv.page.getByText("Loading the week.", { exact: true }).count() === 0, "Calendar settled");
+    await tv.page.locator('[data-focus="profiles"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+    await tv.page.locator('[data-focus="hidden"]').click();
+    await tv.page.locator('[data-focus="library:12"]').click();
+    await tv.eventually(async () => JSON.stringify(hiddenLibrarySettings.profile().get(HIDDEN_KEY)) === "[15,12]", "Movies hidden");
+    await tv.page.getByText("Saving…", { exact: true }).waitFor({ state: "hidden" });
+    for (let step = 0; step < 4 && await tv.page.locator(".settings").count() > 0; step++) await tv.remote(10009);
+    assert.equal(await tv.page.locator(".settings").count(), 0);
+    assert.equal(await tv.page.locator('.browse[data-view="calendar"]').count(), 1);
+    await tv.eventually(async () => await tv.page.locator('[data-focus="series"]').count() === 1 && await tv.page.locator('[data-focus="movies"]').count() === 0, "Calendar refresh hid Movies");
+    heldStaleLibraries.release();
+    const deadline = performance.now() + 1500;
+    do {
+        assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0, "the delayed Home libraries read put Movies back");
+        await tv.page.evaluate(() => undefined);
+    } while (performance.now() < deadline);
+    assert.equal(await tv.page.locator('[data-focus="series"]').count(), 1);
+}, catalog => {
+    const calendar = new FakeCalendar();
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => path.startsWith("/calendar") ? calendar.route(method, path, profile, body) : read(method, path, profile, body);
+}, settings => {
+    hiddenLibrarySettings = settings;
+    settings.profile().set(HIDDEN_KEY, [15]);
+}, { beforeMount: tv => { heldStaleLibraries = tv.fake.hold("/user/libraries", true); }, readyTimeout: 4000 });
+
+journey("a failed libraries read keeps Home and retries the tabs after the app returns", async tv => {
+    const libraryReads = (): number => tv.fake.requests.filter(request => request.path === "/user/libraries").length;
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    await tv.jump(1000);
+    await tv.eventually(async () => libraryReads() >= 2, "libraries read exhausted its retry");
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0);
+    await tv.page.locator('[data-focus="calendar"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="calendar"]').count() === 1, "left Home");
+    await tv.page.locator('[data-focus="home"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="home"] [data-section="recent/12"]').count() === 1, "Home again");
+    assert.equal(libraryReads(), 2, "leaving Home and returning does not reread libraries");
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0);
+    await tv.page.evaluate(() => {
+        Object.defineProperty(document, "hidden", { configurable: true, value: true });
+        document.dispatchEvent(new Event("visibilitychange"));
+        Object.defineProperty(document, "hidden", { configurable: true, value: false });
+        document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await tv.eventually(async () => await tv.page.locator('[data-focus="movies"]').count() === 1, "library tabs after returning to the app");
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    assert.ok(libraryReads() > 2);
+}, catalog => {
+    catalog.failNext("/user/libraries", problem(503, "service_unavailable", "Unavailable"), problem(503, "service_unavailable", "Unavailable"));
+});
+
+journey("a failed libraries read after returning to a profile keeps that profile's Movies and Series", async (tv, catalog) => {
+    const libraryReads = (): number => tv.fake.requests.filter(request => request.path === "/user/libraries").length;
+    await tv.eventually(async () => await tv.page.locator('[data-focus="movies"]').count() === 1 && await tv.page.locator('[data-focus="series"]').count() === 1, "owner library tabs");
+    const before = libraryReads();
+    catalog.failNext("/user/libraries", problem(503, "service_unavailable", "Unavailable"), problem(503, "service_unavailable", "Unavailable"));
+    await tv.page.evaluate(() => window.browseHarness.clearProfile());
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner")), "selected");
+    await tv.page.evaluate(() => window.browseHarness.mount());
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="home"] [data-section="recent/12"]').count() === 1, "rows after returning");
+    await tv.jump(1000);
+    await tv.eventually(async () => libraryReads() >= before + 2, "libraries read exhausted its retry");
+    assert.equal(libraryReads(), before + 2, "the failed read is not followed by a successful one");
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 1);
+    assert.equal(await tv.page.locator('[data-focus="series"]').count(), 1);
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+    assert.equal(await tv.page.locator('[data-view="home"] [role="alert"]').count(), 0);
+});
+
+journey("a failed libraries read after switching to a restricted profile drops the previous profile's Series", async (tv, catalog) => {
+    const libraryReads = (): number => tv.fake.requests.filter(request => request.path === "/user/libraries").length;
+    await tv.eventually(async () => await tv.page.locator('[data-focus="series"]').count() === 1, "owner Series tab");
+    const before = libraryReads();
+    catalog.failNext("/user/libraries", problem(503, "service_unavailable", "Unavailable"), problem(503, "service_unavailable", "Unavailable"));
+    await tv.page.evaluate(() => window.browseHarness.clearProfile());
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.selectProfile("p-kid", "2468")), "verified");
+    await tv.page.evaluate(() => window.browseHarness.mount());
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="home"] [data-section="kids_picks"]').count() === 1, "restricted profile rows");
+    await tv.jump(1000);
+    await tv.eventually(async () => libraryReads() >= before + 2, "libraries read exhausted its retry");
+    assert.equal(libraryReads(), before + 2);
+    assert.equal(await tv.page.locator('[data-focus="series"]').count(), 0, "the previous profile's Series stays off the bar");
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0, "this profile has no last-known tabs to keep");
+    assert.equal(await tv.page.locator('[data-section="kids_picks"]').count(), 1);
+    assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+    assert.equal(await tv.page.locator('[data-view="home"] [role="alert"]').count(), 0);
+});
+
+journey("a delayed Home sections read never says it is still waiting", async tv => {
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+}, undefined, undefined, {
+    beforeMount: tv => { heldSections = tv.fake.hold("/home/sections", true); },
+    beforeReady: async tv => {
+        await tv.jump(5000);
+        assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+        heldSections.release();
+    },
+});
+
+let heldLoadingFocus: { release(): void };
+journey("Loading home holds focus on the blank page, and Up and Back reach the bar before the rows do", async tv => {
+    const landed = await tv.page.evaluate(() => ({ key: document.activeElement?.getAttribute("data-focus"), connected: document.activeElement?.isConnected === true }));
+    assert.deepEqual(landed, { key: "movie:m0004", connected: true });
+}, undefined, undefined, {
+    beforeMount: tv => { heldLoadingFocus = tv.fake.hold("/home/sections", true); },
+    beforeReady: async tv => {
+        await tv.eventually(async () => await tv.focused() === "loading", "blank Loading home owns focus");
+        assert.equal(await tv.page.locator('[aria-label="Loading home"]').count(), 1);
+        await tv.page.keyboard.press("ArrowLeft");
+        await tv.page.keyboard.press("ArrowRight");
+        await tv.page.keyboard.press("Enter");
+        assert.equal(await tv.focused(), "loading", "Left, Right and Enter stay on the blank page");
+        await tv.page.keyboard.press("ArrowUp");
+        assert.equal(await tv.focused(), "home");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "loading");
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "home", "Back from the blank page lands on Home");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "loading");
+        heldLoadingFocus.release();
+    },
+    readyTimeout: 4000,
+});
+
+let heldBarFocus: { release(): void };
+journey("Home rows that arrive while the bar is focused leave focus on Home", async tv => {
+    const landed = await tv.page.evaluate(() => ({ key: document.activeElement?.getAttribute("data-focus"), connected: document.activeElement?.isConnected === true }));
+    assert.deepEqual(landed, { key: "home", connected: true });
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+}, undefined, undefined, {
+    beforeMount: tv => { heldBarFocus = tv.fake.hold("/home/sections", true); },
+    beforeReady: async tv => {
+        await tv.eventually(async () => await tv.focused() === "loading", "blank page before the rows");
+        await tv.page.keyboard.press("ArrowUp");
+        assert.equal(await tv.focused(), "home");
+        heldBarFocus.release();
+    },
+    readyTimeout: 4000,
+});
+
+let heldHomeLoading: { release(): void };
+journey("while Home sections are out, the page is an empty Loading home and the library tabs are already up", async tv => {
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    assert.equal(await tv.page.locator('[aria-label="Loading home"]').count(), 0);
+    assert.equal(await tv.page.locator(".skyline-content").getByRole("heading", { name: "Loading", exact: true }).count(), 0);
+}, undefined, undefined, {
+    beforeMount: tv => { heldHomeLoading = tv.fake.hold("/home/sections", true); },
+    beforeReady: async tv => {
+        await tv.eventually(async () => await tv.page.locator('[aria-label="Loading home"]').count() === 1, "empty Loading home page");
+        assert.equal(await tv.page.locator(".skyline-content").getByRole("heading", { name: "Loading", exact: true }).count(), 0);
+        assert.equal(await tv.page.locator(".skyline-content").getByRole("button", { name: "Profiles", exact: true }).count(), 0);
+        assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+        await tv.eventually(async () => await tv.page.locator('[data-focus="movies"]').count() === 1, "library tabs while Home is still loading");
+        heldHomeLoading.release();
+    },
+    readyTimeout: 4000,
+});
+
+journey("Home asks for the server's row cap and does not wait on an uncapped sections read", async tv => {
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+    const sections = tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path);
+    assert.ok(sections.some(path => path.includes("item_limit=20")), sections.join(" "));
+    assert.equal(sections.filter(path => !path.includes("item_limit=")).length, 0, sections.join(" "));
+}, catalog => {
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const url = new URL(path, "https://fake.invalid");
+        if (url.pathname === "/home/capabilities") return { status: 200, body: { state: "available", section_item_limit_max: 100 } };
+        return read(method, path, profile, body);
+    };
+}, undefined, {
+    beforeMount: tv => {
+        // image_size=small was the list size before sharp Home artwork. Cold Home now asks for large.
+        tv.fake.hold("/home/sections?image_size=large", true);
+        tv.fake.hold("/home/sections?image_size=large", true);
+    },
+    readyTimeout: 4000,
+});
+
+journey("Home reads sections again without the row cap when the server rejects it", async tv => {
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    const sections = tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path);
+    // image_size=small was the list size before sharp Home artwork. Cold Home now asks for large.
+    assert.deepEqual(sections, ["/home/sections?image_size=large&item_limit=20", "/home/sections?image_size=large"]);
+}, catalog => {
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const url = new URL(path, "https://fake.invalid");
+        if (url.pathname === "/home/capabilities") return { status: 200, body: { state: "available", section_item_limit_max: 100 } };
+        if (url.pathname === "/home/sections" && url.searchParams.has("item_limit")) {
+            return { status: 422, headers: { "Content-Type": "application/problem+json" }, body: { type: "https://siloserver.org/docs/api/v2/problems/validation_failed", title: "Validation failed", status: 422, errors: [{ location: "query.item_limit", code: "unknown_parameter" }] } };
+        }
+        return read(method, path, profile, body);
+    };
+});
+
+let heldRowCap: { release(): void };
+journey("returning to Home during a held row-cap read still paints rows", async tv => {
+    assert.ok(await tv.page.locator('[data-view="home"] [data-section] .browse-card').count() > 0);
+    assert.equal(await tv.page.locator('[data-view="home"] [role="alert"]').count(), 0);
+    const caps = tv.fake.requests.filter(request => new URL(request.path, "https://fake.invalid").pathname === "/home/capabilities");
+    assert.equal(caps.length, 2, "the return reads the row cap again after the cancelled join");
+    const sections = tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path);
+    assert.ok(sections.some(path => path.includes("item_limit=20")), sections.join(" "));
+}, catalog => {
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const url = new URL(path, "https://fake.invalid");
+        if (url.pathname === "/home/capabilities") return { status: 200, body: { state: "available", section_item_limit_max: 100 } };
+        return read(method, path, profile, body);
+    };
+}, undefined, {
+    beforeMount: tv => { heldRowCap = tv.fake.hold("/home/capabilities", true); },
+    beforeReady: async tv => {
+        try {
+            await tv.eventually(async () => tv.fake.requests.some(request => new URL(request.path, "https://fake.invalid").pathname === "/home/capabilities"), "row-cap read started");
+            assert.equal(await tv.page.locator('[data-view="home"] [data-section]').count(), 0);
+            // One turn, so the return joins the read the leave is still cancelling.
+            await tv.page.evaluate(() => {
+                const press = (key: string): void => {
+                    const button = document.querySelector<HTMLButtonElement>(`[data-focus="${key}"]`);
+                    if (button === null) throw new Error(`missing ${key}`);
+                    button.click();
+                };
+                press("calendar");
+                press("home");
+            });
+            await tv.eventually(async () => await tv.page.locator('[data-view="home"] [data-section] .browse-card').count() > 0, "Home rows after returning during the held row-cap read");
+        } finally { heldRowCap.release(); }
+    },
+    readyTimeout: 4000,
+    whileReading: true,
+});
 
 journey("Home keeps the server's row order and shows featured rows as ordinary rows", async tv => {
     assert.deepEqual(await tv.page.locator('[data-section]').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-section"))), ["hero/opaque", "recent/12", "because/opaque", "resume/opaque", "future/opaque", "for/you"]);
@@ -496,6 +786,84 @@ journey("Home poster badges scale from Apple's 185pt poster and Continue Watchin
     assert.equal(await wide.locator(".card-overlays + .skyline-progress").count(), 1, "the progress bar draws over the badges");
 }, catalog => { enrichHome(catalog, badgeFields); enrichDetails(catalog, detailFields); }, () => undefined);
 
+const badgePx = (value: number, artWidth: number): number => Math.round(value * artWidth / 185 * 100) / 100;
+/** SF Symbol "tv" layout box at iconSize 12 times the poster scale. The old value was a square of that point size. */
+const tvLayout = (artWidth: number): { width: string; height: string } => ({
+    width: `${Math.round(12 * 73 / 48 * artWidth / 185 * 100) / 100}px`,
+    height: `${Math.round(12 * 58 / 48 * artWidth / 185 * 100) / 100}px`,
+});
+
+journey("Home headings below a row use Skyline's 14px card padding plus the 10px row gap", async tv => {
+    const measured = await tv.page.evaluate(() => {
+        const row = document.querySelector('[data-section="resume/opaque"] .browse-row');
+        const card = document.querySelector('[data-section="resume/opaque"] .browse-card:not(.skyline-explore)');
+        const title = document.querySelector('[data-section="future/opaque"] .browse-section-title');
+        if (!(row instanceof HTMLElement) || !(card instanceof HTMLElement) || !(title instanceof HTMLElement)) throw new Error("missing home row");
+        return { paddingBottom: getComputedStyle(row).paddingBottom, gap: title.getBoundingClientRect().top - card.getBoundingClientRect().bottom };
+    });
+    // The previous 24px bottom padding was MediaRow's default vertical padding. Skyline passes rowBandCardVerticalPadding, 14.
+    assert.equal(measured.paddingBottom, "14px", "Skyline card strip padding is 14px, not the 24px default");
+    assert.ok(Math.abs(measured.gap - 24) < 1, `the next heading is 14px below the landscape card plus the 10px row gap, got ${measured.gap}`);
+});
+
+journey("series status badges draw the tv icon at Apple's scaled pill size", async (tv, catalog) => {
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const reply = read(method, path, profile, body);
+        const response = reply?.body;
+        if (!path.startsWith("/catalog/query") || reply?.status !== 200 || typeof response !== "object" || response === null || !("items" in response) || !Array.isArray(response.items)) return reply;
+        return { ...reply, body: { ...response, items: response.items.map(item => typeof item === "object" && item !== null ? { ...item, show_status: "returning series" } : item) } };
+    };
+    const homeArt = 176 * 0.86;
+    const badge = tv.page.locator(`${POSTER} .card-overlay`);
+    await tv.eventually(async () => await badge.count() > 0, "home status badge");
+    const home = await badge.evaluate(node => {
+        const icon = node.querySelector("svg");
+        const style = getComputedStyle(node);
+        const iconStyle = icon === null ? undefined : getComputedStyle(icon);
+        return { text: node.textContent, font: style.fontSize, pad: style.padding, radius: style.borderRadius, icon: icon === null || iconStyle === undefined ? undefined : { width: icon.style.width, height: icon.style.height, gap: icon.style.marginRight, used: iconStyle.width } };
+    });
+    assert.equal(home.text, "Returning");
+    assert.equal(home.font, `${badgePx(10, homeArt)}px`, "pill text is fontSize 10 times the poster width over 185");
+    assert.equal(home.pad, `${badgePx(4, homeArt)}px ${badgePx(10, homeArt)}px`);
+    assert.equal(home.radius, "999px", "the pill preset is a capsule");
+    // The old square icon was iconSize 12 times the scale (a point-size box). SF Symbol "tv" lays out at 73/48 by 58/48 of that point size.
+    const homeIcon = tvLayout(homeArt);
+    assert.equal(home.icon?.width, homeIcon.width);
+    assert.equal(home.icon?.height, homeIcon.height);
+    assert.equal(home.icon?.gap, `${badgePx(4, homeArt)}px`, "icon-to-text spacing is the 4pt HStack spacing times the scale");
+    assert.ok(home.icon !== undefined && Math.abs(parseFloat(home.icon.used) - parseFloat(homeIcon.width)) < 0.05);
+    assert.equal(await tv.page.locator('[data-section="hero/opaque"] .card-overlay').textContent(), "Ended");
+    assert.equal(await tv.page.locator('[data-section="because/opaque"] .card-overlay').textContent(), "Cancelled");
+    assert.equal(await tv.page.locator('[data-section="hero/opaque"] .card-overlay svg').count(), 1);
+    assert.equal(await tv.page.locator('[data-section="because/opaque"] .card-overlay svg').count(), 1);
+    await tv.page.locator('[data-focus="expand:recent/12"]').click();
+    const gridCard = tv.page.locator('.section-catalog-grid [data-focus="movie:m0006"]');
+    await gridCard.waitFor();
+    const grid = await gridCard.locator(".browse-art").evaluate(node => {
+        const badge = node.querySelector(".card-overlay");
+        const icon = badge?.querySelector("svg");
+        if (!(badge instanceof HTMLElement) || icon === null || icon === undefined) return { width: (node as HTMLElement).offsetWidth, badge: undefined };
+        const style = getComputedStyle(badge);
+        return { width: (node as HTMLElement).offsetWidth, badge: { text: badge.textContent, font: style.fontSize, pad: style.padding, radius: style.borderRadius, icon: { width: icon.style.width, height: icon.style.height, gap: icon.style.marginRight } } };
+    });
+    const gridArt = 260 * 0.86;
+    assert.equal(grid.width, 224, "compact library posters are 260 times 0.86, which rounds to 224");
+    assert.equal(grid.badge?.text, "Returning");
+    // 10 * 223.6 / 185 is 12.09. The captured 15.8px is not this font size.
+    assert.equal(grid.badge?.font, `${badgePx(10, gridArt)}px`, "12.09px text on the 224-wide card, from fontSize 10 times 260*0.86/185");
+    assert.equal(grid.badge?.pad, `${badgePx(4, gridArt)}px ${badgePx(10, gridArt)}px`);
+    assert.equal(grid.badge?.radius, "999px");
+    // The old square icon was 14.5px (iconSize 12 times 260*0.86/185). The symbol box is wider than that point size.
+    const gridIcon = tvLayout(gridArt);
+    assert.equal(grid.badge?.icon?.width, gridIcon.width);
+    assert.equal(grid.badge?.icon?.height, gridIcon.height);
+    assert.equal(grid.badge?.icon?.gap, `${badgePx(4, gridArt)}px`);
+}, catalog => enrichHome(catalog, { ...badgeFields, "movie:m0004": { show_status: "ended" }, "movie:m0005": { show_status: "cancelled" } }), settings => {
+    settings.profile().set(CARD_OVERLAYS_KEY, { version: 2, preset: "pill", order: ["show_status"], items: { resolution: { enabled: false, position: "top-left" }, hdr: { enabled: false, position: "top-left" }, audio: { enabled: false, position: "top-left" }, release_type: { enabled: false, position: "bottom-left" }, show_status: { enabled: true, position: "top-right" } } });
+    settings.profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" });
+});
+
 for (const [size, scale] of [["compact", 0.86], ["standard", 1], ["large", 1.2]] as const) journey(`Home ${size} artwork and poster badges follow the profile's TV size`, async tv => {
     const sizes = await tv.page.locator(`${POSTER} .browse-art`).evaluate(node => {
         const badge = node.querySelector<HTMLElement>(".card-overlay");
@@ -629,6 +997,43 @@ function imageCapabilities(catalog: FakeHome, slotWidths: boolean): void {
         ...(slotWidths ? { slot_width_params: { poster: "poster_width", backdrop: "backdrop_width", logo: "logo_width", still: "still_width", photo: "photo_width" } } : {}),
     } };
 }
+
+/** Named `image_size` values are not numbers. A later answer that only renames one must still refetch, and that refetch keeps `item_limit`. */
+function namedArtworkCapabilities(catalog: FakeHome, includeMedium: boolean): void {
+    const route = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const url = new URL(path, "https://fake.invalid");
+        if (url.pathname === "/home/capabilities") return { status: 200, body: { state: "available", section_item_limit_max: 100 } };
+        if (url.pathname !== "/images/capabilities") return route(method, path, profile, body);
+        return { status: 200, body: {
+            revision: "r1", state: "available", allowed: true, param: "image_size",
+            sizes: includeMedium ? ["small", "medium", "large", "original"] : ["small", "large", "original"],
+            widths: {}, original_max_width_px: 3840,
+            episode_still_provenance: true, episode_parent_artwork: true, extended_item_artwork: true,
+            season_list_artwork_param: "include_artwork", storage_backend: "local", delivery: "server",
+            slot_width_params: { poster: "poster_width", backdrop: "backdrop_width", logo: "logo_width", still: "still_width", photo: "photo_width" },
+        } };
+    };
+}
+
+function sectionParams(tv: Tv, imageSize: string, backdrop: string | null): URLSearchParams | undefined {
+    return tv.fake.requests.map(request => new URL(request.path, "https://fake.invalid")).find(url => url.pathname === "/home/sections" && url.searchParams.get("image_size") === imageSize && url.searchParams.get("backdrop_width") === backdrop)?.searchParams;
+}
+
+let heldNamedArtwork: { release(): void };
+journey("a named artwork size still refetches Home and keeps the row cap", async (tv, catalog) => {
+    heldNamedArtwork.release();
+    await tv.eventually(async () => sectionParams(tv, "medium", "1344")?.get("item_limit") === "20", "medium rows keep the row cap");
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), "medium capability remembered");
+    namedArtworkCapabilities(catalog, false);
+    heldNamedArtwork = tv.fake.hold("/images/capabilities", true);
+    await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+    await tv.page.locator('[data-view="home"] [data-section]').first().waitFor();
+    assert.equal(sectionParams(tv, "large", "1344"), undefined, "a remembered medium size is not a numeric step up to large");
+    heldNamedArtwork.release();
+    await tv.eventually(async () => sectionParams(tv, "large", "1344")?.get("item_limit") === "20", "named size change refetches with the row cap");
+}, catalog => namedArtworkCapabilities(catalog, true), (_settings, tv) => { heldNamedArtwork = tv.fake.hold("/images/capabilities", true); }, { whileReading: true });
+
 let heldImageProbe: { release(): void };
 journey("a late artwork probe defers to Card actions and preserves watched invalidation", async (tv, catalog) => {
     const reads = tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length;
@@ -1117,4 +1522,249 @@ journey("Home expansion empty, missing and failed reads retain reachable control
     assert.equal(await tv.focused(), "state");
     await tv.remote(10009);
     assert.equal(await tv.focused(), "expand:recent/12");
+});
+
+interface CardBox { id: string; left: number; width: number }
+
+/** Centres of the row's cards, including Explore all, in visual order. */
+async function rowBoxes(tv: Tv, section: string): Promise<CardBox[]> {
+    return tv.page.locator(`[data-section="${section}"] .browse-card`).evaluateAll(nodes => nodes.map(node => {
+        const rect = node.getBoundingClientRect();
+        return { id: node.getAttribute("data-focus") ?? "", left: rect.left, width: rect.width };
+    }));
+}
+
+function nearestBox(boxes: readonly CardBox[], x: number): CardBox {
+    const centre = (box: CardBox): number => box.left + box.width / 2;
+    return boxes.reduce((best, box) => Math.abs(centre(box) - x) < Math.abs(centre(best) - x) ? box : best);
+}
+
+journey("Home Down keeps the column across poster and still rows, including a row already visited", async tv => {
+    const stills = await rowBoxes(tv, "recent-tv");
+    const posters = await rowBoxes(tv, "recent-movies");
+    assert.equal(await tv.focused(), stills[0]?.id);
+    await tv.page.keyboard.press("ArrowDown");
+    const firstLanding = await tv.focused();
+    assert.equal(firstLanding, nearestBox(posters, (stills[0]?.left ?? 0) + (stills[0]?.width ?? 0) / 2).id);
+    await tv.page.keyboard.press("ArrowUp");
+    assert.equal(await tv.focused(), stills[0]?.id);
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("ArrowRight");
+    const origin = await tv.focused();
+    const source = (await rowBoxes(tv, "recent-tv")).find(box => box.id === origin);
+    assert.ok(source !== undefined);
+    assert.notEqual(origin, stills[0]?.id);
+    const posterBoxes = await rowBoxes(tv, "recent-movies");
+    await tv.page.keyboard.press("ArrowDown");
+    const landed = await tv.focused();
+    const column = nearestBox(posterBoxes, source.left + source.width / 2).id;
+    assert.equal(landed, column, "Down from a later still lands on the poster nearest that column");
+    assert.notEqual(landed, firstLanding, "a poster row visited before does not restore its first card");
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("ArrowRight");
+    const movedId = await tv.focused();
+    const moved = (await rowBoxes(tv, "recent-movies")).find(box => box.id === movedId);
+    assert.ok(moved !== undefined);
+    const stillTargets = await rowBoxes(tv, "recent-tv");
+    await tv.page.keyboard.press("ArrowUp");
+    assert.equal(await tv.focused(), nearestBox(stillTargets, moved.left + moved.width / 2).id, "Up follows the column rather than the still last focused in that row");
+}, catalog => {
+    const home = catalog.households.get("p-owner");
+    assert.ok(home !== undefined);
+    home.sections = [
+        { id: "recent-tv", sectionType: "recently_added", title: "Recently Added TV", items: ["episode:s1e11", "episode:s1e12", "episode:s1e13", "episode:s1e21"] },
+        { id: "recent-movies", sectionType: "recently_added", title: "Recently Added", items: ["movie:m0008", "movie:m0009", "movie:m0010", "movie:m0011", "movie:m0012", "movie:m0013", "movie:m0014"] },
+    ];
+});
+
+journey("Down from a landscape card uses that card, and Up from a poster still uses the column", async tv => {
+    const stills = await rowBoxes(tv, "resume");
+    const posters = await rowBoxes(tv, "recent-movies");
+    const posterColumn = posters[1];
+    assert.ok(stills[0] !== undefined && posterColumn !== undefined);
+    await tv.page.keyboard.press("ArrowDown");
+    assert.equal(await tv.focused(), posters[0]?.id, "the first Down from the wide card uses that card");
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), posterColumn.id);
+    await tv.page.keyboard.press("ArrowUp");
+    const focusedWide = await tv.focused();
+    const wide = (await rowBoxes(tv, "resume")).find(box => box.id === focusedWide);
+    assert.ok(wide !== undefined);
+    assert.equal(wide.id, nearestBox(await rowBoxes(tv, "resume"), posterColumn.left + posterColumn.width / 2).id, "Up from a poster lands on the still nearest that column");
+    await tv.page.keyboard.press("ArrowDown");
+    const landed = await tv.focused();
+    assert.equal(landed, nearestBox(posters, wide.left + wide.width / 2).id, "Down from the landscape card uses its own position");
+    assert.notEqual(landed, posterColumn.id, "the remembered poster column does not pull the landing sideways");
+}, catalog => {
+    const home = catalog.households.get("p-owner");
+    assert.ok(home !== undefined);
+    home.sections = [
+        { id: "resume", sectionType: "continue_watching", title: "Continue Watching", items: ["episode:s1e11", "episode:s1e12", "episode:s1e13"] },
+        { id: "recent-movies", sectionType: "recently_added", title: "Recently Added", items: ["movie:m0008", "movie:m0009", "movie:m0010", "movie:m0011", "movie:m0012", "movie:m0013", "movie:m0014"] },
+    ];
+});
+
+function logoSvg(width: number, height: number): string {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#fff"/></svg>`;
+}
+
+/** Painted logo inside the slot. `object-fit: contain` and `object-position: left center`. */
+async function paintedLogo(tv: Tv): Promise<{ slotTop: number; slotLeft: number; slotWidth: number; slotHeight: number; paintTop: number; paintLeft: number; paintWidth: number; paintHeight: number; fit: string }> {
+    const image = tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) img.skyline-logo");
+    await image.waitFor();
+    return image.evaluate(node => {
+        const art = node as HTMLImageElement;
+        const box = art.getBoundingClientRect();
+        const slot = art.parentElement?.getBoundingClientRect();
+        if (slot === undefined) throw new Error("missing logo slot");
+        const scale = Math.min(box.width / art.naturalWidth, box.height / art.naturalHeight);
+        const paintWidth = art.naturalWidth * scale;
+        const paintHeight = art.naturalHeight * scale;
+        const position = getComputedStyle(art).objectPosition.trim().split(/\s+/);
+        const horizontal = position[0] === "left" || position[0] === "0%" ? 0 : position[0] === "center" || position[0] === "50%" ? 0.5 : position[0] === "right" || position[0] === "100%" ? 1 : Number.NaN;
+        const vertical = position[1] === "top" || position[1] === "0%" ? 0 : position[1] === "center" || position[1] === "50%" ? 0.5 : position[1] === "bottom" || position[1] === "100%" ? 1 : Number.NaN;
+        return {
+            slotTop: slot.top, slotLeft: slot.left, slotWidth: slot.width, slotHeight: slot.height,
+            paintLeft: box.left + horizontal * (box.width - paintWidth),
+            paintTop: box.top + vertical * (box.height - paintHeight),
+            paintWidth, paintHeight, fit: getComputedStyle(art).objectFit,
+        };
+    });
+}
+
+function near(actual: number, expected: number, label: string): void {
+    assert.ok(Math.abs(actual - expected) < 0.5, `${label}: ${actual} vs ${expected}`);
+}
+
+journey("Down from the top bar lands on the leftmost card", async tv => {
+    const posters = () => rowBoxes(tv, "recent-movies");
+    const first = (await posters())[0];
+    assert.ok(first !== undefined);
+    assert.equal(await tv.focused(), first.id);
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("ArrowRight");
+    const remembered = await tv.focused();
+    assert.notEqual(remembered, first.id);
+    await tv.page.keyboard.press("ArrowUp");
+    assert.equal(await tv.focused(), "home");
+    await tv.page.keyboard.press("ArrowDown");
+    assert.equal(await tv.focused(), first.id, "Down from the bar ignores the card remembered in the row");
+    await tv.page.keyboard.press("ArrowDown");
+    const next = await rowBoxes(tv, "because-movies");
+    assert.equal(await tv.focused(), nearestBox(next, first.left + first.width / 2).id, "the next Down keeps that card's column");
+    await tv.page.keyboard.press("ArrowUp");
+    await tv.page.keyboard.press("ArrowRight");
+    const opened = await tv.focused();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator(`[data-view="item:${opened}"]`).waitFor();
+    await tv.remote(10009);
+    assert.equal(await tv.focused(), opened, "Back from a pushed page restores the card");
+}, catalog => {
+    const home = catalog.households.get("p-owner");
+    assert.ok(home !== undefined);
+    home.sections = [
+        { id: "recent-movies", sectionType: "recently_added", title: "Recently Added", items: ["movie:m0008", "movie:m0009", "movie:m0010", "movie:m0011"] },
+        { id: "because-movies", sectionType: "because_you_watched", title: "Because you watched", items: ["movie:m0012", "movie:m0013", "movie:m0014", "movie:m0015"] },
+    ];
+});
+
+journey("Home Highway Patrol aspect art retains Apple's measured slot and painted top", async tv => {
+    await tv.page.route("**/art/highway-logo.svg*", route => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg(650, 102) }));
+    await tv.page.locator('[data-section="because/opaque"] [data-focus="movie:m0005"]').focus();
+    await tv.jump(300);
+    const logo = await paintedLogo(tv);
+    near(logo.slotTop, 143, "measured Home slot top");
+    near(logo.slotHeight, 200, "fixed Home slot height");
+    near(logo.paintTop, 174.3, "measured Home Highway Patrol painted top");
+    near(logo.paintWidth, 880, "Home fits wide art to its width");
+}, catalog => {
+    enrichHome(catalog, { "movie:m0005": { logo_url: "/art/highway-logo.svg", overview: "A two-line hero synopsis that fills the marquee stack the signed comparison measured." } });
+    enrichDetails(catalog, { "movie:m0005": { logo_url: "/art/highway-logo.svg" } });
+});
+
+journey("Hero title art scales to fit and centres in Apple's home logo slot", async tv => {
+    await tv.page.route("**/art/full-logo.svg*", route => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg(880, 200) }));
+    await tv.page.route("**/art/wide-logo.svg*", route => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg(880, 130) }));
+    await tv.page.route("**/art/small-logo.svg*", route => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg(296, 124) }));
+    const show = async (selector: string): Promise<void> => {
+        await tv.page.locator(selector).focus();
+        await tv.jump(300);
+    };
+    await show('[data-section="hero/opaque"] [data-focus="movie:m0004"]');
+    const full = await paintedLogo(tv);
+    await show('[data-section="because/opaque"] [data-focus="movie:m0005"]');
+    const wide = await paintedLogo(tv);
+    await show('[data-section="for/you"] [data-focus="movie:m0007"]');
+    const small = await paintedLogo(tv);
+    const homeMarquee = await tv.page.locator(".browse > .skyline-marquee").evaluate(node => {
+        const rect = node.getBoundingClientRect();
+        return [rect.x, rect.y, rect.width, rect.height];
+    });
+    assert.equal(full.slotHeight, 200, "Apple SiloTheme.Skyline.marqueeLogoMaxHeightHome");
+    assert.equal(wide.slotHeight, 200);
+    assert.equal(full.slotWidth, 880, "Apple SiloTheme.Skyline.marqueeLogoMaxWidth");
+    assert.equal(wide.fit, "contain", "Apple titleSlot uses aspectRatio contentMode fit");
+    // Replaced assertions that encoded the old pin: wide.imageHeight < 200, wide.imageTop === full.imageTop,
+    // and wide.imageTop === wide.slotTop. Those measured the image element pinned to the top of the slot.
+    // Replaced the measured slot top of 146. TVFocusMarquee's 27pt stack rows put the slot at y143.
+    near(full.slotTop, 143, "the home logo slot uses the marquee stack");
+    near(wide.paintHeight, 130, "wide art keeps its aspect inside the slot");
+    near(wide.paintTop, wide.slotTop + (200 - 130) / 2, "short art is vertically centred in the 200px slot");
+    near(wide.paintTop, 143 + 35, "centred wide art follows the slot");
+    near(wide.paintLeft, wide.slotLeft, "fitted art stays on the leading edge");
+    near(wide.slotTop, full.slotTop, "the slot stays full height, so short art does not drop the block");
+    near(small.paintHeight, 200, "small art scales up to the home slot height");
+    near(small.paintWidth, 296 * 200 / 124, "small art scales up with its aspect");
+    near(small.paintLeft, small.slotLeft, "upscaled art stays on the leading edge");
+    assert.deepEqual(homeMarquee, [88, 256, 880, 280]);
+
+    await tv.page.locator('[data-focus="movies"]').click();
+    await tv.page.locator('[data-view="library:12"] .browse-card').first().focus();
+    await tv.jump(300);
+    const library = await paintedLogo(tv);
+    const libraryMarquee = await tv.page.locator(".browse > .skyline-marquee").evaluate(node => {
+        const rect = node.getBoundingClientRect();
+        return [rect.x, rect.y, rect.width, rect.height];
+    });
+    assert.equal(await tv.page.locator(".browse").evaluate(node => node.classList.contains("skyline-home")), true, "library Recommended uses the shared home scene");
+    assert.equal(library.slotHeight, 200, "library Recommended uses the home logo slot, not the unused 150px library scale");
+    near(library.paintTop, library.slotTop + (200 - 130) / 2, "library art is centred in the same slot");
+    assert.deepEqual(libraryMarquee, homeMarquee, "TVSkylineSectionFeed uses the home marquee on library Recommended");
+
+    await tv.page.locator('[data-focus="for_you"]').click();
+    await tv.page.locator('[data-view="for_you"] .browse-card').first().focus();
+    await tv.jump(300);
+    const forYou = await paintedLogo(tv);
+    assert.equal(forYou.slotHeight, 200, "For You uses the home logo slot");
+    near(forYou.paintHeight, 200, "For You scales small art up to the slot");
+    near(forYou.paintWidth, 296 * 200 / 124, "For You keeps the small art's aspect");
+
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator(".details-logo").waitFor();
+    const details = await tv.page.locator(".details-logo").evaluate(node => {
+        const art = node.getBoundingClientRect();
+        const slot = node.parentElement?.getBoundingClientRect();
+        return { art: art.bottom, slot: slot?.bottom, height: art.height };
+    });
+    assert.equal(details.art, details.slot, "Details title art stays at the bottom of its 160px heading");
+    assert.ok(details.height < 180);
+}, catalog => {
+    const overview = "A two-line hero synopsis that fills the marquee stack the signed comparison measured.";
+    enrichHome(catalog, {
+        "movie:m0004": { logo_url: "/art/full-logo.svg", overview },
+        "movie:m0005": { logo_url: "/art/wide-logo.svg", overview },
+        "movie:m0007": { logo_url: "/art/small-logo.svg", overview },
+    });
+    enrichDetails(catalog, { "movie:m0001": { logo_url: "/art/wide-logo.svg" } });
+    const route = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const pathname = new URL(path, "https://fake.invalid").pathname;
+        if (pathname === "/recommendations/discover") {
+            return { status: 200, body: { items: [{ type: "popular", title: "For You", kind: "popular", items: [{ content_id: "movie:m0001", type: "movie", title: "Movie 0001", logo_url: "/art/small-logo.svg" }] }] } };
+        }
+        const reply = route(method, path, profile, body);
+        if (reply?.status !== 200 || !/^\/library\/[^/]+\/sections$/.test(pathname)) return reply;
+        const data = reply.body as { sections: { items: Record<string, unknown>[] }[] };
+        return { ...reply, body: { ...data, sections: data.sections.map((row, rowIndex) => rowIndex > 0 ? row : { ...row, items: row.items.map((item, index) => index === 0 ? { ...item, logo_url: "/art/wide-logo.svg" } : item) }) } };
+    };
 });

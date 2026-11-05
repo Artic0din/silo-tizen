@@ -82,7 +82,7 @@ test("browse fixtures decode with the production decoders", () => {
     const detail = decodeItemDetail(fixture("get_catalog_item_ok"));
     assert.equal(detail.type, "movie");
     assert.equal(detail.tagline, "A Los Angeles crime saga");
-    assert.deepEqual(detail.versions, [{ fileId: "120", effectiveAudioTrackIndex: 1, durationSeconds: 0, audio: [], label: "2160p" }]);
+    assert.deepEqual(detail.versions, [{ detailLabel: "0 MB", fileId: "120", effectiveAudioTrackIndex: 1, durationSeconds: 0, audio: [], label: "2160p" }]);
     assert.deepEqual(detail.watch, { played: true, positionSeconds: undefined, lastFileId: "120" });
 
     assert.deepEqual(decodeSeasons(fixture("list_series_seasons_ok")), [
@@ -143,6 +143,8 @@ test("browse operations are profile-scoped reads on the documented paths", () =>
         operations.listUserLibraries(),
         operations.hiddenLibraries(),
         operations.listHomeSections(),
+        operations.listHomeSections({ logo_width: "880" }, 20),
+        operations.homeCapabilities(),
         operations.listCatalogItems({ libraryId: "12", type: "movie", limit: 24, cursor: "abc/+=" }),
         operations.listCatalogItems({ q: "heat & co", type: "video", limit: 24, cursor: undefined }),
         operations.getCatalogItem("movie:heat 1995"),
@@ -153,6 +155,8 @@ test("browse operations are profile-scoped reads on the documented paths", () =>
         "GET /user/libraries",
         "GET /settings/values/effective?keys=ui.disabled_library_ids",
         "GET /home/sections?image_size=small",
+        "GET /home/sections?image_size=small&logo_width=880&item_limit=20",
+        "GET /home/capabilities",
         "GET /catalog?library_id=12&type=movie&limit=24&cursor=abc%2F%2B%3D&image_size=small",
         "GET /catalog?q=heat%20%26%20co&type=video&limit=24&image_size=small",
         "GET /catalog/items/movie%3Aheat%201995?image_size=large",

@@ -164,7 +164,7 @@ preplay("a confirmed series preference refresh clears other episodes' stale trac
     await tv.eventually(async () => await tv.page.locator('[data-focus="next-episode"]').getAttribute('aria-disabled') === 'false', 'Auto saved');
     await tv.page.locator('[data-focus="episode:s1e12"]').focus();
     await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).waitFor();
-    assert.equal(await tv.page.locator('[data-track-summary="subtitles"] span').textContent(), 'Auto');
+    assert.equal(await tv.page.locator('[data-track-summary="subtitles"] span').textContent(), 'Auto · None');
     await tv.page.locator('[data-focus="version"]').click();
     assert.equal(await tv.page.locator('[data-focus="version:42"]').getAttribute('aria-checked'), 'true');
 });
@@ -513,7 +513,8 @@ preplay("version change clears old audio, pins the new file and allows a fresh e
     await savedAudio(tv);
     await tv.page.locator('[data-focus="version"]').click();
     await tv.page.locator('[data-focus="version:43"]').click();
-    assert.equal(await tv.page.locator('[data-focus="audio"]').textContent(), "Audio: Auto");
+    assert.equal(await tv.page.locator('[data-focus="audio"]').textContent(), "Audio Tracks");
+    assert.equal(await tv.page.locator('[data-focus="audio"]').getAttribute('aria-label'), 'Audio: Auto');
     await tv.page.locator('[data-focus="audio"]').click();
     assert.equal(await tv.page.getByRole("radio").count(), 3);
     await tv.page.getByRole("radio", { name: /English Dub/ }).click();

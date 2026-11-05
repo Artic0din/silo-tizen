@@ -16,10 +16,20 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, 
         for (const item of previous.view.zones[1]?.items ?? []) {
             if (item.key === currentEpisode) item.element.setAttribute("aria-current", "true"); else item.element.removeAttribute("aria-current");
         }
+        const row = previous.view.zones[1]?.items[0]?.element.closest<HTMLElement>(".details-episodes");
+        if (row !== null && row !== undefined && state.entryEpisode !== undefined) row.dataset.scrollEntry = state.entryEpisode;
         return previous.view;
     }
     const seasons = state.seasons.map(season => {
         const item = actionButton(`season:${season.seasonNumber}`, season.title, () => state.select(season.seasonNumber));
+        let dwell: ReturnType<typeof setTimeout> | undefined;
+        item.element.addEventListener("focus", () => {
+            if (season.seasonNumber === state.seasonNumber) return;
+            dwell = setTimeout(() => {
+                if (item.element.isConnected && document.activeElement === item.element) state.select(season.seasonNumber);
+            }, 70);
+        });
+        item.element.addEventListener("blur", () => clearTimeout(dwell));
         item.element.setAttribute("aria-pressed", String(season.seasonNumber === state.seasonNumber));
         return mediaItem(item, { id: season.id, title: season.title, type: "season" }, context);
     });

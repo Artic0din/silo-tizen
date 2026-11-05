@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakePlayback } from "../native/support/fakePlayback.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 import { object } from "../../src/contracts/v2/wire.ts";
 
 class AudioPreferenceDetails extends FakeDetails {
@@ -638,6 +638,7 @@ preplay("malformed watch offers a reachable retry without fabricating playback",
 });
 
 preplay("bounded unavailable watch uses cached progress once and ignores a late success", async (tv) => {
+    await pauseTvClock(tv);
     const held = tv.fake.hold(WATCH, true);
     await tv.page.locator('[data-focus="resume"]').click();
     await tv.eventually(async () => tv.fake.requests.some(r => r.path === WATCH), "watch read");

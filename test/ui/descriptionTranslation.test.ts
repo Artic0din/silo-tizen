@@ -5,7 +5,7 @@ import { FakeCalendar } from "../native/support/fakeCalendar.ts";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakeHome } from "../native/support/fakeHome.ts";
 import type { CatalogRoutes, FakeSilo, Reply } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -153,7 +153,7 @@ for (const leave of [false, true]) test(leave ? "leaving a featured card at 1499
     tv.fake.catalog = catalog;
     const translation = install(tv.fake, catalog, "auto", ["movie:m0004"]);
     try {
-        await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
+        await pauseTvClock(tv);
         const held = tv.fake.hold("/capabilities/metadata-ai");
         await signIn(tv);
         await tv.page.evaluate(() => window.browseHarness.mount());
@@ -217,6 +217,7 @@ test("a replaced marquee keeps the new card's translation on the incoming layer"
     tv.fake.catalog = catalog;
     install(tv.fake, catalog, "auto", ["movie:m0004"]);
     try {
+        await pauseTvClock(tv);
         await signIn(tv);
         await tv.page.evaluate(() => window.browseHarness.mount());
         await tv.page.locator('[data-view="home"] .skyline-marquee h1').waitFor();
@@ -251,6 +252,7 @@ test("returning from Settings rearms a featured dwell that hide cancelled", asyn
     tv.fake.catalog = catalog;
     const translation = install(tv.fake, catalog, "auto", ["movie:m0004"]);
     try {
+        await pauseTvClock(tv);
         await signIn(tv);
         await tv.page.evaluate(() => window.browseHarness.mount());
         await tv.page.locator('[data-view="home"] .skyline-marquee h1').waitFor();

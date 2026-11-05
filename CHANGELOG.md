@@ -11,6 +11,10 @@ All notable changes to this project are documented in this file.
 - Reset fresh Person visits from Search and applied delayed poster and badge preferences on Person.
 
 - Corrected Person safe-area insets, title-count spacing, biography weight, server-driven filters, fresh-visit focus and independent metadata loading, restored catalog status badges, and returned the full hero when focus moved back to its chips.
+- Showed Home rows as soon as they arrived, without waiting on library tabs or an uncapped sections read, and stopped the Home page from saying the server was still waiting. While those rows are still out, Home is an empty page labelled "Loading home" and the library tabs fill in on their own.
+- Stopped a delayed Home libraries read from putting a library back after it was hidden in Settings.
+- Kept remote navigation when those library tabs arrived on another page, and read them again after the app returned if that read had failed.
+- Kept a profile's Movies and Series tabs when a libraries read failed after returning to that profile. A switch to another profile still drops the previous profile's libraries.
 - Moved the Home logo slot up to Apple's marquee stack and landed Down from a landscape card on the poster nearest that card.
 - Kept the column when moving down between Home rows, and fitted hero title art in Apple's 200px logo slot.
 - Down from the top bar lands on the leftmost card instead of the card remembered in the row.

@@ -1195,7 +1195,8 @@ for (const choice of ["off", "refused"] as const) {
         frenchInventory(r);
         r.h.fake.script("/captions?token=test", { status: 200, text: "WEBVTT\n\n00:00.000 --> 00:30.000\nSidecar" });
         r.h.fake.script("/captions?token=test", { status: 200, text: "WEBVTT\n\n00:00.000 --> 00:30.000\nSidecar" });
-        r.server.next.push({ ...renditionPlan(0, "Sidecar", 1), decisionRendition: undefined, subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/captions?token=test`, format: "vtt", timing_origin_seconds: 0 } });
+        const { decisionRendition: _rendition, ...plan } = renditionPlan(0, "Sidecar", 1);
+        r.server.next.push({ ...plan, subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/captions?token=test`, format: "vtt", timing_origin_seconds: 0 } });
         const id = await playMovie(r, { ...MOVIE, startSeconds: 0 });
         const caption = (): string | undefined => {
             const view = last(r.views);

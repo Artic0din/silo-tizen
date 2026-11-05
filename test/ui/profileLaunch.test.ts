@@ -54,7 +54,7 @@ test("Change Account waits for a profile instead of reopening a remembered profi
     } finally { await tv.page.context().close(); await browser.close(); }
 });
 
-test("Settings Accounts clears the previous profile's PIN authority", async () => {
+test("Settings Accounts uses pane rows and Back returns to Settings", async () => {
     const browser = await launchBrowser();
     const tv = await openTv(browser, { app: "application" });
     tv.fake.catalog = new FakeDetails();
@@ -67,10 +67,52 @@ test("Settings Accounts clears the previous profile's PIN authority", async () =
         await tv.page.locator('[data-focus="server"]').click();
         await tv.page.getByRole("button", { name: "Accounts", exact: true }).click();
         await tv.page.locator('[data-view="accounts-settings"]').waitFor();
+        const pane = await tv.page.evaluate(() => {
+            const row = document.querySelector('.accounts-settings button')!;
+            const remove = document.querySelector('.accounts-settings [data-focus^="remove:"]')!;
+            return { header: getComputedStyle(document.querySelector('.accounts-settings h1')!).fontSize,
+                icon: document.querySelector('.accounts-settings-header [aria-hidden="true"]') !== null,
+                height: row.getBoundingClientRect().height, chevron: row.querySelector('.accounts-chevron')?.textContent,
+                red: getComputedStyle(remove).color, destructiveChevron: remove.querySelector('.accounts-chevron') !== null };
+        });
+        assert.equal(pane.header, "42px");
+        assert.equal(pane.icon, true);
+        assert.equal(pane.height, 66);
+        assert.equal(pane.chevron, "›");
+        assert.equal(pane.red, "rgb(176, 0, 32)");
+        assert.equal(pane.destructiveChevron, false);
         await tv.remote(10009);
+        await tv.page.locator('[data-view="settings"]').waitFor();
+        assert.equal(await tv.focused(), "accounts");
+        await tv.remote(10009); await tv.remote(10009);
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+        await tv.page.locator('.account-card').first().click();
         await tv.page.locator('[data-screen="profiles"]').waitFor();
         await tv.page.locator('[data-focus="profile:p-kid"]').click();
         await tv.page.locator('[data-screen="pin"]').waitFor();
+    } finally { await tv.page.context().close(); await browser.close(); }
+});
+
+test("Accounts Back stays usable after signing out the active account", async () => {
+    const browser = await launchBrowser();
+    const tv = await openTv(browser, { app: "application" });
+    tv.fake.catalog = new FakeDetails();
+    try {
+        await picker(tv); await selectKid(tv);
+        await tv.page.locator('[data-focus="ask-every-launch"]').click();
+        await tv.page.locator('[data-view="home"]').waitFor();
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+        await tv.page.locator('[data-focus="server"]').click();
+        await tv.page.getByRole("button", { name: "Accounts", exact: true }).click();
+        await tv.page.locator('.accounts-settings button').first().click();
+        await tv.page.locator('[data-focus="confirm"]').click();
+        await tv.page.locator('[data-view="accounts-settings"]').waitFor();
+        await tv.remote(10009);
+        await tv.page.locator('[data-view="change-account"]').waitFor();
+        assert.equal(await tv.focused(), "add-server");
+        assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); await browser.close(); }
 });
 

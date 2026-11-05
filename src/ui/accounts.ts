@@ -7,13 +7,16 @@ import { MarqueeBackdrop } from "./marqueeBackdrop.ts";
 import { systemClock } from "../api/clock.ts";
 import { el } from "./screen.ts";
 import { cachedBranding } from "./brandingCache.ts";
+import { navigationIcon } from "./navigationIcon.ts";
 
 export interface AccountsScreen { destroy(): void }
 export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current: ConnectedServer | undefined,
-    open: (account: SavedAccount | undefined, address?: string) => void, back: () => void, manage = false): AccountsScreen {
+    open: (account: SavedAccount | undefined, address?: string) => void, back: () => void, manage = false, onCurrentSignOut?: () => void): AccountsScreen {
     const container = el("section", "accounts-screen");
     const backdrop = new MarqueeBackdrop(core.clock ?? systemClock);
-    backdrop.setStage(0);
+    backdrop.setStage(current ? 2 : 0);
+    backdrop.setAccent(current ? cachedBranding(core.publicStorage, current.server.http.base.baseUrl)?.accentColor : undefined);
+    const scrim = el("div", "accounts-scrim");
     container.append(backdrop.element);
     root.append(container);
     const host = new FocusHost(container);
@@ -32,6 +35,7 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
             void (async () => {
                 accept.element.setAttribute("disabled", "");
                 for (const row of targets) {
+                    if (row.id === current?.accounts.localAccountId) onCurrentSignOut?.();
                     const cleared = row.id === current?.accounts.localAccountId ? (await current.session.logout()).storage : await signOutSavedAccount(row, core);
                     if (cleared === "failed") throw new Error("Could not remove the saved sign-in. Try again.");
                     directory.remove(row.id);
@@ -55,22 +59,38 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
         const rows = directory.list();
         if (manage) {
             const panel = el("div", "accounts-settings");
+            const header = el("header", "accounts-settings-header");
+            const icon = el("span", "accounts-settings-icon");
+            icon.append(navigationIcon("switch-server"));
+            icon.setAttribute("aria-hidden", "true");
+            const copy = el("div", "");
+            copy.append(el("h1", "", "Accounts"), el("p", "", "Servers and the accounts signed in to them on this TV."));
+            header.append(icon, copy); panel.append(header);
             const controls: FocusItem[] = [];
+            const paneRow = (key: string, title: string, action: () => void, value?: string, destructive = false): FocusItem => {
+                const item = actionButton(key, "", action);
+                item.element.append(el("span", "accounts-row-title", title));
+                if (value) item.element.append(el("span", "accounts-row-value", value));
+                if (destructive) item.element.classList.add("accounts-destructive");
+                else { const arrow = el("span", "accounts-chevron", "›"); arrow.setAttribute("aria-hidden", "true"); item.element.append(arrow); }
+                return item;
+            };
             for (const address of [...new Set(rows.map(row => row.baseUrl))]) {
                 const serverName = cachedBranding(core.publicStorage, address)?.serverName ?? new URL(address).host;
                 panel.append(el("h2", "browse-section-title", serverName.toUpperCase()));
                 for (const row of rows.filter(row => row.baseUrl === address)) {
                     const detail = row.needsSignIn ? "Sign in again" : `${row.profileCount} ${row.profileCount === 1 ? "profile" : "profiles"}`;
-                    const item = actionButton(row.id, `${row.username} · ${detail}`, () => row.needsSignIn ? expired(row) : confirm([row], false));
+                    const item = paneRow(row.id, row.username, () => row.needsSignIn ? expired(row) : confirm([row], false), detail);
                     controls.push(item); panel.append(item.element);
                 }
-                const add = actionButton(`add:${address}`, `Add an account on ${serverName}`, () => go(undefined, address));
-                const remove = actionButton(`remove:${address}`, "Remove Server", () => confirm(rows.filter(row => row.baseUrl === address), true));
+                const add = paneRow(`add:${address}`, `Add an account on ${serverName}`, () => go(undefined, address));
+                const remove = paneRow(`remove:${address}`, "Remove Server", () => confirm(rows.filter(row => row.baseUrl === address), true), undefined, true);
                 controls.push(add, remove); panel.append(add.element, remove.element);
             }
-            const add = actionButton("add-server", "Add a server", () => go(undefined));
+            const add = paneRow("add-server", "Add a server", () => go(undefined));
             controls.push(add); panel.append(add.element, el("p", "signin-text", "Signing out of an account removes it and its settings from this TV. Signing out of a server's only account removes the server too."));
-            host.show({ name: "accounts-settings", content: [backdrop.element, el("h1", "accounts-title", "Accounts"), panel], zones: [{ id: "rows", layout: "column", items: controls }], focus: { zone: "rows", key: controls[0]!.key }, back: () => { destroy(); back(); } });
+            container.classList.add("accounts-management");
+            host.show({ name: "accounts-settings", content: [panel], zones: [{ id: "rows", layout: "column", items: controls }], focus: { zone: "rows", key: controls[0]!.key }, back: () => { destroy(); back(); } });
             return;
         }
         const addresses = [...new Set(rows.map(row => row.baseUrl))];
@@ -86,7 +106,10 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
             item.element.setAttribute("aria-selected", String(address === selected));
             return item;
         });
-        serverItems.push(actionButton("add-server", "Add server", () => go(undefined)));
+        const addServer = actionButton("add-server", "Add server", () => go(undefined));
+        const plus = el("span", "accounts-server-mark accounts-plus", "+"); plus.setAttribute("aria-hidden", "true");
+        addServer.element.prepend(plus);
+        serverItems.push(addServer);
         const accounts: FocusItem[] = rows.filter(row => row.baseUrl === selected).map(row => {
             const item = actionButton(row.id, "", () => manage ? confirm([row], false) : go(row));
             item.element.classList.add("account-card");
@@ -108,7 +131,7 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
         rail.append(...serverItems.map(item => item.element)); pane.append(...accounts.map(item => item.element));
         const columns = el("div", "accounts-columns"); columns.append(rail, pane);
         const mark = el("img", "accounts-wordmark"); mark.src = "img/silo-wordmark.png"; mark.alt = "Silo";
-        host.show({ name: "change-account", content: [backdrop.element, mark, el("h1", "accounts-title", manage ? "Accounts" : "Change account"), el("p", "signin-text", "Choose a server, then the account to use on it."), columns],
+        host.show({ name: "change-account", content: [backdrop.element, scrim, mark, el("h1", "accounts-title", "Change account"), el("p", "signin-text", "Choose a server, then the account to use on it."), columns],
             zones: [{ id: "servers", layout: "column", right: "accounts", items: serverItems }, { id: "accounts", layout: "column", left: "servers", items: accounts }],
             focus: accounts.length === 0 ? { zone: "servers", key: "add-server" } : { zone: "accounts", key: accounts.find(row => row.key === current?.accounts.localAccountId)?.key ?? accounts[0]!.key },
             back: () => {

@@ -3,6 +3,8 @@
 Change Account lists saved accounts beside a server rail.
 The profile menu and profile picker footer open it.
 Settings > Server > Accounts opens account management; Accounts is not a Settings category on the Apple reference.
+Accounts uses its own Settings pane header, value-and-chevron rows, and red removal action.
+Back returns to the Accounts row in Settings while the active profile remains valid.
 Account credentials stay in protected storage, bound to their original server URL and a device-made account ID.
 The first launch copies the previous saved credential before making the new selection durable, without a network request.
 An interrupted copy can retry from the retained legacy credential.
@@ -20,6 +22,8 @@ Navigation was rechecked at `bbd1e470f0e1d3a99f486d0d7246d11ed1c97d55`: `TVMainT
 Apple TV has no three-choice Add sheet: account and server actions are direct, and the profile picker's Add opens profile creation.
 The Change Account view uses the reference's 88-point headline, 520 by 88 rail rows and 760 by 128 account cards at the 1920-wide design viewport.
 Inter substitutes for Apple's system font.
+Pane rows, the 520px rail, plain Add server, gradient account tiles, and marquee scrim were rechecked against `bef81e8652a89c23a1c3cf07e312e9444baa6c4c`.
+Offline recovery says "Back to profiles" while a saved account can open profiles, otherwise "Change account".
 Tizen has no downloads, so download deletion copy is omitted.
 Desktop Chromium tests establish app behavior only.
 Same-state Apple TV and signed Samsung WGT captures remain required before merge.

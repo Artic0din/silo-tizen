@@ -61,6 +61,12 @@ async function signIn(tv: Tv): Promise<void> {
     await tv.page.evaluate(() => window.browseHarness.connect());
     await tv.eventually(async () => tv.fake.devices.size > 0, "device code");
     tv.fake.approve([...tv.fake.devices.keys()][0] ?? "");
+    // The start answer arms the approval poll. Jumping before that answer lands
+    // moves a paused clock past the poll, and the wall-clock wait cannot bring it back.
+    await tv.eventually(() => tv.page.evaluate(() => {
+        const loginPhase = window.browseHarness.loginPhase;
+        return loginPhase === "waiting" || loginPhase === "signed_in";
+    }), "login code");
     await tv.jump(5000);
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.loginPhase === "signed_in"), "login");
     await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner"));

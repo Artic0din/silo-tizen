@@ -10,6 +10,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept Search's navigation column when a square People portrait animates on focus.
 - Kept Home rows when a return to Home joined a row-cap read that the previous visit had cancelled.
 - Preserved saved logins when entering another server and kept overflowing Accounts actions visible on screen.
 - Placed Accounts below the Server heading, matched its section labels and chevrons to Apple TV, and reused the saved account's session when restoring through server entry.

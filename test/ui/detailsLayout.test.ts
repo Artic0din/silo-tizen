@@ -7,6 +7,40 @@ import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
+detailTest("Final season E05 clamps with one successor while start and interior anchors remain bounded", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog);
+    const seasons = catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body as { items: Record<string, unknown>[] };
+    const episodes = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner')?.body as { items: Record<string, unknown>[] };
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons?**', route => route.fulfill({ json: { items: [13, 14].map(season => ({ ...seasons.items[0], content_id: `season:${season}`, season_number: season, episode_count: season === 13 ? 10 : 6, user_data: { played: season === 13, in_progress_count: season === 14 ? 1 : 0 } })) } }));
+    for (const season of [13, 14]) await tv.page.route(`**/api/v2/catalog/series/series%3As1/seasons/${season}/episodes?**`, route => route.fulfill({ json: { items: Array.from({ length: season === 13 ? 10 : 6 }, (_, index) => ({ ...episodes.items[0], content_id: `episode:s${season}e${index + 1}`, season_number: season, episode_number: index + 1, user_data: { played: season === 13 || index < 4, playback_position_seconds: season === 14 && index === 4 ? 60 : 0 } })) } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:s13e10"]').waitFor();
+    const card = (id: string) => tv.page.locator(`[data-focus="episode:${id}"]`);
+    const measure = () => tv.page.locator('.details-episodes').evaluate(row => ({ scroll: row.scrollLeft, cards: [...row.querySelectorAll('.browse-art')].map(node => ({ x: node.getBoundingClientRect().x, right: node.getBoundingClientRect().right })) }));
+    await card('s14e5').focus(); await tv.jump(1500);
+    await tv.eventually(async () => card('s14e5').locator('.browse-art').evaluate(node => node.getBoundingClientRect().width > 325), 'E05 focus lift settled');
+    const end = await measure();
+    // Two pixels cover CSS subpixel and scroll-position rounding. The supplied
+    // right-edge measurement is approximate and the existing Tizen leading slot
+    // is 7px right of Swift's 100px inset. Assert the derived edge separately.
+    assert.ok(Math.abs(end.cards[14]!.x - 1158) < 2, JSON.stringify(end));
+    assert.ok(Math.abs(end.cards[15]!.right - 1815) < 12, JSON.stringify(end));
+    assert.ok(Math.abs(end.cards[15]!.right - 1824.74) < 2, JSON.stringify(end));
+    const reads = tv.fake.requests.length;
+    await card('s13e5').focus(); await tv.jump(500);
+    await tv.eventually(async () => card('s13e5').locator('.browse-art').evaluate(node => node.getBoundingClientRect().width > 325), 'interior focus lift settled');
+    const middle = await measure();
+    assert.ok(Math.abs(middle.cards[4]!.x - 109) < 2, JSON.stringify(middle));
+    assert.ok(Math.abs(middle.scroll - 1398.4) < 1, JSON.stringify(middle));
+    await card('s13e1').focus(); await tv.jump(500); await tv.remote(37);
+    await tv.eventually(async () => card('s13e1').locator('.browse-art').evaluate(node => node.getBoundingClientRect().width > 325), 'first focus lift settled');
+    const start = await measure();
+    assert.equal(start.scroll, 0);
+    assert.ok(Math.abs(start.cards[0]!.x - 109) < 2, JSON.stringify(start));
+    assert.equal(await tv.focused(), 'episode:s13e1');
+    assert.equal(tv.fake.requests.length, reads, 'loaded neighbour and interior focus start no reads');
+}, 'compact');
+
 detailTest("Apple loaded-season window rebases E05 and retains remote focus across its boundaries", async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
     const seasonBody = catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body as { items: Record<string, unknown>[] };

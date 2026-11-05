@@ -13,9 +13,11 @@ test("Apple rail anchors selection and focus to whole steps, clamped at the term
     // Prepending ten episodes rebases both card and anchor by 4000.
     assert.equal(episodeRailOffset(14, 24, 360, 40, 1813), 5600);
     assert.equal(episodeRailOffset(14, 24, 360, 40, 1813) - 1600, 4000);
-    // At Compact size the 349.6px pitch still pins E05; it cannot yield x1158.
+    // A long season can pin E05; the measured final season has only six cards.
     assert.equal(episodeRailOffset(4, 14, 309.6, 40, 1813), 1398.4);
     assert.equal(109 + 4 * 349.6 - 1398.4, 109);
+    assert.equal(episodeRailOffset(14, 16, 309.6, 40, 1820), 3845.6000000000004);
+    assert.ok(Math.abs(109 + 14 * 349.6 - episodeRailOffset(14, 16, 309.6, 40, 1820) - 1157.8) < .001);
 });
 
 function page(season: number, count: number): Episode[] {

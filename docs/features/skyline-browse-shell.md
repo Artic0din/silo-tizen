@@ -27,7 +27,7 @@ Initial selection follows Apple's resume priority: an explicit season, a season 
 Episode-row entry uses the in-progress episode, first unwatched episode, or first episode, and remembers the last focused episode on re-entry.
 The rail anchors the current card to the leading slot and applies the profile's poster-size scale to Apple's 360×200 base stills.
 Watched episodes carry a check disc over the still, and moving Down to Cast & Crew centres that section in the viewport.
-These values follow Apple main at `ffa6e5188c70664090a6dc9beb8c7cbbc3ce43e7`; observed 310×174 thumbnails and centered episode placement do not match that revision's Series Swift and remain a native comparison question.
+Compact scales the base still to 309.6×172px; terminal focus is bounded by the loaded row's end.
 The accepted initial season loads independently; neighbouring seasons then warm at least eight distinct episodes per side, crossing empty pages and stopping at missing or failed pages.
 The rail joins contiguous loaded seasons, sorts episodes numerically and removes duplicate content identities.
 It retains the nearest five nonempty pages plus enough adjacent pages for eight episodes per side; empty pages remain cached.
@@ -38,9 +38,15 @@ Crossing into another loaded season selects its cached page and warms its neighb
 Re-entering a boundary after a failed neighbour read retries it; existing cards remain usable and show an inline error.
 Entry and focus share the stepped offset in `TVEpisodeRail.swift:400-414,436-468`; `SkylineScroll` remains the only scrolling owner.
 All DOM cards stay focusable offscreen, providing the predecessor that SwiftUI's lazy stack keeps via its hidden lookbehind (`TVEpisodeRail.swift:331-378`).
-Source arithmetic does not reproduce the supplied 5 November x1158 focused-E05 measurement: at Standard size with ten previous-season episodes, index 14 gives 5600px of scroll, putting the resting card at x118 and focused artwork at about x109 in desktop Chromium.
-Compact uses a 309.6px card and 349.6px pitch; the same rule still anchors E05 to the leading slot.
-No offset compensates for this unresolved source/runtime difference, and no native comparison has run for this revision.
+The supplied 5 November final-season case has ten S13 episodes and six S14 episodes, with S14E05 focused and one successor.
+At Compact size the content width is `16 * 309.6 + 15 * 40 = 5553.6`, and Swift's 1820px viewport gives `ceil((5553.6 - 1820) / 349.6) * 349.6 = 3845.6` maximum scroll.
+Swift's leading hover inset is `309.6 * .025 + 2 = 9.74`; its added trailing inset is `3845.6 - (9.74 + 5553.6 - 1820) = 102.26` (`TVEpisodeRail.swift:420-435`, `TVDetailHero.swift:10`).
+The hidden lookbehind adds one pitch to both content and viewport and cancels out of this maximum.
+The former fourteen-episode S14 fixture never reached this boundary at E05.
+`SkylineScroll` preserves fractional CSS widths when calculating the terminal step; integer `offsetWidth` accumulated rounding error at Compact size.
+Rendered regression requires focused E05 near x1158 and E06's right edge near x1824.74, within 12px of the approximate supplied x1815 edge.
+The existing Tizen leading slot is 7px right of Swift's 100px inset; this is disclosed rather than corrected with an episode-specific offset.
+No native comparison has run for this revision.
 Accepting a season queues its episode catalog details with at most four reads in flight, deduplicated against the next-up read and this visit's cache.
 Each accepted episode detail starts its existing playback/preference owner before focus reaches it.
 All cached episodes share a series-wide playback gate while any series preference save is pending or unconfirmed.

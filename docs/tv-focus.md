@@ -250,9 +250,12 @@ It therefore never reaches the app's Exit dialog.
 While playback runs, `FocusHost.stop()` has removed browse's key listeners.
 Playback has these differences from browse:
 
-- Enter pauses or resumes.
+- Enter on the scrubber opens a paused timeline selection; another Enter commits it and resumes when playback was running.
   Left and Right preview a seek, Enter commits it and Back cancels it.
-  Up focuses the transport buttons, and Down opens the audio and subtitle menu.
+  A held direction keeps active playback running.
+  Down focuses Play/Pause, and Info and options opens the track menu.
+- Playback resuming outside the scrubber cancels its timeline preview without seeking and restores auto-hide.
+  A hold that paused a pending resume returns that resume on cancellation only if no newer Play or Pause superseded it.
 - The track menu captures every key: Up/Down within a list, Left/Right between lists, Enter chooses and Back closes.
 - Play/Pause, Play, Pause, Stop, Rewind and Fast Forward act directly.
   Stop leaves playback.

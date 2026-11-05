@@ -16,6 +16,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept season heroes and Play labels on the latest selection, showed loaded episode summaries immediately, restored Series on Play with its overview, and limited season recovery to one requested read.
 - Selected seasons on resting pill focus without rereading cached episodes, bounded missing-season reads during remote sweeps, and centered the selected season pill like Apple TV.
 - Corrected subtitle profile edits under device overrides, preserved focus after dismissed launch saves, and reset sign-out confirmation to Cancel on each opening.
 - Corrected Playback Settings to edit this TV's supported overrides and restore profile inheritance without changing profile defaults (Apple/Samsung native parity pending).

@@ -26,6 +26,7 @@ export class SeriesEpisodes {
     entryEpisode: string | undefined;
     failed = false;
     focusSelectedEpisode = false;
+    selectionOwnsHero = false;
     private active = false;
     private loaded = false;
     private controller: AbortController | undefined;
@@ -53,8 +54,7 @@ export class SeriesEpisodes {
 
     start(): void {
         this.active = true;
-        if (!this.loaded && this.controller === undefined && !this.failed) this.load(true);
-        else if (this.loaded) this.warmNeighbors();
+        if (!this.loaded && this.controller === undefined && !this.failed) this.load(true, false, true);
     }
 
     restore(previous: SeriesEpisodes | undefined): void {
@@ -104,15 +104,15 @@ export class SeriesEpisodes {
     select(season: number, automatic = false): void {
         clearTimeout(this.seasonDwell);
         if (!this.active || !this.seasons.some(item => item.seasonNumber === season)) return;
+        this.selectionOwnsHero = true;
         if (!automatic) this.automaticRead = false;
         if (season === this.seasonNumber && this.episodes !== undefined) {
             this.focusSelectedEpisode = true;
             this.entryEpisode = this.episodes[0]?.id;
             this.changed("load");
-            if (!automatic) this.warmNeighbors();
             return;
         }
-        if (season === this.seasonNumber && this.controller !== undefined) {
+        if (season === this.seasonNumber && (this.controller !== undefined || this.failed)) {
             this.focusSelectedEpisode = true;
             this.entryEpisode = undefined;
             this.changed("load");
@@ -121,7 +121,7 @@ export class SeriesEpisodes {
         this.seasonNumber = season;
         this.focusSelectedEpisode = true;
         this.entryEpisode = undefined;
-        if (!automatic) { this.load(); return; }
+        if (!automatic && !this.pages.has(season)) { this.load(); return; }
         this.controller?.abort();
         this.controller = undefined;
         this.episodes = this.pages.get(season);
@@ -183,7 +183,7 @@ export class SeriesEpisodes {
         this.changed("neighbor");
     }
 
-    private load(retain = false, automatic = false): void {
+    private load(retain = false, automatic = false, warm = false): void {
         const season = this.seasonNumber;
         if (season === undefined || !this.active) return;
         this.automaticRead = automatic;
@@ -203,9 +203,8 @@ export class SeriesEpisodes {
         this.failed = false;
         this.changed("load");
         const current = (): boolean => this.active && this.controller === controller && !controller.signal.aborted;
-        this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, season), profileScoped: true, signal: controller.signal }).then(episodes => {
+        this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, season), retry: "never", profileScoped: true, signal: controller.signal }).then(episodes => {
             if (!current()) return;
-            const warm = !this.automaticRead;
             this.controller = undefined;
             this.automaticRead = false;
             this.episodes = episodes;
@@ -227,7 +226,8 @@ export class SeriesEpisodes {
 
     focus(id: string): void {
         this.blur();
-        if (!this.active) return;
+        if (!this.active || this.focusedSeason !== undefined) return;
+        this.selectionOwnsHero = false;
         const episodes = this.railEpisodes ?? [];
         const index = episodes.findIndex(episode => episode.id === id);
         if (index < 0) return;
@@ -302,10 +302,11 @@ export class SeriesEpisodes {
         const controller = this.neighbors;
         this.pendingNeighbors.add(number);
         try {
-            const page = await this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, number), profileScoped: true, signal: controller.signal });
+            const page = await this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, number), retry: "never", profileScoped: true, signal: controller.signal });
             if (!this.active || controller.signal.aborted) return;
             this.pages.set(number, page);
             if (this.seasonNumber === number && this.episodes === undefined) {
+                this.failed = false;
                 this.episodes = page;
                 this.entryEpisode = page[0]?.id;
                 this.loaded = true;

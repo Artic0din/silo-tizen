@@ -1361,6 +1361,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 current.stale = true;
             }
             const fromProfileMenu = (active?.kind === "requests" && active.requests.source.kind === "hub") || active?.kind === "personal";
+            if (current.kind === "item" && current.data?.details?.series !== undefined && (active?.kind === "season" || active?.kind === "item" && active.data?.detail.type === "episode")) {
+                const details = current.data.details, series = details.series;
+                details.focusedEpisodeId = undefined;
+                if (series !== undefined) { series.selectionOwnsHero = false; series.focusSelectedEpisode = false; }
+                current.focus = { zone: "actions", key: "next-episode" };
+                host.forgetVisit(`item:${current.id}`);
+            }
             showRoute(current, fromProfileMenu ? tabFocus(current) : current.focus);
         }
     };
@@ -1417,6 +1424,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     const open = (destination: Destination): void => {
+        if (destination.kind === "item") host.forgetVisit(`item:${destination.id}`);
         if (destination.kind === "person") host.forgetVisit(`person:${destination.id}`);
         push(destination.kind === "item"
             ? newRoute({ kind: "item", id: destination.id, title: destination.title, ...(destination.seriesContext === undefined ? {} : { seriesContext: destination.seriesContext }), data: undefined })

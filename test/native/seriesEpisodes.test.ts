@@ -130,7 +130,7 @@ for (const outcome of ["success", "empty", "failure"] as const) test(`missing se
     assert.equal(h.reads().length, 4, "completion and revisits never chain or retry reads");
 });
 
-for (const timing of ["pending", "completed"] as const) test(`Select confirms a ${timing} pill read across blur and warms its neighbours once`, async t => {
+for (const timing of ["pending", "completed"] as const) test(`Select confirms a ${timing} pill read across blur without warming neighbours`, async t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const h = await episodeRailHarness(); t.after(() => h.state.stop());
     const held = h.fake.hold(operations.listSeasonEpisodes("series:s1", 4).path, true);
@@ -141,7 +141,77 @@ for (const timing of ["pending", "completed"] as const) test(`Select confirms a 
     held.release(); await h.settle();
     assert.equal(h.state.failed, false);
     assert.equal(h.state.entryEpisode, "rail:4:0");
-    assert.equal(h.reads().length, 5, "confirmation reuses the pending read and warms only missing season 5");
+    assert.equal(h.reads().length, 4, "confirmation reuses the pending read without neighbour reads");
+});
+
+test("Retry and selected-pill Select read only the failed season", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(4); t.after(() => h.state.stop());
+    h.state.focusSeason(4); t.mock.timers.tick(70); await h.settle();
+    h.state.retry(); await h.settle();
+    h.state.select(4); await h.settle();
+    assert.deepEqual(h.reads(), [2, 1, 3, 4, 4].map(number => operations.listSeasonEpisodes("series:s1", number).path));
+});
+
+test("immediate Select reuses a cached season before its focus dwell", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(); t.after(() => h.state.stop());
+    h.state.focusSeason(3); h.state.select(3); await h.settle();
+    assert.equal(h.reads().length, 3);
+    assert.equal(h.state.entryEpisode, "rail:3:0");
+});
+
+test("a missing season paints its summary with one season read and zero item reads", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness();
+    const detail = await h.core.session.call({ ...operations.getCatalogItem("series:s1"), profileScoped: true });
+    const details = new DetailsState(detail, h.core.session, () => undefined, async () => undefined);
+    details.series = h.state; details.start(); await h.settle();
+    t.after(() => details.stop());
+    const before = h.fake.requests.length;
+    h.state.focusSeason(4); t.mock.timers.tick(70); await h.settle();
+    details.warmSeriesEpisodes(); await h.settle();
+    const reads = h.fake.requests.slice(before);
+    assert.equal(reads.filter(request => request.path.includes("/episodes")).length, 1);
+    assert.equal(reads.filter(request => request.path.startsWith("/catalog/items/")).length, 0);
+    assert.equal(details.heroEpisodeId, "rail:4:0");
+    assert.equal(details.playbackTargetId, "rail:4:0");
+});
+
+test("rate-limited season sweep and Retry never invoke transport retries", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(); t.after(() => h.state.stop());
+    for (const number of [4, 5, 6, 7]) h.fake.script(operations.listSeasonEpisodes("series:s1", number).path, problem(503, "unavailable", "Unavailable"), problem(503, "unavailable", "Unavailable"));
+    for (const number of [4, 5, 6, 7]) {
+        h.state.focusSeason(number); t.mock.timers.tick(150); await h.settle();
+        await h.clock.advance(2000); await h.settle();
+    }
+    h.state.retry(); await h.settle(); await h.clock.advance(2000); await h.settle();
+    assert.deepEqual(h.reads(), [2, 1, 3, 4, 5, 6, 7, 7].map(number => operations.listSeasonEpisodes("series:s1", number).path));
+});
+
+test("a late superseded item read cannot overwrite a cached season's hero target", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(); t.after(() => h.state.stop());
+    const detail = await h.core.session.call({ ...operations.getCatalogItem("series:s1"), profileScoped: true });
+    const details = new DetailsState(detail, h.core.session, () => undefined, async () => undefined);
+    details.series = h.state;
+    const itemPath = (id: string): string => operations.getCatalogItem(id).path;
+    const raw = h.fake.catalog?.route("GET", "/catalog/items/episode%3As1e11", "p-owner")?.body;
+    assert.ok(raw && typeof raw === "object");
+    for (const season of [1, 3]) h.fake.script(itemPath(`rail:${season}:0`), { status: 200, body: { ...raw, content_id: `rail:${season}:0`, season_number: season, episode_number: 1 } });
+    const held = h.fake.hold(itemPath("rail:1:0"), true);
+    details.start(); t.after(() => details.stop());
+    h.state.select(1, true); details.warmSeriesEpisodes(); details.loadNextEpisode(); await h.settle();
+    const before = h.fake.requests.filter(request => request.path.startsWith("/catalog/items/rail")).length;
+    h.state.select(3, true); details.warmSeriesEpisodes(); details.loadNextEpisode(); await h.settle();
+    h.state.focusSelectedEpisode = false;
+    details.focusEpisode("rail:1:0");
+    assert.equal(details.heroEpisodeId, "rail:3:0", "late focus from the previous rendering cannot replace pill selection");
+    held.release(); await h.settle();
+    assert.equal(details.playbackTargetId, "rail:3:0");
+    assert.equal(details.nextEpisode?.id, "rail:3:0");
+    assert.equal(h.fake.requests.filter(request => request.path.startsWith("/catalog/items/rail")).length, before + 1, "only the selected playback episode is hydrated");
 });
 
 test("focus crosses loaded seasons without episode reads or chained prefetch", async t => {
@@ -273,6 +343,7 @@ test("series episodes retain accepted data and reject abandoned or replaced seas
     const path = operations.listSeasonEpisodes("series:s1", 2).path;
     const held = h.fake.hold(path, true);
     state.select(2);
+    state.retry();
     await settle();
     state.select(1);
     await settle();
@@ -282,6 +353,7 @@ test("series episodes retain accepted data and reject abandoned or replaced seas
     assert.equal(state.episodes?.[0]?.id, "episode:s1e11");
     h.fake.script(path, problem(422, "validation_failed", "Unavailable season"));
     state.select(2);
+    state.retry();
     await settle();
     assert.equal(state.failed, true);
     state.retry();
@@ -290,11 +362,12 @@ test("series episodes retain accepted data and reject abandoned or replaced seas
     assert.equal(state.episodes?.[0]?.id, "episode:s1e21");
     const late = h.fake.hold(operations.listSeasonEpisodes("series:s1", 1).path, true);
     state.select(1);
+    state.retry();
     await settle();
     state.stop();
     const before = changed;
     late.release();
     await settle();
     assert.equal(changed, before);
-    assert.equal(state.episodes, undefined);
+    assert.equal(state.episodes?.[0]?.id, "episode:s1e11");
 });

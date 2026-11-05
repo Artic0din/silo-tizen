@@ -49,6 +49,7 @@ export class DetailsState {
     private episodeWorkers = 0;
     private episodeEpoch = 0;
     private episodeController: AbortController | undefined;
+    private pendingEpisodePanel: { id: string; panel: "audio" | "subtitles" | "version" } | undefined;
     private episodePreferenceDirty = false;
     private episodePreferenceSource: string | undefined;
     get unsettledEpisode(): DetailsState | undefined {
@@ -57,8 +58,10 @@ export class DetailsState {
     get episodePreferencesBlocked(): boolean { return this.unsettledEpisode !== undefined; }
     get playbackTargetId(): string | undefined {
         const episodes = this.series?.episodes;
+        if (this.series?.selectionOwnsHero) return episodes?.[0]?.id;
         return this.focusedEpisodeId ?? (episodes?.find(episode => episode.inProgress) ?? episodes?.find(episode => !episode.played) ?? episodes?.[0])?.id ?? this.detail.playContentId;
     }
+    get heroEpisodeId(): string | undefined { return this.series?.selectionOwnsHero ? this.series.episodes?.[0]?.id : this.focusedEpisodeId; }
     nextEpisodeLoading = false;
     nextEpisodeFailed = false;
     extraPending: string | undefined;
@@ -178,6 +181,7 @@ export class DetailsState {
     }
 
     stop(): void {
+        this.pendingEpisodePanel = undefined;
         this.shuffleStarting = false;
         for (const state of this.seasonStates.values()) state.stop();
         this.descriptions?.stop();
@@ -274,8 +278,19 @@ export class DetailsState {
         return `file:${pick.fileId}:audio:${pick.ordinal}`;
     }
 
-    showPanel(panel: NonNullable<DetailsState["panel"]>): void { this.panel = panel; this.changed(); }
+    showPanel(panel: NonNullable<DetailsState["panel"]>): void {
+        if (panel !== "more" && this.detail.type === "series" && (this.nextEpisodeFailed || this.episodePreferencesBlocked || this.nextEpisode !== undefined && playChoices(this.nextEpisode, this.nextEpisodeState?.selectedFileId) === undefined)) return;
+        this.pendingEpisodePanel = undefined;
+        const id = this.playbackTargetId;
+        if (panel !== "more" && this.detail.type === "series" && this.nextEpisode === undefined && id !== undefined) {
+            this.pendingEpisodePanel = { id, panel };
+            this.loadNextEpisode();
+            return;
+        }
+        this.panel = panel; this.changed();
+    }
     closePanel(): void {
+        this.pendingEpisodePanel = undefined;
         const panel = this.panel;
         this.panel = undefined;
         this.changed(panel);
@@ -424,12 +439,12 @@ export class DetailsState {
             this.seasonStates.set(season.seasonNumber, owner);
             owner.start("personal");
         }
-        if (this.series?.focusSelectedEpisode && this.series.episodes !== undefined) {
-            this.focusedEpisodeId = this.series.entryEpisode;
+        if (this.series?.focusSelectedEpisode) {
+            this.focusedEpisodeId = this.series.episodes?.[0]?.id;
         }
-        if (this.detail.playContentId !== undefined) this.queueEpisode(this.detail.playContentId);
         if (this.series?.railEpisodes !== undefined && this.focusedEpisodeId !== undefined && !this.series.railEpisodes.some(episode => episode.id === this.focusedEpisodeId)) this.focusedEpisodeId = undefined;
-        for (const episode of this.series?.railEpisodes ?? []) this.queueEpisode(episode.id);
+        const target = this.playbackTargetId;
+        if (target !== undefined && !this.series?.selectionOwnsHero && this.focusedEpisodeId === undefined) this.queueEpisode(target);
         this.syncEpisode();
         this.changed();
         this.descriptions?.consider(translate);
@@ -479,7 +494,11 @@ export class DetailsState {
         else owner.subtitlePreference.retry();
     }
 
-    showSeriesOverview(): void { this.focusedEpisodeId = undefined; this.syncEpisode(); this.closePanel(); }
+    showSeriesOverview(): void {
+        this.focusedEpisodeId = undefined;
+        if (this.series !== undefined) this.series.selectionOwnsHero = false;
+        this.warmSeriesEpisodes(); this.closePanel();
+    }
 
     restoreSeasonStates(previous: DetailsState | undefined): void {
         for (const [number, prior] of previous?.seasonStates ?? []) {
@@ -530,6 +549,11 @@ export class DetailsState {
                 this.episodeWorkers--;
                 this.episodeReads.delete(id);
                 this.syncEpisode();
+                const pending = this.pendingEpisodePanel;
+                if (pending?.id === id) {
+                    this.pendingEpisodePanel = undefined;
+                    if (this.playbackTargetId === id && this.nextEpisode !== undefined) this.panel = pending.panel;
+                }
                 this.changed();
                 this.drainEpisodes();
             });
@@ -555,7 +579,7 @@ export class DetailsState {
         if (this.episodePreferenceDirty && !this.episodePreferencesBlocked && this.controller !== undefined) {
             this.episodePreferenceDirty = false;
             const owners = new Map([...this.previousEpisodeStates, ...this.episodeStates]);
-            const ids = [...new Set([...owners.keys(), ...this.episodeReads, ...(this.series?.episodes ?? []).map(episode => episode.id)])];
+            const ids = [...new Set([...owners.keys(), ...this.episodeReads])];
             for (const [episodeId, owner] of owners) {
                 if (episodeId !== this.episodePreferenceSource) {
                     owner.audioPick = undefined; owner.subtitlePick = undefined;

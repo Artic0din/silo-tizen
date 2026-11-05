@@ -37,7 +37,7 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, 
     const episodes = (state.railEpisodes ?? []).map(episode => {
         const item = episodeCard(episode, context);
         if (episode.id === currentEpisode) item.element.setAttribute("aria-current", "true");
-        item.element.addEventListener("focus", () => { state.entryEpisode = episode.id; delete row.dataset.scrollEntry; focusEpisode?.(episode.id); state.focus(episode.id); });
+        item.element.addEventListener("focus", () => { state.entryEpisode = episode.id; delete row.dataset.scrollEntry; state.focus(episode.id); focusEpisode?.(episode.id); });
         item.element.addEventListener("blur", () => state.blur());
         return item;
     });

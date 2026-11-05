@@ -53,4 +53,15 @@ The 76px picker rows retain their second-line detail space.
 The shorter gated Samsung menu can fit below where Apple's six-item menu opens above; direction is based on available space, not item type.
 Unfocused Play now shares the circles' 10% white fill (`TVDetailActions.swift:356-360,701-707`), allowing the existing backdrop to show through without a filter.
 Synthetic warm, neutral and cool underlays verify the supplied sRGB targets within two levels; actual title backdrops still need a signed comparison.
-The season pill row's start position remains a known difference, and Details table end scrolling is left to #247.
+The season pill row now uses `TVDetailLayout.horizontalInset` (100 points) rather than the surrounding section's 88px inset.
+Details table end scrolling is left to #247.
+
+The signed 5 November season comparison at `93a39b3` confirmed pill focus selection and the loaded-season window.
+Later fixes keep the pill selection authoritative over stale episode callbacks, use the loaded first-episode summary for the hero and Play label, and restore a retained Series visit on Play with the series overview.
+The row reuses the continuous rail's terminal clamp (`TVEpisodeRail.swift:400-414`), including loaded predecessors for a short final season.
+Without a loaded neighbour it shows the available episodes; it does not fetch solely to fill empty space.
+Season focus and explicit Retry each make at most one season read, without transport retries or neighbour warming after selection.
+Episode item details are deferred to playback or opening a version/audio/subtitle control; episode focus itself reads nothing.
+Apple uses cached season pages (`ItemDetailViewModel.swift:1143-1156`), guards stale selections (`SeriesSeasonSelection.swift:16-30`), paints episode summaries (`TVSeriesDetailView.swift:448-464,1046-1055`), and skips per-card personal refresh for tvOS Series (`ItemDetailViewModel.swift:1397-1406`).
+The shared abbreviated date formatter matches Apple's medium date style (`DetailDateFormatting.swift:77-82`), including English `Sep`.
+These follow-up fixes have fake-server and Chromium validation only; the signed comparison predates them.

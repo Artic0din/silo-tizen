@@ -13,6 +13,12 @@ detailTest("season focus centers the selected pill and Down uses its E01 without
     const episodes = catalog.route("GET", "/catalog/series/series%3As1/seasons/1/episodes", "p-owner")?.body as { items: Record<string, unknown>[] };
     await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons?**", route => route.fulfill({ json: { items: Array.from({ length: 30 }, (_, index) => ({ ...seasons.items[0], content_id: `season:${index + 1}`, season_number: index + 1, title: `Series ${index + 1}`, user_data: { played: index < 17, in_progress_count: index === 17 ? 1 : 0 } })) } }));
     const reads: number[] = [];
+    const item = catalog.route('GET', '/catalog/items/episode%3As1e11', 'p-owner')?.body as Record<string, unknown>;
+    await tv.page.route('**/api/v2/catalog/items/episode%3A*%3A*?**', route => {
+        const id = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!);
+        const [, season, number] = id.split(':');
+        return route.fulfill({ json: { ...item, content_id: id, season_number: Number(season), episode_number: Number(number) } });
+    });
     await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons/*/episodes?**", route => {
         const season = Number(new URL(route.request().url()).pathname.split("/").at(-2));
         reads.push(season);
@@ -32,8 +38,44 @@ detailTest("season focus centers the selected pill and Down uses its E01 without
     assert.equal(await tv.focused(), "season:17");
     assert.equal(reads.length, 3);
     await tv.eventually(() => centered(17), "focus-selected pill centered");
+    await tv.eventually(async () => (await tv.page.locator('[data-focus="next-episode"]').textContent())?.includes('S17:E1') === true, 'summary supplies Play before item hydration');
+    for (const season of [18, 19]) {
+        await tv.page.locator(`[data-focus="season:${season}"]`).focus(); await tv.jump(60);
+    }
+    await tv.jump(100);
+    await tv.eventually(async () => (await tv.page.locator('[data-focus="next-episode"]').textContent())?.includes('S19:E1') === true, 'burst leaves Play on the latest season');
+    await tv.page.locator('[data-focus="season:17"]').focus(); await tv.jump(100);
     await tv.remote(40);
     assert.equal(await tv.focused(), "episode:17:1");
+});
+
+detailTest("short final season uses the continuous row end clamp and loaded predecessors", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog);
+    const seasons = catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body as { items: Record<string, unknown>[] };
+    const episodes = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner')?.body as { items: Record<string, unknown>[] };
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons?**', route => route.fulfill({ json: { items: [3, 4].map(season => ({ ...seasons.items[0], content_id: `season:${season}`, season_number: season, episode_count: season === 3 ? 10 : 3, user_data: { played: false, in_progress_count: season === 3 ? 1 : 0 } })) } }));
+    for (const season of [3, 4]) await tv.page.route(`**/api/v2/catalog/series/series%3As1/seasons/${season}/episodes?**`, route => route.fulfill({ json: { items: Array.from({ length: season === 3 ? 10 : 3 }, (_, index) => ({ ...episodes.items[0], content_id: `episode:short${season}:${index + 1}`, season_number: season, episode_number: index + 1 })) } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:short4:3"]').waitFor();
+    await tv.page.locator('[data-focus="season:4"]').focus(); await tv.jump(500);
+    const visible = await tv.page.locator('.details-episodes .browse-card').evaluateAll(nodes => nodes.filter(node => {
+        const r = node.getBoundingClientRect(); return r.left >= 0 && r.right <= 1920;
+    }).map(node => node.getAttribute('data-focus')));
+    assert.deepEqual(visible, ['episode:short3:9', 'episode:short3:10', 'episode:short4:1', 'episode:short4:2', 'episode:short4:3']);
+    assert.equal(await tv.page.locator('[data-focus="season:3"]').evaluate(node => node.getBoundingClientRect().x), 100);
+}, 'compact');
+
+detailTest("an unhydrated episode uses its summary for Resume and Start Over", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog);
+    const held = tv.fake.hold('/catalog/items/episode%3Aresume-summary', true);
+    const body = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner')?.body as { items: Record<string, unknown>[] };
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**', route => route.fulfill({ json: { items: body.items.map((episode, index) => ({ ...episode, ...(index === 1 ? { content_id: 'episode:resume-summary' } : {}), user_data: { played: false, is_in_progress: index === 1, position_seconds: index === 1 ? 60 : 0, duration_seconds: 3000 } })) } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:s1e11"]').focus();
+    await tv.page.locator('[data-focus="episode:resume-summary"]').focus();
+    assert.equal(await tv.page.getByRole('button', { name: 'Resume S1:E2', exact: true }).count(), 1, await tv.page.locator('[data-focus="next-episode"]').textContent() ?? 'missing Play');
+    assert.equal(await tv.page.getByRole('button', { name: 'Start Over', exact: true }).count(), 1);
+    held.release();
 });
 
 for (const id of ['movie:m0001', 'series:s1']) detailTest(`${id} Details omits controls absent from tvOS and keeps focus at the last section`, async tv => {
@@ -634,7 +676,9 @@ detailTest('Down into an alternate season starts at its first episode and retarg
     await tv.remote(40);
     assert.equal(await tv.focused(), 'episode:s1e21');
     await tv.page.getByRole('button', { name: /Play S2:E1|Resume S2:E1/ }).waitFor();
-    await tv.eventually(async () => Math.abs(await tv.page.locator('[data-focus="episode:s1e21"] .browse-art').evaluate(node => node.getBoundingClientRect().x) - 109) < 2, 'episode artwork settles at x109');
+    await tv.jump(500);
+    const geometry = await tv.page.locator('[data-focus="episode:s1e21"] .browse-art').evaluate(node => ({ x: node.getBoundingClientRect().x, width: node.getBoundingClientRect().width, restingWidth: (node as HTMLElement).offsetWidth }));
+    assert.ok(Math.abs(geometry.x + (geometry.width - geometry.restingWidth) / 2 - 111) < 2, JSON.stringify(geometry));
 });
 
 detailTest('Selecting the already loaded season resets entry to E01 without another episode read', async tv => {
@@ -915,7 +959,7 @@ detailTest("episode focus swaps cached hero and selectors without starting a rea
     await tv.page.locator('[data-focus="next-episode"]').waitFor();
     assert.equal(await tv.page.locator('[data-focus="episode:s1e11"] .browse-card-title').textContent(), "S01E01 · Harbor Lights chapter 1.1");
     assert.equal(await tv.page.locator('[data-focus="episode:s1e11"] .browse-card-subtitle').textContent(), "Feb 18, 2022  ·  57m");
-    await tv.eventually(async () => tv.fake.requests.some(request => request.path.startsWith('/catalog/items/episode%3As1e12')), "season playback details prefetched");
+    await tv.page.getByRole('button', { name: /Play S1:E1|Resume S1:E1/ }).waitFor();
     await tv.page.locator('[data-focus="episode:s1e12"]').focus();
     await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).waitFor();
     assert.match(await tv.page.locator('.details-editorial .browse-overview').textContent() ?? '', /Harbor Lights chapter 1\.2/);
@@ -1116,7 +1160,7 @@ for (const media of ['movie:m0001', 'episode:s1e11']) detailTest(`ordinary Play 
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.at(-1)?.audioTrackId), undefined);
 });
 
-detailTest("a failed prefetched episode only retries on Select, never on focus", async tv => {
+detailTest("a failed explicitly requested episode only retries on Select, never on focus", async tv => {
     const catalog = tv.fake.catalog;
     assert.ok(catalog instanceof FakeDetails);
     const reply = catalog.route('GET', '/catalog/items/episode%3As1e12', 'p-owner');
@@ -1126,10 +1170,13 @@ detailTest("a failed prefetched episode only retries on Select, never on focus",
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.getByRole('button', { name: /Play S1:E1|Resume S1:E1/ }).waitFor();
     await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+    await tv.page.locator('[data-focus="subtitles"]').click();
     await tv.page.getByRole('button', { name: 'Retry episode', exact: true }).waitFor();
     for (const key of ['version', 'audio', 'subtitles']) assert.equal(await tv.page.locator(`[data-focus="${key}"]`).getAttribute('aria-disabled'), 'true', `${key} keeps its disabled slot`);
     const reads = (): number => tv.fake.requests.filter(request => request.path.startsWith('/catalog/items/episode%3As1e12')).length;
     const before = reads();
+    for (const key of ['version', 'audio', 'subtitles']) await tv.page.locator(`[data-focus="${key}"]`).evaluate(node => (node as HTMLElement).click());
+    assert.equal(reads(), before, 'disabled selectors cannot retry the failed read');
     await tv.page.locator('[data-focus="episode:s1e11"]').focus();
     await tv.page.locator('[data-focus="episode:s1e12"]').focus();
     assert.equal(reads(), before);
@@ -1312,7 +1359,7 @@ detailTest("series Details activates season chips on focus and restores its inli
     await tv.page.locator('[data-view="item:episode:s1e21"]').waitFor();
     await tv.remote(10009);
     await tv.page.locator('[data-view="item:series:s1"]').waitFor();
-    assert.equal(await tv.focused(), "episode:s1e21");
+    assert.equal(await tv.focused(), "next-episode");
     assert.equal(await tv.page.locator('[data-focus="season:2"]').getAttribute("aria-pressed"), "true");
     assert.equal(episodeReads(), before, "ordinary Back reuses the loaded season");
 });

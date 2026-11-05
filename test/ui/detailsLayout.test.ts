@@ -133,6 +133,9 @@ detailTest('hero Up falls back from vanished Start Over and disabled selectors t
     assert.equal(await tv.focused(), 'start-over-episode');
     await tv.page.locator('[data-focus="episode:s1e12"]').focus();
     await tv.page.locator('[data-focus="start-over-episode"]').waitFor({ state: 'hidden' });
+    await tv.page.locator('.details-playback-summary').waitFor();
+    await settledEpisodePrefetch(tv);
+    await pauseTvClock(tv);
     await tv.remote(38);
     await tv.remote(38);
     assert.equal(await tv.focused(), 'next-episode');
@@ -1455,7 +1458,9 @@ detailTest("episode focus swaps cached hero and selectors without starting a rea
     await tv.page.locator('[data-focus="episode:s1e12"]').focus();
     await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).waitFor();
     assert.match(await tv.page.locator('.details-editorial .browse-overview').textContent() ?? '', /Harbor Lights chapter 1\.2/);
+    await tv.page.locator('.details-playback-summary').waitFor();
     await settledEpisodePrefetch(tv);
+    await pauseTvClock(tv);
     const before = tv.fake.requests.length;
     await tv.page.locator('[data-focus="episode:s1e11"]').focus();
     await tv.page.getByRole('button', { name: /Play S1:E1|Resume S1:E1/ }).waitFor();
@@ -1688,8 +1693,10 @@ detailTest("a failed explicitly requested episode only retries on Select, never 
     await tv.page.route('**/api/v2/catalog/items/episode%3As1e12?**', route => route.fulfill(failed ? { status: 500 } : { status: 200, json: reply.body }));
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.getByRole('button', { name: /Play S1:E1|Resume S1:E1/ }).waitFor();
+    await pauseTvClock(tv);
     await tv.page.locator('[data-focus="episode:s1e12"]').focus();
     await tv.page.locator('[data-focus="subtitles"]').click();
+    await tv.page.clock.resume();
     await tv.page.getByRole('button', { name: 'Retry episode', exact: true }).waitFor();
     for (const key of ['version', 'audio', 'subtitles']) assert.equal(await tv.page.locator(`[data-focus="${key}"]`).getAttribute('aria-disabled'), 'true', `${key} keeps its disabled slot`);
     const reads = (): number => tv.fake.requests.filter(request => request.path.startsWith('/catalog/items/episode%3As1e12')).length;

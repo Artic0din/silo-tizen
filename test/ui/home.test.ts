@@ -129,7 +129,10 @@ journey("Details retries a recovery response deferred by a newly opened control"
     await tv.eventually(async () => reads() > before, "recovery in flight");
     await tv.page.locator('[data-focus="more"]').click();
     await tv.page.getByRole("dialog", { name: "More", exact: true }).waitFor();
-    held.release(); await tv.jump(0);
+    const response = tv.page.waitForResponse(reply => new URL(reply.url()).pathname === `/api/v2${path}`);
+    held.release();
+    assert.equal(await (await response).finished(), null);
+    await tv.jump(0);
     await tv.eventually(() => tv.page.evaluate(() => !window.browseHarness.cacheOffline("movie:m0004")), "successful recovery deferred");
     const deferred = reads();
     await tv.remote(10009);

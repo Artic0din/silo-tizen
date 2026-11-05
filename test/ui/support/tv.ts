@@ -226,6 +226,32 @@ export async function openTv(
     return tv;
 }
 
+/**
+ * Reads style or geometry from the node connected in that same browser turn.
+ * A Details repaint can replace a node after a locator resolves and before
+ * `locator.evaluate` runs; the detached node then reports 0, "" or null.
+ * Repeats until the live node is connected and `accept` holds. A timeout
+ * includes the last value read.
+ */
+export async function readLive<T, Arg>(tv: Tv, read: (arg: Arg) => T | null, arg: Arg, accept: (value: T) => boolean, what: string): Promise<T> {
+    let last: T | null = null;
+    try {
+        await tv.eventually(async () => {
+            // Playwright's evaluate argument is Unboxed<Arg>. A generic Arg does
+            // not survive that conditional, so the call is typed directly.
+            const evaluate = tv.page.evaluate.bind(tv.page) as <R, A>(pageFunction: (value: A) => R | Promise<R>, value: A) => Promise<R>;
+            const value = await evaluate(read, arg);
+            last = value;
+            return value !== null && accept(value);
+        }, what);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`${message}; last ${JSON.stringify(last)}`);
+    }
+    if (last === null || !accept(last)) throw new Error(`timed out waiting for ${what}; last ${JSON.stringify(last)}`);
+    return last;
+}
+
 /** Call before starting a deadline or intermediate animation under test. */
 export async function pauseTvClock(tv: Tv): Promise<void> {
     // pauseAt advances existing timers; leave room for the protocol round trip

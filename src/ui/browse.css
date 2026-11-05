@@ -612,6 +612,8 @@
 
 .browse { position: relative; }
 .skyline-root { padding-top: 180px; }
+.home-loading { width: 100%; height: 480px; background: transparent; outline: none; }
+.home-loading:focus { outline: none; }
 .skyline-preview { padding-top: 545px; }
 .browse-nav { position: fixed; z-index: 5; top: 56px; left: 88px; width: 1744px; height: 64px; display: flex; align-items: center; margin: 0; transition: opacity 200ms; }
 .skyline-muted { opacity: .7; }

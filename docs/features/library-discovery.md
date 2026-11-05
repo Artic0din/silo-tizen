@@ -15,6 +15,7 @@ It requests 100 cards at a time and prefetches when a card in the last eight row
 The seven video sorts, typed facet groups and transient A–Z prefix share one query; moving focus alone sends no request.
 Sort applies immediately; Filter edits a draft, applies through Done or Back from its root, and returns from a facet to the facet list on Back.
 Committed sort and filters are remembered per server, profile and library while Preserve sort & filters is enabled; the prefix is never persisted.
+The selected destination is not part of that memory. A new visit opens Recommended, so a saved Browse sort cannot replace the server shelves.
 Browse retains loaded cards, item focus and scroll through ordinary Details/Back, and refreshes explicit personal/playback invalidation from page one through the retained depth.
 Favorites and Watchlist changes in Details invalidate filtered Browse even when a write's answer is lost.
 Duplicate cards and repeated cursors cannot accumulate; an invalid cursor restarts once, and a later failure keeps the loaded cards with an explicit Retry.

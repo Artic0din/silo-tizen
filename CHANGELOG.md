@@ -7,7 +7,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Corrected Calendar wall-clock times, spatial shelf return and top restoration, clipped captions, strip placement, and Apple-style loading, empty and error states after native comparison.
-- Down from the Calendar tab opens the selected filter, shelf-to-shelf moves keep the first card's column and bottom-align the poster, and scrolled Calendar passes under the top bar.
+- Down from the Calendar tab opens the selected filter, shelf-to-shelf moves keep the first card's column and bottom-align the day shelf, and scrolled Calendar passes under the top bar.
 - Showed Home rows as soon as they arrived, without waiting on library tabs or an uncapped sections read, and stopped the Home page from saying the server was still waiting. While those rows are still out, Home is an empty page labelled "Loading home" and the library tabs fill in on their own.
 - Stopped a delayed Home libraries read from putting a library back after it was hidden in Settings.
 - Kept remote navigation when those library tabs arrived on another page, and read them again after the app returned if that read had failed.

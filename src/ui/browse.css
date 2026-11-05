@@ -916,16 +916,19 @@
 .calendar-week [data-focus="today"] { height: 64px; padding: 0 24px; font-size: 22px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18); }
 .calendar-week [data-focus="today"]:focus { background: rgba(237,237,237,.94); }
 .calendar-shelf { margin-bottom: 6px; }
-.calendar-shelf .browse-section-title { margin: 0 0 20px; font-size: 36px; font-weight: 600; }
+/* SF 36 semibold is a 42px line, so the poster starts 86px under the heading.
+   Caption lines are SF 28 and 22. The shared card's bottom margin is cleared
+   so the shelf ends on the caption, which is what anchor .bottom scrolls. */
+.calendar-shelf .browse-section-title { margin: 0 0 20px; height: 42px; font-size: 36px; font-weight: 600; line-height: 42px; }
 .calendar-shelf .browse-row { box-sizing: border-box; width: 1920px; margin-left: -80px; margin-right: -80px; padding: 24px 80px; }
-.calendar-shelf .browse-card { width: calc(260px * var(--calendar-scale, 1)); margin-right: 40px; border: 0; border-radius: 0; }
+.calendar-shelf .browse-card { width: calc(260px * var(--calendar-scale, 1)); margin: 0 40px 0 0; border: 0; border-radius: 0; }
 .calendar-shelf .browse-art { width: calc(260px * var(--calendar-scale, 1)); height: calc(390px * var(--calendar-scale, 1)); }
-.calendar-event .browse-card-title { padding: 0; margin: 16px 0 2px; line-height: 1.2; min-height: 67.2px; white-space: normal; font-size: 28px; font-weight: 600; color: rgba(237,237,237,.85); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.calendar-event .browse-card-title { padding: 0; margin: 16px 0 2px; line-height: 32.98px; min-height: 65.96px; white-space: normal; font-size: 28px; font-weight: 600; color: rgba(237,237,237,.85); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .calendar-event:focus { transform: none; box-shadow: none; }
 .calendar-event .browse-art { transition: transform var(--silo-fast) ease-out; }
 .calendar-event:focus .browse-art { transform: scale(1.05); box-shadow: 0 0 0 4px rgba(255,255,255,.7); }
 .calendar-event:focus .browse-card-title { color: #ededed; }
-.calendar-event .browse-card-subtitle { padding: 0; font-size: 22px; color: rgba(237,237,237,.6); }
+.calendar-event .browse-card-subtitle { margin: 0; padding: 0; font-size: 22px; line-height: 25.91px; color: rgba(237,237,237,.6); }
 .calendar-shelf-empty .browse-section-title { color: rgba(237,237,237,.6); }
 .calendar-shelf-empty .browse-text { margin: 0; font-size: 22px; color: rgba(237,237,237,.6); }
 .calendar-event .browse-card-subtitle { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-height: none; }

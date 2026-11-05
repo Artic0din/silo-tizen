@@ -71,12 +71,12 @@ export class SkylineScroll {
             this.pinnedShelf = shelf;
             if (previous === null) return;
             const section = shelf.getBoundingClientRect();
-            // On the running tvOS app the focused poster, not the caption block,
-            // meets the bottom: the heading sits at y612. The lift's overhang
-            // stays inside the screen, and focus scale must not move the layout.
-            const art = element.querySelector<HTMLElement>(".browse-art") ?? shelf.querySelector<HTMLElement>(".browse-art");
-            const edge = art === null ? section.bottom : layoutBottom(art) - focusOverhang(art);
-            const bottom = viewport.scrollTop + edge - bounds.bottom;
+            // CalendarView.shelfGainedFocus scrolls the day to anchor .bottom
+            // (CalendarView.swift:400-407). The id is the shelf; its 6pt
+            // bottom padding is outside that id (CalendarView.swift:339-344).
+            // The page ignores only the top and horizontal safe areas, and the
+            // settled shelf bottom is y1010: heading y455, poster top y541.
+            const bottom = viewport.scrollTop + section.bottom - (bounds.bottom - 70);
             const heading = viewport.scrollTop + section.top - bounds.top;
             this.move(viewport, 0, Math.max(0, Math.min(bottom, heading)));
             return;
@@ -116,17 +116,4 @@ export class SkylineScroll {
         this.frames.clear();
         this.pinnedShelf = null;
     }
-}
-
-/** Border-box bottom, ignoring a focus scale around the element's center. */
-function layoutBottom(element: HTMLElement): number {
-    const rect = element.getBoundingClientRect();
-    const extra = rect.height - element.offsetHeight;
-    return rect.top + extra / 2 + element.offsetHeight;
-}
-
-/** How far a focused poster extends past its layout box. TVCardOutlineButtonStyle.focusedOverhang. */
-function focusOverhang(element: HTMLElement): number {
-    const scale = Number.parseFloat(getComputedStyle(element).getPropertyValue("--card-focus-scale"));
-    return Number.isFinite(scale) ? Math.max(0, scale - 1) / 2 * element.offsetHeight : 0;
 }

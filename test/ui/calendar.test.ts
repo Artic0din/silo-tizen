@@ -126,6 +126,21 @@ calendarTest("Calendar tab, shelf column, scroll and top bar match Apple TV", as
     await tv.page.locator('[data-focus="day:2026-01-01"]').focus();
     await tv.page.keyboard.press("ArrowDown");
     assert.equal(await tv.page.locator('[data-section="2025-12-29"] .calendar-event').first().evaluate(node => document.activeElement === node), true, "Down from the strip opens the first card");
+    // The default test poster is the standard 260×390 card. The settled Apple
+    // reading used the compact row: poster 224×335, with captions.
+    await tv.page.evaluate(() => {
+        document.querySelectorAll(".calendar-shelf .browse-card").forEach(node => {
+            if (node instanceof HTMLElement) node.style.width = "224px";
+        });
+        document.querySelectorAll(".calendar-shelf .browse-art").forEach(node => {
+            if (node instanceof HTMLElement) {
+                node.style.width = "224px";
+                node.style.height = "335px";
+            }
+        });
+    });
+    const poster = await tv.page.locator('[data-section="2025-12-30"] .browse-art').first().evaluate(node => node instanceof HTMLElement ? { width: node.offsetWidth, height: node.offsetHeight } : null);
+    assert.deepEqual(poster, { width: 224, height: 335 }, "the measured row uses a 224×335 poster");
     await tv.page.keyboard.press("ArrowDown");
     await tv.page.clock.runFor(500);
     const tuesdayFirst = await tv.page.locator('[data-section="2025-12-30"] .calendar-event').first().getAttribute("data-focus");
@@ -133,8 +148,15 @@ calendarTest("Calendar tab, shelf column, scroll and top bar match Apple TV", as
     assert.equal(await tv.focused(), tuesdayFirst, `Down from the first card lands on column 0. Thursday's axis is ${thursday}; the old landing was column 1 (${tuesdaySecond}).`);
     const heading = await tv.page.locator('[data-section="2025-12-30"] h2').boundingBox();
     const row = await tv.page.locator('[data-section="2025-12-30"] .browse-row').boundingBox();
-    assert.ok(heading !== null && row !== null);
-    assert.equal(Math.round(heading.y), 612, `next day's heading. The old scroll left it near 490 (row ${Math.round(row.y)}).`);
+    const card = await tv.page.locator('[data-section="2025-12-30"] .calendar-event').first().boundingBox();
+    assert.ok(heading !== null && row !== null && card !== null);
+    const placed = await tv.page.locator('[data-section="2025-12-30"]').evaluate(node => {
+        const section = node.getBoundingClientRect();
+        const port = node.closest(".skyline-content");
+        return { scrollTop: port instanceof HTMLElement ? port.scrollTop : null, sectionTop: section.top, sectionBottom: section.bottom, sectionHeight: section.height };
+    });
+    assert.equal(Math.round(heading.y), 455, `replaced heading y612. next day's heading settles at y455 (card ${Math.round(card.y)}, ${JSON.stringify(placed)}).`);
+    assert.equal(Math.round(card.y), 541, `replaced the y612 heading assertion's row. next day's row settles at y541 (heading ${Math.round(heading.y)}, browse-row ${Math.round(row.y)}).`);
     const rowOffset = Math.round(row.y - heading.y);
 
     for (let index = 0; index < 6; index += 1) await tv.page.keyboard.press("ArrowRight");

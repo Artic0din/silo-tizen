@@ -163,6 +163,48 @@ test("a failed series watched retry keeps each season rollup", async () => {
     } finally { state.stop(); }
 });
 
+test("a lost series unwatched retry refreshes loaded season rollups", async () => {
+    const h = await setup();
+    for (const episode of [11, 12, 13, 21, 22, 23]) h.catalog.watchedEpisodes.add(`episode:s1e${episode}`);
+    const detail = decodeItemDetail(h.catalog.route("GET", "/catalog/items/series%3As1", "p-owner")?.body);
+    const seasons = decodeSeasons(h.catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body).map(season => seasonRollup(h.catalog, season));
+    assert.equal(detail.played, true, "every episode watched makes the series watched");
+    assert.equal(seasons.find(season => season.seasonNumber === 2)?.userData?.played, true);
+    const state = new DetailsState({ ...detail, playContentId: undefined }, h.core.session, () => undefined, async () => undefined);
+    state.series = new SeriesEpisodes(h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes(), 1);
+    try {
+        state.start("personal");
+        state.warmSeriesEpisodes();
+        await h.clock.advance(0);
+        assert.equal(state.seasonStates.get(1)?.values.get("watched"), true);
+        state.change("watched", true, true);
+        await h.clock.advance(0);
+        assert.equal(state.changes.size, 0, "a series that is already watched needs no write");
+        assert.deepEqual(h.catalog.mutations, []);
+        h.fake.dropNextAnswer("/watched/series%3As1");
+        state.change("watched", false);
+        await h.clock.advance(0);
+        assert.equal(state.changes.get("watched")?.failed, true);
+        assert.equal(state.values.get("watched"), true, "the lost answer leaves the series looking watched");
+        assert.equal(state.seasonStates.get(1)?.values.get("watched"), true);
+        const before = h.fake.requests.length;
+        state.change("watched", false, true);
+        await h.clock.advance(0);
+        assert.equal(state.changes.size, 0, "the read shows the unwatched write already landed");
+        assert.equal(state.values.get("watched"), false);
+        assert.equal(state.seasonStates.get(1)?.values.get("watched"), false, "the open season takes its refreshed rollup");
+        assert.deepEqual(h.catalog.mutations, ["DELETE /watched/series%3As1"], "retry does not send the write again");
+        const during = h.fake.requests.slice(before);
+        assert.equal(during.filter(request => /\/catalog\/series\/series%3As1\/seasons(?:\?|$)/.test(request.path)).length, 1, "loaded rollups refresh once");
+        assert.equal(during.filter(request => /\/catalog\/items\/series%3As1-S/.test(request.path)).length, 0, "reconciliation does not reread every season");
+        state.series.start();
+        state.series.select(2);
+        await h.clock.advance(0);
+        assert.equal(state.seasonStates.get(2)?.values.get("watched"), false, "a later season uses its own rollup, not the stale series aggregate");
+        assert.equal(h.fake.requests.slice(before).filter(request => /\/catalog\/items\/series%3As1-S/.test(request.path)).length, 0, "opening another season does not read every season");
+    } finally { state.stop(); }
+});
+
 function seasonRollup(catalog: FakeDetails, season: Season): Season {
     const episodes = [...catalog.titles.values()].filter(title => title.seriesId === "series:s1" && title.season === season.seasonNumber);
     const watched = episodes.filter(episode => catalog.watchedEpisodes.has(episode.id)).length;

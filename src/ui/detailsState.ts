@@ -660,15 +660,33 @@ export class DetailsState {
             if (!this.current(controller)) return detail.played;
             await this.watchedChanged(detail, controller.signal);
             if (this.current(controller)) {
-                this.detail = detail;
-                this.values.set(kind, detail.played);
                 // Series played:false only means the show is incomplete. Copy it onto seasons
                 // after that write was accepted, or when the read shows the whole series watched.
+                // A lost unwatched answer is separate: the series was fully watched and this read
+                // matches that request, so the write took effect. Refresh the seasons already
+                // loaded from their rollups, and drop the series aggregate so a season opened
+                // later uses the rollup it was read with. Do that before accepting the read; if
+                // the refresh fails, the series stays watched and Retry can try again.
+                const unwatchedLanded = detail.type === "series" && !writeAccepted && requested === false && detail.played === false && this.values.get(kind) === true;
+                const rollups = unwatchedLanded ? await this.read(operations.listSeriesSeasons(this.detail.id), controller) : undefined;
+                if (!this.current(controller)) return detail.played;
+                this.detail = detail;
+                this.values.set(kind, detail.played);
                 if (detail.type === "series" && detail.played === requested && (detail.played === true || writeAccepted)) {
                     this.aggregateWatched = detail.played;
                     for (const owner of this.seasonStates.values()) {
                         owner.values.set("watched", detail.played);
                         owner.detail = { ...owner.detail, played: detail.played };
+                        owner.changes.delete("watched");
+                    }
+                } else if (rollups !== undefined) {
+                    if (this.series !== undefined) this.series.seasons = rollups;
+                    this.aggregateWatched = undefined;
+                    for (const [number, owner] of this.seasonStates) {
+                        const played = rollups.find(season => season.seasonNumber === number)?.userData?.played;
+                        if (played === undefined) continue;
+                        owner.values.set("watched", played);
+                        owner.detail = { ...owner.detail, played };
                         owner.changes.delete("watched");
                     }
                 }

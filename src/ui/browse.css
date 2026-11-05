@@ -8,36 +8,67 @@
 .section-catalog-grid .browse-card { width: calc(260px * var(--section-scale, 1)); margin: 0; padding: 0; border: 0; border-radius: 0; transition: none; }
 .section-catalog-grid .browse-card:focus { transform: none; box-shadow: none; }
 .section-catalog-grid .browse-art { width: calc(260px * var(--section-scale, 1)); height: calc(390px * var(--section-scale, 1)); border-radius: 12px; transition: transform 150ms ease-out; }
-.section-catalog-grid .browse-card:focus .browse-art { transform: scale(var(--section-lift)); box-shadow: 0 18px 36px rgba(0,0,0,.6); }
 .section-catalog-grid .browse-card-title { margin: 22px 0 4px; padding: 0; font-size: 24px; line-height: 29px; font-weight: 500; color: rgba(237,237,237,.45); }
 .section-catalog-grid .browse-card-subtitle { margin: 0; padding: 0; font-size: 20px; line-height: 24px; font-weight: 400; color: rgba(237,237,237,.32); }
-.section-catalog-grid .browse-card:focus .browse-card-title { color: #fff; font-weight: 600; }
-.section-catalog-grid .browse-card:focus .browse-card-subtitle { color: rgba(255,255,255,.92); font-weight: 500; }
-.section-catalog-grid .browse-card:focus .browse-card-title, .section-catalog-grid .browse-card:focus .browse-card-subtitle { transform: translateY(5px); text-shadow: 0 0 10px rgba(255,255,255,.45), 0 0 3px rgba(255,255,255,.25); }
 .section-catalog-state { margin: 220px 0 16px; font-size: 36px; font-weight: 600; text-align: center; outline: none; }
 .section-catalog-state ~ .browse-text { text-align: center; font-size: 26px; }
 .section-catalog-loading { width: 40px; height: 40px; margin: 0 auto 48px; border: 4px solid var(--silo-secondary); border-top-color: var(--silo-text); border-radius: 50%; }
-@media (prefers-reduced-motion: reduce) {
-    .section-catalog-grid .browse-card:focus .browse-art { transform: none; transition: none; }
-}
 .skyline-home { font-family: var(--silo-font); font-weight: 400; }
 /* Platform-wide font rules must not replace the packaged face or the component's inherited weight. */
 .skyline-home * { font-family: inherit; font-weight: inherit; }
 
 /* Settings shares the browse focus grammar and one scrollable control pane. */
-.settings { overflow-y: auto; }
+
 .settings-scope { margin: -12px 0 40px; color: var(--silo-secondary); font-size: 26px; }
-.settings-panes { display: flex; align-items: flex-start; }
-.settings-categories { width: 340px; flex-shrink: 0; padding-right: 40px; }
-.settings-pane { width: 1332px; padding-left: 48px; border-left: 1px solid var(--silo-hairline); }
+.browse.settings { overflow: hidden; height: 100vh; box-sizing: border-box; padding: 108px 164px 44px; }
+.settings-panes { display: flex; align-items: stretch; gap: 52px; height: 100%; min-height: 0; }
+.settings-categories { width: 490px; flex-shrink: 0; display: flex; flex-direction: column; padding: 24px 0 100px; }
+.settings-pane { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 0 22px 64px; }
+.settings-pane-header { display: flex; align-items: center; gap: 20px; padding: 0 24px; margin: 0 0 10px; }
+.settings-header-icon { display: grid; place-items: center; width: 72px; height: 72px; border-radius: 18px; background: #ffffff12; flex-shrink: 0; }
+.settings-header-icon svg { width: 34px; height: 34px; margin: 0; }
+.settings-category-icon, .settings-signout-icon { display: grid; place-items: center; width: 34px; flex-shrink: 0; }
+.settings-category-icon svg, .settings-signout-icon svg { width: 22px; height: 22px; margin: 0; }
+.settings-pane-header .browse-section-title { margin: 0 0 5px; font-size: 42px; font-weight: 700; }
+.settings-pane-header .settings-blurb { margin: 0; font-size: 20px; }
+.settings-row-title { font-size: 26px; }
+.settings-row-value { margin-left: auto; font-size: 24px; opacity: .68; }
+.settings-chevron { margin-left: 16px; font-size: 18px; opacity: .55; }
+.settings-controls .browse-button:has(.settings-row-value) { display: flex; align-items: center; gap: 16px; }
+.settings-version { margin: 10px 20px 24px; font-size: 18px; color: var(--silo-secondary); }
+.settings-blurb { margin: -8px 0 28px; color: var(--silo-secondary); font-size: 24px; line-height: 1.35; }
+.settings-category-title, .settings-profile-name { display: block; font-size: 28px; line-height: 1.2; }
+.settings-category-detail, .settings-profile-account { display: block; margin-top: 4px; font-size: 20px; line-height: 1.2; color: var(--silo-secondary); }
+.settings-profile-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; }
 .settings-controls .browse-button,
-.settings-categories .browse-button { display: block; width: 100%; margin: 0 0 16px; border-radius: 12px; text-align: left; }
-.settings-controls .browse-button { padding: 24px 32px; font-size: 30px; }
+.settings-categories .browse-button { display: block; width: 100%; margin: 0 0 8px; border-radius: 14px; text-align: left; }
+.settings-categories .browse-button { display: flex; align-items: center; gap: 16px; box-sizing: border-box; height: 82px; padding: 15px 20px; margin-bottom: 6px; }
+/* TVSettingsRailRowStyle (TVSettingsComponents.swift:183-220): clear fill and no stroke at rest, selected fill when current, white platter on focus. */
+.settings-categories .browse-button:not(.settings-signout) { border: 0; background: transparent; box-shadow: none; }
+.settings-categories .settings-profile { height: 98px; margin-bottom: 28px; gap: 18px; }
+/* Running app: 150×33 at x192 y842. Rail content starts at x164; the extra bottom padding lifts the Sign Out/version cluster off the pinned y918. TVSettingsView.swift:178-204. */
+.settings-categories .settings-signout { margin-top: auto; margin-left: 28px; width: 150px; height: 33px; padding: 0; border: 0; border-radius: 0; background: transparent; font-size: 27px; line-height: 33px; gap: 8px; white-space: nowrap; }
+.settings-categories .browse-title { font-size: 48px; margin: 0 20px 26px; }
+.settings-pane .browse-button, .settings-info-row { box-sizing: border-box; min-height: 66px; line-height: 32px; }
+.settings-info-row { display: flex; align-items: center; gap: 16px; padding: 17px 24px; font-size: 26px; margin-bottom: 8px; background: #202020d6; border: 1px solid #ffffff18; border-radius: 14px; }
+.settings-info-row svg { width: 22px; height: 22px; margin: 0; }
+.settings-pane .settings-server-action { display: flex; align-items: center; gap: 16px; }
+.settings-server-action svg { width: 22px; height: 22px; margin: 0; }
+.settings-server-action svg:last-child { margin-left: auto; width: 18px; height: 18px; opacity: .55; }
+.settings-picker-subtitle { margin: 0 0 18px; font-size: 22px; color: var(--silo-secondary); }
+.settings-picker-hint { position: absolute; right: 30px; top: 30px; font-size: 18px; color: var(--silo-secondary); }
+.settings-modal { position: relative; }
+.settings-categories .settings-profile { display: flex; align-items: center; }
+.settings-categories .settings-signout { color: #ff453a; }
+.settings .browse-button:focus .settings-category-detail,
+.settings .browse-button:focus .settings-profile-account { color: inherit; }
+.settings-controls .browse-button { padding: 17px 24px; font-size: 26px; }
 .settings-categories .browse-button[aria-current="page"],
 .settings-controls .browse-button[aria-checked="true"] { background: var(--silo-selected); }
 .settings .browse-button:focus { outline: none; background: #fff; color: #000; border-color: #fff; }
+.settings .settings-categories .browse-button:not(.settings-signout):focus { background: #ededed; color: #000; border-color: transparent; box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5); }
 .settings-input { box-sizing: border-box; }
-.settings-value { color: var(--silo-secondary); font-size: 26px; line-height: 1.4; margin: 0 0 32px; }
+.settings-value { color: rgba(237,237,237,.6); font-size: 19px; line-height: 1.4; margin: 4px 0 8px; padding: 0 24px; }
 /* Apple TVSettingsSectionHeader. */
 .settings-section-header { margin: 26px 0 6px; padding: 0 24px; font-size: 19px; font-weight: 600; letter-spacing: 1.2px; color: rgba(237,237,237,.6); }
 /* Apple TVOpenSourceAcknowledgementsOverlay: a 1500 x 900 elevated panel over a dimmed screen, the document as one focus stop. */
@@ -58,61 +89,105 @@
 /* Pushed Details pages: editorial hero and remote-reachable rails, no root chrome. */
 .details-hero {
     position: relative;
-    min-height: 600px;
-    margin-bottom: 28px;
+    height: 690px;
+    margin: -56px -88px 0;
+    isolation: isolate;
+    overflow: clip;
 }
-.details-backdrop {
-    position: absolute;
-    top: -56px;
-    right: -88px;
-    bottom: 0;
-    width: 1500px;
-    overflow: hidden;
-    pointer-events: none;
-}
-.details-backdrop::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    background: linear-gradient(90deg, #000 0%, rgba(0,0,0,.7) 36%, rgba(0,0,0,.15) 100%), linear-gradient(0deg, #000 0%, transparent 60%);
-}
-.details-editorial { position: relative; padding-top: 48px; width: 1000px; }
-.details-editorial .browse-title { max-width: 950px; font-size: 76px; margin-bottom: 28px; }
-.details-logo { display: block; max-width: 860px; max-height: 180px; object-fit: contain; object-position: left center; }
-.details-editorial .browse-overview { max-width: 880px; font-size: 26px; line-height: 30px; max-height: 90px; margin-bottom: 20px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.details-hero .skyline-hero-backdrop { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.browse:has(> .details-page-wash) { isolation: isolate; }
+.details-page-wash { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+.details-rating-badge { flex-shrink: 0; margin-right: 14px; padding: 4px 10px; border: 1.5px solid rgba(255,255,255,.78); border-radius: 5px; color: #fff; font-size: 18px; font-weight: 700; }
+.details-editorial { position: relative; padding-top: 116px; margin-left: 100px; width: 1080px; }
+.details-editorial .browse-title { max-width: 1080px; margin: 0 0 14px; }
+.details-editorial .browse-meta { font-size: 24px; line-height: 36px; margin: 0 0 14px; }
+.details-logo { display: block; max-width: 650px; max-height: 160px; object-fit: contain; object-position: left center; }
+.details-editorial .browse-overview { max-width: 1080px; font-size: 26px; line-height: 36px; max-height: 108px; margin-bottom: 14px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.details-editorial .browse-overview.has-translation-status { -webkit-line-clamp: 2; max-height: 72px; margin-bottom: 6px; }
+.details-editorial .browse-overview.is-translating { opacity: 0.5; }
+.description-translation-status { margin: 0 0 14px; font-size: 21px; line-height: 26px; font-weight: 500; color: var(--silo-secondary); }
 .details-editorial .browse-actions { margin-bottom: 0; }
 .details-editorial .browse-button { padding: 18px 28px; margin-right: 16px; }
 .details-director, .details-playback-summary { margin: 0 0 20px; color: var(--silo-secondary); font-size: 20px; line-height: 26px; }
+.details-playback-summary { display: flex; gap: 8px; width: 1031px; height: 44px; margin-bottom: 18px; }
+.details-playback-summary > div { display: flex; align-items: baseline; gap: 6px; overflow: hidden; font-size: 23px; }
+.details-playback-summary > div:nth-child(1) { width: 313px; }
+.details-playback-summary > div:nth-child(2) { width: 364px; }
+.details-playback-summary > div:nth-child(3) { width: 338px; }
+.details-playback-summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.details-playback-summary strong { font-size: 23px; }
+.details-hero[data-media-type="series"] .details-editorial .browse-overview { height: 112px; max-height: 112px; }
+.details-hero[data-media-type="series"] .details-editorial .browse-overview.has-translation-status { height: auto; max-height: 72px; }
+.details-series-editorial { position: relative; height: 435px; overflow: hidden; }
+.details-hero[data-media-type="series"] { overflow: visible; }
+.details-hero:not([data-media-type="series"]) { height: auto; min-height: 690px; }
+.details-series-primary { height: 351px; overflow: hidden; }
+.details-series-disclosure { position: absolute; bottom: 0; left: 0; width: 1080px; height: 80px; }
+.details-series-disclosure .details-director { height: 28px; margin: 0 0 8px; overflow: hidden; white-space: nowrap; }
+.details-series-disclosure .details-playback-summary { margin-bottom: 0; }
+.details-hero[data-media-type="series"] .details-editorial .browse-actions { margin-top: 6px; }
+.details-director { font-size: 23px; line-height: 28px; margin-bottom: 14px; }
 .details-editorial .browse-actions { display: flex; align-items: center; gap: 18px; }
 .details-editorial .details-action { display: inline-flex; align-items: center; justify-content: center; gap: 18px; flex-shrink: 0; height: 76px; margin: 0; border-radius: 38px; }
 .details-action svg { width: 32px; height: 32px; flex-shrink: 0; }
-.details-editorial .details-play { min-width: 300px; font-size: 28px; }
+.details-editorial .details-play { min-width: 340px; font-size: 29px; }
+/* Box set Play is TVPrimaryPillButton with stabilizesFocusMotion (TVDetailActions.swift:53-67,674,691-694).
+   The verb sits on the film title; the icon is beside that stack. */
+.details-editorial .details-action.box-set-play { box-sizing: border-box; justify-content: flex-start; gap: 16px; height: 76px; min-width: 0; padding: 0 22px; }
+.details-editorial .box-set-play svg { width: 36px; height: 36px; }
+.details-editorial .box-set-play .box-set-play-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 0; }
+.details-editorial .box-set-play .box-set-play-verb { font-size: 29px; font-weight: 600; line-height: 1; }
+.details-editorial .box-set-play .box-set-play-film { font-size: 16px; font-weight: 600; line-height: 1; opacity: .72; }
+/* TVHeroEyebrow (TVDetailHero.swift:616-627) and the 14pt editorial stack (TVDetailHero.swift:274,279). */
+.details-hero[data-media-type="box-set"] .browse-kicker { display: inline-block; margin: 0; border-radius: 30px; background: rgba(0,0,0,.55); box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); padding: 8px 16px; font-size: 18px; font-weight: 600; line-height: 22px; letter-spacing: 1.2px; color: #fff; }
+.details-hero[data-media-type="box-set"] .details-editorial .browse-title { margin: 16px 0 14px; }
+.details-hero[data-media-type="box-set"] .box-set-facts { display: flex; align-items: center; gap: 14px; margin: 0 0 14px; font-size: 24px; font-weight: 500; color: rgba(255,255,255,.88); white-space: nowrap; }
+.details-hero[data-media-type="box-set"] .box-set-facts > :not(:first-child)::before { content: "·"; margin-right: 14px; font-size: 22px; font-weight: 600; color: rgba(255,255,255,.45); }
+.details-hero[data-media-type="box-set"] .details-playback-summary { margin-top: 0; margin-bottom: 20px; opacity: 0; }
 .details-editorial .details-circle { width: 76px; padding: 0; }
 .details-circle .details-action-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.details-editorial .details-circle:focus { width: auto; padding: 0 28px; }
+.details-circle:focus .details-action-label { position: static; width: auto; height: auto; clip-path: none; }
+.details-external-rating { display: inline-flex; align-items: center; gap: 10px; margin: 0 14px; }
+.details-external-rating img { width: 54px; height: 20px; }
+.details-rating-divider { height: 22px; border-left: 1px solid rgba(255,255,255,.45); }
+.details-genres { margin-left: 14px; }
+.details-related-placeholder { display: inline-block; width: calc(220px * var(--poster-scale, 1)); height: calc(330px * var(--poster-scale, 1)); margin-right: 44px; border-radius: 12px; background: rgba(255,255,255,.1); }
 .details-versions { margin-bottom: 28px; padding-bottom: 12px; }
 .details-versions .browse-button[aria-pressed="true"] { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.4); }
 .details-versions .browse-button:focus { background: #fff; color: #000; }
 .browse-row .browse-card.details-person { width: 200px; margin-right: 60px; border: 0; border-radius: 0; }
 .browse-row .browse-art.details-photo { width: 200px; height: 200px; border-radius: 100px; }
 .details-people { margin-bottom: 36px; padding-top: 12px; padding-bottom: 12px; }
-.details-people .browse-card-title { padding: 0; min-height: 48px; line-height: 24px; white-space: normal; text-align: center; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: rgba(237,237,237,.88); }
+.details-people .browse-card-title { padding: 0; min-height: 48px; line-height: 24px; font-weight: 600; white-space: normal; text-align: center; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: rgba(237,237,237,.88); }
 .details-people .browse-card-subtitle { padding: 0; text-align: center; }
 .details-people .details-person:focus { border: 0; box-shadow: none; }
 .details-people .details-photo { box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
-.details-people .details-person:focus .details-photo { outline: 2px solid rgba(255,255,255,.85); outline-offset: -2px; box-shadow: 0 6px 14px rgba(0,0,0,.35); }
 .details-photo .browse-art-fallback { position: absolute; inset: 0; font-size: 0; }
 .details-photo .browse-art-fallback::before { content: ""; position: absolute; top: 64px; left: 80px; width: 40px; height: 40px; border-radius: 50%; background: var(--silo-secondary); }
 .details-photo .browse-art-fallback::after { content: ""; position: absolute; top: 110px; left: 62px; width: 76px; height: 30px; border-radius: 38px 38px 8px 8px; background: var(--silo-secondary); }
-.details-season-chips { margin-bottom: 0; padding: 8px 0; }
-.details-season-chips .browse-button { font-size: 24px; padding: 12px 24px; margin-right: 12px; border-radius: 28px; }
+.details-season-chips { margin-bottom: 14px; padding: 4px 0; }
+.details-season-chips .browse-button { height: 52px; font-size: 22px; font-weight: 500; padding: 0 24px; margin-right: 12px; border-radius: 28px; }
+.details-season-chips .browse-button[aria-pressed="true"] { font-weight: 600; }
 .details-season-chips .browse-button[aria-pressed="true"] { background: rgba(255,255,255,.16); }
 .details-season-chips .browse-button:focus { background: #fff; color: #000; }
-.details-series-rail .browse-row { padding-top: 34px; }
+.details-series-rail .browse-row { padding-top: 12px; }
+.browse .details-series-rail .browse-card { margin-right: 54px; }
 .details-series-rail .browse-card { scroll-margin-top: 24px; }
-.details-facts { padding: 24px; margin: 32px 0 48px; }
+/* TVDetailLayout.pageBottomPadding is 140, shared by Movie and Series. */
+.browse:has(.details-hero) { padding-bottom: 140px; }
+.browse .details-series-rail .browse-card.skyline-continue, .browse .details-series-rail .skyline-continue .browse-art { width: calc(360px * var(--poster-scale, 1)); }
+.browse .details-series-rail .skyline-continue .browse-art { height: calc(200px * var(--poster-scale, 1)); }
+.details-facts { margin: 51px 0 0; }
+.details-facts-table { max-width: 1400px; margin: 14px 0 0; }
+.details-fact-row { display: flex; gap: 64px; padding: 22px 0; border-top: 1px solid rgba(255,255,255,.08); }
+.details-fact-row:first-child { border-top: 0; }
+.details-fact-row dt { width: 260px; flex-shrink: 0; font-size: 18px; font-weight: 700; letter-spacing: 2px; color: rgba(237,237,237,.5); }
+.details-fact-row dd { margin: 0; font-size: 22px; }
+.details-facts-table:focus { outline: none; background: rgba(255,255,255,.06); }
+.browse [data-detail-section="related"] .browse-card, .browse [data-detail-section="related"] .browse-art { width: calc(220px * var(--poster-scale, 1)); }
+.browse [data-detail-section="related"] .browse-art { height: calc(330px * var(--poster-scale, 1)); }
+.browse [data-detail-section="related"] .browse-card { margin-right: 44px; }
 .details-facts .browse-text { padding: 12px; font-size: 24px; border: 2px solid transparent; border-radius: 12px; }
 .details-facts .browse-text:focus { outline: none; border-color: #fff; }
 /* tvOS person portrait is 300×450, not the 260×390 poster. siloSmall capsules, 12px radius. */
@@ -164,14 +239,30 @@
 .search-scene .search-filters .browse-button:focus { transform: none; color: #000; background: #ededed; }
 .search-scene .search-count { margin: 0 162px 24px; font-size: 22px; line-height: 27px; }
 .search-scene > .browse-grid { width: 1444px; margin: 0 162px; padding: 24px 9px 20px; grid-template-columns: repeat(var(--search-columns, 6), minmax(0, 1fr)); gap: 48px 58px; }
-.search-scene .browse-grid .browse-card { width: calc(220px * var(--poster-scale, 1)); margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; scroll-margin-top: 171px; }
-.search-scene .browse-grid .browse-card:focus { transform: none; box-shadow: none; }
+.search-scene .browse-grid .browse-card { width: calc(220px * var(--poster-scale, 1)); margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .search-scene .browse-grid .browse-art { width: calc(220px * var(--poster-scale, 1)); height: calc(330px * var(--poster-scale, 1)); border-radius: 16px; }
-.search-scene .browse-grid .browse-card:focus .browse-art { transform: scale(var(--request-lift)); box-shadow: 0 0 0 2px rgba(255,255,255,.5); }
 .search-scene .browse-grid .browse-card-title { margin: 16px 0 0; padding: 0; font-size: 24px; line-height: 29px; font-weight: 600; }
 .search-scene .browse-grid .browse-card-subtitle { margin: 4px 0 0; padding: 0; font-size: 22px; line-height: 27px; }
 .search-scene > .browse-page-status, .search-scene > .browse-actions:not(.search-filters), .search-scene > .browse-text { margin-left: 162px; }
-.search-scene .search-people-heading { margin: 0 162px; font-size: 36px; line-height: 43px; font-weight: 600; }
+.search-scene .search-box-sets-heading, .search-scene .search-people-heading { margin: 0 162px; font-size: 36px; line-height: 43px; font-weight: 600; }
+.search-scene .box-set-card .box-set-label, .search-scene .box-set-card .box-set-count { position: absolute; z-index: 1; color: #fff; line-height: 1; pointer-events: none; }
+.search-scene .box-set-card .box-set-label { top: 12px; left: 12px; padding: 7px 14px; border: 1px solid rgba(255,255,255,.18); border-radius: 999px; background: rgba(0,0,0,.55); font-size: 15px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+.search-scene .box-set-card .box-set-count { right: 12px; bottom: 28px; padding: 4px 11px; border-radius: 8px; background: rgba(0,0,0,.6); font-size: 18px; font-weight: 700; }
+.search-scene .box-set-card { position: relative; overflow: visible; }
+.search-scene .box-set-sleeves { position: absolute; z-index: 0; left: 0; right: 0; top: 0; height: 0; pointer-events: none; }
+.search-scene .box-set-sleeve { position: absolute; top: 0; height: 48px; border: 1px solid rgba(255,255,255,.14); border-bottom: 0; border-radius: 16px 16px 0 0; }
+.search-scene .box-set-sleeve-back { left: 10%; right: 10%; background: rgb(43,43,43); transform: translateY(-12px); }
+.search-scene .box-set-sleeve-front { left: 5%; right: 5%; background: rgb(61,61,61); transform: translateY(-6px); }
+.search-scene .box-set-card .browse-art { z-index: 1; }
+/* TVCatalogGrid columnSpacing 40 and rowSpacing 60 (TVCatalogGrid.swift:38-39); card width 220 (BoxSetDetailView.swift:227).
+   The shared grid's 16px top padding would stack on the 14px section gap, so this page drops it. */
+.box-set-grid.browse-grid { grid-template-columns: repeat(6, 220px); grid-column-gap: 40px; grid-row-gap: 60px; width: auto; padding-top: 0; }
+.box-set-grid .browse-card, .box-set-row.browse-row .browse-card { box-sizing: content-box; width: 220px; padding: 0; border: 0; }
+.box-set-grid .browse-art, .box-set-row.browse-row .browse-art { width: 220px; height: 330px; border-radius: 16px; }
+.box-set-row.browse-row .browse-card { margin-right: 44px; }
+.box-set-current-outline { position: absolute; inset: 0; border: 4px solid rgba(255,255,255,.8); border-radius: inherit; pointer-events: none; }
+.box-set-row .browse-card:focus .box-set-current-outline { border-color: transparent; }
+.box-set-current-label { position: absolute; left: 12px; bottom: 12px; padding: 4px 9px; border-radius: 999px; background: #fff; color: #000; font-size: 16px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; line-height: 1; }
 .search-scene .search-people-rail { display: flex; gap: 60px; width: 1920px; height: 328px; margin: 0 -76px 18px; padding: 14px 238px 30px; --reveal-end: 318px; }
 .search-overflow-rail .search-rail-outside:not(:focus) { opacity: 0; pointer-events: none; }
 .search-scene .search-people-rail .details-person { flex: 0 0 200px; width: 200px; margin: 0; padding: 0; border: 0; background: transparent; }
@@ -186,9 +277,7 @@
 .search-scene .search-requests-description { margin: 0 162px 0; font-size: 20px; line-height: 24px; color: var(--silo-secondary); }
 .search-scene .search-request-rail { display: flex; gap: 32px; width: 1920px; margin: -4px -76px 0; padding: 24px 238px; height: calc(330px * var(--poster-scale, 1) + 130px); --reveal-end: 318px; }
 .search-scene .search-request-rail .requests-card { flex: 0 0 calc(220px * var(--poster-scale, 1)); width: calc(220px * var(--poster-scale, 1)); padding: 0; margin: 0; border: 0; border-radius: 0; background: transparent; }
-.search-scene .search-request-rail .requests-card:focus { transform: none; box-shadow: none; }
 .search-scene .search-request-rail .browse-art { width: calc(220px * var(--poster-scale, 1)); height: calc(330px * var(--poster-scale, 1)); border-radius: 16px; }
-.search-scene .search-request-rail .requests-card:focus .browse-art { transform: scale(var(--request-lift)); box-shadow: 0 0 0 2px rgba(255,255,255,.5); }
 .search-scene .search-request-rail .browse-card-title { position: relative; margin: 22px 0 0; padding: 0; font-size: 27px; line-height: 34px; font-weight: 600; white-space: nowrap; }
 .search-scene .search-request-rail .browse-card-subtitle { margin: 4px 0 0; padding: 0; font-size: 22px; line-height: 27px; }
 .search-state { text-align: center; margin: 80px auto; }
@@ -210,7 +299,6 @@
 @media (prefers-reduced-motion: reduce) {
     .search-progress-icon { animation: none; }
     .search-scene .search-people-rail .details-person:focus { transform: none; }
-    .search-scene .browse-grid .browse-card:focus .browse-art, .search-scene .search-request-rail .requests-card:focus .browse-art { transform: none; box-shadow: 0 0 0 4px #ededed; }
 }
 
 .browse *,
@@ -264,10 +352,6 @@
 .requests-scene .requests-rail .requests-card { flex: 0 0 176px; width: 176px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .requests-scene .requests-rail .requests-card:focus { transform: none; box-shadow: none; }
 .requests-scene .requests-rail .browse-art { width: 176px; height: 264px; border-radius: 16px; transform-origin: center; }
-.requests-scene .requests-rail .requests-card:focus .browse-art { transform: scale(1.1517); box-shadow: 0 12px 28px rgba(0,0,0,.5); }
-.requests-scene .requests-detail-hero ~ .requests-rail .requests-card:focus .browse-art { transform: scale(1.141); }
-/* The system .card focus effect at rest, measured against Apple's pair 02a: an upper-left sheen and a light edge, brightest along the top. tvOS moves its highlight with the remote; CSS cannot, see docs/features/requests.md. */
-.requests-scene .requests-rail .requests-card:focus .browse-art::after { content: ""; position: absolute; inset: 0; z-index: 1; border-radius: inherit; pointer-events: none; background: radial-gradient(ellipse 145% 70% at 25% 0, rgba(255,255,255,.1) 0%, rgba(255,255,255,.085) 25%, rgba(255,255,255,.03) 55%, rgba(255,255,255,0) 90%); box-shadow: inset 0 2px 2px rgba(255,255,255,.12), inset 0 0 3px rgba(255,255,255,.07), inset 0 -1px 2px rgba(255,255,255,.04); }
 .requests-scene .requests-rail .browse-card-title { display: block; margin: 22px 0 0; padding: 0; font-size: 27px; line-height: 34px; font-weight: 600; color: #ededed; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .requests-scene .requests-rail .browse-card-subtitle { display: block; margin: 4px 0 0; padding: 0; font-size: 22px; line-height: 27px; color: var(--silo-secondary); }
 .requests-scene .requests-rail .browse-card-title, .requests-scene .requests-rail .browse-card-subtitle { position: relative; z-index: 1; }
@@ -417,7 +501,6 @@
 .browse[data-view="requests:media"] > .browse-text, .browse[data-view="requests:request"] > .browse-text { position: relative; z-index: 1; margin-left: 100px; }
 @media (prefers-reduced-motion: reduce) {
     .requests-rail .browse-art { transition: none; }
-    .requests-scene .requests-rail .requests-card:focus .browse-art { transform: none; box-shadow: 0 0 0 4px rgba(255,255,255,.9); }
 }
 
 .browse-button {
@@ -489,6 +572,16 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+}
+
+/* Apple EpisodeSpoilerBlur.radius is 24. The image grows by that radius on every side (48px) so the blur fringe falls outside the clip, matching SwiftUI blur(radius:opaque: true). */
+.episode-spoiler-blur > .browse-art-image,
+.details-hero .episode-spoiler-blur > .skyline-backdrop {
+    filter: blur(24px);
+    width: calc(100% + 48px);
+    height: calc(100% + 48px);
+    max-width: none;
+    margin: -24px;
 }
 
 .browse-art-fallback {
@@ -630,6 +723,8 @@
 
 .browse { position: relative; }
 .skyline-root { padding-top: 180px; }
+.home-loading { width: 100%; height: 480px; background: transparent; outline: none; }
+.home-loading:focus { outline: none; }
 .skyline-preview { padding-top: 545px; }
 .browse-nav { position: fixed; z-index: 5; top: 56px; left: 88px; width: 1744px; height: 64px; display: flex; align-items: center; margin: 0; transition: opacity 200ms; }
 .skyline-muted { opacity: .7; }
@@ -651,6 +746,8 @@
 .skyline-search::before { content: ""; position: absolute; box-sizing: border-box; width: 22px; height: 22px; border: 3px solid currentColor; border-radius: 50%; top: 15px; left: 16px; }
 .skyline-search::after { content: ""; position: absolute; width: 11.5px; height: 4px; border-radius: 2px; background: currentColor; transform: rotate(45deg); left: 31.75px; top: 34.5px; }
 .browse-nav .skyline-profile { border-radius: 50%; font-weight: 700; background: var(--silo-elevated); }
+.browse-nav .skyline-profile:focus { outline: none; border-color: transparent; }
+.browse-nav .skyline-profile:focus::after { content: ""; position: absolute; inset: 0; z-index: 1; border: 3px solid #fff; border-radius: 50%; pointer-events: none; }
 .skyline-profile-name { margin: 8px 18px 16px; font-size: 23px; overflow-wrap: break-word; }
 .navigation-avatar { position: relative; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; overflow: hidden; }
 .navigation-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
@@ -718,7 +815,19 @@
 .discovery-letters { position: fixed; right: 88px; top: 240px; width: 40px; height: 780px; flex-direction: column; flex-wrap: nowrap; }
 .discovery-letters .browse-button { width: 40px; min-height: 26px; padding: 2px; margin: 0; font-family: monospace; font-size: 15px; }
 .discovery-letters [aria-pressed="true"] { background: #fff; color: #000; }
-.discovery-collection-grid { display: grid; grid-template-columns: repeat(3, 430px); grid-column-gap: 26px; grid-row-gap: 26px; padding: 16px 12px; }
+.discovery-collection-grid { display: grid; grid-template-columns: repeat(var(--collection-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; padding: 16px 0 0; }
+.skyline-grid .skyline-content:has(.discovery-collection-grid) { top: 244px; left: 0; width: 1920px; height: 836px; padding: 0 80px 60px; }
+.browse-section:has(.discovery-collection-grid) { margin-bottom: 44px; }
+.browse-section:has(.discovery-collection-grid):last-child { margin-bottom: 0; }
+.collection-group-title { margin: 0 0 20px; font-family: ui-monospace, monospace; font-size: 22px; letter-spacing: 5.72px; color: rgba(237,237,237,.38); text-transform: uppercase; }
+.browse .catalog-grid .collection-poster { width: calc(260px * var(--poster-scale, 1)); height: auto; padding: 0; border: 0; border-radius: 0; background: none; }
+.browse .catalog-grid .collection-poster:focus { transform: none; background: none; box-shadow: none; }
+.browse .catalog-grid .collection-poster .browse-art { transition: transform var(--silo-fast) ease-out, box-shadow var(--silo-fast) ease-out; }
+.browse .catalog-grid .collection-poster:focus .browse-art { transform: scale(1.05); box-shadow: 0 0 0 4px rgba(255,255,255,.7), 0 8px 18px rgba(0,0,0,.45); }
+.discovery-collection .browse-art-fallback { position: absolute; inset: 0; padding: 0; }
+.collection-stack { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; color: rgba(255,255,255,.85); }
+.collection-stack svg { width: 56px; height: 56px; }
+@media (prefers-reduced-motion: reduce) { .browse .catalog-grid .collection-poster:focus .browse-art { transform: none; box-shadow: 0 0 0 4px rgba(255,255,255,.7); } }
 .browse .discovery-collection { position: relative; width: 430px; height: 234px; flex-shrink: 0; padding: 24px; margin: 0; border-radius: 16px; white-space: normal; overflow-wrap: break-word; background: linear-gradient(#2e3036,#121316); border: 2px solid rgba(255,255,255,.12); }
 .browse .browse-row .discovery-collection { width: 430px; margin-right: 24px; }
 .discovery-collection-art { position: absolute; left: 28px; top: 36px; width: 104px; height: 156px; transform: rotate(-8deg); overflow: hidden; border-radius: 8px; }
@@ -737,8 +846,6 @@
 .browse-row .skyline-continue .browse-art { width: 372px; height: 209px; }
 .skyline-progress { position: absolute; bottom: 12px; left: 14px; right: 14px; height: 5px; background: rgba(255,255,255,.26); }
 .skyline-progress-fill { display: block; height: 100%; background: #fff; }
-.skyline-synopsis-dialog { position: fixed; z-index: 20; top: 100px; left: 200px; width: 1520px; height: 880px; padding: 48px; overflow: auto; background: #15171c; border: 2px solid #fff; border-radius: 18px; outline: none; }
-.skyline-synopsis-dialog .browse-text { max-width: none; color: #ededed; }
 .skyline-route-outgoing { position: fixed; top: 0; left: 0; pointer-events: none; z-index: 3; animation: skyline-leave var(--silo-page) ease-out forwards; }
 .skyline-content-enter { animation: skyline-appear var(--silo-page) ease-out both; }
 .skyline-content-drift { animation: skyline-content-rise var(--silo-page) ease-out both; }
@@ -756,8 +863,8 @@
 .skyline-home .home-section .browse-row { margin-left: -80px; padding-left: 80px; --reveal-end: 80px; }
 .skyline-home .skyline-hero-backdrop { position: fixed; inset: 0; width: 1920px; height: 1080px; z-index: -2; pointer-events: none; }
 .skyline-home .skyline-tint-wash { position: absolute; inset: 0; background: #000; }
-.skyline-home .skyline-art-frame { position: absolute; top: 0; left: 691.2px; width: 1228.8px; height: 756px; overflow: hidden; mask-image: linear-gradient(to bottom, #000 0%, #000 38%, rgba(0,0,0,.88) 52%, rgba(0,0,0,.58) 68%, rgba(0,0,0,.24) 81%, transparent 90%); }
-.skyline-home .skyline-backdrop { position: static; display: block; width: 100%; height: 100%; object-fit: cover; mask-image: linear-gradient(to left, #000 0%, #000 32%, transparent 100%); }
+.skyline-home .skyline-art-frame, .details-hero .skyline-art-frame { position: absolute; top: 0; left: 691.2px; width: 1228.8px; height: 756px; overflow: hidden; mask-image: linear-gradient(to bottom, #000 0%, #000 38%, rgba(0,0,0,.88) 52%, rgba(0,0,0,.58) 68%, rgba(0,0,0,.24) 81%, transparent 90%); }
+.skyline-home .skyline-backdrop, .details-hero .skyline-backdrop { position: static; display: block; width: 100%; height: 100%; object-fit: cover; mask-image: linear-gradient(to left, #000 0%, #000 32%, transparent 100%); }
 .skyline-home .skyline-top-scrim, .requests-preview .skyline-top-scrim { position: absolute; top: 0; left: 0; width: 100%; height: 190px; background: linear-gradient(rgba(0,0,0,.5), transparent); }
 .skyline-grid .skyline-content { top: 228px; height: 852px; }
 .skyline-grid .browse-grid { width: 1680px; }
@@ -774,6 +881,10 @@
 .skyline-library .skyline-meta { font-size: 19px; }
 .skyline-chip { flex-shrink: 0; display: inline-block; margin-right: 10px; padding: 5px 10px; border: 1px solid rgba(255,255,255,.24); border-radius: 6px; background: rgba(255,255,255,.07); color: rgba(255,255,255,.92); font-size: 15px; font-weight: 600; letter-spacing: 1.2px; line-height: 1.2; }
 .skyline-synopsis { max-width: 780px; margin: 0 0 14px; overflow: hidden; font-size: 22px; line-height: 28px; color: rgba(237,237,237,.6); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.skyline-synopsis.is-translating { opacity: 0.5; }
+.skyline-translation-visible .skyline-synopsis { -webkit-line-clamp: 2; }
+.skyline-title-wrapped.skyline-translation-visible .skyline-synopsis, .skyline-library .skyline-translation-visible .skyline-synopsis { -webkit-line-clamp: 1; }
+.skyline-translation-status { flex: none; margin-right: 18px; font-size: 0.85em; font-weight: 500; }
 .skyline-title-wrapped .skyline-synopsis, .skyline-library .skyline-synopsis { -webkit-line-clamp: 2; }
 .skyline-meta-lead, .skyline-meta-trailing { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .skyline-meta-dot { flex-shrink: 0; white-space: pre; }
@@ -784,12 +895,19 @@
 /* TMDB's approved logo replaces its text mark at the score's cap height (0.7x), undimmed, on the baseline. */
 .skyline-rating-logo { height: 14px; width: auto; margin-right: 7px; vertical-align: baseline; }
 .skyline-library .skyline-rating-logo { height: 13px; }
-/* Apple marquee logo: aspect-fit inside 880 x 200 (Home) or 880 x 150 (library), leading. */
-.skyline-title.skyline-title-logo { display: block; max-height: none; overflow: visible; text-shadow: none; line-height: 0; }
-.skyline-logo { display: block; max-width: 880px; max-height: 200px; }
-.skyline-library .skyline-logo { max-height: 150px; }
-/* Apple detailLine: one line at the meta size, medium weight, on-surface at half opacity, synopsis width. */
-.skyline-detail-line { max-width: 780px; height: 24px; margin: 0 0 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 20px; line-height: 24px; font-weight: 500; color: rgba(237,237,237,.5); }
+/* Apple TVMarqueeBlock titleSlot (TVFocusMarquee.swift): resizable aspect-fit
+   inside maxWidth 880 and maxHeight scale.logoMaxHeight, alignment .leading
+   (left, vertical centre). Home, For You and library Recommended use
+   TVSkylineSectionFeed's default .home scale, so the slot is 200
+   (SiloTheme.Skyline marqueeLogoMaxWidth and marqueeLogoMaxHeightHome).
+   The 150px library scale applies only when a landing opts into .library. */
+.skyline-title.skyline-title-logo { display: block; width: 880px; height: 200px; max-height: none; overflow: visible; text-shadow: none; line-height: 0; }
+.skyline-logo { display: block; width: 100%; height: 100%; object-fit: contain; object-position: left center; }
+.skyline-library .skyline-title.skyline-title-logo { height: 150px; }
+/* Apple detailLine: one line at the meta size. The marquee stack's meta and badge rows are framed at 27
+   (TVFocusMarquee.swift); a 24px estimate sat the bottom-anchored logo slot 3px too low. */
+.skyline-detail-line { display: flex; max-width: 780px; height: 27px; margin: 0 0 14px; overflow: hidden; white-space: nowrap; font-size: 20px; line-height: 27px; font-weight: 500; color: rgba(237,237,237,.5); }
+.skyline-detail-text { overflow: hidden; text-overflow: ellipsis; }
 .skyline-library .skyline-detail-line { font-size: 19px; }
 .skyline-badges { display: flex; align-items: center; height: 27px; }
 .browse-section { margin-bottom: 32px; position: relative; }
@@ -798,24 +916,14 @@
 .browse-card { border-width: 2px; transition: transform 120ms ease-out, border-color 120ms ease-out, box-shadow 120ms ease-out; }
 .browse-row .browse-card { width: 212px; }
 .browse-row .browse-art { width: 208px; height: 312px; border-radius: 12px; }
-.browse-card:focus { transform: scale(1.05); border-color: #fff; box-shadow: 0 12px 30px rgba(0,0,0,.7); }
 .browse-card-title { font-size: 20px; }
-/* Preserve the 208x312 shelf art; Apple's measured native lift adds about 38px of height. */
 .skyline-library .skyline-content:has(.library-media-shelf) { left: 72px; width: 1776px; padding-left: 16px; padding-right: 16px; }
 .library-media-shelf .browse-row { margin-left: -16px; padding: 32px 24px; }
 .library-media-shelf .browse-card:focus { transform: none; border-color: transparent; box-shadow: none; }
 .library-media-shelf .browse-art { transition: transform var(--silo-fast) ease-out, box-shadow var(--silo-fast) ease-out; }
-.library-media-shelf .browse-card:focus .browse-art { transform: scale(1.121795); box-shadow: 0 18px 36px rgba(0,0,0,.6); }
 .library-media-shelf .browse-card-title { font-weight: 500; color: rgba(237,237,237,.45); }
 .library-media-shelf .browse-card-subtitle { font-weight: 400; color: rgba(237,237,237,.32); }
 .library-media-shelf .browse-card-title, .library-media-shelf .browse-card-subtitle { transition: color var(--silo-fast) ease-out, transform var(--silo-fast) ease-out, text-shadow var(--silo-fast) ease-out; }
-.library-media-shelf .browse-card:focus .browse-card-title { color: #fff; font-weight: 600; }
-.library-media-shelf .browse-card:focus .browse-card-subtitle { color: rgba(255,255,255,.92); font-weight: 500; }
-/* 19px overhang + 8px clearance - the shelf's existing 12px caption gap. */
-.library-media-shelf .browse-card:focus .browse-card-title, .library-media-shelf .browse-card:focus .browse-card-subtitle { transform: translateY(15px); text-shadow: 0 0 10px rgba(255,255,255,.45), 0 0 3px rgba(255,255,255,.25); }
-@media (prefers-reduced-motion: reduce) {
-    .library-media-shelf .browse-card:focus .browse-art { transform: none; box-shadow: 0 0 0 4px rgba(255,255,255,.9); }
-}
 /* Watched tick on every card (Apple MediaCard/EpisodeThumbCard): 40px #EDEDED disc, check drawn in CSS. */
 .browse-watched { position: absolute; top: 12px; right: 12px; width: 40px; height: 40px; border-radius: 50%; background: #ededed; box-shadow: 0 0 4px rgba(0,0,0,.3); }
 .browse-watched::after { content: ""; position: absolute; left: 14px; top: 8px; width: 9px; height: 18px; border: solid #000; border-width: 0 4px 4px 0; transform: rotate(45deg); }
@@ -825,6 +933,7 @@
 .card-overlay-stack { position: absolute; display: flex; flex-direction: column; }
 .card-overlay { display: inline-flex; align-items: center; line-height: 1.2; text-transform: uppercase; white-space: nowrap; }
 .card-overlay-mark { font-weight: 800; letter-spacing: .2px; }
+.card-overlay-icon { display: block; flex: none; fill: currentColor; stroke: none; }
 /* Home rows: Apple MediaRow, MediaCard and EpisodeThumbCard (silo-apple 1a7ccee). The content reaches into a
    40px gutter so a lifted first card is never clipped; cards still start at the 88px edge. */
 .skyline-preview:not(.skyline-library):not(.skyline-home) .skyline-content { left: 48px; width: 1824px; padding-left: 40px; }
@@ -832,61 +941,252 @@
 .home-section .browse-section-title { margin: 0; font-size: 36px; font-weight: 600; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .home-row-glyph { position: relative; display: inline-block; vertical-align: -4px; width: 32px; height: 32px; margin-right: 14px; border-radius: 50%; background: #ededed; }
 .home-row-glyph::after { content: ""; position: absolute; top: 9px; left: 12px; border-style: solid; border-width: 7px 0 7px 11px; border-color: transparent transparent transparent #000; }
-.home-section .browse-row { margin-left: -40px; padding: 34px 40px 24px; }
-/* The artwork lift extends 19px above the button; leave a pixel for rounding. */
+/* Top is the 20px title gap plus Skyline's 14px card padding. Bottom is that 14px, not MediaRow's 24px default. */
+.home-section .browse-row { margin-left: -40px; padding: 34px 40px 14px; }
 .home-section .browse-card { width: 176px; margin: 0 40px 0 0; border: 0; border-radius: 0; transition: none; scroll-margin-top: 20px; }
 .home-section .browse-card:focus { transform: none; box-shadow: none; }
 .home-section .browse-art { width: 176px; height: 264px; border-radius: 12px; transition: transform var(--silo-fast) ease-out, box-shadow var(--silo-fast) ease-out; }
-/* Apple measures the native .card lift as ~38pt of added height at any size: (264 + 38) / 264. */
-.home-section .browse-card:focus .browse-art { transform: scale(1.144); }
 .home-section .browse-card.skyline-continue { width: 360px; }
 .home-section .skyline-continue .browse-art { width: 360px; height: 200px; box-shadow: 0 4px 8px rgba(0,0,0,.2); }
-/* Landscape lift is calibrated separately from posters; Home supplies the size-dependent value. */
-.home-section .skyline-continue:focus .browse-art { transform: scale(1.22); box-shadow: 0 10px 20px rgba(0,0,0,.5); }
 .skyline-home .home-section .browse-card, .skyline-home .home-section .browse-art { width: calc(176px * var(--poster-scale, 1)); }
 .skyline-home .home-section .browse-art { height: calc(264px * var(--poster-scale, 1)); }
 .skyline-home .home-section .skyline-continue, .skyline-home .home-section .skyline-continue .browse-art { width: calc(360px * var(--poster-scale, 1)); }
 .skyline-home .home-section .skyline-continue .browse-art { height: calc(200px * var(--poster-scale, 1)); }
-.skyline-home .home-section .browse-card:focus .browse-art { transform: scale(var(--row-lift, 1.144)); }
-.skyline-home .home-section .skyline-continue:focus .browse-art { transform: scale(var(--still-lift, 1.22)); }
 .home-section .browse-card-title, .home-section .browse-card-subtitle { padding: 0; line-height: 1.2; transition: color var(--silo-fast) ease-out, text-shadow var(--silo-fast) ease-out, transform var(--silo-fast) ease-out; }
 .home-section .browse-card-title { margin: 22px 0 0; font-size: 24px; font-weight: 500; color: rgba(237,237,237,.45); }
 .home-section .browse-card-subtitle { margin: 4px 0 0; font-size: 20px; font-weight: 400; color: rgba(237,237,237,.32); }
 .home-section .skyline-continue .browse-card-title { margin-top: 14px; }
-.home-section .browse-card:focus .browse-card-title { color: #fff; font-weight: 600; }
-.home-section .browse-card:focus .browse-card-subtitle { color: rgba(255,255,255,.92); font-weight: 500; }
 .home-section .skyline-explore .skyline-explore-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 8px; border: 1px solid rgba(255,255,255,.08); background: #15171c; color: #ededed; }
 .skyline-explore-icon { display: flex; align-items: center; justify-content: center; width: 66px; height: 66px; margin-bottom: 18px; border-radius: 50%; background: rgba(237,237,237,.12); }
 .skyline-explore-icon svg { width: 30px; height: 30px; }
 .skyline-explore-label { font-size: 24px; font-weight: 500; white-space: nowrap; }
-/* Focused captions glow and drop clear of the lift: 19 + 8 - 22 for posters, 19 + 8 - 14 for stills. */
-.home-section .browse-card:focus .browse-card-title, .home-section .browse-card:focus .browse-card-subtitle { transform: translateY(5px); text-shadow: 0 0 10px rgba(255,255,255,.45), 0 0 3px rgba(255,255,255,.25); }
-.home-section .skyline-continue:focus .browse-card-title, .home-section .skyline-continue:focus .browse-card-subtitle { transform: translateY(13px); }
 @keyframes skyline-appear { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .skyline-home .home-section .browse-card:focus .browse-art, .skyline-home .home-section .skyline-continue:focus .browse-art { transform: none; }
   .browse-card:focus { transform: none; }
-    /* No growth: Apple's non-motion card focus ring (tvFocusRing, 4px white at 90%) marks the art instead. */
-    .home-section .browse-card:focus .browse-art, .home-section .skyline-continue:focus .browse-art { transform: none; box-shadow: 0 0 0 4px rgba(255,255,255,.9); }
     .browse *, .browse *::before, .browse *::after { animation: none !important; transition: none !important; }
     .skyline-route-outgoing { display: none; animation: none; }
+}
+/* Apple TVCardOutlineButtonStyle and TVCardCaption share artwork focus across screens. */
+.browse-card:not(.details-person):not(.requests-card) .browse-card-title { font-weight: 500; color: rgba(237,237,237,.45); }
+.browse-card:not(.details-person):not(.requests-card) .browse-card-subtitle { font-weight: 400; color: rgba(237,237,237,.32); }
+.browse-card { --card-art-height: 372px; --card-caption-gap: 12px; }
+.browse-row .browse-card { --card-art-height: 312px; }
+.home-section .browse-card { --card-art-height: calc(264px * var(--poster-scale, 1)); --card-caption-gap: 22px; }
+.home-section .skyline-continue { --card-art-height: calc(200px * var(--poster-scale, 1)); --card-caption-gap: 14px; }
+.catalog-grid .browse-card { --card-art-height: calc(390px * var(--poster-scale, 1)); --card-caption-gap: 16px; }
+.section-catalog-grid .browse-card { --card-art-height: calc(390px * var(--section-scale, 1)); --card-caption-gap: 22px; }
+.requests-rail .browse-card { --card-art-height: 264px; --card-caption-gap: 22px; }
+.requests-detail-hero ~ .requests-rail .browse-card { --card-art-height: calc(330px * var(--poster-scale, 1)); }
+.search-scene .browse-grid .browse-card { --card-art-height: calc(330px * var(--poster-scale, 1)); --card-caption-gap: 16px; }
+.search-scene .search-request-rail .browse-card { --card-art-height: calc(330px * var(--poster-scale, 1)); --card-caption-gap: 22px; }
+.browse-row[data-detail-section="related"] .browse-card { --card-caption-gap: 16px; }
+.browse-row[data-detail-section="related"] .browse-card-title { margin-top: 16px; }
+.browse .browse-card:focus { transform: none; border-color: transparent; box-shadow: none; }
+.browse .browse-card .browse-art { transition: transform var(--silo-fast) ease-out, box-shadow var(--silo-fast) ease-out, outline-color var(--silo-fast) ease-out; outline: 4px solid transparent; outline-offset: -2px; }
+.browse .browse-card:is(:focus, [aria-current="true"]) .browse-art { outline-color: rgba(255,255,255,.7); }
+/* CSS box-shadow blur is twice the SwiftUI Gaussian radius. */
+.browse .browse-card:focus .browse-art { --card-focus-scale: 1.05; transform: scale(var(--card-focus-scale)); box-shadow: 0 8px 36px rgba(0,0,0,.45); }
+/* Continue Watching adds EpisodeThumbCard's focused shadow on top of the shared lift. */
+.browse .home-section .skyline-continue:focus .browse-art { box-shadow: 0 8px 36px rgba(0,0,0,.45), 0 10px 40px rgba(0,0,0,.5); }
+.browse .browse-card-title, .browse .browse-card-subtitle { transition: color var(--silo-fast) ease-out, transform var(--silo-fast) ease-out, text-shadow var(--silo-fast) ease-out; }
+.browse .browse-card:is(:focus, [aria-current="true"]) .browse-card-title { color: #fff; }
+.browse .browse-card:is(:focus, [aria-current="true"]) .browse-card-subtitle { color: rgba(255,255,255,.92); }
+.browse .browse-card:is(:focus, [aria-current="true"]) :is(.browse-card-title, .browse-card-subtitle) { transform: translateY(max(0px, calc(var(--card-art-height) * .025 + 8px - var(--card-caption-gap)))); text-shadow: 0 0 8px rgba(255,255,255,.22), 0 0 3px rgba(255,255,255,.12); }
+/* CastCardLabel sits inside the scaled SwiftUI button, including its captions. */
+.browse .details-person:focus { transform: scale(1.05); }
+.browse .details-person:focus .browse-art { transform: none; box-shadow: 0 6px 28px rgba(0,0,0,.35); }
+.browse .details-person:focus .browse-card-title { color: #ededed; }
+.browse .browse-card:is(.details-person, .requests-card, .calendar-event) .browse-card-subtitle { color: rgba(237,237,237,.6); }
+.browse .browse-card.requests-card .browse-card-title,
+.browse .calendar-event:focus .browse-card-title { color: #ededed; }
+.browse .calendar-event:not(:focus) .browse-card-title { color: rgba(237,237,237,.85); }
+/* siloCardTitle on tvOS is siloSubheadline: 28pt semibold. The shared unfocused caption rule is medium. */
+.browse .browse-card.calendar-event .browse-card-title { font-weight: 600; }
+/* Requests and Calendar captions live outside their focus-styled buttons. */
+.browse .browse-card:is(.details-person, .requests-card, .calendar-event) :is(.browse-card-title, .browse-card-subtitle) { transform: none; text-shadow: none; }
+.browse:has(> .collection-detail-title) { padding: 62px 128px 60px; }
+.collection-detail-title { text-align: center; width: 100%; margin: 0 0 28px; font-size: 59px; line-height: 71px; color: #404040; }
+.collection-detail-actions { display: flex; align-items: center; gap: 48px; height: 53px; margin: 0 0 48px; }
+.collection-detail-actions .browse-text { margin: 0; font-size: 22px; line-height: 27px; color: rgba(237,237,237,.6); }
+.browse .collection-detail-actions .browse-button { display: inline-flex; align-items: center; justify-content: center; width: 175px; height: 53px; margin: 0; padding: 12px 22px; border: 1px solid rgba(255,255,255,.09); border-radius: 27px; font-size: 24px; font-weight: 500; background: rgba(255,255,255,.07); }
+.browse .collection-detail-actions .browse-button:focus { transform: scale(1.04); background: #ededed; color: #000; border-color: transparent; }
+.browse .collection-detail-grid { display: grid; width: 100%; padding: 0 0 48px; grid-template-columns: repeat(var(--collection-detail-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 57px; justify-items: center; }
+.collection-detail-grid .browse-card-title { margin: 22px 0 4px; padding: 0; font-size: 24px; line-height: 29px; }
+/* The measured tvOS collection metadata is larger than the shared source token. */
+.collection-detail-grid .browse-card-subtitle { margin: 0; padding: 0; font-size: 22px; line-height: 27px; }
+.collection-detail-grid .browse-card { --card-art-height: calc(390px * var(--poster-scale, 1)); --card-caption-gap: 22px; }
+.browse .collection-detail-grid .browse-card { width: calc(260px * var(--poster-scale, 1)); border: 0; }
+.browse .collection-detail-grid .browse-art { width: calc(260px * var(--poster-scale, 1)); height: calc(390px * var(--poster-scale, 1)); }
+/* Collection tiles contain the collage and caption, so the tile owns focus. */
+.browse .discovery-collection:not(.collection-poster):focus { transform: scale(1.05); outline: 4px solid rgba(255,255,255,.7); outline-offset: -2px; box-shadow: 0 8px 36px rgba(0,0,0,.45); }
+@media (prefers-reduced-motion: reduce) {
+    .browse .browse-card:focus .browse-art { --card-focus-scale: 1; }
+    .browse .browse-card:is(:focus, [aria-current="true"]) .browse-art,
+    .browse .browse-card:is(:focus, [aria-current="true"]) :is(.browse-card-title, .browse-card-subtitle),
+    .browse .details-person:focus,
+    .browse .discovery-collection:not(.collection-poster):focus { transform: none; }
 }
 /* Keep the file-bound picker over Details, using Skyline's existing glass and focus grammar. */
 .details-audio-picker { position: fixed; left: 88px; top: 420px; width: 620px; max-height: 560px; overflow-y: auto; z-index: 12; }
 .details-audio-options { display: flex; flex-direction: column; gap: 12px; }
 .details-audio-options .browse-button { width: 100%; text-align: left; }
-/* Calendar events keep their own metadata and are never paged or capped. */
-.calendar-strip { display: flex; margin: 24px 0 32px; }
-.calendar-day { flex: 1; margin-right: 12px; min-height: 84px; }
-.calendar-day[aria-pressed="true"] { background: var(--silo-selected); }
-.calendar-day[aria-current="date"] { border-bottom: 4px solid currentColor; }
-.calendar-shelf { margin-bottom: 32px; }
-.calendar-event .browse-card-subtitle { white-space: normal; max-height: none; }
-/* A refresh must not move shelves above the restored event. */
-.calendar-status { height: 48px; }
-.calendar-status .browse-text { margin: 0; max-width: none; font-size: 24px; }
-.calendar-filters .browse-button[aria-pressed="true"] { background: #fff; color: #000; }
-.calendar-week { margin-bottom: 20px; }
+.details-track-popover { width: 560px; padding: 14px; border-radius: 24px; background: #28282b; box-shadow: 0 12px 40px rgba(0,0,0,.4); }
+.details-track-popover .details-audio-options { gap: 2px; }
+.details-track-popover .browse-button { box-sizing: border-box; height: 76px; padding-top: 13px; padding-bottom: 13px; font-size: 24px; line-height: 28px; }
+.details-track-popover .details-option-subtext { font-size: 17px; line-height: 20px; }
+.details-track-popover .details-option-title, .details-track-popover .details-option-subtext { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.details-more-icon { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); width: 26px; height: 20px; }
+.details-track-popover .browse-button { position: relative; padding-left: 56px; }
+.details-track-popover [aria-checked="true"]::before { content: "✓"; position: absolute; left: 20px; top: 20px; }
+.skyline-selector.details-track-popover .browse-button[aria-checked="true"]:not(:focus) { background: transparent; }
+.details-track-popover .browse-section-title { font-size: 18px; letter-spacing: 2px; opacity: .6; }
+.details-more-popover .browse-button { height: 54px; font-size: 22px; }
+.details-option-subtext { display: block; font-size: 20px; line-height: 26px; opacity: .65; }
+/* Detail metrics are scoped here after the shared Home card and heading rules. */
+.browse:has(.details-hero) > .browse-section-title, .browse:has(.details-hero) .details-facts > .browse-section-title { margin-left: 12px; margin-bottom: 14px; font-size: 36px; line-height: 43.2px; font-weight: 600; }
+.details-editorial .browse-title:has(.details-logo) { display: flex; align-items: flex-end; height: 160px; }
+.details-editorial .browse-meta { line-height: 29px; }
+.details-hero[data-media-type="series"] .browse-meta { height: 36px; }
+.details-hero[data-media-type="series"] .details-editorial .browse-meta { color: rgb(225,227,228); }
+.details-editorial .browse-overview { line-height: 34px; max-height: 102px; color: rgb(237,237,237); }
+.details-hero[data-media-type="series"] .details-editorial .browse-overview { height: 102px; max-height: 102px; color: rgb(244,245,246); }
+.details-editorial .browse-meta { margin-bottom: 10px; }
+.details-hero[data-media-type="movie"] .browse-overview { margin-bottom: 16px; }
+.details-hero[data-media-type="movie"] .details-director { margin-bottom: 15px; }
+.details-hero[data-media-type="movie"] .details-playback-summary { margin-bottom: 19px; }
+.details-editorial .details-playback-summary strong { font-weight: 600; color: rgba(237,237,237,.5); }
+.details-editorial .details-playback-summary span { color: rgba(255,255,255,.9); }
+.details-editorial .details-play:not(:focus) { background: rgba(255,255,255,.10); border-color: transparent; }
+.details-hero .browse-meta, .details-director { color: rgba(237,237,237,.75); }
+.details-episodes .browse-watched { background: #fff; }
+.details-editorial .details-circle:is(:focus, [aria-expanded="true"]) { background: #fff; color: #000; width: auto; padding: 0 28px; }
+.details-circle[aria-expanded="true"] .details-action-label { position: static; width: auto; height: auto; clip-path: none; }
+.details-editorial .details-circle { gap: 14px; font-size: 26px; font-weight: 600; color: #fff; background: rgba(255,255,255,.10); border-color: transparent; }
+.details-circle svg { width: 38px; height: 38px; }
+.details-editorial .details-circle:focus { background: #fff; }
+.details-external-rating { margin: 0; gap: 8px; }
+.details-external-rating img { width: auto; height: 16.8px; }
+.details-rating-score { font-weight: 700; color: #fff; }
+.details-genres { margin-left: 0; }
+/* TVDetailLayout.horizontalInset = 100; the surrounding section starts at 88. */
+.details-season-chips { padding: 4px calc(100px - 88px); }
+/* Swift's scrollClipDisabled paints past the mode viewport's trailing inset. */
+.details-season-chips { margin-right: -88px; padding-right: 100px; }
+/* Paint to the screen edges while retaining the logical scroll viewport.
+   TVDetailLayout's 100px leading inset belongs to this rail, not Cast or Related. */
+.details-series-rail .details-episodes { --episode-paint-end: 88px; margin-left: -88px; margin-right: -88px; padding: 12px calc(100px + 360px * var(--poster-scale, 1) * .025 + 2px); }
+.details-playback-summary span:empty { align-self: center; width: 128px; height: 16px; border-radius: 4px; background: rgba(255,255,255,.1); }
+.details-playback-summary [data-track-summary="audio"] span:empty { width: 166px; }
+.details-playback-summary [data-track-summary="subtitles"] span:empty { width: 77px; }
+.details-episodes .skyline-progress { bottom: 0; left: 0; right: 0; height: 5px; background: rgba(0,0,0,.6); }
+.browse:has(.details-hero) > .browse-row:has(+ .browse-section-title) { margin-bottom: 35px; }
+/* TVTrailersRail rail padding 12 plus body section spacing 64 is the 76px caption-to-heading gap. */
+.browse:has(.details-hero) > .browse-row.details-extras { margin-bottom: 64px; padding: 12px 0; }
+.browse .browse-row.details-extras .details-extra { box-sizing: border-box; width: 470px; margin: 0 48px 0 0; border: 0; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,.3); }
+.browse .browse-row.details-extras .details-extra:last-child { margin-right: 0; }
+.browse .browse-row.details-extras .browse-still { width: 470px; height: 264px; border-radius: 18px; background: #15171c; }
+.browse .browse-row.details-extras .details-extra .browse-card-title { margin: 14px 0 0; padding: 0; font-size: 21px; font-weight: 600; line-height: normal; color: rgba(237,237,237,.92); }
+.browse .browse-row.details-extras .details-extra .browse-card-subtitle { margin: 5px 0 0; padding: 0; font-size: 17px; font-weight: 500; color: rgba(237,237,237,.6); }
+.browse .details-extra .browse-art-fallback { display: flex; align-items: center; justify-content: center; height: 100%; padding: 0; color: rgba(237,237,237,.6); }
+.browse .details-extra .details-extra-play { position: absolute; z-index: 1; left: 50%; top: 50%; width: 60px; height: 60px; margin: -30px 0 0 -30px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: rgba(0,0,0,.55); box-shadow: 0 3px 16px rgba(0,0,0,.35); }
+.browse .details-extra .details-extra-play svg { display: block; width: 24px; height: 24px; }
+.browse .details-extra:focus { box-shadow: 0 8px 36px rgba(0,0,0,.45); }
+.browse .details-extra:focus .details-extra-play { background: rgba(0,0,0,.72); }
+.browse .details-extra:focus .browse-still { transform: none; box-shadow: none; }
+.browse .browse-row.details-extras .details-extra:is(:focus) .browse-card-title { color: #ededed; }
+.browse .browse-row.details-extras .details-extra:is(:focus) .browse-card-subtitle { color: rgba(237,237,237,.6); }
+.browse .browse-row.details-extras .details-extra:is(:focus) :is(.browse-card-title, .browse-card-subtitle) { transform: none; text-shadow: none; }
+/* The episode row already contributes 12px of bottom padding. */
+.browse:has(.details-hero) > .details-series-rail { margin-bottom: calc(79px - 12px); }
+.browse:has(.details-hero) .details-facts { margin-top: 34px; }
+/* TVDetailCastRail pads both edges by 12px so its 1.05 focus lift fits. */
+.browse:has(.details-hero) > .details-people { padding-top: 12px; }
+.browse .details-series-rail .browse-card { margin-right: 40px; }
+.details-facts-table { position: relative; margin-left: 12px; }
+.details-facts-table:focus { background: transparent; }
+.details-facts-table:focus::before { content: ""; position: absolute; inset: -14px -28px; border-radius: 12px; background: rgba(255,255,255,.06); pointer-events: none; }
+/* Calendar events keep their own metadata and are never paged or capped.
+   The shared content box is full width, like Home: Apple's shelves use scrollClipDisabled
+   and run to the screen edge. The 80pt safe padding stays inside, so headings and the
+   week strip keep SiloTheme.safePadding without clipping the seventh card at x=1840. */
+/* CalendarView's ScrollView fills the screen and pads its content by contentTopInset.
+   The inset scrolls away, so shelves pass under the top bar. TVTopMenuBar draws no
+   background band, and PageChromeGlass is empty on tvOS. */
+.skyline-content:has(.calendar-week) { top: 0; left: 0; width: 1920px; height: 1080px; padding: 0 80px; box-sizing: border-box; }
+/* Filter is 66px and ends at 254. CalendarView's tvOS VStack spacing is 30, so the strip starts at 284. */
+.calendar-week { display: flex; align-items: center; gap: 18px; margin: 30px 0 0; }
+/* Flatten the nested day HStack while retaining one existing focus zone. */
+.calendar-week .browse-button { flex: none; margin: 0; }
+.calendar-week .calendar-day { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: 84px; height: 96px; min-height: 0; padding: 0; border: 1px solid transparent; border-radius: 12px; background: rgba(255,255,255,.05); box-shadow: none; }
+.calendar-day + .calendar-day { margin-left: -8px; }
+.calendar-weekday { font-size: 18px; font-weight: 600; color: rgba(237,237,237,.6); }
+.calendar-day-number { font-size: 26px; font-weight: 700; }
+.calendar-day-mark { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.calendar-event-dot { background: rgba(237,237,237,.8); }
+.calendar-week .calendar-chevron { display: flex; align-items: center; justify-content: center; width: 64px; height: 64px; min-height: 0; padding: 0; border: 0; border-radius: 50%; font-size: 24px; background: rgba(255,255,255,.08); color: rgba(237,237,237,.7); }
+.calendar-month { margin-left: auto; white-space: nowrap; font-size: 24px; font-weight: 600; color: rgba(237,237,237,.6); }
+.calendar-week .calendar-day[aria-pressed="true"] { background: rgba(237,237,237,.88); color: #000; }
+.calendar-week .calendar-day[aria-current="date"]:not([aria-pressed="true"]):not(:focus) { border-color: rgba(255,255,255,.35); }
+.calendar-week .browse-button:focus { background: rgba(237,237,237,.94); color: #000; box-shadow: none; }
+.calendar-week .calendar-day:focus { transform: scale(1.06); }
+.calendar-day[aria-pressed="true"] .calendar-weekday, .calendar-day:focus .calendar-weekday { color: rgba(0,0,0,.7); }
+.calendar-day[aria-pressed="true"] .calendar-event-dot, .calendar-day:focus .calendar-event-dot { background: #000; }
+.calendar-week [data-focus="today"] { height: 64px; padding: 0 24px; font-size: 22px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18); }
+.calendar-week [data-focus="today"]:focus { background: rgba(237,237,237,.94); }
+/* Compact heading-to-heading pitch measured at Apple 05753bf is 595.
+   The shelf box plus the old 6px gap measured 561, so the gap is 40. */
+.calendar-shelf { margin-bottom: 40px; }
+/* SF 36 semibold is a 42px line, so the poster starts 86px under the heading.
+   Caption lines are SF 28 and 22. The shared card's bottom margin is cleared
+   so the shelf ends on the caption, which is what anchor .bottom scrolls. */
+.calendar-shelf .browse-section-title { margin: 0 0 20px; height: 42px; font-size: 36px; font-weight: 600; line-height: 42px; }
+.calendar-shelf .browse-row { box-sizing: border-box; width: 1920px; margin-left: -80px; margin-right: -80px; padding: 24px 80px; }
+.calendar-shelf .browse-card { width: calc(260px * var(--calendar-scale, 1)); margin: 0 40px 0 0; border: 0; border-radius: 0; }
+.calendar-shelf .browse-art { width: calc(260px * var(--calendar-scale, 1)); height: calc(390px * var(--calendar-scale, 1)); }
+.calendar-event .browse-card-title { padding: 0; margin: 16px 0 2px; line-height: 32.98px; min-height: 65.96px; white-space: normal; font-size: 28px; font-weight: 600; color: rgba(237,237,237,.85); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.calendar-event:focus { transform: none; box-shadow: none; }
+.calendar-event .browse-art { transition: transform var(--silo-fast) ease-out; }
+.calendar-event:focus .browse-art { transform: scale(1.05); box-shadow: 0 0 0 4px rgba(255,255,255,.7); }
+.calendar-event:focus .browse-card-title { color: #ededed; }
+.calendar-event .browse-card-subtitle { margin: 0; padding: 0; font-size: 22px; line-height: 25.91px; color: rgba(237,237,237,.6); }
+.calendar-shelf-empty .browse-section-title { color: rgba(237,237,237,.6); }
+.calendar-shelf-empty .browse-text { margin: 0; font-size: 22px; color: rgba(237,237,237,.6); }
+.calendar-event .browse-card-subtitle { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-height: none; }
+/* Use Apple's 30-point section gap as a stable slot for retained-data status. */
+.calendar-status { height: 30px; }
+.calendar-status.calendar-pending { min-height: 320px; }
+.calendar-status .browse-text { margin: 0; max-width: none; font-size: 22px; line-height: 30px; }
+.calendar-filters { display: flex; gap: 6px; width: max-content; margin: 188px 0 0; padding: 6px; border-radius: 40px; background: rgba(255,255,255,.07); }
+.calendar-filters .browse-button { margin: 0; padding: 0 26px; height: 54px; min-height: 0; border: 0; font-size: 22px; background: transparent; color: rgba(237,237,237,.7); box-shadow: none; }
+.calendar-filters .browse-button[aria-pressed="true"] { background: rgba(237,237,237,.88); color: #000; }
+.calendar-filters .browse-button:focus { background: rgba(237,237,237,.96); color: #000; transform: scale(1.05); }
+.calendar-empty, .calendar-failure { min-height: 320px; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.calendar-empty .search-state-icon { width: 44px; height: 44px; margin: 0 0 12px; color: rgba(237,237,237,.3); }
+.calendar-empty .search-state-icon svg { width: 100%; height: 100%; }
+.calendar-empty .search-state-description { padding: 0 60px; color: rgba(237,237,237,.6); }
+.calendar-loading { min-height: 320px; outline: none; }
+.calendar-failure { gap: 48px; }
+.calendar-failure .search-state-icon { width: 48px; height: 48px; margin: 0; color: #b00020; }
+.calendar-failure .search-state-title { margin: 0; font-size: 36px; line-height: 43px; }
+.calendar-failure .search-state-description { padding: 0 60px; font-size: 26px; line-height: 32px; color: rgba(237,237,237,.6); }
+.calendar-failure .browse-actions { margin: 16px 0 0; }
+.calendar-failure .browse-button { width: 200px; }
+.calendar-empty-links .browse-button, .calendar-failure .browse-button { border: 0; padding: 14px 18px; font-size: 28px; background: rgba(237,237,237,.72); color: #000; }
+.calendar-empty-links .browse-button:focus, .calendar-failure .browse-button:focus { background: #ededed; box-shadow: 0 0 0 4px #fff; }
+.calendar-moon { display: inline-flex; width: 22px; height: 22px; margin-right: 8px; color: rgba(237,237,237,.3); }
+.calendar-moon svg { width: 100%; height: 100%; }
+.calendar-empty-title { margin: 0 0 12px; font-size: 28px; font-weight: 600; }
+.calendar-empty-subtitle { margin: 0 0 20px; font-size: 22px; color: rgba(237,237,237,.6); }
+.calendar-empty-links { display: flex; justify-content: center; gap: 48px; margin-top: 28px; }
+.calendar-empty-links .browse-button { width: 300px; margin: 0; }
+.calendar-event .browse-art { position: relative; }
+.calendar-releases { position: absolute; top: 12px; left: 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: calc(100% - 24px); }
+.calendar-release { padding: 5px 12px; border-radius: 20px; background: rgba(237,237,237,.92); color: #000; font-size: 18px; font-weight: 700; letter-spacing: .8px; }
+.calendar-watched { position: absolute; top: 12px; right: 12px; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 50%; background: #ededed; color: #000; font-size: 20px; font-weight: 700; box-shadow: 0 0 4px rgba(0,0,0,.3); }
+.calendar-time { position: absolute; bottom: 12px; right: 12px; max-width: calc(100% - 24px); padding: 5px 12px; border-radius: 20px; background: rgba(0,0,0,.62); color: #fff; font-size: 20px; font-weight: 600; white-space: normal; }
+@media (prefers-reduced-motion: reduce) {
+    .calendar-event:focus .browse-art, .calendar-week .calendar-day:focus, .calendar-filters .browse-button:focus { transform: none; }
+}
 .card-actions-scrim { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 30; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.75); }
 .card-actions-panel { width: 600px; max-height: 860px; overflow-y: auto; padding: 36px; border-radius: 18px; background: var(--silo-elevated); border: 1px solid rgba(255,255,255,.12); }
 .card-actions-panel .browse-section-title { margin-top: 0; }
@@ -913,13 +1213,8 @@
 .catalog-grid .browse-card { width: calc(260px * var(--poster-scale, 1)); padding: 0; border: 0; border-radius: 0; transition: none; }
 .catalog-grid .browse-card:focus { transform: none; box-shadow: none; }
 .catalog-grid .browse-art { width: calc(260px * var(--poster-scale, 1)); height: calc(390px * var(--poster-scale, 1)); border-radius: 12px; }
-.catalog-grid .browse-card:focus .browse-art { transform: scale(var(--grid-lift)); box-shadow: 0 18px 36px rgba(0,0,0,.6); }
 .catalog-grid .browse-card-title { margin: 16px 0 4px; padding: 0; font: 500 24px/29px var(--silo-font); color: rgba(237,237,237,.45); text-align: center; }
 .catalog-grid .browse-card-subtitle { margin: 0; padding: 0; font: 400 20px/24px var(--silo-font); color: rgba(237,237,237,.32); text-align: center; }
-.catalog-grid .browse-card:focus .browse-card-title { color: #fff; font-weight: 600; }
-.catalog-grid .browse-card:focus .browse-card-subtitle { color: rgba(255,255,255,.92); font-weight: 500; }
-.catalog-grid .browse-card:focus .browse-card-title, .catalog-grid .browse-card:focus .browse-card-subtitle { transform: translateY(5px); text-shadow: 0 0 10px rgba(255,255,255,.45), 0 0 3px rgba(255,255,255,.25); }
-@media (prefers-reduced-motion: reduce) { .catalog-grid .browse-card:focus .browse-art { transform: none; } }
 .catalog-skeleton { display: grid; }
 .catalog-skeleton .discovery-skeleton { width: calc(260px * var(--poster-scale, 1)); height: calc(390px * var(--poster-scale, 1)); }
 .browse-empty-title { margin: 160px 0 16px; font-size: 36px; font-weight: 600; text-align: center; }
@@ -973,3 +1268,135 @@
 
 /* Shuffle stays focusable while it starts (a disabled button loses focus); it dims to 60%. */
 .browse .browse-controls .browse-control-starting { opacity: .6; }
+
+/* Apple tvOS WatchlistView and FavoritesView (silo-apple 9723df0): contentTopInset 188,
+   safePadding 80, title 64 bold, eight 176-point posters, column gap 40, row gap 60. */
+.personal-lists.skyline-grid .skyline-content { top: 188px; left: 80px; width: 1760px; height: 892px; }
+.personal-lists .personal-page { padding-bottom: 80px; }
+.personal-lists .browse-title { margin: 0 0 40px; font-size: 64px; font-weight: 700; line-height: 77px; color: #ededed; }
+.personal-lists .personal-filters { position: static; display: flex; gap: 14px; width: auto; margin: 0 0 40px; }
+.personal-lists .personal-filters .browse-button { margin: 0; padding: 12px 28px; border: 1px solid rgba(255,255,255,.09); border-radius: 999px; background: rgba(255,255,255,.07); color: #ededed; font-size: 24px; font-weight: 600; line-height: 1.2; transition: transform 120ms ease-out, opacity 120ms ease-out; }
+.personal-lists .personal-filters .browse-button[aria-pressed="true"] { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.1); color: #ededed; }
+.personal-lists .personal-filters .browse-button:focus { background: #ededed; color: #000; border-color: transparent; box-shadow: none; transform: scale(1.04); }
+.personal-lists .personal-filters .browse-button:active { opacity: .82; }
+.personal-lists .personal-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; width: 1760px; padding: 0; }
+.personal-lists .personal-grid .browse-card { width: 176px; margin: 0; padding: 0; border: 0; border-radius: 0; transition: none; }
+.personal-lists .personal-grid .browse-card:focus { transform: none; border-color: transparent; box-shadow: none; }
+.personal-lists .personal-grid .browse-art { width: 176px; height: 264px; border-radius: 12px; transition: transform 120ms ease-out, box-shadow 120ms ease-out; }
+.personal-lists .personal-grid .browse-card:focus .browse-art { transform: scale(1.05); box-shadow: 0 8px 18px rgba(0,0,0,.45), 0 0 0 4px rgba(255,255,255,.7); }
+.personal-lists .personal-grid .browse-card-title { margin: 22px 0 0; padding: 0; font: 500 24px/29px var(--silo-font); color: rgba(237,237,237,.45); text-align: center; transition: color 120ms ease-out, text-shadow 120ms ease-out; }
+.personal-lists .personal-grid .browse-card-subtitle { margin: 4px 0 0; padding: 0; font: 400 20px/24px var(--silo-font); color: rgba(237,237,237,.32); text-align: center; transition: color 120ms ease-out, text-shadow 120ms ease-out; }
+.personal-lists .personal-grid .browse-card:focus .browse-card-title { color: #fff; font-weight: 500; text-shadow: 0 0 8px rgba(255,255,255,.22), 0 0 3px rgba(255,255,255,.12); }
+.personal-lists .personal-grid .browse-card:focus .browse-card-subtitle { color: rgba(255,255,255,.92); font-weight: 400; text-shadow: 0 0 8px rgba(255,255,255,.22), 0 0 3px rgba(255,255,255,.12); }
+.personal-lists .personal-loading,
+.personal-lists .personal-status,
+.personal-lists .personal-empty,
+.personal-history .personal-loading,
+.personal-history .personal-status,
+.personal-history .personal-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; min-height: 640px; margin: 0; padding: 0 60px; border: 0; background: transparent; color: #ededed; font: inherit; text-align: center; }
+.personal-lists .personal-loading:focus,
+.personal-lists .personal-status:focus,
+.personal-lists .personal-empty:focus,
+.personal-history .personal-loading:focus,
+.personal-history .personal-status:focus,
+.personal-history .personal-empty:focus { background: transparent; color: #ededed; border-color: transparent; box-shadow: none; transform: none; }
+.personal-lists .personal-loading:focus,
+.personal-history .personal-loading:focus { outline: none; }
+.personal-lists .personal-empty,
+.personal-history .personal-empty { gap: 12px; }
+.personal-lists .personal-empty-icon,
+.personal-history .personal-empty-icon { width: 44px; height: 44px; color: rgba(237,237,237,.3); }
+.personal-lists .personal-empty-title,
+.personal-history .personal-empty-title { font-size: 28px; font-weight: 600; }
+.personal-lists .personal-empty-subtitle,
+.personal-history .personal-empty-subtitle { max-width: 1200px; font-size: 22px; font-weight: 400; color: rgba(237,237,237,.6); }
+.personal-lists .personal-section-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; min-height: 430px; text-align: center; }
+.personal-lists .personal-section-icon { width: 54px; height: 54px; color: rgba(237,237,237,.34); }
+.personal-lists .personal-section-title { margin: 0; font-size: 30px; font-weight: 600; color: #ededed; }
+.personal-lists .personal-section-subtitle { margin: 0; font-size: 22px; font-weight: 400; color: rgba(237,237,237,.6); }
+.personal-lists .personal-status { font-size: 30px; }
+@media (prefers-reduced-motion: reduce) {
+    .personal-lists .personal-grid .browse-card:focus .browse-art,
+    .personal-lists .personal-filters .browse-button:focus { transform: none; }
+}
+
+/* History uses the existing pushed-page title treatment in place of tvOS system navigation chrome. */
+/* HistoryView pads the grid inside its ScrollView; that padding must not clip focused artwork. */
+.personal-history .skyline-content { top: 146px; left: 80px; width: 1760px; height: 934px; overflow-y: auto; }
+.personal-history .personal-page { padding: 16px 48px 60px; }
+/* HistoryView uses a system navigationTitle with no numeric offset; the signed capture
+   places its visible title at y64, 9.5 points below the previous Tizen capture. */
+.personal-history > .browse-title { position: fixed; top: 65.5px; left: 48px; width: 1824px; font-size: 56px; line-height: 64px; }
+.personal-history .personal-count { margin: 0 0 48px; font-size: 22px; font-weight: 400; line-height: 26px; color: rgba(237,237,237,.6); }
+.personal-history .catalog-grid { grid-template-columns: repeat(var(--grid-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; width: 1664px; margin: 0; padding: 0; }
+.personal-history .catalog-grid .browse-card { --card-caption-gap: 22px; }
+.personal-history .catalog-grid .browse-card-title { margin-top: 22px; }
+
+/* ErrorView, shared with the Requests hub: 48pt icon, 36 semibold headline, 26 body, Try Again 200 wide. */
+.personal-lists .personal-failure,
+.personal-history .personal-failure { position: fixed; top: 0; left: 0; box-sizing: border-box; width: 1920px; height: 1080px; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.personal-failure .search-state-icon { display: flex; align-items: center; justify-content: center; width: 50px; height: 53px; margin: 0 0 48px; color: #b00020; }
+.personal-failure .search-state-icon svg { flex: none; width: 52px; height: 52px; }
+.personal-failure .search-state-title { margin: 0 0 48px; font-size: 36px; line-height: 43px; font-weight: 600; color: #ededed; }
+.personal-failure .search-state-description { margin: 0; padding: 0 60px; font-size: 26px; line-height: 32px; color: rgba(237,237,237,.6); }
+.personal-failure .browse-actions { display: flex; flex-direction: column; align-items: center; gap: 16px; margin: 64px 0 0; }
+.personal-failure .browse-button { box-sizing: border-box; width: 200px; height: 62px; margin: 0; padding: 0 18px; border: 0; border-radius: 31px; background: rgba(237,237,237,.72); color: #000; font-size: 28px; line-height: 34px; font-weight: 600; }
+.personal-failure .browse-button:focus { background: #ededed; color: #000; transform: scale(1.055); box-shadow: inset 0 0 0 2px #fff, 0 0 0 2px #fff, 0 0 12px 8px rgba(255,255,255,.36), 0 8px 48px rgba(237,237,237,.48); }
+.personal-failure .browse-button + .browse-button { width: auto; height: auto; padding: 4px 24px; border-radius: 22px; background: transparent; color: rgba(237,237,237,.6); font-size: 26px; line-height: 32px; font-weight: 400; }
+.personal-failure .browse-button + .browse-button:focus { background: #ededed; color: #000; }
+@media (prefers-reduced-motion: reduce) {
+    .personal-failure .browse-button:focus { transform: none; }
+}
+/* tvOS adds its 80/60 safe area to the Swift page padding; measured in the signed comparison. */
+.browse[data-view^="person:"] { padding: 108px 160px 132px; }
+.browse[data-view^="person:"] .details-person-hero { margin: 0 0 48px; }
+.browse[data-view^="person:"] .browse-title { margin-bottom: 0; }
+.browse[data-view^="person:"] .person-facts { display: flex; gap: 12px; margin: 0; }
+.browse[data-view^="person:"] .person-fact { flex-shrink: 0; margin: 0; }
+.browse[data-view^="person:"] .browse-overview { margin: 0; color: rgba(237, 237, 237, 0.6); font-size: 26px; font-weight: 400; }
+.browse[data-view^="person:"] .browse-detail-info > * + * { margin-top: 22px; }
+.person-filmography-heading { display: flex; align-items: baseline; gap: 60px; margin: 0 0 20px; }
+.person-filmography-heading .browse-section-title { margin: 0; font-size: 36px; font-weight: 600; }
+.person-title-count { color: rgba(237, 237, 237, 0.6); font-size: 22px; font-weight: 400; }
+.browse[data-view^="person:"] .person-filmography-filters { display: flex; gap: 8px; padding: 8px 0; margin: 0 0 28px; }
+.browse[data-view^="person:"] .person-filmography-filters .browse-button { margin: 0; padding: 10px 22px; border-width: 1px; border-radius: 999px; font-size: 22px; font-weight: 400; background: rgba(21, 23, 28, 0.55); color: rgba(237, 237, 237, 0.6); border-color: rgba(255, 255, 255, 0.08); transition: transform var(--silo-fast) ease-out; }
+.browse[data-view^="person:"] .person-filmography-filters .browse-button[aria-pressed="true"] { background: #0e0f12; color: var(--silo-text); border-color: rgba(255, 255, 255, 0.16); }
+.browse[data-view^="person:"] .person-filmography-filters .browse-button:focus { outline: none; background: rgba(14, 15, 18, 0.8); color: var(--silo-text); border-color: rgba(237, 237, 237, 0.85); box-shadow: inset 0 0 0 1px rgba(237, 237, 237, 0.85); transform: scale(1.06); }
+.browse[data-view^="person:"] .person-filmography-filters .browse-button[aria-pressed="true"]:focus { background: #0e0f12; }
+.browse[data-view^="person:"] .browse-grid { width: auto; margin: 0; padding: 0; grid-template-columns: repeat(var(--grid-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; }
+/* PersonDetailView.swift:440 pads the scroll content 72pt at the bottom. The focus
+   viewport also excludes tvOS's 60px vertical safe area, so the shared scroll owner
+   keeps the focused card 132px above the screen. The generic 32px margin (92px with
+   the safe area) left the row 40px too low. */
+.browse[data-view^="person:"] .browse-grid .browse-card { scroll-margin-top: 72px; scroll-margin-bottom: 132px; }
+
+.settings-modal-scrim { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.88); }
+.settings-modal { box-sizing: border-box; width: 760px; max-height: 760px; padding: 30px; border-radius: 30px; background: #202020; border: 1px solid rgba(255,255,255,.2); box-shadow: 0 22px 48px rgba(0,0,0,.58); display: flex; flex-direction: column; }
+.settings-modal .browse-title { font-size: 42px; margin: 0 0 18px; }
+.settings-modal-options { overflow-y: auto; min-height: 0; padding: 8px; }
+.settings-option-detail { display: block; margin-top: 6px; font-size: 20px; line-height: 1.35; }
+.settings-checkmark { float: right; margin-left: 16px; display: inline-grid; place-items: center; width: 26px; height: 26px; background: currentColor; border-radius: 50%; }
+.settings-checkmark::after { content: "✓"; color: #202020; font-size: 18px; }
+.settings .browse-button:focus .settings-checkmark::after { color: #fff; }
+.settings-picker-hint { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #ffffff14; border-radius: 20px; }
+.settings-nested-group { margin-left: 24px; padding: 8px; border: 1px solid #ffffff12; border-radius: 14px; background: #ffffff06; }
+.settings-subtitle-preview { margin: 0 24px 8px; border: 1px solid #ffffff20; border-radius: 18px; background: linear-gradient(135deg, #263750, #10151d 65%, #352637); overflow: hidden; }
+.settings-subtitle-preview span { left: 16px; right: 16px; text-align: center; font-weight: 600; }
+/* TVSettingsPaneRowStyle isDestructive (TVSettingsComponents.swift:273-276): #B00020 at rest, #D22F3F on the white platter. */
+.settings-pane .settings-destructive { display: flex; align-items: center; gap: 16px; color: #b00020; }
+.settings-pane .settings-destructive .skyline-menu-icon { width: 22px; height: 22px; margin: 0; }
+.settings .settings-pane .browse-button.settings-destructive:focus { color: #d22f3f; background: #ededed; border-color: transparent; }
+.settings-modal:has(.settings-privacy-card) { width: 1152px; padding: 52px 64px; border-radius: 32px; }
+.settings-privacy-card { display: flex; gap: 54px; align-items: center; }
+.settings-privacy-qr { background: white; padding: 22px; border-radius: 24px; }
+.settings-privacy-copy { width: 560px; }
+
+.settings-privacy-copy > svg { width: 38px; height: 38px; margin: 0 0 22px; }
+.settings-privacy-copy .browse-button { text-align: center; }
+.settings-modal:has(.settings-privacy-card) > .settings-modal-options { display: none; }
+
+.settings-category-title { font-size: 25px; }
+.settings-category-detail { font-size: 16px; margin-top: 2px; }
+.settings-profile-name { font-size: 27px; }
+.settings-profile-account { font-size: 19px; }
+.settings-pane .browse-button { height: 66px; }

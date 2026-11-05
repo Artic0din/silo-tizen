@@ -10,6 +10,8 @@ import { FakePlayback } from "./support/fakePlayback.ts";
 import { FakeSilo, fixture, problem, type RecordedRequest } from "./support/fakeSilo.ts";
 import { ManualClock } from "./support/clock.ts";
 import { FakeSettings } from "./support/fakeSettings.ts";
+import { SettingsState } from "../../src/ui/settingsState.ts";
+import { NEXT_UP_KEY } from "../../src/contracts/v2/settings.ts";
 import { FakeCatalog } from "./support/fakeCatalog.ts";
 import { SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS } from "../../src/contracts/v2/settings.ts";
 import { operations } from "../../src/api/operations.ts";
@@ -232,6 +234,90 @@ async function playMovie(r: Rig, request: PlayRequest = MOVIE): Promise<string> 
     assert.ok(id !== undefined);
     return id;
 }
+
+test("automatic skip undo starts after a six-second reanchor preparation", async () => {
+    const r = await rig();
+    const settings = new FakeSettings(r.h.fake);
+    settings.remainingRows = true;
+    settings.profile().set("playback.intro_skip_mode", "always");
+    r.h.fake.scripted.set("/markers/files/42", [{ status: 200, body: { file_id: "42", marker_segments: [
+        { kind: "intro", start_seconds: 20, end_seconds: 60 },
+    ] } }]);
+    r.server.next.push({ timeline: { can_seek_anywhere: false } });
+    await playMovie(r);
+    r.avplay.tick(20000);
+    await r.h.clock.advance(0);
+    assert.equal(last(r.views).phase, "loading");
+    await r.h.clock.advance(6000);
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    let view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.undoSkipSeconds, 20);
+    await r.h.clock.advance(4999);
+    r.avplay.tick(61000);
+    view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.undoSkipSeconds, 20);
+    await r.h.clock.advance(1);
+    r.avplay.tick(62000);
+    view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.undoSkipSeconds, undefined);
+    r.controller.destroy();
+});
+
+test("a failed automatic skip seek offers no undo", async () => {
+    const r = await rig();
+    const settings = new FakeSettings(r.h.fake);
+    settings.remainingRows = true;
+    settings.profile().set("playback.intro_skip_mode", "always");
+    r.h.fake.scripted.set("/markers/files/42", [{ status: 200, body: { file_id: "42", marker_segments: [
+        { kind: "intro", start_seconds: 20, end_seconds: 60 },
+    ] } }]);
+    await playMovie(r);
+    r.avplay.tick(20000);
+    r.avplay.finishSeek("UnknownError");
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.undoSkipSeconds, undefined);
+    r.controller.destroy();
+});
+
+test("intro and credits settings control markers and automatic skips can be undone", async () => {
+    for (const mode of ["never", "ask", "always"] as const) {
+        const r = await rig();
+        const settings = new FakeSettings(r.h.fake);
+        settings.remainingRows = true;
+        settings.profile().set("playback.intro_skip_mode", mode);
+        settings.profile().set("playback.auto_skip_credits", true);
+        r.h.fake.scripted.set("/markers/files/42", [{ status: 200, body: { file_id: "42", marker_segments: [
+            { kind: "intro", start_seconds: 20, end_seconds: 60 },
+            { kind: "credits", start_seconds: 90, end_seconds: 100 },
+        ] } }]);
+        await playMovie(r);
+        r.avplay.tick(20000);
+        let view = last(r.views);
+        assert.ok(view.phase === "playing");
+        if (mode === "always") {
+            assert.equal(r.avplay.calls.at(-1), "seekTo 60000");
+            r.avplay.finishSeek();
+            view = last(r.views);
+            assert.ok(view.phase === "playing");
+            assert.equal(view.undoSkipSeconds, 20);
+            r.controller.seekToSeconds(20);
+            r.avplay.finishSeek();
+            r.avplay.tick(21000);
+            assert.equal(r.avplay.positionMs, 21000);
+        } else assert.equal(view.skipMarker?.kind, mode === "ask" ? "intro" : undefined);
+        r.avplay.tick(90000);
+        assert.equal(r.avplay.calls.at(-1), "seekTo 100000");
+        r.avplay.finishSeek();
+        r.controller.destroy();
+    }
+});
 
 test("effective file markers follow source time and cannot replace an in-flight manual seek", async () => {
     const r = await rig();
@@ -1113,6 +1199,31 @@ test("Up Next appears at Apple's default 30 seconds and Keep Watching suppresses
     r.avplay.tick((duration - 10) * 1000);
     await r.h.clock.advance(0);
     assert.equal("upNext" in last(r.views), false);
+    r.controller.destroy();
+});
+
+test("a saved Show Next Up value changes the before-end prompt time", async () => {
+    const r = await autoplayRig(false, 30);
+    r.settings.overrides.delete(NEXT_UP_KEY);
+    r.settings.remainingRows = true;
+    r.settings.profile().set(NEXT_UP_KEY, 30);
+    const settings = new SettingsState(r.h.core.session, () => undefined, r.h.clock);
+    await settings.load();
+    assert.equal(settings.error, undefined);
+    await settings.save(NEXT_UP_KEY, 60);
+    assert.equal(settings.error, undefined);
+    assert.equal(r.settings.device("p-owner", r.h.core.session.http.deviceId).get(NEXT_UP_KEY), 60);
+    assert.equal(r.settings.profile().get(NEXT_UP_KEY), 30);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    r.avplay.tick((view.durationSeconds! - 61) * 1000);
+    await r.h.clock.advance(0);
+    assert.equal("upNext" in last(r.views), false);
+    r.avplay.tick((view.durationSeconds! - 60) * 1000);
+    await r.h.clock.advance(0);
+    assert.ok("upNext" in last(r.views));
+    settings.stop();
     r.controller.destroy();
 });
 

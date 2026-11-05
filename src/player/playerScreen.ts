@@ -245,8 +245,10 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     skip.tabIndex = -1;
     skip.setAttribute("data-focus", "skip");
     skip.addEventListener("click", () => {
-        if ((view.phase !== "playing" && view.phase !== "paused") || view.skipMarker === undefined || seekPreview !== undefined || menuOpen) return;
-        controls.seekToSeconds(view.skipMarker.endSeconds);
+        if ((view.phase !== "playing" && view.phase !== "paused") || seekPreview !== undefined || menuOpen) return;
+        const target = view.undoSkipSeconds ?? view.skipMarker?.endSeconds;
+        if (target === undefined) return;
+        controls.seekToSeconds(target);
         overlay.focus();
         reveal();
         render();
@@ -505,10 +507,12 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         const active = view.phase === "playing" || view.phase === "paused";
         if (!active && (seekPreview !== undefined || timeline || autoRate !== 0)) cancelScrub();
         const marker = view.phase === "playing" || view.phase === "paused" ? view.skipMarker : undefined;
-        skip.hidden = marker === undefined || seekPreview !== undefined || menuOpen;
+        const undo = (view.phase === "playing" || view.phase === "paused") && view.undoSkipSeconds !== undefined;
+        skip.hidden = (!undo && marker === undefined) || seekPreview !== undefined || menuOpen;
         if (marker !== undefined && (view.phase === "playing" || view.phase === "paused")) {
             skip.textContent = `Skip ${marker.kind} · ${Math.ceil(marker.endSeconds - view.positionSeconds)} seconds`;
         }
+        if (undo) skip.textContent = "Undo skip";
         if (skip.hidden && document.activeElement === skip) bar.focus();
         if (seekPreview === undefined) thumbnail.clear();
         transport.hidden = !active;

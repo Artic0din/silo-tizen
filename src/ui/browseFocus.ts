@@ -238,7 +238,9 @@ export class FocusHost {
     }
 
     scrollToTop(): void {
-        this.scroll.move(this.viewport(), 0, 0);
+        // Commit the fallback viewport before optional repaints remember its position.
+        this.scroll.stop();
+        this.viewport().scrollTop = 0;
     }
 
     private viewport(): HTMLElement {

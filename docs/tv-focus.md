@@ -191,10 +191,18 @@ Series season pills are another read-on-focus exception: after 70 ms of resting 
 Leaving a pill cancels its pending activation; selecting it remains immediate.
 The current season keeps its current episode on focus, while a different season starts at E01 and retains pill focus until Down.
 Episode-card focus still uses prefetched data and never starts a detail read.
-Series rail focus crossing into a different loaded season selects its cached page and warms neighbouring seasons, matching Apple's tvOS episode window.
-At a loaded boundary, moving away and back retries a failed neighbour read.
+Crossing into a loaded season in the Series rail only selects its cached page; it starts no reads.
+Initial row loading and explicit season activation warm the neighbouring episode window.
+The narrow rail exception is focus resting for 70 ms on an outer loaded edge with a missing neighbour: it requests that one season once per edge, without stacking pending reads or chaining further reads.
+An empty response consumes that edge's automatic read; a season-pill activation can load beyond it.
+If a successful page is later evicted by the bounded cache, reaching its edge can load that page again.
+Leaving the card before the dwell ends cancels the request before it starts.
+This preserves continuous navigation without loading every season up front.
+At Apple source revision `7baff3ef`, `TVItemDetailView.swift:462–466,927–1001` warms neighbours when the selected season changes; `TVEpisodeRail.swift:303–314,450–454` reports focus at the loaded window's first or last card.
+Apple's failed-edge revisit retries (`TVItemDetailView.swift:297–300`, `TVSeriesDetailView.swift:589–592`); Tizen instead requires the explicit "Retry more episodes" action to protect the rate-limited server.
+Neither ordinary loaded-card movement nor revisiting a failed edge retries a read.
 
-Moving focus never starts a request, activates a route or writes data.
+Outside the named filter, season-pill and outer-edge exceptions, moving focus never starts a request, activates a route or writes data.
 Fetching belongs to explicit activation (Enter), to a view loading, or to a one-off prefetch.
 
 - Card focus calls `context.preview`, which only redraws the marquee from data already in memory (`Skyline.preview`).
@@ -258,7 +266,7 @@ Don't:
 - Don't move focus programmatically except when the focused item disappears.
   Moving focus in answer to a remote key, including Back to the navigation bar, is the host's job, not a programmatic move.
 - Don't restore focus by position or index.
-- Don't fetch, write or navigate from `focus` handlers.
+- Don't fetch, write or navigate from `focus` handlers outside the narrow read exceptions above.
 - Don't attach a second `keydown` handler that also moves focus in an owned zone.
 - Don't let browse render over an active modal.
 - Don't infer TV behaviour from desktop Chromium.

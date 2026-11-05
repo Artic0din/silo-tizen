@@ -39,6 +39,7 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, 
         const item = episodeCard(episode, context);
         if (episode.id === currentEpisode) item.element.setAttribute("aria-current", "true");
         item.element.addEventListener("focus", () => { state.entryEpisode = episode.id; delete row.dataset.scrollEntry; focusEpisode?.(episode.id); state.focus(episode.id); });
+        item.element.addEventListener("blur", () => state.blur());
         return item;
     });
     const row = zoneNode("browse-row details-episodes", episodes);
@@ -53,7 +54,11 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, 
     else if (state.loading) section.append(...lines(["Refreshing episodes…"]));
     else if (episodes.length === 0) section.append(...lines(["This season has no episodes yet."]));
     section.appendChild(row);
-    if (state.boundaryFailed) section.append(...lines(["Could not load more episodes. Move away and back to retry."], "error"));
+    if (state.boundaryFailed) {
+        const retry = actionButton("retry-neighbors", "Retry more episodes", () => state.retryNeighbors());
+        episodes.push(retry);
+        section.append(...lines(["Could not load more episodes."], "error"), zoneNode("browse-actions", [retry]));
+    }
     content.push(section);
     const view: EpisodeView = { content, zones: [{ id: "seasons", layout: "row", items: seasons, get entry() { return `season:${state.seasonNumber}`; } }, { id: "episodes", layout: "row", items: episodes, get entry() { return state.entryEpisode; } }] };
     visits.set(state, { context, episodes: state.railEpisodes, season: state.seasonNumber, loading: state.loading, failed: state.failed, boundaryFailed: state.boundaryFailed, view });

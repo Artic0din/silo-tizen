@@ -7,6 +7,65 @@ import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
+detailTest("episode boundary failure requires explicit Retry while loaded-season focus stays read-free", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const seasons = catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body as { items: Record<string, unknown>[] };
+    const episodes = catalog.route("GET", "/catalog/series/series%3As1/seasons/1/episodes", "p-owner")?.body as { items: Record<string, unknown>[] };
+    await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons?**", route => route.fulfill({ json: { items: [1, 2, 3, 4, 5].map(number => ({ ...seasons.items[0], content_id: `season:${number}`, season_number: number, episode_count: 14, user_data: { played: number === 1, in_progress_count: number === 2 ? 1 : 0 } })) } }));
+    const reads: number[] = [];
+    let failBoundary = true;
+    for (const season of [1, 2, 3, 4, 5]) await tv.page.route(`**/api/v2/catalog/series/series%3As1/seasons/${season}/episodes?**`, route => {
+        reads.push(season);
+        if (season === 4 && failBoundary) return route.fulfill({ status: 422, json: problem(422, "validation_failed", "Unavailable").body });
+        return route.fulfill({ json: { items: Array.from({ length: 14 }, (_, index) => ({ ...episodes.items[0], content_id: `episode:rail:${season}:${index}`, season_number: season, episode_number: index + 1 })) } });
+    });
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    const card = (season: number, index: number) => tv.page.locator(`[data-focus="episode:rail:${season}:${index}"]`);
+    await card(3, 13).waitFor(); await card(1, 0).waitFor();
+    assert.deepEqual([...reads].sort(), [1, 2, 3]);
+    for (const [season, index] of [[2, 13], [3, 0], [3, 12], [2, 13], [3, 12]] as const) {
+        await card(season, index).focus(); await tv.jump(100);
+    }
+    assert.equal(reads.length, 3, "crossing cached seasons starts no reads");
+    await card(3, 13).focus();
+    await tv.page.locator('[data-focus="audio"]').focus(); await tv.jump(100);
+    assert.equal(reads.length, 3, "leaving the rail cancels boundary dwell");
+    await card(3, 13).focus(); await tv.jump(100);
+    const retry = tv.page.getByRole("button", { name: "Retry more episodes", exact: true });
+    await retry.waitFor();
+    assert.deepEqual(reads.slice(3), [4]);
+    for (let index = 0; index < 3; index++) {
+        await card(3, 12).focus(); await card(3, 13).focus(); await tv.jump(100);
+    }
+    assert.equal(reads.length, 4, "failed boundary revisits never retry");
+    failBoundary = false;
+    await retry.focus(); await tv.page.keyboard.press("Enter");
+    await card(4, 13).waitFor();
+    assert.deepEqual(reads.slice(3), [4, 4], "explicit Retry reads only the failed season");
+    assert.equal(await retry.count(), 0);
+    assert.notEqual(await tv.focused(), "retry-neighbors", "the removed Retry control cannot retain focus");
+});
+
+detailTest("an empty boundary response does not chain reads when the focused edge is restored", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const seasons = catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body as { items: Record<string, unknown>[] };
+    const episodes = catalog.route("GET", "/catalog/series/series%3As1/seasons/1/episodes", "p-owner")?.body as { items: Record<string, unknown>[] };
+    await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons?**", route => route.fulfill({ json: { items: [1, 2, 3, 4, 5, 6].map(number => ({ ...seasons.items[0], content_id: `season:${number}`, season_number: number, episode_count: 14, user_data: { played: number === 1, in_progress_count: number === 2 ? 1 : 0 } })) } }));
+    const reads: number[] = [];
+    for (const season of [1, 2, 3, 4, 5, 6]) await tv.page.route(`**/api/v2/catalog/series/series%3As1/seasons/${season}/episodes?**`, route => {
+        reads.push(season);
+        return route.fulfill({ json: { items: season > 3 ? [] : Array.from({ length: 14 }, (_, index) => ({ ...episodes.items[0], content_id: `episode:empty:${season}:${index}`, season_number: season, episode_number: index + 1 })) } });
+    });
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:empty:1:0"]').waitFor();
+    const edge = tv.page.locator('[data-focus="episode:empty:3:13"]'); await edge.waitFor();
+    await edge.focus(); await tv.jump(100);
+    await tv.eventually(async () => reads.includes(4), "the one boundary read finishes");
+    for (let index = 0; index < 4; index++) await tv.jump(100);
+    assert.deepEqual([...reads].sort(), [1, 2, 3, 4], "restoring the same edge never chains into further empty seasons");
+    assert.equal(await tv.focused(), "episode:empty:3:13");
+});
+
 detailTest("Episode rail paints neighbouring stills to both screen edges without changing scroll steps", async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog);
     const body = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner')?.body as { items: Record<string, unknown>[] };

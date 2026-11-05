@@ -26,6 +26,7 @@ All notable changes to this project are documented in this file.
 - Retained signed Details artwork in session memory, matched offline Details errors and episode Retry to Apple TV, and restored the hero when recovery removed Retry.
 - Cleared only the signed-out account's cached browse content, including offline saved-account removal.
 - Preserved cached Details artwork and supporting content offline, protected visited titles from Home enrichment eviction, and retained the selected season during recovery.
+- Restored the last available Details hero action on Up, falling back to Play or Watchlist when Start Over disappeared or a selector was disabled.
 - Refreshed episode spoiler protection after Settings changes and preserved saved switches during overlapping requests and failures.
 - Aligned Details supporting-section headings when moving Up and Down, restored visible Movie Cast to the page top, and removed duplicated space below the Details table.
 - Opened fresh Details presentations at the hero and preserved each earlier presentation's focus and scroll when the same title appeared again in the route stack, including entry from Search.

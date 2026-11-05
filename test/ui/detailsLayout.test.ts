@@ -137,6 +137,66 @@ async function settledEpisodePrefetch(tv: Tv): Promise<void> {
     }, "opening episode prefetches settled");
 }
 
+for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} hero Up restores every last action and More return`, async tv => {
+    await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
+    await tv.page.locator('[data-focus="version"][aria-disabled="false"]').waitFor();
+    const primary = media.startsWith('movie') ? 'resume' : 'next-episode';
+    const below = media.startsWith('movie') ? '.details-people [data-focus]' : '[data-focus="season:1"]';
+    const keys = [primary, ...(media.startsWith('movie') ? ['play'] : []), 'version', 'audio', 'subtitles', 'watchlist', 'more'];
+    for (const key of keys) {
+        await tv.page.locator(`.browse-actions [data-focus="${key}"]`).focus();
+        if (key === 'more') {
+            await tv.page.keyboard.press('Enter');
+            await tv.page.getByRole('dialog', { name: 'More', exact: true }).waitFor();
+            await tv.remote(10009);
+            assert.equal(await tv.focused(), 'more');
+        }
+        await tv.remote(40);
+        await tv.page.locator(below).first().waitFor();
+        assert.notEqual(await tv.focused(), key);
+        await tv.remote(38);
+        assert.equal(await tv.focused(), key, `return to ${key}`);
+        const visible = await readLive(tv, () => {
+            const node = document.activeElement;
+            if (!(node instanceof HTMLElement) || !node.isConnected) return null;
+            const box = node.getBoundingClientRect();
+            return { key: node.dataset.focus, top: box.top, bottom: box.bottom };
+        }, null, value => value.key === key && value.top >= 0 && value.bottom <= 1080, 'returned hero action is visible');
+        assert.equal(visible.key, key);
+        await tv.remote(38);
+        assert.equal(await tv.focused(), key, 'Up at the hero boundary stays on the action');
+    }
+});
+
+detailTest('hero Up falls back from vanished Start Over and disabled selectors to Play then Watchlist', async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const body = catalog.route('GET', '/catalog/items/episode%3As1e11', 'p-owner')?.body as Record<string, unknown>;
+    await tv.page.route('**/api/v2/catalog/items/episode%3As1e11?**', route => route.fulfill({ json: { ...body, user_data: { played: false, position_seconds: 120 } } }));
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/2/episodes?**', route => route.fulfill({ json: { items: [] } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="start-over-episode"]').focus();
+    await tv.remote(40);
+    await tv.remote(38);
+    assert.equal(await tv.focused(), 'start-over-episode');
+    await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+    await tv.page.locator('[data-focus="start-over-episode"]').waitFor({ state: 'hidden' });
+    await tv.remote(38);
+    await tv.remote(38);
+    assert.equal(await tv.focused(), 'next-episode');
+    for (const key of ['version', 'audio', 'subtitles']) {
+        await tv.page.locator(`[data-focus="${key}"]`).focus();
+        // A mounted selector can become unavailable while episode details load.
+        await tv.page.locator(`[data-focus="${key}"]`).evaluate(node => node.setAttribute('aria-disabled', 'true'));
+        await tv.remote(40);
+        await tv.remote(38);
+        assert.equal(await tv.focused(), 'next-episode', `${key} falls back to Play`);
+    }
+    await tv.page.locator('[data-focus="season:2"]').click();
+    await tv.page.locator('[data-focus="next-episode"]').waitFor({ state: 'hidden' });
+    await tv.remote(38);
+    assert.equal(await tv.focused(), 'watchlist', 'no Play falls back to Watchlist');
+});
+
 for (const season of [1, 2, 30]) detailTest(`fresh season ${season} has no retained-reopen offset`, async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog);
     const seasons = catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body as { items: Record<string, unknown>[] };
@@ -1233,7 +1293,7 @@ detailTest('Series opens on Play and season Select retains the pill until Down',
     await tv.page.locator('[data-focus="episode:s1e21"]').waitFor();
     assert.equal(await tv.focused(), 'season:2');
     await tv.remote(38);
-    assert.equal(await tv.focused(), 'more');
+    assert.equal(await tv.focused(), 'next-episode');
     await tv.remote(40);
     await tv.remote(40);
     assert.equal(await tv.focused(), 'episode:s1e21');

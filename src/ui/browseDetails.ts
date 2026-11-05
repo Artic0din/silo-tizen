@@ -307,7 +307,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         content.push(el("h2", "browse-section-title", "Seasons"), zoneNode("browse-row", seasonItems));
     }
     const zones: Zone[] = [
-        { id: "actions", layout: "row", items: actions },
+        { id: "actions", layout: "row", items: actions, restoreEntry: actions.find(action => ["resume", "play", "next-episode"].includes(action.key))?.key ?? "watchlist" },
         ...series?.zones ?? [{ id: "seasons", layout: "row" as const, items: seasonItems }],
     ];
     const credits: Credit[] = [];

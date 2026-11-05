@@ -92,6 +92,9 @@ Focus is always restored by zone id plus item key, never by list position.
 - `holdVisit()` saves the visit before chrome is hidden for Settings or playback, because hiding chrome can resize and clamp the viewport.
 - `focusDefault()` is for deliberate entry into content (for example leaving the nav bar).
   For `library:<id>` views it prefers the last non-chrome zone of the saved visit; every other view goes straight to `view.focus`.
+- Details hero actions use `Zone.restoreEntry` to return to the last enabled action when entering from below, including Up from season pills.
+  When that action disappeared (such as Start Over) or a selector is disabled, entry falls back to the current Play/Resume action, then Watchlist if no Play exists.
+  Each selector and More retain their own action key; closing a picker or More restores its trigger through the existing modal return path.
 
 If you change what a card's `key` is, you change what restores.
 Keep it the content id.

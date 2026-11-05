@@ -227,9 +227,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
     }, personalPending, card => open({ kind: "item", id: card.id, title: card.title }));
     const synopsis = new Synopsis(container, () => {
-        const current = top();
-        const more = (current?.kind === "item" || current?.kind === "season") && current.data?.details?.panel === "more";
-        render({ zone: more ? "more" : "actions", key: "synopsis" });
+        render({ zone: "detail-tools", key: "synopsis" });
     });
     const stopDetails = (): void => {
         synopsis.destroy(); detailWork?.stop(); detailWork = undefined;
@@ -674,6 +672,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const detailsChanged = (current: Route, returnKey?: string): void => {
         if (current.kind === "item" || current.kind === "season") {
             const details = current.data?.details;
+            for (const owner of details?.seasonStates.values() ?? []) if (owner.pending) invalidateWatched(current, owner.detail);
             if (details?.detail.type === "episode" && (details.audioPreference.pending || details.subtitlePreference.pending)) {
                 for (const entry of stack) {
                     if (entry.kind === "item" || entry.kind === "season") entry.data?.details?.noteEpisodePreference(details.detail.id, true, details.detail.seriesId);
@@ -692,7 +691,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
         if (top() === current) {
             if (cardActions.active) cardActions.render();
-            else render(returnKey === undefined ? undefined : { zone: returnKey === "rate" ? "more" : "actions", key: returnKey });
+            else render(returnKey === undefined ? undefined : { zone: returnKey === "rate" ? "detail-tools" : "actions", key: returnKey });
         }
     };
 
@@ -1120,6 +1119,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     details.restore(previous);
                     if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, () => details.warmSeriesEpisodes(), previous?.series?.seasonNumber ?? data.contextSeason, current.seriesContext?.episodeId);
                     details.series?.restore(previous?.series);
+                    details.restoreSeasonStates(previous);
+                    details.focusedEpisodeId ??= current.seriesContext?.episodeId;
                     details.related = quiet ? previous?.related : undefined;
                     current.data = { ...data, details };
                     detailWork = details;

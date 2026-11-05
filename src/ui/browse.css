@@ -949,6 +949,7 @@
 .details-track-popover .browse-button { box-sizing: border-box; height: 76px; padding-top: 13px; padding-bottom: 13px; font-size: 24px; line-height: 28px; }
 .details-track-popover .details-option-subtext { font-size: 17px; line-height: 20px; }
 .details-track-popover .details-option-title, .details-track-popover .details-option-subtext { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.details-more-icon { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); width: 26px; height: 20px; }
 .details-track-popover .browse-button { position: relative; padding-left: 56px; }
 .details-track-popover [aria-checked="true"]::before { content: "✓"; position: absolute; left: 20px; top: 20px; }
 .skyline-selector.details-track-popover .browse-button[aria-checked="true"]:not(:focus) { background: transparent; }

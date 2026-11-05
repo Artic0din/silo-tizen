@@ -54,7 +54,10 @@ export class DetailsState {
         return [...this.episodeStates.values(), ...this.previousEpisodeStates.values()].find(state => state.audioPreference.pending || state.audioPreference.failed || state.subtitlePreference.pending || state.subtitlePreference.failed);
     }
     get episodePreferencesBlocked(): boolean { return this.unsettledEpisode !== undefined; }
-    get playbackTargetId(): string | undefined { return this.focusedEpisodeId ?? this.detail.playContentId; }
+    get playbackTargetId(): string | undefined {
+        const episodes = this.series?.episodes;
+        return this.focusedEpisodeId ?? (episodes?.find(episode => episode.inProgress) ?? episodes?.find(episode => !episode.played) ?? episodes?.[0])?.id ?? this.detail.playContentId;
+    }
     nextEpisodeLoading = false;
     nextEpisodeFailed = false;
     extraPending: string | undefined;
@@ -103,12 +106,15 @@ export class DetailsState {
         if (detail.played !== undefined && ["movie", "episode", "series", "season"].includes(detail.type)) this.values.set("watched", detail.played);
     }
 
-    get pending(): boolean { return [...this.changes.values()].some(change => change.pending); }
+    get pending(): boolean { return [...this.changes.values()].some(change => change.pending) || [...this.seasonStates.values()].some(state => state.pending); }
+    readonly seasonStates = new Map<number, DetailsState>();
+    private aggregateWatched: boolean | undefined;
     get busy(): boolean { return this.pending || this.rating.pending || this.pendingElsewhere() || this.episodePreferencesBlocked; }
 
     start(mode: "full" | "personal" | "playback" = "full"): void {
         if (this.controller !== undefined) return;
         this.controller = new AbortController();
+        for (const state of this.seasonStates.values()) state.start("personal");
         if (["movie", "episode"].includes(this.detail.type)) this.audioPreference.start();
         if (["movie", "episode"].includes(this.detail.type)) this.subtitlePreference.start();
         this.full = mode === "full";
@@ -136,6 +142,7 @@ export class DetailsState {
     }
 
     stop(): void {
+        for (const state of this.seasonStates.values()) state.stop();
         this.extraPending = undefined;
         this.episodeEpoch++;
         this.episodeController?.abort();
@@ -233,7 +240,7 @@ export class DetailsState {
     showPanel(panel: NonNullable<DetailsState["panel"]>): void { this.panel = panel; this.changed(); }
     closePanel(): void {
         const panel = this.panel;
-        this.panel = panel === "rating" ? "more" : undefined;
+        this.panel = undefined;
         this.changed(panel === "rating" ? "rate" : panel);
     }
     showAudio(): void { this.showPanel("audio"); }
@@ -349,6 +356,14 @@ export class DetailsState {
 
     warmSeriesEpisodes(): void {
         if (!["series", "season"].includes(this.detail.type)) return;
+        const season = this.series?.seasons.find(season => season.seasonNumber === this.series?.seasonNumber);
+        if (season !== undefined && (this.aggregateWatched !== undefined || season.userData !== undefined) && !this.seasonStates.has(season.seasonNumber)) {
+            const owner = new DetailsState({ ...this.detail, id: season.id, type: "season", seriesId: this.detail.id, seasonNumber: season.seasonNumber, played: this.aggregateWatched ?? season.userData?.played },
+                this.session, () => this.changed(), (detail, signal) => this.seasonWatchedChanged(detail, signal),
+                () => this.pending || this.pendingElsewhere());
+            this.seasonStates.set(season.seasonNumber, owner);
+            owner.start("personal");
+        }
         if (this.series?.focusSelectedEpisode && this.series.episodes !== undefined) {
             this.focusedEpisodeId = this.series.entryEpisode;
         }
@@ -365,6 +380,22 @@ export class DetailsState {
         // Focus only selects a preloaded owner. Reads belong to season acceptance and explicit Retry.
         this.syncEpisode();
         this.changed();
+    }
+
+    private async seasonWatchedChanged(detail: ItemDetail, signal: AbortSignal): Promise<void> {
+        await this.watchedChanged(detail, signal);
+        const [series, seasons] = await Promise.all([
+            this.session.call({ ...operations.getCatalogItem(this.detail.id), profileScoped: true, signal }),
+            this.session.call({ ...operations.listSeriesSeasons(this.detail.id), profileScoped: true, signal }),
+        ]);
+        if (series.id !== this.detail.id || series.played === undefined) throw new Error("Series watch state missing");
+        if (signal.aborted) return;
+        this.invalidateEpisodes();
+        this.detail = series;
+        this.values.set("watched", series.played);
+        this.aggregateWatched = undefined;
+        if (this.series !== undefined) this.series.seasons = seasons;
+        this.warmSeriesEpisodes();
     }
 
     cachedEpisode(id: string): DetailsState | undefined { return this.episodeStates.get(id); }
@@ -388,6 +419,17 @@ export class DetailsState {
     }
 
     showSeriesOverview(): void { this.focusedEpisodeId = undefined; this.syncEpisode(); this.closePanel(); }
+
+    restoreSeasonStates(previous: DetailsState | undefined): void {
+        for (const [number, prior] of previous?.seasonStates ?? []) {
+            const season = this.series?.seasons.find(season => season.seasonNumber === number);
+            if (season === undefined) continue;
+            const owner = new DetailsState({ ...prior.detail, played: season.userData?.played }, this.session, () => this.changed(),
+                (detail, signal) => this.seasonWatchedChanged(detail, signal), () => this.pending || this.pendingElsewhere());
+            for (const [kind, change] of prior.changes) owner.changes.set(kind, { ...change, pending: false, failed: true });
+            this.seasonStates.set(number, owner);
+        }
+    }
 
     private syncEpisode(): void {
         const id = this.playbackTargetId;
@@ -559,6 +601,12 @@ export class DetailsState {
             if (this.current(controller)) {
                 this.detail = detail;
                 this.values.set(kind, detail.played);
+                if (detail.type === "series") this.aggregateWatched = detail.played;
+                if (detail.type === "series") for (const owner of this.seasonStates.values()) {
+                    owner.values.set("watched", detail.played);
+                    owner.detail = { ...owner.detail, played: detail.played };
+                    owner.changes.delete("watched");
+                }
                 this.invalidateEpisodes();
                 this.focusedEpisodeId = undefined;
                 this.nextEpisode = undefined;

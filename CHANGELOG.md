@@ -10,6 +10,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Matched Details More popovers and Start Over controls to Apple TV, and selected series playback from the current season's next-up suggestion.
+
 - Restored Cast focus clearance and corrected Details episode spacing, picker selection, Related badges and action glyphs against Apple TV measurements.
 - Corrected Details caption gaps, resting Cast spacing, series colours and genres, and intrinsic Versions sizing.
 - Activated Series seasons on resting focus, preserved complete episode scroll steps, and corrected Details spacing, hero contrast, Versions and SDH subtitle presentation.

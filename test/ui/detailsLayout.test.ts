@@ -7,6 +7,145 @@ import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
+detailTest('More is an anchored popover with Apple ordering and immediate Back focus', async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.eventually(async () => await tv.page.locator('[data-focus="watchlist"]').count() === 1, 'personal actions loaded');
+    await tv.page.locator('[data-focus="more"]').click();
+    const panel = tv.page.getByRole('dialog', { name: 'More', exact: true });
+    assert.equal(await panel.evaluate(node => node.classList.contains('details-track-popover')), true);
+    assert.deepEqual(await panel.locator('button').allTextContents(), ['Add to Favorites', 'Mark as Watched']);
+    assert.equal(await tv.focused(), 'favorites');
+    assert.equal(await panel.evaluate(node => (node as HTMLElement).offsetWidth), 560);
+    await tv.remote(39);
+    assert.equal(await panel.count(), 0);
+    assert.equal(await tv.focused(), 'more');
+    await tv.page.keyboard.press('Enter');
+    await tv.remote(10009);
+    assert.equal(await panel.count(), 0);
+    assert.equal(await tv.focused(), 'more');
+});
+
+for (const id of ['movie:m0001', 'series:s1']) detailTest(`${id} Start Over shares Apple's circle and symbol`, async tv => {
+    if (id.startsWith('series')) {
+        const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+        const body = catalog.route('GET', '/catalog/items/episode%3As1e11', 'p-owner')?.body as Record<string, unknown>;
+        await tv.page.route('**/api/v2/catalog/items/episode%3As1e11?**', route => route.fulfill({ json: { ...body, user_data: { played: false, position_seconds: 120 } } }));
+    }
+    await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).first().click();
+    const start = tv.page.locator(`[data-focus="${id.startsWith('movie') ? 'play' : 'start-over-episode'}"]`);
+    await start.waitFor();
+    assert.equal(await start.getAttribute('aria-label'), 'Start Over');
+    assert.equal(await start.locator('svg').getAttribute('data-symbol'), 'backward.end.fill');
+    assert.equal(await start.evaluate(node => node.getBoundingClientRect().width), 76);
+    assert.equal(await start.evaluate(node => node.getBoundingClientRect().height), 76);
+    await start.focus();
+    assert.equal(await start.locator('.details-action-label').textContent(), 'Start Over');
+});
+
+detailTest('Series hero uses the selected season suggestion instead of play_content_id', async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    catalog.watchedEpisodes.delete('episode:s1e12');
+    const seasons = catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body as { items: Record<string, unknown>[] };
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons?**', route => route.fulfill({ json: { items: seasons.items.map(season => ({ ...season, user_data: undefined })) } }));
+    const body = catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body as Record<string, unknown>;
+    await tv.page.route('**/api/v2/catalog/items/series%3As1?**', route => route.fulfill({ json: { ...body, play_content_id: 'episode:s1e11' } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:s1e11"]').waitFor();
+    await tv.eventually(async () => (await tv.page.locator('[data-focus="next-episode"]').textContent())?.includes('S1:E2') === true, 'hero follows suggested episode in selected season');
+    await tv.page.locator('[data-focus="more"]').click();
+    assert.equal(await tv.page.locator('[data-focus="season-watched"]').count(), 0, 'unknown season watch state cannot enable a write');
+    await tv.remote(10009);
+    await tv.page.locator('[data-focus="episode:s1e11"]').focus();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.getByRole('button', { name: 'Show Series Info', exact: true }).click();
+    await tv.eventually(async () => (await tv.page.locator('[data-focus="next-episode"]').textContent())?.includes('S1:E2') === true, 'overview suggestion is independent of rail focus memory');
+});
+
+detailTest('Series More keeps series and season watched writes separate and reconciles failure', async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const seasons = catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body as { items: Record<string, unknown>[] };
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons?**', route => route.fulfill({ json: { items: seasons.items.map(season => ({ ...season, user_data: { played: false, in_progress_count: season.season_number === 1 ? 1 : 0 } })) } }));
+    for (const title of catalog.titles.values()) if (title.type === 'episode') catalog.watchedEpisodes.add(title.id);
+    catalog.watchedEpisodes.delete('episode:s1e12');
+    catalog.progress.set('episode:s1e12', 120);
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="start-over-episode"]').waitFor();
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="more"]').click();
+    const panel = tv.page.getByRole('dialog', { name: 'More', exact: true });
+    assert.deepEqual(await panel.locator('button').allTextContents(), ['Add to Favorites', 'Mark Series Watched', 'Mark Season Watched']);
+    catalog.mutationFailure = problem(422, 'validation_failed', 'Unavailable action');
+    await panel.locator('[data-focus="season-watched"]').click();
+    assert.equal(await panel.count(), 0);
+    assert.equal(await tv.focused(), 'more');
+    await tv.page.locator('[data-focus="more"]').click();
+    await panel.getByRole('button', { name: 'Retry season watched', exact: true }).waitFor();
+    await panel.getByRole('alert').filter({ hasText: 'Could not update season watched.' }).waitFor();
+    await tv.remote(10009);
+    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.page.locator('[data-view="person:7"]').waitFor();
+    await tv.remote(10009);
+    await tv.page.locator('[data-focus="more"]').click();
+    await panel.getByRole('button', { name: 'Retry season watched', exact: true }).click();
+    await tv.page.locator('[data-focus="more"]').click();
+    await panel.getByRole('button', { name: 'Mark Season Unwatched', exact: true }).waitFor();
+    await panel.getByRole('button', { name: 'Mark Series Unwatched', exact: true }).waitFor();
+    assert.deepEqual(catalog.mutations, ['POST /watched/series%3As1-S1', 'POST /watched/series%3As1-S1']);
+    assert.equal(catalog.watchedEpisodes.has('episode:s1e12'), true);
+    await tv.remote(10009);
+    await tv.eventually(async () => await tv.page.locator('[data-focus="start-over-episode"]').count() === 0, 'season reconciliation clears stale resume controls');
+    await tv.eventually(async () => (await tv.page.locator('[data-focus="next-episode"]').textContent())?.includes('S1:E1') === true, 'fully watched season recomputes its first episode suggestion');
+});
+
+detailTest('Series More restores fresh season watch state after changing it on the season page', async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    catalog.watchedEpisodes.clear();
+    const seasons = catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body as { items: Record<string, unknown>[] };
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons?**', route => route.fulfill({ json: { items: seasons.items.map(season => ({ ...season, user_data: { played: catalog.watchedEpisodes.has('episode:s1e11'), in_progress_count: 0 } })) } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.getByRole('button', { name: 'Mark Season Watched', exact: true }).waitFor();
+    await tv.remote(10009);
+    await tv.page.locator('[data-focus="season-info"]').click();
+    await tv.page.locator('[data-view="season:series:s1:1"]').waitFor();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.getByRole('button', { name: 'Mark Season Watched', exact: true }).click();
+    await tv.eventually(async () => catalog.watchedEpisodes.has('episode:s1e11'), 'season write committed');
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="item:series:s1"]').waitFor();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.getByRole('button', { name: 'Mark Season Unwatched', exact: true }).waitFor();
+});
+
+detailTest('Series watched confirmation reaches seasons first visited after the write', async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    catalog.watchedEpisodes.clear();
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.getByRole('button', { name: 'Mark Series Watched', exact: true }).click();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.getByRole('button', { name: 'Mark Series Unwatched', exact: true }).waitFor();
+    await tv.remote(10009);
+    await tv.page.locator('[data-focus="season:2"]').click();
+    await tv.page.locator('[data-focus="episode:s1e21"]').waitFor();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.getByRole('button', { name: 'Mark Season Unwatched', exact: true }).waitFor();
+    assert.deepEqual(catalog.mutations, ['POST /watched/series%3As1']);
+});
+
+detailTest('Failed season episode reconciliation keeps the existing playback owner usable', async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.eventually(async () => await tv.page.locator('[data-focus="next-episode"]').getAttribute('aria-disabled') === 'false', 'episode playback prepared');
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**', route => route.fulfill({ status: 400, json: problem(400, 'unavailable', 'Unavailable').body }));
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.locator('[data-focus="season-watched"]').click();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.getByRole('button', { name: 'Retry season watched', exact: true }).waitFor();
+    await tv.remote(10009);
+    await tv.page.locator('[data-focus="next-episode"]').click();
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), 'retained owner still dispatches playback after reconciliation fails');
+});
+
 for (const current of [1, 5]) detailTest(`Measured five-card episode rail with E0${current} current`, async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
     const body = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner')?.body as { items: Record<string, unknown>[] };
@@ -379,7 +518,6 @@ detailTest('Auto subtitle readout resolves forced tracks using effective and exp
 
 detailTest('Season hero and playback controls precede the episode list', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
-    await tv.page.locator('[data-focus="more"]').click();
     await tv.page.locator('[data-focus="season-info"]').click();
     await tv.page.locator('.browse-episodes').waitFor();
     assert.equal(await tv.page.locator('.details-hero').evaluate(node => Boolean(node.compareDocumentPosition(document.querySelector('.browse-episodes')!) & Node.DOCUMENT_POSITION_FOLLOWING)), true);
@@ -397,7 +535,6 @@ detailTest('Season primary playback refreshes a shared Auto change from another 
         return route.fulfill(off ? { json: { series_id: 'series:s1', subtitle_mode: 'off', subtitle_track_index: -1 } } : { status: 404 });
     });
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
-    await tv.page.locator('[data-focus="more"]').click();
     await tv.page.locator('[data-focus="season-info"]').click();
     await tv.page.locator('[data-focus="episode:s1e12"]').click({ button: 'right' });
     await tv.page.locator('[data-focus="episode-information"]').click();
@@ -425,7 +562,6 @@ for (const [kind, id] of [['Movie', 'movie:m0001'], ['Episode', 'episode:s1e11']
             await tv.page.locator('[data-focus="episode:s1e11"]').click({ button: 'right' });
             await tv.page.locator('[data-focus="episode-information"]').click();
         } else {
-            await tv.page.locator('[data-focus="more"]').click();
             await tv.page.locator('[data-focus="season-info"]').click();
         }
     }
@@ -524,7 +660,7 @@ detailTest('Series current episode occupies the leading slot when entering a lon
     const reply = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner');
     assert.ok(reply?.body && typeof reply.body === 'object');
     const body = reply.body as { items: Record<string, unknown>[] };
-    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**', route => route.fulfill({ json: { items: Array.from({ length: 12 }, (_, index) => ({ ...body.items[0], content_id: `episode:window${index}`, episode_number: index + 1, user_data: { played: false, in_progress_count: index === 6 ? 1 : 0 } })) } }));
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**', route => route.fulfill({ json: { items: Array.from({ length: 12 }, (_, index) => ({ ...body.items[0], content_id: `episode:window${index}`, episode_number: index + 1, user_data: { played: false, is_in_progress: index === 6 } })) } }));
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('[data-focus="episode:window6"]').waitFor();
     await tv.eventually(async () => await tv.focused() === 'next-episode', 'Play focused on entry');
@@ -753,14 +889,11 @@ detailTest("movie Details keeps playback and personal controls in one row with c
         await tv.page.getByRole("dialog", { name: "Version", exact: true }).waitFor();
         await tv.page.locator('[data-focus="version:43"]').click();
         assert.equal(await tv.focused(), "version");
-        await tv.page.locator('[data-focus="more"]').click();
         await tv.page.locator('[data-focus="rate"]').click();
         await tv.page.locator('[data-focus="rating:2"]').click();
         await tv.page.getByText("Your rating: 2 of 5 stars", { exact: true }).waitFor();
         await tv.remote(10009);
         assert.equal(await tv.focused(), "rate");
-        await tv.remote(10009);
-        assert.equal(await tv.focused(), "more");
 });
 
 detailTest('Details restores the hero from supporting rails and uses native selector presentation', async tv => {
@@ -824,6 +957,7 @@ detailTest("More owns accessible personal-action loading and failure announcemen
     assert.ok(catalog instanceof FakeDetails);
     catalog.mutationFailure = problem(422, "validation_failed", "Unavailable action");
     await panel.locator('[data-focus="watched"]').click();
+    await tv.page.locator('[data-focus="more"]').click();
     await panel.getByRole("alert").filter({ hasText: "Could not update watched." }).waitFor();
     assert.equal(await panel.getByRole("alert").count(), 1);
 });

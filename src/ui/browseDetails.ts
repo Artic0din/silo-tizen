@@ -316,7 +316,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         const more = actionButton("more", "More", () => state.showPanel("more"));
         more.element.setAttribute("aria-haspopup", "dialog");
         actions.push(more);
-    } else if (overview) actions.push(actionButton("synopsis", "Read synopsis", () => synopsis.show(overview)));
+    }
     const ordinal = audio.findIndex((_track, index) => selectedAudio === `file:${file?.fileId}:audio:${index}`);
     const resolvedAudio = audio[effectiveAudio] === undefined ? audio.length ? audioLabel(0) : "Unknown" : audioLabel(effectiveAudio);
     const versionLabel = file?.label?.match(/\b(?:\d{3,4}p|4K|8K)\b/i)?.[0] ?? file?.label ?? "Auto";
@@ -343,6 +343,11 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         { id: "actions", layout: "row", items: actions },
         ...series?.zones ?? [{ id: "seasons", layout: "row" as const, items: seasonItems }],
     ];
+    const tools: FocusItem[] = [];
+    if (overview) tools.push(actionButton("synopsis", "Read synopsis", () => synopsis.show(overview)));
+    if (state !== undefined && ["movie", "series"].includes(detail.type)) tools.push(actionButton("rate", "Rate title", () => state.showPanel("rating")));
+    const selectedSeason = seasons.find(season => season.seasonNumber === state?.series?.seasonNumber);
+    if (selectedSeason !== undefined) tools.push(actionButton("season-info", `${selectedSeason.title} details`, () => context.open({ kind: "season", id: selectedSeason.id, seriesId: detail.id, seasonNumber: selectedSeason.seasonNumber, title: `${detail.title} · ${selectedSeason.title}` })));
     const credits: Credit[] = [];
     for (const credit of [...detail.extra?.cast ?? [], ...detail.extra?.crew ?? []]) {
         const index = credits.findIndex((previous) => credit.id ? previous.id === credit.id : previous.id === undefined && previous.name === credit.name);
@@ -400,6 +405,10 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         content.push(panel);
         zones.push({ id: "facts", layout: "column", items });
     }
+    if (tools.length > 0) {
+        content.push(zoneNode("browse-actions", tools));
+        zones.push({ id: "detail-tools", layout: "row", items: tools });
+    }
     const first = actions[0] ?? seasonItems[0];
     const view: View = { name: `item:${detail.id}`, content, zones, focus: first === undefined ? undefined : { zone: actions[0] === undefined ? "seasons" : "actions", key: first.key }, back };
     if (state?.panel === "audio") {
@@ -454,13 +463,37 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         return detailPanel(view, state, "Subtitles", options);
     }
     if (state?.panel === "more") {
+        const menuNotes = [...personal?.notes ?? []];
         const items = personal?.items.filter(item => item.key !== "watchlist") ?? [];
-        if (detail.type === "series") items.unshift(actionButton("series-overview", "Show Series Info", () => state.showSeriesOverview()));
-        const season = seasons.find(season => season.seasonNumber === state.series?.seasonNumber);
-        if (season !== undefined) items.push(actionButton("season-info", `${season.title} details`, () => context.open({ kind: "season", id: season.id, seriesId: detail.id, seasonNumber: season.seasonNumber, title: `${detail.title} · ${season.title}` })));
-        if (overview) items.push(actionButton("synopsis", "Read synopsis", () => synopsis.show(overview)));
-        if (["movie", "series"].includes(detail.type)) items.push(actionButton("rate", "Rate title", () => state.showPanel("rating")));
-        return detailPanel(view, state, "More", items.length ? items : [actionButton("close-more", "Close", () => state.closePanel())], personal?.notes);
+        items.sort((a, b) => Number(b.key === "favorites") - Number(a.key === "favorites"));
+        for (const item of items) {
+            const value = state.values.get(item.key as "favorites" | "watched");
+            const change = state.changes.get(item.key as "favorites" | "watched");
+            if (value !== undefined && !change?.pending && !change?.failed) {
+                item.element.textContent = item.key === "favorites" ? value ? "Remove from Favorites" : "Add to Favorites"
+                    : detail.type === "series" ? value ? "Mark Series Unwatched" : "Mark Series Watched"
+                    : detail.type === "season" ? value ? "Mark Season Unwatched" : "Mark Season Watched"
+                    : value ? "Mark as Unwatched" : "Mark as Watched";
+            }
+            item.element.addEventListener("click", () => { if (!state.busy) state.closePanel(); }, { capture: true });
+        }
+        const seasonState = state.series?.seasonNumber === undefined ? undefined : state.seasonStates.get(state.series.seasonNumber);
+        if (seasonState !== undefined) {
+            const value = seasonState.values.get("watched");
+            const change = seasonState.changes.get("watched");
+            if (value !== undefined) {
+                const item = actionButton("season-watched", change?.pending ? "Updating season…" : change?.failed ? "Retry season watched" : value ? "Mark Season Unwatched" : "Mark Season Watched", () => {
+                    if (state.busy) return;
+                    state.closePanel();
+                    seasonState.change("watched", change?.failed ? change.target : !value, change?.failed);
+                });
+                item.element.setAttribute("aria-disabled", String(state.busy));
+                items.push(item);
+                if (change?.failed) menuNotes.push(...lines(["Could not update season watched."], "error"));
+            }
+        }
+        if (detail.type === "series" && state.focusedEpisodeId !== undefined) items.unshift(actionButton("series-overview", "Show Series Info", () => state.showSeriesOverview()));
+        return detailPanel(view, state, "More", items.length ? items : [actionButton("close-more", "Close", () => state.closePanel())], menuNotes);
     }
     if (state?.panel === "rating") {
         const rating = ratingControls(state);

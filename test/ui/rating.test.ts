@@ -18,7 +18,6 @@ test("title rating uses remote focus, confirmed saves, visible failure, explicit
         await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner"));
         await tv.page.evaluate(() => window.browseHarness.mount());
         await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
-        await tv.page.locator('[data-focus="more"]').click();
         await tv.page.locator('[data-focus="rate"]').focus();
         await tv.page.keyboard.press("Enter");
         await tv.page.getByText("Your rating: Not rated", { exact: true }).waitFor();
@@ -37,8 +36,6 @@ test("title rating uses remote focus, confirmed saves, visible failure, explicit
         await tv.page.getByText("Your rating: Not rated", { exact: true }).waitFor();
         await tv.remote(10009);
         assert.equal(await tv.focused(), "rate");
-        await tv.remote(10009);
-        assert.equal(await tv.focused(), "more");
         await tv.remote(10009);
         await tv.page.locator('[data-view="home"]').waitFor();
     } finally { await tv.page.context().close(); await browser.close(); }

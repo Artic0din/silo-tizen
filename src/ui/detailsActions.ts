@@ -2,6 +2,7 @@ import type { DetailsState } from "./detailsState.ts";
 import type { FocusItem, View } from "./browseFocus.ts";
 import { actionButton, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
+import { remoteKey } from "./keys.ts";
 
 const ICONS: Readonly<Record<string, string>> = {
     play: "M8 4 21 12 8 20Z",
@@ -15,11 +16,11 @@ const ICONS: Readonly<Record<string, string>> = {
 };
 
 export function detailAction(item: FocusItem): FocusItem {
-    const startOver = item.key === "play" && item.element.textContent === "Play from start";
+    const startOver = item.key === "start-over-episode" || item.key === "play" && item.element.textContent === "Play from start";
     const path = startOver ? "M5 4V20M19 4 7 12 19 20Z" : ICONS[item.key];
     if (path === undefined) return item;
     const button = item.element;
-    const accessibleLabel = button.textContent ?? "";
+    const accessibleLabel = startOver ? "Start Over" : button.textContent ?? "";
     const label = item.key === "version" ? "Versions" : item.key === "audio" ? "Audio Tracks" : item.key === "subtitles" ? "Subtitles" : accessibleLabel;
     button.textContent = "";
     button.setAttribute("aria-label", accessibleLabel);
@@ -31,12 +32,13 @@ export function detailAction(item: FocusItem): FocusItem {
     icon.setAttribute("viewBox", "0 0 24 24");
     icon.setAttribute("aria-hidden", "true");
     if (item.key === "subtitles") icon.dataset.symbol = "captions.bubble";
+    if (startOver) icon.dataset.symbol = "backward.end.fill";
     icon.setAttribute("fill", "none");
     icon.setAttribute("stroke", "currentColor");
     icon.setAttribute("stroke-width", item.key === "more" ? "4" : "1.8");
     const shape = document.createElementNS(icon.namespaceURI, "path");
     shape.setAttribute("d", path);
-    if (["play", "resume", "next-episode"].includes(item.key)) shape.setAttribute("fill", "currentColor");
+    if (startOver || ["play", "resume", "next-episode"].includes(item.key)) shape.setAttribute("fill", "currentColor");
     if (item.key === "watchlist" && button.getAttribute("aria-pressed") === "true") shape.setAttribute("fill", "currentColor");
     icon.appendChild(shape);
     button.append(icon, el("span", "details-action-label", label));
@@ -72,13 +74,25 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
     panel.setAttribute("role", "dialog");
     panel.setAttribute("aria-modal", "true");
     panel.setAttribute("aria-label", title);
-    panel.append(el("h2", "browse-section-title", ["audio", "subtitles", "version"].includes(name) ? title.toUpperCase() : title), ...notes, zoneNode("details-audio-options", items));
-    const popover = ["audio", "subtitles", "version"].includes(name);
+    const popover = ["audio", "subtitles", "version", "more"].includes(name);
+    panel.append(el("h2", "browse-section-title", popover ? title.toUpperCase() : title), ...notes, zoneNode("details-audio-options", items));
     if (popover) {
         panel.classList.add("details-track-popover");
         for (const item of items) {
             const title = item.element.firstChild;
             if (title?.nodeType === Node.TEXT_NODE) title.replaceWith(el("span", "details-option-title", title.textContent ?? ""));
+            if (name === "more" && ["favorites", "watched", "season-watched", "series-overview"].includes(item.key)) {
+                const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                icon.setAttribute("viewBox", "0 0 24 24");
+                icon.setAttribute("aria-hidden", "true");
+                icon.setAttribute("fill", "none");
+                icon.setAttribute("stroke", "currentColor");
+                icon.setAttribute("stroke-width", "2");
+                const path = document.createElementNS(icon.namespaceURI, "path");
+                path.setAttribute("d", item.key === "favorites" ? "M12 21 3 12C-3 3 8-1 12 6 16-1 27 3 21 12Z" : item.key === "series-overview" ? "M12 11V17M12 7V8M22 12A10 10 0 1 1 2 12 10 10 0 0 1 22 12" : "M7 12 10 15 17 8M22 12A10 10 0 1 1 2 12 10 10 0 0 1 22 12");
+                icon.append(path); item.element.prepend(icon);
+                icon.classList.add("details-more-icon");
+            }
         }
         const anchor = document.querySelector<HTMLElement>(`.details-editorial [data-focus="${name}"]`)?.getBoundingClientRect();
         if (anchor !== undefined) {
@@ -99,7 +113,7 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
             });
         }
         const auto = items[0];
-        if (auto !== undefined) auto.element.append(el("small", "details-option-subtext", name === "audio" ? "Use your Playback audio preference" : name === "subtitles" ? "Use your subtitle preferences" : "Best match for this device"));
+        if (auto !== undefined && name !== "more") auto.element.append(el("small", "details-option-subtext", name === "audio" ? "Use your Playback audio preference" : name === "subtitles" ? "Use your subtitle preferences" : "Best match for this device"));
     }
     const scrim = el("div", "skyline-dropdown-scrim");
     if (popover) {
@@ -107,6 +121,11 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
         trigger?.setAttribute("aria-expanded", "true");
     }
     scrim.addEventListener("click", () => state.closePanel());
+    if (name === "more") panel.addEventListener("keydown", event => {
+        if (remoteKey(event) === "left" || remoteKey(event) === "right") {
+            event.preventDefault(); event.stopPropagation(); state.closePanel();
+        }
+    });
     for (const node of underlying) { node.inert = true; node.setAttribute("aria-hidden", "true"); }
     const selected = popover ? items[0] : items.find(item => item.element.getAttribute("aria-checked") === "true") ?? items[0];
     return { name: `${view.name}:${name}`, content: [...underlying, ...popover ? [] : [scrim], panel], zones: [{ id: name, layout: "column", items }], focus: selected === undefined ? undefined : { zone: name, key: selected.key }, back: () => state.closePanel() };

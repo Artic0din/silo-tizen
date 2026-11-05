@@ -12,8 +12,10 @@ The Apple reference was inspected at `Silo-Server/silo-apple` revision `1a7cceea
 `iosApp/iosApp/tvOS/Screens/Detail/TVItemDetailView.swift` displays external ratings through the catalog projection.
 That revision has no personal `/ratings` calls or personal star-entry control to port.
 Tizen therefore uses the native schema and explicit remote-focusable 1–5 star and Clear rating buttons on movie and series pages.
-Open More, then Rate title to reach those controls.
-Back returns to More, and a second Back restores the primary row's More control.
+Open Rate title in the supporting Details controls below the content rails.
+Back returns focus to Rate title.
+The tvOS source at `7baff3ef657757cc0a69202e86dd4bd5c7fcb585` still has no reachable personal star-entry control.
+This preserves Samsung's rating ability without adding it to Apple's More menu.
 
 Automated tests exercise a synthetic server and desktop Chromium.
 They do not establish live-server or Samsung hardware acceptance.

@@ -16,7 +16,7 @@ import { requestsState, type RequestsHandlers, type RequestsSource } from "./req
 import type { RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import { detailOperations } from "../api/detailOperations.ts";
-import type { ItemDetail } from "../contracts/v2/catalog.ts";
+import type { ItemDetail, UserLibrary } from "../contracts/v2/catalog.ts";
 import { DetailsState } from "./detailsState.ts";
 import { freshPlayPosition } from "./playbackPreparation.ts";
 import { SeriesEpisodes } from "./seriesEpisodes.ts";
@@ -81,6 +81,25 @@ export interface Browse {
 const SEARCH_DELAY_MS = 600;
 const SEARCH_TITLE_COLLAPSE_OFFSET = 85;
 const SLOW_MS = 5000;
+/** SectionRowLimit.cards (silo-apple SectionRowLimit.swift:6). */
+const HOME_SECTION_CARDS = 20;
+
+/** The server refused `item_limit` as an unknown query parameter (SectionRowLimit.swift:32). */
+function unsupportedHomeItemLimit(error: unknown): boolean {
+    return error instanceof ApiError && error.failure.kind === "problem" && error.status === 422
+        && error.failure.problem.errors.some(item => item.location === "query.item_limit" && item.code === "unknown_parameter");
+}
+
+/**
+ * Last libraries that painted the bar for one profile. Browse is removed when
+ * the profile changes, so this is Apple's per-profile snapshot: `loadLibraries`
+ * clears the bar when the authority changes (`TVMainTabView.swift:1008-1014`),
+ * `clearPerProfileCaches` drops the in-memory `user:` list, and a failed fetch
+ * keeps only what was reseeded for the profile that is current now
+ * (`TVMainTabView.swift:1018-1036`). Another profile's libraries are never read
+ * from here.
+ */
+const rememberedLibraryTabs = new Map<string, UserLibrary[]>();
 
 export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const server = options.server;
@@ -173,6 +192,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     let stack: Route[] = [];
     let loading: AbortController | undefined;
+    let homeLibraries: AbortController | undefined;
     let cancelSlow: () => void = () => undefined;
     let cancelSearch: () => void = () => undefined;
     let cancelCalendarDay: () => void = () => undefined;
@@ -181,6 +201,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let detailWork: DetailsState | undefined;
     let settingsScreen: SettingsScreen | undefined;
     let calendarLibrariesStale = false;
+    let homeLibrariesFailed = false;
+    let homeLibrariesNeedForeground = false;
+    let retryHomeLibraries: (() => void) | undefined;
     let menuOrigin: { route: Route; focus: FocusTarget | undefined } | undefined;
     const personalPending = (): boolean => detailWork?.pending === true || cardActions.pending;
     const cardActions = new CardActions(container, session, state => {
@@ -328,6 +351,23 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     // Artwork sizing (Apple ImageSizeCapability): one probe per Browse. The last answer for this
     // server is remembered so Home does not wait for it; a failed probe leaves per-slot widths off.
     const imageKey = `silo.imageCapability:${server.server.serverId}`;
+    // Apple remembers section_item_limit_max per server (SectionItemLimitSupport.swift:54-90)
+    // and sends min(max, 20) on the first Home read. Unknown stays unsent until the probe answers.
+    const homeLimitKey = `silo.homeSectionItemLimit:${server.server.serverId}`;
+    let homeLimitKnown = false;
+    let homeLimitMax: number | null = null;
+    try {
+        const raw = options.publicStorage?.getItem(homeLimitKey);
+        if (raw === "none") { homeLimitKnown = true; homeLimitMax = null; }
+        else if (raw !== null && raw !== undefined && /^[1-9]\d*$/.test(raw)) { homeLimitKnown = true; homeLimitMax = Number(raw); }
+    } catch { /* An unreadable optional cache leaves the probe in charge. */ }
+    const homeItemLimit = (): number | undefined => homeLimitMax === null ? undefined : Math.min(homeLimitMax, HOME_SECTION_CARDS);
+    const rememberHomeLimit = (max: number | null): void => {
+        homeLimitKnown = true;
+        homeLimitMax = max === null || max < 1 ? null : max;
+        try { options.publicStorage?.setItem(homeLimitKey, homeLimitMax === null ? "none" : String(homeLimitMax)); }
+        catch { /* The in-memory answer still decides this Browse. */ }
+    };
     let imageCapability: ImageCapabilities | undefined;
     try { imageCapability = rememberedImages(options.publicStorage?.getItem(imageKey)); }
     catch { /* Missing optional cache data leaves the capability probe in charge. */ }
@@ -367,8 +407,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const data = home.data;
         if (torn || playing || cardActions.active || top() !== home || loading !== undefined || data === undefined || home.failure !== undefined || homeArtworkAttempt === undefined) return;
         const query = homeArtworkQuery(imageCapability, window.devicePixelRatio);
+        // Named sizes such as "medium" and "large" are not numbers, so any changed query value refetches.
+        // The row cap still goes with that read (listHomeSections item_limit).
         if (!Object.entries(query).some(([key, value]) => homeArtworkAttempt?.[key] !== value)) return;
-        load(home, signal => read(operations.listHomeSections(query), signal).catch((error: unknown) => {
+        load(home, signal => read(operations.listHomeSections(query, homeItemLimit()), signal).catch((error: unknown) => {
             if (error instanceof ApiError && !error.aborted) return undefined;
             throw error;
         }), sections => {
@@ -399,7 +441,18 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         return found;
     }, () => undefined);
     void probeImages();
-    const requestsVisibility = (): void => { if (!document.hidden) void probeRequests(); };
+    const requestsVisibility = (): void => {
+        if (document.hidden) {
+            // A libraries miss is read again on the next foreground, as Apple does
+            // after backgrounding (TVMainTabView scenePhase, TVMainTabView.swift:334-342).
+            homeLibrariesNeedForeground = true;
+            return;
+        }
+        void probeRequests();
+        if (!homeLibrariesFailed || !homeLibrariesNeedForeground) return;
+        homeLibrariesNeedForeground = false;
+        retryHomeLibraries?.();
+    };
     document.addEventListener("visibilitychange", requestsVisibility);
 
     const teardown = (): void => {
@@ -422,6 +475,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         settingsScreen = undefined;
         stopAuthority();
         loading?.abort();
+        homeLibraries?.abort();
         cancelSlow();
         cancelSearch();
         cancelCalendarDay();
@@ -506,6 +560,72 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     const read = <T>(spec: RequestSpec<T>, signal: AbortSignal): Promise<T> => session.call({ ...spec, profileScoped: true, signal });
+    // Join the capabilities probe when this server's row cap is unknown, so the first
+    // sections read can ask for short rows (SiloAPI.withSectionItemLimit, SiloAPI.swift:155).
+    // A known answer is used at once; a later probe only updates the next visit.
+    let homeLimitFlight: Promise<void> | undefined;
+    const probeHomeLimit = (signal: AbortSignal): Promise<void> => {
+        if (homeLimitKnown) return Promise.resolve();
+        const flight = homeLimitFlight ?? session.call({ ...operations.homeCapabilities(), profileScoped: true, signal }).then(found => {
+            const max = found.state === "available" && found.sectionItemLimitMax !== undefined && found.sectionItemLimitMax > 0 ? found.sectionItemLimitMax : null;
+            rememberHomeLimit(max);
+        }, (error: unknown) => {
+            if (error instanceof ApiError && error.aborted) throw error;
+            // A missing capabilities read means the server offers no row cap (SiloAPI.swift:179-180).
+            if (error instanceof ApiError && error.status === 404) rememberHomeLimit(null);
+        }).finally(() => { if (homeLimitFlight === flight) homeLimitFlight = undefined; });
+        homeLimitFlight = flight;
+        return flight;
+    };
+    // Library tabs are not part of the Home rows. Apple paints sections without waiting
+    // for them (HomeViewModel.fetchAndApplySections, HomeViewModel.swift:237).
+    const libraryTabsKey = JSON.stringify([server.server.serverId, session.account?.id, session.activeProfile.id]);
+    const rememberLibraryTabs = (visible: readonly UserLibrary[]): void => {
+        rememberedLibraryTabs.set(libraryTabsKey, visible.map(library => ({ ...library })));
+    };
+    let pendingHomeLibraries: UserLibrary[] | undefined = rememberedLibraryTabs.get(libraryTabsKey)?.map(library => ({ ...library }));
+    const readHomeLibraries = (current: Extract<Route, { kind: "home" }>): void => {
+        homeLibraries?.abort();
+        const controller = new AbortController();
+        homeLibraries = controller;
+        const signal = controller.signal;
+        void Promise.all([
+            read(operations.listUserLibraries(), signal),
+            read(operations.hiddenLibraries(), signal).catch((error: unknown) => {
+                if (error instanceof ApiError && !error.aborted) return [];
+                throw error;
+            }),
+        ]).then(([libraries, hidden]) => {
+            if (signal.aborted || torn || current.kind !== "home") return;
+            homeLibrariesFailed = false;
+            const visible = visibleLibraries(libraries, hidden);
+            rememberLibraryTabs(visible);
+            pendingHomeLibraries = visible;
+            // shell.update replaces the nav, including a focused tab. Keep the target captured
+            // before that replacement so Back from Settings stays on Profiles.
+            // Library tabs fill the bar while Home is still the empty loading page (TVMainTabView
+            // seeds them before sections; waiting for rows left the bar short).
+            const focus = host.focused();
+            if (current.data !== undefined) current.data = { ...current.data, libraries: visible };
+            shell.update(visible);
+            const shown = top();
+            const shownShell = shown?.kind === "home" || shown?.kind === "for_you" || shown?.kind === "library" || shown?.kind === "personal" || shown?.kind === "calendar";
+            // The page in front has to take the new buttons. Calendar and For You can open
+            // before this read finishes (TVMainTabView reconcileVisibleRootsChange, TVMainTabView.swift:1065).
+            if (!playing && shownShell && settingsScreen === undefined && !cardActions.active && !synopsis.active) render(focus);
+        }, (error: unknown) => {
+            if (signal.aborted || torn || (error instanceof ApiError && error.aborted)) return;
+            if (error instanceof ApiError) {
+                // Home rows stay, and so does this profile's bar (seeded above, or empty
+                // when this profile has never loaded). Apple keeps that bar and shows no
+                // error (TVMainTabView.swift:1032-1036). The previous profile's libraries
+                // were already dropped when the authority changed (TVMainTabView.swift:1008-1014).
+                homeLibrariesFailed = true;
+                return;
+            }
+            clock.schedule(() => { throw error; }, 0);
+        });
+    };
     // Detail fields Home shows but its rows lack, read once per Home load and never on focus.
     const homeDetails = new HomeEnrichment(read, id => { if (!torn) shell.refreshDetails(id); }, () => {
         // Continue Watching cards redraw once with saved-file badges, keeping focus where it is.
@@ -758,6 +878,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     state.data = { query: data.query, days: data.days };
                     if (data.libraries !== undefined) {
                         const libraries = visibleLibraries(data.libraries[0], data.libraries[1]);
+                        rememberLibraryTabs(libraries);
+                        pendingHomeLibraries = libraries;
                         shell.update(libraries);
                         if (home.kind === "home" && home.data !== undefined) home.data.libraries = libraries;
                         calendarLibrariesStale = false;
@@ -816,22 +938,23 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             case "home": {
                 presentation.ensure();
                 const artworkQuery = homeArtworkQuery(imageCapability, window.devicePixelRatio);
-                load(current, (signal) => Promise.all([
-                    read(operations.listUserLibraries(), signal),
-                    // The hidden list is the profile's own preference, not an access limit: when it
-                    // cannot be read, its libraries still show rather than Home failing.
-                    read(operations.hiddenLibraries(), signal).catch((error: unknown) => {
-                        if (error instanceof ApiError && !error.aborted) {
-                            return [];
-                        }
-                        throw error;
-                    }),
-                    read(operations.listHomeSections(artworkQuery), signal),
-                ]), ([libraries, hidden, sections]) => {
+                if (current.kind === "home") readHomeLibraries(current);
+                load(current, async (signal) => {
+                    await probeHomeLimit(signal);
+                    const limit = homeItemLimit();
+                    try {
+                        return await read(operations.listHomeSections(artworkQuery, limit), signal);
+                    } catch (error) {
+                        if (limit === undefined || !unsupportedHomeItemLimit(error)) throw error;
+                        rememberHomeLimit(null);
+                        return await read(operations.listHomeSections(artworkQuery), signal);
+                    }
+                }, sections => {
                     const focus = host.focused();
-                    current.data = { libraries: visibleLibraries(libraries, hidden), sections };
+                    const libraries = pendingHomeLibraries ?? (current.kind === "home" ? current.data?.libraries : undefined) ?? [];
+                    current.data = { libraries, sections };
                     homeArtworkAttempt = artworkQuery;
-                    shell.update(current.data.libraries);
+                    shell.update(libraries);
                     homeDetails.load(homeRows(sections).flatMap(row => row.cards.map(card => ({ card, continuing: row.continuing }))));
                     // Changed tabs replace the nav nodes, including the still-present avatar.
                     queueMicrotask(upgradeHomeArtwork);
@@ -1284,7 +1407,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || current.kind === "personal" || current.kind === "calendar";
         if (rootRoute) {
             const selected = tabFocus(current).key;
-            const preview = current.kind === "home" || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
+            const preview = (current.kind === "home" && current.data !== undefined) || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
             const modal = browsing && (current.discovery?.panel !== undefined || shuffleFailure?.route === current);
             const decorated = shell.decorate(view, selected, preview, modal ? () => { view.back?.(); } : current.kind === "personal" || (current.kind === "library" && current.discovery?.genre !== undefined) ? pop : undefined, current.kind === "library" ? `library:${current.library.id}:${current.library.type}:${current.discovery?.mode ?? "Recommended"}` : undefined);
             // A bar-focused return does not focus a card to restore this page's hero.
@@ -1499,6 +1622,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const home = newRoute({ kind: "home", data: undefined });
     const roots = new Map<string, Route>([["home", home]]);
+    retryHomeLibraries = (): void => {
+        const homeRoute = roots.get("home");
+        if (homeRoute?.kind === "home") readHomeLibraries(homeRoute);
+    };
     const shell = new Skyline(container, clock, (target, destinationMode) => {
         shuffleGeneration++;
         const current = top();
@@ -1554,6 +1681,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 presentation.reload();
                 void navigation.reload();
                 if (hiddenChanged) {
+                    // This read still has the hidden list from before Settings. Calendar
+                    // applies the new one; the old answer must not put those tabs back.
+                    homeLibraries?.abort();
                     const calendar = stack.find(entry => entry.kind === "calendar");
                     home.stale = true;
                     roots.clear();
@@ -1579,7 +1709,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const enrichedScene = (): boolean => { const current = top(); return current?.kind === "home" || current?.kind === "for_you" || (current?.kind === "library" && current.discovery?.mode === "Recommended"); };
     shell.details = (card, continuing) => !enrichedScene() ? { line: undefined, badges: undefined } : { line: homeDetails.detailLine(card.id), badges: continuing ? homeDetails.savedFile(card)?.badges : undefined };
     shell.filled = card => enrichedScene() ? homeDetails.filled(card) : card;
-    shell.update([]);
+    // This profile's last bar, or no library tabs when it has none. An empty
+    // update here would drop Movies and Series that a later failed read should keep.
+    shell.update(pendingHomeLibraries ?? []);
     void navigation.reload();
     void probeRequests();
     stack = [home];

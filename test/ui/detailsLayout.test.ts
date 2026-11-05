@@ -7,6 +7,31 @@ import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
+for (const art of [
+    { type: 'series', id: 'series:s1', width: 650, height: 102, top: 174 },
+    { type: 'movie', id: 'movie:m0001', width: 468, height: 160, top: 116 },
+] as const) detailTest(`${art.type} title art retains Apple's measured Details geometry`, async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const body = catalog.route('GET', `/catalog/items/${encodeURIComponent(art.id)}`, 'p-owner')?.body;
+    await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(art.id)}?**`, route => route.fulfill({ json: { ...body as Record<string, unknown>, logo_url: '/art/measured-logo.svg' } }));
+    await tv.page.route('**/art/measured-logo.svg*', route => route.fulfill({
+        status: 200, contentType: 'image/svg+xml',
+        body: `<svg xmlns="http://www.w3.org/2000/svg" width="${art.width}" height="${art.height}"><rect width="100%" height="100%" fill="white"/></svg>`,
+    }));
+    await tv.page.locator(`[data-section="recently_added"] [data-focus="${art.id}"]`).first().click();
+    await tv.page.locator('.details-logo').waitFor();
+    await tv.page.evaluate(() => document.fonts.ready);
+    await tv.eventually(async () => tv.page.locator('.details-logo').evaluate(node => node instanceof HTMLImageElement && node.complete && node.naturalWidth > 0), 'title art decoded');
+    const geometry = await tv.page.locator('.details-logo').evaluate(node => {
+        const rect = node.getBoundingClientRect();
+        const slot = node.parentElement!.getBoundingClientRect();
+        return { top: rect.top, width: rect.width, height: rect.height, slotTop: slot.top, slotHeight: slot.height };
+    });
+    for (const [key, expected] of Object.entries({ top: art.top, width: art.width, height: art.height, slotTop: 116, slotHeight: 160 })) {
+        assert.ok(Math.abs(geometry[key as keyof typeof geometry] - expected) < 0.5, `${key}: ${JSON.stringify(geometry)}`);
+    }
+});
+
 detailTest('track picker truncates a long edition title within its 76px row', async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
     const body = catalog.route('GET', '/catalog/items/movie%3Am0001', 'p-owner')?.body as { versions: Record<string, unknown>[] };

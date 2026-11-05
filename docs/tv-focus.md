@@ -87,6 +87,8 @@ Focus is always restored by zone id plus item key, never by list position.
 - `FocusHost` keeps a per-view "visit" snapshot: remembered item per zone, last zone, vertical scroll and each shelf's horizontal scroll.
   `show` saves it for the view being left and applies it when the view is entered again.
   Library views key their visit by library, type and mode (`visitKey`).
+  Details routes supply a distinct `View.visitKey` per presentation, retained through loading and repainting and when returning from children.
+  Two presentations of the same title therefore retain independent focus and scroll.
 - `holdVisit()` saves the visit before chrome is hidden for Settings or playback, because hiding chrome can resize and clamp the viewport.
 - `focusDefault()` is for deliberate entry into content (for example leaving the nav bar).
   For `library:<id>` views it prefers the last non-chrome zone of the saved visit; every other view goes straight to `view.focus`.

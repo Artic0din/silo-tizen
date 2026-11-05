@@ -1497,3 +1497,197 @@ test("editing search fences late results and a held write fences profile changes
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
+
+function failedItem(id: string, title: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+    return { id, media_type: "movie", tmdb_id: 949, title, overview: "A detective pursues a professional thief.", requested_by_profile_id: "p-owner", state: "failed", status: "approved", outcome: "failed", targets: [{ quality: "1080p", status: "failed" }], ...extra };
+}
+function minePage(items: Record<string, unknown>[]): { status: number; body: { items: Record<string, unknown>[]; page: { has_more: false } } } {
+    return { status: 200, body: { items, page: { has_more: false } } };
+}
+async function holdCard(tv: Tv, key: string): Promise<void> {
+    await button(tv, key).focus();
+    await tv.down(13);
+    await tv.jump(650);
+    await tv.up(13);
+}
+const removals = (tv: Tv) => tv.fake.requests.filter(request => request.method === "DELETE" && /^\/requests\/[^/]+$/.test(request.path));
+const REMOVAL_COPY = "Your failed request for \u201CHeat\u201D will be deleted. You can request the title again later.";
+
+test("Remove Request confirms with Apple's copy, deletes once, and focuses the neighbor", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests();
+        tv.fake.script("/requests/mine?limit=50", minePage([failedItem("failed-a", "Heat"), failedItem("failed-b", "Other")]), minePage([failedItem("failed-a", "Heat"), failedItem("failed-b", "Other")]), minePage([failedItem("failed-b", "Other")]));
+        tv.fake.script("/requests/failed-a", { status: 200, body: failedItem("failed-a", "Heat") });
+        await start(tv, fake);
+        await openRequests(tv);
+        await button(tv, "failed-a").waitFor();
+        assert.equal(await button(tv, "failed-a").getAttribute("data-request-actions"), "remove");
+        await button(tv, "failed-a").focus();
+        await tv.down(13);
+        await tv.up(13);
+        await view(tv, "request");
+        assert.equal(await button(tv, "remove-request").count(), 0);
+        await tv.remote(10009);
+        await button(tv, "failed-a").waitFor();
+        await holdCard(tv, "failed-a");
+        await button(tv, "remove-request").waitFor();
+        assert.equal(await button(tv, "cancel-request").count(), 0);
+        await button(tv, "remove-request").click();
+        assert.equal(await tv.page.locator(".card-actions-panel h1").textContent(), "Remove this request?");
+        assert.equal(await tv.page.locator("#request-record-menu-copy").textContent(), REMOVAL_COPY);
+        assert.equal(await tv.focused(), "keep-request");
+        await button(tv, "keep-request").click();
+        assert.equal(await tv.focused(), "failed-a");
+        assert.equal(removals(tv).length, 0);
+        await holdCard(tv, "failed-a");
+        await button(tv, "remove-request").click();
+        await button(tv, "confirm-remove").click();
+        await tv.eventually(async () => await tv.focused() === "failed-b", "neighbor takes the vacated card");
+        assert.equal(await tv.page.locator(".requests-list-notice").textContent(), "Request removed");
+        assert.equal(await button(tv, "failed-a").count(), 0);
+        assert.equal(removals(tv).length, 1);
+        assert.equal(removals(tv)[0]?.path, "/requests/failed-a");
+        assert.equal(removals(tv)[0]?.headers["x-profile-id"], "p-owner");
+        await tv.jump(3000);
+        assert.equal(await tv.page.locator(".requests-list-notice").count(), 0);
+        assert.equal(await button(tv, "failed-b").getAttribute("data-request-actions"), "remove");
+    } finally { await tv.page.context().close(); }
+});
+
+test("removing the last of your requests focuses the first discover title", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests();
+        tv.fake.script("/requests/mine?limit=50", minePage([failedItem("failed-a", "Heat")]), minePage([]));
+        await start(tv, fake);
+        await openRequests(tv);
+        await button(tv, "failed-a").waitFor();
+        await holdCard(tv, "failed-a");
+        await button(tv, "remove-request").click();
+        await button(tv, "confirm-remove").click();
+        await tv.eventually(async () => await tv.focused() === "movie:949", "discover takes focus when Your requests is gone");
+        assert.equal(await tv.page.locator(".requests-list-notice").textContent(), "Request removed");
+        assert.equal(await button(tv, "failed-a").count(), 0);
+    } finally { await tv.page.context().close(); }
+});
+
+test("Remove Request stays hidden unless the request failed with nothing delivered and the server allows it", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests();
+        fake.removeFailed = false;
+        fake.created = true;
+        Object.assign(fake.record, { state: "failed", status: "approved", outcome: "failed", targets: [{ quality: "1080p", status: "failed" }] });
+        await start(tv, fake);
+        await openRequests(tv);
+        await button(tv, "request-one").waitFor();
+        assert.equal(await button(tv, "request-one").getAttribute("data-request-actions"), null);
+        fake.removeFailed = true;
+        Object.assign(fake.record, { targets: [{ quality: "1080p", status: "completed" }] });
+        await revisitRequests(tv);
+        await button(tv, "request-one").waitFor();
+        assert.equal(await button(tv, "request-one").getAttribute("data-request-actions"), null);
+        Object.assign(fake.record, { state: "pending", status: "pending", outcome: "active", targets: undefined });
+        await revisitRequests(tv);
+        await button(tv, "request-one").waitFor();
+        assert.equal(await button(tv, "request-one").getAttribute("data-request-actions"), "cancel");
+        await holdCard(tv, "request-one");
+        await button(tv, "cancel-request").waitFor();
+        assert.equal(await button(tv, "remove-request").count(), 0);
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "request-one");
+        assert.equal(tv.fake.paths().filter(path => path.endsWith("/cancel")).length, 0);
+        await holdCard(tv, "request-one");
+        await button(tv, "cancel-request").click();
+        await tv.eventually(async () => await tv.focused() === "movie:949", "a cancelled request leaves the row");
+        assert.equal(tv.fake.paths().filter(path => path === "POST /requests/request-one/cancel").length, 1);
+        assert.equal(await button(tv, "request-one").count(), 0);
+    } finally { await tv.page.context().close(); }
+});
+
+test("a removal that the server refuses or has already done follows Apple's notice and row", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const conflict = new FakeRequests();
+        const changed = { ...failedItem("failed-one", "Heat"), state: "approved", status: "approved", outcome: "active", targets: [{ quality: "1080p", status: "queued" }] };
+        tv.fake.script("/requests/mine?limit=50", minePage([failedItem("failed-one", "Heat")]), minePage([changed]));
+        tv.fake.script("/requests/failed-one", problem(409, "conflict", "The request is not in a state that allows this action."));
+        await start(tv, conflict);
+        await openRequests(tv);
+        await button(tv, "failed-one").waitFor();
+        await holdCard(tv, "failed-one");
+        await button(tv, "remove-request").click();
+        await button(tv, "confirm-remove").click();
+        await tv.eventually(async () => await tv.page.locator(".requests-list-notice").textContent() === "This request changed since the list loaded, so it wasn't removed.", "conflict copy");
+        assert.equal(await button(tv, "failed-one").count(), 1);
+        assert.equal(await button(tv, "failed-one").getAttribute("data-request-actions"), null);
+    } finally { await tv.page.context().close(); }
+});
+
+test("a request the server has already removed leaves the row and says Request removed", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const missing = new FakeRequests();
+        tv.fake.script("/requests/mine?limit=50", minePage([failedItem("failed-one", "Heat")]), minePage([failedItem("failed-one", "Heat")]));
+        tv.fake.script("/requests/failed-one", problem(404, "not_found", "Not found"));
+        await start(tv, missing);
+        await openRequests(tv);
+        await button(tv, "failed-one").waitFor();
+        await holdCard(tv, "failed-one");
+        await button(tv, "remove-request").click();
+        await button(tv, "confirm-remove").click();
+        await tv.eventually(async () => await button(tv, "failed-one").count() === 0, "already gone");
+        assert.equal(await tv.page.locator(".requests-list-notice").textContent(), "Request removed");
+        assert.equal(await tv.focused(), "movie:949");
+    } finally { await tv.page.context().close(); }
+});
+
+test("a lost removal is not sent again until My Requests is read successfully", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests();
+        fake.loseRemove = true;
+        fake.created = true;
+        Object.assign(fake.record, { state: "failed", status: "approved", outcome: "failed", targets: [{ quality: "1080p", status: "failed" }] });
+        await start(tv, fake);
+        await openRequests(tv);
+        await button(tv, "request-one").waitFor();
+        tv.fake.dropNextAnswer("/requests/request-one");
+        tv.fake.dropNextAnswer("/requests/discover");
+        await holdCard(tv, "request-one");
+        await button(tv, "remove-request").click();
+        await button(tv, "confirm-remove").click();
+        await tv.eventually(async () => await tv.page.locator(".requests-list-notice").textContent() === "We couldn't confirm the removal. Reopen My Requests to check it.", "unconfirmed removal");
+        assert.equal(await button(tv, "request-one").count(), 1);
+        assert.equal(await button(tv, "request-one").getAttribute("data-request-actions"), null);
+        assert.equal(removals(tv).length, 1);
+        await revisitRequests(tv);
+        await button(tv, "request-one").waitFor();
+        assert.equal(await button(tv, "request-one").getAttribute("data-request-actions"), "remove");
+        assert.equal(await tv.page.locator(".requests-list-notice").count(), 0);
+        assert.equal(removals(tv).length, 1);
+    } finally { await tv.page.context().close(); }
+});
+
+test("another request cannot be cancelled or removed while one removal is in flight", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests();
+        tv.fake.script("/requests/mine?limit=50", minePage([failedItem("failed-a", "Heat"), failedItem("failed-b", "Other")]), minePage([failedItem("failed-b", "Other")]));
+        await start(tv, fake);
+        await openRequests(tv);
+        await button(tv, "failed-a").waitFor();
+        const held = tv.fake.hold("/requests/failed-a");
+        await holdCard(tv, "failed-a");
+        await button(tv, "remove-request").click();
+        await button(tv, "confirm-remove").click();
+        await tv.eventually(async () => tv.fake.paths().includes("DELETE /requests/failed-a"), "removal held");
+        assert.equal(await button(tv, "failed-a").getAttribute("data-busy"), "true");
+        assert.equal(await button(tv, "failed-b").getAttribute("data-request-actions"), null);
+        held.release();
+        await tv.eventually(async () => await tv.focused() === "failed-b", "neighbor after the held removal");
+        assert.equal(await button(tv, "failed-a").count(), 0);
+        assert.equal(removals(tv).length, 1);
+    } finally { await tv.page.context().close(); }
+});

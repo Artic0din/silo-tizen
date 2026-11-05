@@ -93,6 +93,12 @@ SELECTED=(
   verify_profile_pin_wrong
 )
 
+# Present at silo-server 6e8c68d and newer than SOURCE. Kept until SOURCE includes it
+# and the name moves into SELECTED. See src/contracts/v2/README.md.
+KEPT=(
+  request_status_ok
+)
+
 # The Settings manifest subset in settings_contract_ok.json (src/contracts/v2/README.md).
 SETTINGS_KEYS=(
   ui.disabled_library_ids
@@ -181,6 +187,7 @@ for file in "$DEST"/*.json; do
   [ "$name" = "$SETTINGS_FIXTURE" ] && continue
   [ "$name" = "$SETTINGS_ROWS_FIXTURE" ] && continue
   in_list "$name" "${SELECTED[@]}" && continue
+  in_list "$name" "${KEPT[@]}" && continue
   rm "$file"
   echo "removed stale $name.json (not in SELECTED)"
   removed=$((removed + 1))

@@ -80,6 +80,7 @@ env -u SILO_SERVER_REPO "$sync" "$base" >/dev/null 2>&1 || status=$?
 ok "requires SILO_SERVER_REPO"
 
 printf '{"stale":true}\n' > "$dest/dropped_from_selected.json"
+printf '{"remove_failed_supported":true}\n' > "$dest/request_status_ok.json"
 printf '%s\n' "0000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" > "$client/src/contracts/v2/SOURCE"
 mkdir -p "$client/docs"
 printf 'Pinned to 0000000.\n' > "$client/docs/pin.md"
@@ -89,6 +90,7 @@ while IFS= read -r name; do
 done <<< "$selected"
 ok "vendors every SELECTED fixture despite a listing larger than a pipe buffer"
 [ ! -e "$dest/dropped_from_selected.json" ] || fail "stale fixture was kept"
+[ -f "$dest/request_status_ok.json" ] || fail "request_status_ok was deleted before SOURCE includes it"
 [ ! -e "$dest/zz_padding_fixture_with_a_long_enough_name_0.json" ] || fail "an unselected server fixture was vendored"
 ok "deletes stale fixtures and vendors nothing outside SELECTED"
 settings="$dest/settings_contract_ok.json"

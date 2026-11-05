@@ -5,6 +5,7 @@ import { actionButton, artwork, FAILURE_ICON, lines, recoveryActions, searchStat
 import { requestPosterUrl } from "./browseModel.ts";
 import { el } from "./screen.ts";
 import { orderRequests, requestProgress } from "./requestProgress.ts";
+import { canCancel, canRemove } from "./requestRemoval.ts";
 import { cullToRailBounds, requestActionSpinner, requestHero, requestPlusIcon, requestPosterBadge, requestsLoadingPage, requestStatusLabel, TRAY_ICON } from "./requestsScene.ts";
 
 export type RequestWrite = "create" | "cancel" | "follow" | "unfollow";
@@ -32,6 +33,14 @@ export interface RequestsState {
     unconfirmed?: boolean;
     /** Apple actionErrorMessage, beside the action until the next write or a settling read. */
     actionMessage?: string | undefined;
+    /** Apple MyRequestsViewModel.actingId: the list row whose cancel or remove is running. */
+    actingId?: string | undefined;
+    /** Apple unconfirmedActions: a lost cancel or remove stays held until a later list read. */
+    heldIds?: readonly string[] | undefined;
+    /** Apple notice, under the rows, cleared after three seconds. */
+    notice?: string | undefined;
+    /** Apple actionErrorMessage for a list cancel or remove. */
+    listMessage?: string | undefined;
 }
 export function requestsState(source: RequestsSource): RequestsState { return { source, data: undefined, writing: false, uncertain: false }; }
 export interface RequestsHandlers {
@@ -46,6 +55,8 @@ export interface RequestsHandlers {
     readonly open: (source: RequestsSource) => void;
     readonly openCatalog: (id: string, title: string) => void;
     readonly write: (action: RequestWrite) => void;
+    /** Apple's card context menu. Hub and My Requests records only. */
+    readonly menu?: (record: MediaRequest) => void;
     readonly search: () => void;
     readonly edit: () => void;
     readonly next: (page: number | string) => void;
@@ -99,9 +110,16 @@ export function requestsView(state: RequestsState, h: RequestsHandlers, baseUrl:
     const source = state.source, data = state.data;
     const hub = source.kind === "hub";
     const detailPage = source.kind === "media" || source.kind === "request";
+    const bannerText = state.listMessage ?? state.notice;
+    const withNotice = (view: View): View => {
+        if (bannerText === undefined) return view;
+        const banner = el("p", "requests-list-notice", bannerText);
+        banner.setAttribute("role", "status");
+        return { ...view, content: [...view.content, banner] };
+    };
     // Apple RequestDetailView: with no page to keep, a failed read is the whole screen.
     const placeholder = hub ? hubPlaceholder(state, h) : detailPage && data === undefined && h.failure !== undefined ? errorPlaceholder(state, h, `requests:${source.kind}`, h.back) : undefined;
-    if (placeholder !== undefined) return placeholder;
+    if (placeholder !== undefined) return withNotice(placeholder);
     const content: HTMLElement[] = [];
     const zones: Zone[] = [];
     const openCard = (title: RequestTitle | MediaRequest): void => {
@@ -126,6 +144,18 @@ export function requestsView(state: RequestsState, h: RequestsHandlers, baseUrl:
         content.push(row);
     };
     const card = (title: RequestTitle | MediaRequest, open: () => void): FocusItem => requestCard(title, baseUrl, open, hub ? paint : undefined);
+    /** Apple TVRequestsPage.card: Cancel Request and Remove Request live on the record's context menu. */
+    const ownCard = (record: MediaRequest): FocusItem => {
+        const item = card(record, () => openCard(record));
+        const held = state.heldIds ?? [];
+        const cancel = canCancel(record, state.actingId, held);
+        const remove = canRemove(record, h.capability.removeFailed, state.actingId, held);
+        if (state.actingId === record.id) item.element.dataset.busy = "true";
+        const offered = [cancel ? "cancel" : undefined, remove ? "remove" : undefined].filter((name): name is string => name !== undefined);
+        if (offered.length === 0) return item;
+        item.element.dataset.requestActions = offered.join(" ");
+        return h.menu === undefined ? item : { ...item, quickAction: () => h.menu?.(record) };
+    };
     const titleItems = (titles: readonly RequestTitle[]): FocusItem[] => titles.filter(browsable).map(title => card(title, () => openCard(title)));
     if (source.kind === "search") {
         if (state.search === undefined) {
@@ -151,7 +181,7 @@ export function requestsView(state: RequestsState, h: RequestsHandlers, baseUrl:
             const previous = state.preview;
             const initial = (previous === undefined ? undefined : titles.find(title => identity(title) === identity(previous))) ?? titles[0];
             if (initial !== undefined) paint(initial);
-            if (mine.length > 0) hubRow("mine", [el("h2", "requests-heading", "Your requests")], mine.map(item => card(item, () => openCard(item))));
+            if (mine.length > 0) hubRow("mine", [el("h2", "requests-heading", "Your requests")], mine.map(ownCard));
             let eyebrow = true;
             for (const section of data.sections) {
                 if (!section.results.some(browsable)) continue;
@@ -163,7 +193,7 @@ export function requestsView(state: RequestsState, h: RequestsHandlers, baseUrl:
             if (data.results.length === 0) content.push(...lines(["No titles found."], "info"));
             add("pages", [...(data.page > 1 ? [actionButton("previous", "Previous page", () => h.next(data.page - 1))] : []), ...(data.nextPage <= data.totalPages ? [actionButton("next", "Next page", () => h.next(data.nextPage))] : [])]);
         } else if ("items" in data) {
-            add("mine", data.items.map(item => card(item, () => openCard(item))), true);
+            add("mine", data.items.map(ownCard), true);
             if (data.items.length === 0) content.push(...lines(["No requests yet."], "info"));
             if (data.cursor !== undefined) { const cursor = data.cursor; add("pages", [actionButton("next", "Next page", () => h.next(cursor))]); }
         } else if ("title" in data) {
@@ -235,5 +265,5 @@ export function requestsView(state: RequestsState, h: RequestsHandlers, baseUrl:
     // Apple's detail has no controls below More like this; these recover failures and hold focus while none is otherwise available.
     const recovering = h.failure !== undefined || state.detailFailed === true || zones.length === 0 || (state.uncertain && !state.writing && !h.busy);
     if (!hub && (!detailPage || recovering)) add("actions", [actionButton("refresh", h.failure !== undefined ? "Retry" : "Refresh", h.retry), actionButton("back", "Back", h.back)]);
-    return { name: `requests:${source.kind}`, content: hub ? [zoneNode("skyline-content", content.map(element => ({ key: "", element })))] : content, zones, focus: { zone: zones[0]?.id ?? "actions", key: zones[0]?.items[0]?.key ?? "back" }, back: h.back };
+    return withNotice({ name: `requests:${source.kind}`, content: hub ? [zoneNode("skyline-content", content.map(element => ({ key: "", element })))] : content, zones, focus: { zone: zones[0]?.id ?? "actions", key: zones[0]?.items[0]?.key ?? "back" }, back: h.back });
 }

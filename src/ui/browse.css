@@ -350,6 +350,8 @@
 .requests-scene .requests-discover { margin: 0 88px 4px; text-transform: uppercase; letter-spacing: 1.6px; font-size: 17px; line-height: 21px; font-weight: 700; color: rgba(237,237,237,.55); }
 .requests-scene .requests-rail { display: flex; gap: 40px; height: 403px; margin: 4px 0 0; padding: 26px 88px; overflow-x: auto; }
 .requests-scene .requests-rail .requests-card { flex: 0 0 176px; width: 176px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.requests-card[data-busy="true"] { opacity: .55; }
+.requests-list-notice { position: fixed; left: 88px; bottom: 40px; z-index: 6; margin: 0; padding: 14px 24px; border-radius: 999px; background: rgba(255,255,255,.16); color: #ededed; font-size: 22px; line-height: 28px; font-weight: 600; pointer-events: none; }
 .requests-scene .requests-rail .requests-card:focus { transform: none; box-shadow: none; }
 .requests-scene .requests-rail .browse-art { width: 176px; height: 264px; border-radius: 16px; transform-origin: center; }
 .requests-scene .requests-rail .browse-card-title { display: block; margin: 22px 0 0; padding: 0; font-size: 27px; line-height: 34px; font-weight: 600; color: #ededed; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

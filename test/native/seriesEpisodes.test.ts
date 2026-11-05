@@ -281,6 +281,34 @@ test("rate-limited season sweep and Retry never invoke transport retries", async
     assert.deepEqual(h.reads(), [2, 1, 3, 4, 5, 6, 7, 7].map(number => operations.listSeasonEpisodes("series:s1", number).path));
 });
 
+test("Show Series Info restores the series overview after episode focus takes over a pill", async () => {
+    const h = await episodeRailHarness();
+    const detail = await h.core.session.call({ ...operations.getCatalogItem("series:s1"), profileScoped: true });
+    const details = new DetailsState(detail, h.core.session, () => undefined, async () => undefined);
+    details.series = h.state;
+    details.start();
+    await h.settle();
+    h.state.select(3, true);
+    details.warmSeriesEpisodes();
+    await h.settle();
+    assert.equal(h.state.focusSelectedEpisode, true);
+    assert.equal(h.state.selectionOwnsHero, true);
+    assert.equal(details.heroEpisodeId, "rail:3:0");
+    h.state.focus("rail:3:1");
+    details.focusEpisode("rail:3:1");
+    assert.equal(h.state.focusSelectedEpisode, true, "episode focus leaves the pill flag set");
+    assert.equal(h.state.selectionOwnsHero, false);
+    assert.equal(details.heroEpisodeId, "rail:3:1");
+    details.warmSeriesEpisodes();
+    assert.equal(details.heroEpisodeId, "rail:3:1", "a refresh must not put the pill's first episode back over episode focus");
+    details.showSeriesOverview();
+    await h.settle();
+    assert.equal(details.heroEpisodeId, undefined, "Show Series Info restores the series overview");
+    assert.equal(details.playbackTargetId, "rail:3:0", "Play stays on the selected season suggestion");
+    details.stop();
+    h.state.stop();
+});
+
 test("a late superseded item read cannot overwrite a cached season's hero target", async t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const h = await episodeRailHarness(); t.after(() => h.state.stop());

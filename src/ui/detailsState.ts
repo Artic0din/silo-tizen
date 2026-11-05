@@ -449,7 +449,10 @@ export class DetailsState {
             this.seasonStates.set(season.seasonNumber, owner);
             owner.start("personal");
         }
-        if (this.series?.focusSelectedEpisode) {
+        // A pill selection applies once, while it still owns the hero. Episode
+        // focus and Show Series Info clear that ownership; a later refresh must
+        // not put the season's first episode back. TVSeriesDetailView.swift:740-745.
+        if (this.series?.focusSelectedEpisode && this.series.selectionOwnsHero) {
             this.focusedEpisodeId = this.series.episodes?.[0]?.id;
         }
         if (this.series?.railEpisodes !== undefined && this.focusedEpisodeId !== undefined && !this.series.railEpisodes.some(episode => episode.id === this.focusedEpisodeId)) this.focusedEpisodeId = undefined;

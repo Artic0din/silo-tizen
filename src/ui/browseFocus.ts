@@ -210,8 +210,8 @@ export class FocusHost {
             this.scroll.stop();
             this.applyVisit(visit);
             const element = this.locate(document.activeElement)?.item.element;
-            if ((this.container.dataset.view === "search" || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub") || this.container.classList.contains("details-series-scene") || this.container.classList.contains("accounts-screen")) && element !== undefined) {
-                const viewport = element.closest<HTMLElement>(".browse-panel-list, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? this.container;
+            if ((this.container.dataset.view === "search" || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub") || this.container.classList.contains("details-series-scene") || this.container.classList.contains("accounts-screen") || element?.closest(".settings-modal-options") != null) && element !== undefined) {
+                const viewport = element.closest<HTMLElement>(".browse-panel-list, .settings-modal-options, .settings-pane, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? this.container;
                 const card = element.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
                 if (card.top < bounds.top + 12 || card.bottom > bounds.bottom - 32 || !this.insideRow(element)) this.scroll.reveal(element, this.container);
             }
@@ -249,8 +249,9 @@ export class FocusHost {
             this.lastZone = focused.zone.id;
             if (this.tracksContent(focused.zone.id)) this.contentZone = focused.zone.id;
         }
-        const panels = new Map(this.visits.get(key)?.panels);
-        this.container.querySelectorAll<HTMLElement>(".browse-panel-list[data-scroll-key]").forEach(panel => panels.set(panel.dataset.scrollKey ?? "", panel.scrollTop));
+        // Settings recreates a category at the top; only the mounted pane survives a modal.
+        const panels = this.container.classList.contains("settings") ? new Map<string, number>() : new Map(this.visits.get(key)?.panels);
+        this.container.querySelectorAll<HTMLElement>(".browse-panel-list[data-scroll-key], .settings-modal-options[data-scroll-key], .settings-pane[data-scroll-key]").forEach(panel => panels.set(panel.dataset.scrollKey ?? "", panel.scrollTop));
         this.visits.set(key, { memory: new Map(this.memory), lastZone: this.lastZone, contentZone: this.contentZone, top: this.viewport().scrollTop, rows: new Map(Array.from(this.container.querySelectorAll<HTMLElement>(".browse-row")).map((row, index) => [this.rowKey(row, index), row.scrollLeft])), panels });
     }
 
@@ -264,7 +265,7 @@ export class FocusHost {
                 row.scrollLeft = row.classList.contains("details-episodes") ? SkylineScroll.episodeOffset(row, entry) : entry.offsetLeft - row.offsetLeft - parseFloat(getComputedStyle(row).paddingLeft);
             }
         });
-        this.container.querySelectorAll<HTMLElement>(".browse-panel-list[data-scroll-key]").forEach(panel => { panel.scrollTop = visit?.panels.get(panel.dataset.scrollKey ?? "") ?? 0; });
+        this.container.querySelectorAll<HTMLElement>(".browse-panel-list[data-scroll-key], .settings-modal-options[data-scroll-key], .settings-pane[data-scroll-key]").forEach(panel => { panel.scrollTop = visit?.panels.get(panel.dataset.scrollKey ?? "") ?? 0; });
     }
 
     private intersects(element: HTMLElement): boolean {

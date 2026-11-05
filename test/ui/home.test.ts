@@ -102,7 +102,7 @@ journey("Up from Calendar's filter row reaches the Calendar tab when library tab
 
 let heldStaleLibraries: { release(): void };
 let hiddenLibrarySettings: FakeSettings;
-journey("a delayed Home libraries read cannot put back a library hidden in Settings", async tv => {
+journey("a delayed Home libraries read cannot remove a library restored in Settings", async tv => {
     assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0);
     await tv.eventually(async () => tv.fake.requests.some(request => request.path.includes("ui.disabled_library_ids")), "initial hidden-libraries read");
     await tv.page.locator('[data-focus="calendar"]').focus();
@@ -111,18 +111,18 @@ journey("a delayed Home libraries read cannot put back a library hidden in Setti
     await tv.page.locator('[data-focus="profiles"]').focus();
     await tv.page.keyboard.press("Enter");
     await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
-    await tv.page.locator('[data-focus="hidden"]').click();
-    await tv.page.locator('[data-focus="library:12"]').click();
-    await tv.eventually(async () => JSON.stringify(hiddenLibrarySettings.profile().get(HIDDEN_KEY)) === "[15,12]", "Movies hidden");
+    await tv.page.locator('[data-focus="server"]').click();
+    await tv.page.locator('[data-focus="restore-libraries"]').click();
+    await tv.eventually(async () => JSON.stringify(hiddenLibrarySettings.profile().get(HIDDEN_KEY)) === "[]", "library visibility restored");
     await tv.page.getByText("Saving…", { exact: true }).waitFor({ state: "hidden" });
     for (let step = 0; step < 4 && await tv.page.locator(".settings").count() > 0; step++) await tv.remote(10009);
     assert.equal(await tv.page.locator(".settings").count(), 0);
     assert.equal(await tv.page.locator('.browse[data-view="calendar"]').count(), 1);
-    await tv.eventually(async () => await tv.page.locator('[data-focus="series"]').count() === 1 && await tv.page.locator('[data-focus="movies"]').count() === 0, "Calendar refresh hid Movies");
+    await tv.eventually(async () => await tv.page.locator('[data-focus="series"]').count() === 1 && await tv.page.locator('[data-focus="movies"]').count() === 1, "Calendar refresh restored libraries");
     heldStaleLibraries.release();
     const deadline = performance.now() + 1500;
     do {
-        assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0, "the delayed Home libraries read put Movies back");
+        assert.equal(await tv.page.locator('[data-focus="series"]').count(), 1, "the delayed Home libraries read removed restored Series");
         await tv.page.evaluate(() => undefined);
     } while (performance.now() < deadline);
     assert.equal(await tv.page.locator('[data-focus="series"]').count(), 1);

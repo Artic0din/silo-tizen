@@ -231,6 +231,7 @@ function grid(current: Route, pages: Pages, page: CatalogPage, handlers: RouteHa
 
 /**
  * Search posters are 220pt (`SearchView` `cardWidth`) and carry overlay data, as `TVCatalogGrid` does.
+ * Select opens the card's detail route. It does not use the shared episode play shortcut.
  */
 function searchCards(context: ViewContext): ViewContext {
     return { ...context, overlays: context.cardOverlays?.(), posterWidth: 220 * (context.posterScale?.() ?? 1), cardDestination: browseCardDestination };

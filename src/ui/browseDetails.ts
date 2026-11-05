@@ -76,6 +76,7 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
         image.src = logo;
     }
     nodes.push(title);
+    if (state?.showAdvisoryAge && detail.advisoryAge !== undefined) nodes.push(el("p", "browse-meta", `Advisory Age ${detail.advisoryAge}+`));
     const episode = state?.series?.episodes?.find(episode => episode.id === state.focusedEpisodeId);
     const playback = state?.nextEpisodeState;
     const selectedFile = playback?.detail.versions.find(file => file.fileId === playChoices(playback.detail, playback.selectedFileId)?.fromStart.fileId);

@@ -26,7 +26,7 @@ Failed reads leave playback and **Retry title art** reachable.
 Confirmed false, including an administrator's inherited false, starts zero logo requests.
 Confirmed true may request artwork; missing or broken artwork keeps text, and transitions never wait for logos.
 Late reads and image callbacks cannot replace headings after stop, profile/server authority loss or while the connected page is hidden during playback.
-Returning rechecks policy without a persistent cache; optional reads preserve the open synopsis and focus.
+Returning rechecks policy without a persistent cache; optional reads preserve the current focus.
 Older servers identified by a missing capability endpoint (404/501) or a pre-16 manifest retain the built-in logos-on compatibility behavior; this is not a fabricated saved true value.
 Person names/photos are unchanged.
 Home's marquee follows Apple's fallback instead: logos unless the last confirmed answer, kept on the TV per server and profile, is off ([Skyline browse shell](skyline-browse-shell.md)).

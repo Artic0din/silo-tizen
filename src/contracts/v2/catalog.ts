@@ -286,6 +286,18 @@ export function decodeCatalogPage(value: unknown): CatalogPage {
     };
 }
 
+/** Saved-list envelopes carry opaque pagination without catalog query totals. */
+export function decodePersonalListPage(value: unknown): CatalogPage {
+    const path = "personal_list";
+    const obj = object(value, path);
+    const page = object(obj.page, `${path}.page`);
+    const more = boolean(page, "has_more", `${path}.page`);
+    const nextCursor = more ? string(page, "next_cursor", `${path}.page`) : undefined;
+    if (nextCursor === "") throw new WireError(`${path}.page.next_cursor`, "a nonempty continuation");
+    const cards = array(obj, "items", path).map((item, index) => decodeCard(item, `${path}.items[${index}]`));
+    return { items: cards, nextCursor, total: cards.length, totalExact: false };
+}
+
 // --- getCatalogItem ---
 
 export interface PlayableFile {

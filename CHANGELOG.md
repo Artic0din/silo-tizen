@@ -21,9 +21,11 @@ All notable changes to this project are documented in this file.
 - Reported an HLS subtitle alignment failure instead of showing a track that the native player could not select.
 - Allowed pause during subtitle reports, queued choices needing a new stream, and replanned subtitle tracks that the native stream could not identify.
 - Cleared sidecar captions when selecting embedded subtitles and restored the last confirmed subtitle after a queued choice was refused.
+- Followed playback after an external resume during scrubbing and preserved newer Play/Pause choices while a scrub seek landed.
 - Resumed committed scrubs after a server reanchor, kept Skip reachable with the remote, and let navigation cross Audio while its choices loaded.
 - Kept the latest Play/Pause choice when remote presses arrive during a seek.
 - Resumed playback after a timeline scrub once the seek finished, let the remote move through an empty audio list, and cropped seek previews to each thumbnail's own shape.
+- Restored the last available Details hero action on Up, falling back to Play or Watchlist when Start Over disappeared or a selector was disabled.
 - Refreshed episode spoiler protection after Settings changes and preserved saved switches during overlapping requests and failures.
 
 - Aligned Details supporting-section headings when moving Up and Down, restored visible Movie Cast to the page top, and removed duplicated space below the Details table.

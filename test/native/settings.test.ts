@@ -437,6 +437,23 @@ test("profile null is explicit, reset removes only the profile row, effective ov
     state.stop();
 });
 
+test("already-achieved metadata edits invalidate catalogs without another write", async () => {
+    for (const reset of [false, true]) {
+        const { state, fakeSettings, fake } = await setup();
+        fakeSettings.remainingRows = true;
+        fakeSettings.profile().set("catalog.metadata_language", "en");
+        await state.load();
+        if (reset) fakeSettings.profile().delete("catalog.metadata_language");
+        else fakeSettings.profile().set("catalog.metadata_language", "fr");
+        if (reset) await state.reset("catalog.metadata_language");
+        else await state.save("catalog.metadata_language", "fr");
+        assert.equal(state.error, undefined);
+        assert.equal(fake.requests.filter(request => request.method === "PUT" || request.method === "DELETE").length, 0);
+        assert.equal(state.hiddenChanged, true);
+        state.stop();
+    }
+});
+
 test("hidden edits rebase on explicit scope, preserve inaccessible IDs and serialize edits", async () => {
     const { state, fakeSettings, fake } = await setup();
     fakeSettings.profile().set(HIDDEN_KEY, [15, 999]);

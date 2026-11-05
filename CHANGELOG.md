@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserved Settings row fixtures across contract refreshes, offered automatic-skip undo after successful seeking, and refreshed catalog metadata for changes already saved on another device.
+
 - Restored supported subtitle rows, centred Settings pickers and privacy handoff, aligned pane order, and added the Show Next Up choice.
 
 - Added supported Apple TV settings for poster size, advisory age, profile timing, episode playback, metadata and subtitle appearance, and kept profile subtitle edits independent of narrower overrides.

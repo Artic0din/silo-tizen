@@ -188,7 +188,7 @@ export class SettingsState {
             await this.readValues([edit.key]);
             if ((edit.kind === "value" || edit.kind === "reset") && originalScope !== this.scope(edit.key)) throw new SettingsConflict("The setting scope changed. Reload settings before editing it.");
             if (!this.active || this.achieved(edit)) {
-                if (edit.key === HIDDEN_KEY) this.hiddenChanged = true;
+                if (edit.key === HIDDEN_KEY || edit.key === METADATA_KEY) this.hiddenChanged = true;
                 return;
             }
             if (edit.snapshot !== undefined && JSON.stringify(edit.snapshot) !== JSON.stringify(this.stored(edit.key))) throw new SettingsConflict("The setting changed on another device. Reload settings before editing it.");

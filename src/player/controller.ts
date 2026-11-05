@@ -196,6 +196,7 @@ interface Attempt {
     skipCredits: boolean;
     skippedMarkers: Set<SkipMarker>;
     undoSkip: { seconds: number; until: number } | undefined;
+    pendingSkipUndo: number | undefined;
     ai: SubtitleAI | undefined;
     readonly aiBlockedFiles: Set<string>;
     pendingAIResult: string | undefined;
@@ -329,7 +330,7 @@ export class PlaybackController implements PlayerControls {
         this.shownError = undefined;
         const attempt: Attempt = {
             autoNext: false,
-            introMode: "ask", skipCredits: false, skippedMarkers: new Set(), undoSkip: undefined,
+            introMode: "ask", skipCredits: false, skippedMarkers: new Set(), undoSkip: undefined, pendingSkipUndo: undefined,
             ai: undefined, aiBlockedFiles: new Set(), pendingAIResult: undefined,
             appearance: DEFAULT_APPEARANCE, subtitleSync: 0, cues: [], captionAbort: undefined, captionNotice: "", captionPreferenceNotice: "", captionKey: undefined, captionPreferencesRead: false, seriesSubtitle: request.episode ? { busy: false, message: "" } : undefined,
             request,
@@ -496,6 +497,7 @@ export class PlaybackController implements PlayerControls {
                 this.routeFailed(attempt, failure);
                 return;
             }
+            this.finishSkipSeek(attempt, moved);
             this.showPlayback(attempt);
         };
         try {
@@ -990,6 +992,7 @@ export class PlaybackController implements PlayerControls {
 
     /** A codec or route failure on this TV: the server picks the next route, a bounded number of times. */
     private routeFailed(attempt: Attempt, classification: string): void {
+        attempt.pendingSkipUndo = undefined;
         const plan = attempt.plan;
         if (!attempt.live || plan === undefined) {
             return;
@@ -1265,6 +1268,7 @@ export class PlaybackController implements PlayerControls {
             attempt.started = true;
             attempt.presented = true;
             attempt.resuming = false;
+            this.finishSkipSeek(attempt, true);
             if (attempt.recovery?.active === true) attempt.recovery.recovered(this.deps.clock.now());
             if (attempt.cancelTimer === undefined) {
                 this.scheduleProgress(attempt);
@@ -1317,7 +1321,8 @@ export class PlaybackController implements PlayerControls {
                     const marker = markerAt(attempt.markers?.segments ?? [], attempt.sourceSeconds);
                     if (!attempt.busy && marker !== undefined && !attempt.skippedMarkers.has(marker) && ((marker.kind === "intro" && attempt.introMode === "always") || (marker.kind === "credits" && attempt.skipCredits))) {
                         attempt.skippedMarkers.add(marker);
-                        attempt.undoSkip = { seconds: marker.startSeconds, until: this.deps.clock.now() + SKIP_UNDO_MILLISECONDS };
+                        attempt.undoSkip = undefined;
+                        attempt.pendingSkipUndo = marker.startSeconds;
                         this.seekToSeconds(marker.endSeconds);
                         return;
                     }
@@ -1345,6 +1350,14 @@ export class PlaybackController implements PlayerControls {
                 }
             },
         };
+    }
+
+    private finishSkipSeek(attempt: Attempt, moved: boolean): void {
+        const seconds = attempt.pendingSkipUndo;
+        attempt.pendingSkipUndo = undefined;
+        if (moved && seconds !== undefined) {
+            attempt.undoSkip = { seconds, until: this.deps.clock.now() + SKIP_UNDO_MILLISECONDS };
+        }
     }
 
     private beginCompletion(attempt: Attempt): void {

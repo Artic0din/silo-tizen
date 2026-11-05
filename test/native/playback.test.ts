@@ -233,6 +233,57 @@ async function playMovie(r: Rig, request: PlayRequest = MOVIE): Promise<string> 
     return id;
 }
 
+test("automatic skip undo starts after a six-second reanchor preparation", async () => {
+    const r = await rig();
+    const settings = new FakeSettings(r.h.fake);
+    settings.remainingRows = true;
+    settings.profile().set("playback.intro_skip_mode", "always");
+    r.h.fake.scripted.set("/markers/files/42", [{ status: 200, body: { file_id: "42", marker_segments: [
+        { kind: "intro", start_seconds: 20, end_seconds: 60 },
+    ] } }]);
+    r.server.next.push({ timeline: { can_seek_anywhere: false } });
+    await playMovie(r);
+    r.avplay.tick(20000);
+    await r.h.clock.advance(0);
+    assert.equal(last(r.views).phase, "loading");
+    await r.h.clock.advance(6000);
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    let view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.undoSkipSeconds, 20);
+    await r.h.clock.advance(4999);
+    r.avplay.tick(61000);
+    view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.undoSkipSeconds, 20);
+    await r.h.clock.advance(1);
+    r.avplay.tick(62000);
+    view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.undoSkipSeconds, undefined);
+    r.controller.destroy();
+});
+
+test("a failed automatic skip seek offers no undo", async () => {
+    const r = await rig();
+    const settings = new FakeSettings(r.h.fake);
+    settings.remainingRows = true;
+    settings.profile().set("playback.intro_skip_mode", "always");
+    r.h.fake.scripted.set("/markers/files/42", [{ status: 200, body: { file_id: "42", marker_segments: [
+        { kind: "intro", start_seconds: 20, end_seconds: 60 },
+    ] } }]);
+    await playMovie(r);
+    r.avplay.tick(20000);
+    r.avplay.finishSeek("UnknownError");
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.undoSkipSeconds, undefined);
+    r.controller.destroy();
+});
+
 test("intro and credits settings control markers and automatic skips can be undone", async () => {
     for (const mode of ["never", "ask", "always"] as const) {
         const r = await rig();

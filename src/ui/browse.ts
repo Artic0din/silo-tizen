@@ -1652,6 +1652,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 presentation.reload();
                 void navigation.reload();
                 if (hiddenChanged) {
+                    // This read still has the hidden list from before Settings. Calendar
+                    // applies the new one; the old answer must not put those tabs back.
+                    homeLibraries?.abort();
                     const calendar = stack.find(entry => entry.kind === "calendar");
                     home.stale = true;
                     roots.clear();

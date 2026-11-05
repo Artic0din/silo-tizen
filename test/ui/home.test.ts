@@ -4,6 +4,7 @@ import type { Browser } from "playwright";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { build } from "esbuild";
+import { FakeCalendar } from "../native/support/fakeCalendar.ts";
 import { FakeHome } from "../native/support/fakeHome.ts";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
@@ -86,6 +87,41 @@ journey("library tabs that arrive on Calendar keep Up on the new bar", async tv 
     assert.deepEqual(landed, { key: "calendar", connected: true });
 }, undefined, undefined, { beforeMount: tv => { heldCalendarLibraries = tv.fake.hold("/user/libraries", true); }, readyTimeout: 4000 });
 
+let heldStaleLibraries: { release(): void };
+let hiddenLibrarySettings: FakeSettings;
+journey("a delayed Home libraries read cannot put back a library hidden in Settings", async tv => {
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0);
+    await tv.eventually(async () => tv.fake.requests.some(request => request.path.includes("ui.disabled_library_ids")), "initial hidden-libraries read");
+    await tv.page.locator('[data-focus="calendar"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="calendar"] [data-focus="previous-week"]').count() === 1 && await tv.page.getByText("Loading the week.", { exact: true }).count() === 0, "Calendar settled");
+    await tv.page.locator('[data-focus="profiles"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+    await tv.page.locator('[data-focus="hidden"]').click();
+    await tv.page.locator('[data-focus="library:12"]').click();
+    await tv.eventually(async () => JSON.stringify(hiddenLibrarySettings.profile().get(HIDDEN_KEY)) === "[15,12]", "Movies hidden");
+    await tv.page.getByText("Saving…", { exact: true }).waitFor({ state: "hidden" });
+    for (let step = 0; step < 4 && await tv.page.locator(".settings").count() > 0; step++) await tv.remote(10009);
+    assert.equal(await tv.page.locator(".settings").count(), 0);
+    assert.equal(await tv.page.locator('.browse[data-view="calendar"]').count(), 1);
+    await tv.eventually(async () => await tv.page.locator('[data-focus="series"]').count() === 1 && await tv.page.locator('[data-focus="movies"]').count() === 0, "Calendar refresh hid Movies");
+    heldStaleLibraries.release();
+    const deadline = performance.now() + 1500;
+    do {
+        assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0, "the delayed Home libraries read put Movies back");
+        await tv.page.evaluate(() => undefined);
+    } while (performance.now() < deadline);
+    assert.equal(await tv.page.locator('[data-focus="series"]').count(), 1);
+}, catalog => {
+    const calendar = new FakeCalendar();
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => path.startsWith("/calendar") ? calendar.route(method, path, profile, body) : read(method, path, profile, body);
+}, settings => {
+    hiddenLibrarySettings = settings;
+    settings.profile().set(HIDDEN_KEY, [15]);
+}, { beforeMount: tv => { heldStaleLibraries = tv.fake.hold("/user/libraries", true); }, readyTimeout: 4000 });
+
 journey("a failed libraries read keeps Home and retries the tabs after the app returns", async tv => {
     const libraryReads = (): number => tv.fake.requests.filter(request => request.path === "/user/libraries").length;
     assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
@@ -161,6 +197,48 @@ journey("a delayed Home sections read never says it is still waiting", async tv 
         assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
         heldSections.release();
     },
+});
+
+let heldLoadingFocus: { release(): void };
+journey("Loading home holds focus on the blank page, and Up and Back reach the bar before the rows do", async tv => {
+    const landed = await tv.page.evaluate(() => ({ key: document.activeElement?.getAttribute("data-focus"), connected: document.activeElement?.isConnected === true }));
+    assert.deepEqual(landed, { key: "movie:m0004", connected: true });
+}, undefined, undefined, {
+    beforeMount: tv => { heldLoadingFocus = tv.fake.hold("/home/sections", true); },
+    beforeReady: async tv => {
+        await tv.eventually(async () => await tv.focused() === "loading", "blank Loading home owns focus");
+        assert.equal(await tv.page.locator('[aria-label="Loading home"]').count(), 1);
+        await tv.page.keyboard.press("ArrowLeft");
+        await tv.page.keyboard.press("ArrowRight");
+        await tv.page.keyboard.press("Enter");
+        assert.equal(await tv.focused(), "loading", "Left, Right and Enter stay on the blank page");
+        await tv.page.keyboard.press("ArrowUp");
+        assert.equal(await tv.focused(), "home");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "loading");
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "home", "Back from the blank page lands on Home");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "loading");
+        heldLoadingFocus.release();
+    },
+    readyTimeout: 4000,
+});
+
+let heldBarFocus: { release(): void };
+journey("Home rows that arrive while the bar is focused leave focus on Home", async tv => {
+    const landed = await tv.page.evaluate(() => ({ key: document.activeElement?.getAttribute("data-focus"), connected: document.activeElement?.isConnected === true }));
+    assert.deepEqual(landed, { key: "home", connected: true });
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+}, undefined, undefined, {
+    beforeMount: tv => { heldBarFocus = tv.fake.hold("/home/sections", true); },
+    beforeReady: async tv => {
+        await tv.eventually(async () => await tv.focused() === "loading", "blank page before the rows");
+        await tv.page.keyboard.press("ArrowUp");
+        assert.equal(await tv.focused(), "home");
+        heldBarFocus.release();
+    },
+    readyTimeout: 4000,
 });
 
 let heldHomeLoading: { release(): void };

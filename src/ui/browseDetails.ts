@@ -4,6 +4,7 @@ import type { Episode, ItemDetail, Season } from "../contracts/v2/catalog.ts";
 import type { Credit, Person } from "../contracts/v2/details.ts";
 import type { Card } from "../contracts/v2/catalog.ts";
 import type { DetailsState } from "./detailsState.ts";
+import { TRANSLATE_DESCRIPTION_LABEL, type DescriptionTranslationStatus } from "./descriptionTranslation.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { artworkUrl, clockTime, episodeLabel, playChoices, type PlayRequest } from "./browseModel.ts";
 import { actionButton, artwork, cardItem, heading, lines, mediaItem, type ViewContext, zoneNode } from "./browseViews.ts";
@@ -100,6 +101,19 @@ function metaLine(detail: ItemDetail, state?: DetailsState): string {
     return parts.join("\u2002·\u2002");
 }
 
+function overviewText(overview: string, status: DescriptionTranslationStatus | undefined): HTMLElement {
+    const text = el("p", "browse-text browse-overview", overview);
+    if (status !== undefined) text.classList.add("has-translation-status");
+    if (status?.kind === "translating") text.classList.add("is-translating");
+    return text;
+}
+
+function translationStatus(status: DescriptionTranslationStatus): HTMLElement {
+    const line = el("p", "description-translation-status", status.text);
+    line.dataset.translationStatus = status.kind;
+    return line;
+}
+
 function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonly FocusItem[], state?: DetailsState, summary?: string): HTMLElement[] {
     const nodes: HTMLElement[] = [];
     const label = episodeLabel(detail.seasonNumber, detail.episodeNumber);
@@ -149,8 +163,10 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     const presentation = episodeDetailPresentation(detail, context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false }, state?.values.get("watched"));
     const episodeOverview = episode === undefined ? undefined : episodeDetailPresentation({ type: "episode", overview: episode.overview || playback?.detail.overview, watch: { played: episode.played, isInProgress: episode.isInProgress, positionSeconds: episode.positionSeconds } }, context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false }).overview;
     const overview = episode === undefined ? presentation.overview : [playback?.detail.title ?? episode.title, episodeOverview].filter(Boolean).join(" · ");
-    if (overview !== undefined && overview !== "") {
-        nodes.push(el("p", "browse-text browse-overview", overview));
+    const translation = state?.descriptions?.status(episode, playback?.detail);
+    if ((overview !== undefined && overview !== "") || translation !== undefined) {
+        if (overview !== undefined && overview !== "") nodes.push(overviewText(overview, translation));
+        if (translation !== undefined) nodes.push(translationStatus(translation));
     }
     const directors = detail.extra?.crew.filter(credit => credit.role.toLowerCase() === "director").map(credit => credit.name);
     const credit = detail.type === "movie" ? directors?.length ? `Directed by ${directors.slice(0, 2).join(", ")}` : undefined : detail.extra?.cast.length ? `Starring ${detail.extra.cast.slice(0, 3).map(person => person.name).join(", ")}` : undefined;
@@ -463,6 +479,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         const season = seasons.find(season => season.seasonNumber === state.series?.seasonNumber);
         if (season !== undefined) items.push(actionButton("season-info", `${season.title} details`, () => context.open({ kind: "season", id: season.id, seriesId: detail.id, seasonNumber: season.seasonNumber, title: `${detail.title} · ${season.title}` })));
         if (overview) items.push(actionButton("synopsis", "Read synopsis", () => synopsis.show(overview)));
+        if (state.descriptions?.offers() === true) items.push(actionButton("translate-description", TRANSLATE_DESCRIPTION_LABEL, () => { state.descriptions?.translate(); state.closePanel(); }));
         if (["movie", "series"].includes(detail.type)) items.push(actionButton("rate", "Rate title", () => state.showPanel("rating")));
         return detailPanel(view, state, "More", items.length ? items : [actionButton("close-more", "Close", () => state.closePanel())], personal?.notes);
     }

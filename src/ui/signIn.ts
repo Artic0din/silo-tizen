@@ -5,16 +5,17 @@
 import { type Clock, systemClock } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
 import { operations } from "../api/operations.ts";
+import type { ServerConnection } from "../api/discovery.ts";
 import { type AdvancedScheme, advancedAddress, plainHttpFallbacks, portFieldFault } from "../api/serverUrl.ts";
 import { resolveBrandingAsset } from "../contracts/v2/branding.ts";
-import { type ConnectedServer, type ConnectResult, connect, forgetStoredCredential, type SessionCoreDeps } from "../session/core.ts";
+import { type ConnectedServer, type ConnectResult, connect, forgetStoredCredential, openDiscoveredServer, type SessionCoreDeps } from "../session/core.ts";
 import type { DeviceCodeView, DeviceLogin, DeviceLoginState } from "../session/deviceLogin.ts";
 import { passwordLogin } from "../session/passwordLogin.ts";
 import type { LogoutResult } from "../session/session.ts";
 import { cachedBranding, storeBranding } from "./brandingCache.ts";
 import { codeScreen, type CodeScreen } from "./codeScreen.ts";
 import { credentialsScreen, type CredentialsScreen } from "./credentialsScreen.ts";
-import { actionRow, chip, errorText, field, headline, keyboardCard, lead, marqueeButton, marqueeScreen, noteChips, setServerMark, textInput } from "./marquee.ts";
+import { actionRow, chip, errorText, field, headline, keyboardCard, lead, marqueeButton, marqueeScreen, noteChips, setServerMark, setupNeededCard, textInput } from "./marquee.ts";
 import { MarqueeBackdrop } from "./marqueeBackdrop.ts";
 import { type Control, el, type Note, type Screen, ScreenHost } from "./screen.ts";
 import * as text from "./signInText.ts";
@@ -137,11 +138,17 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     let connecting: AbortController | undefined;
     let active: Active | undefined;
     let destroyed = false;
+    /** The server whose setup screen is showing. */
+    let pendingSetup: ServerConnection | undefined;
+    let setupProbe: AbortController | undefined;
+    let checkingSetup = false;
 
     const destroy = (): void => {
         destroyed = true;
         connecting?.abort();
         connecting = undefined;
+        setupProbe?.abort();
+        setupProbe = undefined;
         leaveSignIn();
         document.removeEventListener("visibilitychange", onVisibility);
         backdrop.destroy();
@@ -394,7 +401,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         let result: ConnectResult = { status: "unreachable" };
         for (const candidate of addresses) {
             result = await connect(candidate, { ...core, allowOfflineRestore: offlineRestore }, signal);
-            if (result.status === "connected" || signal.aborted) {
+            if (result.status === "connected" || result.status === "needs_setup" || signal.aborted) {
                 break;
             }
         }
@@ -436,7 +443,137 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         show({ name: "insecure", content: [behind, alert], controls, focus: "connect", back: decline });
     };
 
+    const cancelSetupCheck = (): void => {
+        setupProbe?.abort();
+        setupProbe = undefined;
+        checkingSetup = false;
+    };
+
+    /** Check again found a ready server, or Back popped to the login screen underneath. */
+    const enterSignIn = (server: ConnectedServer): void => {
+        if (destroyed) {
+            return;
+        }
+        pendingSetup = undefined;
+        connected(server);
+    };
+
+    const showNeedsSetup = (checking: boolean, error?: string): void => {
+        const server = pendingSetup;
+        if (server === undefined) {
+            return;
+        }
+        const base = server.http.base.baseUrl;
+        const retry = marqueeButton("retry", checking ? "Checking…" : "Check again", "primary", () => {
+            checkAgain();
+        }, { glyph: "retry", loading: checking });
+        const change = marqueeButton("change", "Change server", "plain", () => {
+            leaveForAddress();
+        });
+        const copy = [
+            setupNeededCard(text.serverHostLabel(base), base, text.SETUP_NEEDED),
+            headline(text.SERVER_NOT_READY_TITLE),
+            lead(text.SERVER_NOT_READY_BODY),
+        ];
+        if (error !== undefined) {
+            copy.push(errorText(error));
+        }
+        copy.push(actionRow([retry, change]));
+        show({
+            name: "needs-setup",
+            content: marqueeScreen(copy),
+            controls: [
+                { ...retry, row: 0, landing: true },
+                { ...change, row: 0 },
+            ],
+            focus: "retry",
+            back: () => {
+                backToSignIn();
+            },
+        });
+    };
+
+    /** ServerNeedsSetupRetryModel.retry. A check already running is ignored, and the button stays enabled. */
+    const checkAgain = (): void => {
+        if (checkingSetup || pendingSetup === undefined) {
+            return;
+        }
+        const expected = address;
+        checkingSetup = true;
+        setupProbe?.abort();
+        const controller = new AbortController();
+        setupProbe = controller;
+        showNeedsSetup(true);
+        void connect(expected, { ...core, allowOfflineRestore: false }, controller.signal).then((result) => {
+            if (controller.signal.aborted || destroyed || address !== expected || host.name !== "needs-setup") {
+                return;
+            }
+            checkingSetup = false;
+            setupProbe = undefined;
+            if (result.status === "needs_setup") {
+                pendingSetup = result.server;
+                showNeedsSetup(false, text.STILL_NEEDS_SETUP);
+                return;
+            }
+            if (result.status !== "connected") {
+                showNeedsSetup(false, text.SETUP_UNREACHABLE);
+                return;
+            }
+            enterSignIn(result);
+        }, (error: unknown) => {
+            if (controller.signal.aborted || destroyed || host.name !== "needs-setup") {
+                return;
+            }
+            checkingSetup = false;
+            setupProbe = undefined;
+            showNeedsSetup(false, text.SETUP_UNREACHABLE);
+            if (!(error instanceof ApiError)) {
+                clock.schedule(() => {
+                    throw error;
+                }, 0);
+            }
+        });
+    };
+
+    /** Menu pops to the login screen already under this one. The probe is cancelled first. */
+    const backToSignIn = (): void => {
+        const server = pendingSetup;
+        if (server === undefined) {
+            return;
+        }
+        cancelSetupCheck();
+        // The screen stays up until sign-in replaces it. Ignore another check in that moment.
+        checkingSetup = true;
+        void openDiscoveredServer(server, core).then((opened) => {
+            // Change server clears or replaces pendingSetup while the saved account is still being read.
+            if (!destroyed && host.name === "needs-setup" && pendingSetup === server) {
+                enterSignIn(opened);
+            }
+        }, (error: unknown) => {
+            clock.schedule(() => {
+                throw error;
+            }, 0);
+        });
+    };
+
+    const leaveForAddress = (): void => {
+        cancelSetupCheck();
+        pendingSetup = undefined;
+        showEntry([], false, "connect");
+    };
+
     const connected = (result: ConnectResult): void => {
+        if (result.status === "needs_setup") {
+            address = result.server.http.base.baseUrl;
+            scheme = "auto";
+            port = "";
+            advanced = false;
+            writeServer(core, address);
+            pendingSetup = result.server;
+            checkingSetup = false;
+            showNeedsSetup(false);
+            return;
+        }
         if (result.status !== "connected") {
             showEntry([], result.status !== "invalid_url", "connect", text.connectProblem(result));
             return;

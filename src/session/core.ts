@@ -3,10 +3,12 @@
 
 import { type Clock, systemClock } from "../api/clock.ts";
 import { clearBrowseCache } from "./browseCache.ts";
-import { discoverServer, type DiscoveryResult, type ServerConnection } from "../api/discovery.ts";
+import { discoverServer, failedDiscovery, type DiscoveryResult, type ServerConnection } from "../api/discovery.ts";
 import { NativeHttp, type FetchLike } from "../api/http.ts";
 import { ApiError } from "../api/errors.ts";
+import { operations } from "../api/operations.ts";
 import { parseServerUrl, type ServerUrlProblem } from "../api/serverUrl.ts";
+import type { SetupStatus } from "../contracts/v2/wire.ts";
 import { CredentialVault, type VaultClear } from "./credentialVault.ts";
 import { DeviceLogin } from "./deviceLogin.ts";
 import { deviceHeaders, loadDeviceId, type PublicStorage, type RandomBytes } from "./deviceIdentity.ts";
@@ -49,51 +51,49 @@ export interface ConnectedServer {
     createDeviceLogin(): DeviceLogin;
 }
 
-export type ConnectResult = ConnectedServer | Exclude<DiscoveryResult, { readonly status: "connected" }>;
+/** The address answered, and `needs_setup` is still true. No session is opened. */
+export interface ServerNeedsSetup {
+    readonly status: "needs_setup";
+    readonly server: ServerConnection;
+}
 
-export async function connect(serverAddress: string, deps: SessionCoreDeps, signal?: AbortSignal): Promise<ConnectResult> {
+export type ConnectResult = ConnectedServer | ServerNeedsSetup | Exclude<DiscoveryResult, { readonly status: "connected" }>;
+
+/** Opens a session on a server discovery has already accepted. */
+export async function openDiscoveredServer(server: ServerConnection, deps: SessionCoreDeps): Promise<ConnectedServer> {
+    return openServerSession(server, deps, "online");
+}
+
+function openServerSession(server: ServerConnection, deps: SessionCoreDeps, mode: "online"): Promise<ConnectedServer>;
+function openServerSession(server: ServerConnection, deps: SessionCoreDeps, mode: "offline"): Promise<ConnectedServer | { readonly status: "unreachable" }>;
+async function openServerSession(server: ServerConnection, deps: SessionCoreDeps, mode: "online" | "offline"): Promise<ConnectedServer | { readonly status: "unreachable" }> {
     const clock = deps.clock ?? systemClock;
     const device = deviceHeaders(loadDeviceId(deps.publicStorage, deps.randomBytes), deps.deviceName, deps.devicePlatform);
-    let discovered = await discoverServer(serverAddress, device, deps.fetch, clock, signal);
     let session: NativeSession;
-    const offlineDiscovery = discovered.status === "unreachable";
-    if (discovered.status === "unreachable" && deps.allowOfflineRestore !== false && !deps.addAccount && !signal?.aborted) {
-        const parsed = parseServerUrl(serverAddress);
-        if (parsed.ok) {
-            try {
-                const transient = deps.keyManager === undefined ? deps.transientAccounts : undefined;
-                const directory = new AccountDirectory(transient?.storage ?? deps.publicStorage, deps.randomBytes);
-                const saved = directory.list().find(row => row.id === (deps.localAccountId ?? directory.selected) && row.baseUrl === parsed.base.baseUrl && !row.needsSignIn);
-                if (saved) {
-                    let verified = false;
-                    let checking: Promise<void> | undefined;
-                    const verify = async (): Promise<void> => {
-                        if (verified) return;
-                        const generation = session.authorityGeneration;
-                        const fresh = await discoverServer(serverAddress, device, deps.fetch, clock, session.authoritySignal);
-                        if (generation !== session.authorityGeneration) throw new ApiError({ kind: "aborted" });
-                        if (fresh.status !== "connected") {
-                            throw new ApiError(fresh.status === "unreachable" ? { kind: "network" } : { kind: "invalid_response", path: "/system/identity" });
-                        }
-                        if (fresh.server.serverId !== saved.serverId) {
-                            await session.deploymentChanged();
-                            throw new ApiError({ kind: "aborted" });
-                        }
-                        verified = true;
-                    };
-                    const check = (): Promise<void> => {
-                        checking ??= verify().finally(() => { checking = undefined; });
-                        return checking;
-                    };
-                    discovered = { status: "connected", server: { http: new NativeHttp(parsed.base, device, deps.fetch, clock, check), serverId: saved.serverId, serverVersion: "" } };
-                }
-            } catch { /* Unreadable local identity cannot authorize an offline restore. */ }
-        }
+    const offlineDiscovery = mode === "offline";
+    if (offlineDiscovery) {
+        let verified = false;
+        let checking: Promise<void> | undefined;
+        const verify = async (): Promise<void> => {
+            if (verified) return;
+            const generation = session.authorityGeneration;
+            const fresh = await discoverServer(server.http.base.baseUrl, device, deps.fetch, clock, session.authoritySignal);
+            if (generation !== session.authorityGeneration) throw new ApiError({ kind: "aborted" });
+            if (fresh.status !== "connected") {
+                throw new ApiError(fresh.status === "unreachable" ? { kind: "network" } : { kind: "invalid_response", path: "/system/identity" });
+            }
+            if (fresh.server.serverId !== server.serverId) {
+                await session.deploymentChanged();
+                throw new ApiError({ kind: "aborted" });
+            }
+            verified = true;
+        };
+        const check = (): Promise<void> => {
+            checking ??= verify().finally(() => { checking = undefined; });
+            return checking;
+        };
+        server = { ...server, http: new NativeHttp(server.http.base, device, deps.fetch, clock, check) };
     }
-    if (discovered.status !== "connected") {
-        return discovered;
-    }
-    const server = discovered.server;
     let vault: AccountVault;
     const transient = deps.keyManager === undefined ? deps.transientAccounts : undefined;
     try { vault = new AccountVault(transient?.secrets ?? openSecretStore(deps.keyManager), transient?.storage ?? deps.publicStorage, server.http.base.baseUrl, deps.randomBytes, deps.localAccountId, deps.addAccount, transient?.storage); }
@@ -125,6 +125,46 @@ export async function connect(serverAddress: string, deps: SessionCoreDeps, sign
         accounts: vault,
         createDeviceLogin: () => new DeviceLogin(session, clock, device.name, device.platform),
     };
+}
+
+export async function connect(serverAddress: string, deps: SessionCoreDeps, signal?: AbortSignal): Promise<ConnectResult> {
+    const clock = deps.clock ?? systemClock;
+    const device = deviceHeaders(loadDeviceId(deps.publicStorage, deps.randomBytes), deps.deviceName, deps.devicePlatform);
+    const savedServer = (): ServerConnection | undefined => {
+        if (deps.allowOfflineRestore === false || deps.addAccount || signal?.aborted) return;
+        const parsed = parseServerUrl(serverAddress);
+        if (!parsed.ok) return;
+        try {
+            const transient = deps.keyManager === undefined ? deps.transientAccounts : undefined;
+            const directory = new AccountDirectory(transient?.storage ?? deps.publicStorage, deps.randomBytes);
+            const saved = directory.list().find(row => row.id === (deps.localAccountId ?? directory.selected) && row.baseUrl === parsed.base.baseUrl && !row.needsSignIn);
+            if (saved !== undefined) return { http: new NativeHttp(parsed.base, device, deps.fetch, clock), serverId: saved.serverId, serverVersion: "" };
+        } catch { /* Unreadable local identity cannot authorize an offline restore. */ }
+        return;
+    };
+    const discovered = await discoverServer(serverAddress, device, deps.fetch, clock, signal);
+    if (discovered.status === "unreachable") {
+        const saved = savedServer();
+        return saved === undefined ? discovered : openServerSession(saved, deps, "offline");
+    }
+    if (discovered.status !== "connected") {
+        return discovered;
+    }
+    // Apple TV commits a server only after GET /api/v2/system/setup succeeds (AuthService.checkServer).
+    let setup: SetupStatus;
+    try {
+        setup = await discovered.server.http.send({ ...operations.setupStatus(), signal });
+    } catch (error) {
+        if (error instanceof ApiError && !error.aborted && ["network", "timeout"].includes(error.failure.kind)) {
+            const saved = savedServer();
+            if (saved?.serverId === discovered.server.serverId) return openServerSession(discovered.server, deps, "offline");
+        }
+        return failedDiscovery(error);
+    }
+    if (setup.needsSetup) {
+        return { status: "needs_setup", server: discovered.server };
+    }
+    return openDiscoveredServer(discovered.server, deps);
 }
 
 /** Offline removal still clears local authority; reachable accounts also revoke their session. */

@@ -13,6 +13,8 @@ All notable changes to this project are documented in this file.
 - Retained signed Details artwork in session memory, matched offline Details errors and episode Retry to Apple TV, and restored the hero when recovery removed Retry.
 - Cleared only the signed-out account's cached browse content, including offline saved-account removal.
 - Preserved cached Details artwork and supporting content offline, protected visited titles from Home enrichment eviction, and retained the selected season during recovery.
+- Stopped a device-code poll from going out when its wait ended as the screen hid. A poll already sent still finishes, and coming back polls at once.
+- Kept Search's navigation column when a square People portrait animates on focus.
 - Restored Cast focus clearance and corrected Details episode spacing, picker selection, Related badges and action glyphs against Apple TV measurements.
 - Corrected Details caption gaps, resting Cast spacing, series colours and genres, and intrinsic Versions sizing.
 - Activated Series seasons on resting focus, preserved complete episode scroll steps, and corrected Details spacing, hero contrast, Versions and SDH subtitle presentation.

@@ -579,8 +579,9 @@ export class FocusHost {
 /** Home stills are wider than they are tall; posters are the other way. Explore all uses the row's art box. */
 function landscapeArt(element: HTMLElement): boolean {
     const art = element.querySelector(".browse-art");
-    const box = (art instanceof HTMLElement ? art : element).getBoundingClientRect();
-    return box.width > box.height;
+    const box = art instanceof HTMLElement ? art : element;
+    // Focus transforms can round a square's viewport width above its height.
+    return box.offsetWidth > box.offsetHeight;
 }
 
 function nearestItem(items: readonly FocusItem[], from: HTMLElement, navigationX?: number): FocusItem | undefined {

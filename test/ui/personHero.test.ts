@@ -320,10 +320,11 @@ async function upFromColumns(tv: Tv, columns: number, selected: string): Promise
         const card = await tv.focused();
         assert.match(card ?? "", /^(movie|series):/, `column ${column} kept a card`);
         await tv.page.keyboard.press("ArrowUp");
-        // Replaces `assert.equal(await tv.focused(), filter, "column ${column} used to land on the nearest chip, or stay on the card")`
-        // from "Up from each first-row column returns to the focused filter chip".
+        // Replaces `assert.equal(landed, column <= 1 ? selected : card, "column ${column} used to return to the focused Movies chip")`.
+        // That followed the selected filter, which matches column 0 only while All is selected.
         const landed = await tv.focused();
-        assert.equal(landed, column <= 1 ? selected : card, `column ${column} used to return to the focused Movies chip`);
+        const expected = column === 0 ? "filter:video" : column === 1 ? "filter:series" : card;
+        assert.equal(landed, expected, `column ${column} lands on the chip spanning the card's left edge; selected ${selected} does not decide`);
         assert.ok(landed, "focus was lost");
         await tv.page.locator('[data-focus="filter:movie"]').focus();
     }

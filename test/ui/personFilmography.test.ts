@@ -158,14 +158,15 @@ journey("Person uses the Apple source geometry and remote zones", async tv => {
     await tv.page.keyboard.press("ArrowRight");
     assert.equal(await tv.focused(), await grid(tv).nth(1).getAttribute("data-focus"));
     await tv.page.keyboard.press("ArrowUp");
-    // Replaces `assert.equal(await tv.focused(), "filter:movie", "was the second card when no chip contained its centre")`.
-    assert.equal(await tv.focused(), "filter:video", "was filter:movie when Up restored the focused chip; column 1 overlaps the row and All stays selected");
+    // Replaces `assert.equal(await tv.focused(), "filter:video", "was filter:movie when Up restored the focused chip; column 1 overlaps the row and All stays selected")`.
+    assert.equal(await tv.focused(), "filter:series", "column 1's left edge meets Series; the selected All chip does not take Up");
     await grid(tv).nth(2).focus();
     const third = await tv.focused();
     await tv.page.keyboard.press("ArrowUp");
     assert.equal(await tv.focused(), third, "was filter:movie when Up restored the focused chip; no chip is above column 2");
     await grid(tv).first().focus();
     await tv.page.keyboard.press("ArrowUp");
+    assert.equal(await tv.focused(), "filter:video", "column 0 meets All along its left edge, including when another chip was focused on the way down");
     await tv.jump(300);
     assert.equal(await tv.page.locator(".browse").evaluate(node => node.scrollTop), 0);
     await grid(tv).last().focus();

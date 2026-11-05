@@ -1,8 +1,9 @@
 // Remote focus for the browse screens. A view is a stack of zones, top to bottom: a row of
 // cards, a grid of cards, a column of episodes or a row of buttons. Each zone has one focused
 // item at a time. Arrows move inside the zone and, past its edge, into the next. Up and Down
-// between content rows keep the column. Down from a landscape card into a poster row uses that
-// card's position. Down from the top bar lands on the leftmost card.
+// between content rows keep the column. An aligned row lands on the item closest to the focused
+// item's left edge, and stays when they do not meet. Down from a landscape card into a poster
+// row uses that card's position. Down from the top bar lands on the leftmost card.
 // Focus is restored by zone id and item key, never by position, and a key press always
 // brings lost focus back.
 // The sign-in ScreenHost moves through one list; grids and stacked rows need two dimensions.
@@ -44,7 +45,7 @@ export interface Zone {
     /** row: Left/Right move. column: Up/Down move. grid: both, `columns` items per row. */
     readonly layout: "row" | "column" | "grid";
     readonly columns?: number;
-    /** `true`: nearest centre between zones. `"aligned"`: a target whose horizontal span meets the focused item; otherwise the move stays. */
+    /** `true`: nearest centre between zones. `"aligned"`: the intersecting item closest to the focused item's left edge; otherwise the move stays. */
     readonly spatial?: boolean | "aligned";
     readonly items: readonly FocusItem[];
 }
@@ -392,21 +393,33 @@ export class FocusHost {
                 const columns = Math.max(1, zone.columns ?? 1);
                 const edge = step === 1 ? 0 : Math.floor((zone.items.length - 1) / columns) * columns;
                 const edgeItems = zone.layout === "grid" ? zone.items.slice(edge, edge + columns) : zone.items;
-                const candidates = zone.spatial === "aligned" ? edgeItems.filter(item => {
+                // Selection and the last focused chip do not choose this landing. The item that
+                // meets the focused item and sits closest to its left edge does; no meeting, no move.
+                if (zone.spatial === "aligned") {
                     const origin = from.element.getBoundingClientRect();
-                    const target = item.element.getBoundingClientRect();
-                    return origin.left < target.right && target.left < origin.right;
-                }) : edgeItems;
-                if (spatial && candidates.length === 0) return true;
+                    let match: FocusItem | undefined;
+                    let best = Number.POSITIVE_INFINITY;
+                    for (const item of edgeItems) {
+                        const target = item.element.getBoundingClientRect();
+                        if (origin.left >= target.right || target.left >= origin.right) continue;
+                        const distance = Math.max(0, target.left - origin.left);
+                        if (distance < best) {
+                            best = distance;
+                            match = item;
+                        }
+                    }
+                    if (match !== undefined) this.focusItem(zone, match);
+                    return true;
+                }
                 // A landscape card is wider than the poster column it was reached from, so the
                 // remembered axis points at a different poster. Measure this card instead.
                 const fromWide = landscapeArt(from.element);
-                const toPoster = candidates[0] !== undefined && !landscapeArt(candidates[0].element);
+                const toPoster = edgeItems[0] !== undefined && !landscapeArt(edgeItems[0].element);
                 if (fromWide && toPoster) {
                     const rect = from.element.getBoundingClientRect();
                     this.navigationX = rect.left + rect.width / 2;
                 }
-                const nearest = spatial ? nearestItem(candidates, from.element, this.navigationX) : undefined;
+                const nearest = spatial ? nearestItem(edgeItems, from.element, this.navigationX) : undefined;
                 this.focusItem(zone, zone.items.find(item => item.key === zone.entry) ?? nearest ?? zone.items.find((item) => item.key === remembered) ?? zone.items[0]);
                 return true;
             }

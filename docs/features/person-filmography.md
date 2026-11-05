@@ -64,7 +64,7 @@ Source paths below are relative to `iosApp/iosApp/` at that commit.
 | Dates | `Screens/People/PersonDetailView.swift:896–930` | Local Gregorian components and medium date using the device region; Australian region gives `28 Nov 1994` |
 | States | `Screens/People/PersonDetailView.swift:88–116`, `:409–421`, `:484–486`, `:720–762` | Independent reads, hero shell and metadata capsule; error/Retry or empty filmography |
 | Status ribbons | `tvOS/Screens/Components/TVCatalogGrid.swift:83`, `tvOS/Screens/Components/TVMediaCard.swift:214–215`, `Overlays/OverlayRegistry.swift:346–372` | All catalog cards use the shared configured overlay owner; show_status remains disabled by default and obeys administrator/profile preferences |
-| Focus and scrolling | `tvOS/Screens/Components/TVCatalogGrid.swift:58–124`, `Screens/People/PersonDetailView.swift:400–441` | Row focus sections inside a ScrollView; Tizen uses aligned spatial zone entry, stays on a card without a chip above it, and reveals the full hero when chips regain focus |
+| Focus and scrolling | `tvOS/Screens/Components/TVCatalogGrid.swift:58–124`, `Screens/People/PersonDetailView.swift:400–441` | Row focus sections inside a ScrollView; Tizen's aligned move lands on the chip closest to the card's left edge, stays when no chip meets the card, and reveals the full hero when chips regain focus |
 
 The inherited server query contract reference is `cc8514943289045e7b9f7ac8d36d4968bfe93926`, and the Android Person detail design reference is `6f3e36820e573cd63d73f200fb2beb160ff09f85`.
 Tizen uses explicit page actions to preserve no-fetch-on-focus, rather than Apple's near-end loading.
@@ -91,7 +91,7 @@ Do not assume the Apple installation matches the source revision above.
    Enter applies the filter and preserves chip focus through loading, success, empty and failure.
    On Apple, use the remote to focus and select the same chips; record the native focus landing rather than assuming it.
 3. Press Down from the chips to the grid, move Left/Right across a row and Up/Down between rows, and test all four outer edges and the partial final row.
-   On Samsung, Up from the first row enters a chip only when the card's centre is below that chip; otherwise focus stays on the card.
+   On Samsung, Up from the first row enters the chip closest to the card's left edge, and stays on the card when no chip meets it.
    Returning to chips restores scroll to zero; Left/Right at row edges stay on that card, Down from the last row reaches the pager, and Up returns to the remembered card.
    Capture the same first-row card focused on both clients, then scroll to a later shared title.
    Samsung uses Next page/Previous page with Enter; Apple loads near the end of the grid.

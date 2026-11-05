@@ -6,7 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Moved Up from a Person filmography card to the selected filter when the card overlaps that chip row, leaving a card with no chip above it in place, and scrolled the first row to the page's 72 px bottom padding plus the tvOS safe area.
+- Moved Up from a Person filmography card to the chip closest to that card's left edge, leaving the card in place when no chip meets it, and scrolled the first row to the page's 72 px bottom padding plus the tvOS safe area.
 
 - Reset fresh Person visits from Search and applied delayed poster and badge preferences on Person.
 

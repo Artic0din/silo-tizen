@@ -7,6 +7,34 @@ import { connected, signIn } from "./support/harness.ts";
 import { problem } from "./support/fakeSilo.ts";
 import { decodeSeasons } from "../../src/contracts/v2/catalog.ts";
 
+for (const recovery of ["boundary", "selection"] as const) test(`one neighbour success preserves the other edge's failure and ${recovery} recovery`, async () => {
+    const h = await connected(); await signIn(h);
+    const profile = (await h.core.profiles.list()).find(profile => profile.id === "p-owner"); assert.ok(profile); h.core.profiles.select(profile);
+    const catalog = new FakeDetails(); h.fake.catalog = catalog;
+    const seasons = decodeSeasons({ items: [1, 2, 3].map(number => ({ content_id: `s${number}`, season_number: number, title: `Season ${number}`, episode_count: 14 })) });
+    const body = catalog.route("GET", "/catalog/series/series%3As1/seasons/1/episodes", "p-owner")?.body as { items: Record<string, unknown>[] };
+    const page = (season: number) => ({ items: Array.from({ length: 14 }, (_, index) => ({ ...body.items[0], content_id: `edge:${season}:${index}`, season_number: season, episode_number: index + 1 })) });
+    h.fake.script(operations.listSeasonEpisodes("series:s1", 2).path, { status: 200, body: page(2) });
+    h.fake.script(operations.listSeasonEpisodes("series:s1", 1).path, problem(422, "validation_failed", "Unavailable"));
+    const held = h.fake.hold(operations.listSeasonEpisodes("series:s1", 3).path, true);
+    h.fake.script(operations.listSeasonEpisodes("series:s1", 3).path, { status: 200, body: page(3) });
+    const state = new SeriesEpisodes(h.core.session, "series:s1", seasons, () => undefined, 2);
+    const settle = async (): Promise<void> => { for (let i = 0; i < 8; i++) await h.clock.advance(0); };
+    state.start(); await settle();
+    assert.equal(state.boundaryFailed, true);
+    held.release(); await settle();
+    assert.equal(state.boundaryFailed, true, "success on the right must not hide the left failure");
+    const reads = h.fake.requests.length;
+    state.focus("edge:2:1"); await settle();
+    assert.equal(h.fake.requests.length, reads, "interior moves never retry");
+    h.fake.script(operations.listSeasonEpisodes("series:s1", 1).path, { status: 200, body: page(1) });
+    if (recovery === "boundary") state.focus("edge:2:0"); else state.select(1);
+    await settle();
+    assert.equal(state.boundaryFailed, false);
+    assert.equal(state.railEpisodes?.length, 42);
+    state.stop();
+});
+
 test('series entry follows the current season instead of the first season', async () => {
     const h = await connected();
     const seasons = decodeSeasons({ items: [1, 14].map(number => ({ content_id: `s${number}`, season_number: number, title: `Season ${number}`, episode_count: 10, user_data: { played: number === 1, watched_count: number === 1 ? 10 : 4, in_progress_count: number === 14 ? 1 : 0 } })) });

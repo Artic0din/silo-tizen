@@ -28,9 +28,19 @@ Episode-row entry uses the in-progress episode, first unwatched episode, or firs
 The rail anchors the current card to the leading slot and applies the profile's poster-size scale to Apple's 360×200 base stills.
 Watched episodes carry a check disc over the still, and moving Down to Cast & Crew centres that section in the viewport.
 These values follow Apple main at `ffa6e5188c70664090a6dc9beb8c7cbbc3ce43e7`; observed 310×174 thumbnails and centered episode placement do not match that revision's Series Swift and remain a native comparison question.
-The accepted initial season loads independently; subsequent season reads require explicit selection and replace obsolete reads.
+The accepted initial season loads independently; neighbouring seasons then warm at least eight distinct episodes per side, crossing empty pages and stopping at missing or failed pages.
+The rail joins contiguous loaded seasons, sorts episodes numerically and removes duplicate content identities.
+It retains the nearest five nonempty pages plus enough adjacent pages for eight episodes per side; empty pages remain cached.
+These window rules port `Screens/Detail/SeriesEpisodeWindow.swift:26-81` and tvOS `Screens/Detail/TVItemDetailView.swift:924-1002` at `7baff3ef657757cc0a69202e86dd4bd5c7fcb585`.
 Re-selecting a loading chip keeps the same request and Calendar episode context.
-Moving focus makes no request.
+Moving within the selected loaded season makes no request.
+Crossing into another loaded season selects its cached page and warms its neighbours, as `ItemDetailViewModel.swift:1290-1303` does under tvOS.
+Re-entering a boundary after a failed neighbour read retries it; existing cards remain usable and show an inline error.
+Entry and focus share the stepped offset in `TVEpisodeRail.swift:400-414,436-468`; `SkylineScroll` remains the only scrolling owner.
+All DOM cards stay focusable offscreen, providing the predecessor that SwiftUI's lazy stack keeps via its hidden lookbehind (`TVEpisodeRail.swift:331-378`).
+Source arithmetic does not reproduce the supplied 5 November x1158 focused-E05 measurement: at Standard size with ten previous-season episodes, index 14 gives 5600px of scroll, putting the resting card at x118 and focused artwork at about x109 in desktop Chromium.
+Compact uses a 309.6px card and 349.6px pitch; the same rule still anchors E05 to the leading slot.
+No offset compensates for this unresolved source/runtime difference, and no native comparison has run for this revision.
 Accepting a season queues its episode catalog details with at most four reads in flight, deduplicated against the next-up read and this visit's cache.
 Each accepted episode detail starts its existing playback/preference owner before focus reaches it.
 All cached episodes share a series-wide playback gate while any series preference save is pending or unconfirmed.

@@ -1,3 +1,5 @@
+import { episodeRailOffset } from "./episodeRail.ts";
+
 /** Apple's focused History rows 2 and 3 put the unlifted poster top here. */
 const HISTORY_POSTER_TOP = 554;
 
@@ -16,12 +18,17 @@ export class SkylineScroll {
         if (first === undefined || last === undefined) return 0;
         const style = getComputedStyle(row), inset = parseFloat(style.paddingLeft);
         const spacing = parseFloat(getComputedStyle(first).marginRight);
-        const step = first.offsetWidth + spacing;
         const contentWidth = last.offsetLeft - first.offsetLeft + last.offsetWidth;
-        // TVEpisodeRail rounds its terminal boundary to a complete card step.
-        const maximum = Math.ceil(Math.max(0, contentWidth - (row.clientWidth - 2 * inset)) / step) * step;
+        const viewport = row.clientWidth - inset + first.offsetWidth * .025 + 2;
+        const maximum = episodeRailOffset(cards.length - 1, cards.length, first.offsetWidth, spacing, viewport);
         row.style.paddingRight = `${Math.max(0, row.clientWidth + maximum - inset - contentWidth - spacing)}px`;
         return maximum;
+    }
+
+    static episodeOffset(row: HTMLElement, element: HTMLElement): number {
+        const maximum = SkylineScroll.prepareEpisodeRow(row) ?? 0;
+        const first = row.firstElementChild as HTMLElement | null;
+        return first === null ? 0 : Math.min(maximum, Math.max(0, element.offsetLeft - first.offsetLeft));
     }
 
     move(node: HTMLElement, left: number, top: number): void {
@@ -72,10 +79,8 @@ export class SkylineScroll {
             const left = Math.max(12, parseFloat(style.paddingLeft));
             const right = Math.max(12, parseFloat(style.getPropertyValue("--reveal-end")) || parseFloat(style.paddingRight));
             // Apple keeps a final group of cards; the terminal episode need not occupy the leading slot.
-            const delta = row.classList.contains("details-episodes") ? card.left - bounds.left - left
-                : card.left < bounds.left + left ? card.left - bounds.left - left : card.right > bounds.right - right ? card.right - bounds.right + right : 0;
-            const maximum = SkylineScroll.prepareEpisodeRow(row) ?? Infinity;
-            this.move(row, Math.min(maximum, Math.max(0, row.scrollLeft + delta)), 0);
+            const delta = card.left < bounds.left + left ? card.left - bounds.left - left : card.right > bounds.right - right ? card.right - bounds.right + right : 0;
+            this.move(row, row.classList.contains("details-episodes") ? SkylineScroll.episodeOffset(row, element) : Math.max(0, row.scrollLeft + delta), 0);
         }
         if (container.dataset.view === "search" && element.closest(".search-people-rail") !== null) {
             this.move(viewport, 0, 0);

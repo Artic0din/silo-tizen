@@ -191,6 +191,8 @@ Series season pills are another read-on-focus exception: after 70 ms of resting 
 Leaving a pill cancels its pending activation; selecting it remains immediate.
 The current season keeps its current episode on focus, while a different season starts at E01 and retains pill focus until Down.
 Episode-card focus still uses prefetched data and never starts a detail read.
+Series rail focus crossing into a different loaded season selects its cached page and warms neighbouring seasons, matching Apple's tvOS episode window.
+At a loaded boundary, moving away and back retries a failed neighbour read.
 
 Moving focus never starts a request, activates a route or writes data.
 Fetching belongs to explicit activation (Enter), to a view loading, or to a one-off prefetch.

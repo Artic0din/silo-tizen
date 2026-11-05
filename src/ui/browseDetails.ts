@@ -361,7 +361,10 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         const extras = trailerCards(detail.extras, detail.videos, true).map(card => trailerCard(card, context, state, play));
         if (extras.length > 0) {
             content.push(el("h2", "browse-section-title", "Trailers & More"), zoneNode("browse-row details-extras", extras));
-            zones.push({ id: "extras", layout: "row", items: extras });
+            // TVTrailersRail is a focus section with user-initiated default focus
+            // on the first card, so every entry lands there. Other rails keep
+            // the last visited item.
+            zones.push({ id: "extras", layout: "row", items: extras, entry: extras[0]?.key });
             if (state.extraPending !== undefined) content.push(...lines(["Loading extra…"]));
             if (state.extraFailed !== undefined) content.push(...lines(["Could not load extra. Select its card to retry."], "error"));
         }

@@ -119,3 +119,21 @@ trailerTest("local extras stay ahead of YouTube cards and keep a 48px gap", asyn
     });
     assert.ok(Math.abs(gap - 48) < 1, String(gap));
 });
+
+trailerTest("down from cast always enters Trailers & More on the first card", async (tv, catalog) => {
+    catalog.extras = [{ content_id: "extra:1", file_id: 42, kind: "featurette", title: "Making Of", duration_seconds: 90, still_url: "/art/extra.svg" }];
+    catalog.videos = [YOUTUBE];
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.page.locator(".details-extras").waitFor();
+    await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
+    const firstCast = await tv.page.locator(".details-people [data-focus]").first().getAttribute("data-focus");
+    await tv.page.locator(".details-people [data-focus]").first().focus();
+    await tv.remote(40);
+    assert.equal(await tv.focused(), "extra:extra:1");
+    await tv.remote(39);
+    assert.equal(await tv.focused(), "remote:YouTube:abc_def-1");
+    await tv.remote(38);
+    assert.equal(await tv.focused(), firstCast);
+    await tv.remote(40);
+    assert.equal(await tv.focused(), "extra:extra:1");
+});

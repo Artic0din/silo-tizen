@@ -131,7 +131,7 @@ for (const id of ['movie:m0001', 'series:s1']) detailTest(`${id} reopening start
         await tv.jump(500);
     };
     await open();
-    await tv.page.locator('.details-people [data-focus]').first().focus();
+    for (let step = 0; step < (id.startsWith('series') ? 3 : 1); step++) await tv.remote(40);
     await tv.remote(39);
     await tv.jump(500);
     const measure = () => tv.page.evaluate(() => {
@@ -1340,10 +1340,10 @@ detailTest('Series remote navigation scrolls down to Cast and back to episodes',
             restingTop: rect.top + (rect.height - card.offsetHeight) / 2,
             inside: portrait.top - 2 >= bounds.top && portrait.bottom + 2 <= bounds.bottom,
         };
-    }, null, value => Math.abs(value.headingTop - 546) < 2 && Math.abs(value.restingTop - 615) < 3 && value.inside, "cast heading and portrait settle");
-    assert.ok(Math.abs(resting.headingTop - 546) < 2, "cast heading settles at the measured Apple anchor");
-    // The running Apple build measured 615; TVDetailCastRail includes 12px vertical padding.
-    assert.ok(Math.abs(resting.restingTop - 615) < 3, `resting cast circle top ${resting.restingTop}`);
+    }, null, value => Math.abs(value.headingTop - 367) <= 3 && Math.abs(value.restingTop - 436) <= 3 && value.inside, "cast heading and portrait settle");
+    assert.ok(Math.abs(resting.headingTop - 367) <= 3, "cast heading settles at the measured Apple anchor");
+    // The image starts 69px below the centered heading, independently of focus padding.
+    assert.ok(Math.abs(resting.restingTop - 436) <= 3, `resting cast circle top ${resting.restingTop}`);
     assert.ok(resting.inside, "scaled portrait and focus ring stay inside the row paint area");
     await tv.remote(38);
     assert.match(await tv.focused() ?? '', /^episode:/);

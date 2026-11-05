@@ -14,9 +14,10 @@ export class SeriesEpisodes {
     episodes: readonly Episode[] | undefined;
     railEpisodes: readonly Episode[] | undefined;
     private readonly failedNeighbors = new Set<number>();
+    private readonly failedSelections = new Set<number>();
     private readonly cancelledSeasons = new Set<number>();
     get interrupted(): boolean { return this.episodes === undefined && this.seasonNumber !== undefined && this.cancelledSeasons.has(this.seasonNumber); }
-    get boundaryFailed(): boolean { return [...this.failedNeighbors].some(number => number !== this.seasonNumber || !this.failed); }
+    get boundaryFailed(): boolean { return [...this.failedNeighbors].some(number => !this.failedSelections.has(number) && number !== this.seasonNumber); }
     private readonly pages = new Map<number, readonly Episode[]>();
     private neighbors: AbortController | undefined;
     private readonly pendingNeighbors = new Set<number>();
@@ -65,6 +66,7 @@ export class SeriesEpisodes {
             this.railEpisodes = previous.railEpisodes;
             for (const [number, page] of previous.pages) this.pages.set(number, page);
             for (const number of previous.failedNeighbors) this.failedNeighbors.add(number);
+            for (const number of previous.failedSelections) this.failedSelections.add(number);
             for (const number of previous.cancelledSeasons) this.cancelledSeasons.add(number);
             this.loaded = !refresh && previous.loaded;
             this.failed = previous.failed;
@@ -138,6 +140,7 @@ export class SeriesEpisodes {
             this.updateWindow();
             this.changed("load");
         } else if (this.failedNeighbors.has(season) || this.cancelledSeasons.has(season)) {
+            if (this.failedNeighbors.has(season)) this.failedSelections.add(season);
             this.railEpisodes = [];
             this.failed = this.failedNeighbors.has(season);
             this.changed("load");
@@ -155,6 +158,7 @@ export class SeriesEpisodes {
         this.blur();
         this.requestedBoundaries.clear();
         this.failedNeighbors.clear();
+        this.failedSelections.clear();
         this.controller?.abort();
         this.controller = undefined;
         this.neighbors?.abort();
@@ -183,6 +187,7 @@ export class SeriesEpisodes {
     retryNeighbors(): void {
         if (!this.active) return;
         for (const number of this.failedNeighbors) {
+            if (this.failedSelections.has(number)) continue;
             void this.readNeighbor(number, true);
         }
         this.changed("neighbor");
@@ -215,6 +220,7 @@ export class SeriesEpisodes {
             this.automaticRead = false;
             this.failed = false;
             this.episodes = episodes;
+            this.failedSelections.delete(season);
             this.pages.set(season, episodes);
             this.updateWindow();
             if (!episodes.some(episode => episode.id === this.entryEpisode)) this.entryEpisode = (this.focusSelectedEpisode ? episodes[0] : episodes.find(episode => episode.inProgress) ?? episodes.find(episode => !episode.played) ?? episodes[0])?.id;
@@ -227,6 +233,7 @@ export class SeriesEpisodes {
             this.controller = undefined;
             this.automaticRead = false;
             this.failed = true;
+            this.failedSelections.add(season);
             this.changed("load");
         });
     }
@@ -312,6 +319,7 @@ export class SeriesEpisodes {
             const page = await this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, number), retry: "never", profileScoped: true, signal: controller.signal });
             if (!this.active || controller.signal.aborted) return;
             this.failedNeighbors.delete(number);
+            this.failedSelections.delete(number);
             this.pages.set(number, page);
             if (this.seasonNumber === number && this.episodes === undefined) {
                 this.failed = false;
@@ -330,6 +338,7 @@ export class SeriesEpisodes {
                 this.failedNeighbors.add(number);
                 if (this.seasonNumber === number && this.episodes === undefined) {
                     this.failed = true;
+                    this.failedSelections.add(number);
                     this.changed("load");
                 } else this.changed("neighbor");
             }

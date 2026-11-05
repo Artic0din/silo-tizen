@@ -42,7 +42,6 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, 
         return item;
     });
     const row = zoneNode("browse-row details-episodes", episodes);
-    row.dataset.loadedPredecessor = String((state.railEpisodes?.[0]?.seasonNumber ?? state.seasonNumber) !== state.seasonNumber);
     if (state.entryEpisode !== undefined) row.dataset.scrollEntry = state.entryEpisode;
     const section = el("section", "home-section details-series-rail");
     section.setAttribute("aria-label", "Episodes");

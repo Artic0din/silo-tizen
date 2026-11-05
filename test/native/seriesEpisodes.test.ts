@@ -61,6 +61,30 @@ async function episodeRailHarness(failedSeason?: number, emptySeason?: number, h
     return { ...h, state, settle, reads, held };
 }
 
+test("a failed selected season does not leak its error into a loaded selection", async () => {
+    const h = await episodeRailHarness(1);
+    h.state.select(1, true); await h.settle();
+    assert.equal(h.state.failed, true);
+    h.state.select(3, true); await h.settle();
+    assert.equal(h.state.failed, false);
+    assert.equal(h.state.boundaryFailed, false);
+    h.state.stop();
+});
+
+test("restoring requests keeps the failed row until explicit Retry reads it once", async () => {
+    const h = await episodeRailHarness(1);
+    h.state.select(1, true); await h.settle();
+    const reads = h.reads().length;
+    await h.settle();
+    assert.equal(h.state.failed, true);
+    assert.equal(h.reads().length, reads);
+    h.state.retry(); await h.settle();
+    assert.equal(h.state.failed, false);
+    assert.equal(h.reads().length, reads + 1);
+    assert.equal(h.reads().at(-1), operations.listSeasonEpisodes("series:s1", 1).path);
+    h.state.stop();
+});
+
 test("superseded automatic season is read-free on revisit without a neighbour error", async t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const h = await episodeRailHarness(); t.after(() => h.state.stop());
@@ -174,7 +198,7 @@ for (const outcome of ["failed", "cancelled"] as const) test(`rail boundaries ca
     held?.release(); await h.settle();
     h.state.focus("rail:3:13"); t.mock.timers.tick(70); await h.settle();
     assert.equal(h.reads().length, 4, "rail entry cannot bypass pill failure or cancellation recovery");
-    assert.equal(h.state.boundaryFailed, outcome === "failed", "cancellation is not a neighbour failure");
+    assert.equal(h.state.boundaryFailed, false, "a selected-season failure stays with that season");
 });
 
 for (const outcome of ["success", "empty", "failure"] as const) test(`missing season pill ${outcome} consumes one read without warming or revisit retries`, async t => {

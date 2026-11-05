@@ -577,21 +577,26 @@ for (const reduced of [false, true]) {
         for (let step = 0; step < 11; step++) await press(tv, "ArrowRight");
         await tv.jump(250);
         assert.equal(await tv.focused(), "movie:960");
-        const visible = (): Promise<boolean> => tv.page.locator('[data-focus="movie:960"]').evaluate(card => {
-            const row = card.closest('.browse-row')!.getBoundingClientRect();
+        // Resolve and measure together: a catalog repaint can detach a locator's resolved rail.
+        const sample = () => tv.page.evaluate(() => {
+            const card = document.querySelector('[data-focus="movie:960"]')!;
+            const rail = card.closest('.browse-row')!;
+            const row = rail.getBoundingClientRect();
             const viewport = document.querySelector('.browse')!.getBoundingClientRect();
             const rect = card.getBoundingClientRect();
-            return rect.left >= row.left && rect.right <= row.right && rect.top >= viewport.top && rect.bottom <= viewport.bottom - 64;
+            return { scroll: rail.scrollLeft, visible: rect.width > 0 && rect.left >= row.left && rect.right <= row.right && rect.top >= viewport.top && rect.bottom <= viewport.bottom - 64 };
         });
+        const visible = async (): Promise<boolean> => (await sample()).visible;
         await tv.eventually(visible, "later request revealed before People");
         // Visibility can precede the scroll animation's final frame.
         await tv.jump(250);
-        const scroll = await tv.page.locator('.search-request-rail').evaluate(row => row.scrollLeft);
+        const { scroll } = await sample();
+        assert.ok(scroll > 0, "the later request needs horizontal scrolling");
         const reads = tv.fake.requests.length;
         people.release();
         await tv.page.locator('[data-focus="person:edge-0"]').waitFor({ state: "attached" });
         assert.equal(await tv.focused(), "movie:960");
-        assert.equal(await tv.page.locator('.search-request-rail').evaluate(row => row.scrollLeft), scroll, "rail insertion preserves horizontal scroll");
+        assert.equal((await sample()).scroll, scroll, "rail insertion preserves horizontal scroll");
         await tv.jump(250);
         await tv.eventually(visible, "same-identity repaint reveals vertically displaced request");
         assert.equal(tv.fake.requests.length, reads);

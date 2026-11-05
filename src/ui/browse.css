@@ -796,12 +796,18 @@
 /* TMDB's approved logo replaces its text mark at the score's cap height (0.7x), undimmed, on the baseline. */
 .skyline-rating-logo { height: 14px; width: auto; margin-right: 7px; vertical-align: baseline; }
 .skyline-library .skyline-rating-logo { height: 13px; }
-/* Apple marquee logo: aspect-fit inside 880 x 200 (Home) or 880 x 150 (library), leading. */
-.skyline-title.skyline-title-logo { display: block; max-height: none; overflow: visible; text-shadow: none; line-height: 0; }
-.skyline-logo { display: block; max-width: 880px; max-height: 200px; }
-.skyline-library .skyline-logo { max-height: 150px; }
-/* Apple detailLine: one line at the meta size, medium weight, on-surface at half opacity, synopsis width. */
-.skyline-detail-line { max-width: 780px; height: 24px; margin: 0 0 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 20px; line-height: 24px; font-weight: 500; color: rgba(237,237,237,.5); }
+/* Apple TVMarqueeBlock titleSlot (TVFocusMarquee.swift): resizable aspect-fit
+   inside maxWidth 880 and maxHeight scale.logoMaxHeight, alignment .leading
+   (left, vertical centre). Home, For You and library Recommended use
+   TVSkylineSectionFeed's default .home scale, so the slot is 200
+   (SiloTheme.Skyline marqueeLogoMaxWidth and marqueeLogoMaxHeightHome).
+   The 150px library scale applies only when a landing opts into .library. */
+.skyline-title.skyline-title-logo { display: block; width: 880px; height: 200px; max-height: none; overflow: visible; text-shadow: none; line-height: 0; }
+.skyline-logo { display: block; width: 100%; height: 100%; object-fit: contain; object-position: left center; }
+.skyline-library .skyline-title.skyline-title-logo { height: 150px; }
+/* Apple detailLine: one line at the meta size. The marquee stack's meta and badge rows are framed at 27
+   (TVFocusMarquee.swift); a 24px estimate sat the bottom-anchored logo slot 3px too low. */
+.skyline-detail-line { max-width: 780px; height: 27px; margin: 0 0 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 20px; line-height: 27px; font-weight: 500; color: rgba(237,237,237,.5); }
 .skyline-library .skyline-detail-line { font-size: 19px; }
 .skyline-badges { display: flex; align-items: center; height: 27px; }
 .browse-section { margin-bottom: 32px; position: relative; }

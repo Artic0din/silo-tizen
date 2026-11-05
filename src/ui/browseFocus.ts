@@ -1,8 +1,10 @@
 // Remote focus for the browse screens. A view is a stack of zones, top to bottom: a row of
 // cards, a grid of cards, a column of episodes or a row of buttons. Each zone has one focused
-// item at a time; arrows move inside the zone and, past its top or bottom edge, into the zone
-// above or below, landing on the item last focused there. Focus is restored by zone id and item
-// key, never by position, and a key press always brings lost focus back.
+// item at a time. Arrows move inside the zone and, past its edge, into the next. Up and Down
+// between content rows keep the column. Down from a landscape card into a poster row uses that
+// card's position. Down from the top bar lands on the leftmost card.
+// Focus is restored by zone id and item key, never by position, and a key press always
+// brings lost focus back.
 // The sign-in ScreenHost moves through one list; grids and stacked rows need two dimensions.
 
 import { remoteKey } from "./keys.ts";
@@ -388,10 +390,21 @@ export class FocusHost {
         for (let next = zoneIndex + step; next >= 0 && next < zones.length; next += step) {
             const zone = zones[next];
             if (zone !== undefined && zone.items.length > 0) {
-                const remembered = this.memory.get(zone.id);
+                // Apple raises the first row's default-focus priority while the
+                // top menu is focused (TVSkylineSectionFeed), so Down from the
+                // bar ignores the card remembered in that row.
+                const remembered = zones[zoneIndex]?.id === "nav" ? undefined : this.memory.get(zone.id);
                 const columns = Math.max(1, zone.columns ?? 1);
                 const edge = step === 1 ? 0 : Math.floor((zone.items.length - 1) / columns) * columns;
                 const candidates = zone.layout === "grid" ? zone.items.slice(edge, edge + columns) : zone.items;
+                // A landscape card is wider than the poster column it was reached from, so the
+                // remembered axis points at a different poster. Measure this card instead.
+                const fromWide = landscapeArt(from.element);
+                const toPoster = candidates[0] !== undefined && !landscapeArt(candidates[0].element);
+                if (fromWide && toPoster) {
+                    const rect = from.element.getBoundingClientRect();
+                    this.navigationX = rect.left + rect.width / 2;
+                }
                 const nearest = zone.spatial === true && zones[zoneIndex]?.spatial === true ? nearestItem(candidates, from.element, this.navigationX) : undefined;
                 this.focusItem(zone, zone.items.find(item => item.key === zone.entry) ?? nearest ?? zone.items.find((item) => item.key === remembered) ?? zone.items[0]);
                 return true;
@@ -404,7 +417,9 @@ export class FocusHost {
         if (zone === undefined || item === undefined) {
             return;
         }
-        if (zone.id === "nav") this.navigationX = undefined;
+        // The top bar is not a content column. Entering it or leaving it drops the
+        // axis, so the next vertical move measures the card rather than the tab.
+        if (zone.id === "nav" || this.lastZone === "nav") this.navigationX = undefined;
         this.memory.set(zone.id, item.key);
         this.lastZone = zone.id;
         // Opening the cascade must not replace the content return target.
@@ -519,6 +534,13 @@ export class FocusHost {
             else if (key === "up" || key === "down") this.enterZone(zoneIndex, key === "up" ? -1 : 1, found.item);
         }
     };
+}
+
+/** Home stills are wider than they are tall; posters are the other way. Explore all uses the row's art box. */
+function landscapeArt(element: HTMLElement): boolean {
+    const art = element.querySelector(".browse-art");
+    const box = (art instanceof HTMLElement ? art : element).getBoundingClientRect();
+    return box.width > box.height;
 }
 
 function nearestItem(items: readonly FocusItem[], from: HTMLElement, navigationX?: number): FocusItem | undefined {

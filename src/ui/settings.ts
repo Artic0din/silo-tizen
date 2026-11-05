@@ -383,7 +383,11 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                     afterOneHour: "Show Who's Watching when you've been away from Silo for 1 hour.",
                     afterTwelveHours: "Show Who's Watching when you've been away from Silo for 12 hours.",
                 };
-                item.element.appendChild(el("span", "settings-option-detail", descriptions[behavior]));
+                const detail = el("span", "settings-option-detail", descriptions[behavior]);
+                detail.id = `settings-launch-${behavior}-detail`;
+                item.element.setAttribute("aria-label", text);
+                item.element.setAttribute("aria-describedby", detail.id);
+                item.element.appendChild(detail);
                 item.element.setAttribute("aria-disabled", String(launchPending));
                 return item;
             })];

@@ -621,7 +621,7 @@ journey("Home refreshes the same title's marquee progress after playback", async
     await tv.jump(300);
     const meta = tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) .skyline-meta");
     assert.match(await meta.innerText(), /14m left/);
-    await tv.page.keyboard.press("Enter");
+    await tv.remote(415);
     await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "player handoff");
     enrichHome(catalog, { [id]: { position_seconds: 900, progress_updated_at: "after-playback" } });
     await tv.page.evaluate(() => window.browseHarness.resume());

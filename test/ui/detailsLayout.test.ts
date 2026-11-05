@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
+import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import { homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
@@ -100,6 +101,77 @@ detailTest("cached Details recovery restores failed personal controls", async tv
     await tv.page.locator('[data-focus="watchlist"]').waitFor();
     assert.equal(await tv.page.locator('[data-focus="watchlist"]').count(), 1);
     assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Can't reach server/);
+});
+
+for (const id of ["movie:m0001", "series:s1"]) detailTest(`${id} retains full backdrop, logo and portrait URLs offline`, async tv => {
+    const catalog = tv.fake.catalog;
+    assert.ok(catalog instanceof FakeDetails);
+    const route = catalog.route.bind(catalog);
+    const url = (name: string): string => new URL(`/art/${name}.svg?signature=session`, tv.page.url()).href;
+    catalog.route = (method, path, profile, body) => {
+        const reply = route(method, path, profile, body);
+        if (new URL(path, "https://fake.invalid").pathname !== `/catalog/items/${encodeURIComponent(id)}` || reply?.status !== 200) return reply;
+        return { ...reply, body: { ...reply.body as Record<string, unknown>, backdrop_url: url("backdrop"), logo_url: url("logo"), cast: [{ person_id: "7", name: "River Vale", character: "Alex", order: 0, photo_url: url("portrait") }] } };
+    };
+    new FakeSettings(tv.fake);
+    const card = tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).first();
+    await card.click();
+    const logo = tv.page.locator('.details-logo');
+    await tv.page.locator('.details-editorial h1').waitFor();
+    await tv.page.locator('.details-backdrop img').waitFor();
+    assert.equal(await tv.page.locator('.details-backdrop img').getAttribute("src"), url("backdrop"));
+    await logo.waitFor();
+    await tv.remote(10009);
+    await tv.page.route("**/api/v2/**", request => request.abort("connectionrefused"));
+    await card.click();
+    await tv.jump(35000);
+    await logo.waitFor();
+    assert.equal(await tv.page.locator('.details-backdrop img').getAttribute("src"), url("backdrop"));
+    assert.equal(await logo.getAttribute("src"), url("logo"));
+    assert.equal(await tv.page.locator('.details-photo img, img.details-photo').first().getAttribute("src"), url("portrait"));
+});
+
+detailTest("unvisited offline Details uses the centred warning and remote Back", async tv => {
+    const card = tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first();
+    await card.waitFor();
+    await tv.page.route("**/api/v2/catalog/items/**", route => route.abort("connectionrefused"));
+    await card.click();
+    await tv.jump(35000);
+    const retry = tv.page.getByRole("button", { name: "Try Again", exact: true });
+    await retry.waitFor();
+    assert.equal(await tv.page.locator('.details-failure svg').count(), 1);
+    const box = await retry.boundingBox();
+    assert.ok(box && Math.abs(box.x + box.width / 2 - 960) < 2);
+    await tv.remote(10009);
+    await card.waitFor();
+});
+
+for (const reducedMotion of ["reduce", "no-preference"] as const) detailTest(`cached episode Retry is inline below the rail and recovery reveals the hero (${reducedMotion})`, async tv => {
+    await tv.page.emulateMedia({ reducedMotion });
+    const card = tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first();
+    await card.click();
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e11"]').waitFor();
+    await tv.remote(10009);
+    await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+    await card.click();
+    await tv.jump(35000);
+    const retry = tv.page.getByRole("button", { name: "Retry", exact: true });
+    await retry.waitFor();
+    const notice = tv.page.locator('.details-episode-error');
+    assert.equal(await notice.innerText(), "Couldn't load episodes.\nRetry");
+    assert.equal(await notice.evaluate(node => getComputedStyle(node).fontSize), "18px");
+    assert.ok((await notice.boundingBox())!.y > (await tv.page.locator('.details-episodes').boundingBox())!.y);
+    await tv.page.locator('[data-focus="season:1"]').focus();
+    await tv.remote(40);
+    assert.equal(await tv.focused(), "episode:s1e11");
+    await tv.remote(40);
+    assert.equal(await tv.focused(), "retry-episodes");
+    await tv.page.unroute("**/api/v2/**");
+    await retry.click();
+    await tv.eventually(async () => await retry.count() === 0, "retry row removed");
+    assert.equal(await tv.focused(), "next-episode");
+    await tv.jump(250);
+    assert.equal(await tv.page.locator('.browse').evaluate(node => node.scrollTop), 0);
 });
 
 detailTest("series current episode keeps its outline while season chips own focus", async tv => {

@@ -16,7 +16,9 @@ The cache authority listener is attached before restore and the saved-session re
 Changing any scope component closes the previous cache owner.
 Optional storage failures leave the memory cache usable.
 Persistent snapshots strip URL and credential fields recursively.
-In-memory Details retains relative artwork paths without query strings; signed or external URLs still use the existing fallback.
+In-memory responses retain full artwork URLs, including signed backdrops, title art and cast portraits, for the active session.
+Persistent snapshots still omit every URL; a cold reload cannot restore signed artwork from those snapshots.
+Images are not downloaded, so reuse also depends on the image being available in the browser cache or still reachable.
 Snapshots are decoded with the existing API decoders before use.
 
 The cache has no time expiry.
@@ -31,6 +33,10 @@ Cached metadata stays on screen without an unreachable notice, matching Apple TV
 Optional personal, next-episode, title-art and related reads retain prior display values on transport failure.
 Uncached optional failures omit the corresponding unavailable content rather than adding red notices.
 Failed episode hierarchy reads still show the episode Retry alongside retained episodes, as Apple TV does.
+With cached episodes, "Couldn't load episodes." and the inline "Retry" appear below the rail at 18px, in their own remote focus row.
+Without episodes, the error uses 22px text and a Retry below it.
+An uncached Details failure uses the centred warning, headline, message and "Try Again"; remote Back returns to the previous page.
+When the episode Retry disappears and focus returns to the primary action, the hero returns into view.
 Recovery replaces the metadata.
 The app uses native API v2 reads for recovery, because Apple's unversioned health endpoint is outside this client's contract.
 
@@ -57,7 +63,7 @@ This identifies source, not an installed Apple build.
 Home's `ServerUnreachablePill` at line 180 sits after the non-tvOS `#else` at line 107.
 Tizen follows the tvOS branch and keeps cached Home, For You and Details visible without that notice.
 Downloads are excluded; no tvOS download flow is ported.
-The byte budget, restricted artwork paths, conservative cache invalidation and recovery through page reads are explicit Tizen choices.
+The byte budget, sanitised persistent artwork, conservative cache invalidation and recovery through page reads are explicit Tizen choices.
 Apple's `tvOS/Caching/ItemDetailCache.swift:25-34,149-160` retains 20 visited view models in LRU order; Home enrichment uses the separate shared response cache.
 `Screens/Detail/ItemDetailViewModel.swift:385-390,570-622,1431-1433` preserves cached detail, hierarchy and personal values.
 `tvOS/Screens/Detail/TVItemDetailView.swift:868-873` retains usable cached next-episode playback detail.
@@ -65,8 +71,10 @@ Apple's `tvOS/Caching/ItemDetailCache.swift:25-34,149-160` retains 20 visited vi
 
 ## Pending native comparison
 
-No simulator, TV, live server writes or native captures were used for this implementation.
-The PR must remain unmerged until same-state Apple/Samsung comparison passes.
+A signed same-state Apple/Samsung comparison ran on 5 November 2026 and identified the Details corrections described above.
+Apple could not be taken offline; its offline expectations come from the pinned tvOS Swift source.
+These corrections were checked with desktop Chromium and native TypeScript tests only, without simulators, TVs, signed packages or a live server in this follow-up.
+A signed comparison of the corrected candidate remains pending, and Ryan retains merge authority.
 
 1. Build and sign the candidate WGT using the normal release procedure; record its source SHA, package hash, installed assets and actual capture dimensions.
 2. On an authorised Samsung debugging session, open Home, For You and a movie/series Details page while connected.

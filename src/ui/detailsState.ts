@@ -115,8 +115,6 @@ export class DetailsState {
         this.controller = undefined;
         this.stopAuthority?.();
         this.stopAuthority = undefined;
-        this.titleArt = undefined;
-        this.titleArtPolicy = "pending";
         this.panel = undefined;
         this.preparingPlay = false;
         this.nextEpisodeLoading = false;
@@ -131,8 +129,7 @@ export class DetailsState {
     loadTitleArt(): void {
         const controller = this.controller;
         if (controller === undefined) return;
-        this.titleArt = undefined;
-        this.titleArtPolicy = "pending";
+        if (this.titleArtPolicy === "failed") this.titleArtPolicy = "pending";
         this.changed();
         const run = async (): Promise<void> => {
             const read = <T>(spec: RequestSpec<T>): Promise<T> => this.read(spec, controller);
@@ -142,9 +139,10 @@ export class DetailsState {
             this.titleArt = answer;
             this.titleArtPolicy = "supported";
         };
-        run().then(() => { if (this.current(controller)) this.changed(); }, () => {
+        run().then(() => { if (this.current(controller)) this.changed(); }, (error: unknown) => {
             if (!this.current(controller)) return;
-            this.titleArtPolicy = "failed";
+            const transport = error instanceof ApiError && ["network", "timeout"].includes(error.failure.kind);
+            if (!transport || !["compatibility", "supported"].includes(this.titleArtPolicy)) this.titleArtPolicy = "failed";
             this.changed();
         });
     }
@@ -159,6 +157,8 @@ export class DetailsState {
     restore(previous: DetailsState | undefined): void {
         if (previous === undefined) return;
         this.restored = true;
+        this.titleArt = previous.titleArt;
+        this.titleArtPolicy = previous.titleArtPolicy;
         for (const [key, value] of previous.responses) this.responses.set(key, value);
         this.related = previous.related;
         this.nextEpisode = previous.nextEpisode?.id === this.detail.playContentId ? previous.nextEpisode : undefined;

@@ -10,6 +10,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Retained signed Details artwork in session memory, matched offline Details errors and episode Retry to Apple TV, and restored the hero when recovery removed Retry.
 - Cleared only the signed-out account's cached browse content, including offline saved-account removal.
 - Preserved cached Details artwork and supporting content offline, protected visited titles from Home enrichment eviction, and retained the selected season during recovery.
 - Kept Home rows when a return to Home joined a row-cap read that the previous visit had cancelled.

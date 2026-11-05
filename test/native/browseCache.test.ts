@@ -15,6 +15,18 @@ function storage() {
     return { values, getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); }, removeItem: (key: string) => { values.delete(key); } };
 }
 const scope = ["server", "account", "profile"] as const;
+test("session artwork URLs survive fallback while persisted snapshots omit them", async () => {
+    const store = storage();
+    const cache = new BrowseCache(store, scope, new AbortController().signal);
+    const artwork = { poster_url: "https://image.invalid/poster?signature=session", backdrop_url: "https://image.invalid/backdrop", logo_url: "/logo?signature=session", cast: [{ photo_url: "https://image.invalid/portrait?signature=session" }] };
+    for (const path of ["/home/sections", "/catalog/items/movie", "/catalog/items/series"]) {
+        const request = { ...spec, path };
+        await cache.read(request, async read => read.decode(artwork));
+        assert.deepEqual(await cache.read(request, offline), artwork);
+    }
+    assert.doesNotMatch([...store.values.values()].join(), /signature|https:/);
+    assert.deepEqual(new BrowseCache(store, scope, new AbortController().signal).peek(spec), { cast: [{}] });
+});
 test("retiring A after B caches content preserves B's snapshot and fences A's held read", async () => {
     const h = await connected(); await signIn(h);
     const store = h.storage;
@@ -110,7 +122,7 @@ test("snapshots omit credentials and signed URLs, and details stay in memory", a
     const value = { title: "Safe", poster_url: "https://image.invalid/poster?signature=private", access_token: "private", nested: { url: "https://image.invalid/private" } };
     await cache.read(spec, async request => request.decode(value));
     assert.doesNotMatch([...store.values.values()].join(), /private|https:/);
-    assert.deepEqual(cache.peek(spec), { title: "Safe", nested: {} });
+    assert.deepEqual(cache.peek(spec), { title: "Safe", poster_url: value.poster_url, nested: {} });
     const detail = { ...spec, path: "/catalog/items/movie?image_size=large" };
     await cache.read(detail, async request => request.decode({ title: "Detail" }));
     assert.deepEqual(cache.peek(detail), { title: "Detail" });

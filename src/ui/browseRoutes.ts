@@ -13,7 +13,7 @@ import { itemView, seasonView, type Synopsis } from "./browseDetails.ts";
 import type { PlayRequest, SeriesContext } from "./browseModel.ts";
 import type { CalendarState } from "./calendarState.ts";
 import { calendarView, type CalendarHandlers } from "./calendarView.ts";
-import { actionButton, homeView, lines, pagedGrid, type SearchResults, searchView, statusView, type ViewContext, zoneNode } from "./browseViews.ts";
+import { actionButton, FAILURE_ICON, homeView, lines, pagedGrid, type SearchResults, searchState, searchView, statusView, type ViewContext, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
 import { discoveryState, type BrowseChange, type DiscoveryState, type LibraryMode, type LibrarySource } from "./libraryDiscovery.ts";
 import { discoveryView, resultsView } from "./libraryDiscoveryViews.ts";
@@ -47,7 +47,7 @@ export type RouteData =
     | { readonly kind: "libraryResults"; readonly library: UserLibrary; readonly title: string; readonly source: LibrarySource; pages: Pages; descending: boolean }
     /** `resultsFor`: the query the shown page answers, which typing can move ahead of. */
     | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope; filter?: "movie" | "series" | undefined; peopleSupported?: boolean; supplement?: SearchSupplement }
-    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState } | undefined }
+    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; error?: ErrorState; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState } | undefined }
     | { readonly kind: "person"; readonly id: string; readonly title: string; data: { person: Person } | undefined; metadataLoading?: boolean; metadataFailure?: string | undefined; availabilityLoading?: boolean; availableFilters?: MediaScope[]; filter: MediaScope; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string; readonly episodeId?: string; data: { episodes: Episode[]; detail: ItemDetail | undefined; details?: DetailsState } | undefined };
 
@@ -143,6 +143,13 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
         return globalSearchView(searchView(handlers.searchHead, handlers.input, searchResults(current, handlers), pop), current, handlers);
     }
     if (current.failure !== undefined && !hasData(current)) {
+        if (current.kind === "item" && current.error?.headline === "Something went wrong") {
+            const retry = actionButton("retry", "Try Again", () => handlers.retry(current));
+            const page = searchState("Something went wrong", current.failure, "details-failure", FAILURE_ICON);
+            page.setAttribute("role", "alert");
+            page.appendChild(zoneNode("browse-actions", [retry]));
+            return { name: "item:failed", content: [page], zones: [{ id: "status", layout: "row", items: [retry] }], focus: { zone: "status", key: "retry" }, back };
+        }
         return statusView(`${current.kind}:failed`, "Something went wrong", [current.failure], [actionButton("retry", "Try again", () => handlers.retry(current)), escape], back, "error");
     }
     switch (current.kind) {

@@ -44,11 +44,11 @@ function persistent(key: string): boolean {
     return key === "/home/sections" || key === "/recommendations/discover" || key === "/user/libraries" || key === "/settings/values/effective";
 }
 
-// Relative artwork paths can survive in memory; URL capabilities never enter snapshots.
+// Artwork capabilities stay in session memory; persistent snapshots never contain URLs.
 function clean(value: unknown, artwork = false): unknown {
     if (Array.isArray(value)) return value.map(child => clean(child, artwork));
     if (typeof value !== "object" || value === null) return value;
-    return Object.fromEntries(Object.entries(value).filter(([key, child]) => !/url|token|authorization|password|secret/i.test(key) || (artwork && /^(poster|backdrop|logo)_url$/.test(key) && typeof child === "string" && /^\/(?!\/)[^?#]*$/.test(child))).map(([key, child]) => [key, clean(child, artwork)]));
+    return Object.fromEntries(Object.entries(value).filter(([key, child]) => !/url|token|authorization|password|secret/i.test(key) || (artwork && /^(poster|backdrop|logo|photo)_url$/.test(key) && typeof child === "string")).map(([key, child]) => [key, clean(child, artwork)]));
 }
 
 /** One active authority owns memory and optional snapshots; no expiry, like Apple. */
@@ -84,7 +84,7 @@ export class BrowseCache {
             }
         } catch { removeSnapshots(storage); }
         this.persist = () => {
-            try { storage?.setItem(STORAGE_KEY, JSON.stringify({ scope: identity, entries: [...this.entries].filter(([key]) => persistent(key)) })); }
+            try { storage?.setItem(STORAGE_KEY, JSON.stringify({ scope: identity, entries: [...this.entries].filter(([key]) => persistent(key)).map(([key, raw]) => [key, JSON.stringify(clean(JSON.parse(raw)))]) })); }
             catch { removeSnapshots(storage); }
         };
         live.add(this);
@@ -107,7 +107,7 @@ export class BrowseCache {
         if (raw === undefined || key === undefined) return undefined;
         try {
             this.entries.delete(key); this.entries.set(key, raw);
-            return spec.decode(clean(JSON.parse(raw), !persistent(key)));
+            return spec.decode(clean(JSON.parse(raw), true));
         }
         catch { if (key !== undefined) this.entries.delete(key); return undefined; }
     }
@@ -142,7 +142,7 @@ export class BrowseCache {
     }
 
     private store(key: string, raw: unknown): void {
-        const value = JSON.stringify(clean(raw, !persistent(key)));
+        const value = JSON.stringify(clean(raw, true));
         this.entries.delete(key);
         if (value.length * 2 > MAX_BYTES / 2) return;
         this.entries.set(key, value);

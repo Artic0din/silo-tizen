@@ -116,6 +116,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const visitedDetails = new Map<string, DetailsState>();
     const deferredDetails = new WeakSet<Route>();
     let cancelOfflineRefresh = (): void => {};
+    let offlineRefreshRoute: Route | undefined;
+    let offlineRefreshAt: number | undefined;
     const container = el("div", "browse");
     root.appendChild(container);
     const host = new FocusHost(container);
@@ -590,6 +592,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     return;
                 }
                 current.failure = text ?? "Something went wrong. Try again.";
+                if (current.kind === "item") current.error = errorState(error);
                 if (current.kind === "calendar") current.calendar.error = error instanceof CalendarTimezoneError ? { headline: "Something went wrong", message: error.message, signIn: false } : errorState(error);
                 if (current.kind === "personal") current.error = errorState(error);
                 if (current.kind === "requests") { current.requests.error = errorState(error); if (!current.requests.unconfirmed && !current.requests.writing) current.requests.action = undefined; }
@@ -610,6 +613,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         return specs.some(spec => cache.isOffline(spec));
     };
     const recoverCachedRoute = (current: Route): void => {
+        offlineRefreshAt = undefined;
         cancelOfflineRefresh();
         if (torn || top() !== current || (!routeOffline(current) && !deferredDetails.has(current))) return;
         const details = current.kind === "item" ? current.data?.details : undefined;
@@ -1576,9 +1580,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             } });
         const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || (current.kind === "personal" && current.source !== "history") || current.kind === "calendar";
         cancelOfflineRefresh();
+        if (offlineRefreshRoute !== current) offlineRefreshAt = undefined;
+        offlineRefreshRoute = current;
         if (routeOffline(current) || deferredDetails.has(current)) {
-            cancelOfflineRefresh = clock.schedule(() => recoverCachedRoute(current), 15000);
-        }
+            // Optional response repaints must not postpone an already scheduled recovery.
+            offlineRefreshAt ??= clock.now() + 15000;
+            cancelOfflineRefresh = clock.schedule(() => recoverCachedRoute(current), Math.max(0, offlineRefreshAt - clock.now()));
+        } else offlineRefreshAt = undefined;
         if (rootRoute) {
             const selected = tabFocus(current).key;
             const preview = (current.kind === "home" && current.data !== undefined) || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
@@ -1593,9 +1601,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (nav !== null) { nav.inert = modal || nav.inert; if (nav.inert) nav.setAttribute("aria-hidden", "true"); else nav.removeAttribute("aria-hidden"); }
             host.show({ ...decorated, ...(current.kind === "library" ? { ready: hasData(current), ...(current.discovery?.genre !== undefined ? { back: pop } : {}) } : {}), ...(modal ? { zones: view.zones, back: view.back } : {}) }, focus);
         } else {
+            const removedEpisodeRetry = host.focused()?.key === "retry-episodes" && !view.zones.some(zone => zone.items.some(item => item.key === "retry-episodes"));
             host.holdVisit();
             shell.hide();
             host.show(view, focus);
+            if (removedEpisodeRetry && host.focused()?.zone === "actions") host.scrollToTop();
         }
     };
 

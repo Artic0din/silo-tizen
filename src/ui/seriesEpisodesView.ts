@@ -20,16 +20,20 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, 
     const row = zoneNode("browse-row details-episodes", episodes);
     const section = el("section", "home-section details-series-rail");
     section.setAttribute("aria-label", "Episodes");
+    const zones: Zone[] = [{ id: "seasons", layout: "row", items: seasons }, { id: "episodes", layout: "row", items: episodes, get entry() { return state.entryEpisode; } }];
+    section.appendChild(row);
     if (state.failed) {
-        const retry = actionButton("retry-episodes", "Retry episodes", () => state.retry());
-        episodes.push(retry);
-        section.append(...lines(["Could not load episodes."], "error"), zoneNode("browse-actions", [retry]));
+        const retry = actionButton("retry-episodes", "Retry", () => state.retry());
+        const notice = el("div", episodes.length > 0 ? "details-episode-error" : "details-episode-error details-episode-error-empty");
+        notice.setAttribute("role", "alert");
+        notice.append(el("span", "", "Couldn't load episodes."), retry.element);
+        section.appendChild(notice);
+        zones.push({ id: "episode-retry", layout: "row", items: [retry] });
     } else if (state.episodes === undefined) section.append(...lines(["Loading episodes…"]));
     else if (state.loading) section.append(...lines(["Refreshing episodes…"]));
     else if (episodes.length === 0) section.append(...lines(["This season has no episodes yet."]));
-    section.appendChild(row);
     content.push(section);
-    return { content, zones: [{ id: "seasons", layout: "row", items: seasons }, { id: "episodes", layout: "row", items: episodes, get entry() { return state.entryEpisode; } }] };
+    return { content, zones };
 }
 
 function episodeCard(episode: Episode, context: ViewContext): FocusItem {

@@ -1236,7 +1236,7 @@ test("an exhausted series offers the first On Deck title and does not count down
     assert.equal(done.next?.contentId, "movie:m0001");
     assert.equal(done.next?.fileId, "f-movie:m0001");
     assert.equal(done.next?.episode, undefined);
-    assert.equal(done.next?.startSeconds, 0);
+    assert.equal(done.next?.startSeconds, 600);
     assert.equal(done.countdown, undefined);
     assert.equal(bodies(r.h, "/start").length, 1, "On Deck waits for Play next");
     r.controller.playNext();

@@ -1902,7 +1902,7 @@ browseTest("Details rejects insecure artwork and retains its text title when log
     await showing(tv, "item:movie:m0001");
     await tv.jump(240);
     assert.equal(await tv.page.locator(".browse h1").textContent(), "Readable title");
-    assert.equal(await tv.page.locator('.details-backdrop img, .details-logo').count(), 0);
+    assert.equal(await tv.page.locator('.details-hero .skyline-backdrop, .details-logo').count(), 0);
     assert.equal(await tv.page.locator('img[src^="http:"]').count(), 0);
     assert.equal(await tv.focused(), "play");
 }, { catalog: new FakeCatalog() });

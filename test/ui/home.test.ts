@@ -66,9 +66,9 @@ journey("Details reopens cached metadata while unreachable", async tv => {
     await tv.jump(35000);
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.cacheOffline("movie:m0004")), "cached transport failure");
     assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Can't reach server|showing cached content/);
-    assert.match(await tv.page.locator(".browse").innerText(), /Movie 0004/);
+    assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "Movie 0004");
     assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Could not load|Retry personal|Retry title|Retry related/);
-    assert.ok(await tv.page.locator('.details-backdrop img, img.details-backdrop').count() > 0);
+    assert.ok(await tv.page.locator('.details-hero .skyline-backdrop').count() > 0);
 });
 
 journey("Home resumes cached recovery after a hidden retry deadline", async tv => {

@@ -4,6 +4,8 @@ import type { NativeSession } from "../session/session.ts";
 import { episodeWindow, orderedEpisodeSeasons, retainEpisodePages } from "./episodeRail.ts";
 
 const BOUNDARY_DWELL_MS = 70;
+// TVSeriesDetailView.swift:780-793 at 7baff3ef.
+const SEASON_DWELL_MS = 70;
 type SeriesEpisodeUpdate = "load" | "focus" | "neighbor" | "translation";
 
 /** One accepted series visit owns its selected season and episode read. */
@@ -12,15 +14,22 @@ export class SeriesEpisodes {
     episodes: readonly Episode[] | undefined;
     railEpisodes: readonly Episode[] | undefined;
     private readonly failedNeighbors = new Set<number>();
-    get boundaryFailed(): boolean { return this.failedNeighbors.size > 0; }
+    private readonly failedSelections = new Set<number>();
+    private readonly cancelledSeasons = new Set<number>();
+    get interrupted(): boolean { return this.episodes === undefined && this.seasonNumber !== undefined && this.cancelledSeasons.has(this.seasonNumber); }
+    get boundaryFailed(): boolean { return [...this.failedNeighbors].some(number => !this.failedSelections.has(number) && number !== this.seasonNumber); }
     private readonly pages = new Map<number, readonly Episode[]>();
     private neighbors: AbortController | undefined;
     private readonly pendingNeighbors = new Set<number>();
     private readonly requestedBoundaries = new Map<string, number>();
     private boundaryDwell: ReturnType<typeof setTimeout> | undefined;
+    private seasonDwell: ReturnType<typeof setTimeout> | undefined;
+    private automaticRead = false;
+    private focusedSeason: number | undefined;
     entryEpisode: string | undefined;
     failed = false;
     focusSelectedEpisode = false;
+    selectionOwnsHero = false;
     private active = false;
     private loaded = false;
     private controller: AbortController | undefined;
@@ -48,19 +57,24 @@ export class SeriesEpisodes {
 
     start(): void {
         this.active = true;
-        if (!this.loaded && this.controller === undefined && !this.failed) this.load(true);
-        else if (this.loaded) this.warmNeighbors();
+        if (!this.loaded && this.controller === undefined && !this.failed && !this.interrupted) this.load(true, false, true);
     }
 
-    restore(previous: SeriesEpisodes | undefined): void {
+    restore(previous: SeriesEpisodes | undefined, refresh = false): void {
         if (previous !== undefined && previous.seasonNumber === this.seasonNumber) {
             this.episodes = previous.episodes;
             this.railEpisodes = previous.railEpisodes;
             for (const [number, page] of previous.pages) this.pages.set(number, page);
+            for (const number of previous.failedNeighbors) this.failedNeighbors.add(number);
+            for (const number of previous.failedSelections) this.failedSelections.add(number);
+            for (const number of previous.cancelledSeasons) this.cancelledSeasons.add(number);
+            this.loaded = !refresh && previous.loaded;
+            this.failed = previous.failed;
         }
     }
 
     stop(): void {
+        this.blurSeason();
         this.blur();
         this.active = false;
         this.controller?.abort();
@@ -70,15 +84,43 @@ export class SeriesEpisodes {
         this.pendingNeighbors.clear();
     }
 
-    select(season: number): void {
+    focusSeason(season: number): void {
+        if (this.focusedSeason === season) return;
+        this.blurSeason();
+        this.focusedSeason = season;
+        if (!this.active || season === this.seasonNumber) return;
+        this.seasonDwell = setTimeout(() => {
+            this.seasonDwell = undefined;
+            this.select(season, true);
+        }, SEASON_DWELL_MS);
+    }
+
+    blurSeason(): void {
+        this.focusedSeason = undefined;
+        clearTimeout(this.seasonDwell);
+        this.seasonDwell = undefined;
+        if (this.automaticRead) {
+            if (this.seasonNumber !== undefined) this.cancelledSeasons.add(this.seasonNumber);
+            this.controller?.abort();
+            this.controller = undefined;
+            this.automaticRead = false;
+            this.failed = false;
+            queueMicrotask(() => { if (this.active && this.interrupted && this.controller === undefined) this.changed("neighbor"); });
+        }
+    }
+
+    select(season: number, automatic = false): void {
+        clearTimeout(this.seasonDwell);
         if (!this.active || !this.seasons.some(item => item.seasonNumber === season)) return;
+        this.selectionOwnsHero = true;
+        if (!automatic) this.automaticRead = false;
         if (season === this.seasonNumber && this.episodes !== undefined) {
             this.focusSelectedEpisode = true;
             this.entryEpisode = this.episodes[0]?.id;
             this.changed("load");
             return;
         }
-        if (season === this.seasonNumber && this.controller !== undefined) {
+        if (season === this.seasonNumber && (this.controller !== undefined || this.failed)) {
             this.focusSelectedEpisode = true;
             this.entryEpisode = undefined;
             this.changed("load");
@@ -87,7 +129,28 @@ export class SeriesEpisodes {
         this.seasonNumber = season;
         this.focusSelectedEpisode = true;
         this.entryEpisode = undefined;
-        this.load();
+        if (!automatic && !this.pages.has(season)) { this.load(); return; }
+        this.controller?.abort();
+        this.controller = undefined;
+        this.episodes = this.pages.get(season);
+        this.failed = false;
+        this.loaded = this.episodes !== undefined;
+        if (this.episodes !== undefined) {
+            this.entryEpisode = this.episodes[0]?.id;
+            this.updateWindow();
+            this.changed("load");
+        } else if (this.failedNeighbors.has(season) || this.cancelledSeasons.has(season)) {
+            if (this.failedNeighbors.has(season)) this.failedSelections.add(season);
+            this.railEpisodes = [];
+            this.failed = this.failedNeighbors.has(season);
+            this.changed("load");
+        } else if (this.pendingNeighbors.has(season)) {
+            this.railEpisodes = [];
+            this.changed("load");
+        } else {
+            this.automaticRead = true;
+            this.load(false, true);
+        }
     }
 
     replace(season: number, episodes: readonly Episode[]): void {
@@ -95,6 +158,8 @@ export class SeriesEpisodes {
         this.blur();
         this.requestedBoundaries.clear();
         this.failedNeighbors.clear();
+        this.failedSelections.clear();
+        this.cancelledSeasons.delete(season);
         this.controller?.abort();
         this.controller = undefined;
         this.neighbors?.abort();
@@ -112,6 +177,7 @@ export class SeriesEpisodes {
 
     publishTranslatedEpisodes(season: number, episodes: readonly Episode[]): void {
         if (!this.active || this.seasonNumber !== season) return;
+        this.cancelledSeasons.delete(season);
         this.episodes = episodes;
         this.pages.set(season, episodes);
         this.updateWindow();
@@ -123,18 +189,22 @@ export class SeriesEpisodes {
     retryNeighbors(): void {
         if (!this.active) return;
         for (const number of this.failedNeighbors) {
-            this.failedNeighbors.delete(number);
-            void this.readNeighbor(number);
+            if (this.failedSelections.has(number)) continue;
+            void this.readNeighbor(number, true);
         }
         this.changed("neighbor");
     }
 
-    private load(retain = false): void {
+    private load(retain = false, automatic = false, warm = false): void {
         const season = this.seasonNumber;
         if (season === undefined || !this.active) return;
+        this.automaticRead = automatic;
         this.blur();
-        this.requestedBoundaries.clear();
-        this.failedNeighbors.clear();
+        if (!automatic) {
+            this.requestedBoundaries.clear();
+            this.failedNeighbors.delete(season);
+            this.cancelledSeasons.delete(season);
+        }
         this.controller?.abort();
         this.neighbors?.abort();
         this.neighbors = undefined;
@@ -143,30 +213,38 @@ export class SeriesEpisodes {
         this.controller = controller;
         if (!retain) { this.episodes = undefined; this.railEpisodes = undefined; }
         this.loaded = false;
-        this.failed = false;
+        this.failed = retain && this.failed;
         this.changed("load");
         const current = (): boolean => this.active && this.controller === controller && !controller.signal.aborted;
-        this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, season), profileScoped: true, signal: controller.signal }).then(episodes => {
+        this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, season), retry: "never", profileScoped: true, signal: controller.signal }).then(episodes => {
             if (!current()) return;
             this.controller = undefined;
+            this.automaticRead = false;
+            this.failed = false;
             this.episodes = episodes;
+            this.failedSelections.delete(season);
+            this.cancelledSeasons.delete(season);
             this.pages.set(season, episodes);
             this.updateWindow();
             if (!episodes.some(episode => episode.id === this.entryEpisode)) this.entryEpisode = (this.focusSelectedEpisode ? episodes[0] : episodes.find(episode => episode.inProgress) ?? episodes.find(episode => !episode.played) ?? episodes[0])?.id;
             this.loaded = true;
             this.changed("load");
-            this.warmNeighbors();
+            if (warm) this.warmNeighbors();
         }, () => {
             if (!current()) return;
+            if (!this.pages.has(season)) this.failedNeighbors.add(season);
             this.controller = undefined;
+            this.automaticRead = false;
             this.failed = true;
+            this.failedSelections.add(season);
             this.changed("load");
         });
     }
 
     focus(id: string): void {
         this.blur();
-        if (!this.active) return;
+        if (!this.active || this.focusedSeason !== undefined) return;
+        this.selectionOwnsHero = false;
         const episodes = this.railEpisodes ?? [];
         const index = episodes.findIndex(episode => episode.id === id);
         if (index < 0) return;
@@ -189,7 +267,7 @@ export class SeriesEpisodes {
         let neighbor = order.indexOf(episode.seasonNumber) + direction;
         while (neighbor >= 0 && neighbor < order.length && this.pages.has(order[neighbor]!)) neighbor += direction;
         const number = order[neighbor];
-        if (number === undefined || this.failedNeighbors.has(number) || this.pendingNeighbors.has(number)) return;
+        if (number === undefined || this.failedNeighbors.has(number) || this.cancelledSeasons.has(number) || this.pendingNeighbors.has(number)) return;
         this.boundaryDwell = setTimeout(() => {
             this.boundaryDwell = undefined;
             // Restored focus after an empty page must not walk through further seasons.
@@ -235,20 +313,39 @@ export class SeriesEpisodes {
         void run();
     }
 
-    private async readNeighbor(number: number): Promise<readonly Episode[] | undefined> {
-        if (!this.active || this.pages.has(number) || this.pendingNeighbors.has(number) || this.failedNeighbors.has(number)) return;
+    private async readNeighbor(number: number, retry = false): Promise<readonly Episode[] | undefined> {
+        if (!this.active || this.pages.has(number) || this.pendingNeighbors.has(number) || (!retry && this.failedNeighbors.has(number))) return;
         this.neighbors ??= new AbortController();
         const controller = this.neighbors;
         this.pendingNeighbors.add(number);
         try {
-            const page = await this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, number), profileScoped: true, signal: controller.signal });
+            const page = await this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, number), retry: "never", profileScoped: true, signal: controller.signal });
             if (!this.active || controller.signal.aborted) return;
+            this.failedNeighbors.delete(number);
+            this.failedSelections.delete(number);
+            this.cancelledSeasons.delete(number);
             this.pages.set(number, page);
+            if (this.seasonNumber === number && this.episodes === undefined) {
+                this.failed = false;
+                this.episodes = page;
+                this.entryEpisode = page[0]?.id;
+                this.loaded = true;
+                this.updateWindow();
+                this.changed("load");
+                return page;
+            }
             this.updateWindow();
             this.changed("neighbor");
             return page;
         } catch {
-            if (!controller.signal.aborted) { this.failedNeighbors.add(number); this.changed("neighbor"); }
+            if (!controller.signal.aborted) {
+                this.failedNeighbors.add(number);
+                if (this.seasonNumber === number && this.episodes === undefined) {
+                    this.failed = true;
+                    this.failedSelections.add(number);
+                    this.changed("load");
+                } else this.changed("neighbor");
+            }
             return;
         } finally { if (!controller.signal.aborted) this.pendingNeighbors.delete(number); }
     }

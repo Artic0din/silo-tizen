@@ -78,7 +78,7 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     }
     nodes.push(title);
     if (state?.showAdvisoryAge && detail.advisoryAge !== undefined) nodes.push(el("p", "browse-meta", `Advisory Age ${detail.advisoryAge}+`));
-    const episode = state?.series?.episodes?.find(episode => episode.id === state.focusedEpisodeId);
+    const episode = state?.series?.episodes?.find(episode => episode.id === state.heroEpisodeId);
     const playback = state?.nextEpisodeState;
     const selectedFile = playback?.detail.versions.find(file => file.fileId === playChoices(playback.detail, playback.selectedFileId)?.fromStart.fileId);
     const meta = episode === undefined ? metaLine(detail, state) : [episodeAirDate(episode.airDate), episodeRuntime(selectedFile?.durationSeconds ? Math.round(selectedFile.durationSeconds / 60) : episode.runtimeMinutes), episode.seasonNumber === 0 ? "Specials" : `Season ${episode.seasonNumber}`, `Episode ${episode.episodeNumber}`].filter(Boolean).join("\u2002·\u2002");
@@ -175,23 +175,28 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     } else if (detail.type === "movie" || detail.type === "episode") {
         notes.push("This title has no file this TV can play.");
     }
-    const next = state?.playbackTargetId ?? detail.playContentId;
+    const next = state?.series === undefined ? state?.playbackTargetId ?? detail.playContentId : state.playbackTargetId;
     if ((detail.type === "series" || detail.type === "season") && next !== undefined) {
         const target = state?.nextEpisode;
         const targetChoices = playbackChoices;
         const playNext = (startOver = false): void => {
-            if (target === undefined || targetChoices === undefined || state?.episodePreferencesBlocked) return;
+            if (state?.episodePreferencesBlocked) return;
+            if (target === undefined) { context.playEpisode?.(next, state?.series?.railEpisodes?.find(episode => episode.id === next)?.title ?? detail.title, startOver); return; }
+            if (targetChoices === undefined) return;
             const audioTrackId = tracks?.audioTrackId(true);
             play({ ...(targetChoices.resume ?? targetChoices.fromStart), startSeconds: startOver ? 0 : targetChoices.resume?.startSeconds, ...(audioTrackId === undefined ? {} : { audioTrackId }), ...(tracks === undefined ? {} : { subtitle: tracks.subtitleIntent() }) });
         };
-        const label = target === undefined ? "Loading episode…" : `${targetChoices?.resume === undefined ? "Play" : "Resume"} ${episodeLabel(target.seasonNumber, target.episodeNumber) ?? target.title}`;
+        const summary = state?.series?.railEpisodes?.find(episode => episode.id === next);
+        const labelTarget = summary ?? target;
+        const canResume = targetChoices?.resume !== undefined || target === undefined && summary?.inProgress === true;
+        const label = labelTarget === undefined ? "Loading episode…" : `${canResume ? "Resume" : "Play"} ${episodeLabel(labelTarget.seasonNumber, labelTarget.episodeNumber) ?? labelTarget.title}`;
         const primary = actionButton("next-episode", state?.nextEpisodeFailed === true ? "Retry episode" : target !== undefined && targetChoices === undefined ? "Episode unavailable" : label, () => {
             if (state?.nextEpisodeFailed === true) state.loadNextEpisode();
             else playNext();
         });
-        primary.element.setAttribute("aria-disabled", String(state?.nextEpisodeFailed !== true && targetChoices === undefined));
+        primary.element.setAttribute("aria-disabled", String(state?.episodePreferencesBlocked || (state?.nextEpisodeFailed !== true && target !== undefined && targetChoices === undefined)));
         actions.push(primary);
-        if (targetChoices?.resume !== undefined && target !== undefined) actions.push(actionButton("start-over-episode", "Start Over", () => playNext(true)));
+        if (canResume) actions.push(actionButton("start-over-episode", "Start Over", () => playNext(true)));
         if (target !== undefined && targetChoices === undefined) notes.push("This episode has no file this TV can play.");
     }
     const seriesContext: ViewContext = { ...context, playEpisode: (id, title, startOver) => {
@@ -236,13 +241,13 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     const seriesSelectors = detail.type === "series";
     if ((playbackChoices !== undefined || seriesSelectors) && state !== undefined) {
         const ordinal = audio.findIndex((_track, index) => selectedAudio === `file:${file?.fileId}:audio:${index}`);
-        const trigger = actionButton("audio", `Audio: ${ordinal === -1 ? "Auto" : audioLabel(ordinal)}`, () => { if (playbackChoices !== undefined) state.showAudio(); });
-        trigger.element.setAttribute("aria-disabled", String(playbackChoices === undefined));
+        const trigger = actionButton("audio", `Audio: ${ordinal === -1 ? "Auto" : audioLabel(ordinal)}`, () => state.showPanel("audio"));
+        trigger.element.setAttribute("aria-disabled", String(playbackChoices === undefined && (!seriesSelectors || state.nextEpisode !== undefined || state.nextEpisodeFailed)));
         trigger.element.setAttribute("aria-haspopup", "dialog");
         trigger.element.setAttribute("aria-expanded", String(state.audioOpen));
         actions.push(trigger);
-        const subtitles = actionButton("subtitles", `Subtitles: ${selectedSubtitleLabel}`, () => { if (playbackChoices !== undefined) state.showPanel("subtitles"); });
-        subtitles.element.setAttribute("aria-disabled", String(playbackChoices === undefined));
+        const subtitles = actionButton("subtitles", `Subtitles: ${selectedSubtitleLabel}`, () => state.showPanel("subtitles"));
+        subtitles.element.setAttribute("aria-disabled", String(playbackChoices === undefined && (!seriesSelectors || state.nextEpisode !== undefined || state.nextEpisodeFailed)));
         subtitles.element.setAttribute("aria-haspopup", "dialog");
         subtitles.element.setAttribute("aria-expanded", String(state.panel === "subtitles"));
         actions.push(subtitles);
@@ -263,8 +268,8 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     if (watchlist !== undefined) actions.push(watchlist);
     if (state !== undefined) {
         if (playbackDetail.versions.length > 0 || seriesSelectors) {
-            const version = actionButton("version", `Version: ${file?.label || "Auto"}`, () => { if (playbackChoices !== undefined) state.showPanel("version"); });
-            version.element.setAttribute("aria-disabled", String(playbackChoices === undefined));
+            const version = actionButton("version", `Version: ${file?.label || "Auto"}`, () => state.showPanel("version"));
+            version.element.setAttribute("aria-disabled", String(playbackChoices === undefined && (!seriesSelectors || state.nextEpisode !== undefined || state.nextEpisodeFailed)));
             version.element.setAttribute("aria-haspopup", "dialog");
             actions.splice(actions.findIndex(item => item.key === "audio"), 0, version);
         }
@@ -275,6 +280,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     const ordinal = audio.findIndex((_track, index) => selectedAudio === `file:${file?.fileId}:audio:${index}`);
     const resolvedAudio = audio[effectiveAudio] === undefined ? audio.length ? audioLabel(0) : "Unknown" : audioLabel(effectiveAudio);
     const versionLabel = file?.label?.match(/\b(?:\d{3,4}p|4K|8K)\b/i)?.[0] ?? file?.label ?? "Auto";
+    // Season summaries lack versions; omit unavailable values without fetching on loaded-season moves.
     const summary = playbackChoices === undefined ? undefined : `Version: ${tracks?.selectedFileId === undefined && versionLabel !== "Auto" ? "Auto · " : ""}${versionLabel} | Audio: ${ordinal === -1 ? "Auto · " : ""}${resolvedAudio} | Subtitles: ${subtitleSummary}`;
     const content = [...detailHeader(detail, context, actions.map(detailAction), state, summary), ...lines(notes), ...personal?.notes ?? []];
     if (tracks?.preparingPlay) {

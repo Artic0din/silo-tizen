@@ -699,7 +699,7 @@ calendarTest("Calendar-origin series refresh preserves a subsequently selected s
     await tv.page.getByText("Refreshing episodes…", { exact: true }).waitFor({ state: "hidden" });
     assert.equal(await tv.page.locator('[data-focus="season:1"]').getAttribute("aria-pressed"), "true", "refresh retains the user's selected season");
     assert.equal(await tv.page.locator('.details-episodes [data-focus="episode:s1e11"]').count(), 1);
-    assert.equal(await tv.focused(), "episode:s1e11");
+    assert.equal(await tv.focused(), "next-episode");
 });
 
 calendarTest("Calendar loading status leaves the origin shelf geometry unchanged on return", async (tv) => {

@@ -16,6 +16,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Episode cards opened their series on the selected episode, while remote Play resumed directly and Continue Watching offered Play or Resume in Card actions.
 - Search Select on an episode or season opens that series' Details. Enter on a result no longer starts playback or writes watch history.
 - Stopped featured descriptions from starting an automatic translation after focus moved to another card.
 - Corrected subtitle profile edits under device overrides, preserved focus after dismissed launch saves, and reset sign-out confirmation to Cancel on each opening.

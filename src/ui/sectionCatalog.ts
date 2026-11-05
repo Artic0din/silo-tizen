@@ -78,11 +78,7 @@ export class SectionCatalog {
         for (const card of page.items.slice(this.cards.length)) {
             const saved = route.kind === "homeSection" && route.continuing ? context.savedFileOverlay?.(card) : undefined;
             const item = cardItem(saved === undefined ? card : { ...card, overlay: saved }, {
-                ...gridContext, continueWatching: false, homeCaptions: true, overlays, posterWidth: POSTER_WIDTH,
-                open: destination => {
-                    if (route.kind === "homeSection" && route.continuing && context.resume !== undefined && (card.type === "movie" || card.type === "episode")) context.resume(card.id, card.title);
-                    else context.open(destination);
-                },
+                ...gridContext, continueWatching: route.kind === "homeSection" && route.continuing, cardLayout: "poster", homeCaptions: true, overlays, posterWidth: POSTER_WIDTH,
             });
             if (item === undefined) continue;
             this.items.push(item);

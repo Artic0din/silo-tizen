@@ -18,6 +18,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Refreshed episode spoiler protection after Settings changes and preserved saved switches during overlapping requests and failures.
+
 - Aligned Details supporting-section headings when moving Up and Down, restored visible Movie Cast to the page top, and removed duplicated space below the Details table.
 - Opened fresh Details presentations at the hero and preserved each earlier presentation's focus and scroll when the same title appeared again in the route stack, including entry from Search.
 - Episode cards opened their series on the selected episode, while remote Play resumed directly and Continue Watching offered Play or Resume in Card actions.

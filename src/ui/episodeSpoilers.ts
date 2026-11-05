@@ -8,7 +8,6 @@ import type { RequestSpec } from "../api/http.ts";
 import { settingsOperations } from "../api/settingsOperations.ts";
 import type { Card, Episode, ItemDetail } from "../contracts/v2/catalog.ts";
 import { SPOILER_IMAGE_KEY, SPOILER_OVERVIEW_KEY, type SettingsCapabilities } from "../contracts/v2/settings.ts";
-import { object, WireError } from "../contracts/v2/wire.ts";
 import type { PublicStorage } from "../session/deviceIdentity.ts";
 import type { NativeSession } from "../session/session.ts";
 import { readSettingsCapability } from "./presentationSettings.ts";
@@ -121,21 +120,6 @@ export function spoilerSettingsSupported(capability: SettingsCapabilities | unde
         && capability.manifestRevision >= SPOILER_INTRODUCED_IN;
 }
 
-export function decodeSpoilerEffective(value: unknown): EpisodeSpoilerSettings {
-    const body = object(value, "effective_settings");
-    const items = body.items;
-    if (!Array.isArray(items)) throw new WireError("effective_settings.items", "an array");
-    const read = (key: string): boolean => {
-        for (const entry of items) {
-            const row = object(entry, "effective_setting");
-            if (row.key !== key) continue;
-            return typeof row.value === "boolean" ? row.value : false;
-        }
-        return false;
-    };
-    return { hidesImages: read(SPOILER_IMAGE_KEY), hidesOverviews: read(SPOILER_OVERVIEW_KEY) };
-}
-
 /** Blurs the still and leaves badges and progress sharp. No-ops when the box is only a title placeholder. */
 export function blurEpisodeStill(box: HTMLElement): void {
     if (box.querySelector(".browse-art-image, .skyline-backdrop") === null) return;
@@ -166,6 +150,7 @@ export class EpisodeSpoilerPreferences {
     private writeErrors: { images?: string; overviews?: string } = {};
     private published = "";
     private refreshSequence = 0;
+    private writeRevision = 0;
     private writeChain: Promise<void> = Promise.resolve();
     private readonly generation: Record<SpoilerSetting, number> = { images: 0, overviews: 0 };
     private readonly pending: Record<SpoilerSetting, number> = { images: 0, overviews: 0 };
@@ -236,7 +221,8 @@ export class EpisodeSpoilerPreferences {
     private async refresh(): Promise<void> {
         if (this.controller.signal.aborted) return;
         const sequence = ++this.refreshSequence;
-        const current = (): boolean => !this.controller.signal.aborted && sequence === this.refreshSequence;
+        const writeRevision = this.writeRevision;
+        const current = (): boolean => !this.controller.signal.aborted && sequence === this.refreshSequence && writeRevision === this.writeRevision;
         if (this.sync !== "supported") {
             this.sync = "checking";
             this.publish();
@@ -252,14 +238,10 @@ export class EpisodeSpoilerPreferences {
                 return;
             }
             this.sync = "supported";
-            const resolved = await this.call({
-                method: "GET",
-                path: `/settings/values/effective?keys=${encodeURIComponent(SPOILER_IMAGE_KEY)}&keys=${encodeURIComponent(SPOILER_OVERVIEW_KEY)}`,
-                retry: "safe",
-                decode: decodeSpoilerEffective,
-            });
+            const effective = await this.call(settingsOperations.effectiveSettings([SPOILER_IMAGE_KEY, SPOILER_OVERVIEW_KEY]));
             if (!current()) return;
             if (this.pending.images + this.pending.overviews === 0) {
+                const resolved = { hidesImages: effective.get(SPOILER_IMAGE_KEY)?.value === true, hidesOverviews: effective.get(SPOILER_OVERVIEW_KEY)?.value === true };
                 this.confirmed = resolved;
                 this.shown = resolved;
                 this.writeErrors = {};
@@ -285,6 +267,7 @@ export class EpisodeSpoilerPreferences {
         if (current === on) return;
         this.shown = setting === "images" ? { hidesImages: on, hidesOverviews: this.shown.hidesOverviews } : { hidesImages: this.shown.hidesImages, hidesOverviews: on };
         const generation = ++this.generation[setting];
+        this.writeRevision++;
         this.pending[setting] += 1;
         this.clearWriteError(setting);
         this.publish();
@@ -292,19 +275,22 @@ export class EpisodeSpoilerPreferences {
         this.writeChain = this.writeChain.then(async () => {
             try {
                 await this.call(settingsOperations.putSetting(key, on), false);
-                if (this.controller.signal.aborted || this.generation[setting] !== generation) return;
+                if (this.controller.signal.aborted) return;
                 const base = this.confirmed ?? this.shown;
                 this.confirmed = setting === "images" ? { hidesImages: on, hidesOverviews: base.hidesOverviews } : { hidesImages: base.hidesImages, hidesOverviews: on };
-                this.shown = setting === "images" ? { hidesImages: on, hidesOverviews: this.shown.hidesOverviews } : { hidesImages: this.shown.hidesImages, hidesOverviews: on };
                 this.saveCache();
+                if (this.generation[setting] !== generation) return;
+                this.shown = setting === "images" ? { hidesImages: on, hidesOverviews: this.shown.hidesOverviews } : { hidesImages: this.shown.hidesImages, hidesOverviews: on };
                 this.clearWriteError(setting);
                 this.publish();
             } catch (error) {
                 if (this.controller.signal.aborted || (error instanceof ApiError && error.aborted) || this.generation[setting] !== generation) return;
-                this.shown = this.confirmed ?? OFF;
+                const saved = this.confirmed ?? OFF;
+                this.shown = setting === "images" ? { ...this.shown, hidesImages: saved.hidesImages } : { ...this.shown, hidesOverviews: saved.hidesOverviews };
                 this.writeErrors = { ...this.writeErrors, [setting]: writeFailure(setting, error) };
                 this.publish();
             } finally {
+                this.writeRevision++;
                 this.pending[setting] = Math.max(0, this.pending[setting] - 1);
             }
         });

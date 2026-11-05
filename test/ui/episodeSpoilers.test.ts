@@ -4,17 +4,25 @@ import type { Browser } from "playwright";
 import { SPOILER_IMAGE_KEY, SPOILER_OVERVIEW_KEY } from "../../src/contracts/v2/settings.ts";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
+import { selectLibraryMode } from "./support/library.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
 
-async function mount(options: { stills: boolean; images?: boolean; overviews?: boolean; revision?: number }): Promise<{ tv: Tv; settings: FakeSettings }> {
+async function mount(options: { stills: boolean; images?: boolean; overviews?: boolean; revision?: number; gridEpisode?: boolean }): Promise<{ tv: Tv; settings: FakeSettings }> {
     const tv = await openTv(browser, { app: "browse" });
     const catalog = new FakeCatalog();
     catalog.episodeStills = options.stills;
-    tv.fake.catalog = catalog;
+    tv.fake.catalog = options.gridEpisode ? { route: (method, path, profile, body) => {
+        if (path.split("?")[0] === "/catalog/query") return { status: 200, body: {
+            items: [{ content_id: "episode:s1e12", type: "episode", title: "Harbor Lights chapter 1.2", series_id: "series:s1", season_number: 1, episode_number: 2,
+                poster_url: "/art/episode-still.svg", backdrop_url: "/art/episode-still.svg", poster_is_episode_still: true, backdrop_is_episode_still: true, user_state: { played: false } }],
+            window_cursor: "window", total: 1, total_exact: true, page: { has_more: false },
+        } };
+        return catalog.route(method, path, profile, body);
+    } } : catalog;
     const settings = new FakeSettings(tv.fake);
     if (options.revision !== undefined) settings.revision = options.revision;
     if (options.images === true) settings.profile().set(SPOILER_IMAGE_KEY, true);
@@ -64,6 +72,54 @@ test("unwatched episode stills blur and descriptions drop while series text stay
         assert.equal(blur.width, blur.frame + 48);
         assert.equal(blur.margin, "-24px");
         assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("returning from Settings repaints the same episode marquee after spoiler changes", async () => {
+    const { tv } = await mount({ stills: true });
+    try {
+        const card = '[data-section="continue_watching"] [data-focus="episode:s1e12"]';
+        await tv.page.locator(card).focus();
+        await tv.jump(500);
+        await readLive(tv, () => document.querySelector(".skyline-marquee-layer:not(.skyline-outgoing) .skyline-synopsis")?.textContent ?? null, undefined, text => text === "Secret chapter", "initial episode synopsis");
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+        await tv.page.locator('[data-focus="playback"]').click();
+        await tv.page.locator('[data-focus="spoiler-images"][aria-disabled="false"]').click();
+        await tv.page.locator('[data-focus="spoiler-overviews"]').click();
+        await tv.remote(10009);
+        await tv.remote(10009);
+        await tv.page.locator('[data-view="home"]').waitFor();
+        await tv.page.locator(card).focus();
+        await readLive(tv, () => {
+            const layer = document.querySelector(".skyline-marquee-layer:not(.skyline-outgoing)");
+            return layer === null ? null : { text: layer.querySelector(".skyline-synopsis")?.textContent ?? "", backdrop: layer.querySelector(".skyline-backdrop") !== null };
+        }, undefined, value => value.text === "" && !value.backdrop, "protected same-card marquee");
+    } finally { await tv.page.context().close(); }
+});
+
+for (const destination of ["Explore All", "Browse"] as const) test(`${destination} retained episode cards update after a spoiler refresh`, async () => {
+    const { tv, settings } = await mount({ stills: true, gridEpisode: true });
+    try {
+        if (destination === "Explore All") await tv.page.locator('[data-focus="expand:continue_watching"]').click();
+        else {
+            await tv.page.locator('[data-focus="series"]').click();
+            await selectLibraryMode(tv, "Browse");
+        }
+        const selector = `${destination === "Explore All" ? ".section-catalog-grid" : ".catalog-grid"} [data-focus="episode:s1e12"] .browse-art-image`;
+        await tv.page.locator(selector).waitFor();
+        await readLive(tv, selector => {
+            const node = document.querySelector(selector);
+            return node?.isConnected ? getComputedStyle(node).filter : null;
+        }, selector, filter => filter === "none", "initial sharp grid still");
+        for (const enabled of [true, false]) {
+            settings.profile().set(SPOILER_IMAGE_KEY, enabled);
+            await tv.page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+            await readLive(tv, selector => {
+                const node = document.querySelector(selector);
+                return node?.isConnected ? getComputedStyle(node).filter : null;
+            }, selector, filter => filter === (enabled ? "blur(24px)" : "none"), "refreshed grid still");
+        }
     } finally { await tv.page.context().close(); }
 });
 

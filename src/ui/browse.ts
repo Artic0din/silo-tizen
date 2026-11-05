@@ -1813,6 +1813,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         name: options.profileName ?? "Profiles",
         serverName: () => cachedBranding(options.publicStorage, context.baseUrl)?.serverName,
         settings: () => {
+            const spoilersBeforeSettings = episodeSpoilers?.settings;
             stopSearchSupplement();
             shuffleGeneration++;
             stopDetails();
@@ -1845,6 +1846,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 host.listen();
                 const current = top();
                 if (current !== undefined) showRoute(current, tabFocus(current));
+                const spoilersAfterSettings = episodeSpoilers?.settings;
+                if (spoilersBeforeSettings?.hidesImages !== spoilersAfterSettings?.hidesImages || spoilersBeforeSettings?.hidesOverviews !== spoilersAfterSettings?.hidesOverviews) shell.repaint();
             }, server.profileLaunch, {
                 profileName: options.profileName ?? "Profiles",
                 profileAvatarUrl: options.profileAvatarUrl,

@@ -99,7 +99,7 @@ export class FakeSettings {
                 const deviceOverride = typed !== SEEK_BACK_KEY && typed !== SEEK_FORWARD_KEY && deviceRows.has(typed);
                 const override = this.overrides.has(typed) || deviceOverride;
                 const defaults = fixture("settings_rows_216").definitions;
-                const fallback = Array.isArray(defaults) ? defaults.find(def => def.key === key)?.default_value : undefined;
+                const fallback = typed === SPOILER_IMAGE_KEY || typed === SPOILER_OVERVIEW_KEY ? false : Array.isArray(defaults) ? defaults.find(def => def.key === key)?.default_value : undefined;
                 const value = this.overrides.has(typed) ? this.overrides.get(typed) : deviceOverride ? deviceRows.get(typed) : profileRows.has(typed) ? profileRows.get(typed) : key === "ui.card_presentation" ? { poster_size: "standard", caption: "title_metadata" } : typed === QUALITY_KEY ? "auto" : typed === SEEK_BACK_KEY ? 10 : typed === SEEK_FORWARD_KEY ? 30 : typed === SUBTITLE_MODE_KEY ? "auto" : typed === SHOW_FORCED_KEY ? true : fallback ?? null;
                 return { key, value, source: override ? "profile_device" : rows.has(typed) ? "profile" : "default", definition_revision: this.revision, ...(this.constrained && typed === AUDIO_KEY ? { constrained: true, requested_value: rows.get(typed) ?? null, permitted_values: [null, "en"] } : {}) };
             });

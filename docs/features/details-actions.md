@@ -54,7 +54,8 @@ The shorter gated Samsung menu can fit below where Apple's six-item menu opens a
 Unfocused Play now shares the circles' 10% white fill (`TVDetailActions.swift:356-360,701-707`), allowing the existing backdrop to show through without a filter.
 Synthetic warm, neutral and cool underlays verify the supplied sRGB targets within two levels; actual title backdrops still need a signed comparison.
 The season pill row's start position remains a known difference.
-Fresh item navigation now clears the focus host's previous visit snapshot, so Details opens on its primary action at scroll zero.
+Each Details route presentation has its own focus-host visit key, so a fresh presentation opens on its primary action at scroll zero without deleting an ancestor's snapshot.
+The key is assigned where all item routes render, including available-to-request Search results that push a route directly.
 This does not clear route-owned selected-season state when returning from an episode information page or repainting the current page.
 
 The #247 scroll audit at the Apple SHA above found these distinct owners, all under `tvOS/Screens/Detail/`:
@@ -67,9 +68,13 @@ The #247 scroll audit at the Apple SHA above found these distinct owners, all un
 
 The existing `SkylineScroll` owner already resets hero/editorial focus to zero and centers movie Related sections.
 No second scroll owner or per-state correction was added.
-The running-app observations remain authoritative: table headings y634 versus y524 require 110 more pixels of scroll; the end-of-series headings y510 versus about y400 require about 110; trailer headings y650 versus y501 and cards y719 versus y570 both require 149.
-The Swift's native focus reveal has no explicit value that accounts for those deltas, so these targets remain unresolved pending the same-state native comparison.
-Centering a section of height H would place its heading at `(1080 - H) / 2`, subject to its content-range clamp; that is not evidence for adding 110 or 149 to the current offset.
+A signed comparison on 6 November 2026 at 1920x1080 used Samsung head `76b2784` and the running Apple app at `7baff3e`.
+Its settled measurements supersede the earlier estimates: downward reveal targets a focused-frame bottom near y904; upward reveal targets heading y111 unless no reveal is needed; Movie Related and Series Cast are centered; Details reaches the page end.
+Apple's Movie Details heading was y524 at scroll1573, and Series Details was y452 at scroll2073.
+The later route-isolation change needs a new signed re-check.
+Scroll parity remains incomplete: in the desktop fixture, the trailer card starts 69.2px below its heading, versus 25px for the supplied Apple focused frame.
+Placing the current heading at y111 therefore places the card at y180.2 rather than y136; scrolling 44.2px farther would instead move the heading to y66.8.
+The focused-frame geometry must be reconciled before treating one scroll rule as matching both measurements.
 No simulator, TV, live server or signed package was used for this follow-up.
 
 Metadata already includes the outlined rating chip and rating artwork (`TVDetailHero.swift:360-446`); Related Movies and Recommended Series already match (`TVMovieDetailView.swift:289`, `TVSeriesDetailView.swift:1117`).

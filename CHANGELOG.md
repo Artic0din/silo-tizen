@@ -16,7 +16,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Opened fresh Details presentations at the hero instead of restoring focus and scroll from an earlier visit.
+- Opened fresh Details presentations at the hero and preserved each earlier presentation's focus and scroll when the same title appeared again in the route stack, including entry from Search.
 - Stopped featured descriptions from starting an automatic translation after focus moved to another card.
 - Corrected subtitle profile edits under device overrides, preserved focus after dismissed launch saves, and reset sign-out confirmation to Cancel on each opening.
 - Corrected Playback Settings to edit this TV's supported overrides and restore profile inheritance without changing profile defaults (Apple/Samsung native parity pending).

@@ -23,6 +23,7 @@ interface VisitSnapshot {
 }
 
 function visitKey(view: View): string {
+    if (view.visitKey !== undefined) return view.visitKey;
     return /^library:[^:]+$/.test(view.name) ? view.transition?.key ?? view.name : view.name;
 }
 
@@ -56,6 +57,8 @@ export interface FocusTarget {
 }
 
 export interface View {
+    /** A route presentation can retain its own position even for the same title. */
+    readonly visitKey?: string;
     readonly prepare?: () => void;
     /** False while a library view has no committed data to remember. */
     readonly ready?: boolean;

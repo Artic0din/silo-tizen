@@ -1418,9 +1418,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const open = (destination: Destination): void => {
         if (destination.kind === "person") host.forgetVisit(`person:${destination.id}`);
-        // A new Details presentation starts on Play; route-owned season state
-        // and the viewport retained while returning from a child stay separate.
-        if (destination.kind === "item") host.forgetVisit(`item:${destination.id}`);
         push(destination.kind === "item"
             ? newRoute({ kind: "item", id: destination.id, title: destination.title, ...(destination.seriesContext === undefined ? {} : { seriesContext: destination.seriesContext }), data: undefined })
             : destination.kind === "person" ? newRoute({ kind: "person", id: destination.id, title: destination.title, data: undefined, filter: "video", pages: newPages(), pendingIndex: undefined })
@@ -1472,6 +1469,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         options.onChooseProfile();
     };
 
+    const detailVisits = new WeakMap<Route, string>();
+    let detailVisitSequence = 0;
     const render = (focus?: FocusTarget): void => {
         activeSection?.stop();
         if (activeBrowse !== undefined) stopFeed(activeBrowse);
@@ -1543,7 +1542,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         } else {
             host.holdVisit();
             shell.hide();
-            host.show(view, focus);
+            if (current.kind === "item") {
+                let visitKey = detailVisits.get(current);
+                if (visitKey === undefined) {
+                    visitKey = `details-visit:${++detailVisitSequence}`;
+                    detailVisits.set(current, visitKey);
+                }
+                host.show({ ...view, visitKey: `${visitKey}:${view.name}` }, focus);
+            } else host.show(view, focus);
         }
     };
 

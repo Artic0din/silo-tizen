@@ -545,7 +545,8 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         // The screen stays up until sign-in replaces it. Ignore another check in that moment.
         checkingSetup = true;
         void openDiscoveredServer(server, core).then((opened) => {
-            if (!destroyed && host.name === "needs-setup") {
+            // Change server clears or replaces pendingSetup while the saved account is still being read.
+            if (!destroyed && host.name === "needs-setup" && pendingSetup === server) {
                 enterSignIn(opened);
             }
         }, (error: unknown) => {

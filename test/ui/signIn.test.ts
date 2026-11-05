@@ -360,6 +360,34 @@ tvTest("Back on the setup screen opens sign-in, the screen underneath it on Appl
     await codeScreen(tv);
 });
 
+tvTest("Change server cancels a Back still opening the previous sign-in", async (tv) => {
+    await connectTo(tv);
+    await signIn(tv);
+    const before = await handoffs(tv);
+    const base = await tv.page.evaluate(() => window.harness.server?.server.http.base.baseUrl);
+    assert.notEqual(base, undefined);
+    await tv.page.evaluate((url) => window.harness.makeAccountLegacy(url as string), base);
+    tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    await tv.page.evaluate(() => window.harness.mount());
+    await tv.page.locator('[data-screen="needs-setup"]').waitFor();
+    await tv.page.evaluate(() => {
+        window.harness.saveHold = window.harness.keyManager?.holdSaves();
+    });
+    await tv.remote(BACK);
+    await tv.eventually(async () => (await tv.page.evaluate(() => window.harness.saveHold?.waiting())) === 1, "the account migration to start");
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("Enter");
+    assert.equal(await tv.screen(), "entry");
+    tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    await connectTo(tv);
+    await tv.page.locator('[data-screen="needs-setup"]').waitFor();
+    await tv.page.evaluate(() => window.harness.saveHold?.release());
+    await tv.jump(0);
+    await tv.page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    assert.equal(await tv.screen(), "needs-setup", "the abandoned Back does not replace the newer screen");
+    assert.equal(await handoffs(tv), before, "the abandoned Back does not hand off its saved account");
+});
+
 tvTest("Check again resumes a saved account when setup becomes ready", async tv => {
     await connectTo(tv);
     await signIn(tv);

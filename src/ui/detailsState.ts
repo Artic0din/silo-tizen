@@ -16,6 +16,7 @@ import { PreplayAudioPreference } from "./preplayAudioPreference.ts";
 import { PreplayTrackPreference } from "./preplayTrackPreference.ts";
 import { subtitlePreferenceOperations, type SubtitlePreferencePick, type SubtitlePreference } from "../api/subtitlePreferenceOperations.ts";
 import { matchesSubtitle, preferredCatalogSubtitle } from "../player/preplaySubtitles.ts";
+import { DescriptionTranslations, type ItemDescriptionTranslation } from "./descriptionTranslation.ts";
 
 export interface PersonalChange {
     readonly target: boolean;
@@ -26,6 +27,7 @@ export interface PersonalChange {
 const EPISODE_PREFETCH_CONCURRENCY = 4;
 
 export class DetailsState {
+    readonly descriptions: ItemDescriptionTranslation | undefined;
     readonly rating: RatingState;
     readonly audioPreference: PreplayAudioPreference;
     readonly subtitlePreference: PreplayTrackPreference<SubtitlePreferencePick, SubtitlePreference>;
@@ -82,9 +84,34 @@ export class DetailsState {
     private readonly watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>;
     private readonly pendingElsewhere: () => boolean;
 
-    constructor(detail: ItemDetail, session: NativeSession, changed: (returnKey?: string) => void, watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>, pendingElsewhere: () => boolean = () => false) {
+    constructor(detail: ItemDetail, session: NativeSession, changed: (returnKey?: string) => void, watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>, pendingElsewhere: () => boolean = () => false, translations?: DescriptionTranslations) {
         this.detail = detail;
         this.session = session;
+        this.descriptions = translations?.open({
+            detail: () => this.detail,
+            season: () => {
+                const series = this.series;
+                const number = series?.seasonNumber;
+                if (series === undefined || number === undefined) return undefined;
+                const season = series.seasons.find((item) => item.seasonNumber === number);
+                return season === undefined ? undefined : { id: season.id, number };
+            },
+            episodes: () => this.series?.episodes,
+            seriesId: () => this.detail.type === "series" ? this.detail.id : undefined,
+            replaceDetail: (next) => {
+                if (this.controller === undefined || this.controller.signal.aborted || next.id !== this.detail.id) return true;
+                this.detail = next;
+                this.changed();
+                return next.pendingTranslationLanguage === undefined;
+            },
+            replaceEpisodes: (season, episodes) => {
+                const series = this.series;
+                if (series === undefined || series.seasonNumber !== season) return true;
+                series.replace(season, episodes);
+                return !episodes.some((episode) => episode.pendingTranslationLanguage !== undefined);
+            },
+            changed: () => this.changed(),
+        });
         this.changed = changed;
         this.watchedChanged = watchedChanged;
         this.pendingElsewhere = pendingElsewhere;
@@ -139,10 +166,12 @@ export class DetailsState {
         if (interrupted) this.changed();
         if (mode === "full" && this.related === undefined) this.loadRelated();
         if (this.personalSupported === undefined) this.loadPersonal();
+        if (this.full && this.controller !== undefined) this.descriptions?.attach(this.controller.signal);
     }
 
     stop(): void {
         for (const state of this.seasonStates.values()) state.stop();
+        this.descriptions?.stop();
         this.extraPending = undefined;
         this.episodeEpoch++;
         this.episodeController?.abort();
@@ -372,6 +401,7 @@ export class DetailsState {
         for (const episode of this.series?.episodes ?? []) this.queueEpisode(episode.id);
         this.syncEpisode();
         this.changed();
+        this.descriptions?.consider();
     }
 
     focusEpisode(id: string): void {

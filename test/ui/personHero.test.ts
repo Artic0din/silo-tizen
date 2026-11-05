@@ -258,6 +258,7 @@ test("Back cancels a late portrait image before it can paint", async () => {
         await signIn(tv);
         const held = await holdPhoto(tv);
         await person(tv, { photo_url: "/art/person-hero.svg", photo_thumbhash: OPAQUE });
+        await tv.eventually(async () => held.requests.length === 1, "the held portrait request before Back");
         assert.equal(held.requests.length, 1);
         const failed = tv.page.waitForEvent("requestfailed", request => request.resourceType() === "image" && request.url().includes("/art/person-hero.svg"));
         await tv.remote(BACK);

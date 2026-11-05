@@ -14,7 +14,7 @@ import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 class SeamCatalog extends FakeDetails {
     override route(method: string, path: string, profile: string | undefined, body?: Record<string, unknown>): Reply | undefined {
-        if (path.startsWith("/catalog/query") && body?.source === "watchlist") {
+        if (method === "GET" && path.startsWith("/watchlist?")) {
             const scoped = [...this.titles.values()].filter(title => title.type === "movie" || title.type === "series");
             const items = scoped.slice(0, 8).flatMap(title => {
                 const reply = super.route("GET", `/catalog/items/${encodeURIComponent(title.id)}`, profile);
@@ -153,14 +153,22 @@ async function openLibrary(tv: Tv): Promise<void> {
 }
 
 for (const reducedMotion of ["no-preference", "reduce"] as const) {
-    test(`returning up from Collections keeps the shared shelf artwork inside ${reducedMotion}`, async () => {
+    test(`returning up between library shelves keeps artwork inside ${reducedMotion}`, async () => {
         const tv = await openTv(browser, { app: "browse" });
         try {
             await tv.page.emulateMedia({ reducedMotion });
-            await signedIn(tv);
+            const catalog = new FakeCatalog();
+            const household = catalog.households.get("p-owner");
+            assert.ok(household);
+            household.librarySections = [
+                { id: "first", title: "First shelf", items: ["movie:m0001"] },
+                { id: "second", title: "Second shelf", items: ["movie:m0004"] },
+            ];
+            await signedIn(tv, catalog);
             await openLibrary(tv);
+            assert.equal(await tv.page.locator('[data-focus="collection:highlights"]').count(), 0);
             await tv.remote(40);
-            assert.equal(await tv.focused(), "collection:highlights");
+            assert.equal(await tv.focused(), "movie:m0004");
             await tv.jump(300);
             await tv.remote(38);
             await tv.jump(300);
@@ -168,6 +176,14 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             assert.equal(await tv.focused(), "movie:m0001");
             const focused = await focusClip(tv);
             assert.equal(focused.inside, true, focused.clippedBy.join("; "));
+            await selectLibraryMode(tv, "Collections");
+            await tv.eventually(async () => await tv.focused() === "collection:highlights", "separate Collections page");
+            await selectLibraryMode(tv, "Recommended");
+            await tv.eventually(async () => await tv.focused() === "movie:m0001", "return to Recommended");
+            await tv.jump(300);
+            await settleFocusMotion(tv);
+            const returned = await focusClip(tv);
+            assert.equal(returned.inside, true, returned.clippedBy.join("; "));
         } finally { await tv.page.context().close(); }
     });
     test(`library shelf focus keeps captions and edge artwork clear ${reducedMotion}`, async () => {
@@ -626,13 +642,16 @@ test("settings, audio, calendar, filmography, personal and card actions keep vis
         await tv.remote(BACK);
         assert.equal(await tv.focused(), "audio");
         await tv.page.locator('[data-focus="person:7"]').first().click();
-        await tv.page.locator('[data-focus="see-all"]').waitFor();
-        await tv.page.locator('[data-focus="see-all"]').click();
-        await tv.page.locator(".browse-grid .browse-card").first().waitFor();
+        const personCard = tv.page.locator(".browse-grid .browse-card").first();
+        await personCard.waitFor();
+        const personId = await personCard.getAttribute("data-focus");
+        await personCard.click();
+        await tv.page.locator(".details-hero").waitFor();
         await tv.remote(BACK);
-        assert.equal(await tv.focused(), "see-all");
-        assert.equal(await visibleFocus(tv), true, "filmography return keeps See all visible");
+        assert.equal(await tv.focused(), personId);
+        assert.equal(await visibleFocus(tv), true, "Person return keeps its card visible");
         await tv.remote(BACK);
+        assert.equal(await tv.focused(), "person:7");
         await tv.remote(BACK);
         await showing(tv, "home");
         await tv.page.locator('[data-focus="for_you"]').focus(); await tv.remote(40);
@@ -675,6 +694,14 @@ test("calendar return keeps the focused event visible", async () => {
         await showing(tv, "calendar");
         assert.equal(await tv.focused(), key);
         assert.equal(await visibleFocus(tv), true, "calendar return keeps the event visible");
+        const reads = tv.fake.requests.filter(request => request.path.startsWith("/calendar?")).length;
+        await tv.page.keyboard.press("ArrowUp");
+        assert.equal(await tv.focused(), "day:2026-01-02", "shelf return preserves the selected date instead of changing it on card focus");
+        assert.equal(await visibleFocus(tv), true, "selected strip day remains visible above the shelf");
+        for (let index = 0; index < 5; index++) await tv.page.keyboard.press("ArrowLeft");
+        assert.equal(await tv.focused(), "previous-week");
+        assert.equal(await visibleFocus(tv), true, "the strip chevron has visible focus");
+        assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/calendar?")).length, reads);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

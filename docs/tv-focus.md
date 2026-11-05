@@ -41,7 +41,7 @@ A key press resolves in this order (`FocusHost.onKey`, `moveWithin`):
 2. Move inside the zone with `moveWithin`.
    A grid's partly filled last row is still "below": Down lands on its last item.
 3. At the zone edge, follow the explicit link (`zone.up`, `zone.down`, ...) if it names a zone that has items.
-   The destination item is the one last focused there, else its first item.
+   The destination item is its explicit `entry`, then the one last focused there, else its first item.
 4. With no explicit link, Up and Down fall through to `enterZone`, the nearest zone above or below that has items.
    It lands on `entry`, then the remembered item, then the first item.
    Left and Right never cross zones unless a link or `onLeft` says so.
@@ -213,6 +213,7 @@ The app honours `prefers-reduced-motion: reduce`.
 Focus itself and key handling are synchronous in both modes.
 Reduced motion changes how things move, never where focus lands or when.
 Focus moves use `focus({ preventScroll: true })` and the host scrolls via `SkylineScroll.reveal`, so the browser never scrolls on its own.
+Account chooser columns and the Accounts settings list use the same reveal owner to keep focused rows and Add actions visible.
 (`ScreenHost` uses a plain `focus()`.)
 
 ## Player Keys

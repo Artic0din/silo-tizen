@@ -114,7 +114,10 @@ for (const [name, root, section, row, card] of surfaces) {
             const focused = await read();
             await t.test("lift", () => assert.equal(focused.transform, "matrix(1.05, 0, 0, 1.05, 0, 0)"));
             await t.test("outline", () => assert.equal(focused.outline, "rgba(255, 255, 255, 0.7) solid 4px"));
-            await t.test("shadow", () => assert.equal(focused.shadow, "rgba(0, 0, 0, 0.45) 0px 8px 36px 0px"));
+            const posterShadow = "rgba(0, 0, 0, 0.45) 0px 8px 36px 0px";
+            // Continue Watching used to share that single poster shadow.
+            const continueShadow = `${posterShadow}, rgba(0, 0, 0, 0.5) 0px 10px 40px 0px`;
+            await t.test("shadow", () => assert.equal(focused.shadow, card === "skyline-continue" ? continueShadow : posterShadow, card === "skyline-continue" ? `Continue Watching focused shadow; the old value was ${posterShadow}` : "focused poster shadow"));
             await t.test("fixed caption weight", () => assert.deepEqual(focused.weight, rest.weight, "focus never changes truncation weight"));
             const fixedCaption = card === "requests-card" || card === "calendar-event";
             const drop = Math.max(0, focused.height * 0.025 + 8 - focused.gap);

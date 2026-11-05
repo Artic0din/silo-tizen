@@ -4,7 +4,8 @@ This slice applies the [Skyline guide](https://github.com/Silo-Server/silo-apple
 Home, Movies, Series and Profiles share mounted root navigation.
 Only visible video library types appear, and mixed libraries can be scoped to either video type.
 Search, Detail, season and playback routes remove the root chrome.
-Library destinations follow the available discovery capabilities: Browse, Collections, Genres, A–Z and Recently Added.
+The library dropdown offers Recommended, Collections and Browse, in that order, matching the tvOS cascade.
+Browse retains the capability-gated Genres, A–Z and Recently Added mode controls.
 
 ## Details layout and selection
 
@@ -162,8 +163,8 @@ Back from Requests, History or Settings keeps the profile menu closed and restor
 Back from the open profile menu itself still restores avatar focus.
 The header uses the confirmed server branding name, falling back to the host when none is cached.
 Every focused menu row uses a white platter and black text, including Sign Out.
-Change Account currently opens the existing server selection without logging out or deleting saved sign-ins.
-The real Change Account screen and multi-account support are tracked in [#185](https://github.com/Artic0din/silo-tizen/issues/185).
+Change Account opens saved accounts without logging out or deleting saved sign-ins.
+Back leaves the profile menu closed and restores the selected tab and its page.
 The header keeps the server name because Tizen has no multiple saved accounts per server.
 Sign Out requires confirmation; Cancel and Back preserve the session and restore avatar focus.
 Its two-action layout follows `TVSettingsConfirmationOverlay`: centered surface, 48/42 px padding, 38 px title, 22 px message, horizontal 260 px buttons with 16 px spacing and a 0.62 black backdrop.
@@ -203,7 +204,7 @@ Movies and series show `year · genre · runtime`; time left appears only in Con
 The content rating leads the meta line as a chip, and resolution, dynamic range and audio from `overlay_summary` follow as chips.
 Movies and series add one score after the meta text: IMDb, else TMDB, out of 10 with one decimal, as a dimmed text mark and a bold score.
 TMDB scores use TMDB's approved logo instead of a text mark, as Apple does; Settings > Server > Acknowledgements carries the notice TMDB's terms require (see `app/third-party/README.md`).
-The card's `logo_url` replaces the text title once the image loads, aspect-fit inside 880×200 on Home and 880×150 on a library landing.
+The card's `logo_url` replaces the text title once the image loads. It scales to fit a fixed 880×200 slot and sits on the left, vertically centred. Home, For You and library Recommended share that home-scale slot.
 Logos follow Apple `TitleArtPreferences`: they show unless the server's last confirmed `ui.title_art` answer for this server and profile is off.
 That answer comes from the same capability, contract and effective-value reads Details uses and is kept on the TV, so a pending or failed read keeps it and a server without the key drops it.
 Home uses medium row artwork with the 1344 px backdrop fill and 880 px logo slots when per-slot widths are supported, scaled by device pixel ratio.
@@ -240,7 +241,8 @@ Reference: silo-apple `ffa6e5188c70664090a6dc9beb8c7cbbc3ce43e7`, source only; t
 With reduced motion the artwork does not grow and shows Apple's 4 px focus ring instead.
 Library Recommended now uses these same media rows and the calibrated Home hero/marquee scene, independently of its selected navigation root or library shortcut.
 Its headings are plain text; Explore All retains the section route and library scope.
-Inline collection tiles retain their separate presentation and actions.
+Recommended preserves non-featured server shelf order without injecting a Collections shelf or requesting collections.
+Collections retains its separate grid destination and actions.
 The 38 px added artwork height is the measured native-card substitute, not a universal Swift scale constant.
 [Earlier signed shelf focus comparisons](../evidence/screenshots/149-library-focus/README.md) document the superseded 208×312 Library shelf layout; they do not prove the current shared scene.
 The [current signed scene evidence](../evidence/screenshots/152-library-skyline/README.md) records shared-scene calibration, corrected Collections-to-row artwork clearance, reduced motion, expansion and controlled failure recovery, with historical Apple and simulator limits disclosed.

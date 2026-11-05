@@ -45,7 +45,7 @@ export function globalSearchView(view: View, route: Extract<Route, { kind: "sear
     if (waitingForPeople && !view.content.some(node => node.classList.contains("search-progress"))) content.push(searchLoading());
     if (route.failure === undefined && people.length > 0) {
         const items = people.map(person => {
-            const item = actionButton(`person:${person.id}`, person.name, () => h.push(newRoute({ kind: "person", id: person.id, title: person.name, data: undefined })));
+            const item = actionButton(`person:${person.id}`, person.name, () => h.context.open({ kind: "person", id: person.id, title: person.name }));
             item.element.className = "browse-card details-person";
             item.element.replaceChildren(artwork("browse-art details-photo", person.photoUrl, h.context.baseUrl, ""), el("span", "browse-card-title", person.name));
             return item;

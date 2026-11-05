@@ -7,9 +7,56 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - Added profile-gated beta audiobook libraries, grouped browsing, chapters, resume, audio seeking and sleep timers.
+- Added Change Account with several saved accounts per server and account management.
 
 ### Fixed
 
+- Kept Home rows when a return to Home joined a row-cap read that the previous visit had cancelled.
+- Preserved saved logins when entering another server and kept overflowing Accounts actions visible on screen.
+- Placed Accounts below the Server heading, matched its section labels and chevrons to Apple TV, and reused the saved account's session when restoring through server entry.
+- Matched Accounts spacing, footnote size, chevron symbols and return focus to Apple TV, and kept the profile picker until Remember is chosen even with one unprotected profile.
+- Blocked account navigation during removal, guarded legacy sign-ins and released account chooser focus before session recovery.
+
+- Matched Accounts pane rows and Change Account layout, and returned Back from account management to Settings.
+- Preserved the selected account when retiring another session and kept guarded session-only sign-ins usable until restart.
+- Kept Change Account reachable when a saved server is offline, prevented removed accounts from being restored by late refreshes, and scrolled account lists to keep remote focus visible.
+- Prevented failed replacement sign-ins from restoring old credentials and kept saved-sign-in removal scoped to the selected account.
+- Prevented replaced account sessions from overwriting a new sign-in and required fresh PIN proof after committing an account switch.
+- Corrected Calendar wall-clock times, spatial shelf return and top restoration, clipped captions, strip placement, and Apple-style loading, empty and error states after native comparison.
+- Kept the focus a viewer moved during Calendar's Today request, revealed a day shelf that starts below the page, and spaced day headings at Apple's 595px pitch.
+- Down from the Calendar tab opens the selected filter, shelf-to-shelf moves keep the first card's column and bottom-align the day shelf, and scrolled Calendar passes under the top bar.
+- Kept collection titles in the server's order, matching Apple TV instead of sorting them alphabetically.
+- Lowered the collection Shuffle row, dimmed its heading and count, matched caption spacing, and restored watched badges through profile-aware catalog reads.
+- Dimmed collection titles, showed profile poster overlays, kept collection focus rings on artwork, and closed section menus during content loading.
+- Matched collection page spacing, Shuffle controls, and truncated poster captions to Apple TV.
+- Opened collection pages without requiring catalog totals, showed their item count and Shuffle action, and aligned the Collections grid with Apple TV.
+
+- Displayed Collections as portrait posters with visible missing-artwork placeholders and moved library mode selection into the navigation menu.
+- Kept History's focused artwork and captions on screen at every poster size and repainted personal lists when presentation preferences arrived.
+- Preserved History's outer posters and focus outlines inside the scroll viewport's horizontal padding.
+- Offered an explicit retry when a Favorites continuation failed and the observed end cards could not scroll out of view.
+- Resumed personal-list pagination after dismissing card actions that cancelled a pending continuation.
+- Restored the For You menu on Down from the retained tab over Watchlist and Favorites, focusing Watchlist as on Apple TV.
+- Matched History's Apple TV title position and focused poster scroll clearance.
+- Matched Apple TV personal-list loading, root selection, Back navigation, grid spacing, and saved-list ordering.
+- Kept saved-list requests and response validation in the shared API adapter and contract modules.
+- Kept a Person filter the viewer already chose when a slower availability probe would have removed its chip.
+- Moved Up from a Person filmography card to the chip closest to that card's left edge, leaving the card in place when no chip meets it, and scrolled the first row to the page's 72 px bottom padding plus the tvOS safe area.
+
+- Reset fresh Person visits from Search and applied delayed poster and badge preferences on Person.
+
+- Corrected Person safe-area insets, title-count spacing, biography weight, server-driven filters, fresh-visit focus and independent metadata loading, restored catalog status badges, and returned the full hero when focus moved back to its chips.
+- Drew the series status TV glyph as Apple's flat `tv` symbol, at that symbol's layout size, and stopped Search from pinning an upward move over the field and filters.
+- Drew the TV icon on Returning, Cancelled and Ended badges and raised Home headings by using Skyline's 14px card padding.
+- Raised the focused Search poster, darkened the Continue Watching focus shadow, showed the Returning badge on Search cards, and hid the watched tick on Related titles.
+- Showed Home rows as soon as they arrived, without waiting on library tabs or an uncapped sections read, and stopped the Home page from saying the server was still waiting. While those rows are still out, Home is an empty page labelled "Loading home" and the library tabs fill in on their own.
+- Stopped a delayed Home libraries read from putting a library back after it was hidden in Settings.
+- Kept remote navigation when those library tabs arrived on another page, and read them again after the app returned if that read had failed.
+- Kept a profile's Movies and Series tabs when a libraries read failed after returning to that profile. A switch to another profile still drops the previous profile's libraries.
+- Moved the Home logo slot up to Apple's marquee stack and landed Down from a landscape card on the poster nearest that card.
+- Kept the column when moving down between Home rows, and fitted hero title art in Apple's 200px logo slot.
+- Down from the top bar lands on the leftmost card instead of the card remembered in the row.
+- Matched Apple TV library shelf order and the Recommended, Collections and Browse section menu, keeping Collections in its own destination.
 - Restored each page's hero after returning from the profile menu and painted the avatar's white focus ring above its image.
 - Renamed the profile menu's Switch Server row to Change Account, after Settings and before Sign Out.
 
@@ -24,9 +71,15 @@ All notable changes to this project are documented in this file.
 - Prevented large Search posters from overlapping and kept catalog errors and Try Again visible while People results were pending.
 - Restored related titles on Details when the server returned cards without catalog pagination totals.
 - Made Enter on the player's default focus skip the intro, recap or credits while the Skip control shows, instead of pausing.
+- Kept scrolled personal-list cards visible when pages appended or reads failed.
+- Opened History without the top menu, with a centered title, exact counts and Apple's unfiltered 60-item pages.
+- Kept personal-list focus and cached cards after failed reads and fitted large History posters to five columns.
 
 ### Changed
 
+- Showed Watchlist, Favorites and History as continuous scrolling grids with Apple TV layouts and empty states.
+
+- Showed the title count, All/Movies/Series filters and paged filmography beneath the Person hero, with one Back returning to the originating credit.
 - Matched Apple TV's outlined card focus with a smaller lift, softer captions and a persistent outline on the Series row's current episode.
 - Started the horizontal navigation column after leaving a text field, and reset it at the top bar or a page's first card.
 
@@ -40,6 +93,7 @@ All notable changes to this project are documented in this file.
 - Added People results, All/Movies/Series filters, result counts, an idle prompt and an independent Available to request rail to Search, and opened Search above its originating page without the root navigation, starting empty on each visit.
 - Preset profile avatars showed the flat image Apple TV shows when the server supplied an SVG avatar address.
 - Rebuilt Requests to match Apple TV: the hub showed Your requests first with focused title previews, horizontal shelves and Apple's loading, error and empty pages, and no longer had its own Search requests, My Requests, Refresh or Back buttons; details gained posters, backdrops, title metadata, a status tracker and related recommendations, with title fallbacks for missing artwork; and the top bar's tab positions and Search icon used Apple's values. A request or cancellation kept focus on its action while it ran, a refused or unconfirmed one explained itself beside the action, a failed title read showed the full error page, hub rows no longer ended in a See all tile, and a focused poster gained Apple's sheen.
+- Combined Calendar week navigation into a compact day strip with release dots and a month label, moved time and status badges onto artwork, and showed instant-backed times in local 12-hour format.
 - Played episodes directly from cards and season lists with fresh resume progress, added numbered Play/Resume series actions, and kept episode information available in Card actions.
 - Consolidated Details actions into one row, added version and subtitle dialogs, kept rating and personal actions in More, and showed season chips with an inline episode rail and clearer cast and synopsis layouts.
 - Settled every unknown Android TV cell in FEATURES.md and added nine parity rows found in the upstream TV parity audits.
@@ -119,6 +173,8 @@ All notable changes to this project are documented in this file.
 - Added a CI workflow that runs the type checks, the build and all tests.
 
 ### Fixed
+
+- Matched Apple TV’s fixed top menu and moved Requests into the profile menu with Back restoring its row.
 
 - Kept a rating write running when the details page restarted, and read the rating only after it settled, so the page shows the stored rating instead of the old one.
 - Measured current Continue Watching artwork in geometry regressions without retaining nodes across Home redraws.

@@ -28,6 +28,8 @@ interface ProfileMenu {
     readonly signOut?: () => void;
     readonly switchServer?: () => void;
     readonly serverName?: () => string | undefined;
+    readonly accountName?: string;
+    readonly lastAccount?: boolean;
 }
 
 type RootTarget = "home" | "search" | "calendar" | "for_you" | "audiobooks" | UserLibrary;
@@ -237,6 +239,7 @@ export class Skyline {
 
     private commit(target: RootTarget, mode?: LibraryMode): void {
         if (!this.visible) return;
+        const anchor = this.panelAnchor;
         this.shortcutSelection = typeof target !== "string" && this.panelAnchor?.startsWith("library:") ? this.panelAnchor : undefined;
         if (typeof target !== "string") {
             const type = this.panelTab ?? (target.type === "series" ? "series" : target.type === "music" ? "music" : "movies");
@@ -244,6 +247,9 @@ export class Skyline {
             try { this.storage?.setItem(`${this.storageKey}:${type}`, target.id); } catch { /* Keep the selection for this session. */ }
         }
         this.close();
+        // Loading can briefly restore the tab before content takes focus.
+        this.dismissedAnchor = anchor;
+        this.cancelDwell();
         this.activate(target, mode);
     }
 
@@ -274,6 +280,8 @@ export class Skyline {
         if (!this.selector.hidden) zones.push({ id: "selector", layout: this.confirmation ? "row" : "column", items: this.panel });
         if (!this.flyout.hidden) zones.push({ id: "flyout", layout: "column", items: this.flyoutItems });
         const prepare = (): void => {
+            // FocusHost has saved the viewport before child views move cached nodes.
+            view.prepare?.();
             this.container.classList.add("skyline-root");
             this.container.classList.toggle("skyline-preview", preview);
             this.container.classList.toggle("skyline-home", this.sharedScene);
@@ -657,7 +665,11 @@ export class Skyline {
         this.panel = [actionButton("cancel-signout", "Cancel", () => this.back()), actionButton("confirm-signout", "Sign Out", () => { if (!this.visible || !this.confirmation) return; this.close(); signOut(); })];
         this.panel[1]?.element.classList.add("skyline-destructive");
         const header = el("div", "skyline-confirm-header");
-        header.append(el("h2", "skyline-confirm-title", "Sign Out"), el("p", "skyline-confirm-message", "Sign out of Silo on this TV?"));
+        const server = this.profiles.serverName?.() ?? "the server";
+        const message = this.profiles.lastAccount
+            ? `This account's profiles and settings leave this TV, and ${server} will be removed from it.`
+            : "This account's profiles and settings leave this TV. The server stays saved, so you can sign in again.";
+        header.append(el("h2", "skyline-confirm-title", `Sign out of ${this.profiles.accountName ?? "this account"} on ${server}?`), el("p", "skyline-confirm-message", message));
         const actions = el("div", "skyline-confirm-actions");
         actions.append(...this.panel.map(item => item.element));
         replaceNodes(this.selector, [header, actions]);
@@ -671,7 +683,8 @@ export class Skyline {
     }
 
     private modeItems(library: UserLibrary, type: VideoTab): FocusItem[] {
-        return this.libraryModes.map(mode => {
+        // tvOS's cascade offers three destinations; legacy filters stay within Browse.
+        return (["Recommended", "Collections", "Browse"] as const).filter(mode => this.libraryModes.includes(mode)).map(mode => {
             const item = this.menuItem(`section:${mode === "Browse" ? "browse" : mode}`, mode, () => this.commit(this.panelAnchor === `library:${library.id}` ? library : { ...library, type }, mode), mode);
             item.element.setAttribute("role", "menuitem");
             return item;

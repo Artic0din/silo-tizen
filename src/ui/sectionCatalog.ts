@@ -25,6 +25,7 @@ export class SectionCatalog {
     private dirty = false;
     private overlays: ReturnType<NonNullable<ViewContext["cardOverlays"]>>;
     private scale = 0;
+    private hidesImages = false;
 
     stop(): void { this.observer?.disconnect(); this.observer = undefined; }
     invalidate(): void { this.dirty = true; }
@@ -37,6 +38,7 @@ export class SectionCatalog {
         const columns = scale > 1 ? 5 : 6;
         const width = Math.max(MIN_GRID_WIDTH, columns * POSTER_WIDTH * scale + (columns - 1) * COLUMN_GAP);
         const overlays = context.cardOverlays?.();
+        const hidesImages = context.spoilers?.().hidesImages ?? false;
         const name = route.kind === "homeSection" ? `homeSection:${route.id}` : `libraryResults:${route.library.id}:${route.source.id}`;
         const content: HTMLElement[] = [title];
         if (page === undefined || page.items.length === 0) {
@@ -62,7 +64,7 @@ export class SectionCatalog {
             content.push(label);
         }
         const retainsPrefix = this.cards.length <= page.items.length && this.cards.every((card, index) => page.items[index] === card);
-        if (!retainsPrefix || this.dirty || this.overlays !== overlays || this.scale !== scale) {
+        if (!retainsPrefix || this.dirty || this.overlays !== overlays || this.scale !== scale || this.hidesImages !== hidesImages) {
             // Keep the focused old node connected until FocusHost captures its identity/index.
             this.grid = el("div", "browse-grid section-catalog-grid");
             this.items = [];
@@ -71,6 +73,7 @@ export class SectionCatalog {
         this.dirty = false;
         this.overlays = overlays;
         this.scale = scale;
+        this.hidesImages = hidesImages;
         this.grid.style.setProperty("--section-columns", String(columns));
         this.grid.style.width = `${width}px`;
         this.grid.style.setProperty("--section-scale", String(scale));

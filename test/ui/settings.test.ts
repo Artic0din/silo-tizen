@@ -533,7 +533,7 @@ test("Playback restores video skip intervals after episodes and focus moves do n
         await openSettings(tv);
         await tv.page.locator('[data-focus="playback"]').click();
         assert.equal(await tv.page.locator('[data-focus="seek-back"], [data-focus="seek-forward"]').count(), 2);
-        assert.deepEqual(await tv.page.locator(".settings-section-header").allTextContents(), ["QUALITY", "STREAMING", "EPISODES", "VIDEO"]);
+        assert.deepEqual(await tv.page.locator(".settings-section-header").allTextContents(), ["QUALITY", "STREAMING", "EPISODES", "SPOILERS", "VIDEO"]);
         const requests = tv.fake.requests.length;
         await tv.page.locator('[data-focus="quality"]').focus();
         await tv.remote(40); await tv.remote(40);
@@ -880,10 +880,14 @@ test("quality controls remain absent for unsupported manifests and empty Playbac
         await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
         await tv.page.locator('[data-focus="remember-profile"]').waitFor();
         await tv.page.locator('[data-focus="playback"]').click();
-        await tv.page.getByText("No supported settings in this category.", { exact: true }).waitFor();
+        // Playback is no longer empty on a revision-24 server: the spoiler switches come from capabilities, not the emptied contract. The old assertion expected "No supported settings in this category."
+        await tv.page.locator('[data-focus="spoiler-images"]').waitFor();
+        assert.equal(await tv.page.getByText("No supported settings in this category.", { exact: true }).count(), 0);
         assert.equal(await tv.page.locator('[data-focus="quality"], [data-focus="bitrate"]').count(), 0);
+        assert.equal(await tv.page.locator('[data-focus="settings-back"]').count(), 0);
         assert.equal(tv.fake.requests.slice(requests).filter(r => r.path.startsWith("/settings/values")).length, 0);
-        await tv.page.keyboard.press("Enter");
+        await tv.page.locator('[data-focus="spoiler-images"]').focus();
+        await tv.remote(10009);
         assert.equal(await tv.focused(), "playback");
     } finally { await tv.page.context().close(); }
 });

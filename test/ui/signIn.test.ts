@@ -5,7 +5,7 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { encode } from "uqr";
 import { FAKE_PASSWORD, fixture, problem, type Reply } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
 const IME_DONE = 65376;
@@ -252,6 +252,153 @@ tvTest("unsupported, misrouted and failing servers are named, and a retry connec
     await connectFails(tv, "The server had a problem. Try again in a moment.");
     await tv.page.keyboard.press("Enter");
     await codeScreen(tv);
+});
+
+const PENDING_SETUP = { needs_setup: true, wizard_completed: false };
+
+/** TVServerNeedsSetupView pads the error 20pt below the body. The body wraps, with 4pt between lines. */
+function errorBelowBody(tv: Tv): Promise<{ gap: number; line: number }> {
+    return readLive(tv, () => {
+        const body = document.querySelector<HTMLElement>('[data-screen="needs-setup"] .marquee-lead');
+        const error = document.querySelector<HTMLElement>('[data-screen="needs-setup"] .marquee-error');
+        if (body === null || error === null || !body.isConnected || !error.isConnected) return null;
+        const range = document.createRange();
+        range.selectNodeContents(body);
+        const lines = [...range.getClientRects()];
+        const first = lines[0];
+        const second = lines[1];
+        if (first === undefined || second === undefined) return null;
+        return {
+            gap: error.getBoundingClientRect().top - body.getBoundingClientRect().bottom,
+            line: second.top - first.top,
+        };
+    }, null, (value) => value.gap === 20 && value.line === 38, "the error 20px below the body");
+}
+
+function setupReads(tv: Tv): number {
+    return tv.fake.paths().filter((path) => path === "GET /system/setup").length;
+}
+
+tvTest("a server that still needs setup shows Apple TV's recovery screen instead of sign-in", async (tv) => {
+    tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    await connectTo(tv);
+    await tv.page.locator('[data-screen="needs-setup"]').waitFor();
+    assert.equal(await tv.page.locator(".marquee-hero").evaluate((node) => node.textContent), "This server\nisn't ready");
+    await shows(tv, "Ask the server administrator to finish setup. When it is ready, check again.");
+    assert.equal(await tv.page.locator(".marquee-server-name").innerText(), "silo.example.test");
+    assert.equal(await tv.page.locator(".marquee-server-address").innerText(), "https://silo.example.test");
+    assert.equal(await tv.page.locator(".marquee-badge").evaluate((node) => node.textContent), "Setup needed");
+    assert.equal(await tv.page.locator(".marquee-mark-initial").count(), 0, "the mark is the rack, not an initial");
+    assert.equal(await tv.focused(), "retry");
+    assert.equal(await tv.page.locator('[data-focus="retry"]').innerText(), "Check again");
+    assert.equal(await tv.page.locator('[data-focus="retry"]').getAttribute("disabled"), null, "a disabled button would lose focus");
+    assert.equal(tv.fake.paths().some((path) => path === "POST /auth/device/start"), false, "sign-in waits until the server is ready");
+    assert.deepEqual(await style(tv, '[data-screen="needs-setup"] .marquee-hero', "margin-top"), ["52px"]);
+    assert.deepEqual(await style(tv, '[data-screen="needs-setup"] .marquee-lead', "margin-top"), ["26px"]);
+    assert.deepEqual(await style(tv, '[data-screen="needs-setup"] .marquee-actions', "margin-top"), ["56px"]);
+
+    tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    const before = setupReads(tv);
+    const hold = tv.fake.hold("/system/setup");
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => (await tv.page.locator('[data-focus="retry"]').innerText()) === "Checking…", "the check to start");
+    assert.equal(await tv.focused(), "retry", "focus stays on Check again while it runs");
+    assert.equal(await tv.page.locator('[data-focus="retry"]').getAttribute("disabled"), null);
+    assert.equal(await tv.page.locator('[data-focus="retry"]').getAttribute("aria-busy"), "true");
+    // Discovery answers before setup. The held setup read is what a second press must not repeat.
+    await tv.eventually(async () => setupReads(tv) > before, "the check to reach setup");
+    const reads = setupReads(tv);
+    await tv.page.keyboard.press("Enter");
+    assert.equal(setupReads(tv), reads, "a check already running is ignored");
+    hold.release();
+    await shows(tv, "This server still needs administrator setup.");
+    assert.deepEqual(await style(tv, '[data-screen="needs-setup"] .marquee-error', "margin-top"), ["20px"]);
+    assert.equal((await errorBelowBody(tv)).gap, 20);
+    assert.equal(tv.fake.paths().some((path) => path === "POST /auth/device/start"), false);
+
+    await tv.page.keyboard.press("Enter");
+    await codeScreen(tv);
+});
+
+tvTest("checking a server that cannot be reached explains it, and Change server returns to the address", async (tv) => {
+    tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    await connectTo(tv);
+    await tv.page.locator('[data-screen="needs-setup"]').waitFor();
+    tv.fake.dropNextAnswer("/system/setup");
+    tv.fake.dropNextAnswer("/system/setup");
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => {
+        if ((await tv.page.getByText("Couldn't reach the server. Check it's running and try again.", { exact: true }).count()) === 1) {
+            return true;
+        }
+        await tv.jump(1000);
+        return false;
+    }, "the check to fail");
+    assert.equal(await tv.screen(), "needs-setup");
+    assert.equal((await errorBelowBody(tv)).gap, 20);
+
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), "change");
+    const hold = tv.fake.hold("/system/setup");
+    await tv.page.keyboard.press("ArrowLeft");
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => (await tv.page.locator('[data-focus="retry"]').innerText()) === "Checking…", "another check");
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("Enter");
+    assert.equal(await tv.screen(), "entry");
+    hold.release();
+    await tv.jump(0);
+    assert.equal(await tv.screen(), "entry", "a check abandoned by Change server does not return");
+    assert.equal(await tv.page.getByText("This server still needs administrator setup.", { exact: true }).count(), 0);
+});
+
+tvTest("Back on the setup screen opens sign-in, the screen underneath it on Apple TV", async (tv) => {
+    tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    await connectTo(tv);
+    await tv.page.locator('[data-screen="needs-setup"]').waitFor();
+    await tv.remote(BACK);
+    await codeScreen(tv);
+});
+
+tvTest("Change server cancels a Back still opening the previous sign-in", async (tv) => {
+    await connectTo(tv);
+    await signIn(tv);
+    const before = await handoffs(tv);
+    const base = await tv.page.evaluate(() => window.harness.server?.server.http.base.baseUrl);
+    assert.notEqual(base, undefined);
+    await tv.page.evaluate((url) => window.harness.makeAccountLegacy(url as string), base);
+    tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    await tv.page.evaluate(() => window.harness.mount());
+    await tv.page.locator('[data-screen="needs-setup"]').waitFor();
+    await tv.page.evaluate(() => {
+        window.harness.saveHold = window.harness.keyManager?.holdSaves();
+    });
+    await tv.remote(BACK);
+    await tv.eventually(async () => (await tv.page.evaluate(() => window.harness.saveHold?.waiting())) === 1, "the account migration to start");
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("Enter");
+    assert.equal(await tv.screen(), "entry");
+    tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    await connectTo(tv);
+    await tv.page.locator('[data-screen="needs-setup"]').waitFor();
+    await tv.page.evaluate(() => window.harness.saveHold?.release());
+    await tv.jump(0);
+    await tv.page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    assert.equal(await tv.screen(), "needs-setup", "the abandoned Back does not replace the newer screen");
+    assert.equal(await handoffs(tv), before, "the abandoned Back does not hand off its saved account");
+});
+
+tvTest("Check again resumes a saved account when setup becomes ready", async tv => {
+    await connectTo(tv);
+    await signIn(tv);
+    tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    await tv.page.evaluate(() => window.harness.mount());
+    await tv.page.locator('[data-screen="needs-setup"]').waitFor();
+    const devices = tv.fake.devices.size;
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await handoffs(tv) === 2, "saved account handoff after setup retry");
+    assert.equal(await tv.page.evaluate(() => window.harness.handoffs[1]?.restore), "signed_in");
+    assert.equal(tv.fake.devices.size, devices, "restored account does not start another device login");
 });
 
 tvTest("connecting keeps the address screen with Connecting… on Connect, and Back waits for it, as on the Apple TV app", async (tv) => {

@@ -40,7 +40,7 @@ File pointers are repository-relative.
 | Switch Server | 🟡 | ✅ | ✅ | Opens manual entry and keeps saved sign-ins. Saved-server list is planned (#127). Apple: `ServerListView`. Android: `TvServerListScreen` |
 | Sign out with confirmation | ✅ | ✅ | ✅ | Cancel and Back keep the session. Android: `TvSignOutDialog` |
 | Sign Out & Remove Server | 🚧 | ✅ | ✅ | Tracked under #107. Apple: `signOutRemoveServerAndReset`. Android: `TvSignOut` |
-| "Server isn't ready" screen for a server that still needs setup | ➖ | ✅ | ✅ | Tizen never reads `/api/v2/system/setup`. Apple: `TVServerNeedsSetupView`. Android: first-run setup in `TvServerSetupViewModel` |
+| "Server isn't ready" screen for a server that still needs setup | ✅ | ✅ | ✅ | Server entry reads `GET /system/setup` and shows Apple TV's recovery screen. Account creation stays off the TV. Apple: `TVServerNeedsSetupView`. Android: first-run setup in `TvServerSetupViewModel` |
 
 ## Profiles
 

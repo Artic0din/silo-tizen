@@ -14,9 +14,9 @@ A passive line shows the selected version, audio and subtitle intent.
 Movie and Series share the existing sampled hero backdrop and title typography used by Requests details.
 Series next-episode Version, Audio and Subtitles controls reuse the episode Details preference owner; both Resume and Start Over carry its selections.
 Auto audio stays server-resolved until a viewer explicitly picks a track.
-Local extras appear in Trailers & More, start at zero through the existing player, and restore their card on Back.
+Local extras and YouTube listings appear together in Trailers & More. Local extras start at zero through the existing player and restore their card on Back.
 If the embedded extra omits its file ID, Select resolves its existing catalog versions endpoint before playback; failure keeps Retry on that card and Back cancels the lookup.
-Remote YouTube launching is not implemented because no supported Samsung YouTube handoff has been verified.
+YouTube cards use the same rail. Select does not start playback and does not leave Silo, because AVPlay cannot play a site key and no Samsung YouTube handoff has been verified.
 More retains watched/favorite actions, the full-synopsis dialog and the movie/series rating dialog.
 Each dialog owns focus, hides the underlying page from accessibility, and restores its initiating control on Back.
 The inline synopsis clamps to three lines with ellipsis; the full text remains available in More.
@@ -67,7 +67,7 @@ Paths below are relative to `iosApp/iosApp/`.
 | Controls | `tvOS/Screens/Detail/TVDetailActions.swift:354`: minimum circle width 76 and height 76; `TVMovieDetailView.swift:176`: primary width 340 | Existing dialogs and personal/rating ownership retained; next-episode controls now use the same selection owner |
 | Credits | `tvOS/Screens/Detail/TVDetailHero.swift:741`: first two directors for movies; first three cast names otherwise | Same text and limits |
 | Cast | `tvOS/Screens/Detail/TVDetailCastRail.swift:15`: 200-point circles | Existing circular cards, role deduplication and focus unchanged |
-| Extras | `tvOS/Screens/Detail/TVTrailersRail.swift:23`: gap 48; `:75`: 470×264 cards, radius 18 | Local extras decoded from server watch targets; same card geometry |
+| Extras | `tvOS/Screens/Detail/TVTrailersRail.swift:23`: gap 48; `:24` and `TVDetailHero.swift:16`: 12px rail padding plus 64px section spacing, 76px from the caption to the next heading; `:74-76`: 470×264 cards, radius 18 | Local extras and YouTube listings. Same card geometry. YouTube Select stays on the card |
 | Episode caption | `Components/EpisodeCardCaption.swift:90`: zero-padded season/episode code, middle dot, title | Same title, localized air date and h/m runtime; watched badge |
 
 Remote navigation retains one FocusHost owner: Left/Right within action, season, episode, cast, extras and related rows; Up/Down through nonempty rows; Back closes the active dialog before popping the page.
@@ -90,7 +90,7 @@ Apple does not filter local extras by file ID (`Screens/Detail/TrailerRail.swift
 The Tizen fallback resolves `/catalog/items/{content_id}/versions` on Select when the embedded file ID is absent, then uses the existing player and its authoritative inventory.
 Apple shows YouTube entries when its app is installed, and also in the tvOS simulator (`TVTrailersRail.swift:259-291`), then opens `youtube://www.youtube.com/watch?v=…` (`Screens/Detail/TrailerRail.swift:126`).
 Samsung's [Application API](https://developer.samsung.com/smarttv/develop/api-references/tizen-web-device-api-references/application-api.html) provides generic application-control dispatch; it does not establish that Apple's URL scheme or a particular YouTube video handoff works on Samsung.
-Tizen continues to omit remote cards until that receiving-app contract is verified; local extras are functional independently.
+Tizen shows those remote cards so the row matches a tvOS device that can display them, and leaves Select on the card. It does not open `youtube://` until a Samsung receiving-app contract is verified. Local extras play independently.
 Episode air dates, overview, ratings and runtime exist in the server's episode response (`silo-server 6aa6791ea072186ed0536bac41174486f96e7536`, `internal/apiv2/catalog_items.go:557-568`).
 Apple caption commit `b63e1be0bd90c26c7af11f592def93b5cb56796f` is included in the pinned Apple main above.
 

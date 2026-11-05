@@ -245,7 +245,7 @@ Defined in `src/api/operations.ts` unless noted.
 | library sections | `GET /library/{id}/sections?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
 | section items | `GET /library/{id}/sections/{sectionId}/items?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
 | library collections | `GET /library/{id}/collections` (`src/api/discoveryOperations.ts`) | safe |
-| collection items | `GET /library/{id}/collections/{cid}/items?limit&cursor` (`src/api/discoveryOperations.ts`) | safe |
+| collection items | `POST /catalog/query` with `source: library_collection` or `user_collection`, `collection_id`, `limit: 60`, `match: all` and cursor; library/media scope only when narrowing a mixed library, no sort override (`src/api/discoveryOperations.ts`); includes profile viewer state | safe |
 | catalog filters | `GET /catalog/filters?...` (`src/api/discoveryOperations.ts`) | safe |
 | search capabilities | `GET /catalog/search/capabilities` (`src/api/discoveryOperations.ts`) | safe |
 | Search people | `GET /catalog/people?q&media_scope&limit=20` (`src/api/detailOperations.ts`), gated by allowed/available `people_media_scope` | safe |
@@ -255,6 +255,8 @@ Defined in `src/api/operations.ts` unless noted.
 Notes:
 
 - Related titles decode the endpoint's `items` collection without requiring the catalog listing's `total` or `total_exact` fields.
+- Collection members decode `CatalogItemCollection` with optional totals and cursor pagination.
+  The test fixture follows the server schema and handler at `6d1562473336738009a91475ed3f33143670c249`; catalog queries and filmography retain their required totals.
 - Pages continue with the opaque `next_cursor`.
 - `limit` is bounded client-side (1 to 200 for collection items, 1 to 100 for `catalog/query`), and out-of-range values throw `RangeError` before any request.
 - The two POST queries are marked `safe` in code ("natural_idempotent"), so the transport retry applies to them.

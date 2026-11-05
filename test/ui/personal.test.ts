@@ -401,6 +401,23 @@ for (const source of ["watchlist", "history"]) test(`review: ${source} 404 is an
     } finally { await tv.page.context().close(); }
 });
 
+for (const poster of ["compact", false, true] as const) test(`review: History outer posters fit the viewport at ${poster === true ? "large" : poster === false ? "standard" : poster} size`, async () => {
+    const { tv } = await setup(false, poster);
+    try {
+        await openList(tv, "history");
+        const columns = poster === true ? 5 : 6;
+        const cards = tv.page.locator(".personal-page .browse-card");
+        for (const index of [0, columns - 1]) {
+            await cards.nth(index).focus();
+            await tv.eventually(async () => await cards.nth(index).evaluate(node => {
+                const bounds = node.closest(".skyline-content")!.getBoundingClientRect();
+                const art = node.querySelector(".browse-art")!.getBoundingClientRect();
+                return art.left - 4 >= bounds.left && art.right + 4 <= bounds.right;
+            }), "outer poster and focus outline fit the scroll viewport");
+        }
+    } finally { await tv.page.context().close(); }
+});
+
 for (const poster of [false, true] as const) test(`review: History keeps the complete focused card visible at ${poster ? "large" : "standard"} size`, async () => {
     const { tv } = await setup(false, poster);
     try {

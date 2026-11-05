@@ -1035,8 +1035,9 @@
 }
 
 /* History uses the existing pushed-page title treatment in place of tvOS system navigation chrome. */
-.personal-history .skyline-content { top: 146px; left: 128px; width: 1664px; height: 934px; overflow-y: auto; }
-.personal-history .personal-page { padding: 16px 0 60px; }
+/* HistoryView pads the grid inside its ScrollView; that padding must not clip focused artwork. */
+.personal-history .skyline-content { top: 146px; left: 80px; width: 1760px; height: 934px; overflow-y: auto; }
+.personal-history .personal-page { padding: 16px 48px 60px; }
 /* HistoryView uses a system navigationTitle with no numeric offset; the signed capture
    places its visible title at y64, 9.5 points below the previous Tizen capture. */
 .personal-history > .browse-title { position: fixed; top: 65.5px; left: 48px; width: 1824px; font-size: 56px; line-height: 64px; }

@@ -16,6 +16,7 @@ import {
     decodeProfileVerification,
     decodeRefreshedTokens,
     decodeServerIdentity,
+    decodeSetupStatus,
     decodeSystemInfo,
     decodeTokenPair,
 } from "../contracts/v2/wire.ts";
@@ -112,6 +113,13 @@ export const operations = {
     }),
     serverBranding: (): Spec<ReturnType<typeof decodeServerBranding>> => ({
         method: "GET", path: "/theme/branding", retry: "safe", decode: decodeServerBranding,
+    }),
+    /** getSetupStatus: public, read. `needs_setup` is true until the first administrator exists. */
+    setupStatus: (): Spec<ReturnType<typeof decodeSetupStatus>> => ({
+        method: "GET",
+        path: "/system/setup",
+        retry: "safe",
+        decode: decodeSetupStatus,
     }),
     /** getServerIdentity: public, read. */
     serverIdentity: (): Spec<string> => ({

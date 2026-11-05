@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added Show Next Up to Playback Settings with five prompt timings and profile inheritance.
 - Showed Up Next before playback ended with Play Now, Keep Watching and an On Deck row, and refreshed autoplay at episode completion.
 - Hid unwatched episode stills and descriptions from Playback when the server supports the profile spoiler settings.
 - Show Trailers & More on movie and series Details for local extras and YouTube listings, using Apple's card size and the 76px gap to the next heading. Local extras still play from the start. YouTube listings stay on their card because this TV cannot play them.

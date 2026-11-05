@@ -10,6 +10,10 @@ Absent, incompatible, unreadable or false preferences leave continuation manual.
 
 The pre-end panel uses `playback.next_up_prompt_seconds`, with Apple's default of 30 seconds.
 The tvOS timing choices are At end (0), 10, 30, 60 and 120 seconds; the contract accepts every integer from 0 through 120.
+Playback Settings exposes Show Next Up immediately after Auto-Play Next Episode in EPISODES.
+Saving changes this TV's override; Use Profile Setting clears that override and restores the profile's effective timing.
+The editor follows the tvOS-only source at `7baff3ef657757cc0a69202e86dd4bd5c7fcb585`, `TVPlaybackSettingsView.swift:264-288,502-508` and `TVSettingsComponents.swift:72-78`.
+That source revision does not identify the installed Apple build.
 Play Now finalizes the current session before starting its successor.
 Inside the prompt window, progress and the final stop report the duration, following Apple's completion policy.
 Keep Watching dismisses the panel for this prompt window and resumes playback.

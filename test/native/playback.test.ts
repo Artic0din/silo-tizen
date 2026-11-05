@@ -10,6 +10,8 @@ import { FakePlayback } from "./support/fakePlayback.ts";
 import { FakeSilo, fixture, problem, type RecordedRequest } from "./support/fakeSilo.ts";
 import { ManualClock } from "./support/clock.ts";
 import { FakeSettings } from "./support/fakeSettings.ts";
+import { SettingsState } from "../../src/ui/settingsState.ts";
+import { NEXT_UP_KEY } from "../../src/contracts/v2/settings.ts";
 import { FakeCatalog } from "./support/fakeCatalog.ts";
 import { SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS } from "../../src/contracts/v2/settings.ts";
 import { operations } from "../../src/api/operations.ts";
@@ -1197,6 +1199,31 @@ test("Up Next appears at Apple's default 30 seconds and Keep Watching suppresses
     r.avplay.tick((duration - 10) * 1000);
     await r.h.clock.advance(0);
     assert.equal("upNext" in last(r.views), false);
+    r.controller.destroy();
+});
+
+test("a saved Show Next Up value changes the before-end prompt time", async () => {
+    const r = await autoplayRig(false, 30);
+    r.settings.overrides.delete(NEXT_UP_KEY);
+    r.settings.remainingRows = true;
+    r.settings.profile().set(NEXT_UP_KEY, 30);
+    const settings = new SettingsState(r.h.core.session, () => undefined, r.h.clock);
+    await settings.load();
+    assert.equal(settings.error, undefined);
+    await settings.save(NEXT_UP_KEY, 60);
+    assert.equal(settings.error, undefined);
+    assert.equal(r.settings.device("p-owner", r.h.core.session.http.deviceId).get(NEXT_UP_KEY), 60);
+    assert.equal(r.settings.profile().get(NEXT_UP_KEY), 30);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    r.avplay.tick((view.durationSeconds! - 61) * 1000);
+    await r.h.clock.advance(0);
+    assert.equal("upNext" in last(r.views), false);
+    r.avplay.tick((view.durationSeconds! - 60) * 1000);
+    await r.h.clock.advance(0);
+    assert.ok("upNext" in last(r.views));
+    settings.stop();
     r.controller.destroy();
 });
 

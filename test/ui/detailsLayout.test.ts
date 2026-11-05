@@ -2011,6 +2011,7 @@ detailTest("series Details activates season chips on focus and restores its inli
     assert.equal(await tv.page.locator('[data-focus="season:1"].browse-card').count(), 0, "seasons are chips");
     await tv.page.locator('.details-episodes [data-focus="episode:s1e11"]').waitFor();
     const episodeReads = (): number => tv.fake.requests.filter(request => request.path.includes("/episodes")).length;
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e21"]').waitFor();
     const before = episodeReads();
     await tv.page.locator('[data-focus="season:1"]').focus();
     await tv.remote(39);

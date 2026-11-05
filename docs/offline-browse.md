@@ -7,7 +7,10 @@ HTTP errors, cancellation and writes never use this fallback.
 Existing navigation and actions stay available and use their normal server validation and error handling.
 This does not download media or enable offline playback.
 On a discovery transport failure, an existing saved account can restore its local session and remembered profile, including its protected PIN proof.
-This permits snapshot hydration without a reachable server; fresh requests still validate the session and profile on recovery.
+This permits snapshot hydration without a reachable server.
+Before any recovered request or media credential is released, public discovery must confirm the saved deployment identity.
+Temporary discovery failures preserve the session and vault; a different deployment clears the old authority without sending its credentials or revocation there.
+Fresh requests still validate the session and profile on recovery.
 An explicit session rejection returns to sign-in; a first-time unreachable address retains the connection error.
 An account without a remembered profile still needs profile selection.
 Uncached Home and For You failures use Apple's centred warning and Try Again control; Home also offers Manage Servers.

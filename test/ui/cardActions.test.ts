@@ -135,6 +135,7 @@ test("a card menu network failure keeps cached Details and the signed-in session
         const beforeDevices = deviceReads();
         await origin(tv).click();
         await tv.page.locator('[data-view="item:movie:m0001"] [data-focus="play"]').waitFor();
+        await tv.page.locator('[data-focus="watchlist"]').waitFor();
         await tv.remote(10009);
         await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
         await hold(tv);

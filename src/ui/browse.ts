@@ -1165,7 +1165,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     const previous = current.data?.details;
                     if (previous?.panel !== undefined || previous?.busy || previous?.preparingPlay) { current.stale = true; deferredDetails.add(current); return; }
                     deferredDetails.delete(current);
-                    if (previous !== undefined && cachedDetailOwners.has(previous)) {
+                    if (previous !== undefined && ((quiet && detailWork === previous && previous.changes.size > 0) || cachedDetailOwners.has(previous))) {
                         const offline = cache.isOffline(operations.getCatalogItem(current.id));
                         const detail = offline ? previous.detail : data.detail;
                         if (!offline) cachedDetailOwners.delete(previous);

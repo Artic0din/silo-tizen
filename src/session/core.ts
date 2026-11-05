@@ -5,6 +5,7 @@ import { type Clock, systemClock } from "../api/clock.ts";
 import { clearBrowseCache } from "./browseCache.ts";
 import { discoverServer, type DiscoveryResult, type ServerConnection } from "../api/discovery.ts";
 import { NativeHttp, type FetchLike } from "../api/http.ts";
+import { ApiError } from "../api/errors.ts";
 import { parseServerUrl, type ServerUrlProblem } from "../api/serverUrl.ts";
 import { CredentialVault, type VaultClear } from "./credentialVault.ts";
 import { DeviceLogin } from "./deviceLogin.ts";
@@ -54,6 +55,7 @@ export async function connect(serverAddress: string, deps: SessionCoreDeps, sign
     const clock = deps.clock ?? systemClock;
     const device = deviceHeaders(loadDeviceId(deps.publicStorage, deps.randomBytes), deps.deviceName, deps.devicePlatform);
     let discovered = await discoverServer(serverAddress, device, deps.fetch, clock, signal);
+    let session: NativeSession;
     const offlineDiscovery = discovered.status === "unreachable";
     if (discovered.status === "unreachable" && deps.allowOfflineRestore !== false && !deps.addAccount && !signal?.aborted) {
         const parsed = parseServerUrl(serverAddress);
@@ -62,7 +64,29 @@ export async function connect(serverAddress: string, deps: SessionCoreDeps, sign
                 const transient = deps.keyManager === undefined ? deps.transientAccounts : undefined;
                 const directory = new AccountDirectory(transient?.storage ?? deps.publicStorage, deps.randomBytes);
                 const saved = directory.list().find(row => row.id === (deps.localAccountId ?? directory.selected) && row.baseUrl === parsed.base.baseUrl && !row.needsSignIn);
-                if (saved) discovered = { status: "connected", server: { http: new NativeHttp(parsed.base, device, deps.fetch, clock), serverId: saved.serverId, serverVersion: "" } };
+                if (saved) {
+                    let verified = false;
+                    let checking: Promise<void> | undefined;
+                    const verify = async (): Promise<void> => {
+                        if (verified) return;
+                        const generation = session.authorityGeneration;
+                        const fresh = await discoverServer(serverAddress, device, deps.fetch, clock, session.authoritySignal);
+                        if (generation !== session.authorityGeneration) throw new ApiError({ kind: "aborted" });
+                        if (fresh.status !== "connected") {
+                            throw new ApiError(fresh.status === "unreachable" ? { kind: "network" } : { kind: "invalid_response", path: "/system/identity" });
+                        }
+                        if (fresh.server.serverId !== saved.serverId) {
+                            await session.deploymentChanged();
+                            throw new ApiError({ kind: "aborted" });
+                        }
+                        verified = true;
+                    };
+                    const check = (): Promise<void> => {
+                        checking ??= verify().finally(() => { checking = undefined; });
+                        return checking;
+                    };
+                    discovered = { status: "connected", server: { http: new NativeHttp(parsed.base, device, deps.fetch, clock, check), serverId: saved.serverId, serverVersion: "" } };
+                }
             } catch { /* Unreadable local identity cannot authorize an offline restore. */ }
         }
     }
@@ -81,7 +105,7 @@ export async function connect(serverAddress: string, deps: SessionCoreDeps, sign
         const saved = await vault.load();
         if (saved.status !== "found" || saved.credential.serverId !== server.serverId) return { status: "unreachable" };
     }
-    const session = new NativeSession(server, vault, clock, async accountId => {
+    session = new NativeSession(server, vault, clock, async accountId => {
         await deps.beforeAccountSignIn?.(server.http.base.baseUrl, accountId);
     });
     watchBrowseCache(session, deps.publicStorage, server.serverId, vault.directory.list().find(row => row.id === vault.localAccountId)?.accountId);

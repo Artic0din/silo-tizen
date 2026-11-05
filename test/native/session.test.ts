@@ -28,6 +28,61 @@ import { FakeSilo } from "./support/fakeSilo.ts";
 import { connected, type Harness, latestDeviceCode, record, signIn } from "./support/harness.ts";
 
 const probe: AuthorizedSpec<unknown> = { method: "GET", path: "/catalog/probe", retry: "safe", decode: (body) => body, profileScoped: true };
+
+for (const action of ["recovery retry", "Try Again", "automatic recovery", "background refresh", "token refresh", "media", "logout"]) {
+    test(`offline restored ${action} never sends credentials to a changed deployment`, async () => {
+        const h = await connected();
+        await signIn(h);
+        let online: FakeSilo | undefined;
+        const pending = connect(h.fake.origin, {
+            fetch: (url, init) => online ? online.fetch(url, init) : Promise.reject(new TypeError("offline")),
+            publicStorage: h.storage, keyManager: h.keyManager, randomBytes: bytes => bytes.fill(0xab),
+            deviceName: "TV", devicePlatform: "tizen", clock: h.clock,
+        });
+        await h.clock.advance(35000);
+        const restored = await pending;
+        assert.equal(restored.status, "connected");
+        if (restored.status !== "connected") return;
+        const run = (): Promise<unknown> => action === "token refresh" ? restored.session.refresh()
+            : action === "media" ? restored.session.mediaToken()
+            : action === "logout" ? restored.session.logout() : restored.profiles.list();
+        if (action !== "logout") {
+            const offline = Promise.resolve().then(run).catch(() => undefined);
+            await h.clock.advance(35000);
+            await offline;
+            assert.equal(restored.session.signedIn, true);
+            assert.ok(h.keyManager!.items.size > 0, "network failure preserves the vault");
+        }
+        online = new FakeSilo(h.clock, "replacement");
+        await Promise.resolve().then(run).catch(() => undefined);
+        assert.ok(online.requests.every(request => request.headers.authorization === undefined && request.path !== "/auth/refresh"), "replacement receives no saved credentials");
+        assert.equal(restored.session.signedIn, false);
+        await restored.accounts.drain();
+        assert.equal(h.keyManager!.items.size, 0);
+        assert.equal(online.devices.size, 0, "identity verification never creates a device code");
+    });
+}
+
+test("offline restored credentials resume after matching discovery", async () => {
+    const h = await connected();
+    await signIn(h);
+    let online = false;
+    const pending = connect(h.fake.origin, {
+        fetch: (url, init) => online ? h.fake.fetch(url, init) : Promise.reject(new TypeError("offline")),
+        publicStorage: h.storage, keyManager: h.keyManager, randomBytes: bytes => bytes.fill(0xab),
+        deviceName: "TV", devicePlatform: "tizen", clock: h.clock,
+    });
+    await h.clock.advance(35000);
+    const restored = await pending;
+    assert.equal(restored.status, "connected");
+    if (restored.status !== "connected") return;
+    online = true;
+    const before = h.fake.requests.length;
+    await restored.profiles.list();
+    assert.deepEqual(h.fake.requests.slice(before, before + 2).map(request => request.path), ["/system/info", "/system/identity"]);
+    assert.equal(restored.session.signedIn, true);
+    assert.equal((await restored.session.refresh()).status, "refreshed");
+});
 const owner: ProfileSummary = { id: "p-owner", name: "Laura", hasPin: false, isPrimary: true, isChild: false, avatarUrl: undefined };
 const guest: ProfileSummary = { id: "p-guest", name: "Guest", hasPin: false, isPrimary: false, isChild: false, avatarUrl: undefined };
 

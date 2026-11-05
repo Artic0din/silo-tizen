@@ -42,6 +42,7 @@ function liveRail(_arg: null): { left: number; width: number; scroll: number; pa
 }
 
 detailTest("season Details automatically recovers an offline next episode", async tv => {
+    await pauseTvClock(tv);
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('[data-focus="series:s1-S1"]').waitFor();
     let failures = 0;
@@ -1712,6 +1713,35 @@ detailTest("More owns accessible personal-action loading and failure announcemen
     await tv.page.locator('[data-focus="more"]').click();
     await panel.getByRole("alert").filter({ hasText: "Could not update watched." }).waitFor();
     assert.equal(await panel.getByRole("alert").count(), 1);
+});
+
+for (const kind of ["favorites", "watchlist"] as const) detailTest(`online Details preserves unresolved ${kind} through automatic recovery`, async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    if (kind === "favorites") await tv.page.locator('[data-focus="more"]').click();
+    const source = kind;
+    let failures = 0;
+    tv.page.on("requestfailed", request => { if (request.url().includes(`/${source}/movie%3Am0001/membership`)) failures++; });
+    await tv.page.route(`**/api/v2/${source}/movie%3Am0001/membership`, route => route.abort("connectionrefused"));
+    await tv.page.locator(`[data-focus="${kind}"]`).click();
+    await tv.eventually(async () => failures >= 1, "membership readback failed");
+    await tv.jump(1000);
+    await tv.eventually(async () => failures >= 2, "membership retry exhausted");
+    await tv.jump(0);
+    if (kind === "favorites") await tv.page.locator('[data-focus="more"]').click();
+    const retry = tv.page.getByRole("button", { name: `Retry ${kind}`, exact: true });
+    await retry.waitFor();
+    const reads = () => tv.fake.requests.filter(request => request.path.startsWith("/catalog/items/movie%3Am0001")).length;
+    const before = reads();
+    if (kind === "favorites") await tv.remote(10009);
+    await tv.jump(15000);
+    await tv.eventually(async () => reads() > before, "automatic recovery refreshed initially online Details");
+    await tv.jump(1000);
+    if (kind === "favorites") await tv.page.locator('[data-focus="more"]').click();
+    assert.equal(await retry.count(), 1, "unconfirmed write retains its Retry control");
+    await tv.page.unroute(`**/api/v2/${source}/movie%3Am0001/membership`);
+    await retry.click();
+    await tv.eventually(async () => !await retry.count(), "fresh membership reconciles the accepted write");
 });
 
 detailTest("cached Details recovery restores failed personal controls", async tv => {

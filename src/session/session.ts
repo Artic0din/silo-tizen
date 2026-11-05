@@ -268,6 +268,7 @@ export class NativeSession {
                 throw abortedError();
             }
         };
+        await this.http.verifyConnection(signal);
         const credential = await this.freshCredential(ensureCurrent);
         ensureCurrent();
         return credential.accessToken;
@@ -319,6 +320,11 @@ export class NativeSession {
         }
         const revoking = revokeIssuedTokens(this.http, credential);
         return { storage: await clearing, server: await revoking };
+    }
+
+    /** Discard a replaced deployment's authority without sending it a revocation. */
+    async deploymentChanged(): Promise<void> {
+        await this.endAccount("session_expired");
     }
 
     /** Releases an obsolete owner without clearing the replacement login's vault. */

@@ -231,6 +231,28 @@ test("metadata invalidation fences older reads and rejects malformed optional sn
     assert.equal(store.values.size, 0);
 });
 
+test("a refused title leaves memory and the persisted snapshot, and a transport failure does not", async () => {
+    const store = storage();
+    const cache = new BrowseCache(store, scope, new AbortController().signal);
+    const detail = { ...spec, path: "/catalog/items/movie%3Am0001" };
+    const seasons = { ...spec, path: "/catalog/series/series%3As1/seasons" };
+    await cache.read(spec, async request => request.decode({ title: "Home" }));
+    await cache.read(detail, async request => request.decode({ title: "Secret" }));
+    await cache.read(seasons, async request => request.decode([{ number: 1 }]));
+    assert.deepEqual(await cache.read(detail, offline), { title: "Secret" });
+    cache.discard(detail);
+    cache.discard(seasons);
+    assert.equal(cache.peek(detail), undefined);
+    assert.equal(cache.peek(seasons), undefined);
+    assert.deepEqual(cache.peek(spec), { title: "Home" });
+    await assert.rejects(cache.read(detail, offline));
+    const restored = new BrowseCache(store, scope, new AbortController().signal);
+    assert.equal(restored.peek(detail), undefined);
+    assert.equal(restored.peek(seasons), undefined);
+    assert.deepEqual(restored.peek(spec), { title: "Home" });
+    assert.doesNotMatch([...store.values.values()].join(), /Secret/);
+});
+
 test("Details access refusals discard the previously cached response", async () => {
     const cache = new BrowseCache(undefined, scope, new AbortController().signal);
     const detail = { ...spec, path: "/catalog/items/movie" };

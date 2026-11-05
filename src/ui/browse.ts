@@ -112,6 +112,16 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     }
     const clock = options.clock ?? systemClock;
     const cache = browseCache(options.publicStorage, [server.server.serverId, session.account?.id ?? "", session.activeProfile.id], session.authoritySignal);
+    // Route reads already discard through cache.read. Card menus, episode owners and
+    // other session.call readers do not, so a 403 or 404 from any of them drops the
+    // title here too. A transport failure is not a refusal and leaves the cache.
+    const originalCall = session.call;
+    const call = originalCall.bind(session);
+    const wrappedCall = ((spec: Parameters<typeof session.call>[0]) => call(spec).then((value) => value, (error: unknown) => {
+        if (error instanceof ApiError && (error.status === 403 || error.status === 404) && refusedCatalogPath(spec.path)) cache.discard(spec);
+        throw error;
+    })) as typeof session.call;
+    session.call = wrappedCall;
     const cachedDetailOwners = new WeakSet<DetailsState>();
     const visitedDetails = new Map<string, DetailsState>();
     const deferredDetails = new WeakSet<Route>();
@@ -223,6 +233,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let menuOrigin: { route: Route; focus: FocusTarget | undefined } | undefined;
     const discardVisitedDetails = (id: string): boolean => {
         if (detailWork?.detail.id === id) { detailWork.stop(); detailWork = undefined; }
+        cache.discard(operations.getCatalogItem(id));
+        cache.discard(operations.listSeriesSeasons(id));
         return visitedDetails.delete(id);
     };
     const personalPending = (): boolean => detailWork?.pending === true || cardActions.pending;
@@ -488,6 +500,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const teardown = (): void => {
         cancelOfflineRefresh();
+        if (session.call === wrappedCall) session.call = originalCall;
         if (torn) {
             return;
         }
@@ -2032,6 +2045,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         },
         destroy: teardown,
     };
+}
+
+function refusedCatalogPath(path: string): boolean {
+    const bare = path.split("?")[0] ?? "";
+    return /^\/catalog\/items\/[^/]+$/.test(bare) || /^\/catalog\/series\/[^/]+\/seasons$/.test(bare);
 }
 
 function rememberedImages(raw: string | null | undefined): ImageCapabilities | undefined {

@@ -93,6 +93,63 @@ for (const source of ["menu", "Details"]) for (const status of [403, 404]) test(
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
+for (const status of [403, 404]) test(`card menu refusal evicts cached Details playback after HTTP ${status}`, async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        const devices = tv.fake.devices.size;
+        const deviceReads = () => tv.fake.requests.filter(request => request.path.startsWith("/auth/device")).length;
+        const beforeDevices = deviceReads();
+        await origin(tv).click();
+        await tv.page.locator('[data-view="item:movie:m0001"] [data-focus="play"]').waitFor();
+        await tv.remote(10009);
+        await tv.page.route("**/api/v2/catalog/items/movie%3Am0001?**", route => route.fulfill({ status, json: problem(status, status === 403 ? "permission_denied" : "not_found", "Item refused") }));
+        await hold(tv);
+        await menu(tv).getByRole("button", { name: "Try again", exact: true }).waitFor();
+        assert.equal(await menu(tv).locator('[data-focus="play"]').count(), 0);
+        await tv.remote(10009);
+        await tv.page.unroute("**/api/v2/catalog/items/movie%3Am0001?**");
+        await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+        await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+        await tv.page.locator('[data-section="recently_added"] .browse-card').first().waitFor();
+        await origin(tv).click();
+        await tv.jump(35000);
+        const failed = tv.page.locator('[data-view="item:failed"]');
+        await failed.locator(".search-state-title", { hasText: "Something went wrong" }).waitFor();
+        assert.match(await failed.locator(".search-state-description").innerText(), /Could not reach the server/);
+        assert.equal(await failed.locator('[data-focus="play"], [data-focus="resume"]').count(), 0, "a refused catalog response cannot paint playback");
+        assert.equal(await tv.page.getByRole("button", { name: "Try Again", exact: true }).count(), 1);
+        assert.equal(await tv.page.locator(".details-editorial").count(), 0);
+        assert.equal(await tv.page.evaluate(() => window.browseHarness.loginPhase), "signed_in");
+        assert.equal(tv.fake.devices.size, devices, "a refusal must not create a device code");
+        assert.equal(deviceReads(), beforeDevices);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+test("a card menu network failure keeps cached Details and the signed-in session", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        const devices = tv.fake.devices.size;
+        const deviceReads = () => tv.fake.requests.filter(request => request.path.startsWith("/auth/device")).length;
+        const beforeDevices = deviceReads();
+        await origin(tv).click();
+        await tv.page.locator('[data-view="item:movie:m0001"] [data-focus="play"]').waitFor();
+        await tv.remote(10009);
+        await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+        await hold(tv);
+        await menu(tv).getByRole("button", { name: "Add to watchlist", exact: true }).waitFor({ timeout: 1500 });
+        await tv.remote(10009);
+        await origin(tv).click();
+        await tv.jump(35000);
+        await tv.page.locator('[data-view="item:movie:m0001"] [data-focus="play"]').waitFor();
+        assert.equal(await tv.page.locator('[data-view="item:movie:m0001"] [data-focus="play"]').count(), 1, "a transport failure must not evict cached playback");
+        assert.equal(await tv.page.evaluate(() => window.browseHarness.loginPhase), "signed_in");
+        assert.equal(tv.fake.devices.size, devices);
+        assert.equal(deviceReads(), beforeDevices);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
 for (const reducedMotion of ["no-preference", "reduce"] as const) {
     for (const continuing of [false, true]) test(`card actions ${reducedMotion}: real Enter hold suppresses ${continuing ? "Continue playback" : "Details"} and release`, async () => {
         const tv = await openTv(browser, { app: "browse" });

@@ -101,6 +101,15 @@ export class BrowseCache {
 
     invalidate(): void { if (this.closed) return; this.generation++; this.entries.clear(); this.persist(); }
 
+    /** Drop one response after an explicit 403 or 404. Memory and the snapshot both lose it. */
+    discard(spec: RequestSpec<unknown>): void {
+        const key = cacheKey(spec);
+        if (key === undefined || this.closed) return;
+        this.entries.delete(key);
+        this.unreachable.delete(key);
+        this.persist();
+    }
+
     peek<T>(spec: RequestSpec<T>): T | undefined {
         const key = cacheKey(spec);
         const raw = key === undefined || this.closed ? undefined : this.entries.get(key);
@@ -124,11 +133,7 @@ export class BrowseCache {
             if (key !== undefined) this.unreachable.delete(key);
             return result;
         } catch (error) {
-            if (key !== undefined && !this.closed && error instanceof ApiError && (error.status === 403 || error.status === 404)) {
-                this.entries.delete(key);
-                this.unreachable.delete(key);
-                this.persist();
-            }
+            if (error instanceof ApiError && (error.status === 403 || error.status === 404)) this.discard(spec);
             if (key === undefined || this.closed || spec.signal?.aborted || !(error instanceof ApiError) || !["network", "timeout"].includes(error.failure.kind)) throw error;
             this.unreachable.add(key);
             if (this.unreachable.size > MAX_ENTRIES) {

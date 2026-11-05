@@ -34,7 +34,7 @@ export class SkylineScroll {
     reveal(element: HTMLElement, container: HTMLElement): void {
         if (element.closest(".browse-nav, .skyline-selector:not(.details-audio-picker)") !== null) return;
         const viewport = element.closest<HTMLElement>(".browse-panel-list, .details-audio-picker, .skyline-content") ?? container;
-        if (container.dataset.view === "search" && element.closest(".search-filters") !== null) {
+        if (container.dataset.view === "search" && element.closest(".search-filters, .search-field") !== null) {
             this.move(viewport, 0, 0);
             return;
         }
@@ -49,20 +49,27 @@ export class SkylineScroll {
             const delta = card.left < bounds.left + left ? card.left - bounds.left - left : card.right > bounds.right - right ? card.right - bounds.right + right : 0;
             this.move(row, Math.max(0, row.scrollLeft + delta), 0);
         }
+        if (container.dataset.view === "search" && element.closest(".search-people-rail") !== null) {
+            this.move(viewport, 0, 0);
+            return;
+        }
         const rect = element.getBoundingClientRect();
         const bounds = viewport.getBoundingClientRect();
         if (container.dataset.view === "personal:history" && element.closest(".catalog-grid") !== null) {
             // HistoryView's plain ScrollView uses native edge reveal, not Home's row alignment.
-            // Park the unlifted poster top at Apple's y554. A bottom anchor tuned to the
-            // test's 390px poster leaves the signed 224×335 row about 54px low.
-            // Focus scale must not retarget the anchor.
+            // Keep the measured compact anchor, bounded by the complete focused card.
+            // Use final focus geometry so animation frames cannot retarget the scroll.
             const art = element.querySelector<HTMLElement>(".browse-art");
             if (art !== null) {
                 const height = parseFloat(getComputedStyle(art).height);
                 const artRect = art.getBoundingClientRect();
                 const top = artRect.top + (artRect.height - height) / 2;
+                const gap = parseFloat(getComputedStyle(element).getPropertyValue("--card-caption-gap"));
+                const captionLift = Math.max(0, height * .025 + 8 - gap);
+                const focusedHeight = Math.max(height * 1.025, element.offsetHeight + captionLift);
+                const anchor = Math.min(HISTORY_POSTER_TOP, bounds.bottom - 32 - focusedHeight);
                 const firstRow = element.offsetTop === (element.parentElement?.firstElementChild as HTMLElement | null)?.offsetTop;
-                const delta = top < bounds.top + 12 ? top - bounds.top - 12 : top > HISTORY_POSTER_TOP ? top - HISTORY_POSTER_TOP : 0;
+                const delta = top < bounds.top + 12 ? top - bounds.top - 12 : top > anchor ? top - anchor : 0;
                 this.move(viewport, 0, firstRow ? 0 : Math.max(0, viewport.scrollTop + delta));
                 return;
             }
@@ -77,7 +84,8 @@ export class SkylineScroll {
         }
         const margins = getComputedStyle(element);
         let posterTop = rect.top;
-        if (container.dataset.view === "search" && element.closest(".browse-grid") !== null) {
+        const searchPoster = container.dataset.view === "search" && element.closest(".browse-grid") !== null;
+        if (searchPoster) {
             const art = element.querySelector<HTMLElement>(".browse-art");
             if (art !== null) {
                 const artRect = art.getBoundingClientRect();
@@ -87,7 +95,9 @@ export class SkylineScroll {
                 posterTop = artRect.top + (artRect.height - focusedHeight) / 2;
             }
         }
-        const topEdge = bounds.top + Math.max(12, parseFloat(margins.scrollMarginTop));
+        // Up in Search rests the focused poster ring at 495 so the field and filter pills stay
+        // on screen. The removed 160.4 scroll-margin pinned a different path and clipped those pills.
+        const topEdge = bounds.top + (searchPoster ? 495 : Math.max(12, parseFloat(margins.scrollMarginTop)));
         const bottomEdge = bounds.bottom - (container.dataset.view === "search"
             ? Math.max(32, parseFloat(getComputedStyle(viewport).scrollPaddingBottom) || 0)
             : Math.max(32, parseFloat(margins.scrollMarginBottom)));

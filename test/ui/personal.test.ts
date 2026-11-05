@@ -280,12 +280,13 @@ test("History count uses exact totals and ignores server estimates", async () =>
 });
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
-async function setup(record = false, poster: boolean | "compact" = false): Promise<{ tv: Tv; catalog: PersonalCatalog }> {
+async function setup(record = false, poster: boolean | "compact" = false, configure?: (tv: Tv) => void): Promise<{ tv: Tv; catalog: PersonalCatalog }> {
     const tv = await openTv(browser, { app: "browse", ...(!record || process.env.PERSONAL_VIDEO === undefined ? {} : { video: process.env.PERSONAL_VIDEO }) });
     const catalog = new PersonalCatalog();
     tv.fake.catalog = catalog;
     const size = poster === true ? "large" : poster === "compact" ? "compact" : undefined;
     if (size !== undefined) new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: size, caption: "title_metadata" });
+    configure?.(tv);
     await tv.page.evaluate(() => window.browseHarness.connect());
     await tv.eventually(async () => tv.fake.devices.size > 0, "device code");
     tv.fake.approve([...tv.fake.devices.keys()][0] ?? "");
@@ -398,6 +399,60 @@ for (const source of ["watchlist", "history"]) test(`review: ${source} 404 is an
         await tv.eventually(async () => await tv.page.locator(".personal-failure, .personal-empty").count() > 0, "settled catalog");
         assert.equal(await tv.page.locator(".personal-failure").count(), 1);
     } finally { await tv.page.context().close(); }
+});
+
+for (const poster of [false, true] as const) test(`review: History keeps the complete focused card visible at ${poster ? "large" : "standard"} size`, async () => {
+    const { tv } = await setup(false, poster);
+    try {
+        await tv.page.emulateMedia({ reducedMotion: "reduce" });
+        await openList(tv, "history");
+        await tv.remote(40);
+        await tv.remote(40);
+        await tv.page.emulateMedia({ reducedMotion: "no-preference" });
+        await tv.eventually(async () => await tv.page.locator(".browse-card:focus").evaluate(node => {
+            const viewport = node.closest(".skyline-content")!.getBoundingClientRect();
+            return [...node.querySelectorAll(".browse-art, .browse-card-title, .browse-card-subtitle")].every(child => {
+                const rect = child.getBoundingClientRect();
+                return rect.top >= viewport.top && rect.bottom <= viewport.bottom;
+            });
+        }), "focused artwork and captions fit the viewport");
+    } finally { await tv.page.context().close(); }
+});
+
+for (const source of ["watchlist", "favorites", "history"]) test(`review: ${source} repaints after delayed presentation preferences`, async () => {
+    let release = (): void => {};
+    const { tv, catalog } = await setup(false, false, tv => {
+        const settings = new FakeSettings(tv.fake);
+        settings.overlayConfig = { enabled: false };
+        settings.profile().set(CARD_PRESENTATION_KEY, { poster_size: "large", caption: "title_metadata" });
+        const badges = tv.fake.hold("/settings/overlay-config", true);
+        const posters = tv.fake.hold("/settings/values/effective?keys=ui.card_presentation", true);
+        release = () => { badges.release(); posters.release(); };
+    });
+    try {
+        const read = catalog.route.bind(catalog);
+        catalog.route = (method, path, profile, body) => {
+            const reply = read(method, path, profile, body), response = reply?.body;
+            if (reply?.status === 200 && typeof response === "object" && response !== null && "items" in response && Array.isArray(response.items)) {
+                return { ...reply, body: { ...response, items: response.items.map((item: unknown) => typeof item === "object" && item !== null ? { ...item, overlay_summary: { resolution: "2160p" } } : item) } };
+            }
+            return reply;
+        };
+        await openList(tv, source);
+        const identity = await tv.focused();
+        const badges = tv.page.locator(".personal-page .card-overlay");
+        assert.ok(await badges.count() > 0);
+        const reads = listReads(tv).length;
+        release();
+        await tv.eventually(async () => await badges.count() === 0, "disabled personal-list badges removed");
+        assert.equal(await tv.focused(), identity);
+        assert.equal(listReads(tv).length, reads);
+        if (source === "history") {
+            await tv.eventually(async () => await tv.page.locator(".catalog-grid").evaluate(node => node.style.getPropertyValue("--grid-columns")) === "5", "large History columns");
+            await tv.remote(40);
+            assert.equal(await tv.focused(), await tv.page.locator(".personal-page .browse-card").nth(5).getAttribute("data-focus"));
+        }
+    } finally { release(); await tv.page.context().close(); }
 });
 
 test("review: large History posters fit five columns and remote rows", async () => {

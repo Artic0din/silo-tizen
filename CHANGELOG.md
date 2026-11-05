@@ -6,10 +6,14 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept History's focused artwork and captions on screen at every poster size and repainted personal lists when presentation preferences arrived.
 - Restored the For You menu on Down from the retained tab over Watchlist and Favorites, focusing Watchlist as on Apple TV.
 - Matched History's Apple TV title position and focused poster scroll clearance.
 - Matched Apple TV personal-list loading, root selection, Back navigation, grid spacing, and saved-list ordering.
 - Kept saved-list requests and response validation in the shared API adapter and contract modules.
+- Drew the series status TV glyph as Apple's flat `tv` symbol, at that symbol's layout size, and stopped Search from pinning an upward move over the field and filters.
+- Drew the TV icon on Returning, Cancelled and Ended badges and raised Home headings by using Skyline's 14px card padding.
+- Raised the focused Search poster, darkened the Continue Watching focus shadow, showed the Returning badge on Search cards, and hid the watched tick on Related titles.
 - Showed Home rows as soon as they arrived, without waiting on library tabs or an uncapped sections read, and stopped the Home page from saying the server was still waiting. While those rows are still out, Home is an empty page labelled "Loading home" and the library tabs fill in on their own.
 - Stopped a delayed Home libraries read from putting a library back after it was hidden in Settings.
 - Kept remote navigation when those library tabs arrived on another page, and read them again after the app returned if that read had failed.

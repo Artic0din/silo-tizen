@@ -36,6 +36,8 @@ export interface FocusItem {
 }
 
 export interface Zone {
+    /** Restore the last enabled item on entry, otherwise this fallback, before geometry. */
+    readonly restoreEntry?: string;
     /** An explicit entry target; clearing it returns the zone to remembered-item restoration. */
     readonly entry?: string | undefined;
     readonly onLeft?: () => void;
@@ -397,6 +399,11 @@ export class FocusHost {
         for (let next = zoneIndex + step; next >= 0 && next < zones.length; next += step) {
             const zone = zones[next];
             if (zone !== undefined && zone.items.length > 0) {
+                const restored = this.restoredEntry(zone);
+                if (restored !== undefined) {
+                    this.focusItem(zone, restored);
+                    return true;
+                }
                 // Apple raises the first row's default-focus priority while the
                 // top menu is focused (TVSkylineSectionFeed), so Down from the
                 // bar ignores the card remembered in that row. Calendar shelves
@@ -440,6 +447,12 @@ export class FocusHost {
             }
         }
         return false;
+    }
+
+    private restoredEntry(zone: Zone): FocusItem | undefined {
+        if (zone.restoreEntry === undefined) return undefined;
+        return zone.items.find(item => item.key === this.memory.get(zone.id) && !item.element.matches(':disabled, [aria-disabled="true"]'))
+            ?? zone.items.find(item => item.key === zone.restoreEntry);
     }
 
     private focusItem(zone: Zone | undefined, item: FocusItem | undefined): void {
@@ -568,14 +581,9 @@ export class FocusHost {
         if (target !== undefined) {
             this.focusItem(zone, zone.items[target]);
         } else {
-            if (zone.id === "seasons" && key === "up") {
-                const actions = view.zones.find(candidate => candidate.id === "actions");
-                this.focusItem(actions, actions?.items.find(item => item.key === "more"));
-                return;
-            }
             const destination = zone[key];
             const next = view.zones.find(candidate => candidate.id === destination && candidate.items.length > 0);
-            if (next !== undefined) this.focusItem(next, next.items.find(item => item.key === next.entry) ?? next.items.find(item => item.key === this.memory.get(next.id)) ?? next.items[0]);
+            if (next !== undefined) this.focusItem(next, this.restoredEntry(next) ?? next.items.find(item => item.key === next.entry) ?? next.items.find(item => item.key === this.memory.get(next.id)) ?? next.items[0]);
             else if (key === "up" || key === "down") this.enterZone(zoneIndex, key === "up" ? -1 : 1, found.item);
         }
     };

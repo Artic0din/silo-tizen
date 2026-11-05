@@ -35,7 +35,7 @@ import { HomeEnrichment } from "./homeEnrichment.ts";
 import { el } from "./screen.ts";
 import { discoveryState, genreGroups, libraryScope, librarySectionQuery, readDiscovery, type LibraryMode } from "./libraryDiscovery.ts";
 import { availableModes } from "./libraryDiscoveryViews.ts";
-import { DENSE_COLUMNS, personalListCapability, readPersonalPage, type PersonalFilter } from "./personalLists.ts";
+import { personalEndCanReenter, personalListCapability, readPersonalPage, type PersonalFilter } from "./personalLists.ts";
 import type { MediaScope } from "../contracts/v2/discovery.ts";
 import type { CatalogQueryRequest } from "../contracts/v2/discovery.ts";
 import { personQuery } from "./personFilmography.ts";
@@ -562,7 +562,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }
                 // Apple WatchlistView, FavoritesView and HistoryViewModel: a failed later page keeps the rows and does not become the error screen.
                 if (current.kind === "personal" && (current.pages.page?.items.length ?? 0) > 0 && text !== undefined) {
-                    current.failure = current.source === "favorites" && (current.pages.page?.items.length ?? 0) <= DENSE_COLUMNS ? text : undefined;
+                    current.failure = current.source === "favorites" && !personalEndCanReenter(container) ? text : undefined;
                     current.error = undefined;
                     if (top() === current) render(host.focused());
                     return;

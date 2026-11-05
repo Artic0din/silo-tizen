@@ -45,7 +45,7 @@ export function readPersonalPage(source: PersonalSource, filter: PersonalFilter,
 /** CatalogGrid.loadMoreLead: the card this far from the end asks for the next page. */
 const LOAD_LEAD = 6;
 /** Apple tvOS WatchlistView / FavoritesView: eight 176-point posters in a 1760-point safe width. */
-export const DENSE_COLUMNS = 8;
+const DENSE_COLUMNS = 8;
 const DENSE_WIDTH = 1760;
 const DENSE_POSTER = 176;
 /** History adds 48-point content padding inside the TV's 80-point safe area. */
@@ -53,6 +53,18 @@ const HISTORY_COLUMNS = 6;
 const HISTORY_WIDTH = 1664;
 
 type PersonalRoute = Extract<Route, { kind: "personal" }>;
+
+/** A failed continuation can be retriggered only if an observed end card can leave the viewport. */
+export function personalEndCanReenter(root: HTMLElement): boolean {
+    const viewport = root.querySelector<HTMLElement>(".skyline-content");
+    if (viewport === null) return false;
+    const bounds = viewport.getBoundingClientRect();
+    const maxScroll = viewport.scrollHeight - viewport.clientHeight;
+    return [...viewport.querySelectorAll<HTMLElement>(".personal-grid .browse-card")].slice(-LOAD_LEAD).some(card => {
+        const rect = card.getBoundingClientRect();
+        return rect.top + viewport.scrollTop > bounds.bottom || rect.bottom + viewport.scrollTop - maxScroll < bounds.top;
+    });
+}
 
 function statusOwner(className: string, label: string, text?: string): FocusItem {
     const element = el("button", className, text);

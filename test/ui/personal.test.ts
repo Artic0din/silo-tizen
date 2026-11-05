@@ -507,26 +507,26 @@ test("review: dismissing card actions resumes a cancelled one-row Favorites cont
     } finally { held.release(); await tv.page.context().close(); }
 });
 
-test("review: a failed continuation in one-row Favorites has an explicit retry", async () => {
+for (const count of [8, 14, 16]) test(`review: a failed continuation with ${count} Favorites has an explicit retry`, async () => {
     const { tv, catalog } = await setup();
     try {
         const first = catalog.route("POST", "/catalog/query", "p-owner", { source: "favorites", type: "video", limit: 24 });
         const body = first?.body as { items: Record<string, unknown>[] };
-        const items = body.items.slice(0, 8);
+        const items = body.items.slice(0, count);
         catalog.pageReplies.push({ status: 200, body: { ...body, items, page: { has_more: true, next_cursor: "p-owner:favorites:video:24" } } }, problem(500, "internal_error", "Synthetic failure"));
         await openList(tv, "favorites");
         const retry = tv.page.getByRole("button", { name: "Try Again", exact: true });
         await retry.waitFor();
         const reads = listReads(tv).length;
-        assert.equal(await tv.page.locator(".personal-page .browse-card").count(), 8);
-        assert.equal(await tv.page.locator(".skyline-content").evaluate(node => node.scrollHeight <= node.clientHeight), true);
+        assert.equal(await tv.page.locator(".personal-page .browse-card").count(), count);
         await tv.jump(1000);
         assert.equal(listReads(tv).length, reads, "failure does not start an automatic retry loop");
         await tv.page.locator(".personal-page .browse-card").first().focus();
         await tv.remote(40);
+        if (count > 8) await tv.remote(40);
         assert.equal(await tv.focused(), "retry");
         await tv.page.keyboard.press("Enter");
-        await tv.eventually(async () => await tv.page.locator(".personal-page .browse-card").count() > 8, "retry recovers the remaining favorites");
+        await tv.eventually(async () => await tv.page.locator(".personal-page .browse-card").count() > count, "retry recovers the remaining favorites");
     } finally { await tv.page.context().close(); }
 });
 

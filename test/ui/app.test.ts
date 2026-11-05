@@ -814,13 +814,13 @@ appTest("EOF during a refused subtitle change still offers manual continuation",
     assert.ok(id !== undefined);
     playback.next.push({ terminal: "adaptation_unavailable" });
     const response = tv.fake.hold(`/playback/${id}/replan`);
-    // Old Down opened the panel. Down focuses Play/Pause; Options opens Info, then Subtitles is two tabs right.
+    // Stats and Video sit between Info and Audio in the expanded HUD.
     await tv.remote(40);
     await tv.remote(39);
     await tv.remote(39);
     await tv.remote(13);
-    await tv.remote(39);
-    await tv.remote(39);
+    for (let tab = 0; tab < 4; tab++) await tv.remote(39);
+    assert.equal(await tv.page.getByRole("tab", { name: "Subtitles", exact: true }).getAttribute("aria-selected"), "true");
     await tv.page.locator('.player-menu [data-focus="file:42:subtitle:0"]').click();
     await tv.page.evaluate(() => window.appHarness.avplay.listener?.onstreamcompleted());
     assert.equal(tv.fake.requests.filter(r => r.method === "DELETE").length, 0);

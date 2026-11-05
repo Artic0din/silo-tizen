@@ -125,12 +125,20 @@ for (const multipleLibraries of [false, true]) browseTest(`section selection clo
     await showing(tv, "library:12");
     await selectLibraryMode(tv, "Collections");
     const loading = tv.fake.hold("/library/12/sections", true);
-    await tv.page.locator('[data-focus="movies"]').focus();
-    await tv.remote(40);
+    await tv.page.locator('[data-focus="movies"]').evaluate(node => {
+        // Keep synthetic focus and input atomic while library loads settle.
+        (node as HTMLElement).focus({ preventScroll: true });
+        node.dispatchEvent(new KeyboardEvent("keydown", { keyCode: 40, bubbles: true, cancelable: true }));
+        (document.activeElement ?? node).dispatchEvent(new KeyboardEvent("keyup", { keyCode: 40, bubbles: true, cancelable: true }));
+    });
     if (multipleLibraries) {
-        await tv.page.locator('[data-focus="library:12"]').focus();
-        await tv.remote(39);
+        await tv.page.locator('[data-focus="library:12"]').evaluate(node => {
+            (node as HTMLElement).focus({ preventScroll: true });
+            node.dispatchEvent(new KeyboardEvent("keydown", { keyCode: 39, bubbles: true, cancelable: true }));
+            (document.activeElement ?? node).dispatchEvent(new KeyboardEvent("keyup", { keyCode: 39, bubbles: true, cancelable: true }));
+        });
     } else await tv.page.locator('[data-focus="section:Recommended"]').focus();
+    assert.equal(await tv.focused(), "section:Recommended");
     await tv.page.keyboard.press("Enter");
     await tv.jump(1000);
     loading.release();

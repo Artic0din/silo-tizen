@@ -117,7 +117,8 @@ trailerTest("local extras stay ahead of YouTube cards and keep a 48px gap", asyn
         { key: "extra:extra:1", caption: "1:30" },
         { key: "remote:YouTube:abc_def-1", caption: "YouTube" },
     ]);
-    const gap = await tv.page.locator(".details-extras").evaluate(row => {
+    const gap = await tv.page.evaluate(() => {
+        const row = document.querySelector(".details-extras")!;
         const [first, second] = [...row.querySelectorAll(".details-extra")].map(node => node.getBoundingClientRect());
         return second!.left - first!.right;
     });

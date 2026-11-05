@@ -178,6 +178,9 @@ test("the featured marquee waits 1500ms and other cards never start a translatio
         const held = tv.fake.hold("/capabilities/metadata-ai");
         await tv.page.evaluate(() => window.browseHarness.mount());
         await tv.page.locator('[data-view="home"] .skyline-marquee h1').waitFor();
+        await tv.eventually(() => Promise.resolve(tv.fake.requests.some(request => request.path === "/capabilities/metadata-ai")), "held metadata AI capability");
+        // Keep protocol time out of the exact 1499ms/1500ms dwell boundary.
+        await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now()) + 1000);
         held.release();
         await tv.jump(0);
         assert.equal(translation.posts().length, 0);

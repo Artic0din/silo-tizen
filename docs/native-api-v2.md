@@ -245,7 +245,7 @@ Defined in `src/api/operations.ts` unless noted.
 | library sections | `GET /library/{id}/sections?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
 | section items | `GET /library/{id}/sections/{sectionId}/items?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
 | library collections | `GET /library/{id}/collections` (`src/api/discoveryOperations.ts`) | safe |
-| collection items | `GET /library/{id}/collections/{cid}/items?limit&cursor` (`src/api/discoveryOperations.ts`) | safe |
+| collection items | `POST /catalog/query` with `source: library_collection` or `user_collection`, `scope: library`, `collection_id`, library/media scope and cursor (`src/api/discoveryOperations.ts`); includes profile viewer state | safe |
 | catalog filters | `GET /catalog/filters?...` (`src/api/discoveryOperations.ts`) | safe |
 | search capabilities | `GET /catalog/search/capabilities` (`src/api/discoveryOperations.ts`) | safe |
 | Search people | `GET /catalog/people?q&media_scope&limit=20` (`src/api/detailOperations.ts`), gated by allowed/available `people_media_scope` | safe |

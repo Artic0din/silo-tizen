@@ -219,6 +219,21 @@ export function decodeCard(value: unknown, path: string): Card {
     };
 }
 
+/** getHomeCapabilities: whether Home section reads accept `item_limit`. */
+export interface HomeCapabilities {
+    readonly state: string;
+    /** Advertised maximum. Absent when the server does not offer the parameter. */
+    readonly sectionItemLimitMax: number | undefined;
+}
+
+export function decodeHomeCapabilities(value: unknown): HomeCapabilities {
+    const path = "home_capabilities";
+    const obj = object(value, path);
+    const max = obj.section_item_limit_max === undefined ? undefined : integer(obj, "section_item_limit_max", path);
+    if (max !== undefined && max < 1) throw new WireError(`${path}.section_item_limit_max`, "a positive integer");
+    return { state: string(obj, "state", path), sectionItemLimitMax: max };
+}
+
 export interface HomeSection {
     readonly featured?: boolean;
     readonly id: string;

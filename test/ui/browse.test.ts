@@ -27,7 +27,7 @@ browseTest("collection detail matches measured Apple layout and truncates long c
     catalog.failNext("/library/12/collections", { status: 200, body: { library_id: "12", collections: [collection], groups: [], ungrouped: { sort_order: 1, collections: [collection] } } });
     await selectLibraryMode(tv, "Collections");
     const items = Array.from({ length: 12 }, (_, i) => ({ content_id: `movie:layout-${i}`, type: "movie", title: "Now Playing in Theaters", year: 2026 }));
-    catalog.failNext("/library/12/collections/highlights/items", { status: 200, body: { items, total: 12, total_exact: true, page: { has_more: false } } });
+    catalog.failNext("/catalog/query", { status: 200, body: { window_cursor: "collection-window", items, total: 12, total_exact: true, page: { has_more: false } } });
     await tv.page.locator('[data-focus="collection:highlights"]').click();
     await shows(tv, "12 items");
     await tv.page.locator('[data-focus="shuffle"]').waitFor();
@@ -44,14 +44,35 @@ browseTest("collection detail matches measured Apple layout and truncates long c
             columns: getComputedStyle(grid).gridTemplateColumns.split(' ').length,
             truncation: [getComputedStyle(caption).whiteSpace, getComputedStyle(caption).textOverflow, getComputedStyle(caption).overflow, caption.scrollWidth > caption.clientWidth] };
     });
+    assert.equal(layout.caption.y - (layout.poster.y + layout.poster.height), 22);
     assert.deepEqual({ x: Math.round(layout.poster.x), y: layout.poster.y, columns: layout.columns, titleFont: layout.title.font, titleCentre: layout.title.y + layout.title.height / 2,
         countFont: layout.count.font, countCentre: layout.count.y + layout.count.height / 2, caption: layout.caption.font, metadata: layout.metadata.font, truncation: layout.truncation },
-    { x: 138, y: 262, columns: 6, titleFont: "59px", titleCentre: 97.5, countFont: "22px", countCentre: 176.5, caption: "24px", metadata: "22px", truncation: ["nowrap", "ellipsis", "hidden", true] });
+    { x: 138, y: 262, columns: 6, titleFont: "59px", titleCentre: 97.5, countFont: "22px", countCentre: 187.5, caption: "24px", metadata: "22px", truncation: ["nowrap", "ellipsis", "hidden", true] });
+    const secondRow = await tv.page.locator('.collection-detail-grid .browse-art').nth(6).boundingBox();
+    assert.ok(secondRow !== null);
+    assert.equal(secondRow.y - layout.poster.y, layout.poster.height + 22 + 29 + 4 + 27 + 57);
+    assert.equal(await tv.page.locator('.collection-detail-actions .browse-text').evaluate(node => getComputedStyle(node).color), "rgba(237, 237, 237, 0.6)");
     await tv.eventually(async () => {
         const box = await tv.page.locator('[data-focus="shuffle"]').boundingBox();
-        return box !== null && Math.abs(box.x - 124.5) < 1 && Math.abs(box.width - 182) < 1 && Math.abs(box.height - 55) < 1;
+        return box !== null && Math.abs(box.y - 159.94) < 1 && Math.abs(box.x - 124.5) < 1 && Math.abs(box.width - 182) < 1 && Math.abs(box.height - 55) < 1;
     }, "Apple Shuffle pill geometry");
 }, { beforeConnect: tv => { new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" }); } });
+
+browseTest("collection watched badge uses Apple's catalog source and contract viewer state", async (tv, catalog) => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await selectLibraryMode(tv, "Collections");
+    const watched = fixture("get_catalog_item_ok");
+    const page = fixture("list_catalog_items_ok");
+    catalog.failNext("/catalog/query", { status: 200, body: { ...page, items: [watched], total: 1, page: { has_more: false } } });
+    await tv.page.locator('[data-focus="collection:highlights"]').click();
+    const card = tv.page.locator('.collection-detail-grid [data-focus="movie:heat-1995"]');
+    await card.waitFor({ timeout: 3000 });
+    assert.equal(await card.locator('.browse-watched').count(), 1);
+    assert.deepEqual(tv.fake.requests.filter(request => request.body?.source === "library_collection").at(-1)?.body,
+        { library_id: "12", type: "movie", limit: 60, sort: "title", order: "asc", source: "library_collection", scope: "library", collection_id: "highlights" });
+    assert.equal(tv.fake.requests.filter(request => request.path.includes("/collections/highlights/items")).length, 0);
+});
 
 for (const check of ["icon", "title", "badges", "focus"] as const) browseTest(`collection native regression ${check}`, async (tv, catalog) => {
     await tv.page.emulateMedia({ reducedMotion: "reduce" });
@@ -65,7 +86,7 @@ for (const check of ["icon", "title", "badges", "focus"] as const) browseTest(`c
         assert.deepEqual(await tile.evaluate(node => ({ shadow: getComputedStyle(node).boxShadow, outline: getComputedStyle(node).outlineStyle, art: getComputedStyle(node.querySelector('.browse-art')!).outlineColor })), { shadow: "none", outline: "none", art: "rgba(255, 255, 255, 0.7)" });
         return;
     }
-    catalog.failNext("/library/12/collections/highlights/items", { status: 200, body: { items: [{ content_id: "movie:badge", type: "movie", title: "Badge movie", overlay_summary: { resolution: "2160p" }, user_state: { played: true } }], page: { has_more: false } } });
+    catalog.failNext("/catalog/query", { status: 200, body: { window_cursor: "collection-window", total: 1, total_exact: true, items: [{ content_id: "movie:badge", type: "movie", title: "Badge movie", overlay_summary: { resolution: "2160p" }, user_state: { played: true } }], page: { has_more: false } } });
     await tv.page.locator('[data-focus="collection:highlights"]').click();
     const card = tv.page.locator('.collection-detail-grid .browse-card').first();
     await card.waitFor();
@@ -74,7 +95,7 @@ for (const check of ["icon", "title", "badges", "focus"] as const) browseTest(`c
         assert.equal(await svg.count(), 1);
         assert.ok(await svg.evaluate(node => node instanceof SVGSVGElement && node.getBoundingClientRect().width > 0));
     } else if (check === "title") {
-        assert.equal(await tv.page.locator('.collection-detail-title').evaluate(node => getComputedStyle(node).color), "rgba(237, 237, 237, 0.6)");
+        assert.equal(await tv.page.locator('.collection-detail-title').evaluate(node => getComputedStyle(node).color), "rgb(64, 64, 64)");
     } else if (check === "badges") {
         await tv.eventually(async () => await card.locator('.card-overlay').count() > 0, "collection profile badges");
         assert.equal(await card.locator('.browse-watched').count(), 1);
@@ -157,13 +178,13 @@ browseTest("Large collection detail posters fit and D-pad follows five columns",
     assert.equal(await tv.focused(), nextRow);
 }, { beforeConnect: tv => { new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "large", caption: "title_metadata" }); } });
 
-browseTest("collection detail accepts missing totals and starts on Shuffle without playback", async (tv, catalog) => {
+browseTest("collection detail accepts inexact totals and starts on Shuffle without playback", async (tv, catalog) => {
     await tv.page.route("**/api/v2/shuffles/capabilities", route => route.fulfill({ json: { allowed: true, state: "available", scope_kinds: ["library_collection"] } }));
     await tv.page.locator('[data-focus="movies"]').click();
     await showing(tv, "library:12");
     await selectLibraryMode(tv, "Collections");
     const items = Array.from({ length: 60 }, (_, i) => ({ content_id: `movie:collection-${i}`, type: "movie", title: `Collection movie ${i}` }));
-    catalog.failNext("/library/12/collections/highlights/items", { status: 200, body: { items, page: { has_more: true, next_cursor: "next" } } });
+    catalog.failNext("/catalog/query", { status: 200, body: { window_cursor: "collection-window", total: 60, total_exact: false, items, page: { has_more: true, next_cursor: "next" } } });
     await tv.page.locator('[data-focus="collection:highlights"]').click();
     await shows(tv, "60+ items");
     assert.equal(await tv.page.locator('.browse [data-focus="shuffle"]').count(), 1, JSON.stringify(tv.fake.requests.filter(request => request.path.includes("shuffle"))));
@@ -253,7 +274,7 @@ browseTest("empty collection uses Apple copy and Back restores its collection", 
     await tv.page.locator('[data-focus="movies"]').click();
     await showing(tv, "library:12");
     await selectLibraryMode(tv, "Collections");
-    catalog.failNext('/library/12/collections/highlights/items', { status: 200, body: { items: [], total: 0, total_exact: true, page: { has_more: false } } });
+    catalog.failNext("/catalog/query", { status: 200, body: { window_cursor: "collection-window", items: [], total: 0, total_exact: true, page: { has_more: false } } });
     await tv.page.locator('[data-focus="collection:highlights"]').click();
     await shows(tv, "Collection is empty");
     await shows(tv, "This collection does not have any items yet.");
@@ -2542,7 +2563,7 @@ for (const [tab, library, first] of [["movies", "12", "movie:m0001"], ["series",
         await tv.page.locator('[data-focus="collection:highlights"]').waitFor();
         await press(tv, "Enter");
         await shows(tv, "Library Highlights");
-        await tv.eventually(async () => tv.fake.requests.some(request => request.path.startsWith(`/library/${library}/collections/highlights/items?limit=60`)), "scoped collection items");
+        await tv.eventually(async () => tv.fake.requests.some(request => request.path.startsWith("/catalog/query") && request.body?.source === "library_collection" && request.body?.library_id === library && request.body?.limit === 60), "scoped collection items");
         await tv.remote(BACK);
         assert.equal(await tv.focused(), "collection:highlights");
         await selectLibraryMode(tv, "Genres");
@@ -2588,7 +2609,7 @@ browseTest("discovery loading, member retry and late answers preserve route and 
     assert.equal(await view(tv), "library:13");
     await selectLibraryMode(tv, "Collections");
     await tv.page.locator('[data-focus="collection:highlights"]').waitFor();
-    catalog.failNext("/library/13/collections/highlights/items", problem(403, "forbidden", "Forbidden"));
+    catalog.failNext("/catalog/query", problem(403, "forbidden", "Forbidden"));
     await tv.page.locator('[data-focus="collection:highlights"]').click();
     await tv.page.locator('[data-focus="retry"]').waitFor();
     await tv.page.locator('[data-focus="retry"]').focus();

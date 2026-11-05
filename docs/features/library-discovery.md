@@ -33,7 +33,9 @@ Empty members say “Collection is empty”.
 Named groups keep the server heading; the anonymous bucket has none.
 Count captions follow Apple's `collection_type` mapping; management types such as manual and smart use ITEM/ITEMS.
 No collection creation or management controls are offered on this TV surface.
-Personal collection contents use `POST /catalog/query` with `source=user_collection`, `collection_id` and the current library scope.
+Collection contents use `POST /catalog/query` with `source=library_collection` for curated collections or `source=user_collection` for personal collections, `collection_id` and the current library scope.
+This matches Apple's `LibraryCollectionDetailViewModel` and includes the profile's `user_state.played` for watched badges.
+The collection membership endpoint's listing projection omits that viewer state.
 Genres keeps filtered results and sort controls under the shared navigation.
 A–Z uses the server's letters, counts and positions with its query window cursor.
 Recently Added requests `added_at` descending.
@@ -121,7 +123,7 @@ This is a source reference, not an assertion about the installed Apple build.
 Collection members use 60-member pages, matching Apple, including the personal collection catalog query.
 List and member failures retain explicit Retry.
 Collection detail uses a centered title and the Swift tvOS 260×390 poster default.
-Its count uses loaded membership plus a continuation suffix when totals are absent.
+Its count uses loaded membership plus a continuation suffix when query totals are inexact.
 Capability-gated Shuffle initially owns focus and uses the shared launch, cancellation and playback owners with the collection scope.
 Restricted-member visibility remains server-authoritative in both clients.
 Paired native captures and the reported collection's actual artwork request remain unverified for this change.

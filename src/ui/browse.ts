@@ -1418,6 +1418,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const open = (destination: Destination): void => {
         if (destination.kind === "person") host.forgetVisit(`person:${destination.id}`);
+        // A new Details presentation starts on Play; route-owned season state
+        // and the viewport retained while returning from a child stay separate.
+        if (destination.kind === "item") host.forgetVisit(`item:${destination.id}`);
         push(destination.kind === "item"
             ? newRoute({ kind: "item", id: destination.id, title: destination.title, ...(destination.seriesContext === undefined ? {} : { seriesContext: destination.seriesContext }), data: undefined })
             : destination.kind === "person" ? newRoute({ kind: "person", id: destination.id, title: destination.title, data: undefined, filter: "video", pages: newPages(), pendingIndex: undefined })

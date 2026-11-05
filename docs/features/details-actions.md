@@ -53,4 +53,27 @@ The 76px picker rows retain their second-line detail space.
 The shorter gated Samsung menu can fit below where Apple's six-item menu opens above; direction is based on available space, not item type.
 Unfocused Play now shares the circles' 10% white fill (`TVDetailActions.swift:356-360,701-707`), allowing the existing backdrop to show through without a filter.
 Synthetic warm, neutral and cool underlays verify the supplied sRGB targets within two levels; actual title backdrops still need a signed comparison.
-The season pill row's start position remains a known difference, and Details table end scrolling is left to #247.
+The season pill row's start position remains a known difference.
+Fresh item navigation now clears the focus host's previous visit snapshot, so Details opens on its primary action at scroll zero.
+This does not clear route-owned selected-season state when returning from an episode information page or repainting the current page.
+
+The #247 scroll audit at the Apple SHA above found these distinct owners, all under `tvOS/Screens/Detail/`:
+
+- `TVMovieDetailView.swift:102-131` gives the hero an id and attaches `detailFocusScroll`; `TVDetailFocusScroll.swift:70-81,94-105` pins actions to the hero's top and centers the complete focused poster section.
+- `TVSeriesDetailView.swift:153-177` computes the supporting anchor's midpoint minus half the viewport height, clamped to the content range; `:1105-1166` centers the first available supporting section (Cast, otherwise Trailers, otherwise Recommended).
+- `TVTrailersRail.swift:27-33,50-56` groups heading and rail with 14-point spacing, pads the rail vertically by 12 and gives its first card default focus; it specifies no vertical scroll offset.
+- `TVDetailFactsSection.swift:14-22,24-61` makes the whole table one passive focus target with a 14-point vertical highlight bleed; it specifies no explicit scroll anchor.
+- `TVDetailHero.swift:18` supplies 140 points of bottom content padding; both page bodies apply it (`TVMovieDetailView.swift:120`, `TVSeriesDetailView.swift:292`).
+
+The existing `SkylineScroll` owner already resets hero/editorial focus to zero and centers movie Related sections.
+No second scroll owner or per-state correction was added.
+The running-app observations remain authoritative: table headings y634 versus y524 require 110 more pixels of scroll; the end-of-series headings y510 versus about y400 require about 110; trailer headings y650 versus y501 and cards y719 versus y570 both require 149.
+The Swift's native focus reveal has no explicit value that accounts for those deltas, so these targets remain unresolved pending the same-state native comparison.
+Centering a section of height H would place its heading at `(1080 - H) / 2`, subject to its content-range clamp; that is not evidence for adding 110 or 149 to the current offset.
+No simulator, TV, live server or signed package was used for this follow-up.
+
+Metadata already includes the outlined rating chip and rating artwork (`TVDetailHero.swift:360-446`); Related Movies and Recommended Series already match (`TVMovieDetailView.swift:289`, `TVSeriesDetailView.swift:1117`).
+The optional advisory-age chip (`TVDetailHero.swift:450-453`) remains a separate preference-gated difference; the existing row must not be replaced with guessed technical badges.
+
+The later comparison must cover Movie and Series fresh opening and reopening after Cast/table scroll; Up through every hero action; return from episode information with Season 2 selected; focused middle and terminal Details tables; first and subsequent trailers with and without Cast; Related Movies and Recommended Series; rated metadata with advisory preference off/on; and the rest hero including the movie stack y291/334/450/492/556.
+Repeat Series rail entry, horizontal terminal clamp and Up return at Compact, Standard and Large to protect #246.

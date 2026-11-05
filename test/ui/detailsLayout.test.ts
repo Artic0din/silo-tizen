@@ -7,6 +7,29 @@ import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
+for (const id of ['movie:m0001', 'series:s1']) detailTest(`${id} reopening starts at the hero instead of a remembered supporting section`, async tv => {
+    const open = async () => {
+        await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).first().click();
+        await tv.page.locator('.details-people').waitFor();
+        await tv.jump(500);
+    };
+    await open();
+    await tv.page.locator('.details-people [data-focus]').first().focus();
+    await tv.remote(39);
+    await tv.jump(500);
+    const measure = () => tv.page.evaluate(() => {
+        const page = document.querySelector<HTMLElement>('.browse')!;
+        return { scroll: page.scrollTop, hero: page.querySelector('.details-hero')!.getBoundingClientRect().top };
+    });
+    const before = await measure();
+    assert.ok(before.scroll > 0);
+    await tv.remote(10009);
+    await open();
+    assert.equal(await tv.focused(), id.startsWith('movie') ? 'resume' : 'next-episode');
+    assert.equal((await measure()).scroll, 0);
+    assert.equal((await measure()).hero, 0);
+});
+
 for (const id of ['movie:m0001', 'series:s1']) detailTest(`${id} Details omits controls absent from tvOS and keeps focus at the last section`, async tv => {
     await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).first().click();
     await tv.page.locator('[data-focus="watchlist"]').waitFor();

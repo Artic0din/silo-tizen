@@ -13,6 +13,8 @@ All notable changes to this project are documented in this file.
 - Corrected Playback Settings to edit this TV's supported overrides and restore profile inheritance without changing profile defaults (Apple/Samsung native parity pending).
 - Aligned supported Settings rows with Apple TV's resolution choices, bitrate presets, value columns, profile selection and sign-out navigation.
 - Added the Subtitles profile language, behavior and forced-subtitles rows, the profile account line, and Apple's sign-out confirmation. Appearance, metadata language and Diagnostics stay out.
+- Stopped a device-code poll from going out when its wait ended as the screen hid. A poll already sent still finishes, and coming back polls at once.
+- Kept Search's navigation column when a square People portrait animates on focus.
 - Restored Cast focus clearance and corrected Details episode spacing, picker selection, Related badges and action glyphs against Apple TV measurements.
 - Corrected Details caption gaps, resting Cast spacing, series colours and genres, and intrinsic Versions sizing.
 - Activated Series seasons on resting focus, preserved complete episode scroll steps, and corrected Details spacing, hero contrast, Versions and SDH subtitle presentation.

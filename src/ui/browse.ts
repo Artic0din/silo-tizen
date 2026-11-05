@@ -634,7 +634,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (error instanceof ApiError && error.status === 404) rememberHomeLimit(null);
         }).finally(() => { if (homeLimitFlight === flight) homeLimitFlight = undefined; });
         homeLimitFlight = flight;
-        return flight;
+        // The shared read keeps the first visit's signal. A return that joined it
+        // after that visit left starts its own read instead of keeping the abort.
+        return flight.catch((error: unknown) => {
+            if (error instanceof ApiError && error.aborted && !signal.aborted) return probeHomeLimit(signal);
+            throw error;
+        });
     };
     // Library tabs are not part of the Home rows. Apple paints sections without waiting
     // for them (HomeViewModel.fetchAndApplySections, HomeViewModel.swift:237).

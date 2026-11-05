@@ -12,6 +12,7 @@ All notable changes to this project are documented in this file.
 
 - Cleared only the signed-out account's cached browse content, including offline saved-account removal.
 - Preserved cached Details artwork and supporting content offline, protected visited titles from Home enrichment eviction, and retained the selected season during recovery.
+- Kept Home rows when a return to Home joined a row-cap read that the previous visit had cancelled.
 - Preserved saved logins when entering another server and kept overflowing Accounts actions visible on screen.
 - Placed Accounts below the Server heading, matched its section labels and chevrons to Apple TV, and reused the saved account's session when restoring through server entry.
 - Matched Accounts spacing, footnote size, chevron symbols and return focus to Apple TV, and kept the profile picker until Remember is chosen even with one unprotected profile.

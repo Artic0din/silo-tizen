@@ -530,7 +530,7 @@ export function personalControls(state: DetailsState): { items: FocusItem[]; not
         items.push(item);
         if (change?.failed) notes.push(...lines([`Could not update ${kind}.`], "error"));
     }
-    if (state.personalFailed && !state.offline) items.push(actionButton("retry-personal", "Retry personal actions", () => { if (!state.busy) state.loadPersonal(); }));
+    if (state.personalFailed) items.push(actionButton("retry-personal", "Retry personal actions", () => { if (!state.busy) state.loadPersonal(); }));
     if (state.personalSupported === undefined && !state.offline) notes.push(...lines([state.personalFailed ? "Could not load personal actions." : "Loading personal actions."], state.personalFailed ? "error" : "info"));
     return { items, notes };
 }

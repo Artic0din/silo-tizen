@@ -68,6 +68,9 @@ export type AuthorizedSpec<T> = Omit<RequestSpec<T>, "bearer" | "profile"> & {
     readonly replayAfterRefresh?: boolean;
 };
 
+/** Refresh failed before dispatch (or after an explicit 401 refusal). */
+export class SessionRefreshError extends ApiError {}
+
 export class SessionError extends Error {
     readonly reason: "signed_out" | "session_ended" | "unavailable";
     readonly retryAfterSeconds: number | undefined;
@@ -426,7 +429,7 @@ function throwUnlessRefreshed(outcome: RefreshOutcome): void {
         case "refreshed":
             return;
         case "unavailable":
-            if (outcome.transportFailure !== undefined) throw new ApiError({ kind: outcome.transportFailure });
+            if (outcome.transportFailure !== undefined) throw new SessionRefreshError({ kind: outcome.transportFailure });
             throw new SessionError("unavailable", outcome.retryAfterSeconds);
         case "session_ended":
             throw new SessionError("session_ended");

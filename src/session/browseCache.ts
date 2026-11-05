@@ -48,7 +48,7 @@ function persistent(key: string): boolean {
 function clean(value: unknown, artwork = false): unknown {
     if (Array.isArray(value)) return value.map(child => clean(child, artwork));
     if (typeof value !== "object" || value === null) return value;
-    return Object.fromEntries(Object.entries(value).filter(([key, child]) => !/url|token|authorization|password|secret/i.test(key) || (artwork && /^(poster|backdrop|logo|photo)_url$/.test(key) && typeof child === "string")).map(([key, child]) => [key, clean(child, artwork)]));
+    return Object.fromEntries(Object.entries(value).filter(([key, child]) => !/url|token|authorization|password|secret/i.test(key) || (artwork && /^(poster|backdrop|series_backdrop|still|logo|photo)_url$/.test(key) && typeof child === "string")).map(([key, child]) => [key, clean(child, artwork)]));
 }
 
 /** One active authority owns memory and optional snapshots; no expiry, like Apple. */

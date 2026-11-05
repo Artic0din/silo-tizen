@@ -7,7 +7,7 @@ import type { TextSearchScope } from "../api/operations.ts";
 import type { CatalogPage, Episode, HomeSection, ItemDetail, Season, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { Person } from "../contracts/v2/details.ts";
 import type { DetailsState } from "./detailsState.ts";
-import { SessionError } from "../session/session.ts";
+import { SessionError, SessionRefreshError } from "../session/session.ts";
 import type { FocusTarget, View } from "./browseFocus.ts";
 import { itemView, seasonView } from "./browseDetails.ts";
 import type { EpisodeSelection, PlayRequest, SeriesContext } from "./browseModel.ts";
@@ -301,7 +301,7 @@ export function errorState(error: unknown): ErrorState {
 
 /** Apple RequestMutationFailure.isUncertain: only an answer from the server, or a refusal before sending, rules out a write having landed. */
 export function writeMayHaveApplied(error: unknown): boolean {
-    if (error instanceof SessionError) return false;
+    if (error instanceof SessionError || error instanceof SessionRefreshError) return false;
     return !(error instanceof ApiError) || (error.failure.kind !== "problem" && error.failure.kind !== "http");
 }
 

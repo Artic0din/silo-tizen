@@ -7,6 +7,9 @@ import { connected, signIn } from "./support/harness.ts";
 import { DetailsState } from "../../src/ui/detailsState.ts";
 import { decodeItemDetail } from "../../src/contracts/v2/catalog.ts";
 import { fixture } from "./support/fakeSilo.ts";
+import { settle } from "./support/clock.ts";
+import type { NativeSession } from "../../src/session/session.ts";
+import { writeMayHaveApplied } from "../../src/ui/browseRoutes.ts";
 
 const spec: RequestSpec<unknown> = { method: "GET", path: "/home/sections", retry: "safe", decode: value => value };
 const offline = async (): Promise<never> => { throw new ApiError({ kind: "network" }); };
@@ -18,14 +21,60 @@ const scope = ["server", "account", "profile"] as const;
 test("session artwork URLs survive fallback while persisted snapshots omit them", async () => {
     const store = storage();
     const cache = new BrowseCache(store, scope, new AbortController().signal);
-    const artwork = { poster_url: "https://image.invalid/poster?signature=session", backdrop_url: "https://image.invalid/backdrop", logo_url: "/logo?signature=session", cast: [{ photo_url: "https://image.invalid/portrait?signature=session" }] };
+    const artwork = { poster_url: "https://image.invalid/poster?signature=session", backdrop_url: "https://image.invalid/backdrop", series_backdrop_url: "/series?signature=session", local_extras: [{ still_url: "/extra?signature=session" }], logo_url: "/logo?signature=session", cast: [{ photo_url: "https://image.invalid/portrait?signature=session" }] };
     for (const path of ["/home/sections", "/catalog/items/movie", "/catalog/items/series"]) {
         const request = { ...spec, path };
         await cache.read(request, async read => read.decode(artwork));
         assert.deepEqual(await cache.read(request, offline), artwork);
     }
     assert.doesNotMatch([...store.values.values()].join(), /signature|https:/);
-    assert.deepEqual(new BrowseCache(store, scope, new AbortController().signal).peek(spec), { cast: [{}] });
+    assert.deepEqual(new BrowseCache(store, scope, new AbortController().signal).peek(spec), { local_extras: [{}], cast: [{}] });
+});
+
+test("restored next episode remains available during failed offline revalidation", async () => {
+    const episode = { ...decodeItemDetail(fixture("get_catalog_item_ok")), id: "episode:one", type: "episode" as const };
+    const detail = { ...episode, id: "series:one", type: "series" as const, playContentId: episode.id };
+    let reply: "offline" | "fresh" | "denied" = "offline";
+    const session = { onAuthorityChange: () => () => {}, call: async <T>(spec: RequestSpec<T>): Promise<T> => {
+        if (spec.path.startsWith("/catalog/items/episode")) {
+            if (reply === "fresh") return { ...episode, title: "Fresh episode" } as T;
+            if (reply === "denied") throw new ApiError({ kind: "http", status: 403, retryAfterSeconds: undefined });
+        }
+        return offline();
+    } } as unknown as NativeSession;
+    const prior = new DetailsState(detail, session, () => {}, async () => {});
+    prior.nextEpisode = episode;
+    prior.nextEpisodeState = new DetailsState(episode, session, () => {}, async () => {});
+    const state = new DetailsState(detail, session, () => {}, async () => {});
+    state.restore(prior);
+    state.start();
+    await settle();
+    assert.equal(state.nextEpisode?.id, episode.id);
+    assert.equal(state.nextEpisodeState?.detail.id, episode.id);
+    assert.equal(state.nextEpisodeFailed, false);
+    reply = "fresh";
+    state.acceptDetail(detail);
+    await settle();
+    assert.equal(state.nextEpisode?.title, "Fresh episode");
+    reply = "denied";
+    state.acceptDetail(detail);
+    await settle();
+    assert.equal(state.nextEpisode, undefined, "a server refusal removes usable cached playback");
+    assert.equal(state.nextEpisodeFailed, true);
+    state.stop();
+});
+
+test("refresh transport failure leaves a mutation definitely unsent and retryable", async () => {
+    const h = await connected(); await signIn(h);
+    await h.clock.advance(3600 * 1000);
+    h.fake.dropNextAnswer("/auth/refresh");
+    await assert.rejects(h.core.session.call({ ...spec, method: "POST", retry: "never", path: "/unsent-write", profileScoped: false }), error => {
+        assert.equal(error instanceof ApiError && error.failure.kind, "network");
+        assert.equal(writeMayHaveApplied(error), false);
+        return true;
+    });
+    assert.equal(h.fake.requests.filter(request => request.path === "/unsent-write").length, 0);
+    assert.equal(h.core.session.signedIn, true);
 });
 test("retiring A after B caches content preserves B's snapshot and fences A's held read", async () => {
     const h = await connected(); await signIn(h);

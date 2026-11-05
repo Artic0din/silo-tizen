@@ -46,6 +46,7 @@ export class DetailsState {
     private readonly previousEpisodeStates = new Map<string, DetailsState>();
     private readonly episodeReads = new Set<string>();
     private readonly episodeFailures = new Set<string>();
+    private readonly episodeRefusals = new Set<string>();
     private readonly episodeQueue: string[] = [];
     private episodeWorkers = 0;
     private episodeEpoch = 0;
@@ -544,14 +545,15 @@ export class DetailsState {
     private syncEpisode(): void {
         const id = this.playbackTargetId;
         this.nextEpisodeState = id === undefined ? undefined : this.episodeStates.get(id);
-        const previous = id === undefined ? undefined : this.previousEpisodeStates.get(id);
-        if (id !== undefined && this.nextEpisodeState === undefined && previous !== undefined && !previous.audioPreference.pending && !previous.audioPreference.failed && !previous.subtitlePreference.pending && !previous.subtitlePreference.failed && !this.episodeFailures.has(id) && this.controller !== undefined) {
+        const previous = id === undefined || this.episodeRefusals.has(id) ? undefined : this.previousEpisodeStates.get(id) ?? (this.previousNextEpisodeState?.detail.id === id ? this.previousNextEpisodeState : undefined);
+        if (id !== undefined && this.nextEpisodeState === undefined && previous !== undefined && !previous.audioPreference.pending && !previous.audioPreference.failed && !previous.subtitlePreference.pending && !previous.subtitlePreference.failed && this.controller !== undefined) {
             const state = new DetailsState(previous.detail, this.session, key => this.episodePreferenceChanged(state, key), this.watchedChanged, this.pendingElsewhere);
             state.restore(previous);
             this.episodeStates.set(id, state);
             state.start("playback");
             this.nextEpisodeState = state;
         }
+        this.nextEpisodeState ??= previous;
         this.nextEpisode = this.nextEpisodeState?.detail;
         this.nextEpisodeFailed = this.nextEpisodeState === undefined && ["series", "season"].includes(this.detail.type) && id !== undefined && this.episodeFailures.has(id);
         this.nextEpisodeLoading = id !== undefined && this.episodeReads.has(id);
@@ -577,6 +579,7 @@ export class DetailsState {
             this.session.call({ ...operations.getCatalogItem(id), profileScoped: true, signal: episodeController.signal }).then(detail => {
                 if (!current()) return;
                 if (detail.id !== id || detail.type !== "episode") throw new ApiError({ kind: "invalid_response", path: "nextEpisode.item" });
+                this.episodeRefusals.delete(id);
                 const state = new DetailsState(detail, this.session, key => this.episodePreferenceChanged(state, key), this.watchedChanged, this.pendingElsewhere);
                 state.restore(this.previousEpisodeStates.get(id) ?? (this.previousNextEpisodeState?.detail.id === id ? this.previousNextEpisodeState : undefined));
                 this.previousEpisodeStates.delete(id);
@@ -586,7 +589,7 @@ export class DetailsState {
                 if (!current()) return;
                 this.episodeFailures.add(id);
                 if (error instanceof ApiError && ["network", "timeout"].includes(error.failure.kind)) this.offline = true;
-                else { this.episodeStates.get(id)?.stop(); this.episodeStates.delete(id); }
+                else { this.episodeRefusals.add(id); this.episodeStates.get(id)?.stop(); this.episodeStates.delete(id); }
             }).finally(() => {
                 if (!current()) return;
                 this.episodeWorkers--;
@@ -606,6 +609,7 @@ export class DetailsState {
         this.episodeStates.clear();
         this.episodeReads.clear();
         this.episodeFailures.clear();
+        this.episodeRefusals.clear();
         this.episodeQueue.length = 0;
         this.episodeWorkers = 0;
     }

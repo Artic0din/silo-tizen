@@ -165,17 +165,24 @@ test("card actions initial loading, bad identity and Retry keep Close reachable 
     } finally { await tv.page.context().close(); }
 });
 
-for (const answer of ["unsupported", "unknown", "malformed", "membership-mismatch"] as const) test(`card actions ${answer} never invents mutation values`, async () => {
+for (const answer of ["unsupported", "unknown", "malformed", "membership-mismatch", "offline-personal"] as const) test(`card actions ${answer} never invents mutation values`, async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const catalog = await start(tv);
         if (answer === "unsupported") catalog.capability = false;
         if (answer === "malformed") tv.fake.script("/capabilities/personal-lists", { status: 200, body: {} });
+        if (answer === "offline-personal") {
+            for (let attempt = 0; attempt < 2; attempt++) {
+                tv.fake.script("/capabilities/personal-lists", { status: 503, body: {} });
+                tv.fake.dropNextAnswer("/capabilities/personal-lists");
+            }
+        }
         if (answer === "membership-mismatch") tv.fake.script("/favorites/movie%3Am0001/membership", { status: 200, body: { item_id: "movie:wrong", is_member: false } });
         if (answer === "unknown") tv.fake.script("/catalog/items/movie%3Am0001?image_size=large", { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", user_state: undefined, user_data: undefined } });
         await hold(tv);
         if (answer === "unsupported") await menu(tv).getByText("List actions are unavailable for this title.").waitFor();
-        if (answer === "malformed" || answer === "membership-mismatch") {
+        if (answer === "offline-personal") await tv.jump(1000);
+        if (answer === "malformed" || answer === "membership-mismatch" || answer === "offline-personal") {
             await menu(tv).getByRole("button", { name: "Retry personal actions", exact: true }).waitFor();
             assert.equal(await menu(tv).getByRole("button", { name: "Add favorite", exact: true }).count(), 0);
             await menu(tv).getByRole("button", { name: "Retry personal actions", exact: true }).click();

@@ -335,19 +335,29 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         searchBoxSetController = controller;
         supplement.boxSetsPending = true;
         const owns = (): boolean => !torn && !controller.signal.aborted && top() === current && current.supplement === supplement && current.query.trim() === query && (current.filter === undefined || current.filter === "movie");
-        void read(boxSetOperations.search(query, BOX_SET_SEARCH_LIMIT), controller.signal).then(found => {
-            if (!owns()) return;
-            searchBoxSetController = undefined;
-            supplement.boxSets = found.slice(0, BOX_SET_SEARCH_LIMIT);
-            supplement.boxSetsPending = false;
-            render(host.focused());
-        }, () => {
+        const miss = (): void => {
             if (!owns()) return;
             searchBoxSetController = undefined;
             supplement.boxSets = [];
             supplement.boxSetsPending = false;
             render(host.focused());
-        });
+        };
+        // search() throws before a request exists. That miss stays here, as Apple's
+        // box-set task does, so the title search in load() is still sent.
+        let request: ReturnType<typeof boxSetOperations.search>;
+        try {
+            request = boxSetOperations.search(query, BOX_SET_SEARCH_LIMIT);
+        } catch {
+            miss();
+            return;
+        }
+        void read(request, controller.signal).then(found => {
+            if (!owns()) return;
+            searchBoxSetController = undefined;
+            supplement.boxSets = found.slice(0, BOX_SET_SEARCH_LIMIT);
+            supplement.boxSetsPending = false;
+            render(host.focused());
+        }, miss);
     };
     let probeOrdinal = 0;
     let requestWritePending = false;
@@ -1510,6 +1520,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (!hasData(current) || current.stale || current.failure !== undefined || queryChanged) {
             loadRoute(current, hasData(current) && !queryChanged);
             if (current.kind === "calendar") render(focus);
+        } else if (current.kind === "item" && current.data !== undefined && current.data.detail.type === "movie" && current.data.boxSet !== undefined) {
+            // push() stopped this read. The cached movie is not loaded again, so start it once.
+            boxSetRowWork = current.data.boxSet;
+            boxSetRowWork.start();
         } else if ((current.kind === "home" || current.kind === "for_you") && current.data !== undefined) {
             const sections = current.kind === "home" ? current.data.sections : current.data;
             homeDetails.load(homeRows(sections).flatMap(row => row.cards.map(card => ({ card, continuing: current.kind === "home" && row.continuing }))));

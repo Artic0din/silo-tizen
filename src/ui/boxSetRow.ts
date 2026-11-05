@@ -66,7 +66,8 @@ export class BoxSetRowState {
     }
 
     start(): void {
-        this.controller?.abort();
+        // A second start while this read is out would abort it and send another.
+        if (this.controller !== undefined) return;
         const controller = new AbortController();
         this.controller = controller;
         const generation = ++this.generation;

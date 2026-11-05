@@ -1034,6 +1034,45 @@ browseTest("Box set Play stays on the first screen with and without a backdrop",
     await playOnScreen(false);
 }, { catalog: new BoxSetCatalog() });
 
+browseTest("Back restarts a movie box-set read that opening a cast member cancelled", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "potter"); await tv.remote(IME_DONE);
+    await tv.page.locator('[data-focus="box-set:12:1241"]').click();
+    await showing(tv, "boxSet:12:1241");
+    const membership = "/catalog/items/movie%3Am0001/box-set";
+    const held = tv.fake.hold(membership, true);
+    await press(tv, "ArrowDown", "Enter");
+    await showing(tv, "item:movie:m0001");
+    await tv.eventually(async () => browseReads(tv, membership).length === 1, "movie box-set lookup");
+    const itemReads = browseReads(tv, "/catalog/items/movie%3Am0001").length;
+    const cancelled = tv.page.waitForEvent("requestfailed", request => new URL(request.url()).pathname === `/api/v2${membership}`);
+    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await cancelled;
+    held.release();
+    await showing(tv, "person:7");
+    assert.equal(browseReads(tv, membership).length, 1, "leaving cancels the lookup and does not replace it");
+    await tv.remote(BACK);
+    await showing(tv, "item:movie:m0001");
+    await tv.eventually(async () => browseReads(tv, membership).length === 2, "Back restarts the box-set read");
+    await tv.page.locator(".box-set-row .box-set-current-label").waitFor();
+    await tv.jump(1000);
+    assert.equal(browseReads(tv, membership).length, 2, "restore starts that read once");
+    assert.equal(browseReads(tv, "/catalog/items/movie%3Am0001").length, itemReads, "Back keeps the cached movie");
+}, { catalog: new BoxSetCatalog() });
+
+browseTest("Search still lists titles when the box-set query is past the contract limit", async tv => {
+    const query = "q".repeat(201);
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", query); await tv.remote(IME_DONE);
+    const titles = (): number => browseReads(tv, "/catalog").filter(request => new URL(request.path, "https://fake.invalid").searchParams.get("q") === query).length;
+    await tv.eventually(async () => titles() > 0 || await tv.page.getByRole("heading", { name: "Something went wrong", exact: true }).count() > 0, "title search or the failure it must not become");
+    await tv.jump(0);
+    assert.equal(titles(), 1, "title search is sent once");
+    assert.equal(await tv.page.getByRole("heading", { name: "Something went wrong", exact: true }).count(), 0);
+    assert.equal(browseReads(tv, "/catalog/box-sets").length, 0, "an oversized box-set query is not sent");
+    await tv.page.locator('[data-focus="person:7"]').waitFor();
+}, { catalog: new BoxSetCatalog() });
+
 const slowRequests = new SearchCatalog();
 const interruptedRequests = new SearchCatalog();
 browseTest("Search retries a cancelled background Requests refresh with cached cards", async tv => {

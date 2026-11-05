@@ -18,7 +18,7 @@ const THEME = readFileSync(new URL("../../../src/theme.css", import.meta.url), "
 const CSS: Record<TvApp, string> = {
     signIn: readFileSync(new URL("../../../src/ui/signIn.css", import.meta.url), "utf8"),
     browse: readFileSync(new URL("../../../src/ui/browse.css", import.meta.url), "utf8"),
-    application: ["ui/signIn.css", "ui/browse.css", "player/player.css", "app.css"].map((name) => readFileSync(new URL(`../../../src/${name}`, import.meta.url), "utf8")).join("\n"),
+    application: ["ui/signIn.css", "ui/browse.css", "ui/accounts.css", "player/player.css", "app.css"].map((name) => readFileSync(new URL(`../../../src/${name}`, import.meta.url), "utf8")).join("\n"),
 };
 const HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -232,9 +232,9 @@ export function detailReads(tv: Tv): string[] {
 }
 
 /** Waits until Home has sent its detail read for every title it drew (Home reads them once as it loads). */
-export async function homeDetailsRead(tv: Tv): Promise<string[]> {
+export async function homeDetailsRead(tv: Tv, previousReads = 0): Promise<string[]> {
     const titles = await tv.page.locator('[data-view="home"] [data-section] .browse-card:not(.skyline-explore)').evaluateAll(nodes => [...new Set(nodes.map(node => node.getAttribute("data-focus") ?? ""))]);
-    await tv.eventually(async () => titles.every(id => detailReads(tv).includes(id)), "Home detail reads");
+    await tv.eventually(async () => titles.every(id => detailReads(tv).slice(previousReads).includes(id)), "Home detail reads");
     await tv.jump(0);
     return titles;
 }

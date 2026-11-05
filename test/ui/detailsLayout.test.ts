@@ -55,10 +55,12 @@ for (const art of [
     }
 });
 
-detailTest('Hero uses stepped text colours, resting Play fill and omits series genres', async tv => {
+detailTest('Hero uses measured series colours and genres only at rest', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('[data-focus="audio"]').waitFor();
-    assert.equal(await tv.page.locator('.details-genres').count(), 0);
+    await tv.eventually(async () => tv.page.locator('.details-editorial .browse-meta').evaluateAll(nodes => nodes.length === 1 && getComputedStyle(nodes[0]!).color === 'rgb(225, 227, 228)'), 'series metadata colour after optional-data repaint');
+    assert.equal(await tv.page.locator('.details-genres').count(), 1);
+    assert.equal(await tv.page.locator('.details-editorial .browse-overview').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).color)[0]), 'rgb(244, 245, 246)');
     await tv.page.locator('[data-focus="audio"]').focus();
     assert.equal(await tv.page.locator('.details-play').evaluate(node => getComputedStyle(node).backgroundColor), 'rgb(31, 51, 57)');
     assert.equal(await tv.page.locator('.details-playback-summary strong').first().evaluate(node => getComputedStyle(node).color), 'rgba(237, 237, 237, 0.5)');
@@ -107,18 +109,22 @@ detailTest('Details rail clearances and white focus styling follow the measured 
         const previous = related.previousElementSibling!.previousElementSibling!;
         const facts = document.querySelector('.details-facts .browse-section-title')!;
         return {
-            railGap: related.previousElementSibling!.getBoundingClientRect().top - previous.getBoundingClientRect().bottom,
+            railGap: related.previousElementSibling!.getBoundingClientRect().top - previous.querySelector('.browse-card-subtitle')!.getBoundingClientRect().bottom,
             factsGap: facts.getBoundingClientRect().top - related.querySelector('.browse-card-title')!.getBoundingClientRect().bottom,
         };
     });
     assert.ok(Math.abs(metrics.railGap - 79) < 3, JSON.stringify(metrics));
-    assert.ok(Math.abs(metrics.factsGap - 133) < 3, JSON.stringify(metrics));
+    assert.ok(Math.abs(metrics.factsGap - 76) < 3, JSON.stringify(metrics));
     await tv.page.locator('[data-focus="version"]').focus();
     await tv.jump(400);
     const trigger = tv.page.locator('[data-focus="version"]');
     assert.equal(await trigger.evaluate(node => getComputedStyle(node).backgroundColor), 'rgb(255, 255, 255)');
     const width = (await trigger.boundingBox())!.width;
-    assert.ok(Math.abs(width - 210) < 2, `Versions width ${width}`);
+    const intrinsic = await trigger.evaluate(node => {
+        const style = getComputedStyle(node);
+        return node.querySelector('svg')!.getBoundingClientRect().width + node.querySelector('.details-action-label')!.getBoundingClientRect().width + parseFloat(style.columnGap) + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
+    });
+    assert.ok(Math.abs(width - intrinsic) < 2, `Versions width ${width}, intrinsic ${intrinsic}`);
 });
 
 detailTest('Down into an alternate season starts at its first episode and retargets the hero', async tv => {
@@ -292,8 +298,10 @@ detailTest('Genres have spacing on unrated Movies and stay omitted in the Series
     for (const id of ['movie:m0001', 'series:s1']) {
         const reply = catalog.route('GET', `/catalog/items/${encodeURIComponent(id)}`, 'p-owner');
         const body = reply?.body as Record<string, unknown>;
-        await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(id)}?**`, route => route.fulfill({ json: { ...body, ratings: [], genres: ['Drama', 'Thriller'] } }));
+        await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(id)}?**`, route => route.fulfill({ json: { ...body, ratings: [], genres: ['Drama', 'Thriller', 'Mystery'] } }));
         await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).first().click();
+        await tv.page.locator('.details-genres').waitFor();
+        assert.equal(await tv.page.locator('.details-genres').textContent(), id === 'series:s1' ? 'Drama, Thriller' : 'Drama, Thriller, Mystery');
         if (id === 'series:s1') await tv.page.locator('[data-focus="episode:s1e11"]').focus();
         const text = await tv.page.locator('.details-editorial .browse-meta').textContent() ?? '';
         assert.equal(text.split('Drama').length - 1, id === 'series:s1' ? 0 : 1);
@@ -560,6 +568,12 @@ detailTest('Series remote navigation scrolls down to Cast and back to episodes',
     assert.ok(scrolled > 0, 'Details owns vertical scrolling');
     await tv.jump(400);
     assert.ok(await tv.page.locator('.details-people').evaluate(node => Math.abs((node.previousElementSibling?.getBoundingClientRect().top ?? 0) - 546) < 2), 'cast heading settles at the measured Apple anchor');
+    const restingTop = await tv.page.locator('.details-people').evaluate(node => {
+        const card = node.querySelector<HTMLElement>('.details-person')!;
+        const rect = card.getBoundingClientRect();
+        return rect.top + (rect.height - card.offsetHeight) / 2;
+    });
+    assert.ok(Math.abs(restingTop - 603) < 3, `resting cast circle top ${restingTop}`);
     await tv.remote(38);
     assert.match(await tv.focused() ?? '', /^episode:/);
 });

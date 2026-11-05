@@ -141,7 +141,7 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
             } else badge.append(el("span", "", rating.name));
             badge.append(" ", el("span", "details-rating-score", rating.display)); facts.append("\u2002·\u2002", badge);
         }
-        if (detail.type !== "series" && detail.genres.length) facts.append("\u2002·\u2002", el("span", "details-genres", detail.genres.slice(0, 3).join(", ")));
+        if (episode === undefined && detail.genres.length) facts.append("\u2002·\u2002", el("span", "details-genres", detail.genres.slice(0, detail.type === "series" ? 2 : 3).join(", ")));
         if (ratingChip) facts.prepend(el("span", "details-rating-badge", ratingChip));
         nodes.push(facts);
     }

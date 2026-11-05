@@ -1,12 +1,27 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fixture } from "./support/fakeSilo.ts";
 import { discoveryOperations as api } from "../../src/api/discoveryOperations.ts";
 import { decodeCatalogFilters, decodeCatalogLetters, decodeCatalogQueryPage, decodeCatalogSearchCapabilities, decodeLibraryCollections, decodeLibrarySection } from "../../src/contracts/v2/discovery.ts";
-import { decodeHomeSections, decodeCatalogPage } from "../../src/contracts/v2/catalog.ts";
+import { decodeHomeSections, decodeCatalogPage, decodeCollectionItemsPage } from "../../src/contracts/v2/catalog.ts";
 import { WireError } from "../../src/contracts/v2/wire.ts";
 import { connected, signIn } from "./support/harness.ts";
 import { ApiError } from "../../src/api/errors.ts";
+
+test("collection items accept the server's paginated collection without totals", () => {
+    const decode = api.getLibraryCollectionItems("12", "c1", { limit: 60 }).decode;
+    // CatalogItemCollection + PageInfo at server 6d156247, returned by personal_collections_paging.go:146.
+    const wire: unknown = JSON.parse(readFileSync(new URL("./fixtures/library-collection-items.json", import.meta.url), "utf8"));
+    const page = decode(wire);
+    assert.equal(page.total, undefined);
+    assert.equal(page.totalExact, false);
+    assert.equal(page.nextCursor, "next");
+    assert.equal(page.items[0]?.title, "Heat");
+    assert.throws(() => decode({ items: [], page: { has_more: true } }), WireError);
+    assert.throws(() => decode({ items: [{ title: "broken" }], page: { has_more: false } }), WireError);
+    assert.throws(() => decode({ items: [], total: "bad", page: { has_more: false } }), WireError);
+});
 
 test("personal-list API operations own opaque continuations and wire validation", () => {
     const card = { content_id: "movie:tied", type: "movie", title: "Tied" };
@@ -69,7 +84,7 @@ test("all eight reads leave authentication to session.call and permit the existi
     assert.deepEqual(specs.map(s => s.method), ["GET", "GET", "GET", "GET", "GET", "POST", "POST", "GET"]);
     for (const spec of specs) { assert.equal(spec.retry, "safe"); assert.equal(spec.bearer, undefined); assert.equal(spec.profile, undefined); }
     assert.equal(api.listLibrarySections("1").decode, decodeHomeSections);
-    assert.equal(api.getLibraryCollectionItems("1", "c", { limit: 1 }).decode, decodeCatalogPage);
+    assert.equal(api.getLibraryCollectionItems("1", "c", { limit: 1 }).decode, decodeCollectionItemsPage);
 });
 
 test("public fixtures reuse catalog cards and preserve query window and effective order", () => {
@@ -122,6 +137,8 @@ test("collection tabs preserve full list, groups, nullable group and optional un
     const result = decodeLibraryCollections(raw);
     assert.equal(result.libraryId, "1");
     assert.equal(result.collections[0]?.id, "c1");
+    assert.equal(result.collections[0]?.collectionType, "manual");
+    assert.equal(result.ungrouped?.collections[0]?.collectionType, undefined);
     assert.equal(result.collections[0]?.groupId, null);
     assert.equal(result.groups[0]?.kind, "user_collections");
     assert.equal(result.ungrouped?.collections[0]?.itemCount, 12);

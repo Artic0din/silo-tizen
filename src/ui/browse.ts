@@ -45,7 +45,7 @@ import { PresentationSettings } from "./presentationSettings.ts";
 import { NavigationSettings } from "./navigationSettings.ts";
 import { cachedBranding } from "./brandingCache.ts";
 import { getCalendar } from "../api/calendarOperations.ts";
-import { calendarEventKeys, calendarState, calendarWeek, CalendarTimezoneError, deviceTimezone, localDateKey, shiftDay } from "./calendarState.ts";
+import { CALENDAR_FILTER_KEY, calendarEventKeys, calendarState, calendarWeek, CalendarTimezoneError, deviceTimezone, localDateKey, shiftDay, storedCalendarFilter } from "./calendarState.ts";
 import type { CalendarHandlers } from "./calendarView.ts";
 import { isSectionRoute, SectionCatalog, type SectionRoute } from "./sectionCatalog.ts";
 import { readSectionCatalog, type SectionSnapshot } from "./sectionCatalogState.ts";
@@ -136,7 +136,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const resized = shownScale !== presentation.posterScale;
         if (resized) { shownScale = presentation.posterScale; applyCardSize(); }
         const current = top();
-        if (!playing && current !== undefined && (current.kind === "home" || current.kind === "for_you" || current.kind === "personal" || current.kind === "search" || current.kind === "person" || current.kind === "recommendationSection" || isSectionRoute(current) || (current.kind === "library" && (current.discovery?.mode === "Browse" || current.discovery?.mode === "Recommended"))) && (resized || shownOverlays !== presentation.cardOverlays)) {
+        if (!playing && current !== undefined && (current.kind === "home" || current.kind === "for_you" || current.kind === "personal" || current.kind === "search" || current.kind === "person" || current.kind === "recommendationSection" || isSectionRoute(current) || current.kind === "libraryResults" || (current.kind === "library" && (current.discovery?.mode === "Browse" || current.discovery?.mode === "Recommended" || current.discovery?.mode === "Collections"))) && (resized || shownOverlays !== presentation.cardOverlays)) {
             shownOverlays = presentation.cardOverlays;
             render(host.focused());
             if (resized) host.revealFocused();
@@ -309,17 +309,18 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (torn) return;
         shuffleCapability = capability;
         const current = top();
-        if (current?.kind === "library" && current.discovery?.mode === "Browse" && !playing) render(host.focused());
+        if ((current?.kind === "library" && current.discovery?.mode === "Browse" || current?.kind === "libraryResults") && !playing) render(host.focused());
     }, () => undefined);
-    const startShuffle = (current: Extract<Route, { kind: "library" }>): void => {
+    const startShuffle = (current: Extract<Route, { kind: "library" | "libraryResults" }>): void => {
         if (torn || playing || top() !== current || shuffleStarting || !canShuffle(current)) return;
-        const discovery = current.discovery, generation = shuffleGeneration;
+        const discovery = current.kind === "library" ? current.discovery : undefined, generation = shuffleGeneration;
         shuffleStarting = true; shuffleFailure = undefined;
         render({ zone: "controls", key: "shuffle" });
-        const owns = (): boolean => !torn && !playing && generation === shuffleGeneration && top() === current && current.discovery === discovery && discovery?.mode === "Browse";
+        const owns = (): boolean => !torn && !playing && generation === shuffleGeneration && top() === current && (current.kind === "libraryResults" || current.discovery === discovery && discovery?.mode === "Browse");
         void (async () => {
             try {
-                const shuffle = await session.call({ ...operations.createShuffle(current.library.id), profileScoped: true, replayAfterRefresh: false, signal: requestsController.signal });
+                const scope: { id: string; kind: "library" | "library_collection" | "user_collection" } = current.kind === "libraryResults" && current.source.kind === "collection" ? { id: current.source.id, kind: current.source.groupKind === "user_collections" ? "user_collection" : "library_collection" } : { id: current.library.id, kind: "library" };
+                const shuffle = await session.call({ ...operations.createShuffle(scope.id, scope.kind), profileScoped: true, replayAfterRefresh: false, signal: requestsController.signal });
                 if (!owns()) return;
                 const request = await shufflePick(spec => read(spec, requestsController.signal), shuffle);
                 if (!owns()) return;
@@ -333,9 +334,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }
         })();
     };
-    const canShuffle = (route: Extract<Route, { kind: "library" }>): boolean => {
+    const canShuffle = (route: Extract<Route, { kind: "library" | "libraryResults" }>): boolean => {
         const original = home.kind === "home" ? home.data?.libraries.find(library => library.id === route.library.id) : undefined;
-        return shuffleCapability.usable && shuffleCapability.scopeKinds.includes("library") && (original?.type !== "mixed" || route.library.type === "mixed");
+        const kind = route.kind === "libraryResults" && route.source.kind === "collection" ? route.source.groupKind === "user_collections" ? "user_collection" : "library_collection" : "library";
+        return shuffleCapability.usable && shuffleCapability.scopeKinds.includes(kind) && (original?.type !== "mixed" || route.library.type === "mixed");
     };
     const probeRequests = async (refreshSearch = true): Promise<void> => {
         const ordinal = ++probeOrdinal;
@@ -570,6 +572,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     return;
                 }
                 current.failure = text ?? "Something went wrong. Try again.";
+                if (current.kind === "calendar") current.calendar.error = error instanceof CalendarTimezoneError ? { headline: "Something went wrong", message: error.message, signIn: false } : errorState(error);
                 if (current.kind === "personal") current.error = errorState(error);
                 if (current.kind === "requests") { current.requests.error = errorState(error); if (!current.requests.unconfirmed && !current.requests.writing) current.requests.action = undefined; }
                 if (current.kind === "requests" && error instanceof ApiError && ["capability_disabled", "capability_not_configured", "capability_unsupported", "permission_denied"].includes(error.problemId ?? "")) void probeRequests();
@@ -651,7 +654,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const homeDetails = new HomeEnrichment(read, id => { if (!torn) shell.refreshDetails(id); }, () => {
         // Continue Watching cards redraw once with saved-file badges, keeping focus where it is.
         const current = top();
-        if (!torn && !playing && current !== undefined && (current.kind === "home" || isSectionRoute(current) || (current.kind === "library" && current.discovery?.mode === "Recommended")) && presentation.cardOverlays !== undefined) {
+        if (!torn && !playing && current !== undefined && (current.kind === "home" || isSectionRoute(current) || current.kind === "libraryResults" || (current.kind === "library" && current.discovery?.mode === "Recommended")) && presentation.cardOverlays !== undefined) {
             activeSection?.invalidate();
             render(host.focused());
         }
@@ -916,6 +919,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 const focus = host.focused();
                 const oldShelf = state.data?.days.find(day => day.date === focus?.zone);
                 const oldIndex = calendarEventKeys(oldShelf?.items ?? []).indexOf(focus?.key ?? "");
+                const entryRevision = inputRevision;
                 load(current, async signal => {
                     prepareCalendar(current);
                     const start = state.start, timezone = state.timezone;
@@ -947,6 +951,21 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                         shell.update(libraries);
                         if (home.kind === "home" && home.data !== undefined) home.data.libraries = libraries;
                         calendarLibrariesStale = false;
+                    }
+                    if (state.returnToEvent) {
+                        state.returnToEvent = false;
+                        // A key pressed after Today started owns focus. The
+                        // arriving week must not replace it.
+                        if (inputRevision === entryRevision) {
+                            const onShelf = data.days.some(day => day.date === active?.zone);
+                            if (!onShelf) {
+                                const today = localDateKey(new Date(clock.now()));
+                                const populated = data.days.filter(day => day.items.length > 0);
+                                const shelf = populated.find(day => day.date === today) ?? populated.find(day => day.date > today) ?? [...populated].reverse().find(day => day.date < today);
+                                const key = shelf === undefined ? undefined : calendarEventKeys(shelf.items)[0];
+                                if (shelf !== undefined && key !== undefined) return { zone: shelf.date, key };
+                            }
+                        }
                     }
                     if (active?.zone === focus?.zone && active?.key === focus?.key && oldIndex >= 0) {
                         const day = data.days.find(day => day.date === focus?.zone);
@@ -1029,6 +1048,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 return;
             }
             case "library":
+                void probeShuffles();
                 if (current.library.type === "music") return;
                 current.discovery ??= discoveryState();
                 if (current.discovery.mode === "Recommended") presentation.ensure();
@@ -1163,7 +1183,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 const availability = loadAvailability ? Promise.resolve().then(() => Promise.all((["movie", "series"] as const).map(async type => {
                     try {
                         const page = await read(operations.queryCatalogItems({ ...personQuery(current.id, type), limit: 1 }), metadataSignal);
-                        return page.items.length > 0 || page.total > 0;
+                        return page.items.length > 0 || (page.total ?? 0) > 0;
                     } catch { return undefined; }
                 }))).then(([movies, series]) => {
                     // A filter chosen while these probes were out keeps its chip (PersonDetailView.swift refreshAvailableFilters).
@@ -1199,14 +1219,24 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
         if (current.kind === "library" || current.kind === "libraryResults") {
             load(current, async signal => {
+                if (current.kind === "libraryResults" && current.source.kind === "collection") void probeShuffles();
                 const cursor = pages.cursors[index];
                 if (current.kind === "libraryResults" && current.source.kind === "section") {
                     return read(operations.queryCatalogItems({ ...librarySectionQuery(current.library.id, current.source.id), limit: PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) }), signal);
                 }
-                if (current.kind === "libraryResults" && current.source.kind === "collection" && current.source.groupKind === "admin") return read(operations.getLibraryCollectionItems(current.library.id, current.source.id, { limit: PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) }), signal);
                 const state = current.kind === "library" ? current.discovery : undefined;
                 const recent = state?.mode === "Recently Added";
                 const source = current.kind === "libraryResults" ? current.source : undefined;
+                if (source?.kind === "collection") {
+                    const original = home.kind === "home" ? home.data?.libraries.find(library => library.id === current.library.id) : undefined;
+                    const narrowed = original?.type === "mixed" && current.library.type !== "mixed";
+                    return read(operations.queryCatalogItems({
+                        source: source.groupKind === "user_collections" ? "user_collection" : "library_collection",
+                        collection_id: source.id, limit: 60, match: "all",
+                        ...(narrowed ? libraryScope(current.library) : {}),
+                        ...(cursor === undefined ? {} : { cursor }),
+                    }), signal);
+                }
                 const query = operations.queryCatalogItems({
                     ...libraryScope(current.library), limit: PAGE_SIZE,
                     sort: recent ? "added_at" : "title",
@@ -1215,7 +1245,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     ...(state?.seek === undefined || index !== 0 ? {} : { seek: state.seek, ...(state.windowCursor === undefined ? {} : { cursor: state.windowCursor }) }),
                     ...(source?.kind === "genre" ? { groups: genreGroups(source.name) } : {}),
                     ...(state?.genre === undefined ? {} : { groups: genreGroups(state.genre) }),
-                    ...(source?.kind === "collection" && source.groupKind === "user_collections" ? { source: "user_collection", scope: "library", collection_id: source.id } : {}),
                 });
                 return read(query, signal);
             }, page => {
@@ -1460,7 +1489,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             loading?.abort(); loading = undefined; cancelSlow();
             route.filter = filter; route.pages = undefined; search(route);
         };
-        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, searchFilter, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, morePersonal, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: current.kind === "library" && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
+        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, searchFilter, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, morePersonal, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: (current.kind === "library" || current.kind === "libraryResults" && current.source.kind === "collection") && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
         container.classList.toggle("section-catalog", isSectionRoute(current) || current.kind === "recommendationSection");
         const browsing = current.kind === "library" && current.discovery?.mode === "Browse";
         container.classList.toggle("library-browse", browsing);
@@ -1622,10 +1651,18 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             try { prepareCalendar(current); }
             catch (error) { current.failure = error instanceof Error ? error.message : "Could not read this TV’s timezone."; render(); return; }
             const state = current.calendar;
-            if (typeof value === "string") { if (state.filter === value) return; state.filter = value; }
+            if (typeof value === "string") {
+                if (state.filter === value) return;
+                state.filter = value;
+                state.returnToEvent = false;
+                try { options.publicStorage?.setItem(CALENDAR_FILTER_KEY, value); }
+                catch { /* The session keeps the filter when storage is blocked. */ }
+            }
             else {
                 state.start = value === 0 ? calendarWeek(new Date(clock.now()))[0] : shiftDay(state.start ?? localDateKey(new Date(clock.now())), value * 7);
                 state.selectedDay = value === 0 ? localDateKey(new Date(clock.now())) : state.start;
+                // Today selects today. Focus stays on an event card once the week arrives; the day strip only shows the selection.
+                state.returnToEvent = value === 0;
             }
             state.data = undefined;
             current.failure = undefined;
@@ -1666,7 +1703,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         current.pages = newPages();
         current.failure = undefined;
         loadRoute(current);
-        render({ zone: "pills", key: `mode:${value}` });
+        render({ zone: "nav", key: current.library.type === "series" ? "series" : "movies" });
     };
     const jump = (current: Extract<Route, { kind: "library" }>, letter: string, position: number): void => {
         const state = current.discovery;
@@ -1712,6 +1749,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         render();
     };
 
+    const readCalendarFilter = (): ReturnType<typeof storedCalendarFilter> => {
+        try { return storedCalendarFilter(options.publicStorage?.getItem(CALENDAR_FILTER_KEY)); }
+        catch { return "following"; }
+    };
     const home = newRoute({ kind: "home", data: undefined });
     const roots = new Map<string, Route>([["home", home]]);
     retryHomeLibraries = (): void => {
@@ -1726,7 +1767,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         let route = roots.get(key);
         if (route === undefined) {
             route = typeof target === "string"
-                ? target === "for_you" ? newRoute({ kind: "for_you", data: undefined }) : target === "calendar" ? newRoute({ kind: "calendar", calendar: calendarState() }) : newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
+                ? target === "for_you" ? newRoute({ kind: "for_you", data: undefined }) : target === "calendar" ? newRoute({ kind: "calendar", calendar: calendarState(readCalendarFilter()) }) : newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
                 : newRoute({ kind: "library", library: target, pages: newPages() });
             roots.set(key, route);
         }

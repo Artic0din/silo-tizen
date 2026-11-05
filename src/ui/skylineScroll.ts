@@ -6,6 +6,8 @@ const DETAILS_CAST_HEADING_CENTRE_OFFSET = 6;
 
 export class SkylineScroll {
     private readonly frames = new Map<HTMLElement, number>();
+    /** Shelf already bottom-aligned. Horizontal moves inside it do not scroll again. */
+    private pinnedShelf: HTMLElement | null = null;
 
     static prepareEpisodeRow(row: HTMLElement): number | undefined {
         if (!row.classList.contains("details-episodes")) return undefined;
@@ -51,6 +53,11 @@ export class SkylineScroll {
     reveal(element: HTMLElement, container: HTMLElement): void {
         if (element.closest(".browse-nav, .skyline-selector:not(.details-audio-picker)") !== null) return;
         const viewport = element.closest<HTMLElement>(".browse-panel-list, .details-audio-picker, .skyline-content") ?? container;
+        if (element.closest("[data-scroll-top]") !== null) {
+            this.pinnedShelf = null;
+            this.move(viewport, 0, 0);
+            return;
+        }
         if (element.closest(".person-filmography-filters") !== null ||
             (container.dataset.view === "search" && element.closest(".search-filters, .search-field") !== null)) {
             this.move(viewport, 0, 0);
@@ -94,6 +101,41 @@ export class SkylineScroll {
             // tvOS centers the supporting section's leading anchor, not the full portrait rail.
             const header = cast.previousElementSibling?.getBoundingClientRect();
             this.move(viewport, 0, Math.max(0, viewport.scrollTop + (header?.top ?? rect.top) - bounds.top - bounds.height / 2 - DETAILS_CAST_HEADING_CENTRE_OFFSET));
+            return;
+        }
+        const shelf = element.closest<HTMLElement>('[data-scroll-align="bottom"]');
+        if (shelf !== null) {
+            if (shelf.getAttribute("data-scroll-anchor") === "top") {
+                shelf.removeAttribute("data-scroll-anchor");
+                this.pinnedShelf = shelf;
+                const section = shelf.getBoundingClientRect();
+                this.move(viewport, 0, Math.max(0, viewport.scrollTop + section.top - bounds.top));
+                return;
+            }
+            // CalendarView.shelfGainedFocus bottom-aligns only after the day
+            // changes (CalendarView.swift:400-407). The first landing has no
+            // previous day, so the focus engine reveals the card with the
+            // least scrolling. A card already on screen stays put; one below
+            // the page is revealed, then pinned so sideways moves do not scroll.
+            if (shelf === this.pinnedShelf) return;
+            const previous = this.pinnedShelf;
+            this.pinnedShelf = shelf;
+            if (previous === null) {
+                const target = element.getBoundingClientRect();
+                if (target.top >= bounds.top && target.bottom <= bounds.bottom) return;
+                const delta = target.top < bounds.top ? target.top - bounds.top : target.bottom - bounds.bottom;
+                this.move(viewport, 0, Math.max(0, viewport.scrollTop + delta));
+                return;
+            }
+            const section = shelf.getBoundingClientRect();
+            // CalendarView.shelfGainedFocus scrolls the day to anchor .bottom
+            // (CalendarView.swift:400-407). The id is the shelf; its 6pt
+            // bottom padding is outside that id (CalendarView.swift:339-344).
+            // The page ignores only the top and horizontal safe areas, and the
+            // settled shelf bottom is y1010: heading y455, poster top y541.
+            const bottom = viewport.scrollTop + section.bottom - (bounds.bottom - 70);
+            const heading = viewport.scrollTop + section.top - bounds.top;
+            this.move(viewport, 0, Math.max(0, Math.min(bottom, heading)));
             return;
         }
         if (container.dataset.view === "personal:history" && element.closest(".catalog-grid") !== null) {
@@ -151,5 +193,6 @@ export class SkylineScroll {
     stop(): void {
         for (const frame of this.frames.values()) cancelAnimationFrame(frame);
         this.frames.clear();
+        this.pinnedShelf = null;
     }
 }

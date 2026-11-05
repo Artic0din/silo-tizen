@@ -258,7 +258,7 @@ Defined in `src/api/operations.ts` unless noted.
 | library sections | `GET /library/{id}/sections?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
 | section items | `GET /library/{id}/sections/{sectionId}/items?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
 | library collections | `GET /library/{id}/collections` (`src/api/discoveryOperations.ts`) | safe |
-| collection items | `GET /library/{id}/collections/{cid}/items?limit&cursor` (`src/api/discoveryOperations.ts`) | safe |
+| collection items | `POST /catalog/query` with `source: library_collection` or `user_collection`, `collection_id`, `limit: 60`, `match: all` and cursor; library/media scope only when narrowing a mixed library, no sort override (`src/api/discoveryOperations.ts`); includes profile viewer state | safe |
 | catalog filters | `GET /catalog/filters?...` (`src/api/discoveryOperations.ts`) | safe |
 | search capabilities | `GET /catalog/search/capabilities` (`src/api/discoveryOperations.ts`) | safe |
 | Search people | `GET /catalog/people?q&media_scope&limit=20` (`src/api/detailOperations.ts`), gated by allowed/available `people_media_scope` | safe |
@@ -268,6 +268,8 @@ Defined in `src/api/operations.ts` unless noted.
 Notes:
 
 - Related titles decode the endpoint's `items` collection without requiring the catalog listing's `total` or `total_exact` fields.
+- Collection members decode `CatalogItemCollection` with optional totals and cursor pagination.
+  The test fixture follows the server schema and handler at `6d1562473336738009a91475ed3f33143670c249`; catalog queries and filmography retain their required totals.
 - Pages continue with the opaque `next_cursor`.
 - `limit` is bounded client-side (1 to 200 for collection items, 1 to 100 for `catalog/query`), and out-of-range values throw `RangeError` before any request.
 - The two POST queries are marked `safe` in code ("natural_idempotent"), so the transport retry applies to them.
@@ -332,6 +334,35 @@ The request throws `RangeError` before sending if:
 - the timezone is empty or not a valid IANA zone.
 
 The decoder rejects any day outside the requested window.
+The Calendar view preserves these server day groups and event order without capping events.
+An `air_at` instant displays in the accepted query timezone with an explicit 12-hour clock.
+Without an instant, `air_time` is interpreted as a device-local wall clock and formatted with the same 12-hour clock, as Apple's `DateFormatters.localShortTime(fromWallClock:)` does.
+Date-only releases have no time pill.
+
+Following, Trending and All sit above one week strip: previous, seven stacked weekday/day cells, next, conditional Today, and month/year anchored on Thursday.
+Dots mean that the loaded response contains events for that date; pending days carry no confirmed event state.
+The strip has one focus zone, preserves control keys, and enters on the selected day.
+Artwork keeps the existing URL validation and missing/failed-image fallback, with release badges at top left, a watched check at top right and time at bottom right.
+Captions retain title, episode identity and unavailable-destination information, and the accessible card name includes the overlays.
+
+Presentation references are Apple `Screens/Calendar/CalendarView.swift`, `CalendarFilterBar.swift`, `CalendarWeekStrip.swift`, `CalendarDayShelf.swift`, `CalendarEventCard.swift`, `CalendarModels.swift` and `CalendarWeek.swift` at `9723df007baa8e933f5615cc14b13e99a6ee1ea1`.
+These shared Swift screens contain the tvOS implementations; the shell and focus style live under `tvOS/`.
+The issue's `1a7cceea` reference differs only in the Calendar card's shared focus style, now `TVCardOutlineButtonStyle`.
+The 84×96 day cells, 26 bold day number, 8 dot, 64×64 chevrons, 18 strip gap and 10 day gap come directly from that source.
+The CSS compensates the 18 strip gap by -8 between adjacent days to retain the source's 10 day gap without another focus owner or wrapper.
+Calendar enters on the active filter and the strip enters on the selected day without changing that selection when cards gain focus.
+Shelf zones use the shared spatial focus owner and retained horizontal axis, so vertical return chooses the nearest card and retains the row's scroll.
+The shared scroll owner supports declarative top and bottom alignment: strip entry restores the page top, while shelf entry keeps its heading and cards visible.
+The signed comparison's strip position is 281 pixels; the web filter's inherited action-row margin is removed and its strip gap accounts for the measured 66-pixel filter height.
+Card titles use Apple's `siloCardTitle` alias (28 semibold), and 22-pixel metadata is restricted to one line with an ellipsis.
+Empty weeks show the filter-specific Apple copy and links to the other two filters.
+The existing shell, focus host, artwork fallback, session invalidation and remote Back chain retain ownership.
+Loading has a blank focusable 320-pixel placeholder; empty weeks have a calendar icon and light primary filter links, without an extra Back button.
+Errors without retained data use the shared error mapping and placeholder builder: triangle, headline, message and a 200-pixel Try Again button.
+As in Apple, a quiet refresh retains cached events rather than replacing them with a loading page.
+Today updates the week and selected date without requesting filter focus; Tizen keeps a valid focus target on the selected strip day when Today disappears.
+The bundled Inter font and SVG symbol substitutes still require native comparison against SF Pro and SF Symbols.
+Desktop UI checks cover remote behavior and both motion settings; signed Samsung, matched Apple captures and physical-TV calibration remain separate acceptance gates.
 
 ### Requests
 

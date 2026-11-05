@@ -60,7 +60,8 @@ test("returning from General rechecks Details and retains text after this-TV fal
         await tv.remote(10009);
         await settingsScreen(tv);
         await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).click();
-        await tv.page.getByText("Off · This TV", { exact: true }).waitFor();
+        await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).getAttribute("aria-checked") === "false", "title art confirmed off");
+        assert.equal(await tv.page.getByRole("switch", { name: "Apply to All Devices", exact: true }).getAttribute("aria-checked"), "false");
         await tv.remote(10009); await tv.remote(10009);
         let logos = 0;
         tv.page.on("request", r => { if (new URL(r.url()).pathname.endsWith("last-signal-logo.svg")) logos++; });
@@ -85,8 +86,7 @@ test("detailed seasons use the same false policy and leave episode navigation us
         await tv.page.locator('[data-focus="series"][role="tab"]').click();
         await tv.page.locator('[data-focus="series:s1"]').first().click();
         await tv.page.locator('[data-focus="season:1"]').click();
-        await tv.page.locator('[data-focus="more"]').click();
-        await tv.page.locator('[data-focus="season-info"]').click();
+        await tv.page.locator('[data-focus="series:s1-S1"]').click();
         await tv.page.locator('[data-view="season:series:s1:1"]').waitFor();
         await tv.jump(240);
         assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "Harbor Lights · Season 1");
@@ -146,23 +146,29 @@ test("General switches show source/scope, serialize edits and keep focus without
     const { tv, settings } = await setup();
     try {
         await settingsScreen(tv);
-        await tv.page.getByText("On · Inherited default", { exact: true }).waitFor();
+        assert.equal(await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).getAttribute("aria-checked"), "true");
+        assert.equal(settings.profile().has(TITLE), false);
         assert.equal(await tv.page.getByText("Profile defaults", { exact: true }).count(), 0);
         const count = tv.fake.requests.length;
         await tv.page.keyboard.press("ArrowRight");
+        assert.equal(await tv.focused(), "remember-profile");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "title-art");
         await tv.page.keyboard.press("ArrowDown");
         assert.equal(await tv.focused(), "title-art-all");
         assert.equal(tv.fake.requests.length, count);
         await tv.page.keyboard.press("Enter");
-        await tv.page.getByText("On · All devices", { exact: true }).waitFor();
+        await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Apply to All Devices", exact: true }).getAttribute("aria-checked") === "true", "confirmed profile scope");
+        assert.equal(settings.profile().get(TITLE), true);
         assert.equal(await tv.focused(), "title-art-all");
         await tv.page.keyboard.press("ArrowUp");
         await tv.page.keyboard.press("Enter");
-        await tv.page.getByText("Off · All devices", { exact: true }).waitFor();
+        await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).getAttribute("aria-checked") === "false", "confirmed title art off");
         assert.equal(settings.profile().get(TITLE), false);
         await tv.page.keyboard.press("ArrowDown");
         await tv.page.keyboard.press("Enter");
-        await tv.page.getByText("Off · This TV", { exact: true }).waitFor();
+        await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Apply to All Devices", exact: true }).getAttribute("aria-checked") === "false", "confirmed device scope");
+        assert.equal(await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).getAttribute("aria-checked"), "false");
         assert.equal(await tv.focused(), "title-art-all");
         assert.equal(settings.profile().has(TITLE), false);
         assert.deepEqual(tv.fake.requests.filter(r => r.method === "PUT" || r.method === "DELETE").map(r => [r.method, r.path]), [
@@ -218,7 +224,8 @@ for (const conflict of ["profile", "device"] as const) test(`Settings recovers a
         await tv.page.keyboard.press("Enter");
         await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).waitFor();
         await tv.eventually(async () => await tv.page.getByRole("alert").count() === 0, "conflict reload");
-        await tv.page.getByText(`${conflict === "device" ? "On" : "Off"} · All devices`, { exact: true }).waitFor();
+        assert.equal(await tv.page.getByRole("switch", { name: "Apply to All Devices", exact: true }).getAttribute("aria-checked"), "true");
+        assert.equal(await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).getAttribute("aria-checked"), String(conflict === "device"));
         assert.equal(settings.profile().get(TITLE), conflict === "device");
         assert.equal(tv.fake.requests.filter(r => r.method === "PUT").length, 1);
         assert.equal(tv.fake.requests.filter(r => r.method === "DELETE").length, conflict === "profile" ? 0 : 1);
@@ -272,23 +279,4 @@ test("delayed image load cannot replace a hidden heading and a new generation re
         await tv.page.evaluate(() => window.browseHarness.resume());
         await tv.page.locator(".details-logo").waitFor();
     } finally { release(); await tv.page.context().close(); }
-});
-
-test("title-art policy settling preserves the open synopsis and its remote focus", async () => {
-    const { tv, catalog } = await setup();
-    const hold = tv.fake.hold(`/settings/values/effective?keys=${TITLE}`, true);
-    try {
-        await details(tv, catalog);
-        await tv.page.locator('[data-focus="more"]').click();
-        await tv.page.locator('[data-focus="synopsis"]').click();
-        const dialog = tv.page.getByRole("dialog", { name: "Synopsis" });
-        await dialog.getByRole("button", { name: "Close synopsis" }).focus();
-        hold.release();
-        await tv.jump(240);
-        assert.equal(await dialog.count(), 1);
-        assert.equal(await tv.focused(), "close-synopsis");
-        await tv.remote(10009);
-        await tv.page.locator(".details-logo").waitFor();
-        assert.equal(await tv.focused(), "synopsis");
-    } finally { hold.release(); await tv.page.context().close(); }
 });

@@ -45,4 +45,7 @@
 .accounts-settings > p { font-size: 20px; line-height: normal; margin: 14px 0 0; padding: 0 24px; }
 .accounts-settings .accounts-destructive { color: #b00020; }
 .accounts-settings .accounts-destructive:focus { color: #d22f3f; }
+.accounts-screen > .skyline-dropdown-scrim[data-confirmation],
+.accounts-screen > .skyline-selector[data-confirmation] { position: fixed; }
+.accounts-screen .skyline-selector[data-confirmation] .browse-button { min-height: 63px; }
 @media (prefers-reduced-motion: reduce) { .accounts-screen * { transition: none; } }

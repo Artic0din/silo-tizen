@@ -344,6 +344,7 @@ export interface WatchState {
 }
 
 export interface ItemDetail {
+    readonly advisoryAge?: number | undefined;
     readonly airDate?: string | undefined;
     readonly extras?: readonly LocalExtra[];
     /** Remote provider videos. Absent on the wire decodes as an empty list. */
@@ -440,6 +441,7 @@ export function decodeItemDetail(value: unknown): ItemDetail {
     const obj = object(value, path);
     const watch = decodeWatch(obj.user_data, `${path}.user_data`);
     return {
+        advisoryAge: optionalInteger(obj, "advisory_age", path),
         played: obj.user_state === undefined ? watch?.played : boolean(object(obj.user_state, `${path}.user_state`), "played", `${path}.user_state`),
         extra: decodeDetailExtras(value),
         extras: decodeExtras(obj),
@@ -557,7 +559,7 @@ export function decodeEpisodes(value: unknown): Episode[] {
         const obj = object(entry, path);
         const watch = decodeWatch(obj.user_data, `${path}.user_data`);
         const user = obj.user_data === undefined ? undefined : object(obj.user_data, `${path}.user_data`);
-        const inProgress = user !== undefined && (optionalInteger(user, "in_progress_count", `${path}.user_data`) ?? 0) > 0;
+        const inProgress = user?.is_in_progress === undefined ? false : boolean(user, "is_in_progress", `${path}.user_data`);
         return {
             ...(inProgress ? { inProgress: true } : {}),
             ...(user === undefined ? {} : {

@@ -106,7 +106,8 @@ test("Playback saves the image switch for the profile", async () => {
         await tv.page.locator('[data-focus="playback"]').click();
         const swatch = tv.page.locator('[data-focus="spoiler-images"][aria-disabled="false"]');
         await swatch.waitFor();
-        assert.match(await tv.page.locator(".settings-value").last().innerText(), /Blur an episode's thumbnail until you start watching it/);
+        assert.deepEqual(await tv.page.locator(".settings-pane .settings-section-header").allTextContents(), ["QUALITY", "STREAMING", "EPISODES", "SPOILERS", "VIDEO", "RESET"]);
+        assert.match(await tv.page.getByText("Blur an episode's thumbnail until you start watching it, so the image does not give away the story.", { exact: false }).innerText(), /Blur an episode's thumbnail until you start watching it/);
         await swatch.click();
         await tv.eventually(async () => settings.profile().get(SPOILER_IMAGE_KEY) === true, "image setting saved");
         assert.equal(await tv.page.locator('[data-focus="spoiler-images"]').getAttribute("aria-checked"), "true");

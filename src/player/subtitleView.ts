@@ -1,4 +1,5 @@
 import type { PlaybackView } from "./controller.ts";
+import type { SubtitleAppearance } from "../contracts/v2/subtitles.ts";
 
 export function mountSubtitles(parent: HTMLElement): (view: PlaybackView) => void {
     const layer = document.createElement("div");
@@ -12,7 +13,11 @@ export function mountSubtitles(parent: HTMLElement): (view: PlaybackView) => voi
         text.textContent = captions?.text ?? "";
         layer.hidden = !captions?.text;
         if (captions === undefined) return;
-        const style = captions.appearance;
+        applySubtitleAppearance(layer, text, captions.appearance);
+    };
+}
+
+export function applySubtitleAppearance(layer: HTMLElement, text: HTMLElement, style: SubtitleAppearance): void {
         layer.style.top = style.position === "top" ? "8%" : "auto";
         layer.style.bottom = style.position === "top" ? "auto" : style.position === "lower-third" ? "25%" : "8%";
         text.style.fontFamily = `${style.fontFamily}, sans-serif`;
@@ -22,5 +27,4 @@ export function mountSubtitles(parent: HTMLElement): (view: PlaybackView) => voi
         text.style.backgroundColor = style.backgroundStyle === "box" ? rgba(style.backgroundColor, style.backgroundOpacity) : "transparent";
         const outline = style.textOutline || style.backgroundStyle === "outline";
         text.style.textShadow = outline ? `-2px -2px 0 ${style.textOutlineColor},2px -2px 0 ${style.textOutlineColor},-2px 2px 0 ${style.textOutlineColor},2px 2px 0 ${style.textOutlineColor}` : style.backgroundStyle === "shadow" ? `2px 2px 4px ${rgba(style.backgroundColor, style.backgroundOpacity)}` : "none";
-    };
 }

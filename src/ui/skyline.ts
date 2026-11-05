@@ -19,7 +19,7 @@ import { DescriptionTranslations, MARQUEE_TRANSLATION_DWELL_MS, marqueeTranslati
 import type { LibraryMode } from "./libraryDiscovery.ts";
 import { PERSONAL_TITLES, type PersonalSource } from "./personalLists.ts";
 
-type VideoTab = "movies" | "series" | "music";
+type VideoTab = "movies" | "series" | "music" | "audiobooks";
 
 interface ProfileMenu {
     readonly requests?: () => void;
@@ -189,13 +189,13 @@ export class Skyline {
         this.close();
         const rootItems = roots.map(root => {
             const item = actionButton(root.key, root.title, () => {
-                if (root.key === "movies" || root.key === "series" || root.key === "music") {
+                if (root.key === "movies" || root.key === "series" || root.key === "music" || root.key === "audiobooks") {
                     const library = this.scope(root.key);
                     if (library !== undefined) this.commit({ ...library, type: root.key });
                 } else this.commit(root.key);
             });
             item.element.setAttribute("role", "tab");
-            if (root.key === "movies" || root.key === "series" || root.key === "for_you") item.element.setAttribute("aria-haspopup", "menu");
+            if (root.key === "movies" || root.key === "series" || root.key === "for_you" || root.key === "audiobooks") item.element.setAttribute("aria-haspopup", "menu");
             return item;
         });
         const searchItem = actionButton("search", "", () => this.commit("search"));
@@ -222,7 +222,7 @@ export class Skyline {
     setMenu(menu: PrimaryMenu | null): void { this.menu = menu; this.update(this.libraries); }
 
     private forType(type: VideoTab): readonly UserLibrary[] {
-        return this.libraries.filter((library) => library.type === type || (type !== "music" && library.type === "mixed"));
+        return this.libraries.filter((library) => library.type === type || ((type === "movies" || type === "series") && library.type === "mixed"));
     }
 
     private scope(type: VideoTab): UserLibrary | undefined {
@@ -253,7 +253,7 @@ export class Skyline {
         const anchor = this.panelAnchor;
         this.shortcutSelection = typeof target !== "string" && this.panelAnchor?.startsWith("library:") ? this.panelAnchor : undefined;
         if (typeof target !== "string") {
-            const type = this.panelTab ?? (target.type === "series" ? "series" : target.type === "music" ? "music" : "movies");
+            const type = this.panelTab ?? (target.type === "audiobooks" ? "audiobooks" : target.type === "series" ? "series" : target.type === "music" ? "music" : "movies");
             this.scopes.set(type, target.id);
             try { this.storage?.setItem(`${this.storageKey}:${type}`, target.id); } catch { /* Keep the selection for this session. */ }
         }
@@ -275,7 +275,7 @@ export class Skyline {
     }
 
     decorate(view: View, selected: string, preview: boolean, routeBack?: () => void, libraryKey?: string): View {
-        const libraryRoot = selected === "movies" || selected === "series" || selected === "music";
+        const libraryRoot = selected === "movies" || selected === "series" || selected === "music" || selected === "audiobooks";
         if ((selected === "movies" || selected === "series" || selected === "music") && this.shortcutSelection !== undefined && libraryKey?.startsWith(`${this.shortcutSelection}:`)) selected = this.shortcutSelection;
         this.routeBack = routeBack;
         this.visible = true;
@@ -600,12 +600,12 @@ export class Skyline {
             this.panel.push(this.menuItem("recommendations", "Recommendations", () => this.commit("for_you"), "Recommended"));
         } else {
             const shortcut = this.libraries.find(library => item.key === `library:${library.id}`);
-            const type = item.key === "music" ? "music" : item.key === "series" || shortcut?.type === "series" ? "series" : "movies";
+            const type = item.key === "audiobooks" ? "audiobooks" : item.key === "music" ? "music" : item.key === "series" || shortcut?.type === "series" ? "series" : "movies";
             this.panelTab = type;
             this.panelLibrary = shortcut;
             const libraries = this.forType(type);
             const single = shortcut ?? (libraries.length === 1 ? libraries[0] : undefined);
-            this.panelTitle = single === undefined ? type === "movies" ? "MOVIE LIBRARIES" : "SERIES LIBRARIES" : single.name.toUpperCase();
+            this.panelTitle = single === undefined ? type === "audiobooks" ? "AUDIOBOOK LIBRARIES" : type === "movies" ? "MOVIE LIBRARIES" : "SERIES LIBRARIES" : single.name.toUpperCase();
             this.panel = single === undefined ? libraries.map(library => {
                 const row = this.menuItem(`library:${library.id}`, library.name, () => this.commit({ ...library, type }), type);
                 row.element.setAttribute("role", "menuitemradio");
@@ -783,7 +783,7 @@ export class Skyline {
 
     private modeItems(library: UserLibrary, type: VideoTab): FocusItem[] {
         // tvOS's cascade offers three destinations; legacy filters stay within Browse.
-        return (["Recommended", "Collections", "Browse"] as const).filter(mode => this.libraryModes.includes(mode)).map(mode => {
+        return (["Recommended", "Collections", "Browse"] as const).filter(mode => type === "audiobooks" || this.libraryModes.includes(mode)).map(mode => {
             const item = this.menuItem(`section:${mode === "Browse" ? "browse" : mode}`, mode, () => this.commit(this.panelAnchor === `library:${library.id}` ? library : { ...library, type }, mode), mode);
             item.element.setAttribute("role", "menuitem");
             return item;

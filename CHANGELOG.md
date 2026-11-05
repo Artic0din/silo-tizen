@@ -6,7 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Added profile-gated beta audiobook libraries, grouped browsing, chapters, resume, audio seeking and sleep timers.
+- Added profile-gated audiobook libraries with the Recommended, Collections and Browse cascade, square covers, a cover-tinted Details hero, chapter controls, resume, audio seeking and sleep menus.
 - Added audiobook Favorite and Finished toggles, the General top-menu switch, and profile skip intervals; kept listening position and visible focus through recovery and navigation.
 - Hid unwatched episode stills and descriptions from Playback when the server supports the profile spoiler settings.
 - Show Trailers & More on movie and series Details for local extras and YouTube listings, using Apple's card size and the 76px gap to the next heading. Local extras still play from the start. YouTube listings stay on their card because this TV cannot play them.

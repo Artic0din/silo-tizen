@@ -1666,10 +1666,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 searchPeople(route, route.filter ?? route.searchType);
                 render(host.focused());
             } });
-        const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || (current.kind === "personal" && current.source !== "history") || current.kind === "calendar";
+        const rootRoute = current.kind === "home" || current.kind === "for_you" || current.kind === "library" || (current.kind === "audiobooks" && current.data?.isLibrary === true) || (current.kind === "personal" && current.source !== "history") || current.kind === "calendar";
         if (rootRoute) {
             const selected = tabFocus(current).key;
-            const preview = (current.kind === "home" && current.data !== undefined) || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
+            const preview = (current.kind === "home" && current.data !== undefined) || (current.kind === "audiobooks" && current.data?.recommends === true) || (current.kind === "for_you" && (current.data?.some(row => row.items.some(card => destinationOf(card) !== undefined)) ?? false)) || (current.kind === "library" && current.library.type !== "music" && (current.discovery?.mode ?? "Recommended") === "Recommended");
             const modal = browsing && (current.discovery?.panel !== undefined || shuffleFailure?.route === current);
             const decorated = shell.decorate(view, selected, preview, modal ? () => { view.back?.(); } : current.kind === "personal" ? () => {
                 if (host.focused()?.zone === "nav") pop();
@@ -1916,13 +1916,25 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (homeRoute?.kind === "home") readHomeLibraries(homeRoute);
     };
     const shell = new Skyline(container, clock, (target, destinationMode) => {
-        if (target === "audiobooks") {
+        if (target === "audiobooks" || typeof target !== "string" && target.type === "audiobooks") {
             const libraries = pendingHomeLibraries ?? [];
-            const route = newRoute({ kind: "audiobooks", data: new Audiobooks(libraries, read, () => {
+            const library = typeof target === "string" ? libraries.find(library => library.type === "audiobooks") : target;
+            const key = `audio:${library?.id ?? ""}`;
+            let route = roots.get(key);
+            if (route === undefined) {
+                route = newRoute({ kind: "audiobooks", data: new Audiobooks(libraries, read, () => {
                 const current = top();
                 render(current?.kind === "audiobooks" && current.data?.view().name === host.name ? host.focused() : undefined);
-            }, handoff, pop, context.baseUrl) });
-            push(route);
+                }, handoff, pop, context.baseUrl, library, context) });
+                roots.set(key, route);
+            }
+            loading?.abort(); loading = undefined; cancelSearch();
+            stack = [home, route];
+            if (route.kind === "audiobooks") {
+                if (destinationMode !== undefined) route.data?.selectMode(destinationMode);
+                else route.data?.enter();
+            }
+            showRoute(route, undefined);
             return;
         }
         shuffleGeneration++;

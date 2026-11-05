@@ -28,8 +28,12 @@ class AudiobookCatalog extends FakeCatalog {
     failWrite = false;
     favoriteReadFails = false;
     playable = true;
+    lettersUnavailable = false;
+    emptyCollections = false;
     constructor() {
         super();
+        const household = this.households.get("p-owner");
+        if (household !== undefined) household.libraries.splice(0, household.libraries.length, ...household.libraries.filter(library => library.type !== "audiobooks"));
         this.households.get("p-owner")?.libraries.push({ id: "99", name: "Audio Library", type: "audiobooks", sort_order: 9 });
     }
     override route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): Reply | undefined {
@@ -42,15 +46,89 @@ class AudiobookCatalog extends FakeCatalog {
             return { status: 204 };
         }
         if (url.pathname === "/catalog/audiobook-groups") return { status: 200, body: { items: [{ name: "Author" }], page: {} } };
-        if (url.pathname === "/catalog/query" && body?.type === "audiobook") return { status: 200, body: { items: [{ content_id: "book:1", title: "Test Book" }], page: {} } };
+        if (url.pathname === "/library/99/sections") return { status: 200, body: { sections: [{ id: "recent", title: "Recently Added", section_type: "recently_added", items: [{ content_id: "book:1", type: "audiobook", title: "Test Book" }] }] } };
+        if (url.pathname === "/library/100/sections") return { status: 200, body: { sections: [{ id: "recent", title: "Recently Added", section_type: "recently_added", items: [{ content_id: "book:2", type: "audiobook", title: "Second Book" }] }] } };
+        if (url.pathname === "/catalog/letters" && body?.type === "audiobook") return this.lettersUnavailable ? problem(403, 'permission_denied', 'Denied') : { status: 200, body: { total: 1, letters: [{ letter: "T", count: 1, position: 0 }], runs: [{ letter: "T", position: 0 }] } };
+        if (url.pathname === "/library/99/collections") return { status: 200, body: this.emptyCollections ? { library_id: '99', collections: [], groups: [], ungrouped: { sort_order: 9999, collections: [] } } : { ...fixture('get_library_collections_ok'), library_id: '99' } };
+        if (url.pathname === "/catalog/query" && (body?.type === "audiobook" || body?.collection_id === 'c1' || body?.collection_id === 'u1')) return { status: 200, body: { items: [{ content_id: "book:1", title: "Test Book" }], page: {} } };
         if (url.pathname === "/catalog/items/book%3A1") return this.detailFails ? problem(403, "permission_denied", "Denied") : { status: 200, body: {
-            content_id: "book:1", type: "audiobook", title: "Test Book", user_data: { position_seconds: this.position, played: this.finished },
+            content_id: "book:1", type: "audiobook", title: "Test Book", overview: "A book overview.", genres: ["Fiction"], audiobook: { authors: [{ name: "Author" }], narrators: [{ name: "Narrator" }], total_duration_seconds: 220 }, user_data: { position_seconds: this.position, played: this.finished },
             versions: this.playable ? [{ file_id: "1", duration: 120, presentation_part_index: 1, chapters: [{ index: 0, title: "Opening", start_seconds: 0, end_seconds: 120 }] },
                 { file_id: "2", duration: 100, presentation_part_index: 2, chapters: [{ index: 0, title: "Ending", start_seconds: 0, end_seconds: 100 }] }] : [],
         } };
         return super.route(method, path, profileId, body);
     }
 }
+
+function multipleAudiobooks(): AudiobookCatalog {
+    const catalog = new AudiobookCatalog();
+    catalog.households.get('p-owner')?.libraries.push({ id: '100', name: 'Second Audio', type: 'audiobooks', sort_order: 10 });
+    return catalog;
+}
+
+browseTest('audiobook library scope survives a browse remount', async tv => {
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole('menuitem', { name: 'Settings', exact: true }).click();
+    await tv.page.getByRole('switch', { name: 'Show Audiobooks', exact: true }).click();
+    await tv.remote(BACK); await tv.remote(BACK);
+    await tv.page.locator('[data-focus="audiobooks"]').click();
+    await tv.page.getByRole('button', { name: 'Test Book', exact: true }).waitFor();
+    await tv.page.locator('[data-focus="audiobooks"]').focus();
+    await tv.remote(40);
+    await tv.page.getByRole('menuitemradio', { name: 'Second Audio', exact: true }).click();
+    await tv.page.getByRole('button', { name: 'Second Book', exact: true }).waitFor();
+    await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+    await tv.page.locator('[data-focus="audiobooks"]').click();
+    await tv.page.getByRole('button', { name: 'Second Book', exact: true }).waitFor();
+}, { catalog: multipleAudiobooks() });
+
+browseTest("audiobook library uses the Skyline cascade and square cover cards", async tv => {
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+    await tv.page.getByRole("switch", { name: "Show Audiobooks", exact: true }).click();
+    await tv.remote(BACK); await tv.remote(BACK);
+    const tab = tv.page.locator('[data-focus="audiobooks"]');
+    assert.equal(await tab.getAttribute('aria-haspopup'), 'menu');
+    await tab.click();
+    try { await readLive(tv, () => ({ card: document.querySelector('.audiobook-card') !== null, text: document.body.innerText }), undefined, value => value.card, 'audiobook landing'); }
+    catch (error) { throw new Error(`${String(error)}; requests ${JSON.stringify(tv.fake.requests.filter(request => request.path.includes('/library/')).map(request => request.path))}`); }
+    const card = tv.page.locator('.audiobook-card[data-focus="book:1"]');
+    await card.waitFor();
+    const size = await readLive(tv, () => {
+        const art = document.querySelector('.audiobook-card .browse-art');
+        if (art === null) return null;
+        const rect = art.getBoundingClientRect(); return { width: rect.width, height: rect.height };
+    }, undefined, size => size.width > 0, 'square audiobook art');
+    assert.equal(size.width, size.height);
+    await selectLibraryMode(tv, 'Collections');
+    await tv.page.getByRole('button', { name: 'Oscar Winners', exact: true }).click();
+    await tv.page.getByRole('button', { name: 'Test Book', exact: true }).waitFor();
+    const collectionQuery = tv.fake.requests.filter(request => request.body?.collection_id === 'c1').at(-1)?.body;
+    assert.deepEqual(collectionQuery, { source: 'library_collection', collection_id: 'c1', library_id: '99', match: 'all', limit: 60 });
+    await tv.remote(BACK);
+    await tv.page.getByRole('button', { name: 'Oscar Winners', exact: true }).waitFor();
+    assert.equal(await tv.focused(), 'c1');
+    await selectLibraryMode(tv, 'Browse');
+    await tv.page.locator('[data-focus="letter:T"]').click();
+    await tv.eventually(async () => tv.fake.requests.some(request => request.body?.name_prefix === 'T'), 'activated alphabet prefix');
+}, { catalog: new AudiobookCatalog() });
+
+browseTest("an unavailable audiobook alphabet keeps books usable and empty Collections explains its state", async (tv, catalog) => {
+    assert.ok(catalog instanceof AudiobookCatalog);
+    catalog.lettersUnavailable = true; catalog.emptyCollections = true;
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole('menuitem', { name: 'Settings', exact: true }).click();
+    await tv.page.getByRole('switch', { name: 'Show Audiobooks', exact: true }).click();
+    await tv.remote(BACK); await tv.remote(BACK);
+    await tv.page.locator('[data-focus="audiobooks"]').click();
+    await selectLibraryMode(tv, 'Browse');
+    await tv.page.getByRole('button', { name: 'Test Book', exact: true }).waitFor();
+    assert.equal(await tv.page.getByText('Could not load audiobooks.', { exact: true }).count(), 0);
+    assert.equal(await tv.page.locator('[data-focus^="letter:"]').count(), 0);
+    await selectLibraryMode(tv, 'Collections');
+    await tv.page.getByText('No collections yet', { exact: true }).waitFor();
+    assert.equal(await tv.page.locator('.audiobook-card').count(), 0);
+}, { catalog: new AudiobookCatalog() });
 
 browseTest("audiobook circle toggles write through personal APIs and preserve detail and return focus", async (tv, catalog) => {
     assert.ok(catalog instanceof AudiobookCatalog);
@@ -60,10 +138,20 @@ browseTest("audiobook circle toggles write through personal APIs and preserve de
     await tv.page.getByRole("switch", { name: "Show Audiobooks", exact: true }).click();
     await tv.remote(BACK); await tv.remote(BACK);
     await tv.page.locator('[data-focus="audiobooks"]').click();
-    await tv.page.getByRole("button", { name: "Audio Library", exact: true }).click();
     await tv.page.getByRole("button", { name: "Test Book", exact: true }).click();
     const favorite = tv.page.getByRole("button", { name: "Add to Favorites", exact: true });
     await favorite.waitFor();
+    const hero = await readLive(tv, () => {
+        const cover = document.querySelector('.audiobook-hero .audiobook-cover');
+        if (cover === null) return null;
+        const box = cover.getBoundingClientRect();
+        return { width: box.width, height: box.height, left: box.left };
+    }, undefined, () => true, 'audiobook hero cover');
+    assert.deepEqual(hero, { width: 460, height: 460, left: 92 });
+    await tv.page.getByRole('heading', { name: 'About', exact: true }).waitFor();
+    assert.equal(await tv.page.locator('.audiobook-credits').textContent(), 'by Author  ·  read by Narrator');
+    assert.equal(await tv.page.locator('.audiobook-ring').innerText(), '64%');
+    assert.equal(await tv.page.locator('.audiobook-state-primary').innerText(), 'Chapter 2 · Ending');
     assert.deepEqual(await tv.page.locator('.audiobook-detail-actions [data-focus]').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus"))), ["play", "chapters", "start-over", "favorite", "finished"]);
     assert.ok(await favorite.evaluate(node => node.classList.contains("details-circle")));
     await favorite.click();
@@ -94,7 +182,7 @@ browseTest("audiobook circle toggles write through personal APIs and preserve de
     assert.equal(await tv.focused(), "book:1");
 }, { catalog: new AudiobookCatalog() });
 
-browseTest("Back reloads an audiobook parent whose read was cancelled", async tv => {
+browseTest("changing audiobook destinations restores content after a cancelled grid read", async tv => {
     await tv.page.locator('[data-focus="profiles"]').click();
     await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
     await tv.page.getByRole("switch", { name: "Show Audiobooks", exact: true }).click();
@@ -102,10 +190,9 @@ browseTest("Back reloads an audiobook parent whose read was cancelled", async tv
     await tv.page.locator('[data-focus="audiobooks"]').click();
     const held = tv.fake.hold("/catalog/query", true);
     try {
-        await tv.page.getByRole("button", { name: "Audio Library", exact: true }).click();
-        await tv.page.getByRole("button", { name: "By author", exact: true }).click();
-        await tv.page.getByRole("button", { name: "Author", exact: true }).waitFor();
-        await tv.remote(BACK);
+        await selectLibraryMode(tv, "Browse");
+        await tv.eventually(async () => tv.fake.requests.some(request => request.path === '/catalog/query' && request.body?.type === 'audiobook'), 'held audiobook grid read');
+        await selectLibraryMode(tv, "Recommended");
     } finally { held.release(); }
     await tv.page.getByRole("button", { name: "Test Book", exact: true }).waitFor();
 }, { catalog: new AudiobookCatalog() });
@@ -118,7 +205,6 @@ browseTest("unavailable audiobook Favorites never blocks listening or Finished a
     await tv.page.getByRole("switch", { name: "Show Audiobooks", exact: true }).click();
     await tv.remote(BACK); await tv.remote(BACK);
     await tv.page.locator('[data-focus="audiobooks"]').click();
-    await tv.page.getByRole("button", { name: "Audio Library", exact: true }).click();
     await tv.page.getByRole("button", { name: "Test Book", exact: true }).click();
     await tv.page.getByRole("button", { name: "Resume", exact: true }).waitFor();
     assert.equal(await tv.page.locator('[data-focus="favorite"]').getAttribute("aria-disabled"), "true");
@@ -139,7 +225,6 @@ browseTest("audiobook Favorite and Finished remain available without playable pa
     await tv.page.getByRole("switch", { name: "Show Audiobooks", exact: true }).click();
     await tv.remote(BACK); await tv.remote(BACK);
     await tv.page.locator('[data-focus="audiobooks"]').click();
-    await tv.page.getByRole("button", { name: "Audio Library", exact: true }).click();
     await tv.page.getByRole("button", { name: "Test Book", exact: true }).click();
     await tv.page.getByText("No playable versions available.", { exact: true }).waitFor();
     assert.equal(await tv.page.getByRole("button", { name: "Add to Favorites", exact: true }).count(), 1);
@@ -158,7 +243,6 @@ for (const state of ["marked", "near-end"] as const) browseTest(`audiobook ${sta
     await tv.page.getByRole("switch", { name: "Show Audiobooks", exact: true }).click();
     await tv.remote(BACK); await tv.remote(BACK);
     await tv.page.locator('[data-focus="audiobooks"]').click();
-    await tv.page.getByRole("button", { name: "Audio Library", exact: true }).click();
     await tv.page.getByRole("button", { name: "Test Book", exact: true }).click();
     await tv.page.locator('[data-focus="play"]').waitFor();
     if (state === "marked") {
@@ -172,7 +256,7 @@ for (const state of ["marked", "near-end"] as const) browseTest(`audiobook ${sta
     assert.equal(play?.startSeconds, 0);
 }, { catalog: new AudiobookCatalog() });
 
-browseTest("Audiobooks opt-in gates library, groups, detail retry and stitched chapter handoff", async (tv, catalog) => {
+browseTest("Audiobooks opt-in gates library, detail retry and stitched chapter handoff", async (tv, catalog) => {
     assert.equal(await tv.page.locator('[data-focus="audiobooks"]').count(), 0);
     await tv.page.locator('[data-focus="profiles"]').click();
     await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
@@ -180,9 +264,6 @@ browseTest("Audiobooks opt-in gates library, groups, detail retry and stitched c
     await tv.remote(BACK);
     await tv.remote(BACK);
     await tv.page.locator('[data-focus="audiobooks"]').click();
-    await tv.page.getByRole("button", { name: "Audio Library", exact: true }).click();
-    await tv.page.getByRole("button", { name: "By author", exact: true }).click();
-    await tv.page.getByRole("button", { name: "Author", exact: true }).click();
     await tv.page.getByRole("button", { name: "Test Book", exact: true }).click();
     await tv.page.getByRole("button", { name: "Retry", exact: true }).waitFor();
     assert.ok(catalog instanceof AudiobookCatalog);
@@ -213,7 +294,6 @@ browseTest("audiobooks follows the fixed native roots even when a menu authors a
     await tv.remote(BACK); await tv.remote(BACK);
     assert.equal(await tv.page.locator('[data-focus="library:99"]').count(), 0);
     await tv.page.locator('[data-focus="audiobooks"]').click();
-    await tv.page.getByRole("button", { name: "Audio Library", exact: true }).click();
     await tv.page.getByRole("button", { name: "Test Book", exact: true }).waitFor();
     assert.equal(await tv.page.getByRole("button", { name: "Audio Library", exact: true }).count(), 0);
 }, { catalog: new AudiobookCatalog(), beforeConnect: tv => {
@@ -231,8 +311,6 @@ browseTest("Audiobooks opens independently loaded libraries while Home sections 
         await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
         await tv.page.locator('[data-focus="movies"]').waitFor();
         await tv.page.locator('[data-focus="audiobooks"]').click();
-        assert.equal(await tv.page.getByRole("button", { name: "Audio Library", exact: true }).count(), 1);
-        await tv.page.getByRole("button", { name: "Audio Library", exact: true }).click();
         await tv.page.getByRole("button", { name: "Test Book", exact: true }).waitFor();
         assert.deepEqual(tv.console, []);
     } finally {

@@ -4,6 +4,7 @@ import { decodeAudiobook, bookPosition, audiobookResume, audiobookPrimaryLabel, 
 import { navigationRoots } from "../../src/ui/navigation.ts";
 import { AudiobookPreference } from "../../src/ui/audiobookPreference.ts";
 import { MemoryPublicStorage } from "./support/keyManager.ts";
+import { audioPeople, cleanAudioTitle } from "../../src/ui/audiobookDetail.ts";
 
 test("audiobook opt-in requires an accessible library and stays with its profile", () => {
     const library = { id: "3", name: "Audio", type: "audiobooks" as const, sortOrder: 1 };
@@ -25,6 +26,21 @@ const detail = { content_id: "book", type: "audiobook", title: "Book", user_data
     { file_id: "b", presentation_part_index: 2, duration: 100, chapters: [{ index: 0, start_seconds: 0, end_seconds: 100 }] },
     { file_id: "a", presentation_part_index: 1, duration: 120, chapters: [{ index: 0, title: "Opening", start_seconds: 0, end_seconds: 120 }] },
 ] };
+test("audiobook identity and supporting sections retain the native metadata contract", () => {
+    const related = { content_id: "other", title: "Other", poster_url: "/art/other", series_index: 2, year: 2026 };
+    const book = decodeAudiobook({ ...detail, genres: ["Fantasy"], year: 2026, audiobook: {
+        authors: [{ name: "Author" }], narrators: [{ name: "Narrator" }], publisher: "Publisher", total_duration_seconds: 220,
+        series: { name: "Series", entries: [related] }, other_narrations: [{ ...related, narrators: ["Another Narrator"] }], related: { also_by_author: [related], similar: [related] },
+    } });
+    assert.deepEqual(book.metadata?.authors, ["Author"]);
+    assert.equal(book.metadata?.series?.entries[0]?.index, 2);
+    assert.equal(book.metadata?.narrations[0]?.title, "Another Narrator");
+    assert.equal(book.metadata?.similar[0]?.poster, "/art/other");
+    assert.equal(cleanAudioTitle("The Stormlight Archive 5 - Wind and Truth (5 of 5)", "Stormlight Archive"), "Wind and Truth");
+    assert.equal(cleanAudioTitle("Dunes of Arrakis", "Dune"), "Dunes of Arrakis");
+    assert.equal(audioPeople(["A, B, C, D, E"]), "A, B & 3 more");
+    assert.equal(audioPeople(["A", "B", "C"]), "A, B & C");
+});
 test("audiobook chapters stitch in part order and seek maps to local source time", () => {
     const book = decodeAudiobook(detail);
     assert.equal(book.duration, 220);

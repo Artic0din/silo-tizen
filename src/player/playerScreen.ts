@@ -17,6 +17,7 @@ import { type PlaybackError, type PlaybackExits, PlaybackController, type Playba
 import { mountSeekThumbnail } from "./seekThumbnailView.ts";
 import { mountSubtitles } from "./subtitleView.ts";
 import { mountAudioScreen } from "./audioScreen.ts";
+import { playbackBar } from "./playbackBar.ts";
 
 /** While playing, the overlay hides this long after the last key. */
 const OVERLAY_MS = 5000;
@@ -184,12 +185,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const title = el("h1", "player-title");
     const status = el("p", "player-status");
     status.setAttribute("role", "status");
-    const bar = el("div", "player-bar");
-    bar.setAttribute("role", "slider");
-    bar.setAttribute("aria-label", "Playback position");
-    bar.setAttribute("aria-valuemin", "0");
-    bar.setAttribute("data-focus", "position");
-    bar.tabIndex = -1;
+    const bar = playbackBar("Playback position");
     const fill = el("div", "player-bar-fill");
     bar.appendChild(fill);
     const time = el("p", "player-time");
@@ -690,7 +686,7 @@ export function startPlayback(
             },
         },
     });
-    screen = request.audiobook === undefined ? mountPlayerScreen(root, controller, clock) : mountAudioScreen(root, controller, request.audiobook, clock);
+    screen = request.audiobook === undefined ? mountPlayerScreen(root, controller, clock) : mountAudioScreen(root, controller, request.audiobook, clock, server.server.http.base.baseUrl);
     controller.play(request);
     return { destroy: finish };
 }

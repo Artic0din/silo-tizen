@@ -57,6 +57,15 @@ export function actionButton(key: string, label: string, onPress: () => void): F
     return { key, element };
 }
 
+/** Apple ErrorView.recoveryPlan: a 401 offers sign-in, a 403 or 404 prefers leaving, and otherwise Try Again is the only action. */
+export function recoveryActions(error: { readonly headline: string; readonly signIn: boolean }, retry: FocusItem, back?: FocusItem, signIn?: FocusItem): FocusItem[] {
+    const items: FocusItem[] = [];
+    if (error.signIn && signIn !== undefined) items.push(signIn);
+    if (back !== undefined && (error.headline === "Not found" || error.headline === "Not allowed")) items.push(back);
+    items.push(retry);
+    return items;
+}
+
 /** SectionExploreAllCard keeps the current marquee while its row's trailing tile owns focus. */
 function exploreAllCard(rowTitle: string, key: string, wide: boolean, onPress: () => void): FocusItem {
     const element = el("button", "browse-card skyline-explore");
@@ -288,7 +297,7 @@ export interface PagerState {
 }
 
 /** One page of cards and the buttons that move between pages. */
-export function pagedGrid(state: PagerState, context: ViewContext): { content: HTMLElement[]; zones: Zone[] } {
+export function pagedGrid(state: PagerState, context: ViewContext, columns = GRID_COLUMNS): { content: HTMLElement[]; zones: Zone[] } {
     const cards = cardItems(state.page.items, context).slice(0, state.pageSize);
     const pager: FocusItem[] = [];
     if (state.index > 0) {
@@ -306,7 +315,7 @@ export function pagedGrid(state: PagerState, context: ViewContext): { content: H
     return {
         content: [zoneNode("browse-grid", cards), ...(cards.length === 0 && pager.length === 0 ? [] : [status]), zoneNode("browse-actions", pager)],
         zones: [
-            { id: "grid", layout: "grid", columns: GRID_COLUMNS, items: cards },
+            { id: "grid", layout: "grid", columns, items: cards },
             { id: "pager", layout: "row", items: pager },
         ],
     };

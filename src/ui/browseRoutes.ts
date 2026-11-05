@@ -39,7 +39,7 @@ export type RouteData =
     | { readonly kind: "recommendationSection"; readonly locator: RecommendationLocator; readonly title: string; pages: Pages }
     | { readonly kind: "requests"; readonly requests: RequestsState }
     | { readonly kind: "calendar"; readonly calendar: CalendarState }
-    | { readonly kind: "personal"; readonly source: PersonalSource; readonly anchor?: "for_you" | "profiles"; filter: PersonalFilter; capability: PersonalListCapability | undefined; pages: Pages; pendingIndex: number | undefined }
+    | { readonly kind: "personal"; readonly source: PersonalSource; readonly anchor?: string; filter: PersonalFilter; capability: PersonalListCapability | undefined; pages: Pages; pendingIndex: number | undefined; error?: ErrorState | undefined; elsewhere?: boolean }
     | { readonly kind: "home"; data: { libraries: UserLibrary[]; sections: HomeSection[] } | undefined }
     | { readonly kind: "homeSection"; readonly id: string; readonly title: string; readonly continuing: boolean; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "resume"; readonly id: string; readonly title: string; readonly episode?: true; readonly startOver?: boolean; readonly selection?: EpisodeSelection }
@@ -101,6 +101,8 @@ export interface RouteHandlers {
     readonly personFilter: (route: Extract<Route, { kind: "person" }>, filter: MediaScope) => void;
     readonly calendar: (route: Extract<Route, { kind: "calendar" }>) => CalendarHandlers;
     readonly personalFilter: (route: Extract<Route, { kind: "personal" }>, filter: PersonalFilter) => void;
+    readonly morePersonal: (route: Extract<Route, { kind: "personal" }>) => void;
+    readonly signIn: (() => void) | undefined;
     readonly synopsis: Synopsis;
     readonly context: ViewContext;
     readonly focusDefault: () => void;

@@ -5,7 +5,7 @@ import { blurEpisodeStill, hidesEpisodeListStill } from "./episodeSpoilers.ts";
 import { el } from "./screen.ts";
 import type { SeriesEpisodes } from "./seriesEpisodes.ts";
 
-export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext): { content: HTMLElement[]; zones: Zone[] } {
+export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, currentEpisode: string | undefined): { content: HTMLElement[]; zones: Zone[] } {
     const seasons = state.seasons.map(season => {
         const item = actionButton(`season:${season.seasonNumber}`, season.title, () => state.select(season.seasonNumber));
         item.element.setAttribute("aria-pressed", String(season.seasonNumber === state.seasonNumber));
@@ -14,6 +14,7 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext):
     const content = [zoneNode("browse-row details-season-chips", seasons)];
     const episodes = (state.episodes ?? []).map(episode => {
         const item = episodeCard(episode, context);
+        if (episode.id === currentEpisode) item.element.setAttribute("aria-current", "true");
         item.element.addEventListener("focus", () => { state.entryEpisode = undefined; });
         return item;
     });

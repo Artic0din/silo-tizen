@@ -18,7 +18,7 @@ const PICKER_KEYS = { hidden: HIDDEN_KEY, audio: AUDIO_KEY, quality: QUALITY_KEY
 const PICKER_LABELS = { hidden: "Hidden libraries", audio: "Preferred audio", quality: "Preferred quality", bitrate: "Maximum bitrate", "seek-back": "Video rewind interval", "seek-forward": "Video fast-forward interval" } as const;
 export interface SettingsScreen { destroy(): void }
 
-export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void, launch?: ProfileLaunch, spoilers?: EpisodeSpoilerPreferences): SettingsScreen {
+export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void, launch?: ProfileLaunch, spoilers?: EpisodeSpoilerPreferences, accounts?: (back: () => void) => void): SettingsScreen {
     const container = el("section", "browse settings");
     container.setAttribute("aria-label", "Settings");
     root.appendChild(container);
@@ -244,6 +244,18 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         const rows: FocusItem[] = [];
         const body = el("div", "settings-pane");
         body.append(el("h2", "browse-section-title", CATEGORY_LABELS[category]), ...(category === "server" ? [] : feedback()));
+        if (category === "server" && accounts) {
+            const item = actionButton("accounts", "Accounts", () => {
+                host.stop(); container.hidden = true;
+                accounts(() => {
+                    if (torn) return;
+                    container.hidden = false; host.listen();
+                    category = "general"; returnRow = "hidden";
+                    render({ zone: "settings-categories", key: "general" });
+                });
+            });
+            rows.push(item); body.append(item.element);
+        }
         const pickers: readonly Picker[] = category === "general" ? ["hidden"] : category === "playback" ? ["audio", "quality", "bitrate", "seek-back", "seek-forward"] : [];
         if (category === "server") {
             // Apple's Server pane: an ABOUT section whose Acknowledgements row opens the credits.

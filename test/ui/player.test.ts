@@ -214,6 +214,24 @@ test("Up Next captures remote input, preserves focus and exposes Keep Watching a
     } finally { await page.close(); }
 });
 
+test("Up Next captions stay inside the video preview and restore their full size", async () => {
+    const { page } = await open();
+    try {
+        const view = { ...playing(TRACKS), captions: { text: "Dialogue", appearance: DEFAULT_APPEARANCE } };
+        const full = async () => page.locator(".player-captions span").boundingBox();
+        await show(page, view);
+        const original = await full();
+        await show(page, { ...view, upNext: { next: undefined, deck: [], countdown: undefined, status: "Up Next" } });
+        const preview = await full();
+        assert.ok(original !== null && preview !== null);
+        assert.ok(preview.x >= 180 && preview.x + preview.width <= 940);
+        assert.ok(preview.y >= 112 && preview.y + preview.height <= 540);
+        assert.ok(Math.abs(preview.height / original.height - 760 / 1920) < 0.01);
+        await show(page, view);
+        assert.deepEqual(await full(), original);
+    } finally { await page.close(); }
+});
+
 test("captions apply profile styles, stay safe text and clear during recovery", async () => {
     const { page } = await open();
     try {

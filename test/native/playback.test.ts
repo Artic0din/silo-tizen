@@ -1341,6 +1341,46 @@ test("a delayed prompt cannot appear after seeking out of its window, and an ope
     r.controller.destroy();
 });
 
+test("prompt discovery discarded during a local seek retries after the seek settles", async () => {
+    const r = await autoplayRig(false);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing" && view.durationSeconds !== undefined);
+    const hold = r.h.fake.hold("/watch/" + encodeURIComponent(EPISODE.contentId));
+    r.avplay.tick((view.durationSeconds - 25) * 1000);
+    await r.h.clock.advance(0);
+    r.controller.seekToSeconds(view.durationSeconds - 15);
+    hold.release();
+    await r.h.clock.advance(0);
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    r.avplay.tick((view.durationSeconds - 14) * 1000);
+    await r.h.clock.advance(0);
+    assert.ok("upNext" in last(r.views));
+    r.controller.destroy();
+});
+
+test("stale prompt preference failure cannot override the EOF preference read", async () => {
+    const r = await autoplayRig(true);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing" && view.durationSeconds !== undefined);
+    const path = "/settings/values/effective?keys=playback.auto_play_next";
+    const hold = r.h.fake.hold(path);
+    r.h.fake.script(path, problem(400, "invalid_request", "Unavailable"));
+    r.avplay.tick((view.durationSeconds - 25) * 1000);
+    await r.h.clock.advance(0);
+    const discovery = r.h.fake.hold("/watch/" + encodeURIComponent(EPISODE.contentId));
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    hold.release();
+    await r.h.clock.advance(0);
+    discovery.release();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).countdown, 10);
+    r.controller.destroy();
+});
+
 test("transport recovery retains the Up Next preview rectangle", async () => {
     const r = await autoplayRig(false);
     await playMovie(r, EPISODE);

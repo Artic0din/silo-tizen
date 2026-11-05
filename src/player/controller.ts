@@ -1909,7 +1909,7 @@ export class PlaybackController implements PlayerControls {
                 try {
                     const values = await this.deps.session.call({ ...operations.effectiveSettings([AUTO_NEXT_KEY]), profileScoped: true, signal: abort.signal });
                     attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
-                } catch { attempt.autoNext = false; }
+                } catch { if (current()) attempt.autoNext = false; }
                 if (!current()) return;
             }
             if (attempt.request.shuffleId !== undefined) {
@@ -2723,7 +2723,7 @@ export class PlaybackController implements PlayerControls {
                 try {
                     const values = await read(operations.effectiveSettings([AUTO_NEXT_KEY]));
                     if (current()) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
-                } catch { attempt.autoNext = false; }
+                } catch { if (current()) attempt.autoNext = false; }
             }
             const fileId = attempt.plan?.effectiveMediaFileId;
             const next = attempt.request.episode === true && fileId !== undefined ? await nextEpisode(read, attempt.request.contentId, fileId) : undefined;
@@ -2748,7 +2748,10 @@ export class PlaybackController implements PlayerControls {
             publish(await onDeckPlays(read, attempt.request.contentId, publish));
         } catch {
             // Playback continues; EOF retains the existing explicit Retry path.
-        } finally { attempt.promptPending = false; }
+        } finally {
+            attempt.promptPending = false;
+            if (!current()) attempt.promptLookedUp = false;
+        }
     }
 
     private setDisplayRect(attempt: Attempt): void {

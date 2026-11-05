@@ -20,6 +20,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Retried Up Next discovery after seeks, preserved fresh autoplay settings at EOF, and kept captions inside the video preview.
+
 - Updated composed EOF checks for Apple TV's Play Now, On Deck and tail replay behavior, and isolated focus checks from background reads.
 - Kept focus on the selected On Deck title when more candidates arrived.
 - Restored full-screen playback after a paused seek left the Up Next window and offered Play Now before later On Deck lookups finished.

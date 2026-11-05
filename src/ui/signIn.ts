@@ -24,6 +24,7 @@ export interface SignInOptions {
     readonly address?: string;
     readonly username?: string;
     readonly onChangeAccount?: () => void;
+    readonly onCancel?: () => void;
     /** Explicit server switching preserves saved sign-ins and starts at server entry. */
     readonly chooseServer?: boolean;
     readonly core: SessionCoreDeps;
@@ -255,7 +256,8 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             copy.push(options);
         }
         const row = [connect];
-        if (options.onChangeAccount) {
+        if (options.onCancel) row.push(marqueeButton("back", "Back", "plain", () => { destroy(); options.onCancel?.(); }));
+        else if (options.onChangeAccount) {
             const canReturn = new AccountDirectory(options.core.publicStorage, options.core.randomBytes).list().some(account => !account.needsSignIn);
             row.push(marqueeButton("change-account", canReturn ? "Back to profiles" : "Change account", "plain", changeServer));
         }
@@ -278,7 +280,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             controls: busy ? controls.filter((control) => control.key === "connect") : controls,
             focus: address === "" ? "address" : "connect",
             // Leaving mid-probe would let a late connect pull the app on, so Back waits for it.
-            back: busy ? () => undefined : undefined,
+            back: busy ? () => undefined : options.onCancel ? () => { destroy(); options.onCancel?.(); } : undefined,
         };
     };
 
@@ -340,7 +342,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
      * `fallbacks`: plain-HTTP addresses the person agreed to, tried in order after `target`.
      * `chosen`: the protocol picked in Advanced options; only Auto asks about plain HTTP.
      */
-    const startConnect = (fallbacks: readonly string[] = [], target = address, chosen: AdvancedScheme = "auto"): void => {
+    const startConnect = (fallbacks: readonly string[] = [], target = address, chosen: AdvancedScheme = "auto", offlineRestore = false): void => {
         connecting?.abort();
         const controller = new AbortController();
         connecting = controller;
@@ -355,7 +357,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         pendingAccountCleanup.then(() => {
             cancelCleanupWait();
             if (!controller.signal.aborted && !destroyed) {
-                return connectInOrder([target, ...fallbacks], controller.signal);
+                return connectInOrder([target, ...fallbacks], controller.signal, offlineRestore);
             }
             return undefined;
         }).then(
@@ -388,10 +390,10 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     };
 
     /** Like the Apple TV app, the first plain-HTTP address that answers as Silo wins. */
-    const connectInOrder = async (addresses: readonly string[], signal: AbortSignal): Promise<ConnectResult> => {
+    const connectInOrder = async (addresses: readonly string[], signal: AbortSignal, offlineRestore: boolean): Promise<ConnectResult> => {
         let result: ConnectResult = { status: "unreachable" };
         for (const candidate of addresses) {
-            result = await connect(candidate, core, signal);
+            result = await connect(candidate, { ...core, allowOfflineRestore: offlineRestore }, signal);
             if (result.status === "connected" || signal.aborted) {
                 break;
             }
@@ -927,7 +929,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     } else if (options.chooseServer === true) {
         showEntry([], false, "connect");
     } else if (address !== "") {
-        startConnect();
+        startConnect([], address, "auto", true);
     } else {
         showEntry([], false);
     }

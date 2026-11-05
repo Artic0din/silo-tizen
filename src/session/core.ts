@@ -4,7 +4,7 @@
 import { type Clock, systemClock } from "../api/clock.ts";
 import { clearBrowseCache } from "./browseCache.ts";
 import { discoverServer, type DiscoveryResult, type ServerConnection } from "../api/discovery.ts";
-import type { FetchLike } from "../api/http.ts";
+import { NativeHttp, type FetchLike } from "../api/http.ts";
 import { parseServerUrl, type ServerUrlProblem } from "../api/serverUrl.ts";
 import { CredentialVault, type VaultClear } from "./credentialVault.ts";
 import { DeviceLogin } from "./deviceLogin.ts";
@@ -13,10 +13,11 @@ import { Profiles } from "./profiles.ts";
 import { ProfileLaunch } from "./profileLaunch.ts";
 import { openSecretStore, type TizenKeyManager } from "./secretStore.ts";
 import { NativeSession, type RestoreResult } from "./session.ts";
-import { AccountVault, type SavedAccount } from "./accounts.ts";
+import { AccountDirectory, AccountVault, type SavedAccount } from "./accounts.ts";
 import type { SecretStore } from "./secretStore.ts";
 
 export interface SessionCoreDeps {
+    readonly allowOfflineRestore?: boolean;
     readonly transientAccounts?: { readonly secrets: SecretStore; readonly storage: PublicStorage };
     readonly fetch: FetchLike;
     /** localStorage; public device identity, account metadata and logout floors, never tokens. */
@@ -52,7 +53,19 @@ export type ConnectResult = ConnectedServer | Exclude<DiscoveryResult, { readonl
 export async function connect(serverAddress: string, deps: SessionCoreDeps, signal?: AbortSignal): Promise<ConnectResult> {
     const clock = deps.clock ?? systemClock;
     const device = deviceHeaders(loadDeviceId(deps.publicStorage, deps.randomBytes), deps.deviceName, deps.devicePlatform);
-    const discovered = await discoverServer(serverAddress, device, deps.fetch, clock, signal);
+    let discovered = await discoverServer(serverAddress, device, deps.fetch, clock, signal);
+    const offlineDiscovery = discovered.status === "unreachable";
+    if (discovered.status === "unreachable" && deps.allowOfflineRestore !== false && !deps.addAccount && !signal?.aborted) {
+        const parsed = parseServerUrl(serverAddress);
+        if (parsed.ok) {
+            try {
+                const transient = deps.keyManager === undefined ? deps.transientAccounts : undefined;
+                const directory = new AccountDirectory(transient?.storage ?? deps.publicStorage, deps.randomBytes);
+                const saved = directory.list().find(row => row.id === (deps.localAccountId ?? directory.selected) && row.baseUrl === parsed.base.baseUrl && !row.needsSignIn);
+                if (saved) discovered = { status: "connected", server: { http: new NativeHttp(parsed.base, device, deps.fetch, clock), serverId: saved.serverId, serverVersion: "" } };
+            } catch { /* Unreadable local identity cannot authorize an offline restore. */ }
+        }
+    }
     if (discovered.status !== "connected") {
         return discovered;
     }
@@ -64,11 +77,16 @@ export async function connect(serverAddress: string, deps: SessionCoreDeps, sign
         // Unreadable metadata must not overwrite saved accounts; sign-in can still be session-only.
         vault = new AccountVault(deps.transientAccounts?.secrets ?? openSecretStore(undefined), deps.transientAccounts?.storage, server.http.base.baseUrl, deps.randomBytes, undefined, true, deps.transientAccounts?.storage);
     }
+    if (offlineDiscovery) {
+        const saved = await vault.load();
+        if (saved.status !== "found" || saved.credential.serverId !== server.serverId) return { status: "unreachable" };
+    }
     const session = new NativeSession(server, vault, clock, async accountId => {
         await deps.beforeAccountSignIn?.(server.http.base.baseUrl, accountId);
     });
     watchBrowseCache(session, deps.publicStorage, server.serverId, vault.directory.list().find(row => row.id === vault.localAccountId)?.accountId);
     const restore = await session.restore();
+    if (offlineDiscovery && restore !== "signed_in") return { status: "unreachable" };
     if (restore === "signed_in" && session.account) {
         const cached = deps.reuseAccount?.(server.http.base.baseUrl, session.account.id);
         if (cached?.session.signedIn && cached.server.serverId === server.serverId) return { ...cached, restore: "signed_in" };

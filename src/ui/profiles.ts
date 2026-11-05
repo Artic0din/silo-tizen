@@ -168,7 +168,16 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             (error: unknown) => {
                 if (token === view) {
                     pending = undefined;
-                    listFailed(error, focus);
+                    if (error instanceof ApiError && ["network", "timeout"].includes(error.failure.kind) && !options.pickerRequested && options.launch?.remembered) {
+                        const restore = new AbortController();
+                        pending = restore;
+                        void options.launch.restoreOffline(restore.signal).then(profile => {
+                            if (token !== view) return;
+                            pending = undefined;
+                            if (profile) handOff(profile);
+                            else listFailed(error, focus);
+                        }, failure => { if (token === view) { pending = undefined; listFailed(failure, focus); } });
+                    } else listFailed(error, focus);
                 }
             },
         );
@@ -246,7 +255,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             const controller = new AbortController();
             pending = controller;
             message("remember-saving", "Saving launch choice", [], [button("back", "Back", () => showList(profile.id))], () => showList(profile.id));
-            launch.setRemember(remember, controller.signal).then(() => { if (token === view) handOff(profile); }, () => { if (token === view) offer(true); });
+            launch.setRemember(remember, controller.signal, profile).then(() => { if (token === view) handOff(profile); }, () => { if (token === view) offer(true); });
         };
         if (launch.needsOffer) offer();
         else save(true);

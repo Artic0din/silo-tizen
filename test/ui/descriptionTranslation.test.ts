@@ -5,7 +5,7 @@ import { FakeCalendar } from "../native/support/fakeCalendar.ts";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakeHome } from "../native/support/fakeHome.ts";
 import type { CatalogRoutes, FakeSilo, Reply } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -177,24 +177,35 @@ for (const mode of ["button", "auto"] as const) test(`series episode focus does 
     } finally { await tv.page.context().close(); }
 });
 
-test("the featured marquee waits 1500ms and other cards never start a translation", async () => {
+for (const leave of [false, true]) test(leave ? "leaving a featured card at 1499ms cancels its dwell immediately" : "the featured marquee waits 1500ms and other cards never start a translation", async () => {
     const tv = await openTv(browser, { app: "browse" });
     const catalog = new FakeHome();
     tv.fake.catalog = catalog;
     const translation = install(tv.fake, catalog, "auto", ["movie:m0004"]);
     try {
-        await signIn(tv);
+        await pauseTvClock(tv);
         const held = tv.fake.hold("/capabilities/metadata-ai");
+        await signIn(tv);
         await tv.page.evaluate(() => window.browseHarness.mount());
         await tv.page.locator('[data-view="home"] .skyline-marquee h1').waitFor();
-        await tv.eventually(() => Promise.resolve(tv.fake.requests.some(request => request.path === "/capabilities/metadata-ai")), "held metadata AI capability");
-        // Keep protocol time out of the exact 1499ms/1500ms dwell boundary.
-        await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now()) + 1000);
+        const capability = tv.page.waitForResponse(response => response.url().includes('/capabilities/metadata-ai'));
         held.release();
+        await (await capability).finished();
         await tv.jump(0);
         assert.equal(translation.posts().length, 0);
         await tv.jump(1499);
         assert.equal(translation.posts().length, 0, "the dwell has not elapsed");
+        if (leave) {
+            await tv.remote(40);
+            assert.notEqual(await tv.focused(), "movie:m0004");
+            await tv.jump(1);
+            assert.equal(translation.posts().length, 0, "leaving cancels before the delayed preview applies");
+            await tv.jump(149);
+            await tv.jump(2000);
+            assert.equal(translation.posts().length, 0, "ordinary cards never translate");
+            assert.deepEqual(tv.console, []);
+            return;
+        }
         await tv.jump(1);
         await tv.eventually(() => Promise.resolve(translation.posts().length === 1), "featured dwell");
         assert.equal(translation.posts()[0]?.path.split("?")[0], "/catalog/items/movie%3Am0004/translate-description");
@@ -236,6 +247,7 @@ test("a replaced marquee keeps the new card's translation on the incoming layer"
     tv.fake.catalog = catalog;
     install(tv.fake, catalog, "auto", ["movie:m0004"]);
     try {
+        await pauseTvClock(tv);
         await signIn(tv);
         await tv.page.evaluate(() => window.browseHarness.mount());
         await tv.page.locator('[data-view="home"] .skyline-marquee h1').waitFor();
@@ -270,6 +282,7 @@ test("returning from Settings rearms a featured dwell that hide cancelled", asyn
     tv.fake.catalog = catalog;
     const translation = install(tv.fake, catalog, "auto", ["movie:m0004"]);
     try {
+        await pauseTvClock(tv);
         await signIn(tv);
         await tv.page.evaluate(() => window.browseHarness.mount());
         await tv.page.locator('[data-view="home"] .skyline-marquee h1').waitFor();

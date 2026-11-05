@@ -1,5 +1,6 @@
 // Optional Details reads and explicit personal writes. The route owns and stops this work.
 import { ApiError } from "../api/errors.ts";
+import { shufflePick } from "../player/nextShuffle.ts";
 import type { RequestSpec } from "../api/http.ts";
 import { detailOperations, type PersonalAction } from "../api/detailOperations.ts";
 import { operations } from "../api/operations.ts";
@@ -9,7 +10,6 @@ import { playChoices, type PlayRequest } from "./browseModel.ts";
 import type { Clock } from "../api/clock.ts";
 import type { NativeSession } from "../session/session.ts";
 import { readSettingsCapability, readTitleArt } from "./presentationSettings.ts";
-import { RatingState } from "./ratingState.ts";
 import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
 import { SeriesEpisodes } from "./seriesEpisodes.ts";
 import { freshPlayPosition } from "./playbackPreparation.ts";
@@ -29,13 +29,12 @@ const EPISODE_PREFETCH_CONCURRENCY = 4;
 
 export class DetailsState {
     readonly descriptions: ItemDescriptionTranslation | undefined;
-    readonly rating: RatingState;
     readonly audioPreference: PreplayAudioPreference;
     readonly subtitlePreference: PreplayTrackPreference<SubtitlePreferencePick, SubtitlePreference>;
     series: SeriesEpisodes | undefined;
     detail: ItemDetail;
     selectedFileId: string | undefined;
-    panel: "audio" | "version" | "subtitles" | "more" | "rating" | undefined;
+    panel: "audio" | "version" | "subtitles" | "more" | undefined;
     get audioOpen(): boolean { return this.panel === "audio"; }
     preparingPlay = false;
     failedPlay: PlayRequest | undefined;
@@ -57,11 +56,17 @@ export class DetailsState {
         return [...this.episodeStates.values(), ...this.previousEpisodeStates.values()].find(state => state.audioPreference.pending || state.audioPreference.failed || state.subtitlePreference.pending || state.subtitlePreference.failed);
     }
     get episodePreferencesBlocked(): boolean { return this.unsettledEpisode !== undefined; }
-    get playbackTargetId(): string | undefined { return this.focusedEpisodeId ?? this.detail.playContentId; }
+    get playbackTargetId(): string | undefined {
+        const episodes = this.series?.episodes;
+        return this.focusedEpisodeId ?? (episodes?.find(episode => episode.inProgress) ?? episodes?.find(episode => !episode.played) ?? episodes?.[0])?.id ?? this.detail.playContentId;
+    }
     nextEpisodeLoading = false;
     nextEpisodeFailed = false;
     extraPending: string | undefined;
     extraFailed: string | undefined;
+    shuffleSupported = false;
+    shuffleStarting = false;
+    shuffleFailed = false;
     private full = false;
     private restored = false;
     private readonly responses = new Map<string, unknown>();
@@ -116,7 +121,6 @@ export class DetailsState {
         this.changed = changed;
         this.watchedChanged = watchedChanged;
         this.pendingElsewhere = pendingElsewhere;
-        this.rating = new RatingState(session, detail.id, () => this.changed(), () => this.pending || this.pendingElsewhere());
         this.audioPreference = new PreplayAudioPreference(session, detail.seriesId || detail.id, () => this.changed(), async signal => {
             const refreshed = await session.call({ ...operations.getCatalogItem(detail.id), profileScoped: true, signal });
             if (refreshed.id !== detail.id) throw new Error("Audio readback item mismatch");
@@ -134,8 +138,10 @@ export class DetailsState {
         if (detail.played !== undefined && ["movie", "episode", "series", "season"].includes(detail.type)) this.values.set("watched", detail.played);
     }
 
-    get pending(): boolean { return [...this.changes.values()].some(change => change.pending); }
-    get busy(): boolean { return this.pending || this.rating.pending || this.pendingElsewhere() || this.episodePreferencesBlocked; }
+    get pending(): boolean { return [...this.changes.values()].some(change => change.pending) || [...this.seasonStates.values()].some(state => state.pending); }
+    readonly seasonStates = new Map<number, DetailsState>();
+    private aggregateWatched: boolean | undefined;
+    get busy(): boolean { return this.pending || this.pendingElsewhere() || this.episodePreferencesBlocked; }
 
     acceptDetail(detail: ItemDetail): void {
         const retrySupporting = this.offline;
@@ -156,17 +162,16 @@ export class DetailsState {
         if (this.personalFailed || retrySupporting) this.loadPersonal();
         if (this.relatedFailed || retrySupporting) this.loadRelated();
         if (this.titleArtPolicy === "failed" || retrySupporting) this.loadTitleArt();
-        if (this.rating.failed && this.rating.failedTarget === undefined) this.rating.load();
     }
 
     start(mode: "full" | "personal" | "playback" = "full"): void {
         if (this.controller !== undefined) return;
         this.controller = new AbortController();
+        for (const state of this.seasonStates.values()) state.start("personal");
         if (["movie", "episode"].includes(this.detail.type)) this.audioPreference.start();
         if (["movie", "episode"].includes(this.detail.type)) this.subtitlePreference.start();
         this.full = mode === "full";
         if (this.full && this.episodePreferenceDirty) this.episodePreferenceChanged(this);
-        if (mode === "full" && ["movie", "series"].includes(this.detail.type)) this.rating.start();
         this.stopAuthority = this.session.onAuthorityChange(() => { this.stop(); this.changed(); });
         if (mode === "playback") return;
         this.nextEpisodeState?.start("playback");
@@ -175,6 +180,14 @@ export class DetailsState {
         if (mode === "full") this.series?.start();
         if (mode === "full") this.warmSeriesEpisodes();
         if (mode === "full") this.loadTitleArt();
+        if (mode === "full" && this.detail.type === "series") {
+            const controller = this.controller;
+            void this.read(operations.shuffleCapabilities(), controller).then(capability => {
+                if (!this.current(controller)) return;
+                this.shuffleSupported = capability.usable && capability.scopeKinds.includes("series");
+                this.changed();
+            }, () => undefined);
+        }
         if (mode === "full" && (this.nextEpisode === undefined || this.restored) && !this.nextEpisodeFailed) this.loadNextEpisode();
         let interrupted = false;
         for (const [kind, change] of this.changes) {
@@ -191,6 +204,8 @@ export class DetailsState {
     }
 
     stop(): void {
+        this.shuffleStarting = false;
+        for (const state of this.seasonStates.values()) state.stop();
         this.descriptions?.stop();
         this.extraPending = undefined;
         this.episodeEpoch++;
@@ -203,7 +218,6 @@ export class DetailsState {
         this.episodeWorkers = 0;
         this.audioPreference.stop();
         this.subtitlePreference.stop();
-        this.rating.stop();
         this.series?.stop();
         this.controller?.abort();
         this.controller = undefined;
@@ -301,8 +315,8 @@ export class DetailsState {
     showPanel(panel: NonNullable<DetailsState["panel"]>): void { this.panel = panel; this.changed(); }
     closePanel(): void {
         const panel = this.panel;
-        this.panel = panel === "rating" ? "more" : undefined;
-        this.changed(panel === "rating" ? "rate" : panel);
+        this.panel = undefined;
+        this.changed(panel);
     }
     showAudio(): void { this.showPanel("audio"); }
     closeAudio(): void { this.closePanel(); }
@@ -413,6 +427,30 @@ export class DetailsState {
         }
     }
 
+    startShuffle(handoff: (request: PlayRequest) => void): void {
+        const controller = this.controller;
+        if (controller === undefined || !this.shuffleSupported || this.shuffleStarting || this.detail.type !== "series") return;
+        this.shuffleStarting = true;
+        this.shuffleFailed = false;
+        this.changed();
+        void (async () => {
+            try {
+                const shuffle = await this.session.call({ ...operations.createShuffle(this.detail.id, "series"), profileScoped: true, replayAfterRefresh: false, signal: controller.signal });
+                if (!this.current(controller)) return;
+                const request = await shufflePick(spec => this.read(spec, controller), shuffle);
+                if (!this.current(controller)) return;
+                if (request === undefined) throw new Error("Shuffle has no playable file");
+                this.closePanel();
+                handoff(request);
+            } catch {
+                if (this.current(controller)) this.shuffleFailed = true;
+            } finally {
+                if (this.current(controller)) { this.shuffleStarting = false; this.changed(); }
+            }
+        })();
+    }
+
+
     private current(controller: AbortController): boolean {
         return this.controller === controller && !controller.signal.aborted;
     }
@@ -427,6 +465,14 @@ export class DetailsState {
 
     warmSeriesEpisodes(translate = true): void {
         if (!["series", "season"].includes(this.detail.type)) return;
+        const season = this.series?.seasons.find(season => season.seasonNumber === this.series?.seasonNumber);
+        if (season !== undefined && (this.aggregateWatched !== undefined || season.userData !== undefined) && !this.seasonStates.has(season.seasonNumber)) {
+            const owner = new DetailsState({ ...this.detail, id: season.id, type: "season", seriesId: this.detail.id, seasonNumber: season.seasonNumber, played: this.aggregateWatched ?? season.userData?.played },
+                this.session, () => this.changed(), (detail, signal) => this.seasonWatchedChanged(detail, signal),
+                () => this.pending || this.pendingElsewhere());
+            this.seasonStates.set(season.seasonNumber, owner);
+            owner.start("personal");
+        }
         if (this.series?.focusSelectedEpisode && this.series.episodes !== undefined) {
             this.focusedEpisodeId = this.series.entryEpisode;
         }
@@ -444,6 +490,22 @@ export class DetailsState {
         // Focus only selects a preloaded owner. Reads belong to season acceptance and explicit Retry.
         this.syncEpisode();
         this.changed();
+    }
+
+    private async seasonWatchedChanged(detail: ItemDetail, signal: AbortSignal): Promise<void> {
+        await this.watchedChanged(detail, signal);
+        const [series, seasons] = await Promise.all([
+            this.session.call({ ...operations.getCatalogItem(this.detail.id), profileScoped: true, signal }),
+            this.session.call({ ...operations.listSeriesSeasons(this.detail.id), profileScoped: true, signal }),
+        ]);
+        if (series.id !== this.detail.id || series.played === undefined) throw new Error("Series watch state missing");
+        if (signal.aborted) return;
+        this.invalidateEpisodes();
+        this.detail = series;
+        this.values.set("watched", series.played);
+        this.aggregateWatched = undefined;
+        if (this.series !== undefined) this.series.seasons = seasons;
+        this.warmSeriesEpisodes();
     }
 
     cachedEpisode(id: string): DetailsState | undefined { return this.episodeStates.get(id); }
@@ -468,11 +530,30 @@ export class DetailsState {
 
     showSeriesOverview(): void { this.focusedEpisodeId = undefined; this.syncEpisode(); this.closePanel(); }
 
+    restoreSeasonStates(previous: DetailsState | undefined): void {
+        for (const [number, prior] of previous?.seasonStates ?? []) {
+            const season = this.series?.seasons.find(season => season.seasonNumber === number);
+            if (season === undefined) continue;
+            const owner = new DetailsState({ ...prior.detail, played: season.userData?.played }, this.session, () => this.changed(),
+                (detail, signal) => this.seasonWatchedChanged(detail, signal), () => this.pending || this.pendingElsewhere());
+            for (const [kind, change] of prior.changes) owner.changes.set(kind, { ...change, pending: false, failed: true });
+            this.seasonStates.set(number, owner);
+        }
+    }
+
     private syncEpisode(): void {
         const id = this.playbackTargetId;
         this.nextEpisodeState = id === undefined ? undefined : this.episodeStates.get(id);
+        const previous = id === undefined ? undefined : this.previousEpisodeStates.get(id);
+        if (id !== undefined && this.nextEpisodeState === undefined && previous !== undefined && !previous.audioPreference.pending && !previous.audioPreference.failed && !previous.subtitlePreference.pending && !previous.subtitlePreference.failed && !this.episodeFailures.has(id) && this.controller !== undefined) {
+            const state = new DetailsState(previous.detail, this.session, key => this.episodePreferenceChanged(state, key), this.watchedChanged, this.pendingElsewhere);
+            state.restore(previous);
+            this.episodeStates.set(id, state);
+            state.start("playback");
+            this.nextEpisodeState = state;
+        }
         this.nextEpisode = this.nextEpisodeState?.detail;
-        this.nextEpisodeFailed = ["series", "season"].includes(this.detail.type) && id !== undefined && this.episodeFailures.has(id);
+        this.nextEpisodeFailed = this.nextEpisodeState === undefined && ["series", "season"].includes(this.detail.type) && id !== undefined && this.episodeFailures.has(id);
         this.nextEpisodeLoading = id !== undefined && this.episodeReads.has(id);
     }
 
@@ -501,7 +582,12 @@ export class DetailsState {
                 this.previousEpisodeStates.delete(id);
                 this.episodeStates.set(id, state);
                 state.start("playback");
-            }).catch(() => { if (current()) this.episodeFailures.add(id); }).finally(() => {
+            }).catch(error => {
+                if (!current()) return;
+                this.episodeFailures.add(id);
+                if (error instanceof ApiError && ["network", "timeout"].includes(error.failure.kind)) this.offline = true;
+                else { this.episodeStates.get(id)?.stop(); this.episodeStates.delete(id); }
+            }).finally(() => {
                 if (!current()) return;
                 this.episodeWorkers--;
                 this.episodeReads.delete(id);
@@ -609,13 +695,13 @@ export class DetailsState {
         this.changed();
         const run = async (): Promise<void> => {
             if (reconcile) {
-                const actual = await this.refresh(kind, controller);
+                const actual = await this.refresh(kind, controller, target, false);
                 if (!this.current(controller) || actual === target) return;
             }
             if (!this.current(controller)) return;
             await this.session.call({ ...detailOperations.setPersonal(kind, this.detail.id, target), profileScoped: true, replayAfterRefresh: false, signal: controller.signal });
             if (!this.current(controller)) return;
-            const actual = await this.refresh(kind, controller);
+            const actual = await this.refresh(kind, controller, target, true);
             if (actual !== target) throw new Error("Personal state was not applied");
         };
         run().then(() => {
@@ -629,15 +715,43 @@ export class DetailsState {
         });
     }
 
-    private async refresh(kind: PersonalAction, controller: AbortController): Promise<boolean> {
+    private async refresh(kind: PersonalAction, controller: AbortController, requested = false, writeAccepted = false): Promise<boolean> {
         if (kind === "watched") {
             const detail = await this.read(operations.getCatalogItem(this.detail.id), controller, false);
             if (detail.id !== this.detail.id || detail.played === undefined) throw new Error("Watch state missing");
             if (!this.current(controller)) return detail.played;
             await this.watchedChanged(detail, controller.signal);
             if (this.current(controller)) {
+                // Series played:false only means the show is incomplete. Copy it onto seasons
+                // after that write was accepted, or when the read shows the whole series watched.
+                // A lost unwatched answer is separate: the series was fully watched and this read
+                // matches that request, so the write took effect. Refresh the seasons already
+                // loaded from their rollups, and drop the series aggregate so a season opened
+                // later uses the rollup it was read with. Do that before accepting the read; if
+                // the refresh fails, the series stays watched and Retry can try again.
+                const unwatchedLanded = detail.type === "series" && !writeAccepted && requested === false && detail.played === false && this.values.get(kind) === true;
+                const rollups = unwatchedLanded ? await this.read(operations.listSeriesSeasons(this.detail.id), controller) : undefined;
+                if (!this.current(controller)) return detail.played;
                 this.detail = detail;
                 this.values.set(kind, detail.played);
+                if (detail.type === "series" && detail.played === requested && (detail.played === true || writeAccepted)) {
+                    this.aggregateWatched = detail.played;
+                    for (const owner of this.seasonStates.values()) {
+                        owner.values.set("watched", detail.played);
+                        owner.detail = { ...owner.detail, played: detail.played };
+                        owner.changes.delete("watched");
+                    }
+                } else if (rollups !== undefined) {
+                    if (this.series !== undefined) this.series.seasons = rollups;
+                    this.aggregateWatched = undefined;
+                    for (const [number, owner] of this.seasonStates) {
+                        const played = rollups.find(season => season.seasonNumber === number)?.userData?.played;
+                        if (played === undefined) continue;
+                        owner.values.set("watched", played);
+                        owner.detail = { ...owner.detail, played };
+                        owner.changes.delete("watched");
+                    }
+                }
                 this.invalidateEpisodes();
                 this.focusedEpisodeId = undefined;
                 this.nextEpisode = undefined;

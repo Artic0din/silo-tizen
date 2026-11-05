@@ -6,7 +6,12 @@ Every visit still requests fresh data; only transport failure or timeout uses a 
 HTTP errors, cancellation and writes never use this fallback.
 Existing navigation and actions stay available and use their normal server validation and error handling.
 This does not download media or enable offline playback.
-Snapshots are used only after account and profile authority is established; they do not bypass startup discovery, sign-in or profile/PIN checks.
+On a discovery transport failure, an existing saved account can restore its local session and remembered profile, including its protected PIN proof.
+This permits snapshot hydration without a reachable server; fresh requests still validate the session and profile on recovery.
+An explicit session rejection returns to sign-in; a first-time unreachable address retains the connection error.
+An account without a remembered profile still needs profile selection.
+Uncached Home and For You failures use Apple's centred warning and Try Again control; Home also offers Manage Servers.
+Both cached and uncached Home retry transport failures automatically.
 
 The scope contains the server ID, account ID and profile ID, never the server address or credentials.
 Authority loss clears memory and snapshots and fences pending responses.
@@ -18,6 +23,8 @@ Optional storage failures leave the memory cache usable.
 Persistent snapshots strip URL and credential fields recursively.
 In-memory responses retain full artwork URLs, including signed backdrops, title art and cast portraits, for the active session.
 Persistent snapshots still omit every URL; a cold reload cannot restore signed artwork from those snapshots.
+The remembered profile stores only its display name and primary/child flags alongside its existing identity and protected-proof reference, without avatar URLs.
+Older remembered choices without those display fields use the profile ID until an online selection saves them.
 Images are not downloaded, so reuse also depends on the image being available in the browser cache or still reachable.
 Snapshots are decoded with the existing API decoders before use.
 
@@ -31,6 +38,8 @@ Metadata writes and returning from playback invalidate snapshots, with a generat
 While a cached page is unreachable, the visible route retries its normal reads after 15 seconds.
 Cached metadata stays on screen without an unreachable notice, matching Apple TV.
 Optional personal, next-episode, title-art and related reads retain prior display values on transport failure.
+Series Play retains the cached episode owner and its normal launch behavior when its fresh read fails.
+Apple's active episode selection overrides the overview suggestion; Show Series Info restores the selected season's suggestion independently of rail focus memory.
 Uncached optional failures omit the corresponding unavailable content rather than adding red notices.
 Failed episode hierarchy reads still show the episode Retry alongside retained episodes, as Apple TV does.
 With cached episodes, "Couldn't load episodes." and the inline "Retry" appear below the rail at 18px, in their own remote focus row.

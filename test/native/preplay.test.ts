@@ -123,7 +123,7 @@ test("confirming a shared preference requeues episodes whose detail read was int
     held.release(); state.stop(); await settle();
 });
 
-test("restored episode focus and overview next-up can belong to different seasons", async () => {
+test("restored episode focus returns to the selected season suggestion on overview", async () => {
     const r = await rig(); r.state.stop();
     const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
     const seasons = decodeSeasons(r.catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body);
@@ -135,7 +135,7 @@ test("restored episode focus and overview next-up can belong to different season
     state.restore(previous); state.start(); await settle();
     assert.equal(state.nextEpisode?.id, 'episode:s1e12');
     state.showSeriesOverview(); await settle();
-    assert.equal(state.nextEpisode?.id, 'episode:s1e21');
+    assert.equal(state.nextEpisode?.id, 'episode:s1e11', 'Apple selects within the loaded season rather than play_content_id');
     state.stop();
 });
 

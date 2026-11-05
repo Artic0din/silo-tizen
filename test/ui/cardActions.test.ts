@@ -244,8 +244,9 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) for (const out
             await origin(tv).click();
             await tv.page.locator('.browse[data-view="item:movie:m0001"]').waitFor();
             await tv.page.locator('[data-focus="more"]').click();
-            await tv.page.getByRole("button", { name: "Mark watched", exact: true }).click();
-            await tv.page.getByRole("button", { name: "Mark unwatched", exact: true }).waitFor();
+            await tv.page.getByRole("button", { name: "Mark as Watched", exact: true }).click();
+            await tv.page.locator('[data-focus="more"]').click();
+            await tv.page.getByRole("button", { name: "Mark as Unwatched", exact: true }).waitFor();
             await tv.remote(10009);
             await tv.page.getByRole("button", { name: "Add to watchlist", exact: true }).click();
             await tv.page.getByRole("button", { name: "Remove from watchlist", exact: true }).waitFor();

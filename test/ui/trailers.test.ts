@@ -34,7 +34,10 @@ trailerTest("a movie with only a YouTube video shows Trailers & More and leaves 
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     await tv.page.locator(".details-extras").waitFor();
     assert.deepEqual(await tv.page.locator(".details-extras [data-focus]").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus"))), ["remote:YouTube:abc_def-1"]);
-    const metrics = await tv.page.locator(".details-extras").evaluate(row => {
+    // The section after the row can paint later, and the caption gap is measured to it.
+    await tv.page.locator(".details-extras + *").waitFor();
+    const metrics = await tv.page.evaluate(() => {
+        const row = document.querySelector<HTMLElement>(".details-extras")!;
         const card = row.querySelector<HTMLElement>(".details-extra")!;
         const still = card.querySelector<HTMLElement>(".browse-still")!;
         const title = card.querySelector<HTMLElement>(".browse-card-title")!;

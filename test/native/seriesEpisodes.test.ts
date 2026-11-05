@@ -153,7 +153,7 @@ test('episode row entry uses the current episode after the selected season loads
     const raw = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner');
     assert.ok(raw?.body && typeof raw.body === 'object');
     const body = raw.body as { items: Record<string, unknown>[] };
-    h.fake.script(operations.listSeasonEpisodes('series:s1', 1).path, { status: 200, body: { items: body.items.map((episode, index) => ({ ...episode, user_data: { played: false, in_progress_count: index === 1 ? 1 : 0 } })) } });
+    h.fake.script(operations.listSeasonEpisodes('series:s1', 1).path, { status: 200, body: { items: body.items.map((episode, index) => ({ ...episode, user_data: { played: false, is_in_progress: index === 1 } })) } });
     const state = new SeriesEpisodes(h.core.session, 'series:s1', seasons, () => undefined);
     state.start(); for (let index = 0; index < 5; index++) await h.clock.advance(0);
     assert.equal(state.entryEpisode, 'episode:s1e12');

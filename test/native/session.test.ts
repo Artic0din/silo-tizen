@@ -1,4 +1,24 @@
 import assert from "node:assert/strict";
+import { connect } from "../../src/session/core.ts";
+
+test("discovery transport failure restores only an existing saved account without a device code", async () => {
+    const h = await connected();
+    await signIn(h);
+    const deps = { fetch: async (): Promise<never> => { throw new TypeError("offline"); }, publicStorage: h.storage, keyManager: h.keyManager, randomBytes: (bytes: Uint8Array) => bytes.fill(0xab), deviceName: "TV", devicePlatform: "tizen", clock: h.clock };
+    const pending = connect(h.fake.origin, deps);
+    await h.clock.advance(35000);
+    const result = await pending;
+    assert.equal(result.status, "connected");
+    if (result.status === "connected") {
+        assert.equal(result.restore, "signed_in");
+        assert.equal(result.session.account?.id, h.core.session.account?.id);
+    }
+    const first = connect("https://first-time.invalid", deps);
+    await h.clock.advance(35000);
+    assert.equal((await first).status, "unreachable");
+    const online = await connected({ clock: h.clock, fake: h.fake, keyManager: h.keyManager, storage: h.storage });
+    assert.equal(online.core.restore, "signed_in", "network failure did not clear saved authority");
+});
 import { test } from "node:test";
 import { ApiError } from "../../src/api/errors.ts";
 import type { ProfileSummary } from "../../src/contracts/v2/wire.ts";

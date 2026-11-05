@@ -538,7 +538,7 @@ export function decodeEpisodes(value: unknown): Episode[] {
     return items(value, "episodes", (entry, path) => {
         const obj = object(entry, path);
         const user = obj.user_data === undefined ? undefined : object(obj.user_data, `${path}.user_data`);
-        const inProgress = user !== undefined && (optionalInteger(user, "in_progress_count", `${path}.user_data`) ?? 0) > 0;
+        const inProgress = user?.is_in_progress === undefined ? false : boolean(user, "is_in_progress", `${path}.user_data`);
         return {
             ...(inProgress ? { inProgress: true } : {}),
             ...(user === undefined ? {} : {

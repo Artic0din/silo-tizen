@@ -30,7 +30,7 @@ function appTest(name: string, body: (tv: Tv, playback: FakePlayback, catalog: F
     });
 }
 
-async function signIn(tv: Tv): Promise<void> {
+async function signIn(tv: Tv, remember = false): Promise<void> {
     await tv.page.fill("#signin-address", "silo.example.test");
     await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
     await tv.page.locator('[data-screen="code"]').waitFor();
@@ -38,10 +38,57 @@ async function signIn(tv: Tv): Promise<void> {
     assert.ok(code !== undefined);
     await approveSignIn(tv, code);
     await tv.page.locator('[data-focus="profile:p-owner"]').click();
-    await tv.page.locator('[data-focus="ask-every-launch"]').click();
+    await tv.page.locator(`[data-focus="${remember ? "remember" : "ask-every-launch"}"]`).click();
     await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
     await homeDetailsRead(tv);
 }
+
+appTest("unvisited offline For You uses Apple's centred error", async tv => {
+    await signIn(tv);
+    tv.offline = true;
+    await tv.page.locator('[data-focus="for_you"]').click();
+    await tv.jump(35000);
+    await tv.page.locator('[data-view="for_you"] .details-failure').waitFor();
+    await tv.page.getByRole("button", { name: "Try Again", exact: true }).waitFor();
+});
+
+appTest("cold saved session rejected by the server returns to sign-in", async tv => {
+    await signIn(tv, true);
+    tv.fake.revokeAllSessions();
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.jump(35000);
+    await tv.page.locator('[data-screen="code"], [data-screen="expired"]').waitFor();
+    assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+});
+
+appTest("first-time unreachable address retains the connect error", async tv => {
+    tv.offline = true;
+    await tv.page.fill("#signin-address", "https://first-time.invalid");
+    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
+    await tv.jump(35000);
+    await tv.page.getByText("Could not reach a Silo server at that address.", { exact: true }).waitFor();
+    assert.equal(tv.fake.devices.size, 0);
+});
+
+for (const cached of [true, false]) appTest(`cold offline saved session opens Home (snapshot ${cached})`, async tv => {
+    await signIn(tv, true);
+    await tv.page.locator('[data-view="home"]').waitFor();
+    if (!cached) await tv.page.evaluate(() => window.appHarness.storage.removeItem("silo.browseSnapshots.v1"));
+    const codes = tv.fake.devices.size;
+    tv.offline = true;
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.jump(35000);
+    if (cached) await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+    else {
+        await tv.page.locator('[data-view="home:failed"]').waitFor();
+        await tv.page.getByRole("button", { name: "Try Again", exact: true }).waitFor();
+        await tv.page.getByRole("button", { name: "Manage Servers", exact: true }).waitFor();
+    }
+    assert.equal(tv.fake.devices.size, codes);
+    tv.offline = false;
+    await tv.jump(50000);
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+});
 
 async function approveSignIn(tv: Tv, code: string): Promise<void> {
     tv.fake.approve(code);
@@ -69,7 +116,7 @@ appTest("pending account removal blocks Cancel and Back until it settles", async
     await tv.page.locator('[data-focus="inactive"]').click();
     const hold = tv.fake.hold("/system/info");
     await tv.page.locator('[data-focus="confirm"]').click();
-    await tv.page.locator('[data-focus="cancel"]').click();
+    assert.equal(await tv.page.locator('[data-focus="cancel"]').isDisabled(), true);
     await tv.remote(10009);
     assert.equal(await tv.page.locator('[data-view="accounts-confirm"]').count(), 1);
     hold.release();
@@ -313,6 +360,212 @@ appTest("Sign Out confirmation traps focus and cancellation preserves the sessio
     await tv.page.locator('[data-focus="confirm-signout"]').click();
     await tv.page.locator('[data-screen="entry"]').waitFor();
     assert.equal(await tv.page.locator(".browse").count(), 0);
+});
+
+appTest("saved-server Select enters its pane and Back returns to its rail", async tv => {
+    await signIn(tv);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.remote(10009);
+    assert.equal(await tv.focused(), tv.fake.origin);
+    await tv.page.keyboard.press("Enter");
+    assert.equal(await tv.page.locator('.account-card:focus').count(), 1);
+    await tv.remote(40);
+    assert.equal(await tv.focused(), "add-account");
+    await tv.remote(37);
+    await tv.page.keyboard.press("Enter");
+    assert.equal(await tv.focused(), "add-account", "Select remembers the pane's last card");
+    await tv.remote(10009);
+    assert.equal(await tv.focused(), tv.fake.origin);
+    assert.equal(tv.fake.revokedSessions.size, 0);
+});
+
+appTest("Add server Back returns to saved servers without changing credentials", async tv => {
+    await signIn(tv);
+    const saved = await tv.page.evaluate(() => [...window.appHarness.keyManager.items]);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Add server", exact: true }).click();
+    await tv.page.locator('[data-screen="entry"]').waitFor();
+    await tv.remote(10009);
+    assert.equal(await tv.page.locator('[data-view="change-account"]').count(), 1);
+    assert.deepEqual(await tv.page.evaluate(() => [...window.appHarness.keyManager.items]), saved);
+    assert.equal(tv.fake.revokedSessions.size, 0);
+});
+
+appTest("Remove Server holds focus while pending and reports protected-storage failure", async tv => {
+    new FakeSettings(tv.fake);
+    await signIn(tv);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+    await tv.page.locator('[data-focus="server"]').click();
+    await tv.page.getByRole("button", { name: "Accounts", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Remove Server", exact: true }).click();
+    assert.equal(await tv.focused(), "cancel");
+    await tv.page.evaluate(() => { window.appHarness.keyManager.failRemove = true; window.appHarness.storage.failSet = true; });
+    const hold = tv.fake.hold("/auth/logout");
+    await tv.page.locator('[data-focus="confirm"]').click();
+    await tv.remote(10009);
+    assert.equal(await tv.page.getByRole("alertdialog").count(), 1, "Back waits for removal");
+    assert.equal(await tv.page.locator('[data-focus="confirm"]').innerText(), "Removing…");
+    assert.equal(await tv.focused(), "confirm");
+    hold.release();
+    await tv.jump(100);
+    await tv.page.locator('[data-view="accounts-error"]').waitFor();
+    assert.equal(await tv.focused(), "retry");
+    assert.match(await tv.page.locator('.accounts-title').innerText(), /Could not remove/);
+    await tv.page.getByRole("button", { name: "Back", exact: true }).click();
+    assert.equal(await tv.page.getByRole("button", { name: "Remove Server", exact: true }).count(), 1);
+});
+
+appTest("Remove Server confirmation matches the settings alert and dismissal returns to the first account", async tv => {
+    await signIn(tv);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+    await tv.page.locator('[data-focus="server"]').click();
+    await tv.page.getByRole("button", { name: "Accounts", exact: true }).click();
+    const first = await tv.page.locator(".accounts-settings button").first().getAttribute("data-focus");
+    assert.ok(first !== null && !first.startsWith("remove:"));
+    await tv.page.getByRole("button", { name: "Remove Server", exact: true }).click();
+    const alert = tv.page.getByRole("alertdialog");
+    await alert.waitFor();
+    assert.equal(await tv.focused(), "cancel");
+    assert.equal(await alert.getByRole("button", { name: "Remove", exact: true }).count(), 1);
+    assert.equal(await alert.getByRole("button", { name: "Remove Server", exact: true }).count(), 0);
+    const presented = await alert.evaluate(node => {
+        const style = getComputedStyle(node);
+        const buttons = [...node.querySelectorAll("button")].map(button => button.getBoundingClientRect());
+        const bounds = node.getBoundingClientRect();
+        const behind = document.querySelector(".accounts-settings");
+        return {
+            title: node.querySelector("h2")?.textContent,
+            message: node.querySelector("p")?.textContent,
+            confirmation: node.getAttribute("data-confirmation"),
+            width: style.width,
+            topPadding: style.paddingTop,
+            sidePadding: style.paddingLeft,
+            titleSize: getComputedStyle(node.querySelector("h2") as HTMLElement).fontSize,
+            buttonHeight: getComputedStyle(node.querySelector("button") as HTMLElement).height,
+            row: Math.abs((buttons[0]?.y ?? 0) - (buttons[1]?.y ?? 1)) < 1,
+            scrim: document.querySelector(".skyline-dropdown-scrim[data-confirmation]") !== null,
+            behind: behind !== null,
+            inert: behind instanceof HTMLElement && behind.inert,
+            centerX: bounds.x + bounds.width / 2,
+            centerY: bounds.y + bounds.height / 2,
+        };
+    });
+    assert.deepEqual({
+        title: presented.title,
+        message: presented.message,
+        confirmation: presented.confirmation,
+        width: presented.width,
+        topPadding: presented.topPadding,
+        sidePadding: presented.sidePadding,
+        titleSize: presented.titleSize,
+        buttonHeight: presented.buttonHeight,
+        row: presented.row,
+        scrim: presented.scrim,
+        behind: presented.behind,
+        inert: presented.inert,
+    }, {
+        title: "Remove silo.example.test?",
+        message: "This signs out of laura.",
+        confirmation: "true",
+        width: "632px",
+        topPadding: "42px",
+        sidePadding: "48px",
+        titleSize: "38px",
+        buttonHeight: "63px",
+        row: true,
+        scrim: true,
+        behind: true,
+        inert: true,
+    });
+    assert.ok(Math.abs(presented.centerX - 960) < 2, JSON.stringify(presented));
+    assert.ok(Math.abs(presented.centerY - 540) < 2, JSON.stringify(presented));
+    await tv.remote(39);
+    assert.equal(await tv.focused(), "confirm");
+    await tv.remote(37);
+    assert.equal(await tv.focused(), "cancel");
+    await tv.remote(38);
+    assert.equal(await tv.focused(), "cancel");
+    await tv.remote(40);
+    assert.equal(await tv.focused(), "cancel");
+    await tv.page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await tv.page.locator('[data-view="accounts-settings"]').waitFor();
+    assert.equal(await tv.focused(), first, "Cancel returns to the first account");
+    await tv.page.getByRole("button", { name: "Remove Server", exact: true }).click();
+    await tv.remote(10009);
+    assert.equal(await tv.page.locator('[data-view="accounts-settings"]').count(), 1);
+    assert.equal(await tv.focused(), first, "Back returns to the first account");
+    await tv.page.getByRole("button", { name: "Remove Server", exact: true }).click();
+    await tv.page.mouse.click(80, 80);
+    assert.equal(await tv.page.locator('[data-view="accounts-settings"]').count(), 1);
+    assert.equal(await tv.focused(), first, "the scrim cancels without activating the account list");
+});
+
+appTest("Remove Server names every account it will sign out", async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => {
+        const storage = window.appHarness.storage;
+        const saved = JSON.parse(storage.getItem("silo.native.accounts.v1")!) as { accounts: Record<string, unknown>[] };
+        saved.accounts.push({ ...saved.accounts[0], id: "other", accountId: "other", username: "Other" });
+        storage.setItem("silo.native.accounts.v1", JSON.stringify(saved));
+    });
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+    await tv.page.locator('[data-focus="server"]').click();
+    await tv.page.getByRole("button", { name: "Accounts", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Remove Server", exact: true }).click();
+    const alert = tv.page.getByRole("alertdialog");
+    await alert.waitFor();
+    assert.equal(await alert.locator("h2").innerText(), "Remove silo.example.test?");
+    assert.equal(await alert.locator("p").innerText(), "This signs out of its 2 accounts.");
+    assert.equal(await tv.focused(), "cancel");
+});
+
+appTest("an offline saved server reports failure and Back preserves both servers", async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => {
+        const storage = window.appHarness.storage;
+        const directory = JSON.parse(storage.getItem("silo.native.accounts.v1")!) as { accounts: { id: string; baseUrl: string }[] };
+        directory.accounts.push({ ...directory.accounts[0]!, id: "offline-account", baseUrl: "https://offline.example.test" });
+        storage.setItem("silo.native.accounts.v1", JSON.stringify(directory));
+    });
+    const saved = await tv.page.evaluate(() => [...window.appHarness.keyManager.items]);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    const reads = tv.fake.requests.length;
+    await tv.remote(37);
+    await tv.remote(40);
+    assert.equal(await tv.focused(), "https://offline.example.test");
+    assert.equal(tv.fake.requests.length, reads, "rail focus never fetches");
+    await tv.page.keyboard.press("Enter");
+    assert.equal(await tv.focused(), "offline-account");
+    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-screen="entry"] .marquee-error').waitFor();
+    assert.equal(await tv.focused(), "connect");
+    await tv.remote(10009);
+    assert.equal(await tv.page.locator('.accounts-rail button').count(), 3);
+    assert.deepEqual(await tv.page.evaluate(() => [...window.appHarness.keyManager.items]), saved);
+    assert.equal(tv.fake.revokedSessions.size, 0);
+});
+
+appTest("an abandoned add-account answer cannot replace the saved-server selection", async tv => {
+    await signIn(tv);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    const hold = tv.fake.hold("/auth/device/start", true);
+    await tv.page.locator('[data-focus="add-account"]').click();
+    await tv.eventually(async () => tv.fake.devices.size === 2, "second device request");
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="change-account"]').waitFor();
+    await tv.page.locator('.account-card').first().click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    hold.release();
+    await tv.jump(5000);
+    assert.equal(await tv.screen(), "profiles");
+    assert.equal(tv.fake.revokedSessions.size, 0);
 });
 
 for (const origin of ["home", "movies"] as const) appTest(`Change Account returns to ${origin} and opens saved accounts without signing out`, async tv => {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -36,18 +36,21 @@ trailerTest("a movie with only a YouTube video shows Trailers & More and leaves 
     assert.deepEqual(await tv.page.locator(".details-extras [data-focus]").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus"))), ["remote:YouTube:abc_def-1"]);
     // The section after the row can paint later, and the caption gap is measured to it.
     await tv.page.locator(".details-extras + *").waitFor();
-    const metrics = await tv.page.evaluate(() => {
-        const row = document.querySelector<HTMLElement>(".details-extras")!;
-        const card = row.querySelector<HTMLElement>(".details-extra")!;
-        const still = card.querySelector<HTMLElement>(".browse-still")!;
-        const title = card.querySelector<HTMLElement>(".browse-card-title")!;
-        const caption = card.querySelector<HTMLElement>(".browse-card-subtitle")!;
-        const next = row.nextElementSibling!.getBoundingClientRect().top;
+    const metrics = await readLive(tv, () => {
+        const row = document.querySelector(".details-extras");
+        const card = row?.querySelector(".details-extra");
+        const still = card?.querySelector(".browse-still");
+        const title = card?.querySelector(".browse-card-title");
+        const caption = card?.querySelector(".browse-card-subtitle");
+        const next = row?.nextElementSibling;
+        const badge = card?.querySelector(".details-extra-play");
+        if (!(row instanceof HTMLElement) || !(card instanceof HTMLElement) || !(still instanceof HTMLElement) || !(title instanceof HTMLElement) || !(caption instanceof HTMLElement) || next === null || next === undefined || !(badge instanceof HTMLElement)) return null;
+        if (![row, card, still, title, caption, next, badge].every(node => node.isConnected)) return null;
         const stillBox = still.getBoundingClientRect();
         const titleStyle = getComputedStyle(title);
         const captionStyle = getComputedStyle(caption);
         return {
-            gap: next - caption.getBoundingClientRect().bottom,
+            gap: next.getBoundingClientRect().top - caption.getBoundingClientRect().bottom,
             stillWidth: stillBox.width,
             stillHeight: stillBox.height,
             radius: getComputedStyle(still).borderRadius,
@@ -61,9 +64,9 @@ trailerTest("a movie with only a YouTube video shows Trailers & More and leaves 
             captionColor: captionStyle.color,
             titleText: title.textContent,
             captionText: caption.textContent,
-            badge: card.querySelector<HTMLElement>(".details-extra-play")?.getBoundingClientRect().width,
+            badge: badge.getBoundingClientRect().width,
         };
-    });
+    }, null, value => value.titleText === "Official Trailer" && value.captionText === "YouTube" && Math.abs(value.gap - 76) < 1 && Math.abs(value.stillWidth - 470) < 1 && Math.abs(value.stillHeight - 264) < 1 && value.radius === "18px" && Math.abs(value.titleGap - 14) < 1 && Math.abs(value.captionGap - 5) < 1 && value.titleSize === "21px" && value.titleWeight === "600" && value.titleColor === "rgba(237, 237, 237, 0.92)" && value.captionSize === "17px" && value.captionWeight === "500" && value.captionColor === "rgba(237, 237, 237, 0.6)" && value.badge === 60, "trailer card geometry");
     assert.equal(metrics.titleText, "Official Trailer");
     assert.equal(metrics.captionText, "YouTube");
     assert.ok(Math.abs(metrics.gap - 76) < 1, JSON.stringify(metrics));
@@ -87,8 +90,11 @@ trailerTest("a movie with only a YouTube video shows Trailers & More and leaves 
     await tv.page.locator('[data-focus="remote:YouTube:abc_def-1"]').click();
     assert.equal(await tv.focused(), "remote:YouTube:abc_def-1");
     assert.equal(tv.fake.requests.filter(request => request.path.includes("/playback/") || request.path.includes("/versions")).length, 0);
-    const focused = await tv.page.locator(".details-extra:focus .browse-still").evaluate(node => getComputedStyle(node).transform);
-    assert.equal(focused, "none");
+    assert.equal(await readLive(tv, () => {
+        const node = document.querySelector(".details-extra:focus .browse-still");
+        if (node === null || !node.isConnected) return null;
+        return getComputedStyle(node).transform;
+    }, null, value => value === "none", "focused trailer still"), "none");
 });
 
 trailerTest("a series with a YouTube video shows the rail and hides it when the list is empty", async (tv, catalog) => {
@@ -121,10 +127,13 @@ trailerTest("local extras stay ahead of YouTube cards and keep a 48px gap", asyn
         { key: "remote:YouTube:abc_def-1", caption: "YouTube" },
     ]);
     // A Details repaint can replace the row between resolving a locator and reading it, and a detached row measures 0.
-    const gap = await tv.page.evaluate(() => {
-        const [first, second] = [...document.querySelectorAll(".details-extras .details-extra")].map(node => node.getBoundingClientRect());
-        return second!.left - first!.right;
-    });
+    const gap = await readLive(tv, () => {
+        const cards = [...document.querySelectorAll(".details-extras .details-extra")];
+        const first = cards[0];
+        const second = cards[1];
+        if (first === undefined || second === undefined || !first.isConnected || !second.isConnected) return null;
+        return second.getBoundingClientRect().left - first.getBoundingClientRect().right;
+    }, null, value => Math.abs(value - 48) < 1, "trailer card gap");
     assert.ok(Math.abs(gap - 48) < 1, String(gap));
 });
 

@@ -91,8 +91,10 @@ function calendarContent(state: CalendarState, handlers: CalendarHandlers): View
             state.selectedDay = date;
             const shelf = shelves.find(shelf => shelf.date >= date && shelf.items.length > 0) ?? [...shelves].reverse().find(shelf => shelf.date < date && shelf.items.length > 0);
             const first = shelf?.items[0];
-            if (shelf !== undefined && first !== undefined) focus({ zone: shelf.date, key: first.key });
-            else focus({ zone: "days", key: `day:${date}` });
+            if (shelf !== undefined && first !== undefined) {
+                state.alignDay = shelf.date;
+                focus({ zone: shelf.date, key: first.key });
+            } else focus({ zone: "days", key: `day:${date}` });
         });
         item.element.classList.add("calendar-day");
         item.element.setAttribute("aria-label", label);
@@ -151,6 +153,10 @@ function calendarContent(state: CalendarState, handlers: CalendarHandlers): View
         section.style.setProperty("--calendar-scale", String(context.posterScale?.() ?? 1));
         section.setAttribute("data-section", shelf.date);
         section.setAttribute("data-scroll-align", "bottom");
+        if (state.alignDay === shelf.date) {
+            section.setAttribute("data-scroll-anchor", "top");
+            delete state.alignDay;
+        }
         const heading = shelf.date === today ? "Today" : shelf.date === shiftDay(today, 1) ? "Tomorrow" : new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" }).format(dayDate(shelf.date));
         section.appendChild(el("h2", "browse-section-title", heading));
         section.classList.toggle("calendar-shelf-empty", shelf.items.length === 0);

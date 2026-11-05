@@ -7,6 +7,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Corrected Calendar wall-clock times, spatial shelf return and top restoration, clipped captions, strip placement, and Apple-style loading, empty and error states after native comparison.
+- Down from the Calendar tab opens the selected filter, shelf-to-shelf moves keep the first card's column and bottom-align the poster, and scrolled Calendar passes under the top bar.
 - Moved the Home logo slot up to Apple's marquee stack and landed Down from a landscape card on the poster nearest that card.
 - Kept the column when moving down between Home rows, and fitted hero title art in Apple's 200px logo slot.
 - Down from the top bar lands on the leftmost card instead of the card remembered in the row.

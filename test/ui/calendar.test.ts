@@ -105,6 +105,76 @@ calendarTest("Calendar spatial shelf return preserves selection, row and heading
     assert.equal(await tv.page.locator('.skyline-content').evaluate(node => node.scrollTop), 0);
 });
 
+calendarTest("Calendar tab, shelf column, scroll and top bar match Apple TV", async (tv, catalog) => {
+    catalog.events = catalog.events.flatMap(event => event.type === "movie" && event.content_id.startsWith("movie:m") ? [event, { ...event, local_air_date: "2025-12-30", air_date: "2025-12-30" }] : [event]);
+    await activate(tv, "calendar"); await ready(tv);
+    await activate(tv, "filter:everything"); await ready(tv);
+    const firstCardY = await tv.page.locator('[data-section="2025-12-29"] .calendar-event').first().evaluate(node => node.getBoundingClientRect().y);
+    assert.ok(Math.abs(firstCardY - 497) <= 1, `the first card stays at y497 (${firstCardY})`);
+    await tv.page.locator('[data-focus="filter:trending"]').focus();
+    assert.equal(await tv.page.locator('[data-focus="filter:everything"]').getAttribute("aria-pressed"), "true", "moving to another chip does not change the selection");
+    await tv.page.locator('[data-section="2025-12-29"] .calendar-event').nth(6).focus();
+    await tv.page.locator('[data-focus="calendar"]').focus();
+    await tv.page.keyboard.press("ArrowDown");
+    assert.equal(await tv.focused(), "filter:everything", "Down from the Calendar tab lands on the selected filter, not the last card or the last focused chip");
+    assert.equal(await tv.page.locator(".skyline-content:has(.calendar-week)").evaluate(node => node.scrollTop), 0, "entry scrolls to the top before the filter takes focus");
+
+    const thursday = await tv.page.locator('[data-focus="day:2026-01-01"]').evaluate(node => {
+        const rect = node.getBoundingClientRect();
+        return rect.left + rect.width / 2;
+    });
+    await tv.page.locator('[data-focus="day:2026-01-01"]').focus();
+    await tv.page.keyboard.press("ArrowDown");
+    assert.equal(await tv.page.locator('[data-section="2025-12-29"] .calendar-event').first().evaluate(node => document.activeElement === node), true, "Down from the strip opens the first card");
+    await tv.page.keyboard.press("ArrowDown");
+    await tv.page.clock.runFor(500);
+    const tuesdayFirst = await tv.page.locator('[data-section="2025-12-30"] .calendar-event').first().getAttribute("data-focus");
+    const tuesdaySecond = await tv.page.locator('[data-section="2025-12-30"] .calendar-event').nth(1).getAttribute("data-focus");
+    assert.equal(await tv.focused(), tuesdayFirst, `Down from the first card lands on column 0. Thursday's axis is ${thursday}; the old landing was column 1 (${tuesdaySecond}).`);
+    const heading = await tv.page.locator('[data-section="2025-12-30"] h2').boundingBox();
+    const row = await tv.page.locator('[data-section="2025-12-30"] .browse-row').boundingBox();
+    assert.ok(heading !== null && row !== null);
+    assert.equal(Math.round(heading.y), 612, `next day's heading. The old scroll left it near 490 (row ${Math.round(row.y)}).`);
+    const rowOffset = Math.round(row.y - heading.y);
+
+    for (let index = 0; index < 6; index += 1) await tv.page.keyboard.press("ArrowRight");
+    await tv.page.clock.runFor(500);
+    const seventhRow = await tv.page.locator('[data-section="2025-12-30"] .browse-row').boundingBox();
+    const seventhHeading = await tv.page.locator('[data-section="2025-12-30"] h2').boundingBox();
+    assert.equal(await tv.page.locator('[data-section="2025-12-30"] .calendar-event').nth(6).evaluate(node => document.activeElement === node), true, "the seventh card is focused");
+    assert.ok(seventhRow !== null && seventhHeading !== null);
+    // shelfGainedFocus returns when the day is unchanged, so the seventh card
+    // does not scroll. The 36px gap is not the caption alignment (that was ~120px).
+    assert.equal(Math.round(seventhRow.y), Math.round(row.y), `seventh card row moved from ${Math.round(row.y)} to ${Math.round(seventhRow.y)}`);
+    assert.equal(Math.round(seventhHeading.y - seventhRow.y), -rowOffset, "the seventh card does not change the heading-to-row offset");
+
+    const underBar = await tv.page.evaluate(() => {
+        const port = document.querySelector(".skyline-content");
+        const bar = document.querySelector(".browse-nav");
+        if (!(port instanceof HTMLElement) || !(bar instanceof HTMLElement)) return { ok: false, reason: "missing" };
+        const portBox = port.getBoundingClientRect();
+        const samples = [".calendar-filters", ".calendar-week", ".calendar-shelf"].flatMap(selector => Array.from(document.querySelectorAll(selector)));
+        const hits = samples.flatMap(node => {
+            if (!(node instanceof HTMLElement)) return [];
+            const rect = node.getBoundingClientRect();
+            if (rect.bottom <= 130 || rect.top >= 188 || rect.width < 8) return [];
+            const x = Math.min(Math.max(rect.left + 24, 100), 1700);
+            const point = Math.min(Math.max(rect.top + 4, 130), Math.min(rect.bottom - 4, 180));
+            const hit = document.elementFromPoint(x, point);
+            return [{ top: rect.top, bottom: rect.bottom, point, x, painted: hit !== null && (node.contains(hit) || hit.contains(node)), hit: hit instanceof HTMLElement ? hit.className : null }];
+        });
+        return {
+            ok: portBox.top < 188 && portBox.bottom > 1000 && hits.some(hit => hit.painted),
+            portTop: portBox.top,
+            portBottom: portBox.bottom,
+            barBackground: getComputedStyle(bar).backgroundColor,
+            hits,
+        };
+    });
+    assert.equal(underBar.barBackground, "rgba(0, 0, 0, 0)", "tvOS PageChromeGlass is empty and the bar draws no background band");
+    assert.equal(underBar.ok, true, `scrolled Calendar passes under the bar instead of clipping at y188. ${JSON.stringify(underBar)}`);
+});
+
 calendarTest("Calendar native comparison placeholders and captions", async (tv, catalog) => {
     const held = tv.fake.hold("/calendar", true);
     await activate(tv, "calendar");
@@ -288,10 +358,14 @@ calendarTest("Calendar complete remote journey retains every event and restores 
     await activate(tv, "calendar"); await ready(tv, 32);
     assert.equal(await tv.page.locator('[data-focus="filter:everything"]').getAttribute("aria-pressed"), "true", "filter survives root/session return");
     const card = await tv.page.locator('.calendar-event').first().getAttribute("data-focus");
+    await tv.page.locator('[data-focus="filter:trending"]').focus();
     await tv.page.locator('.calendar-event').first().focus();
     await tv.page.locator('[data-focus="calendar"]').focus();
     await tv.page.keyboard.press("ArrowDown");
-    assert.equal(await tv.focused(), card, "Down from the Calendar tab restores the last event card");
+    // The old assertion encoded the last event card (`card`). TVMenuEntryScroll cancels that
+    // hand-down while the bar owns focus, and the next Down opens the selected filter.
+    assert.equal(await tv.focused(), "filter:everything", "Down from the Calendar tab lands on the selected filter");
+    assert.notEqual(card, "filter:everything");
     await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
     await tv.eventually(async () => await tv.page.locator('.browse[data-view="home"]').count() === 1, "Home after remount");
     await activate(tv, "calendar");

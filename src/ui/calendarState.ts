@@ -11,6 +11,8 @@ export interface CalendarState {
     selectedDay: string | undefined;
     /** Today returns selection to today and leaves focus on that day's event card once it exists. */
     returnToEvent?: boolean;
+    /** Day the next render should scroll to the top. CalendarView.selectDay uses anchor `.top`. */
+    alignDay?: string;
     filter: CalendarFilter;
     data: { readonly query: CalendarQuery; readonly days: readonly CalendarDay[] } | undefined;
 }

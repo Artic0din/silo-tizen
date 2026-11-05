@@ -386,8 +386,11 @@ export class FocusHost {
             if (zone !== undefined && zone.items.length > 0) {
                 // Apple raises the first row's default-focus priority while the
                 // top menu is focused (TVSkylineSectionFeed), so Down from the
-                // bar ignores the card remembered in that row.
-                const remembered = zones[zoneIndex]?.id === "nav" ? undefined : this.memory.get(zone.id);
+                // bar ignores the card remembered in that row. Calendar shelves
+                // do the same when entered from the filter or day strip.
+                const sourceId = zones[zoneIndex]?.id;
+                const fromChrome = sourceId === "nav" || (this.view?.name === "calendar" && (sourceId === "days" || sourceId === "filters" || sourceId === "status" || sourceId === "empty"));
+                const remembered = fromChrome ? undefined : this.memory.get(zone.id);
                 const columns = Math.max(1, zone.columns ?? 1);
                 const edge = step === 1 ? 0 : Math.floor((zone.items.length - 1) / columns) * columns;
                 const candidates = zone.layout === "grid" ? zone.items.slice(edge, edge + columns) : zone.items;
@@ -413,33 +416,24 @@ export class FocusHost {
         }
         // The top bar is not a content column. Entering it or leaving it drops the
         // axis, so the next vertical move measures the card rather than the tab.
-        if (zone.id === "nav" || this.lastZone === "nav") this.navigationX = undefined;
+        // Calendar's filter and day strip are the same kind of chrome. A shelf's
+        // first card is a default-focus landing (CalendarView prefers the first
+        // item on every shelf), so the next Down must measure that card rather
+        // than the day button the axis still holds.
+        const calendarChrome = this.view?.name === "calendar" && (zone.id === "filters" || zone.id === "days" || zone.id === "status" || zone.id === "empty" || this.lastZone === "filters" || this.lastZone === "days" || this.lastZone === "status" || this.lastZone === "empty");
+        if (zone.id === "nav" || this.lastZone === "nav" || calendarChrome) this.navigationX = undefined;
         this.memory.set(zone.id, item.key);
         this.lastZone = zone.id;
         // Opening the cascade must not replace the content return target.
-        // Calendar's filter and day strip sit above the shelves; passing through them
-        // must leave the last event card for Down from the Calendar tab.
         if (this.tracksContent(zone.id)) this.contentZone = zone.id;
         this.navigationItem = item;
         item.element.focus({ preventScroll: true });
         this.scroll.reveal(item.element, this.container);
     }
 
-    /** Calendar chrome is not the card Down from the tab should restore. */
+    /** Chrome zones are not a page's content return target. */
     private tracksContent(zoneId: string): boolean {
-        if (["nav", "selector", "flyout", "pills"].includes(zoneId)) return false;
-        return !(this.view?.name === "calendar" && (zoneId === "filters" || zoneId === "days" || zoneId === "status"));
-    }
-
-    /** Down from the Calendar tab returns to the last event card, as tvOS restores content focus. */
-    private restoreCalendarCard(): boolean {
-        const zoneId = this.contentZone;
-        if (zoneId === undefined || !this.tracksContent(zoneId)) return false;
-        const zone = this.view?.zones.find(candidate => candidate.id === zoneId && candidate.items.length > 0);
-        const item = zone?.items.find(candidate => candidate.key === this.memory.get(zone.id));
-        if (zone === undefined || item === undefined) return false;
-        this.focusItem(zone, item);
-        return true;
+        return !["nav", "selector", "flyout", "pills"].includes(zoneId);
     }
 
     /** Where focus last was in this view, to return to after it was lost. */
@@ -539,7 +533,6 @@ export class FocusHost {
             const destination = zone[key];
             const next = view.zones.find(candidate => candidate.id === destination && candidate.items.length > 0);
             if (next !== undefined) this.focusItem(next, next.items.find(item => item.key === this.memory.get(next.id)) ?? next.items[0]);
-            else if (key === "down" && zone.id === "nav" && view.name === "calendar" && this.restoreCalendarCard()) return;
             else if (key === "up" || key === "down") this.enterZone(zoneIndex, key === "up" ? -1 : 1, found.item);
         }
     };

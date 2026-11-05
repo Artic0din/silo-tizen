@@ -889,7 +889,10 @@
    The shared content box is full width, like Home: Apple's shelves use scrollClipDisabled
    and run to the screen edge. The 80pt safe padding stays inside, so headings and the
    week strip keep SiloTheme.safePadding without clipping the seventh card at x=1840. */
-.skyline-content:has(.calendar-week) { top: 188px; left: 0; width: 1920px; height: 892px; padding: 0 80px; box-sizing: border-box; }
+/* CalendarView's ScrollView fills the screen and pads its content by contentTopInset.
+   The inset scrolls away, so shelves pass under the top bar. TVTopMenuBar draws no
+   background band, and PageChromeGlass is empty on tvOS. */
+.skyline-content:has(.calendar-week) { top: 0; left: 0; width: 1920px; height: 1080px; padding: 0 80px; box-sizing: border-box; }
 /* Filter is 66px and ends at 254. CalendarView's tvOS VStack spacing is 30, so the strip starts at 284. */
 .calendar-week { display: flex; align-items: center; gap: 18px; margin: 30px 0 0; }
 /* Flatten the nested day HStack while retaining one existing focus zone. */
@@ -928,7 +931,7 @@
 .calendar-status { height: 30px; }
 .calendar-status.calendar-pending { min-height: 320px; }
 .calendar-status .browse-text { margin: 0; max-width: none; font-size: 22px; line-height: 30px; }
-.calendar-filters { display: flex; gap: 6px; width: max-content; margin: 0; padding: 6px; border-radius: 40px; background: rgba(255,255,255,.07); }
+.calendar-filters { display: flex; gap: 6px; width: max-content; margin: 188px 0 0; padding: 6px; border-radius: 40px; background: rgba(255,255,255,.07); }
 .calendar-filters .browse-button { margin: 0; padding: 0 26px; height: 54px; min-height: 0; border: 0; font-size: 22px; background: transparent; color: rgba(237,237,237,.7); box-shadow: none; }
 .calendar-filters .browse-button[aria-pressed="true"] { background: rgba(237,237,237,.88); color: #000; }
 .calendar-filters .browse-button:focus { background: rgba(237,237,237,.96); color: #000; transform: scale(1.05); }

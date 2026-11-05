@@ -1,6 +1,8 @@
 /** Retarget from the visible position; focus itself must never invoke browser scrolling. */
 export class SkylineScroll {
     private readonly frames = new Map<HTMLElement, number>();
+    /** Shelf already bottom-aligned. Horizontal moves inside it do not scroll again. */
+    private pinnedShelf: HTMLElement | null = null;
 
     move(node: HTMLElement, left: number, top: number): void {
         const previous = this.frames.get(node);
@@ -32,6 +34,7 @@ export class SkylineScroll {
         if (element.closest(".browse-nav, .skyline-selector:not(.details-audio-picker)") !== null) return;
         const viewport = element.closest<HTMLElement>(".browse-panel-list, .details-audio-picker, .skyline-content") ?? container;
         if (element.closest("[data-scroll-top]") !== null) {
+            this.pinnedShelf = null;
             this.move(viewport, 0, 0);
             return;
         }
@@ -54,8 +57,26 @@ export class SkylineScroll {
         const bounds = viewport.getBoundingClientRect();
         const shelf = element.closest<HTMLElement>('[data-scroll-align="bottom"]');
         if (shelf !== null) {
+            if (shelf.getAttribute("data-scroll-anchor") === "top") {
+                shelf.removeAttribute("data-scroll-anchor");
+                this.pinnedShelf = shelf;
+                const section = shelf.getBoundingClientRect();
+                this.move(viewport, 0, Math.max(0, viewport.scrollTop + section.top - bounds.top));
+                return;
+            }
+            // CalendarView.shelfGainedFocus scrolls only when the day changes.
+            // The first shelf, and later cards in the same shelf, stay put.
+            if (shelf === this.pinnedShelf) return;
+            const previous = this.pinnedShelf;
+            this.pinnedShelf = shelf;
+            if (previous === null) return;
             const section = shelf.getBoundingClientRect();
-            const bottom = viewport.scrollTop + section.bottom - bounds.bottom;
+            // On the running tvOS app the focused poster, not the caption block,
+            // meets the bottom: the heading sits at y612. The lift's overhang
+            // stays inside the screen, and focus scale must not move the layout.
+            const art = element.querySelector<HTMLElement>(".browse-art") ?? shelf.querySelector<HTMLElement>(".browse-art");
+            const edge = art === null ? section.bottom : layoutBottom(art) - focusOverhang(art);
+            const bottom = viewport.scrollTop + edge - bounds.bottom;
             const heading = viewport.scrollTop + section.top - bounds.top;
             this.move(viewport, 0, Math.max(0, Math.min(bottom, heading)));
             return;
@@ -93,5 +114,19 @@ export class SkylineScroll {
     stop(): void {
         for (const frame of this.frames.values()) cancelAnimationFrame(frame);
         this.frames.clear();
+        this.pinnedShelf = null;
     }
+}
+
+/** Border-box bottom, ignoring a focus scale around the element's center. */
+function layoutBottom(element: HTMLElement): number {
+    const rect = element.getBoundingClientRect();
+    const extra = rect.height - element.offsetHeight;
+    return rect.top + extra / 2 + element.offsetHeight;
+}
+
+/** How far a focused poster extends past its layout box. TVCardOutlineButtonStyle.focusedOverhang. */
+function focusOverhang(element: HTMLElement): number {
+    const scale = Number.parseFloat(getComputedStyle(element).getPropertyValue("--card-focus-scale"));
+    return Number.isFinite(scale) ? Math.max(0, scale - 1) / 2 * element.offsetHeight : 0;
 }

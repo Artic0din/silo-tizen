@@ -5,7 +5,7 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { encode } from "uqr";
 import { FAKE_PASSWORD, fixture, problem, type Reply } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
 const IME_DONE = 65376;
@@ -256,6 +256,25 @@ tvTest("unsupported, misrouted and failing servers are named, and a retry connec
 
 const PENDING_SETUP = { needs_setup: true, wizard_completed: false };
 
+/** TVServerNeedsSetupView pads the error 20pt below the body. The body wraps, with 4pt between lines. */
+function errorBelowBody(tv: Tv): Promise<{ gap: number; line: number }> {
+    return readLive(tv, () => {
+        const body = document.querySelector<HTMLElement>('[data-screen="needs-setup"] .marquee-lead');
+        const error = document.querySelector<HTMLElement>('[data-screen="needs-setup"] .marquee-error');
+        if (body === null || error === null || !body.isConnected || !error.isConnected) return null;
+        const range = document.createRange();
+        range.selectNodeContents(body);
+        const lines = [...range.getClientRects()];
+        const first = lines[0];
+        const second = lines[1];
+        if (first === undefined || second === undefined) return null;
+        return {
+            gap: error.getBoundingClientRect().top - body.getBoundingClientRect().bottom,
+            line: second.top - first.top,
+        };
+    }, null, (value) => value.gap === 20 && value.line === 38, "the error 20px below the body");
+}
+
 function setupReads(tv: Tv): number {
     return tv.fake.paths().filter((path) => path === "GET /system/setup").length;
 }
@@ -279,18 +298,22 @@ tvTest("a server that still needs setup shows Apple TV's recovery screen instead
     assert.deepEqual(await style(tv, '[data-screen="needs-setup"] .marquee-actions', "margin-top"), ["56px"]);
 
     tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    const before = setupReads(tv);
     const hold = tv.fake.hold("/system/setup");
     await tv.page.keyboard.press("Enter");
     await tv.eventually(async () => (await tv.page.locator('[data-focus="retry"]').innerText()) === "Checking…", "the check to start");
     assert.equal(await tv.focused(), "retry", "focus stays on Check again while it runs");
     assert.equal(await tv.page.locator('[data-focus="retry"]').getAttribute("disabled"), null);
     assert.equal(await tv.page.locator('[data-focus="retry"]').getAttribute("aria-busy"), "true");
+    // Discovery answers before setup. The held setup read is what a second press must not repeat.
+    await tv.eventually(async () => setupReads(tv) > before, "the check to reach setup");
     const reads = setupReads(tv);
     await tv.page.keyboard.press("Enter");
     assert.equal(setupReads(tv), reads, "a check already running is ignored");
     hold.release();
     await shows(tv, "This server still needs administrator setup.");
     assert.deepEqual(await style(tv, '[data-screen="needs-setup"] .marquee-error', "margin-top"), ["20px"]);
+    assert.equal((await errorBelowBody(tv)).gap, 20);
     assert.equal(tv.fake.paths().some((path) => path === "POST /auth/device/start"), false);
 
     await tv.page.keyboard.press("Enter");
@@ -312,6 +335,7 @@ tvTest("checking a server that cannot be reached explains it, and Change server 
         return false;
     }, "the check to fail");
     assert.equal(await tv.screen(), "needs-setup");
+    assert.equal((await errorBelowBody(tv)).gap, 20);
 
     await tv.page.keyboard.press("ArrowRight");
     assert.equal(await tv.focused(), "change");

@@ -407,17 +407,8 @@
 
 [data-screen="needs-setup"] .marquee-lead {
     margin-top: 26px;
-}
-
-[data-screen="needs-setup"] .marquee-error {
-    width: 900px;
-    margin-top: 20px;
-    animation: needs-setup-error 0.2s ease-in-out;
-}
-
-@keyframes needs-setup-error {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    /* MarqueeTVBody lineSpacing(4) between the wrapped lines; a single line is 34px. */
+    line-height: 38px;
 }
 
 [data-screen="needs-setup"] .marquee-actions {
@@ -515,6 +506,18 @@
     margin: 16px 0 0;
     color: #ff6961;
     font-size: 24px;
+}
+
+/* 20 below the body, as the whole margin after the shared error shorthand. */
+[data-screen="needs-setup"] .marquee-error {
+    width: 900px;
+    margin: 20px 0 0;
+    animation: needs-setup-error 0.2s ease-in-out;
+}
+
+@keyframes needs-setup-error {
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
 .marquee-error .marquee-icon {

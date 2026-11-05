@@ -9,6 +9,7 @@ import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { artworkUrl, clockTime, episodeLabel, playChoices, type PlayRequest } from "./browseModel.ts";
 import { trailerCards, type TrailerCard } from "./trailerRail.ts";
 import { actionButton, artwork, cardItem, heading, lines, mediaItem, type ViewContext, zoneNode } from "./browseViews.ts";
+import { boxSetMovieRow, type BoxSetRowState } from "./boxSetRow.ts";
 import { blurEpisodeStill, episodeDetailPresentation, hidesEpisodeListStill } from "./episodeSpoilers.ts";
 import { personMetadataBadges, personPortrait } from "./personHero.ts";
 import { el } from "./screen.ts";
@@ -146,7 +147,7 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     return [wash, layout];
 }
 
-export function itemView(detail: ItemDetail, seasons: readonly Season[], context: ViewContext, play: (request: PlayRequest) => void, back: () => void, state?: DetailsState): View {
+export function itemView(detail: ItemDetail, seasons: readonly Season[], context: ViewContext, play: (request: PlayRequest) => void, back: () => void, state?: DetailsState, boxSet?: BoxSetRowState): View {
     detail = state === undefined ? detail : { ...detail, versions: state.detail.versions };
     const tracks = state?.nextEpisodeState ?? state;
     const playbackDetail = tracks?.detail ?? detail;
@@ -317,6 +318,11 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         const people = credits.slice(0, 24).map((credit) => creditCard(credit, context));
         content.push(el("h2", "browse-section-title", "Cast & Crew"), zoneNode("browse-row details-people", people));
         zones.push({ id: "people", layout: "row", items: people });
+    }
+    const movieRow = boxSet === undefined ? undefined : boxSetMovieRow(boxSet, detail.id, context);
+    if (movieRow !== undefined) {
+        content.push(...movieRow.content);
+        zones.push(movieRow.zone);
     }
     if (state !== undefined && (detail.type === "movie" || detail.type === "series")) {
         // Show YouTube cards the way tvOS does when the YouTube app can open.

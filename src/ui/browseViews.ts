@@ -75,7 +75,7 @@ export function recoveryActions(error: { readonly headline: string; readonly sig
 }
 
 /** SectionExploreAllCard keeps the current marquee while its row's trailing tile owns focus. */
-function exploreAllCard(rowTitle: string, key: string, wide: boolean, onPress: () => void): FocusItem {
+export function exploreAllCard(rowTitle: string, key: string, wide: boolean, onPress: () => void): FocusItem {
     const element = el("button", "browse-card skyline-explore");
     element.type = "button";
     element.setAttribute("data-focus", key);
@@ -168,7 +168,7 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     return mediaItem({ key: card.id, element, ...(play === undefined ? {} : { play }) }, card, context, continuing ? play : undefined);
 }
 
-function cardItems(cards: readonly Card[], context: ViewContext): FocusItem[] {
+export function cardItems(cards: readonly Card[], context: ViewContext): FocusItem[] {
     const result: FocusItem[] = [];
     for (const card of cards) {
         const item = cardItem(card, context);

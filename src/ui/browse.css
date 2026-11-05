@@ -131,6 +131,19 @@
 .details-editorial .details-action { display: inline-flex; align-items: center; justify-content: center; gap: 18px; flex-shrink: 0; height: 76px; margin: 0; border-radius: 38px; }
 .details-action svg { width: 32px; height: 32px; flex-shrink: 0; }
 .details-editorial .details-play { min-width: 340px; font-size: 29px; }
+/* Box set Play is TVPrimaryPillButton with stabilizesFocusMotion (TVDetailActions.swift:53-67,674,691-694).
+   The verb sits on the film title; the icon is beside that stack. */
+.details-editorial .details-action.box-set-play { box-sizing: border-box; justify-content: flex-start; gap: 16px; height: 76px; min-width: 0; padding: 0 22px; }
+.details-editorial .box-set-play svg { width: 36px; height: 36px; }
+.details-editorial .box-set-play .box-set-play-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 0; }
+.details-editorial .box-set-play .box-set-play-verb { font-size: 29px; font-weight: 600; line-height: 1; }
+.details-editorial .box-set-play .box-set-play-film { font-size: 16px; font-weight: 600; line-height: 1; opacity: .72; }
+/* TVHeroEyebrow (TVDetailHero.swift:616-627) and the 14pt editorial stack (TVDetailHero.swift:274,279). */
+.details-hero[data-media-type="box-set"] .browse-kicker { display: inline-block; margin: 0; border-radius: 30px; background: rgba(0,0,0,.55); box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); padding: 8px 16px; font-size: 18px; font-weight: 600; line-height: 22px; letter-spacing: 1.2px; color: #fff; }
+.details-hero[data-media-type="box-set"] .details-editorial .browse-title { margin: 16px 0 14px; }
+.details-hero[data-media-type="box-set"] .box-set-facts { display: flex; align-items: center; gap: 14px; margin: 0 0 14px; font-size: 24px; font-weight: 500; color: rgba(255,255,255,.88); white-space: nowrap; }
+.details-hero[data-media-type="box-set"] .box-set-facts > :not(:first-child)::before { content: "·"; margin-right: 14px; font-size: 22px; font-weight: 600; color: rgba(255,255,255,.45); }
+.details-hero[data-media-type="box-set"] .details-playback-summary { margin-top: 0; margin-bottom: 20px; opacity: 0; }
 .details-editorial .details-circle { width: 76px; padding: 0; }
 .details-circle .details-action-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .details-editorial .details-circle:focus { width: auto; padding: 0 28px; }
@@ -231,7 +244,25 @@
 .search-scene .browse-grid .browse-card-title { margin: 16px 0 0; padding: 0; font-size: 24px; line-height: 29px; font-weight: 600; }
 .search-scene .browse-grid .browse-card-subtitle { margin: 4px 0 0; padding: 0; font-size: 22px; line-height: 27px; }
 .search-scene > .browse-page-status, .search-scene > .browse-actions:not(.search-filters), .search-scene > .browse-text { margin-left: 162px; }
-.search-scene .search-people-heading { margin: 0 162px; font-size: 36px; line-height: 43px; font-weight: 600; }
+.search-scene .search-box-sets-heading, .search-scene .search-people-heading { margin: 0 162px; font-size: 36px; line-height: 43px; font-weight: 600; }
+.search-scene .box-set-card .box-set-label, .search-scene .box-set-card .box-set-count { position: absolute; z-index: 1; color: #fff; line-height: 1; pointer-events: none; }
+.search-scene .box-set-card .box-set-label { top: 12px; left: 12px; padding: 7px 14px; border: 1px solid rgba(255,255,255,.18); border-radius: 999px; background: rgba(0,0,0,.55); font-size: 15px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+.search-scene .box-set-card .box-set-count { right: 12px; bottom: 28px; padding: 4px 11px; border-radius: 8px; background: rgba(0,0,0,.6); font-size: 18px; font-weight: 700; }
+.search-scene .box-set-card { position: relative; overflow: visible; }
+.search-scene .box-set-sleeves { position: absolute; z-index: 0; left: 0; right: 0; top: 0; height: 0; pointer-events: none; }
+.search-scene .box-set-sleeve { position: absolute; top: 0; height: 48px; border: 1px solid rgba(255,255,255,.14); border-bottom: 0; border-radius: 16px 16px 0 0; }
+.search-scene .box-set-sleeve-back { left: 10%; right: 10%; background: rgb(43,43,43); transform: translateY(-12px); }
+.search-scene .box-set-sleeve-front { left: 5%; right: 5%; background: rgb(61,61,61); transform: translateY(-6px); }
+.search-scene .box-set-card .browse-art { z-index: 1; }
+/* TVCatalogGrid columnSpacing 40 and rowSpacing 60 (TVCatalogGrid.swift:38-39); card width 220 (BoxSetDetailView.swift:227).
+   The shared grid's 16px top padding would stack on the 14px section gap, so this page drops it. */
+.box-set-grid.browse-grid { grid-template-columns: repeat(6, 220px); grid-column-gap: 40px; grid-row-gap: 60px; width: auto; padding-top: 0; }
+.box-set-grid .browse-card, .box-set-row.browse-row .browse-card { box-sizing: content-box; width: 220px; padding: 0; border: 0; }
+.box-set-grid .browse-art, .box-set-row.browse-row .browse-art { width: 220px; height: 330px; border-radius: 16px; }
+.box-set-row.browse-row .browse-card { margin-right: 44px; }
+.box-set-current-outline { position: absolute; inset: 0; border: 4px solid rgba(255,255,255,.8); border-radius: inherit; pointer-events: none; }
+.box-set-row .browse-card:focus .box-set-current-outline { border-color: transparent; }
+.box-set-current-label { position: absolute; left: 12px; bottom: 12px; padding: 4px 9px; border-radius: 999px; background: #fff; color: #000; font-size: 16px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; line-height: 1; }
 .search-scene .search-people-rail { display: flex; gap: 60px; width: 1920px; height: 328px; margin: 0 -76px 18px; padding: 14px 238px 30px; --reveal-end: 318px; }
 .search-overflow-rail .search-rail-outside:not(:focus) { opacity: 0; pointer-events: none; }
 .search-scene .search-people-rail .details-person { flex: 0 0 200px; width: 200px; margin: 0; padding: 0; border: 0; background: transparent; }

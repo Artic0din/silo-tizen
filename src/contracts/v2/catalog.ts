@@ -529,6 +529,9 @@ export function decodeSeasons(value: unknown): Season[] {
 // --- listSeasonEpisodes ---
 
 export interface Episode {
+    /** Present only when episode `user_data` includes `position_seconds`. */
+    readonly positionSeconds?: number | undefined;
+    readonly durationSeconds?: number | undefined;
     readonly inProgress?: boolean;
     readonly airDate?: string | undefined;
     readonly overview?: string | undefined;
@@ -545,8 +548,6 @@ export interface Episode {
     readonly played: boolean;
     /** Present only when episode `user_data` includes `is_in_progress`. */
     readonly isInProgress?: boolean;
-    /** Present only when episode `user_data` includes `position_seconds`. */
-    readonly positionSeconds?: number;
     readonly pendingTranslationLanguage?: string;
     readonly machineTranslatedFields?: readonly string[];
 }
@@ -559,6 +560,10 @@ export function decodeEpisodes(value: unknown): Episode[] {
         const inProgress = user !== undefined && (optionalInteger(user, "in_progress_count", `${path}.user_data`) ?? 0) > 0;
         return {
             ...(inProgress ? { inProgress: true } : {}),
+            ...(user === undefined ? {} : {
+                positionSeconds: watch?.positionSeconds,
+                durationSeconds: optionalNumber(user, "duration_seconds", `${path}.user_data`),
+            }),
             airDate: optionalString(obj, "air_date", path),
             overview: optionalString(obj, "overview", path),
             ratings: decodeDetailExtras(obj).ratings,
@@ -576,7 +581,6 @@ export function decodeEpisodes(value: unknown): Episode[] {
             ...(obj.still_is_episode_still === undefined ? {} : { stillIsEpisodeStill: boolean(obj, "still_is_episode_still", path) }),
             played: watch?.played ?? false,
             ...(watch?.isInProgress === undefined ? {} : { isInProgress: watch.isInProgress }),
-            ...(watch?.positionSeconds === undefined ? {} : { positionSeconds: watch.positionSeconds }),
             ...translationMembers(obj, path),
         };
     });

@@ -225,6 +225,22 @@ appTest("a guarded replacement reuses its live session but cannot restore after 
     assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 0);
 });
 
+appTest("a password reset refusal opens Change Account without signing out", async tv => {
+    await signIn(tv);
+    tv.fake.passwordChangeRequired = true;
+    tv.fake.expireAccessTokens();
+    await tv.page.evaluate(() => { window.appHarness.destroy(); window.appHarness.mount(); });
+    await tv.page.locator('[data-screen="profiles-error"]').waitFor();
+    await tv.page.getByText("Your password needs to be reset. Use the Silo mobile app or website to set a new one, then come back.").waitFor();
+    assert.equal(await tv.focused(), "change-account");
+    const revoked = tv.fake.revokedSessions.size;
+    await tv.page.getByRole("button", { name: "Change account", exact: true }).click();
+    await tv.page.locator('[data-view="change-account"]').waitFor();
+    assert.equal(await tv.page.locator('[data-screen="entry"]').count(), 0, "Change account opens the account list, not server entry");
+    assert.equal(tv.fake.revokedSessions.size, revoked, "changing account does not sign this one out");
+    assert.equal(await tv.page.locator(".account-badge").textContent(), "CURRENT");
+});
+
 appTest("empty Change Account focuses Add server and Back returns to sign-in", async tv => {
     await tv.page.fill("#signin-address", "silo.example.test");
     await tv.page.getByRole("button", { name: "Connect", exact: true }).click();

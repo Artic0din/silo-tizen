@@ -19,6 +19,7 @@ import { PreplayTrackPreference } from "./preplayTrackPreference.ts";
 import { subtitlePreferenceOperations, type SubtitlePreferencePick, type SubtitlePreference } from "../api/subtitlePreferenceOperations.ts";
 import { matchesSubtitle, preferredCatalogSubtitle } from "../player/preplaySubtitles.ts";
 import { DescriptionTranslations, type ItemDescriptionTranslation } from "./descriptionTranslation.ts";
+import { TrailerFetch } from "./trailerFetch.ts";
 
 export interface PersonalChange {
     readonly target: boolean;
@@ -29,6 +30,7 @@ export interface PersonalChange {
 const EPISODE_PREFETCH_CONCURRENCY = 4;
 
 export class DetailsState {
+    readonly trailers: TrailerFetch;
     showAdvisoryAge = false;
     readonly descriptions: ItemDescriptionTranslation | undefined;
     readonly audioPreference: PreplayAudioPreference;
@@ -99,6 +101,12 @@ export class DetailsState {
     constructor(detail: ItemDetail, session: NativeSession, changed: (returnKey?: string) => void, watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>, pendingElsewhere: () => boolean = () => false, translations?: DescriptionTranslations) {
         this.detail = detail;
         this.session = session;
+        this.trailers = new TrailerFetch(
+            signal => session.call({ ...detailOperations.refreshTrailers(detail.id), profileScoped: true, replayAfterRefresh: false, signal }),
+            signal => session.call({ ...operations.getCatalogItem(detail.id), profileScoped: true, signal }),
+            found => { this.detail = { ...found, played: this.detail.played, watch: this.detail.watch }; },
+            () => this.changed(),
+        );
         this.descriptions = translations?.open({
             detail: () => this.detail,
             season: () => {
@@ -179,7 +187,8 @@ export class DetailsState {
         if (["movie", "episode"].includes(this.detail.type)) this.subtitlePreference.start();
         this.full = mode === "full";
         if (this.full && this.episodePreferenceDirty) this.episodePreferenceChanged(this);
-        this.stopAuthority = this.session.onAuthorityChange(() => { this.stop(); this.changed(); });
+        this.stopAuthority = this.session.onAuthorityChange(() => { this.stop(); this.trailers.stop(false); this.changed(); });
+        if (mode === "full") this.trailers.resume();
         if (mode === "playback") return;
         this.nextEpisodeState?.start("playback");
         for (const state of this.episodeStates.values()) state.start("playback");
@@ -220,6 +229,7 @@ export class DetailsState {
     }
 
     stop(): void {
+        this.trailers.stop();
         this.pendingEpisodePanel = undefined;
         this.shuffleStarting = false;
         for (const state of this.seasonStates.values()) state.stop();

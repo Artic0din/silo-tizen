@@ -3,10 +3,12 @@ import type { RequestSpec } from "./http.ts";
 import { decodeCatalogCollection, decodeCatalogPage, decodeResumePosition } from "../contracts/v2/catalog.ts";
 import { decodeMembership, decodePerson, decodePeople, decodePersonalCapability } from "../contracts/v2/details.ts";
 import type { BrowseScope, TextSearchScope } from "./operations.ts";
+import { decodeTrailerRefresh } from "../contracts/v2/trailers.ts";
 
 export type PersonalAction = "watchlist" | "favorites" | "watched";
 
 export const detailOperations = {
+    refreshTrailers: (id: string): RequestSpec<ReturnType<typeof decodeTrailerRefresh>> => ({ method: "POST", path: `/catalog/items/${encodeURIComponent(id)}/trailers/refresh`, retry: "never", decode: decodeTrailerRefresh }),
     people: (query: string, scope: BrowseScope | TextSearchScope): RequestSpec<ReturnType<typeof decodePeople>> => ({ method: "GET", path: `/catalog/people?q=${encodeURIComponent(query)}&media_scope=${scope}&limit=20`, retry: "safe", decode: decodePeople }),
     resumePosition: (id: string, fileId: string): RequestSpec<ReturnType<typeof decodeResumePosition>> => ({
         method: "GET", path: `/watch/${encodeURIComponent(id)}?file_id=${encodeURIComponent(fileId)}`, retry: "safe",

@@ -158,7 +158,7 @@
 .details-versions .browse-button:focus { background: #fff; color: #000; }
 .browse-row .browse-card.details-person { width: 200px; margin-right: 60px; border: 0; border-radius: 0; }
 .browse-row .browse-art.details-photo { width: 200px; height: 200px; border-radius: 100px; }
-.details-people { margin-bottom: 36px; padding-top: 12px; padding-bottom: 12px; }
+.details-people { margin-bottom: 36px; margin-right: -88px; padding-top: 12px; padding-bottom: 12px; padding-right: 88px; }
 .details-people .browse-card-title { padding: 0; min-height: 48px; line-height: 24px; font-weight: 600; white-space: normal; text-align: center; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: rgba(237,237,237,.88); }
 .details-people .browse-card-subtitle { padding: 0; text-align: center; }
 .details-people .details-person:focus { border: 0; box-shadow: none; }
@@ -167,9 +167,9 @@
 .details-photo .browse-art-fallback::before { content: ""; position: absolute; top: 64px; left: 80px; width: 40px; height: 40px; border-radius: 50%; background: var(--silo-secondary); }
 .details-photo .browse-art-fallback::after { content: ""; position: absolute; top: 110px; left: 62px; width: 76px; height: 30px; border-radius: 38px 38px 8px 8px; background: var(--silo-secondary); }
 .details-season-chips { margin-bottom: 14px; padding: 4px 0; }
-.details-season-chips .browse-button { height: 52px; font-size: 22px; font-weight: 500; padding: 0 24px; margin-right: 12px; border-radius: 28px; }
+.details-season-chips .browse-button { height: 52px; font-size: 22px; font-weight: 500; padding: 0 24px; margin-right: 12px; border-radius: 28px; border-color: transparent; background: rgba(255,255,255,.05); }
 .details-season-chips .browse-button[aria-pressed="true"] { font-weight: 600; }
-.details-season-chips .browse-button[aria-pressed="true"] { background: rgba(255,255,255,.16); }
+.details-season-chips .browse-button[aria-pressed="true"] { background: rgba(255,255,255,.20); }
 .details-season-chips .browse-button:focus { background: #fff; color: #000; }
 .details-series-rail .browse-row { padding-top: 12px; }
 .browse .details-series-rail .browse-card { margin-right: 54px; }
@@ -1052,6 +1052,8 @@
 .skyline-selector.details-track-popover .browse-button[aria-checked="true"]:not(:focus) { background: transparent; }
 .details-track-popover .browse-section-title { font-size: 18px; letter-spacing: 2px; opacity: .6; }
 .details-more-popover .browse-button { height: 54px; font-size: 22px; }
+.details-more-popover { background: rgba(0,0,0,.45); }
+.details-trailer-status { display: inline-flex; align-items: center; gap: 14px; margin: 14px 0 0; padding: 14px 26px; border-radius: 40px; background: rgba(0,0,0,.55); border: 1.2px solid rgba(255,255,255,.18); color: #fff; font-size: 24px; font-weight: 600; }
 .details-option-subtext { display: block; font-size: 20px; line-height: 26px; opacity: .65; }
 /* Detail metrics are scoped here after the shared Home card and heading rules. */
 .browse:has(.details-hero) > .browse-section-title, .browse:has(.details-hero) .details-facts > .browse-section-title { margin-left: 12px; margin-bottom: 14px; font-size: 36px; line-height: 43.2px; font-weight: 600; }
@@ -1059,8 +1061,8 @@
 .details-editorial .browse-meta { line-height: 29px; }
 .details-hero[data-media-type="series"] .browse-meta { height: 36px; }
 .details-hero[data-media-type="series"] .details-editorial .browse-meta { color: rgb(225,227,228); }
-.details-editorial .browse-overview { line-height: 34px; max-height: 102px; color: rgb(237,237,237); }
-.details-hero[data-media-type="series"] .details-editorial .browse-overview { height: 102px; max-height: 102px; color: rgb(244,245,246); }
+.details-editorial .browse-overview { line-height: 34px; max-height: 102px; color: rgba(255,255,255,.92); }
+.details-hero[data-media-type="series"] .details-editorial .browse-overview { height: 102px; max-height: 102px; }
 .details-editorial .browse-meta { margin-bottom: 10px; }
 .details-hero[data-media-type="movie"] .browse-overview { margin-bottom: 16px; }
 .details-hero[data-media-type="movie"] .details-director { margin-bottom: 15px; }
@@ -1113,6 +1115,8 @@
 /* TVDetailCastRail pads both edges by 12px so its 1.05 focus lift fits. */
 .browse:has(.details-hero) > .details-people { padding-top: 12px; }
 .browse .details-series-rail .browse-card { margin-right: 40px; }
+.browse .details-series-rail .browse-card .browse-card-title { padding: 0; font-size: 20px; font-weight: 600; line-height: 28px; margin-top: 18px; }
+.browse .details-series-rail .browse-card .browse-card-subtitle { padding: 0; line-height: 24px; }
 .details-facts-table { position: relative; margin-left: 12px; }
 .details-facts-table:focus { background: transparent; }
 .details-facts-table:focus::before { content: ""; position: absolute; inset: -14px -28px; border-radius: 12px; background: rgba(255,255,255,.06); pointer-events: none; }

@@ -73,7 +73,7 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
         for (const item of items) {
             const title = item.element.firstChild;
             if (title?.nodeType === Node.TEXT_NODE) title.replaceWith(el("span", "details-option-title", title.textContent ?? ""));
-            if (name === "more" && ["favorites", "watched", "season-watched", "series-overview"].includes(item.key)) {
+            if (name === "more" && ["favorites", "watched", "season-watched", "series-overview", "find-trailers"].includes(item.key)) {
                 const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
                 icon.setAttribute("viewBox", "0 0 24 24");
                 icon.setAttribute("aria-hidden", "true");
@@ -82,6 +82,10 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
                 icon.setAttribute("stroke-width", "2");
                 const path = document.createElementNS(icon.namespaceURI, "path");
                 path.setAttribute("d", item.key === "favorites" ? "M12 21 3 12C-3 3 8-1 12 6 16-1 27 3 21 12Z" : item.key === "series-overview" ? "M12 11V17M12 7V8M22 12A10 10 0 1 1 2 12 10 10 0 0 1 22 12" : "M7 12 10 15 17 8M22 12A10 10 0 1 1 2 12 10 10 0 0 1 22 12");
+                if (item.key === "find-trailers") {
+                    icon.dataset.symbol = "film.stack";
+                    path.setAttribute("d", "M3 6H21V21H3ZM6 3H18M3 11H21M3 16H21M7 6V21M17 6V21");
+                }
                 icon.append(path); item.element.prepend(icon);
                 icon.classList.add("details-more-icon");
             }

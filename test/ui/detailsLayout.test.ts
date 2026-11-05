@@ -495,16 +495,16 @@ detailTest('More is an anchored popover with Apple ordering and immediate Back f
     await tv.page.locator('[data-focus="more"]').click();
     const panel = tv.page.getByRole('dialog', { name: 'More', exact: true });
     assert.equal(await panel.evaluate(node => node.classList.contains('details-track-popover')), true);
-    assert.deepEqual(await panel.locator('button').allTextContents(), ['Add to Favorites', 'Mark as Watched']);
+    assert.deepEqual(await panel.locator('button').allTextContents(), ['Add to Favorites', 'Mark as Watched', 'Find Trailers']);
     assert.equal(await tv.focused(), 'favorites');
     const panelBox = await readLive(tv, () => {
         const dialog = document.querySelector(".details-more-popover");
         if (!(dialog instanceof HTMLElement) || !dialog.isConnected) return null;
         const buttons = [...dialog.querySelectorAll("button")].map(button => button instanceof HTMLElement ? button.offsetHeight : 0);
         return { width: dialog.offsetWidth, buttons };
-    }, null, box => box.width === 560 && box.buttons.length === 2 && box.buttons.every(height => height === 54), "More panel geometry");
+    }, null, box => box.width === 560 && box.buttons.length === 3 && box.buttons.every(height => height === 54), "More panel geometry");
     assert.equal(panelBox.width, 560);
-    assert.deepEqual(panelBox.buttons, [54, 54]);
+    assert.deepEqual(panelBox.buttons, [54, 54, 54]);
     await tv.remote(39);
     assert.equal(await panel.count(), 0);
     assert.equal(await tv.focused(), 'more');
@@ -660,7 +660,7 @@ detailTest('Series More keeps series and season watched writes separate and reco
     await tv.page.locator('[data-focus="watchlist"]').waitFor();
     await tv.page.locator('[data-focus="more"]').click();
     const panel = tv.page.getByRole('dialog', { name: 'More', exact: true });
-    assert.deepEqual(await panel.locator('button').allTextContents(), ['Add to Favorites', 'Mark Series Watched', 'Mark Season Watched']);
+    assert.deepEqual(await panel.locator('button').allTextContents(), ['Add to Favorites', 'Mark Series Watched', 'Mark Season Watched', 'Find Trailers']);
     catalog.mutationFailure = problem(422, 'validation_failed', 'Unavailable action');
     await panel.locator('[data-focus="season-watched"]').click();
     assert.equal(await panel.count(), 0);
@@ -1030,7 +1030,7 @@ detailTest('Hero uses measured series colours and genres only at rest', async tv
         const overview = document.querySelector(".details-editorial .browse-overview");
         if (overview === null || !overview.isConnected) return null;
         return getComputedStyle(overview).color;
-    }, null, value => value === "rgb(244, 245, 246)", "series overview colour"), "rgb(244, 245, 246)");
+    }, null, value => value === "rgba(255, 255, 255, 0.92)", "series overview colour"), "rgba(255, 255, 255, 0.92)");
     await tv.page.locator('[data-focus="audio"]').focus();
     assert.equal(await readLive(tv, () => {
         const node = document.querySelector(".details-play");
@@ -1071,8 +1071,8 @@ detailTest('measured Apple movie typography and version popover geometry', async
         if (node === null || !node.isConnected) return null;
         const style = getComputedStyle(node);
         return { color: style.color, maxHeight: style.maxHeight, lineHeight: style.lineHeight };
-    }, null, value => value.color === "rgb(237, 237, 237)" && value.maxHeight === "102px" && value.lineHeight === "34px", "overview style sample survives optional-data repaint");
-    assert.deepEqual(styles, { color: "rgb(237, 237, 237)", maxHeight: "102px", lineHeight: "34px" });
+    }, null, value => value.color === "rgba(255, 255, 255, 0.92)" && value.maxHeight === "102px" && value.lineHeight === "34px", "overview style sample survives optional-data repaint");
+    assert.deepEqual(styles, { color: "rgba(255, 255, 255, 0.92)", maxHeight: "102px", lineHeight: "34px" });
     await tv.page.locator('[data-focus="version"]').click();
     assert.equal(await readLive(tv, () => {
         const node = document.querySelector('[data-focus="version"] .details-action-label');
@@ -1775,6 +1775,83 @@ detailTest("episode rail Select carries its cached subtitle Off choice", async t
 });
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
+
+for (const media of ['movie:m0001', 'series:s1']) detailTest(`274 Find Trailers offers ${media} in Apple menu order and publishes the polled rail`, async tv => {
+    let posts = 0; let queued = false;
+    const encoded = encodeURIComponent(media);
+    const body = tv.fake.catalog?.route('GET', `/catalog/items/${encoded}`, 'p-owner')?.body as Record<string, unknown>;
+    await tv.page.route(`**/api/v2/catalog/items/${encoded}/trailers/refresh`, route => {
+        posts++; queued = true; return route.fulfill({ status: 202, json: { status: 'queued' } });
+    });
+    await tv.page.route(`**/api/v2/catalog/items/${encoded}?**`, route => route.fulfill({ json: { ...body, ...(queued ? { extras: [{ content_id: 'extra:new', title: 'New trailer', kind: 'trailer', duration: 90 }] } : {}) } }));
+    await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
+    await tv.page.locator('[data-focus="more"]').click();
+    const order = await tv.page.locator('.details-more-popover [data-focus]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-focus')));
+    assert.ok(order.indexOf('find-trailers') > order.indexOf('watched'));
+    assert.ok(!order.includes('translate-description') || order.indexOf('find-trailers') < order.indexOf('translate-description'));
+    await tv.page.locator('[data-focus="find-trailers"]').click();
+    await tv.page.locator('.details-trailer-status').waitFor();
+    assert.equal(await tv.focused(), 'more');
+    assert.equal(await tv.page.locator('.details-trailer-status').textContent(), 'Finding trailers…');
+    await tv.jump(3000);
+    await tv.page.locator('[data-focus="extra:extra:new"]').waitFor();
+    assert.equal(posts, 1);
+    assert.equal(await tv.page.locator('.details-trailer-status').count(), 0);
+});
+
+for (const check of ['cast', 'caption', 'season', 'description', 'menu', 'metadata', 'sparse metadata']) detailTest(`274 ${check} matches pinned tvOS Details`, async tv => {
+    if (check === 'sparse metadata') {
+        const catalog = tv.fake.catalog;
+        await tv.page.route('**/api/v2/catalog/**', async route => {
+            const url = new URL(route.request().url());
+            const response = catalog?.route('GET', url.pathname.replace('/api/v2', '') + url.search, 'p-owner');
+            if (response === undefined || response.status !== 200) { await route.fallback(); return; }
+            const body = response.body as Record<string, unknown>;
+            const clear = (item: Record<string, unknown>): Record<string, unknown> => ({ ...item, air_date: undefined, runtime: 0, ratings: [], content_rating: undefined, ...(Array.isArray(item.versions) ? { versions: item.versions.map(value => ({ ...value as Record<string, unknown>, duration: 0 })) } : {}) });
+            await route.fulfill({ json: { ...clear(body), ...(Array.isArray(body.items) ? { items: body.items.map(item => clear(item as Record<string, unknown>)) } : {}) } });
+        });
+    }
+    if (check === 'metadata') {
+        const body = tv.fake.catalog?.route('GET', '/catalog/items/episode%3As1e11', 'p-owner')?.body as Record<string, unknown>;
+        await tv.page.route('**/api/v2/catalog/items/episode%3As1e11?**', route => route.fulfill({ json: { ...body, ratings: [{ name: 'TMDB', source: 'tmdb', score: 80, display: '80%' }] } }));
+    }
+    await tv.page.locator(`[data-section="recently_added"] [data-focus="${check === 'cast' || check === 'menu' ? 'movie:m0001' : 'series:s1'}"]`).first().click();
+    await tv.page.locator('[data-focus="version"][aria-disabled="false"]').waitFor();
+    if (check === 'cast') {
+        const rail = await readLive(tv, () => {
+            const node = document.querySelector('.details-people');
+            return node === null ? null : { right: node.getBoundingClientRect().right };
+        }, null, value => value.right > 0, 'live Cast rail');
+        assert.equal(rail.right, 1920);
+    } else if (check === 'caption') {
+        const caption = tv.page.locator('.details-episodes .browse-card-title').first();
+        await caption.evaluate(node => { node.textContent = "S02E01 · Electro's Gotta Glow"; });
+        const metrics = await caption.evaluate(node => ({ width: node.clientWidth, content: node.scrollWidth, padding: getComputedStyle(node).paddingLeft, weight: getComputedStyle(node).fontWeight }));
+        assert.equal(metrics.padding, '0px');
+        assert.equal(metrics.weight, '600');
+        assert.ok(metrics.content <= metrics.width, JSON.stringify(metrics));
+    } else if (check === 'season') {
+        assert.equal(await tv.page.locator('[data-focus="season:1"]').evaluate(node => getComputedStyle(node).borderTopColor), 'rgba(0, 0, 0, 0)');
+    } else if (check === 'description') {
+        const color = await readLive(tv, () => {
+            const node = document.querySelector('.details-editorial .browse-overview');
+            return node === null ? null : { color: getComputedStyle(node).color };
+        }, null, value => value.color !== '', 'live synopsis');
+        assert.equal(color.color, 'rgba(255, 255, 255, 0.92)');
+    } else if (check === 'menu') {
+        await tv.page.locator('[data-focus="more"]').click();
+        assert.equal(await tv.page.locator('.details-more-popover').evaluate(node => getComputedStyle(node).backgroundColor), 'rgba(0, 0, 0, 0.45)');
+    } else if (check === 'sparse metadata') {
+        await tv.page.locator('[data-focus="episode:s1e11"]').focus();
+        await tv.eventually(async () => (await tv.page.locator('.details-editorial .browse-meta').textContent()) === 'Season 1\u2002·\u2002Episode 1', 'sparse episode identifiers');
+    } else {
+        await tv.page.locator('[data-focus="episode:s1e11"]').focus();
+        await tv.eventually(async () => (await tv.page.locator('.details-editorial .browse-meta').textContent())?.includes('Season 1') === true, 'episode hero');
+        await tv.page.locator('.details-editorial .browse-meta img[alt="TMDB"]').waitFor();
+        const parts = await tv.page.locator('.details-editorial .browse-meta').evaluate(node => [...node.childNodes].map(child => child instanceof HTMLSpanElement ? child.querySelector('img')?.alt ?? child.textContent : child.textContent).join(''));
+        assert.ok(parts.indexOf('TMDB') >= 0 && parts.indexOf('TMDB') < parts.indexOf('Season 1'), parts);
+    }
+});
 
 function detailTest(name: string, body: (tv: Tv) => Promise<void>, size?: 'compact' | 'standard' | 'large'): void {
     test(name, async () => {

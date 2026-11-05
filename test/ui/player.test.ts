@@ -258,6 +258,16 @@ test("Up Next captures remote input, preserves focus and exposes Keep Watching a
     } finally { await page.close(); }
 });
 
+test("series subtitle Off remains reachable without subtitle inventory", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing({ ...NO_TRACKS, seriesSubtitle: { busy: false, message: "" } }));
+        await openAudio(page);
+        await remote(page, RIGHT);
+        assert.equal(await page.getByRole("button", { name: "Keep subtitles off for this series", exact: true }).isVisible(), true);
+    } finally { await page.close(); }
+});
+
 test("captions apply profile styles, stay safe text and clear during recovery", async () => {
     const { page } = await open();
     try {

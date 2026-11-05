@@ -453,7 +453,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                 list.textContent = "";
                 const name = tabNames[index];
                 const hud = view.phase === "playing" || view.phase === "paused" ? view.hud : undefined;
-                const hidden = name === "Chapters" && (hud?.chapters.length ?? 0) === 0 || name === "Audio" && tracks.audio.state === "ready" && tracks.audio.choices.length === 0 || name === "Subtitles" && tracks.subtitles.length === 0 && !tracks.aiTranslate && !tracks.ai?.available.transcribe;
+                const hidden = name === "Chapters" && (hud?.chapters.length ?? 0) === 0 || name === "Audio" && tracks.audio.state === "ready" && tracks.audio.choices.length === 0 || name === "Subtitles" && tracks.subtitles.length === 0 && tracks.seriesSubtitle === undefined && !tracks.aiTranslate && !tracks.ai?.available.transcribe;
                 list.style.display = hidden ? "none" : "";
                 if (hidden) continue;
                 if (name === "Info") fillInfo(list, tracks);

@@ -36,6 +36,19 @@ test("HUD chapters read the effective watch file, expose failures and retry with
     r.controller.destroy();
 });
 
+test("live autoplay reflects the effective device override after a profile write", async () => {
+    const r = await autoplayRig(true);
+    await playMovie(r);
+    r.h.fake.script("/settings/values/effective?keys=playback.auto_play_next", { status: 200, body: { revision: 24, items: [{ key: "playback.auto_play_next", value: true, source: "profile_device", definition_revision: 24 }] } });
+    r.controller.toggleAutoNext();
+    await r.h.clock.advance(0);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.hud?.autoNext, true);
+    assert.match(view.hud?.message ?? "", /device|TV|override/i);
+    r.controller.destroy();
+});
+
 test("live autoplay saves once while pending and retains the old value on refusal", async () => {
     const r = await autoplayRig(false);
     await playMovie(r);

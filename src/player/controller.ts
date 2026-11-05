@@ -482,11 +482,12 @@ export class PlaybackController implements PlayerControls {
         attempt.hud.message = "Saving Auto-play next";
         this.showPlayback(attempt);
         const enabled = !attempt.autoNext;
-        void this.deps.session.call({ ...operations.putSetting(AUTO_NEXT_KEY, enabled), profileScoped: true, signal: attempt.signal }).then(() => {
+        void this.deps.session.call({ ...operations.putSetting(AUTO_NEXT_KEY, enabled), profileScoped: true, signal: attempt.signal }).then(async () => {
+            const values = await this.deps.session.call({ ...operations.effectiveSettings([AUTO_NEXT_KEY]), profileScoped: true, signal: attempt.signal });
             if (!attempt.live || attempt.signal.aborted) return;
-            attempt.autoNext = enabled;
-            attempt.hud.message = "";
-        }, () => {
+            attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
+            attempt.hud.message = attempt.autoNext === enabled ? "" : "This TV's override keeps Auto-play next unchanged.";
+        }).catch(() => {
             if (attempt.live && !attempt.signal.aborted) attempt.hud.message = "Could not save Auto-play next. Try again.";
         }).finally(() => {
             attempt.hud.autoBusy = false;

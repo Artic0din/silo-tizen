@@ -18,6 +18,34 @@ function storage() {
     return { values, getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); }, removeItem: (key: string) => { values.delete(key); } };
 }
 const scope = ["server", "account", "profile"] as const;
+test("retained offline Details retries shuffle and advisory reads on recovery", async () => {
+    const detail = { ...decodeItemDetail(fixture("get_catalog_item_ok")), type: "series" as const };
+    let reachable = false;
+    const reads: string[] = [];
+    const session = { onAuthorityChange: () => () => {}, call: async <T>(request: RequestSpec<T>): Promise<T> => {
+        reads.push(request.path);
+        if (!reachable) return offline();
+        if (request.path === "/shuffles/capabilities") return { usable: true, scopeKinds: ["series"] } as T;
+        if (request.path.startsWith("/settings/values/effective")) return new Map([["catalog.show_advisory_age", { value: true }]]) as T;
+        return offline();
+    } } as unknown as NativeSession;
+    const state = new DetailsState(detail, session, () => {}, async () => {});
+    state.offline = true;
+    state.start();
+    await settle();
+    assert.equal(state.shuffleSupported, false);
+    assert.equal(state.showAdvisoryAge, false);
+    reachable = true;
+    state.acceptDetail(detail);
+    await settle();
+    try {
+        assert.equal(reads.filter(path => path === "/shuffles/capabilities").length, 2);
+        assert.equal(reads.filter(path => path.startsWith("/settings/values/effective")).length, 2);
+        assert.equal(state.shuffleSupported, true);
+        assert.equal(state.showAdvisoryAge, true);
+    } finally { state.stop(); }
+});
+
 test("session artwork URLs survive fallback while persisted snapshots omit them", async () => {
     const store = storage();
     const cache = new BrowseCache(store, scope, new AbortController().signal);

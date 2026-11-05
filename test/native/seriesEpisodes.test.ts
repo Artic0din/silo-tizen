@@ -119,6 +119,22 @@ test("failed Retry survives cached selection and visit restoration without warmi
     assert.equal(restored.failed, true); restored.stop();
 });
 
+for (const season of [2, 3]) test(`explicit season ${season} Select supersedes Calendar entry through revalidation`, async t => {
+    const h = await episodeRailHarness(); t.after(() => h.state.stop());
+    h.state.entryEpisode = "rail:2:1";
+    h.state.select(season);
+    await h.settle();
+    assert.equal(h.state.selectionChanged, true);
+    assert.equal(h.state.entryEpisode, `rail:${season}:0`);
+    const refreshed = new SeriesEpisodes(h.core.session, "series:s1", h.state.seasons, () => undefined, season, `rail:${season}:1`);
+    t.after(() => refreshed.stop());
+    refreshed.restore(h.state, true);
+    h.state.stop();
+    refreshed.start(); await h.settle();
+    assert.equal(refreshed.entryEpisode, `rail:${season}:0`);
+    assert.equal(refreshed.selectionOwnsHero, true);
+});
+
 test("an invalidated series refreshes restored episode pages", async t => {
     const h = await episodeRailHarness(); t.after(() => h.state.stop());
     const restored = new SeriesEpisodes(h.core.session, "series:s1", h.state.seasons, () => undefined, 2);

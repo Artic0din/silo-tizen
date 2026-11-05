@@ -63,6 +63,11 @@ export class SeriesEpisodes {
 
     restore(previous: SeriesEpisodes | undefined, refresh = false): void {
         this.selectionChanged = refresh && previous?.selectionChanged === true;
+        if (this.selectionChanged && previous !== undefined) {
+            this.entryEpisode = previous.entryEpisode;
+            this.selectionOwnsHero = previous.selectionOwnsHero;
+            this.focusSelectedEpisode = previous.focusSelectedEpisode;
+        }
         if (previous !== undefined && previous.seasonNumber === this.seasonNumber) {
             this.episodes = previous.episodes;
             this.railEpisodes = previous.railEpisodes;
@@ -114,6 +119,7 @@ export class SeriesEpisodes {
     select(season: number, automatic = false): void {
         clearTimeout(this.seasonDwell);
         if (!this.active || !this.seasons.some(item => item.seasonNumber === season)) return;
+        this.selectionChanged = true;
         this.selectionOwnsHero = true;
         if (!automatic) this.automaticRead = false;
         if (season === this.seasonNumber && this.episodes !== undefined) {
@@ -129,7 +135,6 @@ export class SeriesEpisodes {
             return;
         }
         this.seasonNumber = season;
-        this.selectionChanged = true;
         this.focusSelectedEpisode = true;
         this.entryEpisode = undefined;
         if (!automatic && !this.pages.has(season)) { this.load(); return; }

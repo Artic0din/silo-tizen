@@ -168,6 +168,7 @@ export class DetailsState {
         if (this.personalFailed || retrySupporting) this.loadPersonal();
         if (this.relatedFailed || retrySupporting) this.loadRelated();
         if (this.titleArtPolicy === "failed" || retrySupporting) this.loadTitleArt();
+        if (retrySupporting) this.loadSupportingPreferences();
     }
 
     start(mode: "full" | "personal" | "playback" = "full"): void {
@@ -186,22 +187,7 @@ export class DetailsState {
         if (mode === "full") this.series?.start();
         if (mode === "full") this.warmSeriesEpisodes();
         if (mode === "full") this.loadTitleArt();
-        if (mode === "full") {
-            const controller = this.controller;
-            void this.read(operations.effectiveSettings([ADVISORY_KEY]), controller).then(values => {
-                if (!this.current(controller)) return;
-                this.showAdvisoryAge = values.get(ADVISORY_KEY)?.value === true;
-                this.changed();
-            }, () => { /* Missing advisory preferences keep the optional badge hidden. */ });
-        }
-        if (mode === "full" && this.detail.type === "series") {
-            const controller = this.controller;
-            void this.read(operations.shuffleCapabilities(), controller).then(capability => {
-                if (!this.current(controller)) return;
-                this.shuffleSupported = capability.usable && capability.scopeKinds.includes("series");
-                this.changed();
-            }, () => undefined);
-        }
+        if (mode === "full") this.loadSupportingPreferences();
         if (mode === "full" && (this.nextEpisode === undefined || this.restored) && !this.nextEpisodeFailed) this.loadNextEpisode();
         let interrupted = false;
         for (const [kind, change] of this.changes) {
@@ -215,6 +201,22 @@ export class DetailsState {
         if (this.personalSupported === undefined || (this.restored && this.changes.size === 0)) this.loadPersonal();
         this.restored = false;
         if (this.full && this.controller !== undefined) this.descriptions?.attach(this.controller.signal);
+    }
+
+    private loadSupportingPreferences(): void {
+        const controller = this.controller;
+        if (controller === undefined) return;
+        void this.read(operations.effectiveSettings([ADVISORY_KEY]), controller).then(values => {
+            if (!this.current(controller)) return;
+            this.showAdvisoryAge = values.get(ADVISORY_KEY)?.value === true;
+            this.changed();
+        }, () => { /* Missing advisory preferences keep the optional badge hidden. */ });
+        if (this.detail.type !== "series") return;
+        void this.read(operations.shuffleCapabilities(), controller).then(capability => {
+            if (!this.current(controller)) return;
+            this.shuffleSupported = capability.usable && capability.scopeKinds.includes("series");
+            this.changed();
+        }, () => undefined);
     }
 
     stop(): void {

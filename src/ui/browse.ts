@@ -18,6 +18,8 @@ import { requestsState, type RequestsHandlers, type RequestsSource } from "./req
 import type { RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import { detailOperations } from "../api/detailOperations.ts";
+import { BOX_SET_SEARCH_LIMIT, boxSetOperations } from "../api/boxSetOperations.ts";
+import { BoxSetRowState } from "./boxSetRow.ts";
 import type { ItemDetail, UserLibrary } from "../contracts/v2/catalog.ts";
 import { DetailsState } from "./detailsState.ts";
 import { DescriptionTranslations } from "./descriptionTranslation.ts";
@@ -266,6 +268,22 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         personRead?.controller.abort();
         if (personRead?.route.kind === "person") { personRead.route.metadataLoading = false; personRead.route.availabilityLoading = false; }
         personRead = undefined;
+        boxSetRowWork?.stop(); boxSetRowWork = undefined;
+    };
+    let boxSetRowWork: BoxSetRowState | undefined;
+    let boxSetsAnswer: Promise<boolean> | undefined;
+    const boxSetsSupported = (): Promise<boolean> => {
+        if (boxSetsAnswer !== undefined) return boxSetsAnswer;
+        const pending = session.call({ ...operations.getCatalogSearchCapabilities(), profileScoped: true }).then(capability => {
+            const yes = capability.boxSets === true;
+            boxSetsAnswer = Promise.resolve(yes);
+            return yes;
+        }, () => {
+            if (boxSetsAnswer === pending) boxSetsAnswer = undefined;
+            return false;
+        });
+        boxSetsAnswer = pending;
+        return pending;
     };
     let inputRevision = 0;
     const recordInput = (): void => { inputRevision++; container.classList.remove("search-restored"); };
@@ -275,6 +293,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const top = (): Route | undefined => stack[stack.length - 1];
     let requestsCapability: RequestsCapability = { enabled: false, follow: false };
     let searchPeopleController: AbortController | undefined;
+    let searchBoxSetController: AbortController | undefined;
     let searchRequestsController: AbortController | undefined;
     const acceptRequestsCapability = (capability: RequestsCapability): void => {
         requestsCapability = capability;
@@ -286,6 +305,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
     const stopSearchSupplement = (): void => {
         searchPeopleController?.abort(); searchPeopleController = undefined;
+        searchBoxSetController?.abort(); searchBoxSetController = undefined;
         searchRequestsController?.abort(); searchRequestsController = undefined;
     };
     const searchRequests = (current: Extract<Route, { kind: "search" }>): void => {
@@ -326,6 +346,52 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (!owns()) return;
             supplement.peoplePending = false; supplement.peopleFailure = true; render(host.focused());
         });
+    };
+    /** Box sets are movies, so only All and Movies ask. A failed read shows none and leaves titles alone. */
+    const searchBoxSets = (current: Extract<Route, { kind: "search" }>): void => {
+        searchBoxSetController?.abort();
+        const supplement = current.supplement ??= {};
+        const wants = current.boxSetsSupported === true && (current.filter === undefined || current.filter === "movie");
+        if (!wants) {
+            searchBoxSetController = undefined;
+            supplement.boxSets = [];
+            supplement.boxSetsPending = false;
+            return;
+        }
+        const query = current.query.trim();
+        if (query === "") {
+            searchBoxSetController = undefined;
+            supplement.boxSets = [];
+            supplement.boxSetsPending = false;
+            return;
+        }
+        const controller = new AbortController();
+        searchBoxSetController = controller;
+        supplement.boxSetsPending = true;
+        const owns = (): boolean => !torn && !controller.signal.aborted && top() === current && current.supplement === supplement && current.query.trim() === query && (current.filter === undefined || current.filter === "movie");
+        const miss = (): void => {
+            if (!owns()) return;
+            searchBoxSetController = undefined;
+            supplement.boxSets = [];
+            supplement.boxSetsPending = false;
+            render(host.focused());
+        };
+        // search() throws before a request exists. That miss stays here, as Apple's
+        // box-set task does, so the title search in load() is still sent.
+        let request: ReturnType<typeof boxSetOperations.search>;
+        try {
+            request = boxSetOperations.search(query, BOX_SET_SEARCH_LIMIT);
+        } catch {
+            miss();
+            return;
+        }
+        void read(request, controller.signal).then(found => {
+            if (!owns()) return;
+            searchBoxSetController = undefined;
+            supplement.boxSets = found.slice(0, BOX_SET_SEARCH_LIMIT);
+            supplement.boxSetsPending = false;
+            render(host.focused());
+        }, miss);
     };
     let probeOrdinal = 0;
     let requestWritePending = false;
@@ -616,6 +682,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }
                 current.failure = text ?? "Something went wrong. Try again.";
                 if (current.kind === "item") current.error = errorState(error);
+                if (current.kind === "search" && current.pages?.page === undefined) {
+                    searchBoxSetController?.abort();
+                    searchBoxSetController = undefined;
+                    if (current.supplement !== undefined) {
+                        current.supplement.boxSets = [];
+                        current.supplement.boxSetsPending = false;
+                    }
+                }
                 if (current.kind === "calendar") current.calendar.error = error instanceof CalendarTimezoneError ? { headline: "Something went wrong", message: error.message, signIn: false } : errorState(error);
                 if (current.kind === "personal") current.error = errorState(error);
                 if (current.kind === "requests") { current.requests.error = errorState(error); if (!current.requests.unconfirmed && !current.requests.writing) current.requests.action = undefined; }
@@ -764,6 +838,24 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
     };
 
+    const createItemDetails = (current: Extract<Route, { kind: "item" }>, detail: ItemDetail): DetailsState => {
+        let seasonFocus: { season: number | undefined; revision: number } | undefined;
+        const details = new DetailsState(detail, session, (audioClosed) => {
+            if (details.series?.focusSelectedEpisode && seasonFocus?.season !== details.series.seasonNumber) {
+                seasonFocus = { season: details.series.seasonNumber, revision: inputRevision };
+            }
+            if (details.series?.focusSelectedEpisode && details.series.episodes !== undefined) {
+                details.series.focusSelectedEpisode = false;
+                const episode = details.series.entryEpisode;
+                const enter = seasonFocus?.revision === inputRevision;
+                seasonFocus = undefined;
+                if (top() === current && enter && episode !== undefined) { render({ zone: "seasons", key: `season:${details.series.seasonNumber}` }); return; }
+            }
+            detailsChanged(current, audioClosed);
+        }, (value, signal) => refreshWatched(current, value, signal), personalPending, translations);
+        return details;
+    };
+
     const invalidateWatched = (current: Route, detail: ItemDetail): void => {
         cache.invalidate();
         // Even a lost or cancelled answer may have committed; reread covered routes on return.
@@ -789,6 +881,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (signal.aborted || top() !== current || current.data === undefined) return;
             current.data.episodes = episodes;
         }
+        if (current.kind === "item" && current.data?.detail.type === "movie") current.data.boxSet?.start();
         if (current.kind === "item" && current.data?.details?.series !== undefined) {
             const series = current.data.details.series;
             const season = series.seasonNumber;
@@ -1160,7 +1253,18 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             case "search":
                 search(current, quiet);
                 return;
-            case "item":
+            case "item": {
+                const previousRow = current.data?.boxSet;
+                const startBoxSetRow = (): void => {
+                    if (current.data?.detail.type !== "movie") return;
+                    boxSetRowWork?.stop();
+                    const row = new BoxSetRowState(session, current.id, boxSetsSupported, () => { if (top() === current && !playing) render(host.focused()); });
+                    row.restore(previousRow);
+                    row.open = found => { if (top() === current && !playing) push(newRoute({ kind: "boxSet", id: found.boxSet.id, libraryId: found.boxSet.libraryId, title: found.boxSet.title, data: undefined })); };
+                    current.data.boxSet = row;
+                    boxSetRowWork = row;
+                    row.start();
+                };
                 if (current.data?.details === undefined) stopDetails();
                 load(current, async (signal) => {
                     // Slots follow response fields: backdrop_width also sizes a still returned in backdrop_url.
@@ -1189,23 +1293,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                             previous.series.start();
                         }
                         current.data = { ...data, detail, details: previous };
+                        startBoxSetRow();
                         if (!previous.series?.selectionChanged && current.focus === undefined && data.contextSeason !== undefined && data.seasons.some(item => item.seasonNumber === data.contextSeason)) return { zone: "seasons", key: `season:${data.contextSeason}` };
                         return;
                     }
-                    let seasonFocus: { season: number | undefined; revision: number } | undefined;
-                    const details = new DetailsState(data.detail, session, (audioClosed) => {
-                        if (details.series?.focusSelectedEpisode && seasonFocus?.season !== details.series.seasonNumber) {
-                            seasonFocus = { season: details.series.seasonNumber, revision: inputRevision };
-                        }
-                        if (details.series?.focusSelectedEpisode && details.series.episodes !== undefined) {
-                            details.series.focusSelectedEpisode = false;
-                            const episode = details.series.entryEpisode;
-                            const enter = seasonFocus?.revision === inputRevision;
-                            seasonFocus = undefined;
-                            if (top() === current && enter && episode !== undefined) { render({ zone: "seasons", key: `season:${details.series.seasonNumber}` }); return; }
-                        }
-                        detailsChanged(current, audioClosed);
-                    }, (detail, signal) => refreshWatched(current, detail, signal), personalPending, translations);
+                    const details = createItemDetails(current, data.detail);
                     details.restore(previous);
                     if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, reason => details.warmSeriesEpisodes(reason === "load"), previous?.series?.seasonNumber ?? data.contextSeason ?? (current.seriesContext === undefined ? seriesSeasons.get(data.detail.id) : undefined), current.seriesContext?.episodeId);
                     details.series?.restore(previous?.series, true);
@@ -1216,10 +1308,31 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     current.data = { ...data, details };
                     detailWork = details;
                     details.start();
+                    if (details.related !== undefined) details.loadRelated();
+                    startBoxSetRow();
                     const season = data.contextSeason;
                     if (current.seriesContext?.episodeId === undefined && current.focus === undefined && season !== undefined && data.seasons.some(item => item.seasonNumber === season)) return { zone: "seasons", key: `season:${season}` };
                 }, quiet);
                 return;
+            }
+            case "boxSet": {
+                const had = current.data !== undefined;
+                load(current, async signal => {
+                    try {
+                        return await read(boxSetOperations.get(current.id, current.libraryId), signal);
+                    } catch (error) {
+                        if (signal.aborted || (error instanceof ApiError && error.aborted)) throw error;
+                        const missing = error instanceof ApiError && error.status === 404;
+                        if (!missing && current.data !== undefined) return current.data;
+                        if (missing) current.data = undefined;
+                        throw error;
+                    }
+                }, detail => {
+                    current.data = detail;
+                    if (had) return host.focused() ?? current.focus;
+                }, quiet || had);
+                return;
+            }
             case "season":
                 if (current.data?.details === undefined) stopDetails();
                 load(current, async (signal) => {
@@ -1377,10 +1490,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (!signal.aborted && top() === current && current.query === query) {
                     current.searchType = type;
                     current.peopleSupported = capability.allowed && capability.state === "available" && capability.peopleMediaScope === true;
+                    current.boxSetsSupported = capability.boxSets === true;
+                    boxSetsAnswer = Promise.resolve(current.boxSetsSupported);
                 }
             }
             if (signal.aborted || top() !== current || current.query !== query) throw new DOMException("Aborted", "AbortError");
             if (current.supplement?.people === undefined) searchPeople(current, current.filter ?? type);
+            if (current.supplement?.boxSetsPending !== false) searchBoxSets(current);
             return read(operations.listCatalogItems({ q: query.trim(), type: current.filter ?? type, limit: PAGE_SIZE, cursor: pages.cursors[index] }), signal);
         }, (page) => {
             pages.page = page;
@@ -1392,11 +1508,18 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
 
     let searchReturnFocus: { readonly route: Extract<Route, { kind: "search" }>; readonly target: FocusTarget } | undefined;
+    /** All and Movies keep the cards already on screen until the replacement lookup answers. */
+    const resetSearchSupplement = (current: Extract<Route, { kind: "search" }>): void => {
+        const wants = current.boxSetsSupported === true && (current.filter === undefined || current.filter === "movie") && current.query.trim() !== "";
+        const shown = current.supplement?.boxSets;
+        const kept = wants && shown !== undefined && shown.length > 0 ? shown : undefined;
+        stopSearchSupplement();
+        current.supplement = kept === undefined ? {} : { boxSets: kept, boxSetsPending: true };
+    };
     const search = (current: Extract<Route, { kind: "search" }>, quiet = false): void => {
         searchReturnFocus = undefined;
         cancelSearch();
-        stopSearchSupplement();
-        current.supplement = {};
+        resetSearchSupplement(current);
         searchRequests(current);
         current.failure = undefined;
         if (current.query.trim() === "") {
@@ -1423,8 +1546,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         cancelSlow();
         current.slow = false;
         current.query = input.value;
-        stopSearchSupplement();
-        current.supplement = {};
+        resetSearchSupplement(current);
         render(host.focused());
         cancelSearch();
         // Only the replacement request is debounced; an obsolete read stops immediately.
@@ -1484,6 +1606,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (current !== undefined) {
             current.focus = panel === undefined ? host.focused() : { zone: "actions", key: panel };
             if (current.kind === "homeSection" || current.kind === "person") current.pendingIndex = undefined;
+            if (current.kind === "boxSet") current.stale = true;
         }
         loading?.abort();
         loading = undefined;
@@ -1512,7 +1635,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const detail = cached === undefined ? undefined : previous?.detail ?? cached;
             if (detail !== undefined) {
                 const seasons = cache.peek(operations.listSeriesSeasons(current.id)) ?? [];
-                const details = new DetailsState(detail, session, key => detailsChanged(current, key), (value, signal) => refreshWatched(current, value, signal), personalPending, translations);
+                const details = createItemDetails(current, detail);
                 details.restore(previous);
                 if (detail.type === "series") details.series = new SeriesEpisodes(session, detail.id, seasons, reason => details.warmSeriesEpisodes(reason === "load"), current.seriesContext?.seasonNumber ?? (current.seriesContext === undefined ? seriesSeasons.get(current.id) : undefined), current.seriesContext?.episodeId);
                 details.series?.restore(previous?.series);
@@ -1530,6 +1653,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (current.kind === "search") {
             input.value = current.query;
             if (current.supplement?.peoplePending && current.searchType !== undefined && current.query === current.resultsFor) searchPeople(current, current.filter ?? current.searchType);
+            if (current.supplement?.boxSetsPending === true && current.boxSetsSupported === true && current.query === current.resultsFor) searchBoxSets(current);
             if (current.supplement !== undefined && current.supplement.requests === undefined) current.supplement.requestsFor = undefined;
             searchRequests(current);
         }
@@ -1542,6 +1666,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (!hasData(current) || current.stale || current.failure !== undefined || queryChanged) {
             loadRoute(current, hasData(current) && !queryChanged);
             if (current.kind === "calendar") render(focus);
+        } else if (current.kind === "item" && current.data !== undefined && current.data.detail.type === "movie" && current.data.boxSet !== undefined) {
+            // push() stopped this read. The cached movie is not loaded again, so start it once.
+            boxSetRowWork = current.data.boxSet;
+            boxSetRowWork.start();
         } else if ((current.kind === "home" || current.kind === "for_you") && current.data !== undefined) {
             const sections = current.kind === "home" ? current.data.sections : current.data;
             homeDetails.load(homeRows(sections).flatMap(row => row.cards.map(card => ({ card, continuing: current.kind === "home" && row.continuing }))));

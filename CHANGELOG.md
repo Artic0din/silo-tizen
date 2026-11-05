@@ -18,6 +18,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept explicit season selections on the first episode through cached Calendar revalidation and restored shuffle and advisory preferences after offline Details recovery.
 - Revalidated the saved server identity after an offline start before sending restored sign-in credentials, preventing credentials from reaching a replacement deployment.
 - Recovered offline season episode controls automatically, preserved episode refusals across cached revisits, and reused visited Details for offline card actions.
 - Retained cached next-episode controls and remaining artwork during outages, restored personal-action retries in card menus, and kept unsent writes retryable when session refresh failed.

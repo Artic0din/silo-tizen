@@ -128,6 +128,10 @@ for (const id of ['movie:m0001', 'series:s1']) detailTest(`${id} reopening start
     const open = async () => {
         await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).first().click();
         await tv.page.locator('.details-people').waitFor();
+        await tv.page.locator('[data-detail-section="related"] [data-focus]').first().waitFor();
+        await tv.eventually(async () => await tv.page.locator('[data-focus="watchlist"]').count() === 1, 'personal actions loaded');
+        await tv.page.evaluate(() => document.fonts.ready);
+        await tv.page.waitForLoadState('networkidle');
         await tv.jump(500);
     };
     await open();
@@ -138,7 +142,17 @@ for (const id of ['movie:m0001', 'series:s1']) detailTest(`${id} reopening start
         const page = document.querySelector<HTMLElement>('.browse')!;
         return { scroll: page.scrollTop, hero: page.querySelector('.details-hero')!.getBoundingClientRect().top };
     });
-    const before = await measure();
+    let seen = Number.NaN;
+    const before = await readLive(tv, () => {
+        const page = document.querySelector<HTMLElement>('.browse');
+        const hero = page?.querySelector('.details-hero');
+        if (page === null || !page.isConnected || hero === null || hero === undefined) return null;
+        return { scroll: page.scrollTop, hero: hero.getBoundingClientRect().top };
+    }, null, value => {
+        const settled = value.scroll > 0 && value.scroll === seen;
+        seen = value.scroll;
+        return settled;
+    }, 'settled non-zero scroll');
     assert.ok(before.scroll > 0);
     await tv.remote(10009);
     await open();

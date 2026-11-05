@@ -201,25 +201,29 @@ test("native comparison: History scrolls first, middle and last rows to the nati
         await tv.eventually(async () => (await geometry()).scroll === 0, "first row returns to the top");
     } finally { await tv.page.context().close(); }
 });
-test("Down from the retained For You tab enters the visible watchlist", async () => {
+for (const source of ["watchlist", "favorites"]) for (const gap of [500, 4000]) test(`Down from the retained For You tab opens the menu on Watchlist over ${source} after ${gap}ms`, async () => {
     const { tv } = await setup();
     try {
         await tv.page.locator('[data-focus="for_you"]').click();
         await tv.page.locator('[data-view="for_you"]').waitFor();
         await tv.page.locator('[data-focus="for_you"]').focus();
         await tv.remote(40);
-        await tv.page.locator('[data-focus="watchlist"]').click();
-        const card = tv.page.locator('[data-view="personal:watchlist"] .browse-card').first();
+        await tv.page.locator(`[data-focus="${source}"]`).click();
+        const card = tv.page.locator(`[data-view="personal:${source}"] .browse-card`).first();
         await card.waitFor();
-        const key = await card.getAttribute("data-focus");
         await tv.remote(10009);
         assert.equal(await tv.focused(), "for_you");
-        assert.equal(await tv.page.locator('[data-view="personal:watchlist"]').count(), 1);
-        await tv.jump(250);
-        assert.equal(await tv.page.locator(".skyline-selector:not([hidden])").count(), 0, "dwell must not reopen For You over a visible list");
+        assert.equal(await tv.page.locator(`[data-view="personal:${source}"]`).count(), 1);
+        await tv.jump(gap);
         await tv.remote(40);
-        assert.equal(await tv.page.locator(".skyline-selector:not([hidden])").count(), 0, "Down must not reopen the For You menu");
-        assert.equal(await tv.focused(), key, "Down from the retained tab enters the list");
+        assert.equal(await tv.page.locator('.skyline-selector:not([hidden])[data-menu-kind="for_you"]').count(), 1, "Down opens the For You menu over the visible list");
+        assert.equal(await tv.focused(), "watchlist", "Apple always enters the menu on Watchlist, including over Favorites");
+        assert.equal(await tv.page.locator(`[data-view="personal:${source}"]`).count(), 1);
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "for_you");
+        await tv.remote(10009);
+        await tv.page.locator('[data-view="for_you"]').waitFor();
+        assert.equal(await tv.page.locator(".skyline-selector:not([hidden])").count(), 0);
     } finally { await tv.page.context().close(); }
 });
 test("pinned History scope distinguishes aggregated media from episode queries", () => {

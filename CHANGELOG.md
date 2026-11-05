@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Restored the For You menu on Down from the retained tab over Watchlist and Favorites, focusing Watchlist as on Apple TV.
 - Matched History's Apple TV title position and focused poster scroll clearance.
 - Matched Apple TV personal-list loading, root selection, Back navigation, grid spacing, and saved-list ordering.
 - Kept saved-list requests and response validation in the shared API adapter and contract modules.

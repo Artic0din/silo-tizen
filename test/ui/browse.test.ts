@@ -70,8 +70,26 @@ browseTest("collection watched badge uses Apple's catalog source and contract vi
     await card.waitFor({ timeout: 3000 });
     assert.equal(await card.locator('.browse-watched').count(), 1);
     assert.deepEqual(tv.fake.requests.filter(request => request.body?.source === "library_collection").at(-1)?.body,
-        { library_id: "12", type: "movie", limit: 60, sort: "title", order: "asc", source: "library_collection", scope: "library", collection_id: "highlights" });
+        { limit: 60, match: "all", source: "library_collection", collection_id: "highlights" });
     assert.equal(tv.fake.requests.filter(request => request.path.includes("/collections/highlights/items")).length, 0);
+});
+
+browseTest("collection detail preserves server member order across pages without a sort override", async (tv, catalog) => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await selectLibraryMode(tv, "Collections");
+    const titles = ["Resident Evil", "Fall 2", "Verity"];
+    const items = titles.map((title, i) => ({ content_id: `movie:order-${i}`, type: "movie", title }));
+    catalog.failNext("/catalog/query", { status: 200, body: { window_cursor: "order-window", items, total: 4, total_exact: true, page: { has_more: true, next_cursor: "order-next" } } });
+    await tv.page.locator('[data-focus="collection:highlights"]').click();
+    await tv.page.locator('.collection-detail-grid .browse-card').first().waitFor();
+    assert.deepEqual(await tv.page.locator('.collection-detail-grid .browse-card-title').allTextContents(), titles);
+    const query = { source: "library_collection", collection_id: "highlights", limit: 60, match: "all" };
+    assert.deepEqual(tv.fake.requests.filter(request => request.body?.source === "library_collection").at(-1)?.body, query);
+    catalog.failNext("/catalog/query", { status: 200, body: { window_cursor: "order-window", items: [{ content_id: "movie:order-3", type: "movie", title: "Animals" }], total: 4, total_exact: true, page: { has_more: false } } });
+    await tv.page.locator('[data-focus="next"]').click();
+    await tv.page.locator('[data-focus="movie:order-3"]').waitFor();
+    assert.deepEqual(tv.fake.requests.filter(request => request.body?.source === "library_collection").at(-1)?.body, { ...query, cursor: "order-next" });
 });
 
 for (const check of ["icon", "title", "badges", "focus"] as const) browseTest(`collection native regression ${check}`, async (tv, catalog) => {
@@ -763,6 +781,11 @@ browseTest("Search People is scoped, activates real identities and does not fetc
     await tv.page.locator('[data-focus="person:7"]').focus(); await tv.remote(39);
     assert.equal(tv.fake.requests.length, reads);
     await tv.page.locator('[data-focus="person:7"]').click(); await showing(tv, "person:7");
+    await tv.page.locator('[data-focus="filter:series"]').click();
+    await tv.page.locator('[data-focus="filter:series"][aria-pressed="true"]').waitFor();
+    await tv.remote(10009);
+    await tv.page.locator('[data-focus="person:7"]').click(); await showing(tv, "person:7");
+    assert.equal(await tv.focused(), "filter:video");
 }, { catalog: peopleSearch });
 
 const slowRequests = new SearchCatalog();
@@ -1325,6 +1348,7 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
     assert.equal(tv.fake.requests.length, reads, "focus performs no reads");
     await press(tv, "Enter");
     await showing(tv, "person:7");
+    await tv.eventually(async () => await tv.page.locator(".browse-grid .browse-card").count() === 24, "inline Person first page");
     assert.equal(await tv.page.locator(".browse-card").count(), 24);
     await tv.remote(BACK);
     await showing(tv, "item:movie:m0001");
@@ -1650,7 +1674,8 @@ browseTest("optional Details reads load independently, fail, retry and report em
     await tv.page.locator('[data-focus="person:7"]').focus();
     await press(tv, "Enter");
     await showing(tv, "person:7");
-    await shows(tv, "No available titles for this person.");
+    await shows(tv, "No available titles for this filter.");
+    await shows(tv, "0 titles");
     await tv.remote(BACK);
     await showing(tv, "item:movie:m0001");
     await tv.remote(BACK);
@@ -1693,7 +1718,8 @@ browseTest("person, related and personal reads recover with explicit retries", a
     const person = tv.fake.hold("/catalog/people/7", true);
     await tv.page.locator('[data-focus="person:7"]').focus();
     await press(tv, "Enter");
-    await showing(tv, "person:loading");
+    await showing(tv, "person:7");
+    await shows(tv, "Loading metadata");
     await tv.page.evaluate(() => window.browseHarness.clearProfile());
     person.release();
     await tv.jump(0);
@@ -2547,7 +2573,7 @@ browseTest("R2 personal collections retain server group and query source", async
     await shows(tv, "Mine");
     await tv.page.locator('[data-focus="collection:u1"]').click();
     await tv.eventually(async () => tv.fake.requests.some(request => request.body?.source === "user_collection"), "personal collection query");
-    assert.deepEqual(tv.fake.requests.filter(request => request.body?.source === "user_collection").pop()?.body, { library_id: "12", type: "movie", limit: 60, sort: "title", order: "asc", source: "user_collection", scope: "library", collection_id: "u1" });
+    assert.deepEqual(tv.fake.requests.filter(request => request.body?.source === "user_collection").pop()?.body, { limit: 60, match: "all", source: "user_collection", collection_id: "u1" });
 });
 
 browseTest("R2 filtered genres keep library chrome", async (tv) => {
@@ -2628,7 +2654,9 @@ for (const [tab, library, first] of [["movies", "12", "movie:m0001"], ["series",
         await tv.page.locator('[data-focus="collection:highlights"]').waitFor();
         await press(tv, "Enter");
         await shows(tv, "Library Highlights");
-        await tv.eventually(async () => tv.fake.requests.some(request => request.path.startsWith("/catalog/query") && request.body?.source === "library_collection" && request.body?.library_id === library && request.body?.limit === 60), "scoped collection items");
+        await tv.eventually(async () => tv.fake.requests.some(request => request.path.startsWith("/catalog/query") && request.body?.source === "library_collection" && request.body?.collection_id === "highlights" && request.body?.limit === 60), "scoped collection items");
+        assert.deepEqual(tv.fake.requests.filter(request => request.body?.source === "library_collection").at(-1)?.body, { source: "library_collection", collection_id: "highlights", limit: 60, match: "all" });
+        await tv.page.locator(`.collection-detail-grid [data-focus="${first}"]`).waitFor();
         await tv.remote(BACK);
         assert.equal(await tv.focused(), "collection:highlights");
         await selectLibraryMode(tv, "Genres");

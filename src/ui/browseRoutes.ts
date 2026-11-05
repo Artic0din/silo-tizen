@@ -220,8 +220,13 @@ function grid(current: Route, pages: Pages, page: CatalogPage, handlers: RouteHa
             previous: () => handlers.turn(current, pages, -1),
             next: () => handlers.turn(current, pages, 1),
         },
-        handlers.context,
+        current.kind === "search" ? searchCards(handlers.context) : handlers.context,
     );
+}
+
+/** Search posters are 220pt (`SearchView` `cardWidth`) and carry overlay data, as `TVCatalogGrid` does. */
+function searchCards(context: ViewContext): ViewContext {
+    return { ...context, overlays: context.cardOverlays?.(), posterWidth: 220 * (context.posterScale?.() ?? 1) };
 }
 
 function searchResults(current: Extract<Route, { kind: "search" }>, handlers: RouteHandlers): SearchResults {

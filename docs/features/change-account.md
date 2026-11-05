@@ -4,7 +4,7 @@ Change Account lists saved accounts beside a server rail.
 The profile menu and profile picker footer open it.
 Settings > Server > Accounts opens account management; Accounts is not a Settings category on the Apple reference.
 Accounts uses its own Settings pane header, value-and-chevron rows, and red removal action.
-Back returns to the Accounts row in Settings while the active profile remains valid.
+Back returns to General in the Settings rail while the active profile remains valid.
 Account credentials stay in protected storage, bound to their original server URL and a device-made account ID.
 The first launch copies the previous saved credential before making the new selection durable, without a network request.
 An interrupted copy can retry from the retained legacy credential.
@@ -41,7 +41,7 @@ Removal keeps its confirmation focused with a loading label until storage answer
 2. Move Left to the server rail, Up and Down between servers, then Right into the account cards; record focus and Back.
 3. Capture Add server in the rail and Add an account in the pane.
 4. Choose Add an account, sign in to a second account on the same server, and capture both account cards and profile counts.
-5. Choose each account; capture the picker for several profiles and direct opening for one profile without a PIN.
+5. Choose each account; capture the picker even for one profile without a PIN unless Remember was chosen.
 6. Revoke one account in the test server, choose it, and capture SIGN IN AGAIN and the sign-in username.
 7. Open Settings > Server > Accounts; capture account rows, Add an account and Remove Server.
 8. Open Sign Out, capture Cancel focused, cancel it, then repeat and confirm; verify other accounts remain.

@@ -79,7 +79,7 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
                 item.element.append(el("span", "accounts-row-title", title));
                 if (value) item.element.append(el("span", "accounts-row-value", value));
                 if (destructive) item.element.classList.add("accounts-destructive");
-                else { const arrow = el("span", "accounts-chevron", "›"); arrow.setAttribute("aria-hidden", "true"); item.element.append(arrow); }
+                else { const arrow = el("span", "accounts-chevron"); arrow.append(navigationIcon("chevron-right")); item.element.append(arrow); }
                 return item;
             };
             for (const address of [...new Set(rows.map(row => row.baseUrl))]) {

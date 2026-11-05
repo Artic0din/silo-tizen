@@ -6,9 +6,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Added Change Account with several saved accounts per server, account management, and automatic opening of a single profile without a PIN.
+- Added Change Account with several saved accounts per server and account management.
 
 ### Fixed
+
+- Matched Accounts spacing, footnote size, chevron symbols and return focus to Apple TV, and kept the profile picker until Remember is chosen even with one unprotected profile.
+- Blocked account navigation during removal, guarded legacy sign-ins and released account chooser focus before session recovery.
 
 - Matched Accounts pane rows and Change Account layout, and returned Back from account management to Settings.
 - Restored saved-server pane focus, Back from Add server, and pending-removal focus on Samsung TV.
@@ -16,6 +19,15 @@ All notable changes to this project are documented in this file.
 - Kept Change Account reachable when a saved server is offline, prevented removed accounts from being restored by late refreshes, and scrolled account lists to keep remote focus visible.
 - Prevented failed replacement sign-ins from restoring old credentials and kept saved-sign-in removal scoped to the selected account.
 - Prevented replaced account sessions from overwriting a new sign-in and required fresh PIN proof after committing an account switch.
+- Kept a Person filter the viewer already chose when a slower availability probe would have removed its chip.
+- Moved Up from a Person filmography card to the chip closest to that card's left edge, leaving the card in place when no chip meets it, and scrolled the first row to the page's 72 px bottom padding plus the tvOS safe area.
+
+- Reset fresh Person visits from Search and applied delayed poster and badge preferences on Person.
+
+- Corrected Person safe-area insets, title-count spacing, biography weight, server-driven filters, fresh-visit focus and independent metadata loading, restored catalog status badges, and returned the full hero when focus moved back to its chips.
+- Drew the series status TV glyph as Apple's flat `tv` symbol, at that symbol's layout size, and stopped Search from pinning an upward move over the field and filters.
+- Drew the TV icon on Returning, Cancelled and Ended badges and raised Home headings by using Skyline's 14px card padding.
+- Raised the focused Search poster, darkened the Continue Watching focus shadow, showed the Returning badge on Search cards, and hid the watched tick on Related titles.
 - Showed Home rows as soon as they arrived, without waiting on library tabs or an uncapped sections read, and stopped the Home page from saying the server was still waiting. While those rows are still out, Home is an empty page labelled "Loading home" and the library tabs fill in on their own.
 - Stopped a delayed Home libraries read from putting a library back after it was hidden in Settings.
 - Kept remote navigation when those library tabs arrived on another page, and read them again after the app returned if that read had failed.
@@ -41,6 +53,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Showed the title count, All/Movies/Series filters and paged filmography beneath the Person hero, with one Back returning to the originating credit.
 - Matched Apple TV's outlined card focus with a smaller lift, softer captions and a persistent outline on the Series row's current episode.
 - Started the horizontal navigation column after leaving a text field, and reset it at the top bar or a page's first card.
 

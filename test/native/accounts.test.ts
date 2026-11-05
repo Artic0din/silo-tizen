@@ -48,6 +48,20 @@ for (const legacy of [false, true]) for (const interrupted of [false, true]) tes
     assert.equal(restarted.restore, "signed_out");
 });
 
+test("legacy server entry refuses a guarded existing account", async () => {
+    const h = await connected(); await signIn(h);
+    const store = keyManagerStore(h.keyManager!);
+    const id = h.core.accounts.localAccountId!;
+    const saved = await new CredentialVault(store, h.storage, h.fake.origin, id).load();
+    if (saved.status !== "found") throw Error("fixture missing");
+    await new CredentialVault(store, h.storage, h.fake.origin).save(saved.credential);
+    h.core.accounts.directory.update(id, { needsSignIn: true });
+    const directory = JSON.parse(h.storage.getItem("silo.native.accounts.v1")!) as { accounts: unknown[] };
+    h.storage.setItem("silo.native.accounts.v1", JSON.stringify({ accounts: directory.accounts, selected: "other-server" }));
+    const reopened = new AccountVault(store, h.storage, h.fake.origin, bytes => { bytes.fill(9); });
+    assert.equal((await reopened.load()).status, "none");
+});
+
 test("an interrupted replacement write leaves the previous login guarded and unrelated accounts intact", async () => {
     const h = await connected(); await signIn(h);
     const store = keyManagerStore(h.keyManager!);
@@ -189,6 +203,7 @@ for (const failure of ["protected-write", "index-write"] as const) {
         assert.equal(await legacy.save(saved.credential), "saved");
         h.storage.removeItem("silo.native.accounts.v1");
         const before = h.fake.requests.length;
+        const launchChoices = [...h.storage.items].filter(([key]) => key.startsWith("silo.native.profileLaunch:"));
         if (failure === "protected-write") manager.failSave = true;
         else h.storage.failSet = true;
         const interrupted = new AccountVault(store, h.storage, address, bytes => { bytes.fill(3); });
@@ -199,6 +214,7 @@ for (const failure of ["protected-write", "index-write"] as const) {
         assert.equal((await restarted.load()).status, "found");
         assert.equal(restarted.directory.list().length, 1);
         assert.equal(h.fake.requests.length, before, "migration made no request");
+        assert.deepEqual([...h.storage.items].filter(([key]) => key.startsWith("silo.native.profileLaunch:")), launchChoices, "migration preserves launch choices");
     });
 }
 

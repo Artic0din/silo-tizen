@@ -7,6 +7,7 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - Hid unwatched episode stills and descriptions from Playback when the server supports the profile spoiler settings.
+- Show Trailers & More on movie and series Details for local extras and YouTube listings, using Apple's card size and the 76px gap to the next heading. Local extras still play from the start. YouTube listings stay on their card because this TV cannot play them.
 - Added description translation on Details and the featured marquee, matching Apple TV's Translate Description action, Translating… status and Translated by AI label.
 - Added Change Account with several saved accounts per server and account management.
 

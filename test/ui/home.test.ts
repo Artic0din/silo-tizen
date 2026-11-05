@@ -497,6 +497,11 @@ journey("Home poster badges scale from Apple's 185pt poster and Continue Watchin
 }, catalog => { enrichHome(catalog, badgeFields); enrichDetails(catalog, detailFields); }, () => undefined);
 
 const badgePx = (value: number, artWidth: number): number => Math.round(value * artWidth / 185 * 100) / 100;
+/** SF Symbol "tv" layout box at iconSize 12 times the poster scale. The old value was a square of that point size. */
+const tvLayout = (artWidth: number): { width: string; height: string } => ({
+    width: `${Math.round(12 * 73 / 48 * artWidth / 185 * 100) / 100}px`,
+    height: `${Math.round(12 * 58 / 48 * artWidth / 185 * 100) / 100}px`,
+});
 
 journey("Home headings below a row use Skyline's 14px card padding plus the 10px row gap", async tv => {
     const measured = await tv.page.evaluate(() => {
@@ -532,11 +537,12 @@ journey("series status badges draw the tv icon at Apple's scaled pill size", asy
     assert.equal(home.font, `${badgePx(10, homeArt)}px`, "pill text is fontSize 10 times the poster width over 185");
     assert.equal(home.pad, `${badgePx(4, homeArt)}px ${badgePx(10, homeArt)}px`);
     assert.equal(home.radius, "999px", "the pill preset is a capsule");
-    const homeIcon = `${badgePx(12, homeArt)}px`;
-    assert.equal(home.icon?.width, homeIcon);
-    assert.equal(home.icon?.height, homeIcon);
+    // The old square icon was iconSize 12 times the scale (a point-size box). SF Symbol "tv" lays out at 73/48 by 58/48 of that point size.
+    const homeIcon = tvLayout(homeArt);
+    assert.equal(home.icon?.width, homeIcon.width);
+    assert.equal(home.icon?.height, homeIcon.height);
     assert.equal(home.icon?.gap, `${badgePx(4, homeArt)}px`, "icon-to-text spacing is the 4pt HStack spacing times the scale");
-    assert.ok(home.icon !== undefined && Math.abs(parseFloat(home.icon.used) - badgePx(12, homeArt)) < 0.05);
+    assert.ok(home.icon !== undefined && Math.abs(parseFloat(home.icon.used) - parseFloat(homeIcon.width)) < 0.05);
     assert.equal(await tv.page.locator('[data-section="hero/opaque"] .card-overlay').textContent(), "Ended");
     assert.equal(await tv.page.locator('[data-section="because/opaque"] .card-overlay').textContent(), "Cancelled");
     assert.equal(await tv.page.locator('[data-section="hero/opaque"] .card-overlay svg').count(), 1);
@@ -558,9 +564,10 @@ journey("series status badges draw the tv icon at Apple's scaled pill size", asy
     assert.equal(grid.badge?.font, `${badgePx(10, gridArt)}px`, "12.09px text on the 224-wide card, from fontSize 10 times 260*0.86/185");
     assert.equal(grid.badge?.pad, `${badgePx(4, gridArt)}px ${badgePx(10, gridArt)}px`);
     assert.equal(grid.badge?.radius, "999px");
-    const gridIcon = `${badgePx(12, gridArt)}px`;
-    assert.equal(grid.badge?.icon?.width, gridIcon);
-    assert.equal(grid.badge?.icon?.height, gridIcon);
+    // The old square icon was 14.5px (iconSize 12 times 260*0.86/185). The symbol box is wider than that point size.
+    const gridIcon = tvLayout(gridArt);
+    assert.equal(grid.badge?.icon?.width, gridIcon.width);
+    assert.equal(grid.badge?.icon?.height, gridIcon.height);
     assert.equal(grid.badge?.icon?.gap, `${badgePx(4, gridArt)}px`);
 }, catalog => enrichHome(catalog, { ...badgeFields, "movie:m0004": { show_status: "ended" }, "movie:m0005": { show_status: "cancelled" } }), settings => {
     settings.profile().set(CARD_OVERLAYS_KEY, { version: 2, preset: "pill", order: ["show_status"], items: { resolution: { enabled: false, position: "top-left" }, hdr: { enabled: false, position: "top-left" }, audio: { enabled: false, position: "top-left" }, release_type: { enabled: false, position: "bottom-left" }, show_status: { enabled: true, position: "top-right" } } });

@@ -97,6 +97,27 @@ browseTest("Search spatial People entry chooses the nearest title column", async
     const reads = tv.fake.requests.length;
     await press(tv, "ArrowDown");
     assert.equal(await tv.focused(), "movie:m0002");
+    await press(tv, "ArrowUp");
+    await tv.jump(250);
+    await tv.page.waitForTimeout(260);
+    const upFromFirst = await tv.page.evaluate(() => {
+        const field = document.querySelector("#browse-search")?.getBoundingClientRect();
+        const pills = document.querySelector(".search-filters")?.getBoundingClientRect();
+        const focused = document.activeElement?.getBoundingClientRect();
+        return {
+            scroll: document.querySelector(".browse")?.scrollTop ?? -1,
+            fieldTop: field?.top,
+            fieldBottom: field?.bottom,
+            pillsTop: pills?.top,
+            pillsBottom: pills?.bottom,
+            ringTop: focused?.top,
+        };
+    });
+    assert.equal(upFromFirst.scroll, 0, "Up from the first title row returns to the top");
+    assert.ok((upFromFirst.fieldTop ?? -1) >= 0 && (upFromFirst.fieldBottom ?? 0) > 40, `the keyboard stays visible, got ${upFromFirst.fieldTop}`);
+    assert.ok((upFromFirst.pillsTop ?? -1) >= 0 && (upFromFirst.pillsBottom ?? 0) <= 1080, `the filter pills stay visible, got ${upFromFirst.pillsTop}`);
+    assert.ok(Math.abs((upFromFirst.ringTop ?? 0) - 495) < 40, `Up from the first title row rests the ring near 495, got ${upFromFirst.ringTop}`);
+    await tv.page.locator('[data-focus="movie:m0002"]').focus();
     await press(tv, "ArrowDown", "ArrowDown");
     assert.equal(await tv.focused(), "movie:950");
     await tv.jump(250);
@@ -104,10 +125,11 @@ browseTest("Search spatial People entry chooses the nearest title column", async
     assert.equal(await tv.focused(), "movie:m0008", "Up from Requests enters the adjacent bottom grid row");
     await tv.jump(250);
     await tv.page.waitForTimeout(260);
-    const posterTop = await tv.page.locator('[data-focus="movie:m0008"] .browse-art').evaluate(node => node.getBoundingClientRect().top);
-    // The previous pin was 171px. Apple's poster ring sits 10.6px higher.
-    const searchRevealTop = 160.4;
-    assert.ok(Math.abs(posterTop - searchRevealTop) < 1, `Search upward reveal keeps the focused poster at ${searchRevealTop}px; the previous pin was 171px, got ${posterTop}`);
+    const revealed = await tv.page.evaluate(() => document.querySelector('[data-focus="movie:m0008"] .browse-art')?.getBoundingClientRect().top);
+    // The old pin was 160.4px (before that, 171px), measured on a different path. Up rests this ring at 495.
+    // The pills stay with the first-row return above: this bottom card sits a full results column below them.
+    const searchRevealTop = 495;
+    assert.ok(Math.abs((revealed ?? 0) - searchRevealTop) < 1, `Search upward reveal keeps the focused poster at ${searchRevealTop}px; the old pin was 160.4px, got ${revealed}`);
     assert.equal(await tv.page.locator('.search-navigation-title').evaluate(node => getComputedStyle(node).position), "absolute", "deep directional navigation does not show the navigation title");
     assert.equal(tv.fake.requests.length, reads);
 }, { catalog: new SearchEdgeCatalog() });

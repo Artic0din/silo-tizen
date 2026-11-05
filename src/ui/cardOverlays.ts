@@ -2,7 +2,7 @@
 // Ported (AGPL-3.0-or-later) from silo-apple 1a7cceeaf3b2bfc4f889c00487d19b2c6f843940:
 // iosApp/iosApp/Overlays/{OverlayTypes,OverlaySchema,OverlayRegistry,OverlayExtractors,OverlayPresets,CardOverlays,OverlayIcon}.swift.
 // Generic badge icons are SF Symbols there and are not drawn here, except the
-// series-status tv glyph, which uses the same stroked SVG as the sign-in icon.
+// series-status tv glyph: a flat screen in that symbol's layout box, without its foot.
 // Brand marks are text in both.
 
 import type { Card } from "../contracts/v2/catalog.ts";
@@ -228,8 +228,10 @@ export function overlayLayer(card: Card, prefs: CardOverlayPrefs, variant: "post
             const label = badge.mark === undefined ? badge.label : badge.label.split(" ").filter(word => word.toLowerCase() !== badge.mark?.toLowerCase()).join(" ");
             if (badge.tv) {
                 const glyph = tvIcon();
-                glyph.style.width = px(preset.iconSize);
-                glyph.style.height = px(preset.iconSize);
+                // OverlayIcon draws SF Symbol "tv" at iconSize * scale. That image is not a
+                // square of the point size: at 48pt the symbol's layout box is 73×58.
+                glyph.style.width = px(preset.iconSize * TV_SYMBOL_WIDTH);
+                glyph.style.height = px(preset.iconSize * TV_SYMBOL_HEIGHT);
                 // OverlayBadgeView's HStack spacing, 4, separate from the stack gap.
                 if (label !== "") glyph.style.marginRight = px(4);
                 node.appendChild(glyph);
@@ -248,16 +250,29 @@ export function overlayLayer(card: Card, prefs: CardOverlayPrefs, variant: "post
     return layer.childElementCount === 0 ? undefined : layer;
 }
 
-/** The sign-in tv strokes (`marquee.ts`), sized by the caller to the preset icon. */
+/**
+ * SF Symbol "tv" layout box divided by the font point size (`OverlayIcon` at 48pt
+ * is 73×58). CardOverlays passes `iconSize * scale` as that point size.
+ */
+const TV_SYMBOL_WIDTH = 73 / 48;
+const TV_SYMBOL_HEIGHT = 58 / 48;
+
+/**
+ * Flat screen of SF Symbol "tv", without its foot. The screen sits in the symbol's
+ * layout box (measured at 48pt: origin 6,4.25, size 60.75×40.75, corner 10).
+ */
 function tvIcon(): SVGSVGElement {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("class", "card-overlay-icon");
-    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("viewBox", "0 0 73 58");
     svg.setAttribute("aria-hidden", "true");
-    for (const d of ["M3 5.5h18v11H3z", "M8.5 20h7M12 16.5V20"]) {
-        const path = document.createElementNS(svg.namespaceURI, "path");
-        path.setAttribute("d", d);
-        svg.appendChild(path);
-    }
+    const path = document.createElementNS(svg.namespaceURI, "path");
+    path.setAttribute("d", roundedRect(6, 4.25, 60.75, 40.75, 10));
+    svg.appendChild(path);
     return svg;
+}
+
+function roundedRect(x: number, y: number, width: number, height: number, radius: number): string {
+    const r = Math.min(radius, width / 2, height / 2);
+    return `M${x + r} ${y}H${x + width - r}A${r} ${r} 0 0 1 ${x + width} ${y + r}V${y + height - r}A${r} ${r} 0 0 1 ${x + width - r} ${y + height}H${x + r}A${r} ${r} 0 0 1 ${x} ${y + height - r}V${y + r}A${r} ${r} 0 0 1 ${x + r} ${y}Z`;
 }

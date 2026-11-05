@@ -286,12 +286,16 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         show(entryScreen(notes, offerForget, error, false, errorField), focus);
     };
 
-    /** A bad port is explained on the field it belongs to, and the Port field is opened so the outline is in view. */
+    /**
+     * A bad port is explained on the field it belongs to, and the Port field is opened so the
+     * outline is in view. Focus stays on Connect. TVServerSetupView.connect does not move
+     * focusedField, and the running Apple TV app stays on Connect.
+     */
     const rejectPort = (offerForget: boolean, fault: "address" | "port"): void => {
         if (fault === "port") {
             advanced = true;
         }
-        showEntry([], offerForget, fault, text.INVALID_PORT, fault);
+        showEntry([], offerForget, "connect", text.INVALID_PORT, fault);
     };
 
     /** Applies Advanced options; a bad port is explained before anything is sent. */

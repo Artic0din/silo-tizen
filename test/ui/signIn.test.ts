@@ -1307,10 +1307,10 @@ tvTest("HTTPS chosen in Advanced options never offers plain HTTP, and a bad port
     await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
     await shows(tv, "Port must be a number between 1 and 65535.");
     assert.equal(await tv.page.locator(".marquee-error").count(), 1);
-    // Previously a bad Port field outlined the address.
+    // Previously a bad Port field outlined the address and took focus. The outline stays; focus stays on Connect.
     assert.equal(await tv.page.locator(".signin-field-error #signin-port").count(), 1, "the Port field shows the error");
     assert.equal(await tv.page.locator(".signin-field-error #signin-address").count(), 0);
-    assert.equal(await tv.focused(), "port");
+    assert.equal(await tv.focused(), "connect", "a bad Port leaves focus on Connect");
     assert.equal(tv.blocked, 0);
     await tv.page.fill("#signin-port", "");
     await tv.page.locator('[data-focus="scheme-https"]').click();
@@ -1326,6 +1326,7 @@ tvTest("a port typed into the address outlines the address and opens nothing", a
     await shows(tv, "Port must be a number between 1 and 65535.");
     assert.equal(await tv.page.locator(".signin-field-error #signin-address").count(), 1);
     assert.equal(await tv.page.locator("#signin-port").count(), 0, "advanced options stay closed");
+    assert.equal(await tv.focused(), "connect", "a port typed into the address leaves focus on Connect");
     assert.equal(tv.blocked, 0);
 });
 

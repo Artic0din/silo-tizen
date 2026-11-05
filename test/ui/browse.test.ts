@@ -443,6 +443,11 @@ browseTest("Search People is scoped, activates real identities and does not fetc
     await tv.page.locator('[data-focus="person:7"]').focus(); await tv.remote(39);
     assert.equal(tv.fake.requests.length, reads);
     await tv.page.locator('[data-focus="person:7"]').click(); await showing(tv, "person:7");
+    await tv.page.locator('[data-focus="filter:series"]').click();
+    await tv.page.locator('[data-focus="filter:series"][aria-pressed="true"]').waitFor();
+    await tv.remote(10009);
+    await tv.page.locator('[data-focus="person:7"]').click(); await showing(tv, "person:7");
+    assert.equal(await tv.focused(), "filter:video");
 }, { catalog: peopleSearch });
 
 const slowRequests = new SearchCatalog();
@@ -1005,6 +1010,7 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
     assert.equal(tv.fake.requests.length, reads, "focus performs no reads");
     await press(tv, "Enter");
     await showing(tv, "person:7");
+    await tv.eventually(async () => await tv.page.locator(".browse-grid .browse-card").count() === 24, "inline Person first page");
     assert.equal(await tv.page.locator(".browse-card").count(), 24);
     await tv.remote(BACK);
     await showing(tv, "item:movie:m0001");
@@ -1330,7 +1336,8 @@ browseTest("optional Details reads load independently, fail, retry and report em
     await tv.page.locator('[data-focus="person:7"]').focus();
     await press(tv, "Enter");
     await showing(tv, "person:7");
-    await shows(tv, "No available titles for this person.");
+    await shows(tv, "No available titles for this filter.");
+    await shows(tv, "0 titles");
     await tv.remote(BACK);
     await showing(tv, "item:movie:m0001");
     await tv.remote(BACK);
@@ -1373,7 +1380,8 @@ browseTest("person, related and personal reads recover with explicit retries", a
     const person = tv.fake.hold("/catalog/people/7", true);
     await tv.page.locator('[data-focus="person:7"]').focus();
     await press(tv, "Enter");
-    await showing(tv, "person:loading");
+    await showing(tv, "person:7");
+    await shows(tv, "Loading metadata");
     await tv.page.evaluate(() => window.browseHarness.clearProfile());
     person.release();
     await tv.jump(0);

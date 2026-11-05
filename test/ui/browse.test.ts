@@ -589,9 +589,14 @@ for (const reduced of [false, true]) {
         const visible = async (): Promise<boolean> => (await sample()).visible;
         await tv.eventually(visible, "later request revealed before People");
         // Visibility can precede the scroll animation's final frame.
-        await tv.jump(250);
-        const { scroll } = await sample();
-        assert.ok(scroll > 0, "the later request needs horizontal scrolling");
+        let scroll = 0;
+        await tv.eventually(async () => {
+            await tv.jump(250);
+            // Verify and snapshot the live rail in the same browser evaluation.
+            scroll = (await sample()).scroll;
+            return scroll > 0;
+        }, "later request horizontal reveal settled before snapshot");
+        assert.ok(scroll > 0);
         const reads = tv.fake.requests.length;
         people.release();
         await tv.page.locator('[data-focus="person:edge-0"]').waitFor({ state: "attached" });

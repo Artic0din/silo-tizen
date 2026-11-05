@@ -7,6 +7,7 @@
 // act for an account or profile that is no longer active. The player listens for these.
 
 import { ApiError } from "../api/errors.ts";
+import { DiagnosticLog } from "../diagnostics/log.ts";
 import type { ServerConnection } from "../api/discovery.ts";
 import type { Clock } from "../api/clock.ts";
 import { abortedError, type NativeHttp, type RequestSpec } from "../api/http.ts";
@@ -99,6 +100,7 @@ export class NativeSession {
     private accountController = new AbortController();
     /** Aborted on any authority change: API calls. */
     private authorityController = new AbortController();
+    readonly diagnosticLog = new DiagnosticLog();
     private refreshing: Promise<RefreshOutcome> | undefined;
     private readonly listeners: AuthorityListener[] = [];
 
@@ -228,12 +230,15 @@ export class NativeSession {
             try {
                 const result = await this.http.send({ ...spec, bearer: credential.accessToken, profile, signal: linked.signal });
                 ensureCurrent();
+                if (this.diagnosticLog.debug || this.diagnosticLog.capturing) this.diagnosticLog.append(`${spec.method} completed`);
                 return result;
             } catch (error) {
                 if (!(error instanceof ApiError)) {
                     throw error;
                 }
                 ensureCurrent();
+                // Only current-authority fixed vocabulary enters the log, never request details.
+                this.diagnosticLog.append(`${spec.method} failed`);
                 if (error.status === 401 && !replayed) {
                     const outcome = await this.refreshAfterRejection(credential);
                     throwUnlessRefreshed(outcome);
@@ -405,6 +410,7 @@ export class NativeSession {
 
     private bump(reason: AuthorityChangeReason): void {
         this.generation++;
+        this.diagnosticLog.clear();
         this.authorityController.abort();
         this.authorityController = new AbortController();
         const change: AuthorityChange = { reason, generation: this.generation };

@@ -7,15 +7,17 @@ import { remoteKey } from "./keys.ts";
 import { SettingsState } from "./settingsState.ts";
 import type { ProfileLaunch } from "../session/profileLaunch.ts";
 import { acknowledgementsDocument } from "./acknowledgements.ts";
+import { SettingsDiagnostics } from "./settingsDiagnostics.ts";
 
-type Category = "general" | "playback" | "subtitles" | "server";
-const CATEGORY_LABELS = { general: "General", playback: "Playback", subtitles: "Subtitles", server: "Server" } as const;
-const CATEGORY_DETAILS = { general: "App and navigation", playback: "Quality and episodes", subtitles: "Language and appearance", server: "Connection and version" } as const;
+type Category = "general" | "playback" | "subtitles" | "server" | "diagnostics";
+const CATEGORY_LABELS = { general: "General", playback: "Playback", subtitles: "Subtitles", server: "Server", diagnostics: "Diagnostics" } as const;
+const CATEGORY_DETAILS = { general: "App and navigation", playback: "Quality and episodes", subtitles: "Language and appearance", server: "Connection and version", diagnostics: "Reports and support" } as const;
 const CATEGORY_BLURBS = {
     general: "App-level options for this TV.",
     playback: "Streaming quality and episode behavior for this TV.",
     subtitles: "Language, behavior, and on-screen appearance.",
     server: "The Silo server this TV is connected to.",
+    diagnostics: "Review and send diagnostics to this Silo server.",
 } as const;
 const SUBTITLE_FOOTER = "Used to pick a matching track when one is available. Forced subtitles cover foreign-language dialogue even when subtitles are off or set to auto.";
 const MODE_CHOICES = [["auto", "Auto"], ["always", "Always"], ["off", "Off"]] as const;
@@ -35,7 +37,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     const host = new FocusHost(container);
     let category: Category = "general";
     let picker: Picker | undefined;
-    let returnRow: Picker | "acknowledgements" | "subtitle-forced" = "hidden";
+    let returnRow: Picker | "acknowledgements" | "subtitle-forced" | "diagnostics-destination" = "hidden";
     let acknowledging = false;
     let confirmingSignOut = false;
     let choosingLaunch = false;
@@ -65,12 +67,14 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         });
     };
     const state = new SettingsState(session, () => render());
+    const diagnostics = new SettingsDiagnostics(session, () => render());
     const destroy = (): void => {
         if (torn) return;
         torn = true;
         launchController.abort();
         stopAuthority();
         state.stop();
+        diagnostics.stop();
         container.removeEventListener("keydown", onKey, true);
         host.destroy();
         container.remove();
@@ -307,8 +311,8 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         }
         if (acknowledging) { renderAcknowledgements(); return; }
         if (picker !== undefined) { renderPicker(); return; }
-        const categories = (["general", "playback", "subtitles", "server"] as const).map(id => {
-            const item = actionButton(id, CATEGORY_LABELS[id], () => { category = id; returnRow = id === "general" ? "hidden" : id === "playback" ? "quality" : id === "subtitles" ? subtitleEntry() : "acknowledgements"; render(rowFocus()); });
+        const categories = (["general", "playback", "subtitles", "server", "diagnostics"] as const).map(id => {
+            const item = actionButton(id, CATEGORY_LABELS[id], () => { category = id; returnRow = id === "general" ? "hidden" : id === "playback" ? "quality" : id === "subtitles" ? subtitleEntry() : id === "diagnostics" ? "diagnostics-destination" : "acknowledgements"; render(rowFocus()); });
             item.element.replaceChildren(el("span", "settings-category-title", CATEGORY_LABELS[id]), el("span", "settings-category-detail", CATEGORY_DETAILS[id]));
             item.element.setAttribute("aria-label", `${CATEGORY_LABELS[id]}, ${CATEGORY_DETAILS[id]}`);
             item.element.setAttribute("aria-current", id === category ? "page" : "false");
@@ -332,7 +336,8 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         }
         const rows: FocusItem[] = [];
         const body = el("div", "settings-pane");
-        body.append(el("h2", "browse-section-title", CATEGORY_LABELS[category]), el("p", "settings-blurb", CATEGORY_BLURBS[category]), ...(category === "server" ? [] : feedback()));
+        body.append(el("h2", "browse-section-title", CATEGORY_LABELS[category]), el("p", "settings-blurb", CATEGORY_BLURBS[category]), ...(category === "server" || category === "diagnostics" ? [] : feedback()));
+        if (category === "diagnostics") rows.push(...diagnostics.render(body));
         const pickers: readonly Picker[] = category === "general" ? ["hidden"] : category === "playback" ? ["quality", "bitrate", "audio", "seek-back", "seek-forward"] : [];
         if (category === "server") {
             body.append(el("h3", "settings-section-header", "ACTIVE SERVER"), el("p", "settings-value", `Server: ${actions?.serverName ?? session.http.base.baseUrl}`));
@@ -433,7 +438,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         }
         if (state.loaded && rows.length === 0) body.appendChild(el("p", "browse-text", "No supported settings in this category."));
         const settingRows = rows.length;
-        if (category !== "server") rows.push(...retryButton());
+        if (category !== "server" && category !== "diagnostics") rows.push(...retryButton());
         rows.push(actionButton("settings-back", "Back", back));
         body.classList.add("settings-controls");
         body.appendChild(zoneNode("settings-controls", rows.slice(settingRows)));
@@ -449,6 +454,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     host.listen();
     render();
     void state.load();
+    void diagnostics.load();
     return { destroy };
 }
 

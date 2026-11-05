@@ -178,6 +178,7 @@ test("an authority change aborts in-flight calls and drops late answers", async 
     held.release();
     await pending;
     assert.equal(signal.aborted, true, "the player's linked work is told to stop");
+    assert.deepEqual(h.core.session.diagnosticLog.snapshot(), [], "late outcomes cannot repopulate the cleared diagnostics binding");
 });
 
 test("a stored credential from another deployment at the same address is discarded, not sent", async () => {

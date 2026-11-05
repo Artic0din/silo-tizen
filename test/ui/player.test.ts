@@ -214,6 +214,24 @@ test("Up Next captures remote input, preserves focus and exposes Keep Watching a
     } finally { await page.close(); }
 });
 
+test("Up Next captions stay inside the video preview and restore their full size", async () => {
+    const { page } = await open();
+    try {
+        const view = { ...playing(TRACKS), captions: { text: "Dialogue", appearance: DEFAULT_APPEARANCE } };
+        const full = async () => page.locator(".player-captions span").boundingBox();
+        await show(page, view);
+        const original = await full();
+        await show(page, { ...view, upNext: { next: undefined, deck: [], countdown: undefined, status: "Up Next" } });
+        const preview = await full();
+        assert.ok(original !== null && preview !== null);
+        assert.ok(preview.x >= 180 && preview.x + preview.width <= 940);
+        assert.ok(preview.y >= 112 && preview.y + preview.height <= 540);
+        assert.ok(Math.abs(preview.height / original.height - 760 / 1920) < 0.01);
+        await show(page, view);
+        assert.deepEqual(await full(), original);
+    } finally { await page.close(); }
+});
+
 test("captions apply profile styles, stay safe text and clear during recovery", async () => {
     const { page } = await open();
     try {
@@ -478,6 +496,32 @@ const press = (page: Page, keyCode: number): Promise<void> => page.evaluate((cod
     target.dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, bubbles: true, cancelable: true }));
     target.dispatchEvent(new KeyboardEvent("keyup", { keyCode: code, bubbles: true, cancelable: true }));
 }, keyCode);
+
+test("skip taps accumulate while the previous seek callback is pending", async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), previewKey: "ready" });
+        await press(page, RIGHT);
+        await page.clock.fastForward(200);
+        await press(page, RIGHT);
+        await page.clock.fastForward(200);
+        assert.deepEqual(await commands(page), ["seekToSeconds 764", "seekToSeconds 774"]);
+        await show(page, { ...playing(TRACKS), positionSeconds: 774, previewKey: "ready" });
+        await press(page, RIGHT);
+        await page.clock.fastForward(200);
+        assert.deepEqual((await commands(page)).slice(-1), ["seekToSeconds 784"]);
+    } finally { await page.close(); }
+});
+
+test("reduced motion disables scrolling animation in the active track pane", async () => {
+    const { page } = await open();
+    try {
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await show(page, playing(TRACKS));
+        await openAudio(page);
+        assert.equal(await page.locator(".player-menu-list.player-menu-pane-active").evaluate(el => getComputedStyle(el).scrollBehavior), "auto");
+    } finally { await page.close(); }
+});
 const holdKey = (page: Page, keyCode: number): Promise<void> => page.evaluate((code) => {
     (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, bubbles: true, cancelable: true }));
 }, keyCode);

@@ -387,6 +387,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     let cancelHide: (() => void) | undefined;
     let menuOpen = false;
     let seekPreview: number | undefined;
+    let pendingSkipTarget: number | undefined;
     /** Select entered timeline scrub. Left/Right move the preview until Select or Menu. */
     let timeline = false;
     let timelineMoved = false;
@@ -708,6 +709,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             cancelDebounce = undefined;
             if (timeline || seekPreview === undefined) return;
             const target = seekPreview;
+            pendingSkipTarget = target;
             seekPreview = undefined;
             thumbnail.clear();
             controls.seekToSeconds(target);
@@ -718,7 +720,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const stepSkip = (direction: "backward" | "forward"): void => {
         if (view.phase !== "playing" && view.phase !== "paused") return;
         const delta = view.seekIntervals[direction] * (direction === "backward" ? -1 : 1);
-        seekPreview = clampSeek((seekPreview ?? view.positionSeconds) + delta);
+        seekPreview = clampSeek((seekPreview ?? pendingSkipTarget ?? view.positionSeconds) + delta);
         reveal();
         bar.focus();
         thumbnail.show(seekPreview);
@@ -1106,6 +1108,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     document.addEventListener("keyup", onKeyUp);
     document.addEventListener("visibilitychange", onVisibility);
     const unsubscribe = controls.subscribe((next) => {
+        if ((next.phase !== "playing" && next.phase !== "paused") || next.previewKey !== undefined) pendingSkipTarget = undefined;
         const starting = next.phase === "playing" && view.phase !== "playing" && view.phase !== "paused";
         if (next.phase === "playing" && view.phase === "paused" && timeline) {
             cancelScrub();

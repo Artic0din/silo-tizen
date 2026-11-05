@@ -1200,6 +1200,82 @@ test("a native subtitle selected from an Off plan hides overlay-only tools", asy
     r.controller.destroy();
 });
 
+for (const choice of ["off", "refused"] as const) {
+    test(`sidecar captions follow a local ${choice} choice before the report settles`, async () => {
+        const r = await rig();
+        frenchInventory(r);
+        r.h.fake.script("/captions?token=test", { status: 200, text: "WEBVTT\n\n00:00.000 --> 00:30.000\nSidecar" });
+        r.h.fake.script("/captions?token=test", { status: 200, text: "WEBVTT\n\n00:00.000 --> 00:30.000\nSidecar" });
+        const { decisionRendition: _rendition, ...plan } = renditionPlan(0, "Sidecar", 1);
+        r.server.next.push({ ...plan, subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/captions?token=test`, format: "vtt", timing_origin_seconds: 0 } });
+        const id = await playMovie(r, { ...MOVIE, startSeconds: 0 });
+        const caption = (): string | undefined => {
+            const view = last(r.views);
+            assert.ok(view.phase === "playing" || view.phase === "paused");
+            return view.captions?.text;
+        };
+        assert.equal(caption(), "Sidecar");
+        const held = r.h.fake.hold(`/playback/${id}/replan`);
+        r.server.next.push({ terminal: "subtitle_unavailable" });
+        r.controller.selectSubtitle(choice === "off" ? undefined : "file:42:subtitle:5");
+        await settle(r);
+        if (choice === "off") assert.equal(caption(), "");
+        held.release();
+        await settle(r);
+        assert.equal(caption(), "Sidecar");
+        assert.equal(r.avplay.calls.includes("setSilentSubtitle true"), true);
+        r.controller.destroy();
+    });
+}
+
+test("published rendition order wins over incomplete language metadata", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.server.next.push(renditionPlan(1, "English Signs", 1));
+    await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.avplay.tracks = [
+        { index: 2, type: "TEXT", extra_info: JSON.stringify({ track_lang: "fra" }) },
+        { index: 3, type: "TEXT", extra_info: "{}" },
+    ];
+    r.server.next.push(renditionPlan(5, "French", 2));
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    assert.equal(r.avplay.calls.filter(call => call.startsWith("setSelectTrack")).at(-1), "setSelectTrack TEXT 3");
+    r.controller.destroy();
+});
+
+test("hidden preparation aligns the selected subtitle on restore", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.server.next.push(renditionPlan(5, "French", 2));
+    r.controller.play({ ...MOVIE, startSeconds: 0 });
+    await settle(r);
+    r.controller.suspend();
+    r.avplay.finishPrepare();
+    await settle(r);
+    r.controller.restore();
+    await settle(r);
+    assert.equal(last(r.views).phase, "playing");
+    assert.equal(r.avplay.calls.includes("setSelectTrack TEXT 3"), true);
+    r.controller.destroy();
+});
+
+test("a refused rendition report preserves the newer queued sidecar choice", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.server.next.push(renditionPlan(1, "English Signs", 1));
+    const id = await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    const held = r.h.fake.hold(`/playback/${id}/replan`);
+    r.server.next.push({ terminal: "subtitle_unavailable" });
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    r.controller.selectSubtitle("file:42:subtitle:0");
+    held.release();
+    await settle(r);
+    assert.equal(replans(r.h).length, 2);
+    r.controller.destroy();
+});
+
 test("start advertises embedded subtitle and HLS rendition features, and repeats renditions-all only when the server advertises it", async () => {
     const plain = await rig();
     await playMovie(plain, { ...MOVIE, startSeconds: 0 });

@@ -93,7 +93,7 @@ export async function onDeckPlays(read: Read, contentId: string, publish?: (item
                 if (detail.id !== card.id || detail.type !== "movie" && detail.type !== "episode") continue;
                 const file = detail.versions.find((version) => version.fileId === detail.watch?.lastFileId) ?? detail.versions[0];
                 if (file === undefined) continue;
-                const start = resumeSeconds(detail.watch?.positionSeconds, file.durationSeconds > 0 ? file.durationSeconds : undefined);
+                const start = detail.watch?.played === false ? resumeSeconds(detail.watch.positionSeconds, file.durationSeconds > 0 ? file.durationSeconds : undefined) : undefined;
                 result.push({
                     contentId: detail.id,
                     fileId: file.fileId,

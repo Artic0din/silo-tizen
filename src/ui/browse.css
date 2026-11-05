@@ -8,18 +8,11 @@
 .section-catalog-grid .browse-card { width: calc(260px * var(--section-scale, 1)); margin: 0; padding: 0; border: 0; border-radius: 0; transition: none; }
 .section-catalog-grid .browse-card:focus { transform: none; box-shadow: none; }
 .section-catalog-grid .browse-art { width: calc(260px * var(--section-scale, 1)); height: calc(390px * var(--section-scale, 1)); border-radius: 12px; transition: transform 150ms ease-out; }
-.section-catalog-grid .browse-card:focus .browse-art { transform: scale(var(--section-lift)); box-shadow: 0 18px 36px rgba(0,0,0,.6); }
 .section-catalog-grid .browse-card-title { margin: 22px 0 4px; padding: 0; font-size: 24px; line-height: 29px; font-weight: 500; color: rgba(237,237,237,.45); }
 .section-catalog-grid .browse-card-subtitle { margin: 0; padding: 0; font-size: 20px; line-height: 24px; font-weight: 400; color: rgba(237,237,237,.32); }
-.section-catalog-grid .browse-card:focus .browse-card-title { color: #fff; font-weight: 600; }
-.section-catalog-grid .browse-card:focus .browse-card-subtitle { color: rgba(255,255,255,.92); font-weight: 500; }
-.section-catalog-grid .browse-card:focus .browse-card-title, .section-catalog-grid .browse-card:focus .browse-card-subtitle { transform: translateY(5px); text-shadow: 0 0 10px rgba(255,255,255,.45), 0 0 3px rgba(255,255,255,.25); }
 .section-catalog-state { margin: 220px 0 16px; font-size: 36px; font-weight: 600; text-align: center; outline: none; }
 .section-catalog-state ~ .browse-text { text-align: center; font-size: 26px; }
 .section-catalog-loading { width: 40px; height: 40px; margin: 0 auto 48px; border: 4px solid var(--silo-secondary); border-top-color: var(--silo-text); border-radius: 50%; }
-@media (prefers-reduced-motion: reduce) {
-    .section-catalog-grid .browse-card:focus .browse-art { transform: none; transition: none; }
-}
 .skyline-home { font-family: var(--silo-font); font-weight: 400; }
 /* Platform-wide font rules must not replace the packaged face or the component's inherited weight. */
 .skyline-home * { font-family: inherit; font-weight: inherit; }
@@ -98,11 +91,10 @@
 .browse-row .browse-card.details-person { width: 200px; margin-right: 60px; border: 0; border-radius: 0; }
 .browse-row .browse-art.details-photo { width: 200px; height: 200px; border-radius: 100px; }
 .details-people { margin-bottom: 36px; padding-top: 12px; padding-bottom: 12px; }
-.details-people .browse-card-title { padding: 0; min-height: 48px; line-height: 24px; white-space: normal; text-align: center; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: rgba(237,237,237,.88); }
+.details-people .browse-card-title { padding: 0; min-height: 48px; line-height: 24px; font-weight: 600; white-space: normal; text-align: center; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: rgba(237,237,237,.88); }
 .details-people .browse-card-subtitle { padding: 0; text-align: center; }
 .details-people .details-person:focus { border: 0; box-shadow: none; }
 .details-people .details-photo { box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
-.details-people .details-person:focus .details-photo { outline: 2px solid rgba(255,255,255,.85); outline-offset: -2px; box-shadow: 0 6px 14px rgba(0,0,0,.35); }
 .details-photo .browse-art-fallback { position: absolute; inset: 0; font-size: 0; }
 .details-photo .browse-art-fallback::before { content: ""; position: absolute; top: 64px; left: 80px; width: 40px; height: 40px; border-radius: 50%; background: var(--silo-secondary); }
 .details-photo .browse-art-fallback::after { content: ""; position: absolute; top: 110px; left: 62px; width: 76px; height: 30px; border-radius: 38px 38px 8px 8px; background: var(--silo-secondary); }
@@ -164,10 +156,8 @@
 .search-scene .search-filters .browse-button:focus { transform: none; color: #000; background: #ededed; }
 .search-scene .search-count { margin: 0 162px 24px; font-size: 22px; line-height: 27px; }
 .search-scene > .browse-grid { width: 1444px; margin: 0 162px; padding: 24px 9px 20px; grid-template-columns: repeat(var(--search-columns, 6), minmax(0, 1fr)); gap: 48px 58px; }
-.search-scene .browse-grid .browse-card { width: calc(220px * var(--poster-scale, 1)); margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; scroll-margin-top: 171px; }
-.search-scene .browse-grid .browse-card:focus { transform: none; box-shadow: none; }
+.search-scene .browse-grid .browse-card { width: calc(220px * var(--poster-scale, 1)); margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .search-scene .browse-grid .browse-art { width: calc(220px * var(--poster-scale, 1)); height: calc(330px * var(--poster-scale, 1)); border-radius: 16px; }
-.search-scene .browse-grid .browse-card:focus .browse-art { transform: scale(var(--request-lift)); box-shadow: 0 0 0 2px rgba(255,255,255,.5); }
 .search-scene .browse-grid .browse-card-title { margin: 16px 0 0; padding: 0; font-size: 24px; line-height: 29px; font-weight: 600; }
 .search-scene .browse-grid .browse-card-subtitle { margin: 4px 0 0; padding: 0; font-size: 22px; line-height: 27px; }
 .search-scene > .browse-page-status, .search-scene > .browse-actions:not(.search-filters), .search-scene > .browse-text { margin-left: 162px; }
@@ -186,9 +176,7 @@
 .search-scene .search-requests-description { margin: 0 162px 0; font-size: 20px; line-height: 24px; color: var(--silo-secondary); }
 .search-scene .search-request-rail { display: flex; gap: 32px; width: 1920px; margin: -4px -76px 0; padding: 24px 238px; height: calc(330px * var(--poster-scale, 1) + 130px); --reveal-end: 318px; }
 .search-scene .search-request-rail .requests-card { flex: 0 0 calc(220px * var(--poster-scale, 1)); width: calc(220px * var(--poster-scale, 1)); padding: 0; margin: 0; border: 0; border-radius: 0; background: transparent; }
-.search-scene .search-request-rail .requests-card:focus { transform: none; box-shadow: none; }
 .search-scene .search-request-rail .browse-art { width: calc(220px * var(--poster-scale, 1)); height: calc(330px * var(--poster-scale, 1)); border-radius: 16px; }
-.search-scene .search-request-rail .requests-card:focus .browse-art { transform: scale(var(--request-lift)); box-shadow: 0 0 0 2px rgba(255,255,255,.5); }
 .search-scene .search-request-rail .browse-card-title { position: relative; margin: 22px 0 0; padding: 0; font-size: 27px; line-height: 34px; font-weight: 600; white-space: nowrap; }
 .search-scene .search-request-rail .browse-card-subtitle { margin: 4px 0 0; padding: 0; font-size: 22px; line-height: 27px; }
 .search-state { text-align: center; margin: 80px auto; }
@@ -210,7 +198,6 @@
 @media (prefers-reduced-motion: reduce) {
     .search-progress-icon { animation: none; }
     .search-scene .search-people-rail .details-person:focus { transform: none; }
-    .search-scene .browse-grid .browse-card:focus .browse-art, .search-scene .search-request-rail .requests-card:focus .browse-art { transform: none; box-shadow: 0 0 0 4px #ededed; }
 }
 
 .browse *,
@@ -264,10 +251,6 @@
 .requests-scene .requests-rail .requests-card { flex: 0 0 176px; width: 176px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .requests-scene .requests-rail .requests-card:focus { transform: none; box-shadow: none; }
 .requests-scene .requests-rail .browse-art { width: 176px; height: 264px; border-radius: 16px; transform-origin: center; }
-.requests-scene .requests-rail .requests-card:focus .browse-art { transform: scale(1.1517); box-shadow: 0 12px 28px rgba(0,0,0,.5); }
-.requests-scene .requests-detail-hero ~ .requests-rail .requests-card:focus .browse-art { transform: scale(1.141); }
-/* The system .card focus effect at rest, measured against Apple's pair 02a: an upper-left sheen and a light edge, brightest along the top. tvOS moves its highlight with the remote; CSS cannot, see docs/features/requests.md. */
-.requests-scene .requests-rail .requests-card:focus .browse-art::after { content: ""; position: absolute; inset: 0; z-index: 1; border-radius: inherit; pointer-events: none; background: radial-gradient(ellipse 145% 70% at 25% 0, rgba(255,255,255,.1) 0%, rgba(255,255,255,.085) 25%, rgba(255,255,255,.03) 55%, rgba(255,255,255,0) 90%); box-shadow: inset 0 2px 2px rgba(255,255,255,.12), inset 0 0 3px rgba(255,255,255,.07), inset 0 -1px 2px rgba(255,255,255,.04); }
 .requests-scene .requests-rail .browse-card-title { display: block; margin: 22px 0 0; padding: 0; font-size: 27px; line-height: 34px; font-weight: 600; color: #ededed; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .requests-scene .requests-rail .browse-card-subtitle { display: block; margin: 4px 0 0; padding: 0; font-size: 22px; line-height: 27px; color: var(--silo-secondary); }
 .requests-scene .requests-rail .browse-card-title, .requests-scene .requests-rail .browse-card-subtitle { position: relative; z-index: 1; }
@@ -417,7 +400,6 @@
 .browse[data-view="requests:media"] > .browse-text, .browse[data-view="requests:request"] > .browse-text { position: relative; z-index: 1; margin-left: 100px; }
 @media (prefers-reduced-motion: reduce) {
     .requests-rail .browse-art { transition: none; }
-    .requests-scene .requests-rail .requests-card:focus .browse-art { transform: none; box-shadow: 0 0 0 4px rgba(255,255,255,.9); }
 }
 
 .browse-button {
@@ -630,6 +612,8 @@
 
 .browse { position: relative; }
 .skyline-root { padding-top: 180px; }
+.home-loading { width: 100%; height: 480px; background: transparent; outline: none; }
+.home-loading:focus { outline: none; }
 .skyline-preview { padding-top: 545px; }
 .browse-nav { position: fixed; z-index: 5; top: 56px; left: 88px; width: 1744px; height: 64px; display: flex; align-items: center; margin: 0; transition: opacity 200ms; }
 .skyline-muted { opacity: .7; }
@@ -651,6 +635,8 @@
 .skyline-search::before { content: ""; position: absolute; box-sizing: border-box; width: 22px; height: 22px; border: 3px solid currentColor; border-radius: 50%; top: 15px; left: 16px; }
 .skyline-search::after { content: ""; position: absolute; width: 11.5px; height: 4px; border-radius: 2px; background: currentColor; transform: rotate(45deg); left: 31.75px; top: 34.5px; }
 .browse-nav .skyline-profile { border-radius: 50%; font-weight: 700; background: var(--silo-elevated); }
+.browse-nav .skyline-profile:focus { outline: none; border-color: transparent; }
+.browse-nav .skyline-profile:focus::after { content: ""; position: absolute; inset: 0; z-index: 1; border: 3px solid #fff; border-radius: 50%; pointer-events: none; }
 .skyline-profile-name { margin: 8px 18px 16px; font-size: 23px; overflow-wrap: break-word; }
 .navigation-avatar { position: relative; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; overflow: hidden; }
 .navigation-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
@@ -718,7 +704,19 @@
 .discovery-letters { position: fixed; right: 88px; top: 240px; width: 40px; height: 780px; flex-direction: column; flex-wrap: nowrap; }
 .discovery-letters .browse-button { width: 40px; min-height: 26px; padding: 2px; margin: 0; font-family: monospace; font-size: 15px; }
 .discovery-letters [aria-pressed="true"] { background: #fff; color: #000; }
-.discovery-collection-grid { display: grid; grid-template-columns: repeat(3, 430px); grid-column-gap: 26px; grid-row-gap: 26px; padding: 16px 12px; }
+.discovery-collection-grid { display: grid; grid-template-columns: repeat(var(--collection-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; padding: 16px 0 0; }
+.skyline-grid .skyline-content:has(.discovery-collection-grid) { top: 244px; left: 0; width: 1920px; height: 836px; padding: 0 80px 60px; }
+.browse-section:has(.discovery-collection-grid) { margin-bottom: 44px; }
+.browse-section:has(.discovery-collection-grid):last-child { margin-bottom: 0; }
+.collection-group-title { margin: 0 0 20px; font-family: ui-monospace, monospace; font-size: 22px; letter-spacing: 5.72px; color: rgba(237,237,237,.38); text-transform: uppercase; }
+.browse .catalog-grid .collection-poster { width: calc(260px * var(--poster-scale, 1)); height: auto; padding: 0; border: 0; border-radius: 0; background: none; }
+.browse .catalog-grid .collection-poster:focus { transform: none; background: none; box-shadow: none; }
+.browse .catalog-grid .collection-poster .browse-art { transition: transform var(--silo-fast) ease-out, box-shadow var(--silo-fast) ease-out; }
+.browse .catalog-grid .collection-poster:focus .browse-art { transform: scale(1.05); box-shadow: 0 0 0 4px rgba(255,255,255,.7), 0 8px 18px rgba(0,0,0,.45); }
+.discovery-collection .browse-art-fallback { position: absolute; inset: 0; padding: 0; }
+.collection-stack { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; color: rgba(255,255,255,.85); }
+.collection-stack svg { width: 56px; height: 56px; }
+@media (prefers-reduced-motion: reduce) { .browse .catalog-grid .collection-poster:focus .browse-art { transform: none; box-shadow: 0 0 0 4px rgba(255,255,255,.7); } }
 .browse .discovery-collection { position: relative; width: 430px; height: 234px; flex-shrink: 0; padding: 24px; margin: 0; border-radius: 16px; white-space: normal; overflow-wrap: break-word; background: linear-gradient(#2e3036,#121316); border: 2px solid rgba(255,255,255,.12); }
 .browse .browse-row .discovery-collection { width: 430px; margin-right: 24px; }
 .discovery-collection-art { position: absolute; left: 28px; top: 36px; width: 104px; height: 156px; transform: rotate(-8deg); overflow: hidden; border-radius: 8px; }
@@ -747,7 +745,11 @@
 .skyline-content { position: fixed; top: 180px; left: 88px; width: 1744px; height: 900px; overflow: hidden; }
 .skyline-preview .skyline-content { top: 545px; height: 535px; }
 .skyline-library .skyline-content { top: 510px; height: 570px; }
-.skyline-home .skyline-content { top: 596px; height: 484px; left: 0; width: 1920px; padding-left: 80px; }
+/* Band top 596 and height 484 match TVSkylineSectionFeed. Bottom padding is the band height minus
+   SiloTheme.Skyline.rowBandBottomInset (20), so the last row can top-align. Rows are 10px apart
+   (rowBandPreviewSpacing). */
+.skyline-home .skyline-content { top: 596px; height: 484px; left: 0; width: 1920px; padding-left: 80px; padding-bottom: 464px; }
+.skyline-home .home-section + .home-section { margin-top: 10px; }
 .skyline-home .skyline-marquee { top: 256px; }
 .skyline-home .home-section .browse-row { margin-left: -80px; padding-left: 80px; --reveal-end: 80px; }
 .skyline-home .skyline-hero-backdrop { position: fixed; inset: 0; width: 1920px; height: 1080px; z-index: -2; pointer-events: none; }
@@ -780,12 +782,18 @@
 /* TMDB's approved logo replaces its text mark at the score's cap height (0.7x), undimmed, on the baseline. */
 .skyline-rating-logo { height: 14px; width: auto; margin-right: 7px; vertical-align: baseline; }
 .skyline-library .skyline-rating-logo { height: 13px; }
-/* Apple marquee logo: aspect-fit inside 880 x 200 (Home) or 880 x 150 (library), leading. */
-.skyline-title.skyline-title-logo { display: block; max-height: none; overflow: visible; text-shadow: none; line-height: 0; }
-.skyline-logo { display: block; max-width: 880px; max-height: 200px; }
-.skyline-library .skyline-logo { max-height: 150px; }
-/* Apple detailLine: one line at the meta size, medium weight, on-surface at half opacity, synopsis width. */
-.skyline-detail-line { max-width: 780px; height: 24px; margin: 0 0 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 20px; line-height: 24px; font-weight: 500; color: rgba(237,237,237,.5); }
+/* Apple TVMarqueeBlock titleSlot (TVFocusMarquee.swift): resizable aspect-fit
+   inside maxWidth 880 and maxHeight scale.logoMaxHeight, alignment .leading
+   (left, vertical centre). Home, For You and library Recommended use
+   TVSkylineSectionFeed's default .home scale, so the slot is 200
+   (SiloTheme.Skyline marqueeLogoMaxWidth and marqueeLogoMaxHeightHome).
+   The 150px library scale applies only when a landing opts into .library. */
+.skyline-title.skyline-title-logo { display: block; width: 880px; height: 200px; max-height: none; overflow: visible; text-shadow: none; line-height: 0; }
+.skyline-logo { display: block; width: 100%; height: 100%; object-fit: contain; object-position: left center; }
+.skyline-library .skyline-title.skyline-title-logo { height: 150px; }
+/* Apple detailLine: one line at the meta size. The marquee stack's meta and badge rows are framed at 27
+   (TVFocusMarquee.swift); a 24px estimate sat the bottom-anchored logo slot 3px too low. */
+.skyline-detail-line { max-width: 780px; height: 27px; margin: 0 0 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 20px; line-height: 27px; font-weight: 500; color: rgba(237,237,237,.5); }
 .skyline-library .skyline-detail-line { font-size: 19px; }
 .skyline-badges { display: flex; align-items: center; height: 27px; }
 .browse-section { margin-bottom: 32px; position: relative; }
@@ -794,24 +802,14 @@
 .browse-card { border-width: 2px; transition: transform 120ms ease-out, border-color 120ms ease-out, box-shadow 120ms ease-out; }
 .browse-row .browse-card { width: 212px; }
 .browse-row .browse-art { width: 208px; height: 312px; border-radius: 12px; }
-.browse-card:focus { transform: scale(1.05); border-color: #fff; box-shadow: 0 12px 30px rgba(0,0,0,.7); }
 .browse-card-title { font-size: 20px; }
-/* Preserve the 208x312 shelf art; Apple's measured native lift adds about 38px of height. */
 .skyline-library .skyline-content:has(.library-media-shelf) { left: 72px; width: 1776px; padding-left: 16px; padding-right: 16px; }
 .library-media-shelf .browse-row { margin-left: -16px; padding: 32px 24px; }
 .library-media-shelf .browse-card:focus { transform: none; border-color: transparent; box-shadow: none; }
 .library-media-shelf .browse-art { transition: transform var(--silo-fast) ease-out, box-shadow var(--silo-fast) ease-out; }
-.library-media-shelf .browse-card:focus .browse-art { transform: scale(1.121795); box-shadow: 0 18px 36px rgba(0,0,0,.6); }
 .library-media-shelf .browse-card-title { font-weight: 500; color: rgba(237,237,237,.45); }
 .library-media-shelf .browse-card-subtitle { font-weight: 400; color: rgba(237,237,237,.32); }
 .library-media-shelf .browse-card-title, .library-media-shelf .browse-card-subtitle { transition: color var(--silo-fast) ease-out, transform var(--silo-fast) ease-out, text-shadow var(--silo-fast) ease-out; }
-.library-media-shelf .browse-card:focus .browse-card-title { color: #fff; font-weight: 600; }
-.library-media-shelf .browse-card:focus .browse-card-subtitle { color: rgba(255,255,255,.92); font-weight: 500; }
-/* 19px overhang + 8px clearance - the shelf's existing 12px caption gap. */
-.library-media-shelf .browse-card:focus .browse-card-title, .library-media-shelf .browse-card:focus .browse-card-subtitle { transform: translateY(15px); text-shadow: 0 0 10px rgba(255,255,255,.45), 0 0 3px rgba(255,255,255,.25); }
-@media (prefers-reduced-motion: reduce) {
-    .library-media-shelf .browse-card:focus .browse-art { transform: none; box-shadow: 0 0 0 4px rgba(255,255,255,.9); }
-}
 /* Watched tick on every card (Apple MediaCard/EpisodeThumbCard): 40px #EDEDED disc, check drawn in CSS. */
 .browse-watched { position: absolute; top: 12px; right: 12px; width: 40px; height: 40px; border-radius: 50%; background: #ededed; box-shadow: 0 0 4px rgba(0,0,0,.3); }
 .browse-watched::after { content: ""; position: absolute; left: 14px; top: 8px; width: 9px; height: 18px; border: solid #000; border-width: 0 4px 4px 0; transform: rotate(45deg); }
@@ -821,6 +819,7 @@
 .card-overlay-stack { position: absolute; display: flex; flex-direction: column; }
 .card-overlay { display: inline-flex; align-items: center; line-height: 1.2; text-transform: uppercase; white-space: nowrap; }
 .card-overlay-mark { font-weight: 800; letter-spacing: .2px; }
+.card-overlay-icon { display: block; flex: none; fill: currentColor; stroke: none; }
 /* Home rows: Apple MediaRow, MediaCard and EpisodeThumbCard (silo-apple 1a7ccee). The content reaches into a
    40px gutter so a lifted first card is never clipped; cards still start at the 88px edge. */
 .skyline-preview:not(.skyline-library):not(.skyline-home) .skyline-content { left: 48px; width: 1824px; padding-left: 40px; }
@@ -828,61 +827,177 @@
 .home-section .browse-section-title { margin: 0; font-size: 36px; font-weight: 600; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .home-row-glyph { position: relative; display: inline-block; vertical-align: -4px; width: 32px; height: 32px; margin-right: 14px; border-radius: 50%; background: #ededed; }
 .home-row-glyph::after { content: ""; position: absolute; top: 9px; left: 12px; border-style: solid; border-width: 7px 0 7px 11px; border-color: transparent transparent transparent #000; }
-.home-section .browse-row { margin-left: -40px; padding: 34px 40px 24px; }
-/* The artwork lift extends 19px above the button; leave a pixel for rounding. */
+/* Top is the 20px title gap plus Skyline's 14px card padding. Bottom is that 14px, not MediaRow's 24px default. */
+.home-section .browse-row { margin-left: -40px; padding: 34px 40px 14px; }
 .home-section .browse-card { width: 176px; margin: 0 40px 0 0; border: 0; border-radius: 0; transition: none; scroll-margin-top: 20px; }
 .home-section .browse-card:focus { transform: none; box-shadow: none; }
 .home-section .browse-art { width: 176px; height: 264px; border-radius: 12px; transition: transform var(--silo-fast) ease-out, box-shadow var(--silo-fast) ease-out; }
-/* Apple measures the native .card lift as ~38pt of added height at any size: (264 + 38) / 264. */
-.home-section .browse-card:focus .browse-art { transform: scale(1.144); }
 .home-section .browse-card.skyline-continue { width: 360px; }
 .home-section .skyline-continue .browse-art { width: 360px; height: 200px; box-shadow: 0 4px 8px rgba(0,0,0,.2); }
-/* Landscape lift is calibrated separately from posters; Home supplies the size-dependent value. */
-.home-section .skyline-continue:focus .browse-art { transform: scale(1.22); box-shadow: 0 10px 20px rgba(0,0,0,.5); }
 .skyline-home .home-section .browse-card, .skyline-home .home-section .browse-art { width: calc(176px * var(--poster-scale, 1)); }
 .skyline-home .home-section .browse-art { height: calc(264px * var(--poster-scale, 1)); }
 .skyline-home .home-section .skyline-continue, .skyline-home .home-section .skyline-continue .browse-art { width: calc(360px * var(--poster-scale, 1)); }
 .skyline-home .home-section .skyline-continue .browse-art { height: calc(200px * var(--poster-scale, 1)); }
-.skyline-home .home-section .browse-card:focus .browse-art { transform: scale(var(--row-lift, 1.144)); }
-.skyline-home .home-section .skyline-continue:focus .browse-art { transform: scale(var(--still-lift, 1.22)); }
 .home-section .browse-card-title, .home-section .browse-card-subtitle { padding: 0; line-height: 1.2; transition: color var(--silo-fast) ease-out, text-shadow var(--silo-fast) ease-out, transform var(--silo-fast) ease-out; }
 .home-section .browse-card-title { margin: 22px 0 0; font-size: 24px; font-weight: 500; color: rgba(237,237,237,.45); }
 .home-section .browse-card-subtitle { margin: 4px 0 0; font-size: 20px; font-weight: 400; color: rgba(237,237,237,.32); }
 .home-section .skyline-continue .browse-card-title { margin-top: 14px; }
-.home-section .browse-card:focus .browse-card-title { color: #fff; font-weight: 600; }
-.home-section .browse-card:focus .browse-card-subtitle { color: rgba(255,255,255,.92); font-weight: 500; }
 .home-section .skyline-explore .skyline-explore-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 8px; border: 1px solid rgba(255,255,255,.08); background: #15171c; color: #ededed; }
 .skyline-explore-icon { display: flex; align-items: center; justify-content: center; width: 66px; height: 66px; margin-bottom: 18px; border-radius: 50%; background: rgba(237,237,237,.12); }
 .skyline-explore-icon svg { width: 30px; height: 30px; }
 .skyline-explore-label { font-size: 24px; font-weight: 500; white-space: nowrap; }
-/* Focused captions glow and drop clear of the lift: 19 + 8 - 22 for posters, 19 + 8 - 14 for stills. */
-.home-section .browse-card:focus .browse-card-title, .home-section .browse-card:focus .browse-card-subtitle { transform: translateY(5px); text-shadow: 0 0 10px rgba(255,255,255,.45), 0 0 3px rgba(255,255,255,.25); }
-.home-section .skyline-continue:focus .browse-card-title, .home-section .skyline-continue:focus .browse-card-subtitle { transform: translateY(13px); }
 @keyframes skyline-appear { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .skyline-home .home-section .browse-card:focus .browse-art, .skyline-home .home-section .skyline-continue:focus .browse-art { transform: none; }
   .browse-card:focus { transform: none; }
-    /* No growth: Apple's non-motion card focus ring (tvFocusRing, 4px white at 90%) marks the art instead. */
-    .home-section .browse-card:focus .browse-art, .home-section .skyline-continue:focus .browse-art { transform: none; box-shadow: 0 0 0 4px rgba(255,255,255,.9); }
     .browse *, .browse *::before, .browse *::after { animation: none !important; transition: none !important; }
     .skyline-route-outgoing { display: none; animation: none; }
+}
+/* Apple TVCardOutlineButtonStyle and TVCardCaption share artwork focus across screens. */
+.browse-card:not(.details-person):not(.requests-card) .browse-card-title { font-weight: 500; color: rgba(237,237,237,.45); }
+.browse-card:not(.details-person):not(.requests-card) .browse-card-subtitle { font-weight: 400; color: rgba(237,237,237,.32); }
+.browse-card { --card-art-height: 372px; --card-caption-gap: 12px; }
+.browse-row .browse-card { --card-art-height: 312px; }
+.home-section .browse-card { --card-art-height: calc(264px * var(--poster-scale, 1)); --card-caption-gap: 22px; }
+.home-section .skyline-continue { --card-art-height: calc(200px * var(--poster-scale, 1)); --card-caption-gap: 14px; }
+.catalog-grid .browse-card { --card-art-height: calc(390px * var(--poster-scale, 1)); --card-caption-gap: 16px; }
+.section-catalog-grid .browse-card { --card-art-height: calc(390px * var(--section-scale, 1)); --card-caption-gap: 22px; }
+.requests-rail .browse-card { --card-art-height: 264px; --card-caption-gap: 22px; }
+.requests-detail-hero ~ .requests-rail .browse-card { --card-art-height: calc(330px * var(--poster-scale, 1)); }
+.search-scene .browse-grid .browse-card { --card-art-height: calc(330px * var(--poster-scale, 1)); --card-caption-gap: 16px; }
+.search-scene .search-request-rail .browse-card { --card-art-height: calc(330px * var(--poster-scale, 1)); --card-caption-gap: 22px; }
+.browse-row[data-detail-section="related"] .browse-card { --card-caption-gap: 16px; }
+.browse-row[data-detail-section="related"] .browse-card-title { margin-top: 16px; }
+.browse .browse-card:focus { transform: none; border-color: transparent; box-shadow: none; }
+.browse .browse-card .browse-art { transition: transform var(--silo-fast) ease-out, box-shadow var(--silo-fast) ease-out, outline-color var(--silo-fast) ease-out; outline: 4px solid transparent; outline-offset: -2px; }
+.browse .browse-card:is(:focus, [aria-current="true"]) .browse-art { outline-color: rgba(255,255,255,.7); }
+/* CSS box-shadow blur is twice the SwiftUI Gaussian radius. */
+.browse .browse-card:focus .browse-art { --card-focus-scale: 1.05; transform: scale(var(--card-focus-scale)); box-shadow: 0 8px 36px rgba(0,0,0,.45); }
+/* Continue Watching adds EpisodeThumbCard's focused shadow on top of the shared lift. */
+.browse .home-section .skyline-continue:focus .browse-art { box-shadow: 0 8px 36px rgba(0,0,0,.45), 0 10px 40px rgba(0,0,0,.5); }
+.browse .browse-card-title, .browse .browse-card-subtitle { transition: color var(--silo-fast) ease-out, transform var(--silo-fast) ease-out, text-shadow var(--silo-fast) ease-out; }
+.browse .browse-card:is(:focus, [aria-current="true"]) .browse-card-title { color: #fff; }
+.browse .browse-card:is(:focus, [aria-current="true"]) .browse-card-subtitle { color: rgba(255,255,255,.92); }
+.browse .browse-card:is(:focus, [aria-current="true"]) :is(.browse-card-title, .browse-card-subtitle) { transform: translateY(max(0px, calc(var(--card-art-height) * .025 + 8px - var(--card-caption-gap)))); text-shadow: 0 0 8px rgba(255,255,255,.22), 0 0 3px rgba(255,255,255,.12); }
+/* CastCardLabel sits inside the scaled SwiftUI button, including its captions. */
+.browse .details-person:focus { transform: scale(1.05); }
+.browse .details-person:focus .browse-art { transform: none; box-shadow: 0 6px 28px rgba(0,0,0,.35); }
+.browse .details-person:focus .browse-card-title { color: #ededed; }
+.browse .browse-card:is(.details-person, .requests-card, .calendar-event) .browse-card-subtitle { color: rgba(237,237,237,.6); }
+.browse .browse-card.requests-card .browse-card-title,
+.browse .calendar-event:focus .browse-card-title { color: #ededed; }
+.browse .calendar-event:not(:focus) .browse-card-title { color: rgba(237,237,237,.85); }
+/* siloCardTitle on tvOS is siloSubheadline: 28pt semibold. The shared unfocused caption rule is medium. */
+.browse .browse-card.calendar-event .browse-card-title { font-weight: 600; }
+/* Requests and Calendar captions live outside their focus-styled buttons. */
+.browse .browse-card:is(.details-person, .requests-card, .calendar-event) :is(.browse-card-title, .browse-card-subtitle) { transform: none; text-shadow: none; }
+.browse:has(> .collection-detail-title) { padding: 62px 128px 60px; }
+.collection-detail-title { text-align: center; width: 100%; margin: 0 0 28px; font-size: 59px; line-height: 71px; color: #404040; }
+.collection-detail-actions { display: flex; align-items: center; gap: 48px; height: 53px; margin: 0 0 48px; }
+.collection-detail-actions .browse-text { margin: 0; font-size: 22px; line-height: 27px; color: rgba(237,237,237,.6); }
+.browse .collection-detail-actions .browse-button { display: inline-flex; align-items: center; justify-content: center; width: 175px; height: 53px; margin: 0; padding: 12px 22px; border: 1px solid rgba(255,255,255,.09); border-radius: 27px; font-size: 24px; font-weight: 500; background: rgba(255,255,255,.07); }
+.browse .collection-detail-actions .browse-button:focus { transform: scale(1.04); background: #ededed; color: #000; border-color: transparent; }
+.browse .collection-detail-grid { display: grid; width: 100%; padding: 0 0 48px; grid-template-columns: repeat(var(--collection-detail-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 57px; justify-items: center; }
+.collection-detail-grid .browse-card-title { margin: 22px 0 4px; padding: 0; font-size: 24px; line-height: 29px; }
+/* The measured tvOS collection metadata is larger than the shared source token. */
+.collection-detail-grid .browse-card-subtitle { margin: 0; padding: 0; font-size: 22px; line-height: 27px; }
+.collection-detail-grid .browse-card { --card-art-height: calc(390px * var(--poster-scale, 1)); --card-caption-gap: 22px; }
+.browse .collection-detail-grid .browse-card { width: calc(260px * var(--poster-scale, 1)); border: 0; }
+.browse .collection-detail-grid .browse-art { width: calc(260px * var(--poster-scale, 1)); height: calc(390px * var(--poster-scale, 1)); }
+/* Collection tiles contain the collage and caption, so the tile owns focus. */
+.browse .discovery-collection:not(.collection-poster):focus { transform: scale(1.05); outline: 4px solid rgba(255,255,255,.7); outline-offset: -2px; box-shadow: 0 8px 36px rgba(0,0,0,.45); }
+@media (prefers-reduced-motion: reduce) {
+    .browse .browse-card:focus .browse-art { --card-focus-scale: 1; }
+    .browse .browse-card:is(:focus, [aria-current="true"]) .browse-art,
+    .browse .browse-card:is(:focus, [aria-current="true"]) :is(.browse-card-title, .browse-card-subtitle),
+    .browse .details-person:focus,
+    .browse .discovery-collection:not(.collection-poster):focus { transform: none; }
 }
 /* Keep the file-bound picker over Details, using Skyline's existing glass and focus grammar. */
 .details-audio-picker { position: fixed; left: 88px; top: 420px; width: 620px; max-height: 560px; overflow-y: auto; z-index: 12; }
 .details-audio-options { display: flex; flex-direction: column; gap: 12px; }
 .details-audio-options .browse-button { width: 100%; text-align: left; }
-/* Calendar events keep their own metadata and are never paged or capped. */
-.calendar-strip { display: flex; margin: 24px 0 32px; }
-.calendar-day { flex: 1; margin-right: 12px; min-height: 84px; }
-.calendar-day[aria-pressed="true"] { background: var(--silo-selected); }
-.calendar-day[aria-current="date"] { border-bottom: 4px solid currentColor; }
-.calendar-shelf { margin-bottom: 32px; }
-.calendar-event .browse-card-subtitle { white-space: normal; max-height: none; }
-/* A refresh must not move shelves above the restored event. */
-.calendar-status { height: 48px; }
-.calendar-status .browse-text { margin: 0; max-width: none; font-size: 24px; }
-.calendar-filters .browse-button[aria-pressed="true"] { background: #fff; color: #000; }
-.calendar-week { margin-bottom: 20px; }
+/* Calendar events keep their own metadata and are never paged or capped.
+   The shared content box is full width, like Home: Apple's shelves use scrollClipDisabled
+   and run to the screen edge. The 80pt safe padding stays inside, so headings and the
+   week strip keep SiloTheme.safePadding without clipping the seventh card at x=1840. */
+/* CalendarView's ScrollView fills the screen and pads its content by contentTopInset.
+   The inset scrolls away, so shelves pass under the top bar. TVTopMenuBar draws no
+   background band, and PageChromeGlass is empty on tvOS. */
+.skyline-content:has(.calendar-week) { top: 0; left: 0; width: 1920px; height: 1080px; padding: 0 80px; box-sizing: border-box; }
+/* Filter is 66px and ends at 254. CalendarView's tvOS VStack spacing is 30, so the strip starts at 284. */
+.calendar-week { display: flex; align-items: center; gap: 18px; margin: 30px 0 0; }
+/* Flatten the nested day HStack while retaining one existing focus zone. */
+.calendar-week .browse-button { flex: none; margin: 0; }
+.calendar-week .calendar-day { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: 84px; height: 96px; min-height: 0; padding: 0; border: 1px solid transparent; border-radius: 12px; background: rgba(255,255,255,.05); box-shadow: none; }
+.calendar-day + .calendar-day { margin-left: -8px; }
+.calendar-weekday { font-size: 18px; font-weight: 600; color: rgba(237,237,237,.6); }
+.calendar-day-number { font-size: 26px; font-weight: 700; }
+.calendar-day-mark { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.calendar-event-dot { background: rgba(237,237,237,.8); }
+.calendar-week .calendar-chevron { display: flex; align-items: center; justify-content: center; width: 64px; height: 64px; min-height: 0; padding: 0; border: 0; border-radius: 50%; font-size: 24px; background: rgba(255,255,255,.08); color: rgba(237,237,237,.7); }
+.calendar-month { margin-left: auto; white-space: nowrap; font-size: 24px; font-weight: 600; color: rgba(237,237,237,.6); }
+.calendar-week .calendar-day[aria-pressed="true"] { background: rgba(237,237,237,.88); color: #000; }
+.calendar-week .calendar-day[aria-current="date"]:not([aria-pressed="true"]):not(:focus) { border-color: rgba(255,255,255,.35); }
+.calendar-week .browse-button:focus { background: rgba(237,237,237,.94); color: #000; box-shadow: none; }
+.calendar-week .calendar-day:focus { transform: scale(1.06); }
+.calendar-day[aria-pressed="true"] .calendar-weekday, .calendar-day:focus .calendar-weekday { color: rgba(0,0,0,.7); }
+.calendar-day[aria-pressed="true"] .calendar-event-dot, .calendar-day:focus .calendar-event-dot { background: #000; }
+.calendar-week [data-focus="today"] { height: 64px; padding: 0 24px; font-size: 22px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18); }
+.calendar-week [data-focus="today"]:focus { background: rgba(237,237,237,.94); }
+/* Compact heading-to-heading pitch measured at Apple 05753bf is 595.
+   The shelf box plus the old 6px gap measured 561, so the gap is 40. */
+.calendar-shelf { margin-bottom: 40px; }
+/* SF 36 semibold is a 42px line, so the poster starts 86px under the heading.
+   Caption lines are SF 28 and 22. The shared card's bottom margin is cleared
+   so the shelf ends on the caption, which is what anchor .bottom scrolls. */
+.calendar-shelf .browse-section-title { margin: 0 0 20px; height: 42px; font-size: 36px; font-weight: 600; line-height: 42px; }
+.calendar-shelf .browse-row { box-sizing: border-box; width: 1920px; margin-left: -80px; margin-right: -80px; padding: 24px 80px; }
+.calendar-shelf .browse-card { width: calc(260px * var(--calendar-scale, 1)); margin: 0 40px 0 0; border: 0; border-radius: 0; }
+.calendar-shelf .browse-art { width: calc(260px * var(--calendar-scale, 1)); height: calc(390px * var(--calendar-scale, 1)); }
+.calendar-event .browse-card-title { padding: 0; margin: 16px 0 2px; line-height: 32.98px; min-height: 65.96px; white-space: normal; font-size: 28px; font-weight: 600; color: rgba(237,237,237,.85); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.calendar-event:focus { transform: none; box-shadow: none; }
+.calendar-event .browse-art { transition: transform var(--silo-fast) ease-out; }
+.calendar-event:focus .browse-art { transform: scale(1.05); box-shadow: 0 0 0 4px rgba(255,255,255,.7); }
+.calendar-event:focus .browse-card-title { color: #ededed; }
+.calendar-event .browse-card-subtitle { margin: 0; padding: 0; font-size: 22px; line-height: 25.91px; color: rgba(237,237,237,.6); }
+.calendar-shelf-empty .browse-section-title { color: rgba(237,237,237,.6); }
+.calendar-shelf-empty .browse-text { margin: 0; font-size: 22px; color: rgba(237,237,237,.6); }
+.calendar-event .browse-card-subtitle { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-height: none; }
+/* Use Apple's 30-point section gap as a stable slot for retained-data status. */
+.calendar-status { height: 30px; }
+.calendar-status.calendar-pending { min-height: 320px; }
+.calendar-status .browse-text { margin: 0; max-width: none; font-size: 22px; line-height: 30px; }
+.calendar-filters { display: flex; gap: 6px; width: max-content; margin: 188px 0 0; padding: 6px; border-radius: 40px; background: rgba(255,255,255,.07); }
+.calendar-filters .browse-button { margin: 0; padding: 0 26px; height: 54px; min-height: 0; border: 0; font-size: 22px; background: transparent; color: rgba(237,237,237,.7); box-shadow: none; }
+.calendar-filters .browse-button[aria-pressed="true"] { background: rgba(237,237,237,.88); color: #000; }
+.calendar-filters .browse-button:focus { background: rgba(237,237,237,.96); color: #000; transform: scale(1.05); }
+.calendar-empty, .calendar-failure { min-height: 320px; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.calendar-empty .search-state-icon { width: 44px; height: 44px; margin: 0 0 12px; color: rgba(237,237,237,.3); }
+.calendar-empty .search-state-icon svg { width: 100%; height: 100%; }
+.calendar-empty .search-state-description { padding: 0 60px; color: rgba(237,237,237,.6); }
+.calendar-loading { min-height: 320px; outline: none; }
+.calendar-failure { gap: 48px; }
+.calendar-failure .search-state-icon { width: 48px; height: 48px; margin: 0; color: #b00020; }
+.calendar-failure .search-state-title { margin: 0; font-size: 36px; line-height: 43px; }
+.calendar-failure .search-state-description { padding: 0 60px; font-size: 26px; line-height: 32px; color: rgba(237,237,237,.6); }
+.calendar-failure .browse-actions { margin: 16px 0 0; }
+.calendar-failure .browse-button { width: 200px; }
+.calendar-empty-links .browse-button, .calendar-failure .browse-button { border: 0; padding: 14px 18px; font-size: 28px; background: rgba(237,237,237,.72); color: #000; }
+.calendar-empty-links .browse-button:focus, .calendar-failure .browse-button:focus { background: #ededed; box-shadow: 0 0 0 4px #fff; }
+.calendar-moon { display: inline-flex; width: 22px; height: 22px; margin-right: 8px; color: rgba(237,237,237,.3); }
+.calendar-moon svg { width: 100%; height: 100%; }
+.calendar-empty-title { margin: 0 0 12px; font-size: 28px; font-weight: 600; }
+.calendar-empty-subtitle { margin: 0 0 20px; font-size: 22px; color: rgba(237,237,237,.6); }
+.calendar-empty-links { display: flex; justify-content: center; gap: 48px; margin-top: 28px; }
+.calendar-empty-links .browse-button { width: 300px; margin: 0; }
+.calendar-event .browse-art { position: relative; }
+.calendar-releases { position: absolute; top: 12px; left: 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: calc(100% - 24px); }
+.calendar-release { padding: 5px 12px; border-radius: 20px; background: rgba(237,237,237,.92); color: #000; font-size: 18px; font-weight: 700; letter-spacing: .8px; }
+.calendar-watched { position: absolute; top: 12px; right: 12px; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 50%; background: #ededed; color: #000; font-size: 20px; font-weight: 700; box-shadow: 0 0 4px rgba(0,0,0,.3); }
+.calendar-time { position: absolute; bottom: 12px; right: 12px; max-width: calc(100% - 24px); padding: 5px 12px; border-radius: 20px; background: rgba(0,0,0,.62); color: #fff; font-size: 20px; font-weight: 600; white-space: normal; }
+@media (prefers-reduced-motion: reduce) {
+    .calendar-event:focus .browse-art, .calendar-week .calendar-day:focus, .calendar-filters .browse-button:focus { transform: none; }
+}
 .card-actions-scrim { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 30; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.75); }
 .card-actions-panel { width: 600px; max-height: 860px; overflow-y: auto; padding: 36px; border-radius: 18px; background: var(--silo-elevated); border: 1px solid rgba(255,255,255,.12); }
 .card-actions-panel .browse-section-title { margin-top: 0; }
@@ -909,13 +1024,8 @@
 .catalog-grid .browse-card { width: calc(260px * var(--poster-scale, 1)); padding: 0; border: 0; border-radius: 0; transition: none; }
 .catalog-grid .browse-card:focus { transform: none; box-shadow: none; }
 .catalog-grid .browse-art { width: calc(260px * var(--poster-scale, 1)); height: calc(390px * var(--poster-scale, 1)); border-radius: 12px; }
-.catalog-grid .browse-card:focus .browse-art { transform: scale(var(--grid-lift)); box-shadow: 0 18px 36px rgba(0,0,0,.6); }
 .catalog-grid .browse-card-title { margin: 16px 0 4px; padding: 0; font: 500 24px/29px var(--silo-font); color: rgba(237,237,237,.45); text-align: center; }
 .catalog-grid .browse-card-subtitle { margin: 0; padding: 0; font: 400 20px/24px var(--silo-font); color: rgba(237,237,237,.32); text-align: center; }
-.catalog-grid .browse-card:focus .browse-card-title { color: #fff; font-weight: 600; }
-.catalog-grid .browse-card:focus .browse-card-subtitle { color: rgba(255,255,255,.92); font-weight: 500; }
-.catalog-grid .browse-card:focus .browse-card-title, .catalog-grid .browse-card:focus .browse-card-subtitle { transform: translateY(5px); text-shadow: 0 0 10px rgba(255,255,255,.45), 0 0 3px rgba(255,255,255,.25); }
-@media (prefers-reduced-motion: reduce) { .catalog-grid .browse-card:focus .browse-art { transform: none; } }
 .catalog-skeleton { display: grid; }
 .catalog-skeleton .discovery-skeleton { width: calc(260px * var(--poster-scale, 1)); height: calc(390px * var(--poster-scale, 1)); }
 .browse-empty-title { margin: 160px 0 16px; font-size: 36px; font-weight: 600; text-align: center; }
@@ -969,3 +1079,104 @@
 
 /* Shuffle stays focusable while it starts (a disabled button loses focus); it dims to 60%. */
 .browse .browse-controls .browse-control-starting { opacity: .6; }
+
+/* Apple tvOS WatchlistView and FavoritesView (silo-apple 9723df0): contentTopInset 188,
+   safePadding 80, title 64 bold, eight 176-point posters, column gap 40, row gap 60. */
+.personal-lists.skyline-grid .skyline-content { top: 188px; left: 80px; width: 1760px; height: 892px; }
+.personal-lists .personal-page { padding-bottom: 80px; }
+.personal-lists .browse-title { margin: 0 0 40px; font-size: 64px; font-weight: 700; line-height: 77px; color: #ededed; }
+.personal-lists .personal-filters { position: static; display: flex; gap: 14px; width: auto; margin: 0 0 40px; }
+.personal-lists .personal-filters .browse-button { margin: 0; padding: 12px 28px; border: 1px solid rgba(255,255,255,.09); border-radius: 999px; background: rgba(255,255,255,.07); color: #ededed; font-size: 24px; font-weight: 600; line-height: 1.2; transition: transform 120ms ease-out, opacity 120ms ease-out; }
+.personal-lists .personal-filters .browse-button[aria-pressed="true"] { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.1); color: #ededed; }
+.personal-lists .personal-filters .browse-button:focus { background: #ededed; color: #000; border-color: transparent; box-shadow: none; transform: scale(1.04); }
+.personal-lists .personal-filters .browse-button:active { opacity: .82; }
+.personal-lists .personal-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; width: 1760px; padding: 0; }
+.personal-lists .personal-grid .browse-card { width: 176px; margin: 0; padding: 0; border: 0; border-radius: 0; transition: none; }
+.personal-lists .personal-grid .browse-card:focus { transform: none; border-color: transparent; box-shadow: none; }
+.personal-lists .personal-grid .browse-art { width: 176px; height: 264px; border-radius: 12px; transition: transform 120ms ease-out, box-shadow 120ms ease-out; }
+.personal-lists .personal-grid .browse-card:focus .browse-art { transform: scale(1.05); box-shadow: 0 8px 18px rgba(0,0,0,.45), 0 0 0 4px rgba(255,255,255,.7); }
+.personal-lists .personal-grid .browse-card-title { margin: 22px 0 0; padding: 0; font: 500 24px/29px var(--silo-font); color: rgba(237,237,237,.45); text-align: center; transition: color 120ms ease-out, text-shadow 120ms ease-out; }
+.personal-lists .personal-grid .browse-card-subtitle { margin: 4px 0 0; padding: 0; font: 400 20px/24px var(--silo-font); color: rgba(237,237,237,.32); text-align: center; transition: color 120ms ease-out, text-shadow 120ms ease-out; }
+.personal-lists .personal-grid .browse-card:focus .browse-card-title { color: #fff; font-weight: 500; text-shadow: 0 0 8px rgba(255,255,255,.22), 0 0 3px rgba(255,255,255,.12); }
+.personal-lists .personal-grid .browse-card:focus .browse-card-subtitle { color: rgba(255,255,255,.92); font-weight: 400; text-shadow: 0 0 8px rgba(255,255,255,.22), 0 0 3px rgba(255,255,255,.12); }
+.personal-lists .personal-loading,
+.personal-lists .personal-status,
+.personal-lists .personal-empty,
+.personal-history .personal-loading,
+.personal-history .personal-status,
+.personal-history .personal-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; min-height: 640px; margin: 0; padding: 0 60px; border: 0; background: transparent; color: #ededed; font: inherit; text-align: center; }
+.personal-lists .personal-loading:focus,
+.personal-lists .personal-status:focus,
+.personal-lists .personal-empty:focus,
+.personal-history .personal-loading:focus,
+.personal-history .personal-status:focus,
+.personal-history .personal-empty:focus { background: transparent; color: #ededed; border-color: transparent; box-shadow: none; transform: none; }
+.personal-lists .personal-loading:focus,
+.personal-history .personal-loading:focus { outline: none; }
+.personal-lists .personal-empty,
+.personal-history .personal-empty { gap: 12px; }
+.personal-lists .personal-empty-icon,
+.personal-history .personal-empty-icon { width: 44px; height: 44px; color: rgba(237,237,237,.3); }
+.personal-lists .personal-empty-title,
+.personal-history .personal-empty-title { font-size: 28px; font-weight: 600; }
+.personal-lists .personal-empty-subtitle,
+.personal-history .personal-empty-subtitle { max-width: 1200px; font-size: 22px; font-weight: 400; color: rgba(237,237,237,.6); }
+.personal-lists .personal-section-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; min-height: 430px; text-align: center; }
+.personal-lists .personal-section-icon { width: 54px; height: 54px; color: rgba(237,237,237,.34); }
+.personal-lists .personal-section-title { margin: 0; font-size: 30px; font-weight: 600; color: #ededed; }
+.personal-lists .personal-section-subtitle { margin: 0; font-size: 22px; font-weight: 400; color: rgba(237,237,237,.6); }
+.personal-lists .personal-status { font-size: 30px; }
+@media (prefers-reduced-motion: reduce) {
+    .personal-lists .personal-grid .browse-card:focus .browse-art,
+    .personal-lists .personal-filters .browse-button:focus { transform: none; }
+}
+
+/* History uses the existing pushed-page title treatment in place of tvOS system navigation chrome. */
+/* HistoryView pads the grid inside its ScrollView; that padding must not clip focused artwork. */
+.personal-history .skyline-content { top: 146px; left: 80px; width: 1760px; height: 934px; overflow-y: auto; }
+.personal-history .personal-page { padding: 16px 48px 60px; }
+/* HistoryView uses a system navigationTitle with no numeric offset; the signed capture
+   places its visible title at y64, 9.5 points below the previous Tizen capture. */
+.personal-history > .browse-title { position: fixed; top: 65.5px; left: 48px; width: 1824px; font-size: 56px; line-height: 64px; }
+.personal-history .personal-count { margin: 0 0 48px; font-size: 22px; font-weight: 400; line-height: 26px; color: rgba(237,237,237,.6); }
+.personal-history .catalog-grid { grid-template-columns: repeat(var(--grid-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; width: 1664px; margin: 0; padding: 0; }
+.personal-history .catalog-grid .browse-card { --card-caption-gap: 22px; }
+.personal-history .catalog-grid .browse-card-title { margin-top: 22px; }
+
+/* ErrorView, shared with the Requests hub: 48pt icon, 36 semibold headline, 26 body, Try Again 200 wide. */
+.personal-lists .personal-failure,
+.personal-history .personal-failure { position: fixed; top: 0; left: 0; box-sizing: border-box; width: 1920px; height: 1080px; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.personal-failure .search-state-icon { display: flex; align-items: center; justify-content: center; width: 50px; height: 53px; margin: 0 0 48px; color: #b00020; }
+.personal-failure .search-state-icon svg { flex: none; width: 52px; height: 52px; }
+.personal-failure .search-state-title { margin: 0 0 48px; font-size: 36px; line-height: 43px; font-weight: 600; color: #ededed; }
+.personal-failure .search-state-description { margin: 0; padding: 0 60px; font-size: 26px; line-height: 32px; color: rgba(237,237,237,.6); }
+.personal-failure .browse-actions { display: flex; flex-direction: column; align-items: center; gap: 16px; margin: 64px 0 0; }
+.personal-failure .browse-button { box-sizing: border-box; width: 200px; height: 62px; margin: 0; padding: 0 18px; border: 0; border-radius: 31px; background: rgba(237,237,237,.72); color: #000; font-size: 28px; line-height: 34px; font-weight: 600; }
+.personal-failure .browse-button:focus { background: #ededed; color: #000; transform: scale(1.055); box-shadow: inset 0 0 0 2px #fff, 0 0 0 2px #fff, 0 0 12px 8px rgba(255,255,255,.36), 0 8px 48px rgba(237,237,237,.48); }
+.personal-failure .browse-button + .browse-button { width: auto; height: auto; padding: 4px 24px; border-radius: 22px; background: transparent; color: rgba(237,237,237,.6); font-size: 26px; line-height: 32px; font-weight: 400; }
+.personal-failure .browse-button + .browse-button:focus { background: #ededed; color: #000; }
+@media (prefers-reduced-motion: reduce) {
+    .personal-failure .browse-button:focus { transform: none; }
+}
+/* tvOS adds its 80/60 safe area to the Swift page padding; measured in the signed comparison. */
+.browse[data-view^="person:"] { padding: 108px 160px 132px; }
+.browse[data-view^="person:"] .details-person-hero { margin: 0 0 48px; }
+.browse[data-view^="person:"] .browse-title { margin-bottom: 0; }
+.browse[data-view^="person:"] .person-facts { display: flex; gap: 12px; margin: 0; }
+.browse[data-view^="person:"] .person-fact { flex-shrink: 0; margin: 0; }
+.browse[data-view^="person:"] .browse-overview { margin: 0; color: rgba(237, 237, 237, 0.6); font-size: 26px; font-weight: 400; }
+.browse[data-view^="person:"] .browse-detail-info > * + * { margin-top: 22px; }
+.person-filmography-heading { display: flex; align-items: baseline; gap: 60px; margin: 0 0 20px; }
+.person-filmography-heading .browse-section-title { margin: 0; font-size: 36px; font-weight: 600; }
+.person-title-count { color: rgba(237, 237, 237, 0.6); font-size: 22px; font-weight: 400; }
+.browse[data-view^="person:"] .person-filmography-filters { display: flex; gap: 8px; padding: 8px 0; margin: 0 0 28px; }
+.browse[data-view^="person:"] .person-filmography-filters .browse-button { margin: 0; padding: 10px 22px; border-width: 1px; border-radius: 999px; font-size: 22px; font-weight: 400; background: rgba(21, 23, 28, 0.55); color: rgba(237, 237, 237, 0.6); border-color: rgba(255, 255, 255, 0.08); transition: transform var(--silo-fast) ease-out; }
+.browse[data-view^="person:"] .person-filmography-filters .browse-button[aria-pressed="true"] { background: #0e0f12; color: var(--silo-text); border-color: rgba(255, 255, 255, 0.16); }
+.browse[data-view^="person:"] .person-filmography-filters .browse-button:focus { outline: none; background: rgba(14, 15, 18, 0.8); color: var(--silo-text); border-color: rgba(237, 237, 237, 0.85); box-shadow: inset 0 0 0 1px rgba(237, 237, 237, 0.85); transform: scale(1.06); }
+.browse[data-view^="person:"] .person-filmography-filters .browse-button[aria-pressed="true"]:focus { background: #0e0f12; }
+.browse[data-view^="person:"] .browse-grid { width: auto; margin: 0; padding: 0; grid-template-columns: repeat(var(--grid-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; }
+/* PersonDetailView.swift:440 pads the scroll content 72pt at the bottom. The focus
+   viewport also excludes tvOS's 60px vertical safe area, so the shared scroll owner
+   keeps the focused card 132px above the screen. The generic 32px margin (92px with
+   the safe area) left the row 40px too low. */
+.browse[data-view^="person:"] .browse-grid .browse-card { scroll-margin-top: 72px; scroll-margin-bottom: 132px; }

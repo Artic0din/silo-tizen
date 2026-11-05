@@ -22,6 +22,7 @@ const PATHS = {
     settings: "M12 3 15 7 20 6 21 12 20 18 15 17 12 21 9 17 4 18 3 12 4 6 9 7ZM12 8A4 4 0 1 1 12 16 4 4 0 0 1 12 8Z",
     "switch-server": "M3 3H21V10H3ZM3 14H21V21H3ZM7 6H8M7 17H8",
     signout: "M10 3H3V21H10M8 12H22M17 7 22 12 17 17",
+    reset: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5",
 } as const;
 
 /** Original line drawings substitute for platform-owned SF Symbols. */

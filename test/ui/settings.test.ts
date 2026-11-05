@@ -11,11 +11,12 @@ let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
 
-async function setup(devicePlayback = false) {
+async function setup(devicePlayback = false, accountRole?: string | null) {
     const tv = await openTv(browser, { app: "browse", ...(process.env.SETTINGS_CAPTURE_DIR === undefined ? {} : { video: process.env.SETTINGS_CAPTURE_DIR }) });
     tv.fake.catalog = new FakeCatalog();
     const settings = new FakeSettings(tv.fake);
     settings.devicePlayback = devicePlayback;
+    if (accountRole !== undefined) tv.fake.accountRole = accountRole;
     await tv.page.evaluate(() => window.browseHarness.connect());
     await tv.eventually(async () => tv.fake.devices.size > 0, "device code");
     tv.fake.approve([...tv.fake.devices.keys()][0] ?? "");
@@ -119,7 +120,11 @@ test("remaining settings expose only honoured rows and save profile appearance",
         await tv.page.getByRole("radio", { name: "Small", exact: true }).click();
         await tv.eventually(async () => JSON.stringify(settings.profile().get("playback.subtitle_appearance"))?.includes('"fontSize":"small"') === true, "appearance profile write");
         await tv.page.locator('[data-focus="appearance-fontSize"]').waitFor();
-        assert.equal(await tv.page.locator(".settings-subtitle-preview span").evaluate(node => (node as HTMLElement).style.fontSize), "28px");
+        const caption = await tv.page.locator(".settings-subtitle-preview span").evaluate(node => {
+            const element = node as HTMLElement;
+            return { fontSize: element.style.fontSize, align: getComputedStyle(element).textAlign, weight: getComputedStyle(element).fontWeight };
+        });
+        assert.deepEqual(caption, { fontSize: "21.5px", align: "center", weight: "600" });
         const deviceId = tv.fake.requests.find(request => request.path === "/settings/contract/capabilities")?.headers["x-silo-device-id"];
         assert.ok(deviceId);
         await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).click();
@@ -547,11 +552,85 @@ test("Settings uses the measured Apple pane margins and borderless sign out", as
             const header = document.querySelector('.settings-pane-header');
             const signout = document.querySelector('[data-focus="settings-signout"]');
             if (!rail?.isConnected || !row?.isConnected || !header?.isConnected || !signout?.isConnected) return null;
-            return { rail: rail.getBoundingClientRect().x, row: row.getBoundingClientRect().x, width: row.getBoundingClientRect().width, header: header.getBoundingClientRect().y, signoutHeight: signout.getBoundingClientRect().height, border: getComputedStyle(signout).borderWidth };
+            const signoutBox = signout.getBoundingClientRect();
+            return { rail: rail.getBoundingClientRect().x, row: row.getBoundingClientRect().x, width: row.getBoundingClientRect().width, header: header.getBoundingClientRect().y, signoutX: signoutBox.x, signoutY: signoutBox.y, signoutWidth: signoutBox.width, signoutHeight: signoutBox.height, border: getComputedStyle(signout).borderWidth };
         }, null, () => true, "live Settings geometry");
-        assert.deepEqual(geometry, { rail: 164, row: 728, width: 1006, header: 108, signoutHeight: 33, border: "0px" });
+        assert.deepEqual(geometry, { rail: 164, row: 728, width: 1006, header: 108, signoutX: 192, signoutY: 842, signoutWidth: 150, signoutHeight: 33, border: "0px" });
     } finally { await tv.page.context().close(); }
 });
+
+test("Settings rail rows are unframed at rest and on focus", async () => {
+    const { tv } = await setup();
+    try {
+        await openSettings(tv);
+        const focused = await readLive(tv, () => {
+            const row = document.querySelector<HTMLElement>('[data-focus="general"]');
+            if (row === null || document.activeElement !== row) return null;
+            const style = getComputedStyle(row);
+            return { border: style.borderTopWidth, background: style.backgroundColor, color: style.color, width: row.getBoundingClientRect().width, height: row.getBoundingClientRect().height };
+        }, null, () => true, "focused rail row");
+        assert.deepEqual(focused, { border: "0px", background: "rgb(237, 237, 237)", color: "rgb(0, 0, 0)", width: 490, height: 82 });
+        const resting = await tv.page.locator('[data-focus="server"]').evaluate(node => {
+            const style = getComputedStyle(node);
+            return { border: style.borderTopWidth, background: style.backgroundColor };
+        });
+        assert.deepEqual(resting, { border: "0px", background: "rgba(0, 0, 0, 0)" });
+        await tv.page.keyboard.press("ArrowRight");
+        const selected = await tv.page.locator('[data-focus="general"]').evaluate(node => {
+            const style = getComputedStyle(node);
+            return { border: style.borderTopWidth, background: style.backgroundColor, current: node.getAttribute("aria-current") };
+        });
+        assert.deepEqual(selected, { border: "0px", background: "rgba(255, 255, 255, 0.14)", current: "page" });
+    } finally { await tv.page.context().close(); }
+});
+
+test("Playback reset is red with an icon at rest and while focused", async () => {
+    const { tv, settings } = await setup(true);
+    const deviceId = tv.fake.requests.find(request => request.headers["x-silo-device-id"])?.headers["x-silo-device-id"];
+    assert.ok(deviceId);
+    settings.device("p-owner", deviceId).set(QUALITY_KEY, "1080p");
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        const reset = tv.page.locator('[data-focus="reset-playback"]');
+        await reset.waitFor();
+        const resting = await reset.evaluate(node => {
+            const style = getComputedStyle(node);
+            return { color: style.color, icon: node.querySelector("svg") !== null, name: node.textContent };
+        });
+        assert.deepEqual(resting, { color: "rgb(176, 0, 32)", icon: true, name: "Use Profile Settings" });
+        await focusPaneRow(tv, "reset-playback");
+        const focused = await readLive(tv, () => {
+            const row = document.querySelector<HTMLElement>('[data-focus="reset-playback"]');
+            if (row === null || document.activeElement !== row) return null;
+            const style = getComputedStyle(row);
+            return { color: style.color, background: style.backgroundColor };
+        }, null, () => true, "focused playback reset");
+        assert.deepEqual(focused, { color: "rgb(210, 47, 63)", background: "rgb(237, 237, 237)" });
+    } finally { await tv.page.context().close(); }
+});
+
+test("Administrator is shown for an admin role and a missing role stays the account name", async () => {
+    const admin = await setup(false, "admin");
+    try {
+        await openSettings(admin.tv);
+        assert.equal(await admin.tv.page.locator(".settings-profile-name").textContent(), "Laura");
+        assert.equal(await admin.tv.page.locator(".settings-profile-account").textContent(), "Administrator");
+    } finally { await admin.tv.page.context().close(); }
+    const missing = await setup(false, null);
+    try {
+        await openSettings(missing.tv);
+        assert.equal(await missing.tv.page.locator(".settings-profile-name").textContent(), "Laura");
+        assert.equal(await missing.tv.page.locator(".settings-profile-account").textContent(), "laura");
+    } finally { await missing.tv.page.context().close(); }
+});
+
+async function focusPaneRow(tv: Tv, key: string): Promise<void> {
+    await tv.page.keyboard.press("ArrowRight");
+    for (let step = 0; step < 40 && await tv.focused() !== key; step += 1) await tv.page.keyboard.press("ArrowDown");
+    assert.equal(await tv.focused(), key);
+    await tv.jump(400);
+}
 
 test("Subtitles keeps its descriptive footer visible below Reset", async () => {
     const { tv, settings } = await setup();
@@ -559,17 +638,29 @@ test("Subtitles keeps its descriptive footer visible below Reset", async () => {
     try {
         await openSettings(tv);
         await tv.page.locator('[data-focus="subtitles"]').click();
-        await tv.page.locator('[data-focus="reset-appearance"]').focus();
-        await tv.jump(500);
+        await focusPaneRow(tv, "reset-appearance");
         const visible = await readLive(tv, () => {
             const footer = document.querySelector('.settings-appearance-footer');
-            const pane = document.querySelector('.settings-pane');
+            const pane = document.querySelector<HTMLElement>('.settings-pane');
             if (!footer?.isConnected || !pane?.isConnected) return null;
-            return { bottom: footer.getBoundingClientRect().bottom, paneBottom: pane.getBoundingClientRect().bottom };
-        }, null, () => true, 'subtitle footer geometry');
+            return { bottom: footer.getBoundingClientRect().bottom, paneBottom: pane.getBoundingClientRect().bottom, scrollTop: pane.scrollTop, max: pane.scrollHeight - pane.clientHeight };
+        }, null, value => value.bottom <= value.paneBottom + 0.5, 'subtitle footer geometry');
         assert.ok(visible.bottom <= visible.paneBottom, JSON.stringify(visible));
+        assert.ok(visible.max - visible.scrollTop < 96, JSON.stringify(visible));
         assert.equal(await tv.page.locator('[data-focus="appearance-device"] .settings-row-value').textContent(), 'Off');
         assert.equal(await tv.page.locator('.settings-nested-group [data-focus="appearance-textOutline"][role="switch"]').count(), 1);
+        await tv.page.locator('[data-focus="playback"]').click();
+        const playbackLast = await tv.page.locator('.settings-pane [data-focus]').last().getAttribute('data-focus');
+        assert.ok(playbackLast);
+        await focusPaneRow(tv, playbackLast);
+        const playback = await readLive(tv, () => {
+            const pane = document.querySelector<HTMLElement>('.settings-pane');
+            const footer = pane?.querySelector('.settings-value:last-of-type');
+            if (!footer?.isConnected || !pane?.isConnected) return null;
+            return { bottom: footer.getBoundingClientRect().bottom, paneBottom: pane.getBoundingClientRect().bottom, scrollTop: pane.scrollTop, max: pane.scrollHeight - pane.clientHeight };
+        }, null, value => value.bottom <= value.paneBottom + 0.5, 'playback footer geometry');
+        assert.ok(playback.bottom <= playback.paneBottom, JSON.stringify(playback));
+        assert.ok(playback.max - playback.scrollTop < 96, JSON.stringify(playback));
     } finally { await tv.page.context().close(); }
 });
 

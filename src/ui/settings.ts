@@ -26,6 +26,8 @@ const CATEGORY_BLURBS = {
     server: "The Silo server this TV is connected to.",
 } as const;
 const SUBTITLE_FOOTER = "Used to pick a matching track when one is available. Forced subtitles cover foreign-language dialogue even when subtitles are off or set to auto.";
+/** tvOS preview point sizes at 1080 lines, then ×0.5. SubtitleAppearance.swift:36-41; SubtitleAppearancePreview.swift:19-21,128-129. */
+const TV_PREVIEW_POINT_SIZE = { small: 43, medium: 51, large: 58, xlarge: 74, xxlarge: 88 } as const;
 const MODE_CHOICES = [["auto", "Auto"], ["always", "Always"], ["off", "Off"]] as const;
 const LAUNCH_CHOICES = [["automatic", "Automatic"], ["askEveryLaunch", "Every Time"], ["afterOneHour", "After 1 Hour"], ["afterTwelveHours", "After 12 Hours"]] as const;
 /** Apple scrolls its Acknowledgements document by remote presses while the document holds focus. */
@@ -614,6 +616,8 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 const playbackKeys: readonly SettingsKey[] = [QUALITY_KEY, BITRATE_KEY, AUDIO_KEY, ...settingsRows("playback", state).map(row => row.key)];
                 if (playbackKeys.some(key => state.scope(key) === "profile_device")) {
                     const reset = button("reset-playback", "Use Profile Settings", () => { confirmingPlaybackReset = true; render(); });
+                    reset.element.classList.add("settings-destructive");
+                    reset.element.prepend(navigationIcon("reset"));
                     rows.push(reset);
                     body.append(el("h3", "settings-section-header", "RESET"), reset.element, el("p", "settings-value", "Removes the playback settings changed on this TV, so it uses your profile's settings again."));
                 }
@@ -623,7 +627,11 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 const text = el("span", "", "Subtitles will look like this");
                 preview.appendChild(text);
                 const stored = state.stored(APPEARANCE_KEY);
-                applySubtitleAppearance(preview, text, decodeAppearance({ profile_id: "preview", effective_value: JSON.stringify(stored?.isSet ? stored.value : {}) }, "preview"));
+                const appearance = decodeAppearance({ profile_id: "preview", effective_value: JSON.stringify(stored?.isSet ? stored.value : {}) }, "preview");
+                applySubtitleAppearance(preview, text, appearance);
+                text.style.fontSize = `${TV_PREVIEW_POINT_SIZE[appearance.fontSize] * 0.5}px`;
+                text.style.fontWeight = "600";
+                text.style.textAlign = "center";
                 preview.style.position = "relative"; preview.style.height = "150px";
                 text.style.position = "absolute";
                 text.style.top = preview.style.top; text.style.bottom = preview.style.bottom;

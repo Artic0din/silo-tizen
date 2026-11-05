@@ -22,7 +22,7 @@
 .settings-scope { margin: -12px 0 40px; color: var(--silo-secondary); font-size: 26px; }
 .browse.settings { overflow: hidden; height: 100vh; box-sizing: border-box; padding: 108px 164px 44px; }
 .settings-panes { display: flex; align-items: stretch; gap: 52px; height: 100%; min-height: 0; }
-.settings-categories { width: 490px; flex-shrink: 0; display: flex; flex-direction: column; padding: 24px 0; }
+.settings-categories { width: 490px; flex-shrink: 0; display: flex; flex-direction: column; padding: 24px 0 100px; }
 .settings-pane { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 0 22px 64px; }
 .settings-pane-header { display: flex; align-items: center; gap: 20px; padding: 0 24px; margin: 0 0 10px; }
 .settings-header-icon { display: grid; place-items: center; width: 72px; height: 72px; border-radius: 18px; background: #ffffff12; flex-shrink: 0; }
@@ -43,8 +43,11 @@
 .settings-controls .browse-button,
 .settings-categories .browse-button { display: block; width: 100%; margin: 0 0 8px; border-radius: 14px; text-align: left; }
 .settings-categories .browse-button { display: flex; align-items: center; gap: 16px; box-sizing: border-box; height: 82px; padding: 15px 20px; margin-bottom: 6px; }
+/* TVSettingsRailRowStyle (TVSettingsComponents.swift:183-220): clear fill and no stroke at rest, selected fill when current, white platter on focus. */
+.settings-categories .browse-button:not(.settings-signout) { border: 0; background: transparent; box-shadow: none; }
 .settings-categories .settings-profile { height: 98px; margin-bottom: 28px; gap: 18px; }
-.settings-categories .settings-signout { margin-top: auto; width: 150px; height: 33px; padding: 0; border: 0; border-radius: 0; background: transparent; font-size: 27px; line-height: 33px; gap: 8px; white-space: nowrap; }
+/* Running app: 150×33 at x192 y842. Rail content starts at x164; the extra bottom padding lifts the Sign Out/version cluster off the pinned y918. TVSettingsView.swift:178-204. */
+.settings-categories .settings-signout { margin-top: auto; margin-left: 28px; width: 150px; height: 33px; padding: 0; border: 0; border-radius: 0; background: transparent; font-size: 27px; line-height: 33px; gap: 8px; white-space: nowrap; }
 .settings-categories .browse-title { font-size: 48px; margin: 0 20px 26px; }
 .settings-pane .browse-button, .settings-info-row { box-sizing: border-box; min-height: 66px; line-height: 32px; }
 .settings-info-row { display: flex; align-items: center; gap: 16px; padding: 17px 24px; font-size: 26px; margin-bottom: 8px; background: #202020d6; border: 1px solid #ffffff18; border-radius: 14px; }
@@ -63,6 +66,7 @@
 .settings-categories .browse-button[aria-current="page"],
 .settings-controls .browse-button[aria-checked="true"] { background: var(--silo-selected); }
 .settings .browse-button:focus { outline: none; background: #fff; color: #000; border-color: #fff; }
+.settings .settings-categories .browse-button:not(.settings-signout):focus { background: #ededed; color: #000; border-color: transparent; box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5); }
 .settings-input { box-sizing: border-box; }
 .settings-value { color: rgba(237,237,237,.6); font-size: 19px; line-height: 1.4; margin: 4px 0 8px; padding: 0 24px; }
 /* Apple TVSettingsSectionHeader. */
@@ -1328,6 +1332,11 @@
 .settings-picker-hint { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #ffffff14; border-radius: 20px; }
 .settings-nested-group { margin-left: 24px; padding: 8px; border: 1px solid #ffffff12; border-radius: 14px; background: #ffffff06; }
 .settings-subtitle-preview { margin: 0 24px 8px; border: 1px solid #ffffff20; border-radius: 18px; background: linear-gradient(135deg, #263750, #10151d 65%, #352637); overflow: hidden; }
+.settings-subtitle-preview span { left: 16px; right: 16px; text-align: center; font-weight: 600; }
+/* TVSettingsPaneRowStyle isDestructive (TVSettingsComponents.swift:273-276): #B00020 at rest, #D22F3F on the white platter. */
+.settings-pane .settings-destructive { display: flex; align-items: center; gap: 16px; color: #b00020; }
+.settings-pane .settings-destructive .skyline-menu-icon { width: 22px; height: 22px; margin: 0; }
+.settings .settings-pane .browse-button.settings-destructive:focus { color: #d22f3f; background: #ededed; border-color: transparent; }
 .settings-modal:has(.settings-privacy-card) { width: 1152px; padding: 52px 64px; border-radius: 32px; }
 .settings-privacy-card { display: flex; gap: 54px; align-items: center; }
 .settings-privacy-qr { background: white; padding: 22px; border-radius: 24px; }

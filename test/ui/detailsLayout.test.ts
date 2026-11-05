@@ -664,7 +664,10 @@ detailTest('Details picker selection uses a check without a resting fill', async
 detailTest('Details More and Subtitles use white ellipsis and caption bubble glyphs', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     await tv.page.locator('[data-focus="play"]').focus();
-    assert.equal(await tv.page.locator('[data-focus="more"]').evaluate(node => getComputedStyle(node).color), 'rgb(255, 255, 255)');
+    await tv.eventually(() => tv.page.evaluate(() => {
+        const more = document.querySelector('[data-focus="more"]');
+        return more !== null && getComputedStyle(more).color === 'rgb(255, 255, 255)';
+    }), 'the current More action paints white');
     assert.equal(await tv.page.locator('[data-focus="subtitles"] svg').getAttribute('data-symbol'), 'captions.bubble');
 });
 

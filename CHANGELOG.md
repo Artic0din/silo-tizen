@@ -9,6 +9,9 @@ All notable changes to this project are documented in this file.
 - Matched History's Apple TV title position and focused poster scroll clearance.
 - Matched Apple TV personal-list loading, root selection, Back navigation, grid spacing, and saved-list ordering.
 - Kept saved-list requests and response validation in the shared API adapter and contract modules.
+- Moved the Home logo slot up to Apple's marquee stack and landed Down from a landscape card on the poster nearest that card.
+- Kept the column when moving down between Home rows, and fitted hero title art in Apple's 200px logo slot.
+- Down from the top bar lands on the leftmost card instead of the card remembered in the row.
 - Matched Apple TV library shelf order and the Recommended, Collections and Browse section menu, keeping Collections in its own destination.
 - Restored each page's hero after returning from the profile menu and painted the avatar's white focus ring above its image.
 - Renamed the profile menu's Switch Server row to Change Account, after Settings and before Sign Out.

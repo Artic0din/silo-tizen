@@ -24,6 +24,7 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
     let selected = current?.server.http.base.baseUrl ?? directory.list()[0]?.baseUrl;
     let paneEntry: string | undefined;
     let destroyed = false;
+    let removalPending = false;
     const destroy = (): void => { destroyed = true; host.destroy(); backdrop.destroy(); container.remove(); };
     const go = (account: SavedAccount | undefined, address?: string): void => { destroy(); open(account, address); };
     const showError = (message: string): void => {
@@ -31,11 +32,10 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
         host.show({ name: "accounts-error", content: [el("h1", "accounts-title", message), retry.element], zones: [{ id: "error", layout: "column", items: [retry] }], focus: { zone: "error", key: "retry" }, back: render });
     };
     const confirm = (targets: readonly SavedAccount[], removeServer: boolean): void => {
-        let removing = false;
-        const cancel = actionButton("cancel", "Cancel", () => { if (!removing) render(); });
+        const cancel = actionButton("cancel", "Cancel", render);
         const accept = actionButton("confirm", removeServer ? "Remove Server" : "Sign Out", () => {
-            if (removing) return;
-            removing = true;
+            if (removalPending) return;
+            removalPending = true;
             cancel.element.setAttribute("disabled", "");
             accept.element.setAttribute("aria-disabled", "true");
             accept.element.textContent = removeServer ? "Removing…" : "Signing out…";
@@ -47,8 +47,9 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
                     if (cleared === "failed") throw new Error("Could not remove the saved sign-in. Try again.");
                     directory.remove(row.id);
                 }
+                removalPending = false;
                 if (!destroyed) render();
-            })().catch((error: unknown) => { if (!destroyed) showError(error instanceof Error ? error.message : "Could not sign out"); });
+            })().catch((error: unknown) => { removalPending = false; if (!destroyed) showError(error instanceof Error ? error.message : "Could not sign out"); });
         });
         const panel = el("div", "accounts-dialog");
         panel.setAttribute("role", "dialog"); panel.setAttribute("aria-modal", "true");
@@ -60,9 +61,10 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
             : "This account's profiles and settings leave this TV. The server stays saved, so you can sign in again.";
         panel.append(el("h1", "signin-title", removeServer ? `Remove ${serverName}?` : `Sign out of ${targets[0]?.username ?? "this account"} on ${serverName}?`),
             el("p", "signin-text", message), cancel.element, accept.element);
-        host.show({ name: "accounts-confirm", content: [panel], zones: [{ id: "dialog", layout: "row", items: [cancel, accept] }], focus: { zone: "dialog", key: "cancel" }, back: () => { if (!removing) render(); } });
+        host.show({ name: "accounts-confirm", content: [panel], zones: [{ id: "dialog", layout: "row", items: [cancel, accept] }], focus: { zone: "dialog", key: "cancel" }, back: render });
     };
     function render(railFocus = false, enterPane = false): void {
+        if (removalPending) return;
         const rows = directory.list();
         if (manage) {
             const panel = el("div", "accounts-settings");

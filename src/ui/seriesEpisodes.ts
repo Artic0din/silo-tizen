@@ -23,7 +23,6 @@ export class SeriesEpisodes {
     private seasonDwell: ReturnType<typeof setTimeout> | undefined;
     private automaticRead = false;
     private focusedSeason: number | undefined;
-    private readonly requestedSeasons = new Set<number>();
     entryEpisode: string | undefined;
     failed = false;
     focusSelectedEpisode = false;
@@ -93,6 +92,7 @@ export class SeriesEpisodes {
         clearTimeout(this.seasonDwell);
         this.seasonDwell = undefined;
         if (this.automaticRead) {
+            if (this.seasonNumber !== undefined) this.failedNeighbors.add(this.seasonNumber);
             this.controller?.abort();
             this.controller = undefined;
             this.automaticRead = false;
@@ -131,7 +131,7 @@ export class SeriesEpisodes {
             this.entryEpisode = this.episodes[0]?.id;
             this.updateWindow();
             this.changed("load");
-        } else if (this.requestedSeasons.has(season) || this.failedNeighbors.has(season)) {
+        } else if (this.failedNeighbors.has(season)) {
             this.railEpisodes = [];
             this.failed = true;
             this.changed("load");
@@ -139,7 +139,6 @@ export class SeriesEpisodes {
             this.railEpisodes = [];
             this.changed("load");
         } else {
-            this.requestedSeasons.add(season);
             this.automaticRead = true;
             this.load(false, true);
         }
@@ -207,7 +206,6 @@ export class SeriesEpisodes {
         this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, season), profileScoped: true, signal: controller.signal }).then(episodes => {
             if (!current()) return;
             const warm = !this.automaticRead;
-            this.requestedSeasons.delete(season);
             this.controller = undefined;
             this.automaticRead = false;
             this.episodes = episodes;
@@ -219,6 +217,7 @@ export class SeriesEpisodes {
             if (warm) this.warmNeighbors();
         }, () => {
             if (!current()) return;
+            if (this.automaticRead) this.failedNeighbors.add(season);
             this.controller = undefined;
             this.automaticRead = false;
             this.failed = true;

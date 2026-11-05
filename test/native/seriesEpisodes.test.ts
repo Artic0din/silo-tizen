@@ -107,6 +107,18 @@ test("a successful automatic season can load again after bounded cache eviction"
     assert.deepEqual(h.reads(), [2, 1, 3, 4, 5, 6, 7, 1, 2, 7].map(season => operations.listSeasonEpisodes("series:s1", season).path));
 });
 
+for (const outcome of ["failed", "cancelled"] as const) test(`rail boundaries cannot retry a ${outcome} automatic pill read`, async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(outcome === "failed" ? 4 : undefined); t.after(() => h.state.stop());
+    const held = outcome === "cancelled" ? h.fake.hold(operations.listSeasonEpisodes("series:s1", 4).path, true) : undefined;
+    h.state.focusSeason(4); t.mock.timers.tick(70); await h.settle();
+    h.state.focusSeason(3); t.mock.timers.tick(70); await h.settle();
+    held?.release(); await h.settle();
+    h.state.focus("rail:3:13"); t.mock.timers.tick(70); await h.settle();
+    assert.equal(h.reads().length, 4, "rail entry cannot bypass pill failure or cancellation recovery");
+    assert.equal(h.state.boundaryFailed, true);
+});
+
 for (const outcome of ["success", "empty", "failure"] as const) test(`missing season pill ${outcome} consumes one read without warming or revisit retries`, async t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const h = await episodeRailHarness(outcome === "failure" ? 4 : undefined, outcome === "empty" ? 4 : undefined); t.after(() => h.state.stop());

@@ -156,7 +156,7 @@
 .search-scene .search-filters .browse-button:focus { transform: none; color: #000; background: #ededed; }
 .search-scene .search-count { margin: 0 162px 24px; font-size: 22px; line-height: 27px; }
 .search-scene > .browse-grid { width: 1444px; margin: 0 162px; padding: 24px 9px 20px; grid-template-columns: repeat(var(--search-columns, 6), minmax(0, 1fr)); gap: 48px 58px; }
-.search-scene .browse-grid .browse-card { width: calc(220px * var(--poster-scale, 1)); margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; scroll-margin-top: 171px; }
+.search-scene .browse-grid .browse-card { width: calc(220px * var(--poster-scale, 1)); margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .search-scene .browse-grid .browse-art { width: calc(220px * var(--poster-scale, 1)); height: calc(330px * var(--poster-scale, 1)); border-radius: 16px; }
 .search-scene .browse-grid .browse-card-title { margin: 16px 0 0; padding: 0; font-size: 24px; line-height: 29px; font-weight: 600; }
 .search-scene .browse-grid .browse-card-subtitle { margin: 4px 0 0; padding: 0; font-size: 22px; line-height: 27px; }
@@ -819,6 +819,7 @@
 .card-overlay-stack { position: absolute; display: flex; flex-direction: column; }
 .card-overlay { display: inline-flex; align-items: center; line-height: 1.2; text-transform: uppercase; white-space: nowrap; }
 .card-overlay-mark { font-weight: 800; letter-spacing: .2px; }
+.card-overlay-icon { display: block; flex: none; fill: currentColor; stroke: none; }
 /* Home rows: Apple MediaRow, MediaCard and EpisodeThumbCard (silo-apple 1a7ccee). The content reaches into a
    40px gutter so a lifted first card is never clipped; cards still start at the 88px edge. */
 .skyline-preview:not(.skyline-library):not(.skyline-home) .skyline-content { left: 48px; width: 1824px; padding-left: 40px; }
@@ -826,7 +827,8 @@
 .home-section .browse-section-title { margin: 0; font-size: 36px; font-weight: 600; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .home-row-glyph { position: relative; display: inline-block; vertical-align: -4px; width: 32px; height: 32px; margin-right: 14px; border-radius: 50%; background: #ededed; }
 .home-row-glyph::after { content: ""; position: absolute; top: 9px; left: 12px; border-style: solid; border-width: 7px 0 7px 11px; border-color: transparent transparent transparent #000; }
-.home-section .browse-row { margin-left: -40px; padding: 34px 40px 24px; }
+/* Top is the 20px title gap plus Skyline's 14px card padding. Bottom is that 14px, not MediaRow's 24px default. */
+.home-section .browse-row { margin-left: -40px; padding: 34px 40px 14px; }
 .home-section .browse-card { width: 176px; margin: 0 40px 0 0; border: 0; border-radius: 0; transition: none; scroll-margin-top: 20px; }
 .home-section .browse-card:focus { transform: none; box-shadow: none; }
 .home-section .browse-art { width: 176px; height: 264px; border-radius: 12px; transition: transform var(--silo-fast) ease-out, box-shadow var(--silo-fast) ease-out; }
@@ -870,6 +872,8 @@
 .browse .browse-card:is(:focus, [aria-current="true"]) .browse-art { outline-color: rgba(255,255,255,.7); }
 /* CSS box-shadow blur is twice the SwiftUI Gaussian radius. */
 .browse .browse-card:focus .browse-art { --card-focus-scale: 1.05; transform: scale(var(--card-focus-scale)); box-shadow: 0 8px 36px rgba(0,0,0,.45); }
+/* Continue Watching adds EpisodeThumbCard's focused shadow on top of the shared lift. */
+.browse .home-section .skyline-continue:focus .browse-art { box-shadow: 0 8px 36px rgba(0,0,0,.45), 0 10px 40px rgba(0,0,0,.5); }
 .browse .browse-card-title, .browse .browse-card-subtitle { transition: color var(--silo-fast) ease-out, transform var(--silo-fast) ease-out, text-shadow var(--silo-fast) ease-out; }
 .browse .browse-card:is(:focus, [aria-current="true"]) .browse-card-title { color: #fff; }
 .browse .browse-card:is(:focus, [aria-current="true"]) .browse-card-subtitle { color: rgba(255,255,255,.92); }

@@ -17,7 +17,7 @@ const PICKER_KEYS = { hidden: HIDDEN_KEY, audio: AUDIO_KEY, quality: QUALITY_KEY
 const PICKER_LABELS = { hidden: "Hidden libraries", audio: "Preferred audio", quality: "Preferred quality", bitrate: "Maximum bitrate", "seek-back": "Video rewind interval", "seek-forward": "Video fast-forward interval" } as const;
 export interface SettingsScreen { destroy(): void }
 
-export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void, launch?: ProfileLaunch, accounts?: (back: () => void) => void): SettingsScreen {
+export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean, titleArt?: boolean) => void, launch?: ProfileLaunch, accounts?: (back: () => void) => void): SettingsScreen {
     const container = el("section", "browse settings");
     container.setAttribute("aria-label", "Settings");
     root.appendChild(container);
@@ -62,7 +62,12 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         container.remove();
     };
     const stopAuthority = session.onAuthorityChange(destroy);
-    const exit = (): void => { const changed = state.hiddenChanged; destroy(); close(changed); };
+    const exit = (): void => {
+        const changed = state.hiddenChanged;
+        const titleArt = state.effective.get(TITLE_ART_KEY)?.value;
+        destroy();
+        close(changed, typeof titleArt === "boolean" ? titleArt : undefined);
+    };
     const rowFocus = (): FocusTarget => ({ zone: "settings-rows", key: returnRow });
     const back = (): void => {
         if (acknowledging) { acknowledging = false; render(rowFocus()); }

@@ -4,6 +4,7 @@ import type { RequestSpec } from "../api/http.ts";
 import { detailOperations, type PersonalAction } from "../api/detailOperations.ts";
 import { operations } from "../api/operations.ts";
 import type { Card, ItemDetail, LocalExtra } from "../contracts/v2/catalog.ts";
+import { TITLE_ART_KEY } from "../contracts/v2/settings.ts";
 import { playChoices, type PlayRequest } from "./browseModel.ts";
 import type { Clock } from "../api/clock.ts";
 import type { NativeSession } from "../session/session.ts";
@@ -184,6 +185,12 @@ export class DetailsState {
     }
 
     /** Capture the route generation as well as the confirmed policy for late image events. */
+    acceptTitleArt(value: boolean): void {
+        this.titleArt = value;
+        this.titleArtPolicy = "supported";
+        for (const path of this.responses.keys()) if (path.includes(TITLE_ART_KEY)) this.responses.delete(path);
+    }
+
     titleArtGuard(): () => boolean {
         const controller = this.controller;
         return () => controller !== undefined && this.current(controller) && (this.titleArtPolicy === "compatibility" || (this.titleArtPolicy === "supported" && this.titleArt === true));

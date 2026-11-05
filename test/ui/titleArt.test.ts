@@ -71,6 +71,27 @@ test("returning from General rechecks Details and retains text after this-TV fal
     } finally { await tv.page.context().close(); }
 });
 
+test("confirmed title-art Off survives an offline cached Details revisit", async () => {
+    const { tv, catalog } = await setup();
+    try {
+        await details(tv, catalog);
+        await tv.page.locator(".details-logo").waitFor();
+        await tv.remote(10009);
+        await settingsScreen(tv);
+        await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).click();
+        await tv.page.getByText("Off · This TV", { exact: true }).waitFor();
+        await tv.remote(10009); await tv.remote(10009);
+        let logos = 0;
+        tv.page.on("request", request => { if (new URL(request.url()).pathname.endsWith("last-signal-logo.svg")) logos++; });
+        await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+        await details(tv, catalog);
+        await tv.jump(35000);
+        assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "The Last Signal");
+        assert.equal(await tv.page.locator(".details-logo").count(), 0);
+        assert.equal(logos, 0);
+    } finally { await tv.page.context().close(); }
+});
+
 test("detailed seasons use the same false policy and leave episode navigation usable", async () => {
     const { tv, settings } = await setup();
     let logos = 0;

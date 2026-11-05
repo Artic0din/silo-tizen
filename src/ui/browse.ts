@@ -1907,9 +1907,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             shell.hide();
             host.stop();
             container.hidden = true;
-            settingsScreen = mountSettings(root, session, hiddenChanged => {
+            settingsScreen = mountSettings(root, session, (hiddenChanged, titleArt) => {
                 settingsScreen = undefined;
                 if (torn) return;
+                // Settings opens from root chrome, after pushed Details have left the stack.
+                if (titleArt !== undefined) for (const details of visitedDetails.values()) details.acceptTitleArt(titleArt);
                 container.hidden = false;
                 presentation.reload();
                 void navigation.reload();

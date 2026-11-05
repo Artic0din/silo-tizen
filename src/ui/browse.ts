@@ -45,7 +45,7 @@ import { PresentationSettings } from "./presentationSettings.ts";
 import { NavigationSettings } from "./navigationSettings.ts";
 import { cachedBranding } from "./brandingCache.ts";
 import { getCalendar } from "../api/calendarOperations.ts";
-import { calendarEventKeys, calendarState, calendarWeek, CalendarTimezoneError, deviceTimezone, localDateKey, shiftDay } from "./calendarState.ts";
+import { CALENDAR_FILTER_KEY, calendarEventKeys, calendarState, calendarWeek, CalendarTimezoneError, deviceTimezone, localDateKey, shiftDay, storedCalendarFilter } from "./calendarState.ts";
 import type { CalendarHandlers } from "./calendarView.ts";
 import { isSectionRoute, SectionCatalog, type SectionRoute } from "./sectionCatalog.ts";
 import { readSectionCatalog, type SectionSnapshot } from "./sectionCatalogState.ts";
@@ -570,6 +570,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     return;
                 }
                 current.failure = text ?? "Something went wrong. Try again.";
+                if (current.kind === "calendar") current.calendar.error = error instanceof CalendarTimezoneError ? { headline: "Something went wrong", message: error.message, signIn: false } : errorState(error);
                 if (current.kind === "personal") current.error = errorState(error);
                 if (current.kind === "requests") { current.requests.error = errorState(error); if (!current.requests.unconfirmed && !current.requests.writing) current.requests.action = undefined; }
                 if (current.kind === "requests" && error instanceof ApiError && ["capability_disabled", "capability_not_configured", "capability_unsupported", "permission_denied"].includes(error.problemId ?? "")) void probeRequests();
@@ -910,6 +911,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 const focus = host.focused();
                 const oldShelf = state.data?.days.find(day => day.date === focus?.zone);
                 const oldIndex = calendarEventKeys(oldShelf?.items ?? []).indexOf(focus?.key ?? "");
+                const entryRevision = inputRevision;
                 load(current, async signal => {
                     prepareCalendar(current);
                     const start = state.start, timezone = state.timezone;
@@ -941,6 +943,21 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                         shell.update(libraries);
                         if (home.kind === "home" && home.data !== undefined) home.data.libraries = libraries;
                         calendarLibrariesStale = false;
+                    }
+                    if (state.returnToEvent) {
+                        state.returnToEvent = false;
+                        // A key pressed after Today started owns focus. The
+                        // arriving week must not replace it.
+                        if (inputRevision === entryRevision) {
+                            const onShelf = data.days.some(day => day.date === active?.zone);
+                            if (!onShelf) {
+                                const today = localDateKey(new Date(clock.now()));
+                                const populated = data.days.filter(day => day.items.length > 0);
+                                const shelf = populated.find(day => day.date === today) ?? populated.find(day => day.date > today) ?? [...populated].reverse().find(day => day.date < today);
+                                const key = shelf === undefined ? undefined : calendarEventKeys(shelf.items)[0];
+                                if (shelf !== undefined && key !== undefined) return { zone: shelf.date, key };
+                            }
+                        }
                     }
                     if (active?.zone === focus?.zone && active?.key === focus?.key && oldIndex >= 0) {
                         const day = data.days.find(day => day.date === focus?.zone);
@@ -1605,10 +1622,18 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             try { prepareCalendar(current); }
             catch (error) { current.failure = error instanceof Error ? error.message : "Could not read this TV’s timezone."; render(); return; }
             const state = current.calendar;
-            if (typeof value === "string") { if (state.filter === value) return; state.filter = value; }
+            if (typeof value === "string") {
+                if (state.filter === value) return;
+                state.filter = value;
+                state.returnToEvent = false;
+                try { options.publicStorage?.setItem(CALENDAR_FILTER_KEY, value); }
+                catch { /* The session keeps the filter when storage is blocked. */ }
+            }
             else {
                 state.start = value === 0 ? calendarWeek(new Date(clock.now()))[0] : shiftDay(state.start ?? localDateKey(new Date(clock.now())), value * 7);
                 state.selectedDay = value === 0 ? localDateKey(new Date(clock.now())) : state.start;
+                // Today selects today. Focus stays on an event card once the week arrives; the day strip only shows the selection.
+                state.returnToEvent = value === 0;
             }
             state.data = undefined;
             current.failure = undefined;
@@ -1695,6 +1720,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         render();
     };
 
+    const readCalendarFilter = (): ReturnType<typeof storedCalendarFilter> => {
+        try { return storedCalendarFilter(options.publicStorage?.getItem(CALENDAR_FILTER_KEY)); }
+        catch { return "following"; }
+    };
     const home = newRoute({ kind: "home", data: undefined });
     const roots = new Map<string, Route>([["home", home]]);
     retryHomeLibraries = (): void => {
@@ -1709,7 +1738,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         let route = roots.get(key);
         if (route === undefined) {
             route = typeof target === "string"
-                ? target === "for_you" ? newRoute({ kind: "for_you", data: undefined }) : target === "calendar" ? newRoute({ kind: "calendar", calendar: calendarState() }) : newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
+                ? target === "for_you" ? newRoute({ kind: "for_you", data: undefined }) : target === "calendar" ? newRoute({ kind: "calendar", calendar: calendarState(readCalendarFilter()) }) : newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })
                 : newRoute({ kind: "library", library: target, pages: newPages() });
             roots.set(key, route);
         }

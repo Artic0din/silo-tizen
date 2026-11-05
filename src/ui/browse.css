@@ -919,7 +919,9 @@
 .calendar-day[aria-pressed="true"] .calendar-event-dot, .calendar-day:focus .calendar-event-dot { background: #000; }
 .calendar-week [data-focus="today"] { height: 64px; padding: 0 24px; font-size: 22px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18); }
 .calendar-week [data-focus="today"]:focus { background: rgba(237,237,237,.94); }
-.calendar-shelf { margin-bottom: 6px; }
+/* Compact heading-to-heading pitch measured at Apple 05753bf is 595.
+   The shelf box plus the old 6px gap measured 561, so the gap is 40. */
+.calendar-shelf { margin-bottom: 40px; }
 /* SF 36 semibold is a 42px line, so the poster starts 86px under the heading.
    Caption lines are SF 28 and 22. The shared card's bottom margin is cleared
    so the shelf ends on the caption, which is what anchor .bottom scrolls. */

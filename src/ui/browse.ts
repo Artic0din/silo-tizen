@@ -853,6 +853,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 const focus = host.focused();
                 const oldShelf = state.data?.days.find(day => day.date === focus?.zone);
                 const oldIndex = calendarEventKeys(oldShelf?.items ?? []).indexOf(focus?.key ?? "");
+                const entryRevision = inputRevision;
                 load(current, async signal => {
                     prepareCalendar(current);
                     const start = state.start, timezone = state.timezone;
@@ -887,13 +888,17 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     }
                     if (state.returnToEvent) {
                         state.returnToEvent = false;
-                        const onShelf = data.days.some(day => day.date === active?.zone);
-                        if (!onShelf) {
-                            const today = localDateKey(new Date(clock.now()));
-                            const populated = data.days.filter(day => day.items.length > 0);
-                            const shelf = populated.find(day => day.date === today) ?? populated.find(day => day.date > today) ?? [...populated].reverse().find(day => day.date < today);
-                            const key = shelf === undefined ? undefined : calendarEventKeys(shelf.items)[0];
-                            if (shelf !== undefined && key !== undefined) return { zone: shelf.date, key };
+                        // A key pressed after Today started owns focus. The
+                        // arriving week must not replace it.
+                        if (inputRevision === entryRevision) {
+                            const onShelf = data.days.some(day => day.date === active?.zone);
+                            if (!onShelf) {
+                                const today = localDateKey(new Date(clock.now()));
+                                const populated = data.days.filter(day => day.items.length > 0);
+                                const shelf = populated.find(day => day.date === today) ?? populated.find(day => day.date > today) ?? [...populated].reverse().find(day => day.date < today);
+                                const key = shelf === undefined ? undefined : calendarEventKeys(shelf.items)[0];
+                                if (shelf !== undefined && key !== undefined) return { zone: shelf.date, key };
+                            }
                         }
                     }
                     if (active?.zone === focus?.zone && active?.key === focus?.key && oldIndex >= 0) {

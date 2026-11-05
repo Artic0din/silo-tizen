@@ -69,12 +69,21 @@ export class SkylineScroll {
                 this.move(viewport, 0, Math.max(0, viewport.scrollTop + section.top - bounds.top));
                 return;
             }
-            // CalendarView.shelfGainedFocus scrolls only when the day changes.
-            // The first shelf, and later cards in the same shelf, stay put.
+            // CalendarView.shelfGainedFocus bottom-aligns only after the day
+            // changes (CalendarView.swift:400-407). The first landing has no
+            // previous day, so the focus engine reveals the card with the
+            // least scrolling. A card already on screen stays put; one below
+            // the page is revealed, then pinned so sideways moves do not scroll.
             if (shelf === this.pinnedShelf) return;
             const previous = this.pinnedShelf;
             this.pinnedShelf = shelf;
-            if (previous === null) return;
+            if (previous === null) {
+                const target = element.getBoundingClientRect();
+                if (target.top >= bounds.top && target.bottom <= bounds.bottom) return;
+                const delta = target.top < bounds.top ? target.top - bounds.top : target.bottom - bounds.bottom;
+                this.move(viewport, 0, Math.max(0, viewport.scrollTop + delta));
+                return;
+            }
             const section = shelf.getBoundingClientRect();
             // CalendarView.shelfGainedFocus scrolls the day to anchor .bottom
             // (CalendarView.swift:400-407). The id is the shelf; its 6pt

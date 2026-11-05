@@ -86,6 +86,51 @@ function calendarTest(name: string, body: (tv: Tv, catalog: FakeCalendar) => Pro
     });
 }
 
+calendarTest("Calendar loading focus stays on Apple's blank owner", async (tv) => {
+    const held = tv.fake.hold("/calendar", true);
+    await activate(tv, "calendar");
+    await tv.page.locator(".calendar-loading").waitFor();
+    await tv.page.locator(".calendar-day").first().focus();
+    await tv.page.keyboard.press("ArrowDown");
+    assert.equal(await tv.focused(), "calendar-page", "Down from the strip lands on the loading owner");
+    const loading = await tv.page.locator(".calendar-loading").evaluate(node => ({ text: node.textContent ?? "", outline: getComputedStyle(node).outlineStyle }));
+    assert.equal(loading.text, "");
+    assert.equal(loading.outline, "none");
+    held.release();
+});
+
+calendarTest("Calendar Today keeps a move made while the week is loading", async (tv) => {
+    await activate(tv, "calendar");
+    await ready(tv, 3);
+    await activate(tv, "next-week");
+    await ready(tv, 0);
+    const held = tv.fake.hold("/calendar", true);
+    await activate(tv, "today");
+    await tv.page.locator(".calendar-loading").waitFor();
+    assert.equal(await tv.focused(), "filter:following");
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), "filter:trending");
+    held.release();
+    await ready(tv, 3);
+    assert.equal(await tv.focused(), "filter:trending", "the week arriving must not pull focus back to an event");
+});
+
+calendarTest("Calendar Down reveals a populated shelf that starts below the page", async (tv, catalog) => {
+    catalog.events = [{ content_id: "movie:m0001", type: "movie", title: "Release 1", air_date: "2026-01-04", local_air_date: "2026-01-04", watched: false, badges: [], poster_url: "/art/release-1" }];
+    await activate(tv, "calendar");
+    await ready(tv, 1);
+    await tv.page.locator('[data-focus="day:2026-01-04"]').focus();
+    await tv.page.keyboard.press("ArrowDown");
+    await tv.page.clock.runFor(500);
+    const placed = await tv.page.locator('[data-section="2026-01-04"] .browse-art').first().evaluate(node => {
+        const art = node.getBoundingClientRect();
+        const port = node.closest(".skyline-content")?.getBoundingClientRect();
+        return { focus: document.activeElement?.closest(".calendar-event") === node.parentElement, artTop: art.top, artBottom: art.bottom, portTop: port?.top ?? -1, portBottom: port?.bottom ?? -1 };
+    });
+    assert.equal(placed.focus, true, "Down from the strip opens the first populated card");
+    assert.ok(placed.artTop >= placed.portTop && placed.artBottom <= placed.portBottom, `the poster stays inside the page (${JSON.stringify(placed)})`);
+});
+
 calendarTest("Calendar spatial shelf return preserves selection, row and heading", async (tv, catalog) => {
     catalog.events = catalog.events.flatMap(event => event.type === "movie" && event.content_id.startsWith("movie:m") ? [event, { ...event, local_air_date: "2025-12-30", air_date: "2025-12-30" }] : [event]);
     await activate(tv, "calendar"); await ready(tv);
@@ -139,6 +184,10 @@ calendarTest("Calendar tab, shelf column, scroll and top bar match Apple TV", as
             }
         });
     });
+    const mondayHeading = await tv.page.locator('[data-section="2025-12-29"] h2').boundingBox();
+    const tuesdayHeading = await tv.page.locator('[data-section="2025-12-30"] h2').boundingBox();
+    assert.ok(mondayHeading !== null && tuesdayHeading !== null);
+    assert.equal(Math.round(tuesdayHeading.y - mondayHeading.y), 595, "compact day headings are 595 apart, the pitch measured on Apple 05753bf");
     const poster = await tv.page.locator('[data-section="2025-12-30"] .browse-art').first().evaluate(node => node instanceof HTMLElement ? { width: node.offsetWidth, height: node.offsetHeight } : null);
     assert.deepEqual(poster, { width: 224, height: 335 }, "the measured row uses a 224×335 poster");
     await tv.page.keyboard.press("ArrowDown");

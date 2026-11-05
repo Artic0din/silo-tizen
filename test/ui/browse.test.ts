@@ -13,7 +13,7 @@ import type { Reply } from "../native/support/fakeSilo.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { CARD_OVERLAYS_KEY, CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
-import { detailReads, homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { detailReads, homeDetailsRead, launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
 const IME_DONE = 65376;
@@ -127,14 +127,19 @@ for (const multipleLibraries of [false, true]) browseTest(`section selection clo
     await tv.page.locator('.browse [data-focus="collection:highlights"]').waitFor();
     const loading = tv.fake.hold("/library/12/sections", true);
     await tv.page.locator('[data-focus="movies"]').evaluate(node => {
+        // Keep synthetic focus and input atomic while library loads settle.
         (node as HTMLElement).focus({ preventScroll: true });
         node.dispatchEvent(new KeyboardEvent("keydown", { keyCode: 40, bubbles: true, cancelable: true }));
         (document.activeElement ?? node).dispatchEvent(new KeyboardEvent("keyup", { keyCode: 40, bubbles: true, cancelable: true }));
     });
     if (multipleLibraries) {
-        await tv.page.locator('[data-focus="library:12"]').focus();
-        await tv.remote(39);
+        await tv.page.locator('[data-focus="library:12"]').evaluate(node => {
+            (node as HTMLElement).focus({ preventScroll: true });
+            node.dispatchEvent(new KeyboardEvent("keydown", { keyCode: 39, bubbles: true, cancelable: true }));
+            (document.activeElement ?? node).dispatchEvent(new KeyboardEvent("keyup", { keyCode: 39, bubbles: true, cancelable: true }));
+        });
     } else await tv.page.locator('[data-focus="section:Recommended"]').focus();
+    assert.equal(await tv.focused(), "section:Recommended");
     await tv.page.keyboard.press("Enter");
     await tv.jump(1000);
     loading.release();
@@ -2022,6 +2027,7 @@ browseTest("Collections posters retain their width and contain their text", asyn
 });
 
 browseTest("A–Z first row returns directly to nav with multiple letters", async (tv, catalog) => {
+    await pauseTvClock(tv);
     catalog.add({ id: "movie:alpha", type: "movie", title: "Alpha", libraryId: "12" });
     catalog.add({ id: "movie:zulu", type: "movie", title: "Zulu", libraryId: "12" });
     await tv.page.locator('[data-focus="movies"]').click();
@@ -3166,7 +3172,7 @@ browseTest("series open seasons, episode Select plays directly, and playback ret
     assert.equal(await tv.focused(), "series:s1");
 }, { catalog: new FakeDetails() });
 
-browseTest("episode-aware Search plays directly and preserves explicit information, query and Back focus", async (tv, catalog) => {
+browseTest("episode-aware Search opens the series and preserves explicit information, query and Back focus", async (tv, catalog) => {
     catalog.progress.set("episode:s1e12", 420);
     await tv.page.locator('[data-focus="search"]').click();
     assert.equal(browseReads(tv, "/catalog/search/capabilities").length, 0, "empty Search performs no negotiation");
@@ -3180,20 +3186,21 @@ browseTest("episode-aware Search plays directly and preserves explicit informati
     await press(tv, "ArrowRight", "ArrowLeft");
     assert.equal(browseReads(tv).length, reads, "focus never fetches");
     await press(tv, "Enter");
-    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), "direct Search episode handoff");
+    await showing(tv, "item:series:s1");
+    await shows(tv, "Harbor Lights");
+    assert.equal(await tv.focused(), "season:1");
     assert.equal(await tv.page.locator('[data-view="item:episode:s1e12"]').count(), 0);
-    assert.deepEqual((await tv.page.evaluate(() => window.browseHarness.plays))[0], {
-        contentId: "episode:s1e12", fileId: "f-episode:s1e12", title: "Harbor Lights chapter 1.2", startSeconds: 420, episode: true, subtitle: { kind: "auto" },
-    });
-    await tv.page.evaluate(() => window.browseHarness.resume());
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0);
+    assert.equal(tv.fake.requests.some(request => request.method === "POST" && request.path === "/playback/start"), false);
+    await tv.remote(BACK);
     await showing(tv, "search");
     assert.equal(await tv.focused(), "episode:s1e12");
     await tv.page.locator('[data-focus="episode:s1e12"]').click({ button: "right" });
     await tv.page.locator('[data-focus="episode-information"]').click();
     await showing(tv, "item:episode:s1e12");
     await tv.page.getByRole("button", { name: /^Resume/ }).click();
-    await tv.eventually(async () => (await tv.page.evaluate(() => window.browseHarness.plays.length)) === 2, "fresh episode Resume handoff");
-    assert.deepEqual((await tv.page.evaluate(() => window.browseHarness.plays))[1], {
+    await tv.eventually(async () => (await tv.page.evaluate(() => window.browseHarness.plays.length)) === 1, "fresh episode Resume handoff");
+    assert.deepEqual((await tv.page.evaluate(() => window.browseHarness.plays))[0], {
         contentId: "episode:s1e12", fileId: "f-episode:s1e12", title: "Harbor Lights chapter 1.2", startSeconds: 420, episode: true, subtitle: { kind: "auto" },
     });
     await tv.page.evaluate(() => window.browseHarness.resume());

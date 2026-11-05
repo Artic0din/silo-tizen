@@ -9,6 +9,28 @@ const DETAILS_UP_HEADING = 111;
 // The local section heights differ from Swift's complete centered anchors.
 const DETAILS_CENTER_HEADING = { moviePosters: 321, seriesCast: 367 };
 
+/**
+ * A Settings caption is not focusable. Extend the focused row through the
+ * following footer so the last row cannot leave that caption below the pane
+ * (measured shortfalls: Subtitles 617.5 of 732, Playback 119.5 of 194).
+ */
+function settingsRevealBottom(element: HTMLElement, rowBottom: number): number {
+    const pane = element.closest(".settings-pane");
+    if (pane === null) return rowBottom;
+    let bottom = rowBottom;
+    let node: HTMLElement | null = element;
+    while (node !== null && node !== pane) {
+        let sibling = node.nextElementSibling;
+        while (sibling instanceof HTMLElement) {
+            if (sibling.matches("[data-focus]") || sibling.querySelector("[data-focus]") !== null) return bottom;
+            bottom = Math.max(bottom, sibling.getBoundingClientRect().bottom);
+            sibling = sibling.nextElementSibling;
+        }
+        node = node.parentElement;
+    }
+    return bottom;
+}
+
 export class SkylineScroll {
     private readonly frames = new Map<HTMLElement, number>();
     /** Shelf already bottom-aligned. Horizontal moves inside it do not scroll again. */
@@ -65,8 +87,9 @@ export class SkylineScroll {
     }
 
     reveal(element: HTMLElement, container: HTMLElement, previous?: Element | null): void {
+        if (element.closest(".settings-categories") !== null) return;
         if (element.closest(".browse-nav, .skyline-selector:not(.details-audio-picker)") !== null) return;
-        const viewport = element.closest<HTMLElement>(".browse-panel-list, .details-audio-picker, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? container;
+        const viewport = element.closest<HTMLElement>(".browse-panel-list, .details-audio-picker, .settings-modal-options, .settings-pane, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? container;
         if (element.closest("[data-scroll-top]") !== null) {
             this.pinnedShelf = null;
             this.move(viewport, 0, 0);
@@ -203,7 +226,8 @@ export class SkylineScroll {
         const bottomEdge = bounds.bottom - (container.dataset.view === "search"
             ? Math.max(32, parseFloat(getComputedStyle(viewport).scrollPaddingBottom) || 0)
             : Math.max(32, parseFloat(margins.scrollMarginBottom)));
-        const delta = posterTop < topEdge ? posterTop - topEdge : rect.bottom > bottomEdge ? rect.bottom - bottomEdge : 0;
+        const revealBottom = viewport.classList.contains("settings-pane") ? settingsRevealBottom(element, rect.bottom) : rect.bottom;
+        const delta = posterTop < topEdge ? posterTop - topEdge : revealBottom > bottomEdge ? revealBottom - bottomEdge : 0;
         // Opening selectors scale their rectangles, while scrollTop stays in unscaled CSS pixels.
         const scale = bounds.height / viewport.offsetHeight;
         this.move(viewport, 0, Math.max(0, viewport.scrollTop + delta / scale));

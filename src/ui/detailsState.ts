@@ -9,6 +9,7 @@ import { playChoices, type PlayRequest } from "./browseModel.ts";
 import type { Clock } from "../api/clock.ts";
 import type { NativeSession } from "../session/session.ts";
 import { readSettingsCapability, readTitleArt } from "./presentationSettings.ts";
+import { ADVISORY_KEY } from "../contracts/v2/settingsRows.ts";
 import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
 import { SeriesEpisodes } from "./seriesEpisodes.ts";
 import { freshPlayPosition } from "./playbackPreparation.ts";
@@ -27,6 +28,7 @@ export interface PersonalChange {
 const EPISODE_PREFETCH_CONCURRENCY = 4;
 
 export class DetailsState {
+    showAdvisoryAge = false;
     readonly descriptions: ItemDescriptionTranslation | undefined;
     readonly audioPreference: PreplayAudioPreference;
     readonly subtitlePreference: PreplayTrackPreference<SubtitlePreferencePick, SubtitlePreference>;
@@ -155,6 +157,14 @@ export class DetailsState {
         if (mode === "full") this.series?.start();
         if (mode === "full") this.warmSeriesEpisodes();
         if (mode === "full") this.loadTitleArt();
+        if (mode === "full") {
+            const controller = this.controller;
+            void this.read(operations.effectiveSettings([ADVISORY_KEY]), controller).then(values => {
+                if (!this.current(controller)) return;
+                this.showAdvisoryAge = values.get(ADVISORY_KEY)?.value === true;
+                this.changed();
+            }, () => { /* Missing advisory preferences keep the optional badge hidden. */ });
+        }
         if (mode === "full" && this.detail.type === "series") {
             const controller = this.controller;
             void this.read(operations.shuffleCapabilities(), controller).then(capability => {

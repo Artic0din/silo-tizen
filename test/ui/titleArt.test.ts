@@ -60,7 +60,8 @@ test("returning from General rechecks Details and retains text after this-TV fal
         await tv.remote(10009);
         await settingsScreen(tv);
         await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).click();
-        await tv.page.getByText("Off · This TV", { exact: true }).waitFor();
+        await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).getAttribute("aria-checked") === "false", "title art confirmed off");
+        assert.equal(await tv.page.getByRole("switch", { name: "Apply to All Devices", exact: true }).getAttribute("aria-checked"), "false");
         await tv.remote(10009); await tv.remote(10009);
         let logos = 0;
         tv.page.on("request", r => { if (new URL(r.url()).pathname.endsWith("last-signal-logo.svg")) logos++; });
@@ -145,23 +146,29 @@ test("General switches show source/scope, serialize edits and keep focus without
     const { tv, settings } = await setup();
     try {
         await settingsScreen(tv);
-        await tv.page.getByText("On · Inherited default", { exact: true }).waitFor();
+        assert.equal(await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).getAttribute("aria-checked"), "true");
+        assert.equal(settings.profile().has(TITLE), false);
         assert.equal(await tv.page.getByText("Profile defaults", { exact: true }).count(), 0);
         const count = tv.fake.requests.length;
         await tv.page.keyboard.press("ArrowRight");
+        assert.equal(await tv.focused(), "remember-profile");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "title-art");
         await tv.page.keyboard.press("ArrowDown");
         assert.equal(await tv.focused(), "title-art-all");
         assert.equal(tv.fake.requests.length, count);
         await tv.page.keyboard.press("Enter");
-        await tv.page.getByText("On · All devices", { exact: true }).waitFor();
+        await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Apply to All Devices", exact: true }).getAttribute("aria-checked") === "true", "confirmed profile scope");
+        assert.equal(settings.profile().get(TITLE), true);
         assert.equal(await tv.focused(), "title-art-all");
         await tv.page.keyboard.press("ArrowUp");
         await tv.page.keyboard.press("Enter");
-        await tv.page.getByText("Off · All devices", { exact: true }).waitFor();
+        await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).getAttribute("aria-checked") === "false", "confirmed title art off");
         assert.equal(settings.profile().get(TITLE), false);
         await tv.page.keyboard.press("ArrowDown");
         await tv.page.keyboard.press("Enter");
-        await tv.page.getByText("Off · This TV", { exact: true }).waitFor();
+        await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Apply to All Devices", exact: true }).getAttribute("aria-checked") === "false", "confirmed device scope");
+        assert.equal(await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).getAttribute("aria-checked"), "false");
         assert.equal(await tv.focused(), "title-art-all");
         assert.equal(settings.profile().has(TITLE), false);
         assert.deepEqual(tv.fake.requests.filter(r => r.method === "PUT" || r.method === "DELETE").map(r => [r.method, r.path]), [
@@ -217,7 +224,8 @@ for (const conflict of ["profile", "device"] as const) test(`Settings recovers a
         await tv.page.keyboard.press("Enter");
         await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).waitFor();
         await tv.eventually(async () => await tv.page.getByRole("alert").count() === 0, "conflict reload");
-        await tv.page.getByText(`${conflict === "device" ? "On" : "Off"} · All devices`, { exact: true }).waitFor();
+        assert.equal(await tv.page.getByRole("switch", { name: "Apply to All Devices", exact: true }).getAttribute("aria-checked"), "true");
+        assert.equal(await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).getAttribute("aria-checked"), String(conflict === "device"));
         assert.equal(settings.profile().get(TITLE), conflict === "device");
         assert.equal(tv.fake.requests.filter(r => r.method === "PUT").length, 1);
         assert.equal(tv.fake.requests.filter(r => r.method === "DELETE").length, conflict === "profile" ? 0 : 1);

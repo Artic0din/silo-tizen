@@ -1844,6 +1844,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (current !== undefined) showRoute(current, tabFocus(current));
             }, server.profileLaunch, {
                 profileName: options.profileName ?? "Profiles",
+                profileAvatarUrl: options.profileAvatarUrl,
                 accountName: session.account?.username,
                 switchProfile: chooseProfile,
                 serverName: cachedBranding(options.publicStorage, context.baseUrl)?.serverName,

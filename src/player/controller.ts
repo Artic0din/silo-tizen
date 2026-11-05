@@ -1298,10 +1298,12 @@ export class PlaybackController implements PlayerControls {
     private restoreReportedSubtitle(attempt: Attempt): void {
         const restore = attempt.subtitleRestore;
         attempt.reporting = false;
-        attempt.pendingSubtitle = undefined;
         attempt.subtitleRestore = undefined;
         attempt.subtitleOverride = restore;
-        if (restore !== undefined) this.applyStreamSubtitle(attempt, restore.id);
+        if (restore !== undefined && !this.applyStreamSubtitle(attempt, restore.id) && attempt.plan?.subtitle.artifact !== undefined) {
+            try { this.deps.avplay.setSilentSubtitle?.(true); } catch { /* Sidecar captions remain independent of native rendering. */ }
+            this.readCaptions(attempt, attempt.plan);
+        }
     }
 
     /**
@@ -1316,6 +1318,10 @@ export class PlaybackController implements PlayerControls {
             if (!renditionSwitch(plan, undefined)) return false;
             try {
                 avplay.setSilentSubtitle(true);
+                attempt.captionAbort?.abort();
+                attempt.captionKey = undefined;
+                attempt.cues = [];
+                attempt.captionNotice = "";
                 return true;
             } catch {
                 return false;
@@ -1385,6 +1391,10 @@ export class PlaybackController implements PlayerControls {
         attempt.changeFailure = undefined;
         if (failure !== undefined) {
             this.routeFailed(attempt, failure);
+        } else if (attempt.pendingSubtitle !== undefined) {
+            const pending = attempt.pendingSubtitle;
+            attempt.pendingSubtitle = undefined;
+            this.selectSubtitle(pending.id);
         }
     }
 
@@ -1954,7 +1964,7 @@ export class PlaybackController implements PlayerControls {
                 try {
                     const values = await this.deps.session.call({ ...operations.effectiveSettings([AUTO_NEXT_KEY]), profileScoped: true, signal: abort.signal });
                     attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
-                } catch { attempt.autoNext = false; }
+                } catch { if (current()) attempt.autoNext = false; }
                 if (!current()) return;
             }
             if (attempt.request.shuffleId !== undefined) {
@@ -2507,6 +2517,7 @@ export class PlaybackController implements PlayerControls {
                 attempt.presented = true;
                 attempt.resuming = false;
                 if (attempt.recovery?.active === true) attempt.recovery.recovered(this.deps.clock.now());
+                if (attempt.plan !== undefined && !this.alignOpenStream(attempt, attempt.plan)) return;
                 this.showPlayback(attempt);
             } catch {
                 this.recoverConnection(attempt);
@@ -2780,7 +2791,7 @@ export class PlaybackController implements PlayerControls {
                 try {
                     const values = await read(operations.effectiveSettings([AUTO_NEXT_KEY]));
                     if (current()) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
-                } catch { attempt.autoNext = false; }
+                } catch { if (current()) attempt.autoNext = false; }
             }
             const fileId = attempt.plan?.effectiveMediaFileId;
             const next = attempt.request.episode === true && fileId !== undefined ? await nextEpisode(read, attempt.request.contentId, fileId) : undefined;
@@ -2805,7 +2816,10 @@ export class PlaybackController implements PlayerControls {
             publish(await onDeckPlays(read, attempt.request.contentId, publish));
         } catch {
             // Playback continues; EOF retains the existing explicit Retry path.
-        } finally { attempt.promptPending = false; }
+        } finally {
+            attempt.promptPending = false;
+            if (!current()) attempt.promptLookedUp = false;
+        }
     }
 
     private setDisplayRect(attempt: Attempt): void {
@@ -2938,6 +2952,9 @@ function inStreamCandidate(plan: PlaybackPlan, row: SubtitleTrack): boolean {
 
 function textTrackIndex(tracks: readonly AVPlayTrackInfo[], row: SubtitleTrack, languageOnly: boolean): number | undefined {
     const text = tracks.filter((track) => track.type === "TEXT");
+    const ordinal = row.hlsRendition?.index;
+    const published = ordinal === undefined ? undefined : text[ordinal - 1];
+    if (!languageOnly && published !== undefined) return published.index;
     const language = row.language?.toLowerCase();
     if (language !== undefined && language !== "") {
         const matches = text.filter((track) => trackLanguage(track) === language);
@@ -2945,7 +2962,6 @@ function textTrackIndex(tracks: readonly AVPlayTrackInfo[], row: SubtitleTrack, 
         if (match !== undefined) return match.index;
     }
     if (languageOnly) return undefined;
-    const ordinal = row.hlsRendition?.index;
     return ordinal === undefined ? undefined : text[ordinal - 1]?.index;
 }
 

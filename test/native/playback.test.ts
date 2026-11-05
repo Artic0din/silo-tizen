@@ -1392,6 +1392,46 @@ test("a delayed prompt cannot appear after seeking out of its window, and an ope
     r.controller.destroy();
 });
 
+test("prompt discovery discarded during a local seek retries after the seek settles", async () => {
+    const r = await autoplayRig(false);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing" && view.durationSeconds !== undefined);
+    const hold = r.h.fake.hold("/watch/" + encodeURIComponent(EPISODE.contentId));
+    r.avplay.tick((view.durationSeconds - 25) * 1000);
+    await r.h.clock.advance(0);
+    r.controller.seekToSeconds(view.durationSeconds - 15);
+    hold.release();
+    await r.h.clock.advance(0);
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    r.avplay.tick((view.durationSeconds - 14) * 1000);
+    await r.h.clock.advance(0);
+    assert.ok("upNext" in last(r.views));
+    r.controller.destroy();
+});
+
+test("stale prompt preference failure cannot override the EOF preference read", async () => {
+    const r = await autoplayRig(true);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing" && view.durationSeconds !== undefined);
+    const path = "/settings/values/effective?keys=playback.auto_play_next";
+    const hold = r.h.fake.hold(path);
+    r.h.fake.script(path, problem(400, "invalid_request", "Unavailable"));
+    r.avplay.tick((view.durationSeconds - 25) * 1000);
+    await r.h.clock.advance(0);
+    const discovery = r.h.fake.hold("/watch/" + encodeURIComponent(EPISODE.contentId));
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    hold.release();
+    await r.h.clock.advance(0);
+    discovery.release();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).countdown, 10);
+    r.controller.destroy();
+});
+
 test("transport recovery retains the Up Next preview rectangle", async () => {
     const r = await autoplayRig(false);
     await playMovie(r, EPISODE);
@@ -1569,6 +1609,8 @@ test("autoplay cancellation, disabled preference, suspension and authority chang
 test("an exhausted series offers the first On Deck title and does not count down into it", async () => {
     const r = await autoplayRig(true);
     for (const id of ["episode:s1e13", "episode:s1e21", "episode:s1e22", "episode:s1e23"]) r.catalog.removed.add(id);
+    r.catalog.progress.set("movie:m0001", 600);
+    r.catalog.playbackWatched.add("movie:m0001");
     await playMovie(r, EPISODE);
     r.avplay.listener?.onstreamcompleted();
     await r.h.clock.advance(15000);
@@ -1577,6 +1619,7 @@ test("an exhausted series offers the first On Deck title and does not count down
     assert.equal(done.next?.contentId, "movie:m0001");
     assert.equal(done.next?.fileId, "f-movie:m0001");
     assert.equal(done.next?.episode, undefined);
+    assert.equal(done.next?.startSeconds, 0);
     assert.equal(done.countdown, undefined);
     assert.equal(bodies(r.h, "/start").length, 1, "On Deck waits for Play next");
     r.controller.playNext();

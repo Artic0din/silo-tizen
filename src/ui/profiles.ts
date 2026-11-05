@@ -409,7 +409,8 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
     return {
         signOut,
         switchProfile() {
-            if (!destroyed && host === undefined) {
+            if (!destroyed && (host === undefined || session.activeProfile === undefined)) {
+                if (session.activeProfile === undefined) current = undefined;
                 showList(current?.id);
             }
         },

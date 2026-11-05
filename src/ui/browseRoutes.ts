@@ -9,8 +9,8 @@ import type { Person } from "../contracts/v2/details.ts";
 import type { DetailsState } from "./detailsState.ts";
 import { SessionError } from "../session/session.ts";
 import type { FocusTarget, View } from "./browseFocus.ts";
-import { itemView, seasonView, type Synopsis } from "./browseDetails.ts";
-import type { EpisodeSelection, PlayRequest, SeriesContext } from "./browseModel.ts";
+import { itemView, seasonView } from "./browseDetails.ts";
+import { browseCardDestination, type EpisodeSelection, type PlayRequest, type SeriesContext } from "./browseModel.ts";
 import type { CalendarState } from "./calendarState.ts";
 import { calendarView, type CalendarHandlers } from "./calendarView.ts";
 import { actionButton, homeView, lines, pagedGrid, type SearchResults, searchView, statusView, type ViewContext, zoneNode } from "./browseViews.ts";
@@ -109,7 +109,6 @@ export interface RouteHandlers {
     readonly personalFilter: (route: Extract<Route, { kind: "personal" }>, filter: PersonalFilter) => void;
     readonly morePersonal: (route: Extract<Route, { kind: "personal" }>) => void;
     readonly signIn: (() => void) | undefined;
-    readonly synopsis: Synopsis;
     readonly context: ViewContext;
     readonly focusDefault: () => void;
     /** A read is in flight. */
@@ -189,7 +188,7 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
                 const episodeId = current.seriesContext?.episodeId;
                 const view = itemView(current.data.details?.detail ?? current.data.detail, current.data.seasons, {
                     ...context, open: destination => context.open(destination.kind === "season" && episodeId !== undefined ? { ...destination, episodeId } : destination),
-                }, handlers.play, pop, handlers.synopsis, current.data.details, current.data.boxSet);
+                }, handlers.play, pop, current.data.details, current.data.boxSet);
                 return withNote(view, current.failure);
             }
             break;
@@ -204,7 +203,7 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
             break;
         case "season":
             if (current.data !== undefined) {
-                return withNote(seasonView(`season:${current.seriesId}:${current.seasonNumber}`, current.title, current.data.episodes, context, pop, handlers.play, handlers.synopsis, current.data.details?.detail ?? current.data.detail, current.data.details), current.failure);
+                return withNote(seasonView(`season:${current.seriesId}:${current.seasonNumber}`, current.title, current.data.episodes, context, pop, handlers.play, current.data.details?.detail ?? current.data.detail, current.data.details), current.failure);
             }
     }
     // Other routes keep the slow note. Home returned above: an empty page labelled "Loading home".
@@ -245,9 +244,12 @@ function grid(current: Route, pages: Pages, page: CatalogPage, handlers: RouteHa
     );
 }
 
-/** Search posters are 220pt (`SearchView` `cardWidth`) and carry overlay data, as `TVCatalogGrid` does. */
+/**
+ * Search posters are 220pt (`SearchView` `cardWidth`) and carry overlay data, as `TVCatalogGrid` does.
+ * Select opens the card's detail route. It does not use the shared episode play shortcut.
+ */
 function searchCards(context: ViewContext): ViewContext {
-    return { ...context, overlays: context.cardOverlays?.(), posterWidth: 220 * (context.posterScale?.() ?? 1) };
+    return { ...context, overlays: context.cardOverlays?.(), posterWidth: 220 * (context.posterScale?.() ?? 1), cardDestination: browseCardDestination };
 }
 
 function searchResults(current: Extract<Route, { kind: "search" }>, handlers: RouteHandlers): SearchResults {

@@ -12,9 +12,7 @@ import { actionButton, artwork, cardItem, heading, lines, mediaItem, type ViewCo
 import { boxSetMovieRow, type BoxSetRowState } from "./boxSetRow.ts";
 import { personMetadataBadges, personPortrait } from "./personHero.ts";
 import { el } from "./screen.ts";
-import { SkylineScroll } from "./skylineScroll.ts";
-import { remoteKey } from "./keys.ts";
-import { detailAction, detailPanel, ratingControls } from "./detailsActions.ts";
+import { detailAction, detailPanel } from "./detailsActions.ts";
 import { initialSubtitle, matchesSubtitle } from "../player/preplaySubtitles.ts";
 import type { SubtitleSignature } from "../contracts/v2/preplaySubtitles.ts";
 import { seriesEpisodesView } from "./seriesEpisodesView.ts";
@@ -24,68 +22,6 @@ import { episodeAirDate, episodeRuntime } from "./episodeCaption.ts";
 import { TMDB_LOGO_PATH } from "./acknowledgements.ts";
 
 const detailPalette = new Map<string, Tints>();
-
-/** Browse owns the dialog across optional-data renders and stops it on route teardown. */
-export class Synopsis {
-    private panel: HTMLElement | undefined;
-    private covered: { element: HTMLElement; inert: boolean; hidden: string | null }[] = [];
-    private readonly scroll = new SkylineScroll();
-    private readonly container: HTMLElement;
-    private readonly closed: () => void;
-
-    constructor(container: HTMLElement, closed: () => void) {
-        this.container = container;
-        this.closed = closed;
-    }
-
-    get active(): boolean { return this.panel !== undefined; }
-
-    destroy(): void {
-        this.scroll.stop();
-        this.panel?.remove();
-        this.panel = undefined;
-        for (const { element, inert, hidden } of this.covered) {
-            element.inert = inert;
-            if (hidden === null) element.removeAttribute("aria-hidden"); else element.setAttribute("aria-hidden", hidden);
-        }
-        this.covered = [];
-    }
-
-    show(text: string): void {
-        this.destroy();
-        this.covered = Array.from(this.container.children).filter((node): node is HTMLElement => node instanceof HTMLElement).map(element => ({ element, inert: element.inert, hidden: element.getAttribute("aria-hidden") }));
-        for (const { element } of this.covered) { element.inert = true; element.setAttribute("aria-hidden", "true"); }
-        const panel = el("div", "skyline-synopsis-dialog");
-        this.panel = panel;
-        panel.tabIndex = 0;
-        panel.setAttribute("role", "dialog");
-        panel.setAttribute("aria-modal", "true");
-        panel.setAttribute("aria-label", "Synopsis");
-        panel.appendChild(el("p", "browse-text", text));
-        const close = (): void => {
-            this.destroy();
-            this.closed();
-        };
-        const closeButton = actionButton("close-synopsis", "Close synopsis", close);
-        panel.prepend(closeButton.element);
-        panel.addEventListener("keydown", (event) => {
-            event.stopPropagation();
-            const key = remoteKey(event);
-            if (key === "down" || key === "up") {
-                event.preventDefault();
-                this.scroll.move(panel, 0, Math.max(0, Math.min(panel.scrollHeight - panel.clientHeight, panel.scrollTop + (key === "down" ? 240 : -240))));
-            } else if (key === "back" || key === "enter") {
-                event.preventDefault();
-                close();
-            } else if (event.key === "Tab") {
-                event.preventDefault();
-                closeButton.element.focus({ preventScroll: true });
-            }
-        });
-        this.container.appendChild(panel);
-        panel.focus({ preventScroll: true });
-    }
-}
 
 function metaLine(detail: ItemDetail, state?: DetailsState): string {
     const parts: string[] = [];
@@ -141,6 +77,7 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
         image.src = logo;
     }
     nodes.push(title);
+    if (state?.showAdvisoryAge && detail.advisoryAge !== undefined) nodes.push(el("p", "browse-meta", `Advisory Age ${detail.advisoryAge}+`));
     const episode = state?.series?.episodes?.find(episode => episode.id === state.focusedEpisodeId);
     const playback = state?.nextEpisodeState;
     const selectedFile = playback?.detail.versions.find(file => file.fileId === playChoices(playback.detail, playback.selectedFileId)?.fromStart.fileId);
@@ -206,7 +143,7 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     return [wash, layout];
 }
 
-export function itemView(detail: ItemDetail, seasons: readonly Season[], context: ViewContext, play: (request: PlayRequest) => void, back: () => void, synopsis: Synopsis, state?: DetailsState, boxSet?: BoxSetRowState): View {
+export function itemView(detail: ItemDetail, seasons: readonly Season[], context: ViewContext, play: (request: PlayRequest) => void, back: () => void, state?: DetailsState, boxSet?: BoxSetRowState): View {
     detail = state === undefined ? detail : { ...detail, versions: state.detail.versions };
     const tracks = state?.nextEpisodeState ?? state;
     const playbackDetail = tracks?.detail ?? detail;
@@ -334,7 +271,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         const more = actionButton("more", "More", () => state.showPanel("more"));
         more.element.setAttribute("aria-haspopup", "dialog");
         actions.push(more);
-    } else if (overview) actions.push(actionButton("synopsis", "Read synopsis", () => synopsis.show(overview)));
+    }
     const ordinal = audio.findIndex((_track, index) => selectedAudio === `file:${file?.fileId}:audio:${index}`);
     const resolvedAudio = audio[effectiveAudio] === undefined ? audio.length ? audioLabel(0) : "Unknown" : audioLabel(effectiveAudio);
     const versionLabel = file?.label?.match(/\b(?:\d{3,4}p|4K|8K)\b/i)?.[0] ?? file?.label ?? "Auto";
@@ -476,18 +413,44 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         return detailPanel(view, state, "Subtitles", options);
     }
     if (state?.panel === "more") {
+        const menuNotes = [...personal?.notes ?? []];
         const items = personal?.items.filter(item => item.key !== "watchlist") ?? [];
-        if (detail.type === "series") items.unshift(actionButton("series-overview", "Show Series Info", () => state.showSeriesOverview()));
-        const season = seasons.find(season => season.seasonNumber === state.series?.seasonNumber);
-        if (season !== undefined) items.push(actionButton("season-info", `${season.title} details`, () => context.open({ kind: "season", id: season.id, seriesId: detail.id, seasonNumber: season.seasonNumber, title: `${detail.title} · ${season.title}` })));
-        if (overview) items.push(actionButton("synopsis", "Read synopsis", () => synopsis.show(overview)));
+        items.sort((a, b) => Number(b.key === "favorites") - Number(a.key === "favorites"));
+        for (const item of items) {
+            const value = state.values.get(item.key as "favorites" | "watched");
+            const change = state.changes.get(item.key as "favorites" | "watched");
+            if (value !== undefined && !change?.pending && !change?.failed) {
+                item.element.textContent = item.key === "favorites" ? value ? "Remove from Favorites" : "Add to Favorites"
+                    : detail.type === "series" ? value ? "Mark Series Unwatched" : "Mark Series Watched"
+                    : detail.type === "season" ? value ? "Mark Season Unwatched" : "Mark Season Watched"
+                    : value ? "Mark as Unwatched" : "Mark as Watched";
+            }
+            item.element.addEventListener("click", () => { if (!state.busy) state.closePanel(); }, { capture: true });
+        }
+        const seasonState = state.series?.seasonNumber === undefined ? undefined : state.seasonStates.get(state.series.seasonNumber);
+        if (seasonState !== undefined) {
+            const value = seasonState.values.get("watched");
+            const change = seasonState.changes.get("watched");
+            if (value !== undefined) {
+                const item = actionButton("season-watched", change?.pending ? "Updating season…" : change?.failed ? "Retry season watched" : value ? "Mark Season Unwatched" : "Mark Season Watched", () => {
+                    if (state.busy) return;
+                    state.closePanel();
+                    seasonState.change("watched", change?.failed ? change.target : !value, change?.failed);
+                });
+                item.element.setAttribute("aria-disabled", String(state.busy));
+                items.push(item);
+                if (change?.failed) menuNotes.push(...lines(["Could not update season watched."], "error"));
+            }
+        }
+        if (detail.type === "series" && state.focusedEpisodeId !== undefined) items.unshift(actionButton("series-overview", "Show Series Info", () => state.showSeriesOverview()));
+        if (detail.type === "series" && state.shuffleSupported && seasons.reduce((count, season) => count + season.episodeCount, 0) >= 2) {
+            const shuffle = actionButton("shuffle-series", state.shuffleStarting ? "Starting shuffle…" : "Shuffle Series", () => state.startShuffle(play));
+            shuffle.element.setAttribute("aria-disabled", String(state.shuffleStarting));
+            items.unshift(shuffle);
+            if (state.shuffleFailed) menuNotes.push(...lines(["Couldn't start the shuffle. Try again."], "error"));
+        }
         if (state.descriptions?.offers() === true) items.push(actionButton("translate-description", TRANSLATE_DESCRIPTION_LABEL, () => { state.descriptions?.translate(); state.closePanel(); }));
-        if (["movie", "series"].includes(detail.type)) items.push(actionButton("rate", "Rate title", () => state.showPanel("rating")));
-        return detailPanel(view, state, "More", items.length ? items : [actionButton("close-more", "Close", () => state.closePanel())], personal?.notes);
-    }
-    if (state?.panel === "rating") {
-        const rating = ratingControls(state);
-        return detailPanel(view, state, "Rate title", rating.items, [rating.note]);
+        return detailPanel(view, state, "More", items.length ? items : [actionButton("close-more", "Close", () => state.closePanel())], menuNotes);
     }
     return view;
 }
@@ -635,7 +598,7 @@ function seasonItem(seriesId: string, seriesTitle: string, season: Season, conte
     return mediaItem({ key, element }, { id: season.id, title: season.title, type: "season" }, context);
 }
 
-export function seasonView(name: string, title: string, episodes: readonly Episode[], context: ViewContext, back: () => void, play: (request: PlayRequest) => void, synopsis: Synopsis, detail?: ItemDetail, state?: DetailsState): View {
+export function seasonView(name: string, title: string, episodes: readonly Episode[], context: ViewContext, back: () => void, play: (request: PlayRequest) => void, detail?: ItemDetail, state?: DetailsState): View {
     const items = episodes.map((episode): FocusItem => {
         const element = el("button", "browse-episode");
         element.type = "button";
@@ -654,7 +617,7 @@ export function seasonView(name: string, title: string, episodes: readonly Episo
         element.addEventListener("click", () => context.playEpisode === undefined ? context.open({ kind: "item", id: episode.id, title: episode.title }) : context.playEpisode(episode.id, episode.title));
         return mediaItem({ key: episode.id, element }, { id: episode.id, title: episode.title, type: "episode" }, context);
     });
-    const header = detail === undefined ? undefined : itemView(detail, [], context, play, back, synopsis, state);
+    const header = detail === undefined ? undefined : itemView(detail, [], context, play, back, state);
     const heroEnd = (header?.content.findIndex(node => node.classList.contains("details-hero")) ?? -1) + 1;
     const content = [...(header?.content.slice(0, heroEnd) ?? [heading(title)]), ...(items.length === 0 ? lines(["This season has no episodes yet."]) : []), zoneNode("browse-episodes", items), ...header?.content.slice(heroEnd) ?? []];
     const fallback = items.length === 0 ? [actionButton("back", "Back", back)] : [];

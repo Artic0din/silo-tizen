@@ -35,7 +35,7 @@ Start with the root [README](../README.md) for build, signing and release, [FEAT
 - [Skyline browse shell](features/skyline-browse-shell.md) - navigation bar, Home, sections and preplay
 - [Library discovery](features/library-discovery.md)
 - [Title art](features/title-art.md)
-- [Ratings](features/ratings.md)
+- [Details actions](features/details-actions.md)
 - [Personal lists](features/personal-lists.md)
 - [Person hero](features/person-hero.md) and [filmography](features/person-filmography.md)
 - [Profile launch](features/profile-launch.md)

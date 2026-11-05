@@ -87,6 +87,8 @@ Focus is always restored by zone id plus item key, never by list position.
 - `FocusHost` keeps a per-view "visit" snapshot: remembered item per zone, last zone, vertical scroll and each shelf's horizontal scroll.
   `show` saves it for the view being left and applies it when the view is entered again.
   Library views key their visit by library, type and mode (`visitKey`).
+  Details routes supply a distinct `View.visitKey` per presentation, retained through loading and repainting and when returning from children.
+  Two presentations of the same title therefore retain independent focus and scroll.
 - `holdVisit()` saves the visit before chrome is hidden for Settings or playback, because hiding chrome can resize and clamp the viewport.
 - `focusDefault()` is for deliberate entry into content (for example leaving the nav bar).
   For `library:<id>` views it prefers the last non-chrome zone of the saved visit; every other view goes straight to `view.focus`.
@@ -123,7 +125,6 @@ They intercept it first, in an earlier phase of the DOM event path.
 | 3 | Card actions (`cardActions.ts`) | `document`, capture | Registered when its menu opens. Handles remote keys and Tab, then `stopImmediatePropagation`. |
 | 4 | `Skyline.onKey` | container, capture | Menus, dwell panels, Down into a panel, Back inside the shell. |
 | 4 | Settings (`settings.ts`) | container, capture | Left to the categories and the credits scroll. |
-| 5 | Synopsis dialog (`browseDetails.ts`) | its own element | `stopPropagation`, so the page's bubble listeners never see the key. |
 | 6 | `FocusHost.onKey`, `ScreenHost.onKey`, player `onKey` | `document`, bubble | Ordinary movement. `FocusHost` returns at once if `event.defaultPrevented`. |
 | 7 | App `onBack` (`src/app.ts`) | `window`, bubble | Opens the Exit dialog on an unhandled Back. |
 
@@ -135,7 +136,7 @@ When you add a modal:
 - Trap focus inside it.
 - Restore the previous element on close, as `exitDialog.ts` does with `previous`.
 - Make the page behind it `inert` and `aria-hidden`, or give the host a zones list that only contains the modal (as the Sign Out confirmation does).
-- Skip browse re-renders while it is open (`render` in `browse.ts` returns early when `synopsis.active` or `cardActions.active`).
+- Skip browse re-renders while it is open (`render` in `browse.ts` returns early when `cardActions.active`).
 
 ## Back Handling
 

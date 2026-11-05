@@ -20,6 +20,7 @@ export interface StoredCredential {
     readonly serverId: string;
     readonly accountId: string;
     readonly username: string;
+    readonly role?: string;
     readonly accessToken: string;
     readonly refreshToken: string;
     /** Local clock, epoch ms. */
@@ -79,6 +80,7 @@ function decodeRecord(raw: string): DecodedRecord {
             serverId: nonEmptyString(obj, "serverId", path),
             accountId: nonEmptyString(obj, "accountId", path),
             username: string(obj, "username", path),
+            ...(obj.role === undefined ? {} : { role: string(obj, "role", path) }),
             accessToken: nonEmptyString(obj, "accessToken", path),
             refreshToken: nonEmptyString(obj, "refreshToken", path),
             accessExpiresAt: integer(obj, "accessExpiresAt", path),

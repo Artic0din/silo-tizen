@@ -2,11 +2,11 @@
 
 `SOURCE` holds the exact `silo-server` commit these files come from.
 `fixtures/` holds the response bodies this client consumes, copied unchanged from
-`contracts/api/v2/fixtures/` at that commit, except `settings_contract_ok.json`,
-which contains the selected Settings manifest subset consumed by this client.
+`contracts/api/v2/fixtures/` at that commit, except `settings_contract_ok.json` and `settings_rows_216.json`,
+which contain the selected Settings manifest subsets consumed by this client.
 That documented exception selects seven definitions unchanged from `contracts/settings/v1/manifest.json` at `SOURCE` (v1, revision 24): `ui.disabled_library_ids`, `playback.audio_language`, `playback.preferred_quality`, `playback.max_bitrate_kbps`, `player.video_skip_back_seconds`, `player.video_skip_forward_seconds` and `ui.title_art`, plus the unchanged `playback_audio_languages` option set.
 The source manifest SHA-256 is `95b716c8b34974e4b97ee96f5c644135c437e09f4a6f2285fb263e3351e6c6ea`.
-`scripts/sync-apiv2-fixtures.sh <server-ref>`, with `SILO_SERVER_REPO` set to a silo-server checkout, re-vendors both from `git show <commit>:<path>` and rewrites `SOURCE`; the Settings subset is written in manifest order.
+`scripts/sync-apiv2-fixtures.sh <server-ref>`, with `SILO_SERVER_REPO` set to a silo-server checkout, re-vendors the fixtures and both Settings subsets from `git show <commit>:<path>` and rewrites `SOURCE`; the Settings subsets are written in manifest order.
 The script prints the manifest revision and SHA-256 so the lines above can be updated; `scripts/sync-apiv2-fixtures.test.sh` covers it.
 `wire.ts` decodes only the members the client reads; unknown members are ignored and unknown
 response enum values decode to `"unknown"`, so additive server changes keep working.
@@ -41,7 +41,13 @@ Server day groups, event order, release metadata and all returned events are ret
 | `settingsValues`, `effectiveSettings` | read (`profile_scoped`) | One transport retry; read explicit profile rows separately from effective settings; title art also reads this profile-device row |
 | `putSetting`, `deleteSetting` | `non_retryable` (`profile_scoped`) | Never resent automatically; profile scope by default (including explicit null for nullable keys); title art uses its selected profile/device scope and confirms both scopes and effective readback |
 
-Title art is the only newly adopted advisory-platform definition, alongside the existing two seek exceptions.
+Settings also adopts the TV-capable poster, advisory-age, metadata-language, intro/credits and subtitle-appearance definitions from the manifest at `SOURCE`.
+Poster writes use `profile_client` with client family `tv`, and can clear older device overrides to restore synced TV settings.
+Playback choices use this TV's profile-device scope, while subtitle language, behavior and forced-subtitle editors read and write the profile row independently of narrower effective overrides.
+Subtitle appearance can edit either the profile document or an explicit device document; the player consumes the same canonical appearance key through its effective endpoint.
+The generated fixture `settings_rows_216.json` contains these eight consumed upstream definitions and the `catalog_metadata_languages` option set, selected by `SETTINGS_ROWS_KEYS` and `SETTINGS_ROWS_OPTION_SETS` in the refresh script.
+
+Title art retains its existing contract checks, alongside the two seek exceptions.
 It requires settings API v1, numeric manifest revision 16 or later, the compatible remote boolean definition and both `profile` and `profile_device` scopes.
 Opaque capability `revision` remains opaque.
 The decoder checks title-art JSON booleans, explicit and effective identities, discovered collection revisions and advancing PUT row revisions.

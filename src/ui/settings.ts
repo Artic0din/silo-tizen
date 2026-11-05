@@ -55,8 +55,9 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         launch.setRemember(remember, launchController.signal).then(() => {
             if (torn) return;
             launchPending = false;
+            const focus = choosingLaunch ? { zone: "settings-rows", key: "remember-profile" } : undefined;
             choosingLaunch = false;
-            render({ zone: "settings-rows", key: "remember-profile" });
+            render(focus);
         }, () => {
             if (torn) return;
             launchPending = false;
@@ -129,6 +130,10 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         return item;
     };
     const subtitleEntry = (): Picker | "subtitle-forced" => state.definitions.some(def => def.key === SUBTITLE_LANGUAGE_KEY) ? "subtitle-language" : state.definitions.some(def => def.key === SUBTITLE_MODE_KEY) ? "subtitle-mode" : "subtitle-forced";
+    const subtitleProfileValue = (key: SettingsKey): SettingValue => {
+        const stored = state.explicit.get(key);
+        return stored?.isSet ? stored.value : key === SUBTITLE_MODE_KEY ? "auto" : key === SHOW_FORCED_KEY ? true : null;
+    };
     const subtitlePicker = (id: "subtitle-language" | "subtitle-mode", value: SettingValue): FocusItem => {
         const text = id === "subtitle-language" ? (typeof value === "string" ? value : "None") : value === "always" ? "Always" : value === "off" ? "Off" : "Auto";
         const item = button(id, PICKER_LABELS[id], () => openPicker(id));
@@ -197,11 +202,11 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 controls.push(item);
             }
         } else if (picker === "subtitle-language" || picker === "subtitle-mode") {
-            const current = state.effective.get(key)?.value ?? null;
+            const current = subtitleProfileValue(key);
             const choices: readonly (readonly [SettingValue, string])[] = picker === "subtitle-language" ? [[null, "None"], ...state.subtitleOptions.map(value => [value, value] as const)] : MODE_CHOICES;
             for (const [value, text] of choices) {
                 const item = button(`${picker}:${value ?? "none"}`, text, () => {
-                    if ((state.effective.get(key)?.value ?? null) === value) { picker = undefined; render(rowFocus()); return; }
+                    if (subtitleProfileValue(key) === value) { picker = undefined; render(rowFocus()); return; }
                     void commit(key, value);
                 });
                 item.element.setAttribute("role", "radio");
@@ -302,7 +307,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             const account = actions?.accountName?.trim() || "this account";
             const server = actions?.serverName?.trim() || "this server";
             const controls = [actionButton("cancel-signout", "Cancel", back), actionButton("confirm-signout", "Sign Out", () => { destroy(); actions?.signOut?.(); })];
-            host.show({ name: "settings:signout", content: [el("h1", "browse-title", `Sign out of ${account} on ${server}?`), el("p", "settings-value", "This account's profiles and settings leave this TV. The server stays saved, so you can sign in again."), zoneNode("settings-controls", controls)], zones: [{ id: "settings-confirm", layout: "column", items: controls }], focus: { zone: "settings-confirm", key: "cancel-signout" }, back });
+            host.show({ name: "settings:signout", content: [el("h1", "browse-title", `Sign out of ${account} on ${server}?`), el("p", "settings-value", "This account's profiles and settings leave this TV. The server stays saved, so you can sign in again."), zoneNode("settings-controls", controls)], zones: [{ id: "settings-confirm", layout: "column", items: controls }], focus: { zone: "settings-confirm", key: "cancel-signout" }, back }, focus);
             return;
         }
         if (acknowledging) { renderAcknowledgements(); return; }
@@ -325,7 +330,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             profile.element.setAttribute("aria-label", `${actions.profileName}, ${account}`);
             categories.unshift(profile);
             if (actions.signOut !== undefined) {
-                const signOut = actionButton("settings-signout", "Sign Out", () => { confirmingSignOut = true; render(); });
+                const signOut = actionButton("settings-signout", "Sign Out", () => { confirmingSignOut = true; render({ zone: "settings-confirm", key: "cancel-signout" }); });
                 signOut.element.classList.add("settings-signout");
                 categories.push(signOut);
             }
@@ -400,10 +405,10 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             const forced = state.definitions.some(def => def.key === SHOW_FORCED_KEY);
             if (language || mode || forced) {
                 body.appendChild(el("h3", "settings-section-header", "PROFILE"));
-                if (language) rows.push(subtitlePicker("subtitle-language", state.effective.get(SUBTITLE_LANGUAGE_KEY)?.value ?? null));
-                if (mode) rows.push(subtitlePicker("subtitle-mode", state.effective.get(SUBTITLE_MODE_KEY)?.value ?? "auto"));
+                if (language) rows.push(subtitlePicker("subtitle-language", subtitleProfileValue(SUBTITLE_LANGUAGE_KEY)));
+                if (mode) rows.push(subtitlePicker("subtitle-mode", subtitleProfileValue(SUBTITLE_MODE_KEY)));
                 if (forced) {
-                    const on = state.effective.get(SHOW_FORCED_KEY)?.value === true;
+                    const on = subtitleProfileValue(SHOW_FORCED_KEY) === true;
                     const item = button("subtitle-forced", "Show Forced Subtitles", () => { void state.save(SHOW_FORCED_KEY, !on); });
                     item.element.appendChild(el("span", "settings-row-value", on ? "On" : "Off"));
                     item.element.setAttribute("role", "switch");
@@ -412,6 +417,9 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                     rows.push(item);
                 }
                 for (const item of rows) body.appendChild(item.element);
+                for (const key of [SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, SHOW_FORCED_KEY]) {
+                    if (state.effective.get(key)?.source === "profile_device") body.appendChild(note(key));
+                }
                 body.appendChild(el("p", "settings-value", SUBTITLE_FOOTER));
                 const override = subtitleOverride(state);
                 if (override !== undefined) body.appendChild(el("p", "settings-value", `Override active — ${override}`));

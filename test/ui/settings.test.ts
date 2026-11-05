@@ -75,6 +75,70 @@ test("Subtitles, the profile account line and sign-out confirmation follow Apple
     } finally { await tv.page.context().close(); }
 });
 
+for (const [row, key, profileValue, overrideValue, choice] of [
+    ["subtitle-language", SUBTITLE_LANGUAGE_KEY, "fr", "en", "en"],
+    ["subtitle-mode", SUBTITLE_MODE_KEY, "auto", "always", "Always"],
+] as const) test(`subtitle profile editor saves ${row} despite a matching device override`, async () => {
+    const { tv, settings } = await setup();
+    settings.profileSubtitles = true;
+    settings.profile().set(key, profileValue);
+    settings.overrides.set(key, overrideValue);
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="subtitles"]').click();
+        await tv.page.locator(`[data-focus="${row}"]`).click();
+        assert.equal(await tv.page.locator(`[data-focus="${row}:${profileValue}"]`).getAttribute("aria-checked"), "true");
+        await tv.page.getByText(`On this TV: ${choice === "Always" ? "always" : overrideValue} · Device override`, { exact: true }).waitFor();
+        await tv.page.getByRole("radio", { name: choice, exact: true }).click();
+        await tv.page.locator(`[data-focus="${row}"]`).waitFor();
+        assert.equal(settings.profile().get(key), overrideValue);
+        assert.equal(settings.overrides.get(key), overrideValue);
+        assert.equal(tv.fake.requests.filter(request => request.method === "PUT" && request.path.startsWith(`/settings/values/${key}?scope=profile`)).length, 1);
+        await tv.page.locator(`[data-focus="${row}"]`).click();
+        await tv.page.getByRole("radio", { name: choice, exact: true }).click();
+        await tv.page.locator(`[data-focus="${row}"]`).waitFor();
+        assert.equal(tv.fake.requests.filter(request => request.method === "PUT" && request.path.startsWith(`/settings/values/${key}?scope=profile`)).length, 1);
+    } finally { await tv.page.context().close(); }
+});
+
+test("subtitle profile forced switch toggles repeatedly beneath a device override", async () => {
+    const { tv, settings } = await setup();
+    settings.profileSubtitles = true;
+    settings.profile().set(SHOW_FORCED_KEY, false);
+    settings.overrides.set(SHOW_FORCED_KEY, true);
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="subtitles"]').click();
+        for (const expected of [true, false]) {
+            assert.equal(await tv.page.locator('[data-focus="subtitle-forced"]').getAttribute("aria-checked"), String(!expected));
+            await tv.page.locator('[data-focus="subtitle-forced"]').click();
+            await tv.page.getByText("Saving…", { exact: true }).waitFor({ state: "hidden" });
+            assert.equal(settings.profile().get(SHOW_FORCED_KEY), expected);
+        }
+        assert.equal(settings.overrides.get(SHOW_FORCED_KEY), true);
+        assert.equal(tv.fake.requests.filter(request => request.method === "PUT" && request.path.startsWith(`/settings/values/${SHOW_FORCED_KEY}?scope=profile`)).length, 2);
+    } finally { await tv.page.context().close(); }
+});
+
+test("sign-out confirmation resets to Cancel on every opening", async () => {
+    const { tv } = await setup();
+    try {
+        await openSettings(tv);
+        for (let visit = 0; visit < 2; visit++) {
+            await tv.page.locator('[data-focus="settings-signout"]').click();
+            assert.equal(await tv.focused(), "cancel-signout");
+            await tv.remote(40);
+            assert.equal(await tv.focused(), "confirm-signout");
+            await tv.remote(10009);
+            assert.equal(await tv.focused(), "settings-signout");
+        }
+        await tv.page.locator('[data-focus="settings-signout"]').click();
+        await tv.page.keyboard.press("Enter");
+        assert.equal(await tv.page.evaluate(() => window.browseHarness.signOutCalls), 0);
+        assert.equal(await tv.focused(), "settings-signout");
+    } finally { await tv.page.context().close(); }
+});
+
 test("Apple Settings rail enters the first row, shows separate values and restores modal focus", async () => {
     const { tv } = await setup(true);
     try {

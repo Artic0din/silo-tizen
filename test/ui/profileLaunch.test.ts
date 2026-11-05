@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
+import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 async function picker(tv: Tv): Promise<void> {
@@ -208,6 +209,37 @@ test("fresh TV offers remember; protected restart skips PIN; Settings opt-out re
         await tv.page.locator('[data-focus="profile:p-kid"]').click();
         await tv.page.locator("#profile-pin").waitFor();
         assert.equal(tv.fake.pinAttempts, attempts);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); await browser.close(); }
+});
+
+test("dismissed Settings launch save preserves the current General control focus", async () => {
+    const browser = await launchBrowser();
+    const tv = await openTv(browser, { app: "application" });
+    tv.fake.catalog = new FakeDetails();
+    new FakeSettings(tv.fake);
+    try {
+        await picker(tv); await selectKid(tv);
+        await tv.page.locator('[data-focus="ask-every-launch"]').click();
+        await tv.page.locator('[data-view="home"]').waitFor();
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.locator('[data-focus="settings"]').click();
+        await tv.page.locator('[data-focus="remember-profile"]').click();
+        await tv.page.evaluate(() => {
+            const hold = window.appHarness.keyManager.holdSaves();
+            Object.assign(window, { launchSaveHold: hold });
+        });
+        await tv.page.getByRole("radio", { name: "Automatic", exact: true }).click();
+        await tv.page.getByText("Saving launch choice…", { exact: true }).waitFor();
+        await tv.remote(10009);
+        await tv.page.locator('[data-focus="hidden"]').focus();
+        await tv.page.evaluate(() => {
+            const held = window as unknown as { launchSaveHold: { waiting(): number; release(): void } };
+            if (held.launchSaveHold.waiting() !== 1) throw new Error("expected one pending protected save");
+            held.launchSaveHold.release();
+        });
+        await tv.page.getByRole("button", { name: /Profile Selection.*Automatic/ }).waitFor();
+        assert.equal(await tv.focused(), "hidden");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); await browser.close(); }
 });

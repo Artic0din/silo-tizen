@@ -16,6 +16,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Search Select on an episode or season opens that series' Details. Enter on a result no longer starts playback or writes watch history.
 - Stopped featured descriptions from starting an automatic translation after focus moved to another card.
 - Corrected subtitle profile edits under device overrides, preserved focus after dismissed launch saves, and reset sign-out confirmation to Cancel on each opening.
 - Corrected Playback Settings to edit this TV's supported overrides and restore profile inheritance without changing profile defaults (Apple/Samsung native parity pending).

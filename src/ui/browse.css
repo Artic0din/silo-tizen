@@ -131,6 +131,19 @@
 .details-editorial .details-action { display: inline-flex; align-items: center; justify-content: center; gap: 18px; flex-shrink: 0; height: 76px; margin: 0; border-radius: 38px; }
 .details-action svg { width: 32px; height: 32px; flex-shrink: 0; }
 .details-editorial .details-play { min-width: 340px; font-size: 29px; }
+/* Box set Play is TVPrimaryPillButton with stabilizesFocusMotion (TVDetailActions.swift:53-67,674,691-694).
+   The verb sits on the film title; the icon is beside that stack. */
+.details-editorial .details-action.box-set-play { box-sizing: border-box; justify-content: flex-start; gap: 16px; height: 76px; min-width: 0; padding: 0 22px; }
+.details-editorial .box-set-play svg { width: 36px; height: 36px; }
+.details-editorial .box-set-play .box-set-play-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 0; }
+.details-editorial .box-set-play .box-set-play-verb { font-size: 29px; font-weight: 600; line-height: 1; }
+.details-editorial .box-set-play .box-set-play-film { font-size: 16px; font-weight: 600; line-height: 1; opacity: .72; }
+/* TVHeroEyebrow (TVDetailHero.swift:616-627) and the 14pt editorial stack (TVDetailHero.swift:274,279). */
+.details-hero[data-media-type="box-set"] .browse-kicker { display: inline-block; margin: 0; border-radius: 30px; background: rgba(0,0,0,.55); box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); padding: 8px 16px; font-size: 18px; font-weight: 600; line-height: 22px; letter-spacing: 1.2px; color: #fff; }
+.details-hero[data-media-type="box-set"] .details-editorial .browse-title { margin: 16px 0 14px; }
+.details-hero[data-media-type="box-set"] .box-set-facts { display: flex; align-items: center; gap: 14px; margin: 0 0 14px; font-size: 24px; font-weight: 500; color: rgba(255,255,255,.88); white-space: nowrap; }
+.details-hero[data-media-type="box-set"] .box-set-facts > :not(:first-child)::before { content: "·"; margin-right: 14px; font-size: 22px; font-weight: 600; color: rgba(255,255,255,.45); }
+.details-hero[data-media-type="box-set"] .details-playback-summary { margin-top: 0; margin-bottom: 20px; opacity: 0; }
 .details-editorial .details-circle { width: 76px; padding: 0; }
 .details-circle .details-action-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .details-editorial .details-circle:focus { width: auto; padding: 0 28px; }
@@ -240,10 +253,9 @@
 .search-scene .box-set-sleeve-back { left: 10%; right: 10%; background: rgb(43,43,43); transform: translateY(-12px); }
 .search-scene .box-set-sleeve-front { left: 5%; right: 5%; background: rgb(61,61,61); transform: translateY(-6px); }
 .search-scene .box-set-card .browse-art { z-index: 1; }
-.box-set-play { display: inline-flex; flex-direction: column; align-items: flex-start; line-height: 1.15; }
-.box-set-play-verb { font-size: 29px; font-weight: 600; }
-.box-set-play-film { font-size: 16px; font-weight: 600; opacity: .72; }
-.box-set-grid.browse-grid { grid-template-columns: repeat(6, 220px); grid-column-gap: 40px; grid-row-gap: 60px; width: auto; }
+/* TVCatalogGrid columnSpacing 40 and rowSpacing 60 (TVCatalogGrid.swift:38-39); card width 220 (BoxSetDetailView.swift:227).
+   The shared grid's 16px top padding would stack on the 14px section gap, so this page drops it. */
+.box-set-grid.browse-grid { grid-template-columns: repeat(6, 220px); grid-column-gap: 40px; grid-row-gap: 60px; width: auto; padding-top: 0; }
 .box-set-grid .browse-card, .box-set-row.browse-row .browse-card { box-sizing: content-box; width: 220px; padding: 0; border: 0; }
 .box-set-grid .browse-art, .box-set-row.browse-row .browse-art { width: 220px; height: 330px; border-radius: 16px; }
 .box-set-row.browse-row .browse-card { margin-right: 44px; }

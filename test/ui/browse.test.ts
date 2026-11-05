@@ -13,7 +13,7 @@ import type { Reply } from "../native/support/fakeSilo.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { CARD_OVERLAYS_KEY, CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
-import { detailReads, homeDetailsRead, launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
+import { detailReads, homeDetailsRead, launchBrowser, openTv, pauseTvClock, readLive, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
 const IME_DONE = 65376;
@@ -388,6 +388,9 @@ class SearchEdgeCatalog extends SearchCatalog {
 }
 
 class BoxSetCatalog extends SearchCatalog {
+    /** The detail page's backdrop. Off leaves the hero wash with no artwork. */
+    showBackdrop = true;
+
     constructor() {
         super();
         this.searchCapabilities = { ...this.searchCapabilities, box_sets: true };
@@ -425,7 +428,7 @@ class BoxSetCatalog extends SearchCatalog {
     private boxSetBody(): Record<string, unknown> {
         return {
             id: "1241", library_id: "12", title: "Harry Potter Collection", overview: "Wizards.",
-            poster_url: "/art/potter.svg", backdrop_url: "/art/potter-wide.svg",
+            poster_url: "/art/potter.svg", ...(this.showBackdrop ? { backdrop_url: "/art/potter-wide.svg" } : {}),
             movie_count: 8, played_count: 3, first_year: 2001, last_year: 2011,
             items: [
                 { content_id: "movie:m0001", type: "movie", title: "Philosopher's Stone", year: 2001, poster_url: "/art/hp1.svg", user_state: { played: true } },
@@ -983,6 +986,52 @@ browseTest("Opening a box set focuses Play, keeps member order, and Back returns
     await tv.remote(BACK);
     await shows(tv, "This box set isn't available. Box sets may be turned off for this library, or too few of its movies are here.");
     assert.equal(await tv.page.locator('[data-focus="play"]').count(), 0);
+}, { catalog: new BoxSetCatalog() });
+
+browseTest("Box set Play stays on the first screen with and without a backdrop", async (tv, catalog) => {
+    const boxSets = catalog; assert.ok(boxSets instanceof BoxSetCatalog);
+    const open = async (): Promise<void> => {
+        await tv.page.locator('[data-focus="search"]').click();
+        await tv.page.fill("#browse-search", "potter"); await tv.remote(IME_DONE);
+        await tv.page.locator('[data-focus="box-set:12:1241"]').click();
+        await showing(tv, "boxSet:12:1241");
+    };
+    const playOnScreen = async (artwork: boolean): Promise<void> => {
+        const play = await readLive(tv, () => {
+            const button = document.querySelector<HTMLElement>('[data-focus="play"].box-set-play');
+            const verb = button?.querySelector<HTMLElement>(".box-set-play-verb");
+            const film = button?.querySelector<HTMLElement>(".box-set-play-film");
+            const image = document.querySelector<HTMLImageElement>(".details-hero .skyline-backdrop");
+            if (button === null || button === undefined || verb === null || verb === undefined || film === null || film === undefined || !button.isConnected) return null;
+            const bounds = button.getBoundingClientRect();
+            const verbBounds = verb.getBoundingClientRect();
+            const filmBounds = film.getBoundingClientRect();
+            const verbStyle = getComputedStyle(verb);
+            const filmStyle = getComputedStyle(film);
+            return {
+                top: bounds.top,
+                bottom: bounds.bottom,
+                verbSize: verbStyle.fontSize,
+                filmSize: filmStyle.fontSize,
+                verbWeight: verbStyle.fontWeight,
+                filmWeight: filmStyle.fontWeight,
+                stacked: filmBounds.top >= verbBounds.bottom - 1 && Math.abs(filmBounds.left - verbBounds.left) <= 2,
+                artwork: image?.isConnected === true && image.naturalWidth > 0,
+            };
+        }, null, value => value.top >= 0 && value.bottom <= 1080 && value.stacked && value.verbSize === "29px" && value.filmSize === "16px" && value.verbWeight === "600" && value.filmWeight === "600" && value.artwork === artwork, artwork ? "Play with a backdrop" : "Play without a backdrop");
+        assert.ok(play.top >= 0 && play.bottom <= 1080, JSON.stringify(play));
+        assert.equal(play.stacked, true);
+        assert.equal(play.artwork, artwork);
+        assert.equal(play.verbSize, "29px");
+        assert.equal(play.filmSize, "16px");
+    };
+    await open();
+    await playOnScreen(true);
+    await tv.remote(BACK); await showing(tv, "search");
+    boxSets.showBackdrop = false;
+    await tv.page.locator('[data-focus="box-set:12:1241"]').click();
+    await showing(tv, "boxSet:12:1241");
+    await playOnScreen(false);
 }, { catalog: new BoxSetCatalog() });
 
 const slowRequests = new SearchCatalog();

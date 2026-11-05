@@ -32,14 +32,17 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
         host.show({ name: "accounts-error", content: [el("h1", "accounts-title", message), retry.element], zones: [{ id: "error", layout: "column", items: [retry] }], focus: { zone: "error", key: "retry" }, back: render });
     };
     const confirm = (targets: readonly SavedAccount[], removeServer: boolean): void => {
-        const cancel = actionButton("cancel", "Cancel", render);
-        const accept = actionButton("confirm", removeServer ? "Remove Server" : "Sign Out", () => {
+        const dismiss = (): void => { render(false, false, removeServer); };
+        const panel = el("div", removeServer ? "skyline-selector" : "accounts-dialog");
+        const cancel = actionButton("cancel", "Cancel", dismiss);
+        const accept = actionButton("confirm", removeServer ? "Remove" : "Sign Out", () => {
             if (removalPending) return;
             removalPending = true;
             cancel.element.setAttribute("disabled", "");
             accept.element.setAttribute("aria-disabled", "true");
             accept.element.textContent = removeServer ? "Removing…" : "Signing out…";
             panel.setAttribute("aria-busy", "true");
+            accept.element.focus({ preventScroll: true });
             void (async () => {
                 for (const row of targets) {
                     if (row.id === current?.accounts.localAccountId) onCurrentSignOut?.();
@@ -51,19 +54,56 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
                 if (!destroyed) render();
             })().catch((error: unknown) => { removalPending = false; if (!destroyed) showError(error instanceof Error ? error.message : "Could not sign out"); });
         });
-        const panel = el("div", "accounts-dialog");
-        panel.setAttribute("role", "dialog"); panel.setAttribute("aria-modal", "true");
         const address = targets[0]?.baseUrl;
         const serverName = address ? cachedBranding(core.publicStorage, address)?.serverName ?? new URL(address).host : "the server";
+        const dialog = { id: "dialog", layout: "row" as const, items: [cancel, accept] };
+        const view = { name: "accounts-confirm", zones: [dialog], focus: { zone: "dialog", key: "cancel" }, back: dismiss };
+        if (removeServer) {
+            accept.element.classList.add("skyline-destructive");
+            const signsOut = targets.length === 1 ? `This signs out of ${targets[0]?.username ?? "its account"}.`
+                : targets.length > 1 ? `This signs out of its ${targets.length} accounts.` : undefined;
+            const scrim = el("div", "skyline-dropdown-scrim");
+            scrim.setAttribute("data-confirmation", "true");
+            scrim.addEventListener("click", () => { if (!removalPending) dismiss(); });
+            panel.setAttribute("data-confirmation", "true");
+            panel.setAttribute("role", "alertdialog");
+            panel.setAttribute("aria-modal", "true");
+            panel.style.left = "50%";
+            panel.style.right = "auto";
+            panel.style.top = "50%";
+            const title = el("h2", "skyline-confirm-title", `Remove ${serverName}?`);
+            title.id = "accounts-remove-title";
+            panel.setAttribute("aria-labelledby", title.id);
+            const header = el("div", "skyline-confirm-header");
+            header.append(title);
+            if (signsOut !== undefined) {
+                const message = el("p", "skyline-confirm-message", signsOut);
+                message.id = "accounts-remove-message";
+                panel.setAttribute("aria-describedby", message.id);
+                header.append(message);
+            }
+            const actions = el("div", "skyline-confirm-actions");
+            actions.append(cancel.element, accept.element);
+            panel.append(header, actions);
+            const behind = container.querySelector<HTMLElement>(".accounts-settings");
+            if (behind !== null) {
+                behind.inert = true;
+                behind.setAttribute("aria-hidden", "true");
+            }
+            host.show({ ...view, content: behind === null ? [scrim, panel] : [behind, scrim, panel] });
+            return;
+        }
         const lastAccount = directory.list().filter(row => row.baseUrl === address).length === targets.length;
         const message = lastAccount
             ? `This account's profiles and settings leave this TV, and ${serverName} will be removed from it.`
             : "This account's profiles and settings leave this TV. The server stays saved, so you can sign in again.";
-        panel.append(el("h1", "signin-title", removeServer ? `Remove ${serverName}?` : `Sign out of ${targets[0]?.username ?? "this account"} on ${serverName}?`),
+        panel.setAttribute("role", "dialog");
+        panel.setAttribute("aria-modal", "true");
+        panel.append(el("h1", "signin-title", `Sign out of ${targets[0]?.username ?? "this account"} on ${serverName}?`),
             el("p", "signin-text", message), cancel.element, accept.element);
-        host.show({ name: "accounts-confirm", content: [panel], zones: [{ id: "dialog", layout: "row", items: [cancel, accept] }], focus: { zone: "dialog", key: "cancel" }, back: render });
+        host.show({ ...view, content: [panel] });
     };
-    function render(railFocus = false, enterPane = false): void {
+    function render(railFocus = false, enterPane = false, focusFirst = false): void {
         if (removalPending) return;
         const rows = directory.list();
         if (manage) {
@@ -104,7 +144,8 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
             const add = paneRow("add-server", "Add a server", () => go(undefined));
             controls.push(add); panel.append(add.element, el("p", "signin-text", "Signing out of an account removes it and its settings from this TV. Signing out of a server's only account removes the server too."));
             container.classList.add("accounts-management");
-            host.show({ name: "accounts-settings", content: [panel], zones: [{ id: "rows", layout: "column", items: controls }], focus: { zone: "rows", key: controls[0]!.key }, back: () => { destroy(); back(); } });
+            const entry = controls[0] === undefined ? undefined : { zone: "rows", key: controls[0].key };
+            host.show({ name: "accounts-settings", content: [panel], zones: [{ id: "rows", layout: "column", items: controls }], focus: entry, back: () => { destroy(); back(); } }, focusFirst ? entry : undefined);
             return;
         }
         const addresses = [...new Set(rows.map(row => row.baseUrl))];

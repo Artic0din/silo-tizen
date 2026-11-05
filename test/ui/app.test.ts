@@ -340,7 +340,8 @@ appTest("Remove Server holds focus while pending and reports protected-storage f
     const hold = tv.fake.hold("/auth/logout");
     await tv.page.locator('[data-focus="confirm"]').click();
     await tv.remote(10009);
-    assert.equal(await tv.page.getByRole("dialog").count(), 1, "Back waits for removal");
+    assert.equal(await tv.page.getByRole("alertdialog").count(), 1, "Back waits for removal");
+    assert.equal(await tv.page.locator('[data-focus="confirm"]').innerText(), "Removing…");
     assert.equal(await tv.focused(), "confirm");
     hold.release();
     await tv.jump(100);
@@ -349,6 +350,112 @@ appTest("Remove Server holds focus while pending and reports protected-storage f
     assert.match(await tv.page.locator('.accounts-title').innerText(), /Could not remove/);
     await tv.page.getByRole("button", { name: "Back", exact: true }).click();
     assert.equal(await tv.page.getByRole("button", { name: "Remove Server", exact: true }).count(), 1);
+});
+
+appTest("Remove Server confirmation matches the settings alert and dismissal returns to the first account", async tv => {
+    await signIn(tv);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+    await tv.page.locator('[data-focus="server"]').click();
+    await tv.page.getByRole("button", { name: "Accounts", exact: true }).click();
+    const first = await tv.page.locator(".accounts-settings button").first().getAttribute("data-focus");
+    assert.ok(first !== null && !first.startsWith("remove:"));
+    await tv.page.getByRole("button", { name: "Remove Server", exact: true }).click();
+    const alert = tv.page.getByRole("alertdialog");
+    await alert.waitFor();
+    assert.equal(await tv.focused(), "cancel");
+    assert.equal(await alert.getByRole("button", { name: "Remove", exact: true }).count(), 1);
+    assert.equal(await alert.getByRole("button", { name: "Remove Server", exact: true }).count(), 0);
+    const presented = await alert.evaluate(node => {
+        const style = getComputedStyle(node);
+        const buttons = [...node.querySelectorAll("button")].map(button => button.getBoundingClientRect());
+        const bounds = node.getBoundingClientRect();
+        const behind = document.querySelector(".accounts-settings");
+        return {
+            title: node.querySelector("h2")?.textContent,
+            message: node.querySelector("p")?.textContent,
+            confirmation: node.getAttribute("data-confirmation"),
+            width: style.width,
+            topPadding: style.paddingTop,
+            sidePadding: style.paddingLeft,
+            titleSize: getComputedStyle(node.querySelector("h2") as HTMLElement).fontSize,
+            buttonHeight: getComputedStyle(node.querySelector("button") as HTMLElement).height,
+            row: Math.abs((buttons[0]?.y ?? 0) - (buttons[1]?.y ?? 1)) < 1,
+            scrim: document.querySelector(".skyline-dropdown-scrim[data-confirmation]") !== null,
+            behind: behind !== null,
+            inert: behind instanceof HTMLElement && behind.inert,
+            centerX: bounds.x + bounds.width / 2,
+            centerY: bounds.y + bounds.height / 2,
+        };
+    });
+    assert.deepEqual({
+        title: presented.title,
+        message: presented.message,
+        confirmation: presented.confirmation,
+        width: presented.width,
+        topPadding: presented.topPadding,
+        sidePadding: presented.sidePadding,
+        titleSize: presented.titleSize,
+        buttonHeight: presented.buttonHeight,
+        row: presented.row,
+        scrim: presented.scrim,
+        behind: presented.behind,
+        inert: presented.inert,
+    }, {
+        title: "Remove silo.example.test?",
+        message: "This signs out of laura.",
+        confirmation: "true",
+        width: "632px",
+        topPadding: "42px",
+        sidePadding: "48px",
+        titleSize: "38px",
+        buttonHeight: "63px",
+        row: true,
+        scrim: true,
+        behind: true,
+        inert: true,
+    });
+    assert.ok(Math.abs(presented.centerX - 960) < 2, JSON.stringify(presented));
+    assert.ok(Math.abs(presented.centerY - 540) < 2, JSON.stringify(presented));
+    await tv.remote(39);
+    assert.equal(await tv.focused(), "confirm");
+    await tv.remote(37);
+    assert.equal(await tv.focused(), "cancel");
+    await tv.remote(38);
+    assert.equal(await tv.focused(), "cancel");
+    await tv.remote(40);
+    assert.equal(await tv.focused(), "cancel");
+    await tv.page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await tv.page.locator('[data-view="accounts-settings"]').waitFor();
+    assert.equal(await tv.focused(), first, "Cancel returns to the first account");
+    await tv.page.getByRole("button", { name: "Remove Server", exact: true }).click();
+    await tv.remote(10009);
+    assert.equal(await tv.page.locator('[data-view="accounts-settings"]').count(), 1);
+    assert.equal(await tv.focused(), first, "Back returns to the first account");
+    await tv.page.getByRole("button", { name: "Remove Server", exact: true }).click();
+    await tv.page.mouse.click(80, 80);
+    assert.equal(await tv.page.locator('[data-view="accounts-settings"]').count(), 1);
+    assert.equal(await tv.focused(), first, "the scrim cancels without activating the account list");
+});
+
+appTest("Remove Server names every account it will sign out", async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => {
+        const storage = window.appHarness.storage;
+        const saved = JSON.parse(storage.getItem("silo.native.accounts.v1")!) as { accounts: Record<string, unknown>[] };
+        saved.accounts.push({ ...saved.accounts[0], id: "other", accountId: "other", username: "Other" });
+        storage.setItem("silo.native.accounts.v1", JSON.stringify(saved));
+    });
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+    await tv.page.locator('[data-focus="server"]').click();
+    await tv.page.getByRole("button", { name: "Accounts", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Remove Server", exact: true }).click();
+    const alert = tv.page.getByRole("alertdialog");
+    await alert.waitFor();
+    assert.equal(await alert.locator("h2").innerText(), "Remove silo.example.test?");
+    assert.equal(await alert.locator("p").innerText(), "This signs out of its 2 accounts.");
+    assert.equal(await tv.focused(), "cancel");
 });
 
 appTest("an offline saved server reports failure and Back preserves both servers", async tv => {

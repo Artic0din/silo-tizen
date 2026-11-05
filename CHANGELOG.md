@@ -10,6 +10,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Matched Remove Server to Apple TV's confirmation and returned Cancel and Back to the first account.
 - Kept Home rows when a return to Home joined a row-cap read that the previous visit had cancelled.
 - Preserved saved logins when entering another server and kept overflowing Accounts actions visible on screen.
 - Placed Accounts below the Server heading, matched its section labels and chevrons to Apple TV, and reused the saved account's session when restoring through server entry.

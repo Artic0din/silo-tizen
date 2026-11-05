@@ -54,6 +54,13 @@ export class TrailerFetch {
         this.launch(false);
     }
 
+    restore(previous: TrailerFetch): void {
+        if (!previous.interrupted) return;
+        this.baseline = previous.baseline;
+        this.interrupted = true;
+        previous.stop(false);
+    }
+
     private launch(post: boolean): void {
         this.dismiss?.();
         const controller = new AbortController(); this.controller = controller;

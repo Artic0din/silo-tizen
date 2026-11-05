@@ -328,11 +328,15 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     ];
     const credits = detail.extra?.cast ?? [];
     if (credits.length > 0) {
+        const occurrences = new Map<string, number>();
         const people = credits.slice(0, 24).map((credit, index) => {
             const item = creditCard(credit, context);
-            // One person can hold multiple cast credits; each needs its own focus target.
-            if (credits.slice(0, index).some(previous => previous.id === credit.id && (credit.id !== undefined || previous.name === credit.name && previous.role === credit.role))) {
-                const key = `${item.key}:credit:${index}`;
+            const identity = JSON.stringify([credit.id ?? credit.name, credit.role]);
+            const occurrence = occurrences.get(identity) ?? 0;
+            occurrences.set(identity, occurrence + 1);
+            // Every credit for a repeated person stays stable when other roles move.
+            if (credits.some((other, otherIndex) => otherIndex !== index && (other.id ?? other.name) === (credit.id ?? credit.name))) {
+                const key = `credit:${identity}:${occurrence}`;
                 item.element.dataset.focus = key;
                 return { ...item, key };
             }

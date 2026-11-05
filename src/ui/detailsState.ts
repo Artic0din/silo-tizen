@@ -305,6 +305,7 @@ export class DetailsState {
         this.nextEpisode = previous.nextEpisode?.id === this.detail.playContentId ? previous.nextEpisode : undefined;
         this.personalSupported = previous.personalSupported;
         for (const [key, value] of previous.values) if (key !== "watched") this.values.set(key, value);
+        if (this.detail.id === previous.detail.id) this.trailers.restore(previous.trailers);
         if (this.detail.versions.some(file => file.fileId === previous.failedPlay?.fileId)) this.failedPlay = previous.failedPlay;
         this.previousNextEpisodeState = previous.nextEpisodeState;
         this.focusedEpisodeId = previous.focusedEpisodeId;

@@ -13,6 +13,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made application sign-in tests wait for approval and the storage notice before continuing to profiles.
 - Stopped a device-code poll from going out when its wait ended as the screen hid. A poll already sent still finishes, and coming back polls at once.
 - Kept Search's navigation column when a square People portrait animates on focus.
 - Restored Cast focus clearance and corrected Details episode spacing, picker selection, Related badges and action glyphs against Apple TV measurements.

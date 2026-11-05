@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
+import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 async function picker(tv: Tv): Promise<void> {
@@ -82,7 +82,7 @@ test("Settings Accounts uses pane rows and Back returns to Settings", async () =
         await tv.page.locator('[data-focus="profiles"]').click();
         await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
         await tv.page.locator('[data-focus="server"]').click();
-        assert.deepEqual(await tv.page.locator('.settings-pane').evaluate(node => [...node.children].filter(child => child.matches('h2, h3, button')).map(child => child.textContent)), ["Server", "ACTIVE SERVER", "Accounts", "Manage Servers", "ABOUT", "Acknowledgements"]);
+        assert.deepEqual(await tv.page.locator('.settings-pane').evaluate(node => [...node.children].filter(child => child.matches('h2, h3, button')).map(child => child.textContent)), ["ACTIVE SERVER", "Accounts", "ABOUT", "Privacy Policy", "Acknowledgements"]);
         await tv.page.getByRole("button", { name: "Accounts", exact: true }).click();
         await tv.page.locator('[data-view="accounts-settings"]').waitFor();
         const pane = await tv.page.evaluate(() => {
@@ -117,14 +117,7 @@ test("Settings Accounts uses pane rows and Back returns to Settings", async () =
         await tv.page.locator('[data-view="settings"]').waitFor();
         assert.equal(await tv.focused(), "general");
         await tv.page.locator('[data-focus="server"]').click();
-        await tv.page.getByRole("button", { name: "Manage Servers", exact: true }).click();
-        await tv.page.locator('[data-view="change-account"]').waitFor();
-        await tv.remote(10009);
-        await tv.remote(10009);
-        await tv.page.locator('[data-view="settings"]').waitFor();
-        assert.equal(await tv.focused(), "manage-servers");
-        await tv.remote(10009);
-        assert.equal(await tv.focused(), "server");
+        assert.equal(await tv.page.getByRole("button", { name: "Manage Servers", exact: true }).count(), 0, "Accounts owns server management");
         await tv.remote(10009);
         await tv.page.locator('[data-focus="profiles"]').click();
         await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
@@ -232,14 +225,14 @@ test("dismissed Settings launch save preserves the current General control focus
         await tv.page.getByRole("radio", { name: "Automatic", exact: true }).click();
         await tv.page.getByText("Saving launch choice…", { exact: true }).waitFor();
         await tv.remote(10009);
-        await tv.page.locator('[data-focus="hidden"]').focus();
+        await tv.page.locator('[data-focus="title-art"]').focus();
         await tv.page.evaluate(() => {
             const held = window as unknown as { launchSaveHold: { waiting(): number; release(): void } };
             if (held.launchSaveHold.waiting() !== 1) throw new Error("expected one pending protected save");
             held.launchSaveHold.release();
         });
         await tv.page.getByRole("button", { name: /Profile Selection.*Automatic/ }).waitFor();
-        assert.equal(await tv.focused(), "hidden");
+        assert.equal(await tv.focused(), "title-art");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); await browser.close(); }
 });

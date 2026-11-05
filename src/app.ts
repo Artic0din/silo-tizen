@@ -28,6 +28,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
     let profile: ProfileHandoff | undefined;
     let exitDialog: ExitDialog | undefined;
     let destroyed = false;
+    let activeServer: ConnectedServer | undefined;
     let accounts: AccountsScreen | undefined;
     let connected: ConnectedServer | undefined;
     let startup: ScreenHost | undefined;
@@ -133,6 +134,8 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
     };
 
     const showBrowse = (server: ConnectedServer, active: ProfileHandoff): void => {
+        activeServer = server;
+        server.profileLaunch.recordActive();
         stopContent();
         if (destroyed || active.signal.aborted) {
             return;
@@ -186,6 +189,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
         }
         event.preventDefault();
         exitDialog = mountExitDialog(root, () => {
+            activeServer?.profileLaunch.recordAway();
             player?.destroy();
             player = undefined;
             options.exit();
@@ -193,13 +197,26 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
         }, () => { exitDialog = undefined; });
     };
 
+    const onVisibility = (): void => {
+        if (activeServer === undefined || activeServer.session.activeProfile === undefined) return;
+        if (document.hidden) { activeServer.profileLaunch.recordAway(); return; }
+        const expired = activeServer.profileLaunch.requiresSelection();
+        if (expired) {
+            activeServer.profileLaunch.requireSelection();
+            stopContent();
+            activeServer.session.setProfile(undefined, "profile_cleared");
+            profiles?.switchProfile();
+        } else activeServer.profileLaunch.recordActive();
+    };
+    const onPageHide = (): void => { activeServer?.profileLaunch.recordAway(); destroy(); };
     const destroy = (): void => {
         if (destroyed) {
             return;
         }
         destroyed = true;
         window.removeEventListener("keydown", onBack);
-        window.removeEventListener("pagehide", destroy);
+        window.removeEventListener("pagehide", onPageHide);
+        document.removeEventListener("visibilitychange", onVisibility);
         stopContent();
         profiles?.destroy();
         profiles = undefined;
@@ -210,7 +227,8 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
     };
 
     window.addEventListener("keydown", onBack);
-    window.addEventListener("pagehide", destroy);
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisibility);
     const migrate = async (): Promise<void> => {
         startup?.destroy(); startup = undefined;
         try {

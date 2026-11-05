@@ -6,7 +6,7 @@
 import { boolean, integer, nonEmptyString, object, optionalString, string, WireError } from "./wire.ts";
 import { decodeDetailExtras, type DetailExtras } from "./details.ts";
 import { decodeAudioTracks, type AudioTrackInfo } from "./playback.ts";
-import { decodeCatalogSubtitles, type SubtitleSignature } from "./preplaySubtitles.ts";
+import { decodeCatalogSubtitles, decodeSubtitlePreferences, type CatalogSubtitleTrack, type SubtitlePreferences } from "./preplaySubtitles.ts";
 
 type WireObject = ReturnType<typeof object>;
 
@@ -310,7 +310,10 @@ export function decodePersonalListPage(value: unknown): CatalogPage {
 // --- getCatalogItem ---
 
 export interface PlayableFile {
-    readonly subtitles?: readonly SubtitleSignature[];
+    readonly detailLabel?: string;
+    readonly effectiveAudioTrackIndex?: number | undefined;
+    readonly subtitles?: readonly CatalogSubtitleTrack[];
+    readonly effectiveSubtitle?: SubtitlePreferences;
     readonly audio?: readonly AudioTrackInfo[];
     /** Metadata omitted from labels must still invalidate an ordinal picked from an older inventory. */
     readonly audioMetadata?: string;
@@ -328,6 +331,8 @@ export interface WatchState {
 
 export interface ItemDetail {
     readonly advisoryAge?: number | undefined;
+    readonly airDate?: string | undefined;
+    readonly extras?: readonly LocalExtra[];
     readonly played: boolean | undefined;
     readonly extra?: DetailExtras;
     readonly id: string;
@@ -352,6 +357,25 @@ export interface ItemDetail {
     readonly watch: WatchState | undefined;
 }
 
+export interface LocalExtra {
+    readonly contentId: string;
+    readonly fileId: string | undefined;
+    readonly kind: string;
+    readonly title: string | undefined;
+    readonly durationSeconds: number | undefined;
+    readonly stillUrl: string | undefined;
+}
+
+function decodeExtras(obj: WireObject): LocalExtra[] {
+    if (obj.extras === undefined) return [];
+    return array(obj, "extras", "item_detail").map((entry, index) => {
+        const path = `item_detail.extras[${index}]`, extra = object(entry, path);
+        const fileId = optionalInteger(extra, "file_id", path);
+        if (fileId !== undefined && (!Number.isSafeInteger(fileId) || fileId <= 0)) throw new WireError(`${path}.file_id`, "a positive safe integer");
+        return { contentId: nonEmptyString(extra, "content_id", path), fileId: fileId === undefined ? undefined : String(fileId), kind: string(extra, "kind", path), title: optionalString(extra, "title", path), durationSeconds: optionalInteger(extra, "duration_seconds", path), stillUrl: optionalString(extra, "still_url", path) };
+    });
+}
+
 function decodeWatch(value: unknown, path: string): WatchState | undefined {
     if (value === undefined) {
         return undefined;
@@ -372,6 +396,8 @@ export function decodeItemDetail(value: unknown): ItemDetail {
         advisoryAge: optionalInteger(obj, "advisory_age", path),
         played: obj.user_state === undefined ? watch?.played : boolean(object(obj.user_state, `${path}.user_state`), "played", `${path}.user_state`),
         extra: decodeDetailExtras(value),
+        extras: decodeExtras(obj),
+        airDate: optionalString(obj, "air_date", path),
         id: string(obj, "content_id", path),
         type: oneOf(string(obj, "type", path), CARD_TYPES),
         title: string(obj, "title", path),
@@ -392,8 +418,13 @@ export function decodeItemDetail(value: unknown): ItemDetail {
         versions: array(obj, "versions", path).map((entry, index) => {
             const versionPath = `${path}.versions[${index}]`;
             const version = object(entry, versionPath);
+            const codec = optionalString(version, "codec_video", versionPath)?.toLowerCase();
+            const normalizedCodec = codec === undefined ? undefined : /hevc|h265/.test(codec) ? "HEVC" : /avc|h264/.test(codec) ? "H.264" : codec.toUpperCase();
+            const size = optionalInteger(version, "file_size", versionPath);
+            const sizeLabel = size === undefined ? undefined : size >= 1_000_000_000 ? `${Number((size / 1_000_000_000).toFixed(2))} GB` : `${Number((size / 1_000_000).toFixed(1))} MB`;
+            const detailLabel = [normalizedCodec, optionalString(version, "container", versionPath)?.toUpperCase(), sizeLabel].filter(Boolean).join(" · ");
             const label = [optionalString(version, "edition_raw", versionPath), optionalString(version, "resolution", versionPath), optionalString(version, "codec_video", versionPath), version.hdr === undefined ? undefined : boolean(version, "hdr", versionPath) ? "HDR" : undefined, optionalString(version, "codec_audio", versionPath)].filter((part) => part !== undefined && part !== "").join(" · ");
-            return { fileId: string(version, "file_id", versionPath), durationSeconds: integer(version, "duration", versionPath), audio: decodeAudioTracks(version, versionPath), ...(version.subtitle_tracks === undefined ? {} : { subtitles: decodeCatalogSubtitles(version, versionPath) }), ...(version.audio_tracks === undefined ? {} : { audioMetadata: JSON.stringify(version.audio_tracks) }), ...(label === "" ? {} : { label }) };
+            return { detailLabel, ...(obj.effective_subtitle_mode === undefined && obj.effective_subtitle_track_signature === undefined ? {} : { effectiveSubtitle: decodeSubtitlePreferences(obj, string(obj, "content_id", path), string(version, "file_id", versionPath), undefined) }), fileId: string(version, "file_id", versionPath), effectiveAudioTrackIndex: optionalInteger(version, "effective_audio_track_index", versionPath), durationSeconds: integer(version, "duration", versionPath), audio: decodeAudioTracks(version, versionPath), ...(version.subtitle_tracks === undefined ? {} : { subtitles: decodeCatalogSubtitles(version, versionPath) }), ...(version.audio_tracks === undefined ? {} : { audioMetadata: JSON.stringify(version.audio_tracks) }), ...(label === "" ? {} : { label }) };
         }),
         watch,
     };
@@ -417,6 +448,7 @@ export function decodeResumePosition(value: unknown, contentId: string, fileId: 
 // --- listSeriesSeasons ---
 
 export interface Season {
+    readonly userData?: { readonly played: boolean; readonly watchedCount: number; readonly inProgressCount: number };
     readonly isSpecials?: boolean;
     readonly id: string;
     readonly seasonNumber: number;
@@ -428,7 +460,9 @@ export interface Season {
 export function decodeSeasons(value: unknown): Season[] {
     return items(value, "seasons", (entry, path) => {
         const obj = object(entry, path);
+        const user = obj.user_data === undefined ? undefined : object(obj.user_data, `${path}.user_data`);
         return {
+            ...(user === undefined ? {} : { userData: { played: user.played === undefined ? false : boolean(user, "played", path), watchedCount: optionalInteger(user, "watched_count", path) ?? 0, inProgressCount: optionalInteger(user, "in_progress_count", path) ?? 0 } }),
             isSpecials: obj.is_specials === undefined ? false : boolean(obj, "is_specials", path),
             id: string(obj, "content_id", path),
             seasonNumber: integer(obj, "season_number", path),
@@ -442,6 +476,10 @@ export function decodeSeasons(value: unknown): Season[] {
 // --- listSeasonEpisodes ---
 
 export interface Episode {
+    readonly inProgress?: boolean;
+    readonly airDate?: string | undefined;
+    readonly overview?: string | undefined;
+    readonly ratings?: DetailExtras["ratings"];
     readonly files?: readonly { readonly fileId: string; readonly unreadable: boolean }[];
     readonly id: string;
     readonly seasonNumber: number;
@@ -455,7 +493,13 @@ export interface Episode {
 export function decodeEpisodes(value: unknown): Episode[] {
     return items(value, "episodes", (entry, path) => {
         const obj = object(entry, path);
+        const user = obj.user_data === undefined ? undefined : object(obj.user_data, `${path}.user_data`);
+        const inProgress = user !== undefined && (optionalInteger(user, "in_progress_count", `${path}.user_data`) ?? 0) > 0;
         return {
+            ...(inProgress ? { inProgress: true } : {}),
+            airDate: optionalString(obj, "air_date", path),
+            overview: optionalString(obj, "overview", path),
+            ratings: decodeDetailExtras(obj).ratings,
             files: (obj.files === undefined ? [] : array(obj, "files", path)).map((entry, index) => {
                 const filePath = `${path}.files[${index}]`;
                 const file = object(entry, filePath);

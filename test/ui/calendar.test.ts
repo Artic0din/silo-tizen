@@ -411,12 +411,12 @@ calendarTest("Calendar complete remote journey retains every event and restores 
     await tv.page.keyboard.press("Enter");
     await tv.page.locator('.details-episodes [data-focus="episode:s1e22"]').waitFor();
     await tv.remote(40);
-    assert.equal(await tv.focused(), "episode:s1e22", "Calendar focuses the relevant episode");
+    assert.equal(await tv.focused(), "episode:s1e21", "explicit season Select resets Calendar entry to the first episode");
     await tv.page.keyboard.press("Enter");
-    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.slice(-1)[0]?.contentId === "episode:s1e22"), "direct episode playback");
-    assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.slice(-1)[0]?.contentId), "episode:s1e22");
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.slice(-1)[0]?.contentId === "episode:s1e21"), "direct episode playback");
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.slice(-1)[0]?.contentId), "episode:s1e21");
     await tv.page.evaluate(() => window.browseHarness.resume());
-    await tv.eventually(async () => await tv.focused() === "episode:s1e22", "episode return");
+    await tv.eventually(async () => await tv.focused() === "episode:s1e21", "episode return");
     await tv.remote(10009); await ready(tv, 32);
     await tv.page.clock.runFor(260); assert.deepEqual(await position(), episodeScroll, "vertical and shelf scroll survive Details and playback");
     assert.equal(await tv.page.locator(":focus").getAttribute("data-content-id"), "episode:s1e22");
@@ -669,7 +669,7 @@ calendarTest("Calendar premiere, episode context fallback, badges and distinct e
     await tv.page.keyboard.press("Enter");
     await tv.page.locator('.details-episodes [data-focus="episode:s1e22"]').waitFor();
     await tv.remote(40);
-    assert.equal(await tv.focused(), "episode:s1e22", "resolved episode focus");
+    assert.equal(await tv.focused(), "episode:s1e21", "explicit season Select resets resolved Calendar entry to the first episode");
 });
 
 calendarTest("Calendar-origin series refresh preserves a subsequently selected season and episode", async (tv, catalog) => {

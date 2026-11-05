@@ -1669,6 +1669,20 @@ journey("Down from the top bar lands on the leftmost card", async tv => {
     ];
 });
 
+journey("Home Highway Patrol aspect art retains Apple's measured slot and painted top", async tv => {
+    await tv.page.route("**/art/highway-logo.svg*", route => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg(650, 102) }));
+    await tv.page.locator('[data-section="because/opaque"] [data-focus="movie:m0005"]').focus();
+    await tv.jump(300);
+    const logo = await paintedLogo(tv);
+    near(logo.slotTop, 143, "measured Home slot top");
+    near(logo.slotHeight, 200, "fixed Home slot height");
+    near(logo.paintTop, 174.3, "measured Home Highway Patrol painted top");
+    near(logo.paintWidth, 880, "Home fits wide art to its width");
+}, catalog => {
+    enrichHome(catalog, { "movie:m0005": { logo_url: "/art/highway-logo.svg", overview: "A two-line hero synopsis that fills the marquee stack the signed comparison measured." } });
+    enrichDetails(catalog, { "movie:m0005": { logo_url: "/art/highway-logo.svg" } });
+});
+
 journey("Hero title art scales to fit and centres in Apple's home logo slot", async tv => {
     await tv.page.route("**/art/full-logo.svg*", route => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg(880, 200) }));
     await tv.page.route("**/art/wide-logo.svg*", route => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg(880, 130) }));
@@ -1731,9 +1745,9 @@ journey("Hero title art scales to fit and centres in Apple's home logo slot", as
     const details = await tv.page.locator(".details-logo").evaluate(node => {
         const art = node.getBoundingClientRect();
         const slot = node.parentElement?.getBoundingClientRect();
-        return { art: art.top, slot: slot?.top, height: art.height };
+        return { art: art.bottom, slot: slot?.bottom, height: art.height };
     });
-    assert.equal(details.art, details.slot, "Details title art stays at the top of its heading");
+    assert.equal(details.art, details.slot, "Details title art stays at the bottom of its 160px heading");
     assert.ok(details.height < 180);
 }, catalog => {
     const overview = "A two-line hero synopsis that fills the marquee stack the signed comparison measured.";

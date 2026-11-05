@@ -136,6 +136,19 @@ test("audio artwork, spacing and progress use Swift geometry and every transport
 });
 const focused = (page: Page): Promise<string | null> => page.evaluate(() => document.activeElement?.getAttribute("data-focus") ?? null);
 
+test("audio TV Stop copy and sixty-minute countdown match Swift", async () => {
+    const { page } = await open();
+    try {
+        await page.evaluate(() => window.player.audio());
+        await show(page, playing(NO_TRACKS));
+        const stop = await page.getByRole('button', { name: 'Stop Listening', exact: true }).innerText();
+        await page.getByRole('button', { name: 'Sleep Timer' }).click();
+        await page.getByRole('button', { name: '60 min', exact: true }).click();
+        const sleep = await page.getByRole('button', { name: 'Sleep Timer' }).innerText();
+        assert.deepEqual({ stop, sleep }, { stop: 'Stop', sleep: '60:00' });
+    } finally { await page.close(); }
+});
+
 test("audio transport uses audiobook intervals, chapters and cancellable sleep timer", async () => {
     const { page, logs } = await open();
     try {

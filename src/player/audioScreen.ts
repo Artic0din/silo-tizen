@@ -29,7 +29,11 @@ export function mountAudioScreen(root: HTMLElement, controls: PlayerControls, bo
     let sleepExpired = false;
     let pausingForSleep = false;
     let cancelSleep: (() => void) | undefined;
-    const sleepLabel = (): string => sleepDue === undefined ? "Sleep" : clockTime(Math.max(0, Math.ceil((sleepDue - clock.now()) / 1000)));
+    const sleepLabel = (): string => {
+        if (sleepDue === undefined) return "Sleep";
+        const remaining = Math.max(0, Math.ceil((sleepDue - clock.now()) / 1000));
+        return `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}`;
+    };
     const updateCountdown = (): void => {
         const button = section.querySelector<HTMLElement>('[data-focus="sleep"]');
         if (button !== null) button.textContent = sleepLabel();
@@ -46,7 +50,9 @@ export function mountAudioScreen(root: HTMLElement, controls: PlayerControls, bo
         const content: HTMLElement[] = [el("p", "audio-eyebrow", "Audiobook"), el("h1", "audio-title", cleanAudioTitle(book.title, book.metadata?.series?.name))];
         const author = book.metadata?.authors.filter(Boolean).join(", ");
         if (author) content.push(el("p", "audio-author", author));
-        const buttons = [actionButton("stop", "Stop Listening", () => controls.back())];
+        const stop = actionButton("stop", "Stop", () => controls.back());
+        stop.element.setAttribute("aria-label", "Stop Listening");
+        const buttons = [stop];
         if (view.phase === "playing" || view.phase === "paused") {
             const intervals = view.seekIntervals;
             const position = view.positionSeconds;

@@ -7,6 +7,7 @@ import { graphemeSegments } from "unicode-segmenter/grapheme";
 import { artworkUrl } from "./browseModel.ts";
 import { el } from "./screen.ts";
 import { decodeThumbhash } from "./thumbhash.ts";
+import { episodeAirDate } from "./episodeCaption.ts";
 
 const PERSON_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -35,7 +36,7 @@ export function formatPersonDate(value: string | undefined): string | undefined 
     if (trimmed === undefined || trimmed === "") return undefined;
     const parsed = parsePersonDate(trimmed);
     if (parsed === undefined) return trimmed;
-    return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(parsed.year, parsed.month - 1, parsed.day, 12));
+    return episodeAirDate(trimmed);
 }
 
 /** Whole years from `birthValue` to `today`'s local date, or absent when that is not a living age. */

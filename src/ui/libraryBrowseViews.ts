@@ -35,7 +35,7 @@ const ICONS = {
     selectedCircle: '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M7.5 12.5l3 3 6-6.5" stroke="var(--icon-ink, #000)"/>',
 } as const;
 
-function icon(name: keyof typeof ICONS): HTMLElement {
+export function icon(name: keyof typeof ICONS): HTMLElement {
     const node = el("span", "browse-icon");
     node.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
     return node;
@@ -47,6 +47,26 @@ function row(key: string, parts: readonly (HTMLElement | string)[], onPress: () 
     for (const part of parts) item.element.append(typeof part === "string" ? el("span", "browse-panel-text", part) : part);
     if (label !== undefined) item.element.setAttribute("aria-label", label);
     return item;
+}
+
+export function shuffleAlert(content: HTMLElement[], zones: Zone[], handlers: RouteHandlers): BrowsePage | undefined {
+    const failure = handlers.shuffle?.failure;
+    if (failure === undefined || handlers.shuffle === undefined) return undefined;
+    for (const node of content) { node.inert = true; node.setAttribute("aria-hidden", "true"); }
+    // ShuffleFailureAlert: a modal "Couldn't Shuffle" with the reason and one OK; Back also closes it.
+    const dismiss = handlers.shuffle.dismiss;
+    const ok = actionButton("alert-ok", "OK", dismiss);
+    const box = el("div", "browse-panel browse-alert");
+    box.setAttribute("role", "alertdialog");
+    box.setAttribute("aria-modal", "true");
+    const title = el("h2", "browse-alert-title", "Couldn't Shuffle");
+    title.id = "browse-alert-title";
+    const message = el("p", "browse-alert-message", failure);
+    message.id = "browse-alert-message";
+    box.setAttribute("aria-labelledby", title.id);
+    box.setAttribute("aria-describedby", message.id);
+    box.append(title, message, zoneNode("browse-alert-actions", [ok]));
+    return { content: [...content, el("div", "browse-panel-scrim"), box], zones: [...zones.map(zone => ({ ...zone, items: [] })), { id: "panel", layout: "row", up: "panel", down: "panel", left: "panel", right: "panel", items: [ok] }], back: dismiss };
 }
 
 export interface BrowsePage {
@@ -119,22 +139,8 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
         node.inert = modal;
         if (modal) node.setAttribute("aria-hidden", "true"); else node.removeAttribute("aria-hidden");
     }
-    if (failure !== undefined && handlers.shuffle !== undefined) {
-        // ShuffleFailureAlert: a modal "Couldn't Shuffle" with the reason and one OK; Back also closes it.
-        const dismiss = handlers.shuffle.dismiss;
-        const ok = actionButton("alert-ok", "OK", dismiss);
-        const box = el("div", "browse-panel browse-alert");
-        box.setAttribute("role", "alertdialog");
-        box.setAttribute("aria-modal", "true");
-        const title = el("h2", "browse-alert-title", "Couldn't Shuffle");
-        title.id = "browse-alert-title";
-        const message = el("p", "browse-alert-message", failure);
-        message.id = "browse-alert-message";
-        box.setAttribute("aria-labelledby", title.id);
-        box.setAttribute("aria-describedby", message.id);
-        box.append(title, message, zoneNode("browse-alert-actions", [ok]));
-        return { content: [...content, el("div", "browse-panel-scrim"), box], zones: [...zones.map(zone => ({ ...zone, items: [] })), { id: "panel", layout: "row", up: "panel", down: "panel", left: "panel", right: "panel", items: [ok] }], back: dismiss };
-    }
+    const alert = shuffleAlert(content, zones, handlers);
+    if (alert !== undefined) return alert;
     const panel = state.panel;
     if (panel === undefined) return { content, zones, back: undefined };
     const scrim = el("div", "browse-panel-scrim");

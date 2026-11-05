@@ -112,6 +112,7 @@ export class Skyline {
     private cancelDwell = (): void => undefined;
     private cancelPreview = (): void => undefined;
     private previewId: string | undefined;
+    private previewPending = false;
     private readonly tints = new Map<string, Tints>();
     private selected = "home";
     private sharedScene = false;
@@ -350,8 +351,12 @@ export class Skyline {
 
     preview(card: Card, row: string, continuing = false, featured = false): void {
         this.cancelPreview();
+        const identity = `${row}:${card.id}`;
+        this.previewPending = this.previewId !== identity || this.shown?.card !== card || this.shown.continuing !== continuing || this.shown.featured !== featured;
+        // Focus owns the dwell immediately; capability/repaint callbacks must not rearm the outgoing card.
+        if (this.previewPending) this.cancelTranslation();
         const apply = (): void => {
-            const identity = `${row}:${card.id}`;
+            this.previewPending = false;
             if (this.previewId === identity && this.shown?.card === card && this.shown.continuing === continuing && this.shown.featured === featured) {
                 // hide() cancels the dwell and keeps this card. Coming back has to arm it again.
                 if (!this.translationArmed) this.armTranslation();
@@ -371,7 +376,7 @@ export class Skyline {
         this.cancelTranslation();
         const shown = this.shown;
         const translations = this.translations;
-        if (!this.marqueeOnScreen() || shown === undefined || translations === undefined) return;
+        if (this.previewPending || !this.marqueeOnScreen() || shown === undefined || translations === undefined) return;
         const pending = translations.cards.presentation(shown.card).pendingLanguage;
         if (marqueeTranslationRequest(shown.featured, translations.onView(), shown.card.id, pending) === undefined) return;
         const card = shown.card;

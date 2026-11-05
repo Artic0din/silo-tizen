@@ -26,6 +26,9 @@ Lost track-change replies cannot leave an obsolete local plan playing; definitiv
 `npm run test:ui` bundles the real TypeScript screens for Chrome 108, as the TV build does, and runs them in desktop Chromium.
 Playwright routes native API requests to the same fake Silo and serves synthetic SVG artwork.
 The fake server and browser clocks move together; polling and retry tests do not sleep.
+`openTv` installs a running browser clock; `fastForward` alone does not stop host time from consuming a deadline between jumps.
+Call `pauseTvClock(tv)` before starting an exact deadline or intermediate animation under test, then use `tv.jump(ms)` or `page.clock.runFor(ms)` to advance it explicitly.
+The pause helper advances existing timers by a protocol margin, so call it before the timed action starts.
 Unexpected page logs and errors fail the screen tests.
 
 `test/ui/app.test.ts` composes real sign-in, profiles, browse and playback over FakeCatalog, FakePlayback and FakeAVPlay.

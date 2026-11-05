@@ -1,8 +1,11 @@
 // Remote focus for the browse screens. A view is a stack of zones, top to bottom: a row of
 // cards, a grid of cards, a column of episodes or a row of buttons. Each zone has one focused
-// item at a time; arrows move inside the zone and, past its top or bottom edge, into the zone
-// above or below, landing on the item last focused there. Focus is restored by zone id and item
-// key, never by position, and a key press always brings lost focus back.
+// item at a time. Arrows move inside the zone and, past its edge, into the next. Up and Down
+// between content rows keep the column. An aligned row lands on the item closest to the focused
+// item's left edge, and stays when they do not meet. Down from a landscape card into a poster
+// row uses that card's position. Down from the top bar lands on the leftmost card.
+// Focus is restored by zone id and item key, never by position, and a key press always
+// brings lost focus back.
 // The sign-in ScreenHost moves through one list; grids and stacked rows need two dimensions.
 
 import { remoteKey } from "./keys.ts";
@@ -42,8 +45,8 @@ export interface Zone {
     /** row: Left/Right move. column: Up/Down move. grid: both, `columns` items per row. */
     readonly layout: "row" | "column" | "grid";
     readonly columns?: number;
-    /** Apple's focus engine: between two such zones, Up and Down land on the item nearest the focused one's centre. */
-    readonly spatial?: boolean;
+    /** `true`: nearest centre between zones. `"aligned"`: the intersecting item closest to the focused item's left edge; otherwise the move stays. */
+    readonly spatial?: boolean | "aligned";
     readonly items: readonly FocusItem[];
 }
 
@@ -66,8 +69,6 @@ export interface View {
     readonly focus: FocusTarget | undefined;
     /** Undefined: Back is not handled here and reaches the app's own handler (root exit). */
     readonly back: (() => boolean | void) | undefined;
-    /** Down from the top bar lands on `focus` rather than the item last focused in that zone. */
-    readonly barEntersDefault?: boolean;
 }
 
 export class FocusHost {
@@ -208,8 +209,8 @@ export class FocusHost {
             this.scroll.stop();
             this.applyVisit(visit);
             const element = this.locate(document.activeElement)?.item.element;
-            if ((this.container.dataset.view === "search" || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub")) && element !== undefined) {
-                const viewport = element.closest<HTMLElement>(".browse-panel-list, .skyline-content") ?? this.container;
+            if ((this.container.dataset.view === "search" || this.container.classList.contains("section-catalog") || this.container.classList.contains("library-browse") || this.container.classList.contains("requests-hub") || this.container.classList.contains("details-series-scene") || this.container.classList.contains("accounts-screen")) && element !== undefined) {
+                const viewport = element.closest<HTMLElement>(".browse-panel-list, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? this.container;
                 const card = element.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
                 if (card.top < bounds.top + 12 || card.bottom > bounds.bottom - 32 || !this.insideRow(element)) this.scroll.reveal(element, this.container);
             }
@@ -245,7 +246,7 @@ export class FocusHost {
         if (focused !== undefined) {
             this.memory.set(focused.zone.id, focused.item.key);
             this.lastZone = focused.zone.id;
-            if (!["nav", "selector", "flyout", "pills"].includes(focused.zone.id)) this.contentZone = focused.zone.id;
+            if (this.tracksContent(focused.zone.id)) this.contentZone = focused.zone.id;
         }
         const panels = new Map(this.visits.get(key)?.panels);
         this.container.querySelectorAll<HTMLElement>(".browse-panel-list[data-scroll-key]").forEach(panel => panels.set(panel.dataset.scrollKey ?? "", panel.scrollTop));
@@ -254,7 +255,14 @@ export class FocusHost {
 
     private applyVisit(visit: VisitSnapshot | undefined): void {
         this.viewport().scrollTop = visit?.top ?? 0;
-        this.container.querySelectorAll<HTMLElement>(".browse-row").forEach((row, index) => { row.scrollLeft = visit?.rows.get(this.rowKey(row, index)) ?? 0; });
+        this.container.querySelectorAll<HTMLElement>(".browse-row").forEach((row, index) => {
+            SkylineScroll.prepareEpisodeRow(row);
+            row.scrollLeft = visit?.rows.get(this.rowKey(row, index)) ?? 0;
+            const entry = row.dataset.scrollEntry === undefined ? undefined : Array.from(row.children).find((node): node is HTMLElement => node instanceof HTMLElement && node.dataset.focus === row.dataset.scrollEntry);
+            if (entry !== undefined) {
+                row.scrollLeft = entry.offsetLeft - row.offsetLeft - parseFloat(getComputedStyle(row).paddingLeft);
+            }
+        });
         this.container.querySelectorAll<HTMLElement>(".browse-panel-list[data-scroll-key]").forEach(panel => { panel.scrollTop = visit?.panels.get(panel.dataset.scrollKey ?? "") ?? 0; });
     }
 
@@ -353,7 +361,7 @@ export class FocusHost {
         const focused = this.locate(event.target instanceof Element ? event.target : null);
         if (focused === undefined || ["nav", "selector", "flyout", "pills"].includes(focused.zone.id)) return;
         this.memory.set(focused.zone.id, focused.item.key);
-        this.contentZone = focused.zone.id;
+        if (this.tracksContent(focused.zone.id)) this.contentZone = focused.zone.id;
     };
 
     private focusFirst(candidates: readonly (FocusTarget | undefined)[]): void {
@@ -384,11 +392,44 @@ export class FocusHost {
         for (let next = zoneIndex + step; next >= 0 && next < zones.length; next += step) {
             const zone = zones[next];
             if (zone !== undefined && zone.items.length > 0) {
-                const remembered = this.memory.get(zone.id);
+                // Apple raises the first row's default-focus priority while the
+                // top menu is focused (TVSkylineSectionFeed), so Down from the
+                // bar ignores the card remembered in that row. Calendar shelves
+                // do the same when entered from the filter or day strip.
+                const sourceId = zones[zoneIndex]?.id;
+                const fromChrome = sourceId === "nav" || (this.view?.name === "calendar" && (sourceId === "days" || sourceId === "filters" || sourceId === "status" || sourceId === "empty"));
+                const remembered = fromChrome ? undefined : this.memory.get(zone.id);
+                const spatial = zone.spatial && zones[zoneIndex]?.spatial;
                 const columns = Math.max(1, zone.columns ?? 1);
                 const edge = step === 1 ? 0 : Math.floor((zone.items.length - 1) / columns) * columns;
-                const candidates = zone.layout === "grid" ? zone.items.slice(edge, edge + columns) : zone.items;
-                const nearest = zone.spatial === true && zones[zoneIndex]?.spatial === true ? nearestItem(candidates, from.element, this.navigationX) : undefined;
+                const edgeItems = zone.layout === "grid" ? zone.items.slice(edge, edge + columns) : zone.items;
+                // Selection and the last focused chip do not choose this landing. The item that
+                // meets the focused item and sits closest to its left edge does; no meeting, no move.
+                if (zone.spatial === "aligned") {
+                    const origin = from.element.getBoundingClientRect();
+                    let match: FocusItem | undefined;
+                    let best = Number.POSITIVE_INFINITY;
+                    for (const item of edgeItems) {
+                        const target = item.element.getBoundingClientRect();
+                        if (origin.left >= target.right || target.left >= origin.right) continue;
+                        const distance = Math.max(0, target.left - origin.left);
+                        if (distance < best) {
+                            best = distance;
+                            match = item;
+                        }
+                    }
+                    if (match !== undefined) this.focusItem(zone, match);
+                    return true;
+                }
+                // A landscape card is wider than the poster column it was reached from, so the
+                // remembered axis points at a different poster. Measure this card instead.
+                const fromWide = landscapeArt(from.element);
+                const toPoster = edgeItems[0] !== undefined && !landscapeArt(edgeItems[0].element);
+                if (fromWide && toPoster) {
+                    const rect = from.element.getBoundingClientRect();
+                    this.navigationX = rect.left + rect.width / 2;
+                }
+                const nearest = spatial ? nearestItem(edgeItems, from.element, this.navigationX) : undefined;
                 this.focusItem(zone, zone.items.find(item => item.key === zone.entry) ?? nearest ?? zone.items.find((item) => item.key === remembered) ?? zone.items[0]);
                 return true;
             }
@@ -400,14 +441,26 @@ export class FocusHost {
         if (zone === undefined || item === undefined) {
             return;
         }
-        if (zone.id === "nav" || (this.lastZone === "nav" && this.view?.barEntersDefault === true)) this.navigationX = undefined;
+        // The top bar is not a content column. Entering it or leaving it drops the
+        // axis, so the next vertical move measures the card rather than the tab.
+        // Calendar's filter and day strip are the same kind of chrome. A shelf's
+        // first card is a default-focus landing (CalendarView prefers the first
+        // item on every shelf), so the next Down must measure that card rather
+        // than the day button the axis still holds.
+        const calendarChrome = this.view?.name === "calendar" && (zone.id === "filters" || zone.id === "days" || zone.id === "status" || zone.id === "empty" || this.lastZone === "filters" || this.lastZone === "days" || this.lastZone === "status" || this.lastZone === "empty");
+        if (zone.id === "nav" || this.lastZone === "nav" || calendarChrome) this.navigationX = undefined;
         this.memory.set(zone.id, item.key);
         this.lastZone = zone.id;
         // Opening the cascade must not replace the content return target.
-        if (!["nav", "selector", "flyout", "pills"].includes(zone.id)) this.contentZone = zone.id;
+        if (this.tracksContent(zone.id)) this.contentZone = zone.id;
         this.navigationItem = item;
         item.element.focus({ preventScroll: true });
         this.scroll.reveal(item.element, this.container);
+    }
+
+    /** Chrome zones are not a page's content return target. */
+    private tracksContent(zoneId: string): boolean {
+        return !["nav", "selector", "flyout", "pills"].includes(zoneId);
     }
 
     /** Where focus last was in this view, to return to after it was lost. */
@@ -503,15 +556,25 @@ export class FocusHost {
         const target = moveWithin(zone, zone.items.length, index, key);
         if (target !== undefined) {
             this.focusItem(zone, zone.items[target]);
-        } else if (key === "down" && zone.id === "nav" && view.barEntersDefault === true) {
-            this.focusFirst([view.focus]);
         } else {
+            if (zone.id === "seasons" && key === "up") {
+                const actions = view.zones.find(candidate => candidate.id === "actions");
+                this.focusItem(actions, actions?.items.find(item => item.key === "more"));
+                return;
+            }
             const destination = zone[key];
             const next = view.zones.find(candidate => candidate.id === destination && candidate.items.length > 0);
-            if (next !== undefined) this.focusItem(next, next.items.find(item => item.key === this.memory.get(next.id)) ?? next.items[0]);
+            if (next !== undefined) this.focusItem(next, next.items.find(item => item.key === next.entry) ?? next.items.find(item => item.key === this.memory.get(next.id)) ?? next.items[0]);
             else if (key === "up" || key === "down") this.enterZone(zoneIndex, key === "up" ? -1 : 1, found.item);
         }
     };
+}
+
+/** Home stills are wider than they are tall; posters are the other way. Explore all uses the row's art box. */
+function landscapeArt(element: HTMLElement): boolean {
+    const art = element.querySelector(".browse-art");
+    const box = (art instanceof HTMLElement ? art : element).getBoundingClientRect();
+    return box.width > box.height;
 }
 
 function nearestItem(items: readonly FocusItem[], from: HTMLElement, navigationX?: number): FocusItem | undefined {
@@ -547,6 +610,11 @@ export function moveWithin(zone: Pick<Zone, "layout" | "columns">, count: number
 
 /** Makes `nodes` the container's children; a node already in its place is not moved, so it keeps focus. */
 function place(container: HTMLElement, nodes: readonly HTMLElement[]): void {
+    // Remove replaced siblings first so retained focus/press hosts never need a DOM move.
+    const retained = new Set(nodes);
+    for (const child of Array.from(container.children)) {
+        if (child instanceof HTMLElement && !retained.has(child)) child.remove();
+    }
     nodes.forEach((node, index) => {
         const current = container.children[index];
         if (current !== node) {

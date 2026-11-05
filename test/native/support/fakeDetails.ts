@@ -15,6 +15,7 @@ export class FakeDetails extends FakeCatalog {
     set watched(value: boolean) { this.setMember("p-owner", "watched", "movie:m0001", value); }
     capability = true;
     empty = false;
+    extras: readonly Record<string, unknown>[] = [];
     readonly mutations: string[] = [];
     mutationFailure: Reply | undefined;
     readonly ratings = new Map<string, number>();
@@ -135,7 +136,7 @@ export class FakeDetails extends FakeCatalog {
         }
         if (url.pathname === "/catalog/items/movie%3Am0001" && reply?.status === 200 && typeof reply.body === "object" && reply.body !== null) {
             return { status: 200, body: { ...reply.body,
-                title: "The Last Signal", overview: "A remote observatory receives a message that changes the lives of everyone on the night shift.",
+                title: "The Last Signal", overview: "A remote observatory receives a message that changes the lives of everyone on the night shift.", extras: this.extras,
                 backdrop_url: "/art/last-signal-backdrop.svg", logo_url: "/art/last-signal-logo.svg",
                 cast: [{ person_id: "7", name: "River Vale", character: "Alex", order: 0, photo_url: "/art/river.svg" }, { name: "Morgan Lane", character: "Sam", order: 1 }],
                 crew: [{ person_id: "7", name: "River Vale", job: "Director", photo_url: "/art/river.svg" }],
@@ -163,7 +164,7 @@ export class FakeDetails extends FakeCatalog {
     }
 
     private personPage(method: string, url: URL, profileId: string | undefined, body?: Record<string, unknown>): Reply {
-        const answer = this.personReplies.shift();
+        const answer = body?.limit === 1 ? undefined : this.personReplies.shift();
         if (answer !== undefined) return answer;
         const id = String(body?.person_id ?? url.searchParams.get("person_id"));
         const type = body?.type ?? url.searchParams.get("type");

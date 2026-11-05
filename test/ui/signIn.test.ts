@@ -336,6 +336,19 @@ tvTest("Back on the setup screen opens sign-in, the screen underneath it on Appl
     await codeScreen(tv);
 });
 
+tvTest("Check again resumes a saved account when setup becomes ready", async tv => {
+    await connectTo(tv);
+    await signIn(tv);
+    tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    await tv.page.evaluate(() => window.harness.mount());
+    await tv.page.locator('[data-screen="needs-setup"]').waitFor();
+    const devices = tv.fake.devices.size;
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await handoffs(tv) === 2, "saved account handoff after setup retry");
+    assert.equal(await tv.page.evaluate(() => window.harness.handoffs[1]?.restore), "signed_in");
+    assert.equal(tv.fake.devices.size, devices, "restored account does not start another device login");
+});
+
 tvTest("connecting keeps the address screen with Connecting… on Connect, and Back waits for it, as on the Apple TV app", async (tv) => {
     const hold = tv.fake.hold("/system/info");
     await connectTo(tv);
@@ -732,6 +745,10 @@ for (const action of abandonmentActions) {
         assert.equal(await handoffs(tv), 0);
         await tv.eventually(async () => tv.fake.revokedSessions.size === 1, "the abandoned server session to be revoked");
         await tv.page.evaluate(() => window.harness.mount());
+        await tv.page.locator('[data-screen="entry"]').waitFor();
+        assert.equal(await tv.page.locator("#signin-address").inputValue(), "", "an abandoned first account leaves no saved server");
+        await tv.page.fill("#signin-address", "silo.example.test");
+        await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
         await codeScreen(tv);
         assert.equal(await handoffs(tv), 0, "restart cannot restore the abandoned account");
     });
@@ -831,14 +848,15 @@ tvTest("signing out offline still clears the TV, and the address screen says wha
     assert.equal(await tv.screen(), "entry");
     await shows(tv, "Signed out on this TV.");
     await shows(tv, "The server could not be reached, so it may still list this TV's session.");
-    assert.equal(await tv.page.inputValue("#signin-address"), "https://silo.example.test");
-    assert.equal(await tv.focused(), "connect");
+    assert.equal(await tv.page.inputValue("#signin-address"), "", "signing out of the only account removes the saved server");
+    assert.equal(await tv.focused(), "address", "the removed server must be entered again");
     assert.equal(await tv.page.evaluate(() => window.harness.keyManager?.items.size), 0);
 
     const before = tv.fake.requests.length;
     tv.offline = false;
     assert.equal(tv.fake.requests.length, before, "no reconnect until asked");
-    await tv.page.keyboard.press("Enter");
+    await tv.page.fill("#signin-address", "silo.example.test");
+    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
     await codeScreen(tv);
 });
 
@@ -1384,10 +1402,10 @@ tvTest("HTTPS chosen in Advanced options never offers plain HTTP, and a bad port
     await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
     await shows(tv, "Port must be a number between 1 and 65535.");
     assert.equal(await tv.page.locator(".marquee-error").count(), 1);
-    // Previously a bad Port field outlined the address.
+    // Previously a bad Port field outlined the address and took focus. The outline stays; focus stays on Connect.
     assert.equal(await tv.page.locator(".signin-field-error #signin-port").count(), 1, "the Port field shows the error");
     assert.equal(await tv.page.locator(".signin-field-error #signin-address").count(), 0);
-    assert.equal(await tv.focused(), "port");
+    assert.equal(await tv.focused(), "connect", "a bad Port leaves focus on Connect");
     assert.equal(tv.blocked, 0);
     await tv.page.fill("#signin-port", "");
     await tv.page.locator('[data-focus="scheme-https"]').click();
@@ -1403,6 +1421,7 @@ tvTest("a port typed into the address outlines the address and opens nothing", a
     await shows(tv, "Port must be a number between 1 and 65535.");
     assert.equal(await tv.page.locator(".signin-field-error #signin-address").count(), 1);
     assert.equal(await tv.page.locator("#signin-port").count(), 0, "advanced options stay closed");
+    assert.equal(await tv.focused(), "connect", "a port typed into the address leaves focus on Connect");
     assert.equal(tv.blocked, 0);
 });
 
@@ -1755,7 +1774,9 @@ tvTest("hidden, the code is not polled; back on screen it polls at once and code
         await tv.jump(15 * MINUTE);
         await tv.eventually(async () => tv.fake.devices.size === renewal, `renewal ${renewal}`);
     }
+    const beforeHidePoll = polls(tv);
     await tv.jump(5 * MINUTE);
+    await tv.eventually(async () => polls(tv) > beforeHidePoll, "poll triggered before hiding reaches the fake server");
     await setHidden(tv, true);
     const before = polls(tv);
     await tv.jump(20 * MINUTE);

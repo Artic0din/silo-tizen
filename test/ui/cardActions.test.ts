@@ -155,7 +155,7 @@ test("card actions initial loading, bad identity and Retry keep Close reachable 
         answer.release();
         await tv.jump(0);
         assert.equal(await menu(tv).count(), 0);
-        tv.fake.script("/catalog/items/movie%3Am0001?image_size=medium", { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "movie:wrong" } });
+        tv.fake.script("/catalog/items/movie%3Am0001?image_size=large", { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "movie:wrong" } });
         await hold(tv);
         await menu(tv).getByText("Could not load card actions.").waitFor();
         assert.equal(await menu(tv).getByRole("button").count(), 2);
@@ -172,7 +172,7 @@ for (const answer of ["unsupported", "unknown", "malformed", "membership-mismatc
         if (answer === "unsupported") catalog.capability = false;
         if (answer === "malformed") tv.fake.script("/capabilities/personal-lists", { status: 200, body: {} });
         if (answer === "membership-mismatch") tv.fake.script("/favorites/movie%3Am0001/membership", { status: 200, body: { item_id: "movie:wrong", is_member: false } });
-        if (answer === "unknown") tv.fake.script("/catalog/items/movie%3Am0001?image_size=medium", { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", user_state: undefined, user_data: undefined } });
+        if (answer === "unknown") tv.fake.script("/catalog/items/movie%3Am0001?image_size=large", { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", user_state: undefined, user_data: undefined } });
         await hold(tv);
         if (answer === "unsupported") await menu(tv).getByText("List actions are unavailable for this title.").waitFor();
         if (answer === "malformed" || answer === "membership-mismatch") {
@@ -331,6 +331,7 @@ for (const surface of ["library-shelf", "library-grid", "collection", "search", 
                 await tv.page.locator('.browse .browse-grid .browse-card').first().waitFor();
             }
             if (surface === "collection") {
+                await selectLibraryMode(tv, "Collections");
                 const fan = tv.page.locator('.browse .discovery-collection').first();
                 await fan.focus(); await tv.down(13); await tv.jump(700); await tv.up(13);
                 assert.equal(await menu(tv).count(), 0);
@@ -345,9 +346,10 @@ for (const surface of ["library-shelf", "library-grid", "collection", "search", 
             await tv.page.locator('.browse .browse-grid .browse-card').first().waitFor();
         } else {
             await tv.page.locator(`[data-section="recently_added"] [data-focus="${surface === "season" || surface === "episode" ? "series:s1" : "movie:m0001"}"]`).click();
+            if (surface === "season" || surface === "episode") await tv.eventually(async () => await tv.focused() === "next-episode", "Series Play entry focus settles before targeting a chip or card");
             if (surface === "person-preview") {
                 await tv.page.locator('[data-focus="person:7"]').first().click();
-                await tv.page.locator('.browse[data-view="person:7"] .browse-row .browse-card').first().waitFor();
+                await tv.page.locator('.browse[data-view="person:7"] .browse-grid .browse-card').first().waitFor();
             }
             if (surface === "episode") await tv.page.locator('[data-focus="season:1"]').click();
             if (surface === "related") await tv.page.locator('[data-detail-section="related"] .browse-card').first().waitFor();

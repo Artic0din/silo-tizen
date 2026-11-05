@@ -5,6 +5,31 @@ import { operations } from "../../src/api/operations.ts";
 import { FakeDetails } from "./support/fakeDetails.ts";
 import { connected, signIn } from "./support/harness.ts";
 import { problem } from "./support/fakeSilo.ts";
+import { decodeSeasons } from "../../src/contracts/v2/catalog.ts";
+
+test('series entry follows the current season instead of the first season', async () => {
+    const h = await connected();
+    const seasons = decodeSeasons({ items: [1, 14].map(number => ({ content_id: `s${number}`, season_number: number, title: `Season ${number}`, episode_count: 10, user_data: { played: number === 1, watched_count: number === 1 ? 10 : 4, in_progress_count: number === 14 ? 1 : 0 } })) });
+    const state = new SeriesEpisodes(h.core.session, 'series', seasons, () => undefined);
+    assert.equal(state.seasonNumber, 14);
+    const explicit = new SeriesEpisodes(h.core.session, 'series', seasons, () => undefined, 1);
+    assert.equal(explicit.seasonNumber, 1, 'explicit context still wins');
+});
+
+test('episode row entry uses the current episode after the selected season loads', async () => {
+    const h = await connected(); await signIn(h);
+    const profile = (await h.core.profiles.list()).find(profile => profile.id === 'p-owner'); assert.ok(profile); h.core.profiles.select(profile);
+    const catalog = new FakeDetails(); h.fake.catalog = catalog;
+    const seasons = await h.core.session.call({ ...operations.listSeriesSeasons('series:s1'), profileScoped: true });
+    const raw = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner');
+    assert.ok(raw?.body && typeof raw.body === 'object');
+    const body = raw.body as { items: Record<string, unknown>[] };
+    h.fake.script(operations.listSeasonEpisodes('series:s1', 1).path, { status: 200, body: { items: body.items.map((episode, index) => ({ ...episode, user_data: { played: false, in_progress_count: index === 1 ? 1 : 0 } })) } });
+    const state = new SeriesEpisodes(h.core.session, 'series:s1', seasons, () => undefined);
+    state.start(); for (let index = 0; index < 5; index++) await h.clock.advance(0);
+    assert.equal(state.entryEpisode, 'episode:s1e12');
+    state.stop();
+});
 
 test("series episodes retain accepted data and reject abandoned or replaced season reads", async () => {
     const h = await connected();
@@ -23,11 +48,12 @@ test("series episodes retain accepted data and reject abandoned or replaced seas
     state.select(1);
     await settle();
     assert.equal(h.fake.requests.filter(request => request.path.includes("/episodes")).length, 1, "reselecting a loading chip keeps its existing read");
-    assert.equal(state.entryEpisode, "episode:s1e12");
+    assert.equal(state.entryEpisode, undefined, "explicit Select supersedes resume while the current season is loading");
     initial.release();
     await settle();
     assert.equal(state.seasonNumber, 1);
     assert.equal(state.episodes?.[0]?.id, "episode:s1e11");
+    assert.equal(state.entryEpisode, "episode:s1e11");
     const reads = h.fake.requests.filter(request => request.path.includes("/episodes")).length;
     state.stop(); state.start();
     await settle();

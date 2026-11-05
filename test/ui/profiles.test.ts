@@ -11,6 +11,33 @@ const BACK = 10009;
 const IME_DONE = 65376;
 const KID_PIN = "2468";
 
+/** MarqueeButtonStyle on tvOS: a focused button fills `Color.siloOnSurface` (#EDEDED) with black ink. */
+const APPLE_FOCUSED_BUTTON = ["rgb(237, 237, 237)", "rgb(0, 0, 0)"];
+
+async function focusedButtonColors(tv: Tv, key: string): Promise<string[]> {
+    return tv.page.locator(`[data-focus="${key}"]`).evaluate(node => {
+        if (!(node instanceof HTMLElement)) throw new Error("footer button missing");
+        // The frozen test clock holds the 120ms colour transition at its start. Settle it, then read the focused colours.
+        node.style.transition = "none";
+        node.blur();
+        node.focus();
+        const style = getComputedStyle(node);
+        return [style.backgroundColor, style.color];
+    });
+}
+
+tvTest("focused profile footer buttons use Apple's on-surface fill and black ink", async tv => {
+    await picker(tv);
+    assert.deepEqual(await focusedButtonColors(tv, "change-server"), APPLE_FOCUSED_BUTTON);
+    assert.deepEqual(await focusedButtonColors(tv, "signout"), APPLE_FOCUSED_BUTTON);
+    tv.fake.passwordChangeRequired = true;
+    tv.fake.expireAccessTokens();
+    await tv.page.evaluate(() => window.harness.mount());
+    await screenIs(tv, "profiles-error");
+    assert.deepEqual(await focusedButtonColors(tv, "change-account"), APPLE_FOCUSED_BUTTON, "the reset refusal footer has the same focus fill");
+    assert.deepEqual(await focusedButtonColors(tv, "signout"), APPLE_FOCUSED_BUTTON);
+});
+
 tvTest("the profile picker uses source-sized circular avatars and centered account chrome", async tv => {
     await tv.page.emulateMedia({ reducedMotion: "reduce" });
     await tv.page.addStyleTag({ content: "* { font-family: SamsungOne; font-weight: 600; }" });
@@ -38,7 +65,7 @@ tvTest("the profile picker uses source-sized circular avatars and centered accou
     assert.equal(geometry.accountWeight, "400");
     assert.equal(geometry.footerGap, 20);
     assert.equal(await tv.page.getByText(/^Signed in as /).isVisible(), true);
-    assert.equal(await tv.page.getByRole("button", { name: "Change server", exact: true }).isVisible(), true);
+    assert.equal(await tv.page.getByRole("button", { name: "Change account", exact: true }).isVisible(), true);
     assert.equal(await tv.page.getByRole("button", { name: "Add profile", exact: true }).isVisible(), true);
 });
 
@@ -740,7 +767,7 @@ tvTest("creation validates locally and cancellation restores Add without launchi
     await screenIs(tv, "profiles");
     assert.equal(await tv.focused(), "add-profile");
     assert.equal((await handed(tv)).length, 0);
-    await tv.page.getByRole("button", { name: "Change server", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Change account", exact: true }).click();
     assert.equal(await tv.page.locator('[data-screen="server-selection"]').count(), 1);
     assert.equal(tv.fake.revokedSessions.size, 0);
 });

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { decodeItemDetail, decodeResumePosition, type ItemDetail } from "../../src/contracts/v2/catalog.ts";
+import { decodeItemDetail, decodeResumePosition, decodeSeasons, type ItemDetail } from "../../src/contracts/v2/catalog.ts";
+import { SeriesEpisodes } from "../../src/ui/seriesEpisodes.ts";
 import { decodeFileVersionTracks } from "../../src/contracts/v2/playback.ts";
 import { object, WireError } from "../../src/contracts/v2/wire.ts";
 import { DetailsState } from "../../src/ui/detailsState.ts";
@@ -12,6 +13,195 @@ import { fixture, problem } from "./support/fakeSilo.ts";
 
 const ID = "movie:m0001";
 const WATCH = "/watch/movie%3Am0001?file_id=42";
+
+test("returning from Episode information refreshes cached effective episode preferences", async () => {
+    const r = await rig(); r.state.stop();
+    const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
+    const seasons = decodeSeasons(r.catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body);
+    const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
+    state.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes());
+    state.start(); await settle();
+    const id = 'episode:s1e12';
+    assert.ok(state.cachedEpisode(id));
+    state.stop();
+    state.noteEpisodePreference(id, true);
+    const raw = r.catalog.route('GET', '/catalog/items/episode%3As1e12', 'p-owner')?.body;
+    assert.ok(raw && typeof raw === 'object');
+    r.h.fake.script('/catalog/items/episode%3As1e12?image_size=large', { status: 200, body: { ...raw, effective_subtitle_mode: 'off', effective_show_forced_subtitles: false } });
+    const writes = r.h.fake.requests.filter(request => request.method !== 'GET').length;
+    state.start(); await settle();
+    assert.equal(state.cachedEpisode(id)?.subtitleIntent().kind, 'off');
+    const reads = r.h.fake.requests.length;
+    state.focusEpisode(id);
+    assert.equal(r.h.fake.requests.length, reads, 'focus remains read-free');
+    assert.equal(r.h.fake.requests.filter(request => request.method !== 'GET').length, writes, 'return is read-only');
+    state.stop();
+});
+
+test("returning to retained Series completes interrupted season prefetches before focus", async () => {
+    const r = await rig();
+    r.state.stop();
+    const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
+    const seasons = decodeSeasons(r.catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body);
+    const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
+    state.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes());
+    const held = r.h.fake.hold('/catalog/items/episode%3As1e12?image_size=large', true);
+    state.start();
+    await settle();
+    assert.equal(state.cachedEpisode('episode:s1e12'), undefined);
+    state.stop();
+    held.release();
+    await settle();
+    state.start();
+    await settle();
+    assert.ok(state.cachedEpisode('episode:s1e12'));
+    const before = r.h.fake.requests.length;
+    state.focusEpisode('episode:s1e12');
+    assert.equal(state.nextEpisode?.id, 'episode:s1e12');
+    assert.equal(r.h.fake.requests.length, before);
+    state.stop();
+});
+
+test("season detail prefetch bounds concurrency and cancels queued and late work", async () => {
+    const r = await rig(); r.state.stop();
+    const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
+    const seasons = decodeSeasons(r.catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body);
+    const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
+    state.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes());
+    state.start(); await settle();
+    const row = state.series.episodes?.[0], title = r.catalog.titles.get('episode:s1e11');
+    assert.ok(row && title);
+    const ids = Array.from({ length: 6 }, (_, index) => `episode:batch-${index}`);
+    const held = ids.map(id => { r.catalog.titles.set(id, { ...title, id }); return r.h.fake.hold(`/catalog/items/${encodeURIComponent(id)}?image_size=large`, true); });
+    state.series.episodes = ids.map(id => ({ ...row, id }));
+    state.warmSeriesEpisodes(); await settle();
+    const reads = (): number => r.h.fake.requests.filter(request => request.path.startsWith('/catalog/items/episode%3Abatch-')).length;
+    assert.equal(reads(), 4);
+    state.focusEpisode(ids[5] ?? '');
+    assert.equal(reads(), 4, 'focusing a queued episode starts no read');
+    held[0]?.release(); await settle();
+    assert.equal(reads(), 5, 'one completed read frees one worker');
+    state.stop();
+    for (const request of held) request.release();
+    await settle();
+    assert.equal(reads(), 5, 'cancellation does not launch the queued sixth read');
+    assert.equal(state.cachedEpisode(ids[5] ?? ''), undefined);
+});
+
+test("confirming a shared preference requeues episodes whose detail read was interrupted", async () => {
+    const r = await rig(); r.state.stop();
+    const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
+    const seasons = decodeSeasons(r.catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body);
+    const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
+    state.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes());
+    const held = r.h.fake.hold('/catalog/items/episode%3As1e12?image_size=large', true);
+    state.start(); await settle();
+    const first = state.cachedEpisode('episode:s1e11');
+    assert.ok(first);
+    r.h.fake.script('/subtitle-prefs/series%3As1', { status: 204 }, { status: 200, body: { series_id: 'series:s1', subtitle_mode: 'off', subtitle_track_index: -1 } });
+    state.noteEpisodePreference(first.detail.id);
+    first.selectSubtitle('off'); await settle();
+    assert.ok(state.cachedEpisode('episode:s1e12'), 'preference refresh must include unfinished episode reads');
+    held.release(); state.stop(); await settle();
+});
+
+test("restored episode focus and overview next-up can belong to different seasons", async () => {
+    const r = await rig(); r.state.stop();
+    const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
+    const seasons = decodeSeasons(r.catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body);
+    const previous = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
+    previous.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => previous.warmSeriesEpisodes());
+    previous.start(); await settle(); previous.focusEpisode('episode:s1e12'); previous.stop();
+    const state = new DetailsState({ ...detail, playContentId: 'episode:s1e21' }, r.h.core.session, () => undefined, async () => undefined);
+    state.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes(), 1);
+    state.restore(previous); state.start(); await settle();
+    assert.equal(state.nextEpisode?.id, 'episode:s1e12');
+    state.showSeriesOverview(); await settle();
+    assert.equal(state.nextEpisode?.id, 'episode:s1e21');
+    state.stop();
+});
+
+test("preference confirmation recovers after an interrupted save and failed detail reload", async () => {
+    const r = await rig(); r.state.stop();
+    const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
+    const seasons = decodeSeasons(r.catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body);
+    const previous = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
+    previous.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => previous.warmSeriesEpisodes());
+    previous.start(); await settle();
+    const owner = previous.cachedEpisode('episode:s1e11'); assert.ok(owner);
+    r.h.fake.script('/subtitle-prefs/series%3As1', { status: 204 }, { status: 200, body: { series_id: 'series:s1', subtitle_mode: 'off', subtitle_track_index: -1 } });
+    const held = r.h.fake.hold('/subtitle-prefs/series%3As1', true);
+    previous.noteEpisodePreference(owner.detail.id); owner.selectSubtitle('off'); await settle(); previous.stop(); held.release(); await settle();
+    const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
+    state.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes());
+    state.restore(previous);
+    r.h.fake.script('/catalog/items/episode%3As1e11?image_size=large', { status: 500 });
+    state.start(); await settle();
+    assert.equal(state.episodePreferencesBlocked, true);
+    const stopped = state.unsettledEpisode; assert.ok(stopped);
+    state.retryPreference('subtitles', stopped); await settle();
+    assert.ok(state.cachedEpisode('episode:s1e11'), 'confirmation must reload a stopped preference owner');
+    assert.equal(state.episodePreferencesBlocked, false);
+    state.stop();
+});
+
+test("repeated Series restores retain an unresolved episode choice until confirmation", async () => {
+    const r = await rig(); r.state.stop();
+    const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
+    const seasons = decodeSeasons(r.catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body);
+    const create = (): DetailsState => {
+        const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
+        state.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes());
+        return state;
+    };
+    const original = create(); original.start(); await settle();
+    const owner = original.cachedEpisode('episode:s1e11'); assert.ok(owner);
+    const preferencePath = '/subtitle-prefs/series%3As1';
+    r.h.fake.script(preferencePath, { status: 204 }, { status: 200, body: { series_id: 'series:s1', subtitle_mode: 'off', subtitle_track_index: -1 } });
+    const held = r.h.fake.hold(preferencePath, true);
+    original.noteEpisodePreference(owner.detail.id); owner.selectSubtitle('off'); await settle();
+    original.stop(); held.release(); await settle();
+    const writes = (): number => r.h.fake.requests.filter(request => request.path === preferencePath && request.method === 'PUT').length;
+    assert.equal(writes(), 1);
+    let previous = original;
+    for (let visit = 0; visit < 2; visit++) {
+        const state = create(); state.restore(previous);
+        r.h.fake.script('/catalog/items/episode%3As1e11?image_size=large', { status: 500 });
+        state.start(); await settle();
+        assert.equal(state.episodePreferencesBlocked, true, `replacement ${visit + 1} must retain uncertain preference`);
+        assert.equal(state.unsettledEpisode?.subtitleIntent().kind, 'off');
+        assert.equal(state.cachedEpisode(owner.detail.id), undefined);
+        assert.equal(writes(), 1, 'restoring never replays the uncertain mutation');
+        state.stop(); previous = state;
+    }
+    const recovered = create(); recovered.restore(previous); recovered.start(); await settle();
+    assert.ok(recovered.cachedEpisode(owner.detail.id));
+    assert.equal(recovered.episodePreferencesBlocked, false);
+    assert.equal(writes(), 1, 'confirmed readback recovers without another mutation');
+    recovered.stop();
+});
+
+test('Season invalidates cached shared preferences when an uncached episode in the same series changes', async () => {
+    const r = await rig(); r.state.stop();
+    const series = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
+    const raw = r.catalog.route('GET', '/catalog/items/episode%3As1e11', 'p-owner')?.body as Record<string, unknown>;
+    const path = '/catalog/items/episode%3As1e11?image_size=large';
+    r.h.fake.script(path, { status: 200, body: { ...raw, effective_subtitle_mode: 'off', effective_show_forced_subtitles: false } });
+    const state = new DetailsState({ ...series, id: 'series:s1-S1', type: 'season', seriesId: series.id }, r.h.core.session, () => undefined, async () => undefined);
+    state.start(); await settle();
+    assert.equal(state.nextEpisodeState?.subtitleIntent().kind, 'off');
+    assert.equal(state.cachedEpisode('episode:s1e12'), undefined);
+    state.stop();
+    state.noteEpisodePreference('episode:s1e12', true, 'unrelated-series');
+    state.start(); await settle();
+    assert.equal(state.nextEpisodeState?.subtitleIntent().kind, 'off', 'unrelated series does not invalidate this visit');
+    state.stop();
+    state.noteEpisodePreference('episode:s1e12', true, series.id);
+    r.h.fake.script(path, { status: 200, body: { ...raw, effective_subtitle_mode: 'auto', effective_show_forced_subtitles: false } });
+    state.start(); await settle();
+    assert.equal(state.nextEpisodeState?.subtitleIntent().kind, 'auto', 'shared preference invalidates the cached primary episode');
+    state.stop();
+});
 
 async function rig() {
     const h = await connected();
@@ -40,7 +230,7 @@ test("series primary metadata is visit-owned, validates episode identity and ret
     const detail = decodeItemDetail(raw.body);
     const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
     const target = (): ItemDetail | undefined => state.nextEpisode;
-    const path = "/catalog/items/episode%3As1e11?image_size=medium";
+    const path = "/catalog/items/episode%3As1e11?image_size=large";
     const held = r.h.fake.hold(path, true);
     state.start();
     await settle();
@@ -97,7 +287,7 @@ test("watched reconciliation replaces an older pending primary read within the s
     const reply = r.catalog.route("GET", "/catalog/items/series%3As1", "p-owner");
     assert.ok(reply);
     const state = new DetailsState(decodeItemDetail(reply.body), r.h.core.session, () => undefined, async () => undefined);
-    const held = r.h.fake.hold("/catalog/items/episode%3As1e11?image_size=medium", true);
+    const held = r.h.fake.hold("/catalog/items/episode%3As1e11?image_size=large", true);
     state.start();
     await settle();
     assert.equal(state.nextEpisodeLoading, true);
@@ -120,7 +310,7 @@ test("Details reuses the per-file audio decoder and never invents omitted tracks
     assert.throws(() => decodeItemDetail({ ...raw, versions: [{ file_id: "42", duration: 3000, audio_tracks: [{ language: "en" }] }] }), WireError);
 });
 
-test("attempt-only audio survives identical refresh, resets for a changed inventory or file, and only an explicit version pins", async () => {
+test("visit audio survives identical refresh, resets for a changed inventory or file, and only an explicit version pins", async () => {
     const r = await rig();
     try {
         r.state.selectAudio(1);
@@ -139,7 +329,9 @@ test("attempt-only audio survives identical refresh, resets for a changed invent
         assert.equal(r.state.audioTrackId(), "file:43:audio:1");
         r.state.select("42");
         assert.equal(r.state.audioTrackId(), undefined);
-        assert.equal(r.h.fake.requests.some(req => req.method === "PUT" || req.method === "DELETE"), false);
+        await settle();
+        assert.equal(r.h.fake.requests.some(req => req.method === "PUT" && req.path === "/audio-prefs/movie%3Am0001"), true);
+        assert.equal(r.h.fake.requests.some(req => req.path.startsWith("/version-prefs/")), false, "version selection remains visit-only");
     } finally { r.state.stop(); }
 });
 
@@ -155,6 +347,9 @@ test("fresh progress and fresh no-progress replace cached progress using the cap
             await settle();
             r.state.select("43");
             r.state.selectAudio(0);
+            r.state.selectSubtitle("off");
+            await settle();
+            assert.equal(r.h.fake.requests.some(req => req.method === "PUT" && (req.path.startsWith("/audio-prefs/") || req.path.startsWith("/subtitle-prefs/"))), false, "preparation keeps the captured choices and cannot start an unsettled save");
             r.state.preparePlay({ ...r.request, fileId: "43" }, r.h.clock, r.handoff);
             assert.equal(r.state.preparingPlay, true);
             assert.deepEqual(r.plays, []);

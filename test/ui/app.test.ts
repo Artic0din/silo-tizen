@@ -40,12 +40,218 @@ async function signIn(tv: Tv): Promise<void> {
     await tv.jump(5000);
     // "Signed in as …" holds for a second before sign-in moves on.
     await tv.jump(1000);
+    if (await tv.page.locator('[data-screen="notice"]').count()) await tv.page.getByRole("button", { name: "Continue", exact: true }).click();
     await tv.page.locator('[data-screen="profiles"]').waitFor();
     await tv.page.locator('[data-focus="profile:p-owner"]').click();
     await tv.page.locator('[data-focus="ask-every-launch"]').click();
     await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
     await homeDetailsRead(tv);
 }
+
+appTest("pending account removal blocks Cancel and Back until it settles", async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => {
+        const storage = window.appHarness.storage;
+        const saved = JSON.parse(storage.getItem("silo.native.accounts.v1")!);
+        saved.accounts.push({ ...saved.accounts[0], id: "inactive", accountId: "inactive", username: "Inactive" });
+        storage.setItem("silo.native.accounts.v1", JSON.stringify(saved));
+    });
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="settings"]').click();
+    await tv.page.locator('[data-focus="server"]').click();
+    await tv.page.getByRole("button", { name: "Accounts", exact: true }).click();
+    await tv.page.locator('[data-focus="inactive"]').click();
+    const hold = tv.fake.hold("/system/info");
+    await tv.page.locator('[data-focus="confirm"]').click();
+    await tv.page.locator('[data-focus="cancel"]').click();
+    await tv.remote(10009);
+    assert.equal(await tv.page.locator('[data-view="accounts-confirm"]').count(), 1);
+    hold.release();
+    await tv.page.locator('[data-view="accounts-settings"]').waitFor();
+});
+
+appTest("session expiry releases Change Account remote ownership", async tv => {
+    await signIn(tv);
+    tv.fake.revokeAllSessions();
+    const hold = tv.fake.hold("/auth/refresh");
+    await tv.page.locator('[data-focus="movies"]').click();
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    hold.release();
+    await tv.page.locator('[data-screen="expired"]').waitFor({ timeout: 5000 });
+    assert.equal(await tv.page.locator('.accounts-screen').count(), 0);
+    assert.equal(await tv.focused(), "signin");
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await tv.screen() !== "expired", "Enter activates recovery");
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    assert.equal(await tv.page.locator('.accounts-screen').count(), 0);
+});
+
+appTest("offline saved server offers Back to profiles while a saved account can open profiles", async tv => {
+    await signIn(tv);
+    const devices = tv.fake.devices.size;
+    await tv.page.evaluate(() => {
+        window.appHarness.destroy();
+        const storage = window.appHarness.storage;
+        const saved = JSON.parse(storage.getItem("silo.native.accounts.v1")!);
+        const offline = { ...saved.accounts[0], id: "offline", baseUrl: "https://offline.invalid", accountId: "offline" };
+        storage.setItem("silo.native.accounts.v1", JSON.stringify({ accounts: [offline, ...saved.accounts], selected: offline.id }));
+        window.appHarness.mount();
+    });
+    await tv.page.locator('[data-screen="entry"]').waitFor();
+    const change = tv.page.getByRole("button", { name: "Back to profiles", exact: true });
+    assert.equal(await change.count(), 1);
+    await change.click();
+    await tv.page.locator('.accounts-rail button').filter({ hasText: "silo.example.test" }).click();
+    await tv.page.locator('.account-card').first().click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    assert.equal(tv.fake.devices.size, devices);
+});
+
+for (const column of ["accounts-rail", "accounts-pane", "accounts-settings"]) appTest(`D-pad reveals overflowing ${column}`, async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => {
+        const storage = window.appHarness.storage;
+        const saved = JSON.parse(storage.getItem("silo.native.accounts.v1")!);
+        const first = saved.accounts[0];
+        saved.accounts.push(...Array.from({ length: 14 }, (_, i) => ({ ...first, id: `extra-${i}`, accountId: `extra-${i}`, username: `Extra ${i}` })));
+        saved.accounts.push(...Array.from({ length: 14 }, (_, i) => ({ ...first, id: `server-${i}`, baseUrl: `https://server-${i}.invalid` })));
+        storage.setItem("silo.native.accounts.v1", JSON.stringify(saved));
+    });
+    await tv.page.locator('[data-focus="profiles"]').click();
+    if (column === "accounts-settings") {
+        await tv.page.locator('[data-focus="settings"]').click();
+        await tv.page.locator('[data-focus="server"]').click();
+        await tv.page.getByRole("button", { name: "Accounts", exact: true }).click();
+    } else await tv.page.locator('[data-focus="switch-server"]').click();
+    const first = tv.page.locator(`.${column} button`).first();
+    await first.focus();
+    const count = await tv.page.locator(`.${column} button`).count();
+    let removalRevealed = false;
+    for (let i = 1; i < count; i++) {
+        await tv.page.keyboard.press("ArrowDown");
+        if (column === "accounts-settings") {
+            await tv.jump(300);
+            const row = await tv.page.locator(":focus").evaluate(node => {
+                const bounds = node.getBoundingClientRect();
+                return { top: bounds.top, bottom: bounds.bottom, screen: window.innerHeight, key: node.getAttribute("data-focus") };
+            });
+            assert.ok(row.top >= 0 && row.bottom <= row.screen, JSON.stringify(row));
+            if (row.key?.startsWith("remove:")) removalRevealed = true;
+        }
+        if (column === "accounts-rail" && i === count - 2) {
+            await tv.jump(300);
+            assert.ok(await tv.page.locator(".accounts-rail").evaluate(node => {
+                const bounds = node.getBoundingClientRect();
+                const focused = document.activeElement!.getBoundingClientRect();
+                return focused.top >= bounds.top && focused.bottom <= bounds.bottom;
+            }), "an intermediate server row stays visible after rebuilding the chooser");
+        }
+    }
+    await tv.jump(300);
+    if (column === "accounts-settings") assert.ok(removalRevealed, "the removal row was reached and visible");
+    const bounds = await tv.page.locator(`.${column}`).evaluate(node => {
+        const viewport = node.getBoundingClientRect();
+        const focused = document.activeElement!.getBoundingClientRect();
+        return { scroll: node.scrollTop, top: viewport.top, bottom: viewport.bottom, focusedTop: focused.top, focusedBottom: focused.bottom };
+    });
+    assert.ok(bounds.scroll > 0, "the overflowing column scrolls");
+    assert.ok(bounds.focusedTop >= bounds.top && bounds.focusedBottom <= bounds.bottom, JSON.stringify(bounds));
+});
+
+appTest("unreadable account storage shows recovery and preserves the saved bytes", async tv => {
+    await tv.page.evaluate(() => { window.appHarness.destroy(); window.appHarness.storage.failGet = true; window.appHarness.mount(); });
+    await tv.page.locator('[data-screen="accounts-storage-error"]').waitFor();
+    assert.equal(await tv.focused(), "retry");
+    await tv.page.getByRole("button", { name: "Continue without saved accounts", exact: true }).click();
+    await tv.page.locator('[data-screen="entry"]').waitFor();
+    await tv.page.evaluate(() => { window.appHarness.storage.failGet = false; });
+});
+
+appTest("failed live account selection returns to profiles without another directory write", async tv => {
+    await signIn(tv);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.page.evaluate(() => { window.appHarness.storage.failSet = true; });
+    await tv.page.locator('.account-card').first().click();
+    await tv.page.locator('[data-screen="account-selection-error"]').waitFor();
+    assert.equal(await tv.page.getByRole("button", { name: "Back to profiles", exact: true }).count(), 1);
+    await tv.page.getByRole("button", { name: "Back to profiles", exact: true }).click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+});
+
+appTest("a profile-count cache write failure still opens Switch Profile", async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => { window.appHarness.storage.failSet = true; });
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="switch-profile"]').click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    assert.equal(await tv.page.locator('.profile-avatar').count(), 2);
+});
+
+appTest("Change Account keeps a session-only account usable without signing in again", async tv => {
+    await tv.page.evaluate(() => { window.appHarness.keyManager.failSave = true; });
+    await signIn(tv);
+    const devices = tv.fake.devices.size;
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.page.locator('[data-view="change-account"]').waitFor();
+    await tv.page.locator('.account-card').first().click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    assert.equal(tv.fake.devices.size, devices);
+    assert.equal(tv.fake.revokedSessions.size, 0);
+});
+
+appTest("a guarded replacement reuses its live session but cannot restore after restart", async tv => {
+    await signIn(tv);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.page.evaluate(() => { window.appHarness.keyManager.failSave = true; });
+    await tv.page.locator('[data-focus="add-account"]').click();
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    tv.fake.approve([...tv.fake.devices.keys()].pop()!);
+    await tv.jump(5000); await tv.jump(1000);
+    if (await tv.page.locator('[data-screen="notice"]').count()) await tv.page.getByRole("button", { name: "Continue", exact: true }).click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    const devices = tv.fake.devices.size;
+    await tv.page.locator('[data-focus="change-server"]').click();
+    await tv.page.locator('[data-view="change-account"]').waitFor();
+    assert.equal(await tv.page.evaluate(() => JSON.parse(window.appHarness.storage.getItem("silo.native.accounts.v1")!).accounts[0].needsSignIn), true);
+    await tv.page.locator('.account-card').first().click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor({ timeout: 3000 });
+    assert.equal(tv.fake.devices.size, devices);
+    await tv.page.evaluate(() => { window.appHarness.keyManager.failSave = false; window.appHarness.mount(); });
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 0);
+});
+
+appTest("a password reset refusal opens Change Account without signing out", async tv => {
+    await signIn(tv);
+    tv.fake.passwordChangeRequired = true;
+    tv.fake.expireAccessTokens();
+    await tv.page.evaluate(() => { window.appHarness.destroy(); window.appHarness.mount(); });
+    await tv.page.locator('[data-screen="profiles-error"]').waitFor();
+    await tv.page.getByText("Your password needs to be reset. Use the Silo mobile app or website to set a new one, then come back.").waitFor();
+    assert.equal(await tv.focused(), "change-account");
+    const revoked = tv.fake.revokedSessions.size;
+    await tv.page.getByRole("button", { name: "Change account", exact: true }).click();
+    await tv.page.locator('[data-view="change-account"]').waitFor();
+    assert.equal(await tv.page.locator('[data-screen="entry"]').count(), 0, "Change account opens the account list, not server entry");
+    assert.equal(tv.fake.revokedSessions.size, revoked, "changing account does not sign this one out");
+    assert.equal(await tv.page.locator(".account-badge").textContent(), "CURRENT");
+});
+
+appTest("empty Change Account focuses Add server and Back returns to sign-in", async tv => {
+    await tv.page.fill("#signin-address", "silo.example.test");
+    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="change-account"]').waitFor();
+    assert.equal(await tv.focused(), "add-server");
+    assert.equal(await tv.page.getByRole("button", { name: "Add an account", exact: true }).count(), 0);
+    await tv.remote(10009);
+    await tv.page.locator('[data-screen="entry"]').waitFor();
+});
 
 appTest("the top bar shows a preset's flat PNG when the server's avatar URL is an SVG", async tv => {
     await tv.page.route("https://api.dicebear.com/**", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="58" height="58"/>' }));
@@ -106,18 +312,56 @@ appTest("Sign Out confirmation traps focus and cancellation preserves the sessio
     assert.equal(await tv.page.locator(".browse").count(), 0);
 });
 
-appTest("Switch Server retires Browse and opens server entry without signing out", async tv => {
+for (const origin of ["home", "movies"] as const) appTest(`Change Account returns to ${origin} and opens saved accounts without signing out`, async tv => {
     await signIn(tv);
+    await tv.page.locator(`[data-focus="${origin}"]`).click();
     const writes = tv.fake.requests.filter(request => request.method !== "GET").length;
     const sessions = tv.fake.devices.size;
     await tv.page.locator('[data-focus="profiles"]').click();
-    await tv.page.locator('[data-focus="switch-server"]').click();
-    await tv.page.locator('[data-screen="entry"]').waitFor();
-    assert.equal(await tv.page.locator(".browse").count(), 0);
+    assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["Switch Profile", "History", "Settings", "Change Account", "Sign Out"]);
+    assert.equal(await tv.page.getByRole("menuitem", { name: "Switch Server", exact: true }).count(), 0);
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.page.locator('[data-view="change-account"]').waitFor();
+    assert.equal(await tv.page.locator(".browse").isVisible(), false);
     assert.equal(tv.fake.requests.filter(request => request.method !== "GET").length, writes);
     assert.equal(tv.fake.devices.size, sessions, "entry does not start another sign-in");
-    assert.equal(await tv.page.locator("#signin-address").inputValue(), "https://silo.example.test");
-    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
+    assert.equal(await tv.page.locator('.account-badge').textContent(), "CURRENT");
+    const geometry = await tv.page.evaluate(() => {
+        const rail = document.querySelector('.accounts-rail button')!.getBoundingClientRect();
+        const card = document.querySelector('.account-card')!.getBoundingClientRect();
+        return { rail: [rail.width, rail.height], card: [card.width, card.height], headline: getComputedStyle(document.querySelector('.accounts-title')!).fontSize };
+    });
+    assert.deepEqual(geometry.rail, [520, 88]);
+    const layout = await tv.page.evaluate(() => {
+        const pane = document.querySelector('.accounts-pane')!;
+        const rail = document.querySelector('.accounts-rail button')!;
+        const add = document.querySelector('.accounts-rail [data-focus="add-server"]')!;
+        const tile = document.querySelector('.accounts-pane [data-focus="add-account"] .account-initial')!;
+        return { x: pane.getBoundingClientRect().x + 12, y: rail.getBoundingClientRect().y,
+            plus: add.querySelector('[aria-hidden="true"]')?.textContent,
+            fill: getComputedStyle(add).backgroundColor, gradient: getComputedStyle(tile).backgroundImage,
+            scrim: document.querySelector('.accounts-scrim') !== null };
+    });
+    assert.equal(layout.x, 650);
+    assert.ok(Math.abs(layout.y - 364) < 1, JSON.stringify(layout));
+    assert.equal(layout.plus, "+");
+    assert.equal(layout.fill, "rgba(0, 0, 0, 0)");
+    assert.match(layout.gradient, /234, 166, 92/);
+    assert.equal(layout.scrim, true);
+    assert.equal(geometry.headline, "88px");
+    // Focus grows the 760 by 128 card by Apple's 1.03 scale.
+    assert.ok(Math.abs(geometry.card[0]! - 760 * 1.03) < .1);
+    assert.ok(Math.abs(geometry.card[1]! - 128 * 1.03) < .1);
+    assert.equal(await tv.page.getByRole('button', { name: 'Add', exact: true }).count(), 0, "tvOS has direct add-account and add-server actions");
+    await tv.remote(10009);
+    assert.equal(await tv.page.locator('.accounts-rail button:focus').evaluate(node => getComputedStyle(node).backgroundColor), "rgb(237, 237, 237)");
+    await tv.remote(10009);
+    assert.equal(await tv.focused(), origin);
+    assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "false");
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.page.locator('[data-view="change-account"]').waitFor();
+    await tv.page.locator('.account-card').first().click();
     await tv.page.locator('[data-screen="profiles"]').waitFor();
     assert.equal(await tv.page.locator('[data-screen="code"]').count(), 0, "the saved account restores");
 });
@@ -548,6 +792,29 @@ appTest("native posters keep their shape and the exit modal covers the viewport"
     assert.ok(cancel.y + cancel.height <= 1080);
 });
 
+appTest("committing Change Account clears PIN authority while cancelling preserves it", async tv => {
+    await signIn(tv);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="switch-profile"]').click();
+    await tv.page.locator('[data-focus="profile:p-kid"]').click();
+    await tv.page.fill("#profile-pin", "2468");
+    await tv.page.getByRole("button", { name: "Unlock", exact: true }).click();
+    await tv.page.locator('[data-view="home"] [data-focus="movie:k1"]').waitFor();
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.remote(10009); await tv.remote(10009);
+    await tv.page.locator('[data-view="home"] [data-focus="movie:k1"]').waitFor();
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.page.locator('.account-card').first().click();
+    await tv.page.locator('[data-focus="profile:p-kid"]').click();
+    await tv.page.locator('[data-screen="pin"]').waitFor();
+    await tv.page.fill("#profile-pin", "2468");
+    await tv.page.getByRole("button", { name: "Unlock", exact: true }).click();
+    await tv.page.locator('[data-view="home"] [data-focus="movie:k1"]').waitFor();
+    assert.equal(tv.fake.paths().filter(path => path === "POST /profiles/p-kid/verify-pin").length, 2, "choosing the account again requires fresh PIN proof");
+});
+
 appTest("a profile-proof refusal stops playback and leaves the PIN successor intact", async (tv) => {
     await signIn(tv);
     await tv.page.locator('[data-focus="profiles"]').click();
@@ -575,7 +842,8 @@ appTest("sign-out returns its notice to entry and relaunch cannot restore the re
     await tv.page.getByRole("button", { name: "Sign out", exact: true }).click();
     await tv.page.locator('[data-screen="entry"]').waitFor();
     await tv.page.evaluate(() => window.appHarness.mount());
-    await tv.page.locator('[data-screen="code"]').waitFor();
+    await tv.page.locator('[data-screen="entry"]').waitFor();
+    assert.equal(await tv.page.locator("#signin-address").inputValue(), "", "signing out of the last account removes its server");
     assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 0);
     assert.equal(await tv.page.locator(".browse").count(), 0);
 });
@@ -660,7 +928,7 @@ appTest("the profile menu opens without changing content, stays dismissed after 
     assert.equal(await tv.focused(), "profiles");
     await tv.page.keyboard.press("Enter");
     assert.equal(await tv.focused(), "switch-profile", "Select enters the menu immediately");
-    for (const destination of ["watchlist", "favorites", "history", "settings", "switch-server"]) {
+    for (const destination of ["history", "settings", "switch-server"]) {
         await tv.page.keyboard.press("ArrowDown");
         assert.equal(await tv.focused(), destination);
     }

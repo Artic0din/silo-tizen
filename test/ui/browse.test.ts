@@ -11,13 +11,353 @@ import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakeRequests } from "../native/support/fakeRequests.ts";
 import type { Reply } from "../native/support/fakeSilo.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
-import { CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
+import { CARD_OVERLAYS_KEY, CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
-import { homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { detailReads, homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
 const IME_DONE = 65376;
 const PAGE_SIZE = 24;
+
+browseTest("collection detail matches measured Apple layout and truncates long captions", async (tv, catalog) => {
+    await tv.page.route("**/api/v2/shuffles/capabilities", route => route.fulfill({ json: { allowed: true, state: "available", scope_kinds: ["library_collection"] } }));
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    const collection = { id: "highlights", library_id: "12", library_ids: ["12"], group_id: null, title: "Now Playing in Theaters", poster_url: "", item_count: 12, poster_is_collage: false };
+    catalog.failNext("/library/12/collections", { status: 200, body: { library_id: "12", collections: [collection], groups: [], ungrouped: { sort_order: 1, collections: [collection] } } });
+    await selectLibraryMode(tv, "Collections");
+    const items = Array.from({ length: 12 }, (_, i) => ({ content_id: `movie:layout-${i}`, type: "movie", title: "Now Playing in Theaters", year: 2026 }));
+    catalog.failNext("/catalog/query", { status: 200, body: { window_cursor: "collection-window", items, total: 12, total_exact: true, page: { has_more: false } } });
+    await tv.page.locator('[data-focus="collection:highlights"]').click();
+    await shows(tv, "12 items");
+    await tv.page.locator('[data-focus="shuffle"]').waitFor();
+    assert.equal(await tv.page.locator('.collection-detail-title').innerText(), "Now Playing in Theaters");
+    const layout = await tv.page.locator('.collection-detail-grid').evaluate(grid => {
+        const rect = (selector: string) => {
+            const node = document.querySelector(selector)!;
+            const box = node.getBoundingClientRect();
+            return { x: box.x, y: box.y, width: box.width, height: box.height, font: getComputedStyle(node).fontSize };
+        };
+        const caption = grid.querySelector('.browse-card-title')!;
+        return { poster: rect('.collection-detail-grid .browse-art'), title: rect('.collection-detail-title'), count: rect('.collection-detail-actions .browse-text'),
+            caption: rect('.collection-detail-grid .browse-card-title'), metadata: rect('.collection-detail-grid .browse-card-subtitle'),
+            columns: getComputedStyle(grid).gridTemplateColumns.split(' ').length,
+            truncation: [getComputedStyle(caption).whiteSpace, getComputedStyle(caption).textOverflow, getComputedStyle(caption).overflow, caption.scrollWidth > caption.clientWidth] };
+    });
+    assert.equal(layout.caption.y - (layout.poster.y + layout.poster.height), 22);
+    assert.deepEqual({ x: Math.round(layout.poster.x), y: layout.poster.y, columns: layout.columns, titleFont: layout.title.font, titleCentre: layout.title.y + layout.title.height / 2,
+        countFont: layout.count.font, countCentre: layout.count.y + layout.count.height / 2, caption: layout.caption.font, metadata: layout.metadata.font, truncation: layout.truncation },
+    { x: 138, y: 262, columns: 6, titleFont: "59px", titleCentre: 97.5, countFont: "22px", countCentre: 187.5, caption: "24px", metadata: "22px", truncation: ["nowrap", "ellipsis", "hidden", true] });
+    const secondRow = await tv.page.locator('.collection-detail-grid .browse-art').nth(6).boundingBox();
+    assert.ok(secondRow !== null);
+    assert.equal(secondRow.y - layout.poster.y, layout.poster.height + 22 + 29 + 4 + 27 + 57);
+    assert.equal(await tv.page.locator('.collection-detail-actions .browse-text').evaluate(node => getComputedStyle(node).color), "rgba(237, 237, 237, 0.6)");
+    await tv.eventually(async () => {
+        const box = await tv.page.locator('[data-focus="shuffle"]').boundingBox();
+        return box !== null && Math.abs(box.y - 159.94) < 1 && Math.abs(box.x - 124.5) < 1 && Math.abs(box.width - 182) < 1 && Math.abs(box.height - 55) < 1;
+    }, "Apple Shuffle pill geometry");
+}, { beforeConnect: tv => { new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" }); } });
+
+browseTest("collection watched badge uses Apple's catalog source and contract viewer state", async (tv, catalog) => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await selectLibraryMode(tv, "Collections");
+    const watched = fixture("get_catalog_item_ok");
+    const page = fixture("list_catalog_items_ok");
+    catalog.failNext("/catalog/query", { status: 200, body: { ...page, items: [watched], total: 1, page: { has_more: false } } });
+    await tv.page.locator('[data-focus="collection:highlights"]').click();
+    const card = tv.page.locator('.collection-detail-grid [data-focus="movie:heat-1995"]');
+    await card.waitFor({ timeout: 3000 });
+    assert.equal(await card.locator('.browse-watched').count(), 1);
+    assert.deepEqual(tv.fake.requests.filter(request => request.body?.source === "library_collection").at(-1)?.body,
+        { limit: 60, match: "all", source: "library_collection", collection_id: "highlights" });
+    assert.equal(tv.fake.requests.filter(request => request.path.includes("/collections/highlights/items")).length, 0);
+});
+
+browseTest("collection detail preserves server member order across pages without a sort override", async (tv, catalog) => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await selectLibraryMode(tv, "Collections");
+    const titles = ["Resident Evil", "Fall 2", "Verity"];
+    const items = titles.map((title, i) => ({ content_id: `movie:order-${i}`, type: "movie", title }));
+    catalog.failNext("/catalog/query", { status: 200, body: { window_cursor: "order-window", items, total: 4, total_exact: true, page: { has_more: true, next_cursor: "order-next" } } });
+    await tv.page.locator('[data-focus="collection:highlights"]').click();
+    await tv.page.locator('.collection-detail-grid .browse-card').first().waitFor();
+    assert.deepEqual(await tv.page.locator('.collection-detail-grid .browse-card-title').allTextContents(), titles);
+    const query = { source: "library_collection", collection_id: "highlights", limit: 60, match: "all" };
+    assert.deepEqual(tv.fake.requests.filter(request => request.body?.source === "library_collection").at(-1)?.body, query);
+    catalog.failNext("/catalog/query", { status: 200, body: { window_cursor: "order-window", items: [{ content_id: "movie:order-3", type: "movie", title: "Animals" }], total: 4, total_exact: true, page: { has_more: false } } });
+    await tv.page.locator('[data-focus="next"]').click();
+    await tv.page.locator('[data-focus="movie:order-3"]').waitFor();
+    assert.deepEqual(tv.fake.requests.filter(request => request.body?.source === "library_collection").at(-1)?.body, { ...query, cursor: "order-next" });
+});
+
+for (const check of ["icon", "title", "badges", "focus"] as const) browseTest(`collection native regression ${check}`, async (tv, catalog) => {
+    await tv.page.emulateMedia({ reducedMotion: "reduce" });
+    await tv.page.route("**/api/v2/shuffles/capabilities", route => route.fulfill({ json: { allowed: true, state: "available", scope_kinds: ["library_collection"] } }));
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await selectLibraryMode(tv, "Collections");
+    if (check === "focus") {
+        const tile = tv.page.locator('[data-focus="collection:highlights"]');
+        await tile.focus();
+        assert.deepEqual(await tile.evaluate(node => ({ shadow: getComputedStyle(node).boxShadow, outline: getComputedStyle(node).outlineStyle, art: getComputedStyle(node.querySelector('.browse-art')!).outlineColor })), { shadow: "none", outline: "none", art: "rgba(255, 255, 255, 0.7)" });
+        return;
+    }
+    catalog.failNext("/catalog/query", { status: 200, body: { window_cursor: "collection-window", total: 1, total_exact: true, items: [{ content_id: "movie:badge", type: "movie", title: "Badge movie", overlay_summary: { resolution: "2160p" }, user_state: { played: true } }], page: { has_more: false } } });
+    await tv.page.locator('[data-focus="collection:highlights"]').click();
+    const card = tv.page.locator('.collection-detail-grid .browse-card').first();
+    await card.waitFor();
+    if (check === "icon") {
+        const svg = tv.page.locator('[data-focus="shuffle"] svg');
+        assert.equal(await svg.count(), 1);
+        assert.ok(await svg.evaluate(node => node instanceof SVGSVGElement && node.getBoundingClientRect().width > 0));
+    } else if (check === "title") {
+        assert.equal(await tv.page.locator('.collection-detail-title').evaluate(node => getComputedStyle(node).color), "rgb(64, 64, 64)");
+    } else if (check === "badges") {
+        await tv.eventually(async () => await card.locator('.card-overlay').count() > 0, "collection profile badges");
+        assert.equal(await card.locator('.browse-watched').count(), 1);
+    }
+});
+
+for (const multipleLibraries of [false, true]) browseTest(`section selection closes the dropdown after entering Recommended ${multipleLibraries}`, async tv => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await selectLibraryMode(tv, "Collections");
+    await tv.page.locator('.browse [data-focus="collection:highlights"]').waitFor();
+    const loading = tv.fake.hold("/library/12/sections", true);
+    await tv.page.locator('[data-focus="movies"]').evaluate(node => {
+        (node as HTMLElement).focus({ preventScroll: true });
+        node.dispatchEvent(new KeyboardEvent("keydown", { keyCode: 40, bubbles: true, cancelable: true }));
+        (document.activeElement ?? node).dispatchEvent(new KeyboardEvent("keyup", { keyCode: 40, bubbles: true, cancelable: true }));
+    });
+    if (multipleLibraries) {
+        await tv.page.locator('[data-focus="library:12"]').focus();
+        await tv.remote(39);
+    } else await tv.page.locator('[data-focus="section:Recommended"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.jump(1000);
+    loading.release();
+    await tv.page.locator('.home-section .browse-card').first().waitFor();
+    await tv.jump(1000);
+    assert.equal(await tv.page.locator('.skyline-selector:visible').count(), 0);
+    assert.ok((await tv.focused())?.startsWith("movie:"));
+}, { multipleLibraries });
+
+browseTest("empty Genres retains the No titles message alongside mode controls", async tv => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await tv.page.route("**/api/v2/catalog/filters**", route => route.fulfill({ json: { ...fixture("get_catalog_filters_ok"), genres: [] } }));
+    await selectLibraryMode(tv, "Genres");
+    await shows(tv, "No titles");
+    assert.ok(await tv.page.locator('.skyline-pills .browse-button').count() > 0);
+});
+
+browseTest("empty Recently Added renders only one No titles message", async tv => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await selectLibraryMode(tv, "Browse");
+    await tv.page.route("**/api/v2/catalog/query**", route => route.fulfill({ json: { window_cursor: "empty", effective_sort: { field: "added_at", order: "desc" }, items: [], total: 0, total_exact: true, page: { has_more: false } } }));
+    await selectLibraryMode(tv, "Recently Added");
+    await shows(tv, "No titles");
+    assert.equal(await tv.page.getByText("No titles", { exact: true }).count(), 1);
+});
+
+browseTest("collection members do not wait for optional Shuffle capabilities", async (tv) => {
+    let release: (() => void) | undefined;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    await tv.page.route("**/api/v2/shuffles/capabilities", async route => {
+        await held;
+        await route.fulfill({ json: { allowed: true, state: "available", scope_kinds: ["library_collection"] } });
+    });
+    try {
+        await tv.page.locator('[data-focus="movies"]').click();
+        await showing(tv, "library:12");
+        await selectLibraryMode(tv, "Collections");
+        await tv.page.locator('[data-focus="collection:highlights"]').click();
+        await tv.page.locator(".collection-detail-grid .browse-card").first().waitFor({ timeout: 3000 });
+        const focused = await tv.focused();
+        release?.();
+        await tv.page.locator('[data-focus="shuffle"]').waitFor();
+        assert.equal(await tv.focused(), focused);
+    } finally { release?.(); }
+});
+
+browseTest("Large collection detail posters fit and D-pad follows five columns", async tv => {
+    await tv.page.emulateMedia({ reducedMotion: "reduce" });
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await selectLibraryMode(tv, "Collections");
+    await tv.page.locator('[data-focus="collection:highlights"]').click();
+    const cards = tv.page.locator(".collection-detail-grid .browse-card");
+    await cards.first().waitFor();
+    assert.equal(await tv.page.locator(".collection-detail-grid").evaluate(node => getComputedStyle(node).gridTemplateColumns.split(" ").length), 5);
+    const first = await cards.nth(0).boundingBox(), second = await cards.nth(1).boundingBox();
+    assert.ok(first !== null && second !== null && first.x + first.width <= second.x);
+    await cards.first().focus();
+    const nextRow = await cards.nth(5).getAttribute("data-focus");
+    await tv.remote(40);
+    assert.equal(await tv.focused(), nextRow);
+}, { beforeConnect: tv => { new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "large", caption: "title_metadata" }); } });
+
+browseTest("collection detail accepts inexact totals and starts on Shuffle without playback", async (tv, catalog) => {
+    await tv.page.route("**/api/v2/shuffles/capabilities", route => route.fulfill({ json: { allowed: true, state: "available", scope_kinds: ["library_collection"] } }));
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await selectLibraryMode(tv, "Collections");
+    const items = Array.from({ length: 60 }, (_, i) => ({ content_id: `movie:collection-${i}`, type: "movie", title: `Collection movie ${i}` }));
+    catalog.failNext("/catalog/query", { status: 200, body: { window_cursor: "collection-window", total: 60, total_exact: false, items, page: { has_more: true, next_cursor: "next" } } });
+    await tv.page.locator('[data-focus="collection:highlights"]').click();
+    await shows(tv, "60+ items");
+    assert.equal(await tv.page.locator('.browse [data-focus="shuffle"]').count(), 1, JSON.stringify(tv.fake.requests.filter(request => request.path.includes("shuffle"))));
+    assert.equal(await tv.focused(), "shuffle");
+    assert.equal(await tv.page.locator('.browse [data-focus="back"]').count(), 0);
+    const title = await tv.page.locator(".collection-detail-title").boundingBox();
+    assert.ok(title !== null && Math.abs(title.x + title.width / 2 - 960) < 1);
+    const poster = await tv.page.locator(".collection-detail-grid .browse-art").first().boundingBox();
+    assert.equal(poster?.width, 260);
+    assert.equal(poster?.height, 390);
+    await tv.remote(40);
+    assert.equal(await tv.focused(), "movie:collection-0");
+    await tv.remote(38);
+    assert.equal(await tv.focused(), "shuffle");
+    assert.equal(tv.fake.requests.filter(request => request.method === "POST" && request.path === "/shuffles").length, 0);
+    let scope: unknown;
+    await tv.page.route("**/api/v2/shuffles", async route => {
+        scope = route.request().postDataJSON();
+        await route.fulfill({ status: 503, contentType: "application/problem+json", body: JSON.stringify({ type: "dependency_unavailable", title: "Unavailable", status: 503 }) });
+    });
+    const playbackBefore = tv.fake.requests.filter(request => request.path.includes("/playback/")).length;
+    await tv.page.locator('[data-focus="shuffle"]').click();
+    await tv.page.getByRole("alertdialog").waitFor();
+    assert.deepEqual(scope, { scope: { kind: "library_collection", id: "highlights" } });
+    assert.equal(await tv.focused(), "alert-ok");
+    assert.equal(tv.fake.requests.filter(request => request.path.includes("/playback/")).length, playbackBefore);
+    await tv.remote(BACK);
+    assert.equal(await tv.focused(), "shuffle");
+    await tv.remote(BACK);
+    assert.equal(await tv.focused(), "collection:highlights");
+});
+
+for (const posterSize of ["compact", "standard", "large"] as const) for (const reducedMotion of ["reduce", "no-preference"] as const) {
+    browseTest(`anonymous Collections focus is unclipped: ${posterSize}, ${reducedMotion}`, async (tv, catalog) => {
+        await tv.page.emulateMedia({ reducedMotion });
+        await tv.page.locator('[data-focus="movies"]').click();
+        await showing(tv, "library:12");
+        const collection = { id: "loose", library_id: "12", library_ids: ["12"], group_id: null, title: "Loose", poster_url: "", item_count: 1, poster_is_collage: false };
+        catalog.failNext('/library/12/collections', { status: 200, body: { library_id: "12", collections: [collection], groups: [], ungrouped: { sort_order: 1, collections: [collection] } } });
+        await selectLibraryMode(tv, "Collections");
+        const card = tv.page.locator('[data-focus="collection:loose"]');
+        await card.focus();
+        const geometry = await card.evaluate(node => {
+            const art = node.querySelector('.browse-art')?.getBoundingClientRect();
+            const viewport = node.closest('.skyline-content')?.getBoundingClientRect();
+            return { artTop: art?.top, viewportTop: viewport?.top };
+        });
+        assert.ok(geometry.artTop !== undefined && geometry.viewportTop !== undefined && geometry.artTop - 4.2 >= geometry.viewportTop, JSON.stringify(geometry));
+        assert.equal(await tv.page.locator('.collection-group-title').count(), 0);
+        if (posterSize === "standard" && reducedMotion === "reduce") assert.equal(geometry.artTop, 260);
+    }, { beforeConnect: tv => {
+        new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: posterSize, caption: "title_metadata" });
+    } });
+}
+
+let lateCollectionSize: { release(): void };
+browseTest("late Collections poster size updates columns without reading or losing the card", async tv => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await selectLibraryMode(tv, "Collections");
+    await tv.page.locator('[data-focus="collection:highlights"]').focus();
+    const reads = tv.fake.requests.length;
+    lateCollectionSize.release();
+    await tv.eventually(async () => await tv.page.locator('.discovery-collection-grid').evaluate(node => getComputedStyle(node).gridTemplateColumns.split(' ').length) === 5, "large collection columns");
+    assert.equal(await tv.focused(), "collection:highlights");
+    assert.equal(tv.fake.requests.length, reads);
+}, { beforeConnect: tv => {
+    new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "large", caption: "title_metadata" });
+    lateCollectionSize = tv.fake.hold("/settings/values/effective?keys=ui.card_presentation", true);
+} });
+
+browseTest("failed collection collage renders the same visible stack fallback", async (tv, catalog) => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    const collection = { id: "broken", library_id: "12", library_ids: ["12"], group_id: null, title: "Broken collection", poster_url: "/broken-collection.svg", item_count: 0, poster_is_collage: true };
+    catalog.failNext('/library/12/collections', { status: 200, body: { library_id: "12", collections: [collection], groups: [], ungrouped: { sort_order: 1, collections: [collection] } } });
+    await tv.page.route('**/broken-collection.svg', route => route.abort());
+    await selectLibraryMode(tv, "Collections");
+    const card = tv.page.locator('[data-focus="collection:broken"]');
+    await card.locator('.browse-art-missing svg').waitFor();
+    assert.equal(await card.locator('img').count(), 0);
+    assert.equal(await card.locator('.browse-card-subtitle').count(), 0);
+    assert.equal(await card.getAttribute('aria-label'), 'Broken collection, collection');
+});
+
+browseTest("empty collection uses Apple copy and Back restores its collection", async (tv, catalog) => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await selectLibraryMode(tv, "Collections");
+    catalog.failNext("/catalog/query", { status: 200, body: { window_cursor: "collection-window", items: [], total: 0, total_exact: true, page: { has_more: false } } });
+    await tv.page.locator('[data-focus="collection:highlights"]').click();
+    await shows(tv, "Collection is empty");
+    await shows(tv, "This collection does not have any items yet.");
+    assert.equal(await tv.focused(), "back");
+    assert.equal(await tv.page.getByRole('button', { name: /create|manage/i }).count(), 0);
+    await tv.remote(BACK);
+    assert.equal(await tv.focused(), "collection:highlights");
+});
+
+browseTest("Collections keeps Apple's neutral management-type counts and hides the anonymous heading", async (tv, catalog) => {
+    await tv.page.route("**/art/broken-collection.svg", route => route.abort());
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    catalog.failNext("/library/12/collections", { status: 200, body: {
+        library_id: "12",
+        collections: [
+            { id: "c1", library_id: "12", library_ids: ["12"], title: "Features", poster_url: "", item_count: 1, poster_is_collage: false, collection_type: "manual", group_id: "g1" },
+            { id: "loose", library_id: "12", library_ids: ["12"], title: "Loose", poster_url: "/art/broken-collection.svg", item_count: 3, poster_is_collage: false, collection_type: "smart", group_id: null },
+        ],
+        groups: [{ id: "g1", name: "Features", kind: "admin", sort_mode: "name_asc", sort_order: 0, collections: [{ id: "c1", title: "Features", poster_url: "", item_count: 1, poster_is_collage: false }] }],
+        ungrouped: { sort_order: 10, collections: [{ id: "loose", title: "Loose", poster_url: "/art/broken-collection.svg", item_count: 3, poster_is_collage: false }] },
+    } });
+    await selectLibraryMode(tv, "Collections");
+    await tv.page.locator('[data-focus="collection:loose"]').waitFor();
+    assert.deepEqual(await tv.page.locator(".collection-group-title").allTextContents(), ["Features"]);
+    assert.equal(await tv.page.locator('[data-focus="collection:c1"] .browse-card-subtitle').innerText(), "1 ITEM");
+    assert.equal(await tv.page.locator('[data-focus="collection:loose"] .browse-card-subtitle').innerText(), "3 ITEMS");
+    await tv.page.locator('[data-focus="collection:loose"] .browse-art-missing svg').waitFor();
+});
+
+browseTest("a failed Collections read keeps main's explicit Retry", async (tv, catalog) => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    catalog.failNext("/library/12/collections", problem(500, "internal", "Collections unavailable"));
+    await selectLibraryMode(tv, "Collections");
+    await tv.page.locator('[data-focus="retry"]').waitFor();
+    assert.equal(await tv.page.locator('[data-focus="retry"], [data-focus="retry-collections"]').count(), 1);
+    assert.equal(await tv.page.getByRole("button", { name: /create|manage/i }).count(), 0);
+    await tv.page.locator('[data-focus="retry"]').click();
+    await tv.page.locator('[data-focus="collection:highlights"]').waitFor();
+});
+
+browseTest("Collections uses portrait posters and visible failed-art fallback without pills", async tv => {
+    await tv.page.emulateMedia({ reducedMotion: "reduce" });
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await selectLibraryMode(tv, "Collections");
+    const card = tv.page.locator('[data-focus="collection:highlights"]');
+    await card.waitFor();
+    assert.equal(await tv.page.locator('.skyline-pills').count(), 0);
+    assert.deepEqual(await card.locator('.browse-art').evaluate(node => ({ width: node.clientWidth, height: node.clientHeight })), { width: 260, height: 390 });
+    await card.locator('.browse-art-missing').waitFor();
+    assert.equal(await card.locator('.browse-art-missing svg').count(), 1);
+    assert.equal(await card.getAttribute('aria-label'), 'Library Highlights, collection, 60 items');
+    await card.focus();
+    assert.equal(await tv.focused(), "collection:highlights");
+    const reads = tv.fake.requests.length;
+    await press(tv, "ArrowUp");
+    assert.equal(await tv.focused(), "movies");
+    assert.equal(tv.fake.requests.length, reads);
+});
 
 class SearchCatalog extends FakeRequests {
     peopleFailure = false;
@@ -97,17 +437,83 @@ browseTest("Search spatial People entry chooses the nearest title column", async
     const reads = tv.fake.requests.length;
     await press(tv, "ArrowDown");
     assert.equal(await tv.focused(), "movie:m0002");
+    await press(tv, "ArrowUp");
+    await tv.jump(250);
+    await tv.page.waitForTimeout(260);
+    const upFromFirst = await tv.page.evaluate(() => {
+        const field = document.querySelector("#browse-search")?.getBoundingClientRect();
+        const pills = document.querySelector(".search-filters")?.getBoundingClientRect();
+        const focused = document.activeElement?.getBoundingClientRect();
+        return {
+            scroll: document.querySelector(".browse")?.scrollTop ?? -1,
+            fieldTop: field?.top,
+            fieldBottom: field?.bottom,
+            pillsTop: pills?.top,
+            pillsBottom: pills?.bottom,
+            ringTop: focused?.top,
+        };
+    });
+    assert.equal(upFromFirst.scroll, 0, "Up from the first title row returns to the top");
+    assert.ok((upFromFirst.fieldTop ?? -1) >= 0 && (upFromFirst.fieldBottom ?? 0) > 40, `the keyboard stays visible, got ${upFromFirst.fieldTop}`);
+    assert.ok((upFromFirst.pillsTop ?? -1) >= 0 && (upFromFirst.pillsBottom ?? 0) <= 1080, `the filter pills stay visible, got ${upFromFirst.pillsTop}`);
+    assert.ok(Math.abs((upFromFirst.ringTop ?? 0) - 495) < 40, `Up from the first title row rests the ring near 495, got ${upFromFirst.ringTop}`);
+    await tv.page.locator('[data-focus="movie:m0002"]').focus();
     await press(tv, "ArrowDown", "ArrowDown");
     assert.equal(await tv.focused(), "movie:950");
     await tv.jump(250);
     await press(tv, "ArrowUp");
     assert.equal(await tv.focused(), "movie:m0008", "Up from Requests enters the adjacent bottom grid row");
     await tv.jump(250);
-    const posterTop = await tv.page.locator('[data-focus="movie:m0008"] .browse-art').evaluate(node => node.getBoundingClientRect().top);
-    assert.ok(Math.abs(posterTop - 171) < 1, `Search upward reveal keeps the focused poster at 171px, got ${posterTop}`);
+    await tv.page.waitForTimeout(260);
+    const revealed = await tv.page.evaluate(() => document.querySelector('[data-focus="movie:m0008"] .browse-art')?.getBoundingClientRect().top);
+    // The old pin was 160.4px (before that, 171px), measured on a different path. Up rests this ring at 495.
+    // The pills stay with the first-row return above: this bottom card sits a full results column below them.
+    const searchRevealTop = 495;
+    assert.ok(Math.abs((revealed ?? 0) - searchRevealTop) < 1, `Search upward reveal keeps the focused poster at ${searchRevealTop}px; the old pin was 160.4px, got ${revealed}`);
     assert.equal(await tv.page.locator('.search-navigation-title').evaluate(node => getComputedStyle(node).position), "absolute", "deep directional navigation does not show the navigation title");
     assert.equal(tv.fake.requests.length, reads);
 }, { catalog: new SearchEdgeCatalog() });
+
+browseTest("Search cards show the Returning badge Home and library already draw", async (tv, catalog) => {
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const reply = read(method, path, profile, body);
+        const url = new URL(path, "https://fake.invalid");
+        if (url.pathname !== "/catalog" || reply?.status !== 200 || url.searchParams.get("q") === null) return reply;
+        const response = reply.body as { items?: Record<string, unknown>[] };
+        if (!Array.isArray(response.items)) return reply;
+        return { ...reply, body: { ...response, items: response.items.map(item => item.content_id === "series:s1" ? { ...item, show_status: "returning series" } : item) } };
+    };
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Harbor");
+    await tv.remote(IME_DONE);
+    const card = tv.page.locator('.browse-grid [data-focus="series:s1"]');
+    await card.waitFor();
+    await tv.eventually(async () => await card.locator(".card-overlay").evaluate(node => node.textContent) === "Returning", "Search Returning badge");
+}, { beforeConnect: tv => {
+    const settings = new FakeSettings(tv.fake);
+    settings.overlayConfig = { enabled: true };
+    settings.profile().set(CARD_OVERLAYS_KEY, { version: 2, preset: "classic", order: ["show_status"], items: { show_status: { enabled: true, position: "top-right" } } });
+} });
+
+browseTest("Related shelf omits the watched badge Apple leaves off the similar card", async tv => {
+    await tv.page.route("**/api/v2/recommendations/similar/**", async route => {
+        const items = Array.from({ length: 24 }, (_, index) => ({
+            content_id: `movie:m${String(index + 2).padStart(4, "0")}`,
+            type: "movie",
+            title: index === 0 ? "Mercy" : `Movie ${String(index + 2).padStart(4, "0")}`,
+            poster_url: `/art/movie-${index + 2}.svg`,
+            ...(index === 0 ? { user_state: { played: true } } : {}),
+        }));
+        await route.fulfill({ json: { items } });
+    });
+    await activateDetails(tv);
+    await showing(tv, "item:movie:m0001");
+    const mercy = tv.page.locator('[data-detail-section="related"] [data-focus="movie:m0002"]');
+    await mercy.waitFor();
+    assert.equal(await mercy.locator(".browse-watched").count(), 0, "user_state.played is set, and the related card still has no watched badge");
+    assert.match(await mercy.innerText(), /Mercy/);
+});
 
 for (const coldStart of [false, true]) {
 browseTest(`Search retains the filter column through default People and ragged grid entry${coldStart ? " from the field on a cold visit" : ""}`, async tv => {
@@ -169,6 +575,8 @@ for (const reduced of [false, true]) {
             return rect.left >= row.left && rect.right <= row.right && rect.top >= viewport.top && rect.bottom <= viewport.bottom - 64;
         });
         await tv.eventually(visible, "later request revealed before People");
+        // Visibility can precede the scroll animation's final frame.
+        await tv.jump(250);
         const scroll = await tv.page.locator('.search-request-rail').evaluate(row => row.scrollLeft);
         const reads = tv.fake.requests.length;
         people.release();
@@ -377,6 +785,11 @@ browseTest("Search People is scoped, activates real identities and does not fetc
     await tv.page.locator('[data-focus="person:7"]').focus(); await tv.remote(39);
     assert.equal(tv.fake.requests.length, reads);
     await tv.page.locator('[data-focus="person:7"]').click(); await showing(tv, "person:7");
+    await tv.page.locator('[data-focus="filter:series"]').click();
+    await tv.page.locator('[data-focus="filter:series"][aria-pressed="true"]').waitFor();
+    await tv.remote(10009);
+    await tv.page.locator('[data-focus="person:7"]').click(); await showing(tv, "person:7");
+    assert.equal(await tv.focused(), "filter:video");
 }, { catalog: peopleSearch });
 
 const slowRequests = new SearchCatalog();
@@ -663,12 +1076,12 @@ for (const withMedia of [false, true]) {
         { id: "unsupported", section_type: "recently_added", title: "Books", items: [{ content_id: "book:1", type: "ebook", title: "Book" }] },
         ...(withMedia ? [{ id: "visible", section_type: "recently_added", title: "Visible", items: [{ content_id: "movie:m0001", type: "movie", title: "Movie" }] }] : []),
     ] } });
-    browseTest(`Recommended interleaves collections after rendered media: ${withMedia}`, async tv => {
+    browseTest(`Recommended renders only server media shelves: ${withMedia}`, async tv => {
         await tv.page.locator('[data-focus="movies"]').click();
         await showing(tv, "library:12");
-        assert.deepEqual(await tv.page.locator('.skyline-content [data-section]').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-section"))), withMedia ? ["visible", "collections:inline"] : ["collections:inline"]);
-        assert.equal(await tv.page.locator('[data-focus="collection:highlights"]').count(), 1);
-        assert.equal(await tv.focused(), withMedia ? "movie:m0001" : "collection:highlights");
+        assert.deepEqual(await tv.page.locator('.skyline-content [data-section]').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-section"))), withMedia ? ["visible"] : []);
+        assert.equal(await tv.page.locator('[data-focus="collection:highlights"]').count(), 0);
+        assert.equal(await tv.focused(), withMedia ? "movie:m0001" : "movies");
     }, { catalog });
 }
 
@@ -717,15 +1130,43 @@ browseTest("a late Recommended artwork probe upgrades only image fields", async 
 
 const failedCollectionsCatalog = new FakeCatalog();
 failedCollectionsCatalog.failNext("/library/12/collections", problem(422, "validation_failed", "Collections unavailable"));
-browseTest("Recommended retains shelves when optional collections fail", async tv => {
+browseTest("Recommended defers collections reads and Collections retries failures", async tv => {
     await tv.page.locator('[data-focus="movies"]').click();
     await showing(tv, "library:12");
+    assert.equal(tv.fake.requests.filter(request => request.path === "/library/12/collections").length, 0);
+    await selectLibraryMode(tv, "Collections");
     await tv.page.getByRole("alert").waitFor();
-    assert.ok(await tv.page.locator('[data-section="library-picks"] .browse-card').count() > 0);
-    await tv.page.locator('[data-focus="retry-collections"]').click();
-    await tv.page.locator('[data-section="collections:inline"]').waitFor();
+    await tv.page.locator('[data-focus="retry"]').click();
+    await tv.page.locator('[data-focus="collection:highlights"]').waitFor();
     assert.equal(await tv.page.getByRole("alert").count(), 0);
 }, { catalog: failedCollectionsCatalog });
+
+browseTest("Series Recommended shares Home stills, band alignment and the three-section menu", async (tv, catalog) => {
+    const household = catalog.households.get("p-owner");
+    assert.ok(household);
+    household.librarySections = [
+        { id: "next", sectionType: "next_up", title: "Next Up", items: ["episode:s1e12"] },
+        { id: "recent", sectionType: "recently_added", title: "Recently Added", items: ["series:s1", "episode:s1e12"] },
+    ];
+    await tv.page.locator('[data-focus="series"]').click();
+    await showing(tv, "library:13");
+    assert.deepEqual(await tv.page.locator('.skyline-content [data-section]').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-section"))), ["next", "recent"]);
+    for (const id of ["next", "recent"]) {
+        assert.equal(await tv.page.locator(`[data-section="${id}"] .skyline-continue:not(.skyline-explore)`).count(), id === "next" ? 1 : 2);
+        assert.equal(await tv.page.locator(`[data-section="${id}"] .browse-row > :last-child`).getAttribute("data-focus"), `expand:${id}`);
+    }
+    await tv.remote(40);
+    await tv.eventually(async () => Math.abs(await tv.page.locator('[data-section="recent"] .browse-section-title').evaluate(node => node.getBoundingClientRect().top) - 596) < 1, "Recently Added heading aligns with Home band at 596");
+    await tv.page.locator('[data-focus="expand:recent"]').click();
+    await tv.page.locator('.section-catalog-grid .browse-card').first().waitFor();
+    await tv.remote(BACK);
+    assert.equal(await tv.focused(), "expand:recent");
+    await tv.page.locator('[data-focus="series"]').focus();
+    await tv.remote(40);
+    assert.deepEqual(await tv.page.locator('.skyline-selector:not(.skyline-flyout) [role="menuitem"]').allTextContents(), ["Recommended", "Collections", "Browse"]);
+    assert.deepEqual(await tv.page.locator('.skyline-selector:not(.skyline-flyout)').evaluate(node => { const style = getComputedStyle(node); return [style.width, style.padding, style.borderRadius]; }), ["460px", "14px", "22px"]);
+    assert.equal(await tv.page.locator('.skyline-selector:not(.skyline-flyout) .skyline-menu-icon').count(), 3);
+});
 
 browseTest("Recommended shares Skyline rows and expands through a tile", async tv => {
     await tv.page.locator('[data-focus="movies"]').click();
@@ -736,12 +1177,47 @@ browseTest("Recommended shares Skyline rows and expands through a tile", async t
     assert.equal(await tv.page.locator('.skyline-home [data-section="library-picks"] .browse-section-title').textContent(), "Library Picks");
     const art = await tv.page.locator('[data-section="library-picks"] .browse-art').first().evaluate(node => ({ width: parseFloat(getComputedStyle(node).width), height: parseFloat(getComputedStyle(node).height) }));
     assert.deepEqual(art, { width: 176, height: 264 });
-    assert.equal(await tv.page.locator('[data-section="collections:inline"]').count(), 1);
+    assert.equal(await tv.page.locator('[data-section="collections:inline"]').count(), 0);
     await tv.page.locator('[data-focus="expand:library-picks"]').click();
     await tv.page.locator('.section-catalog-grid .browse-card').first().waitFor();
     assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).at(-1)?.body, { library_id: "12", limit: 60, source: "section", scope: "library", section_id: "library-picks" });
     await tv.remote(BACK);
     assert.equal(await tv.focused(), "expand:library-picks");
+});
+
+browseTest("Movies Continue Watching and other library headings open without a catalog overlay", async (tv, catalog) => {
+    const household = catalog.households.get("p-owner");
+    assert.ok(household);
+    household.librarySections = [
+        { id: "continue_watching", sectionType: "continue_watching", title: "Continue Watching", items: ["movie:m0001", "episode:s1e12"] },
+        { id: "recently_added", sectionType: "recently_added", title: "Recently Added", items: ["movie:m0002", "movie:m0004"] },
+    ];
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    for (const id of ["continue_watching", "recently_added"]) {
+        const heading = tv.page.locator(`[data-section="${id}"] .browse-section-title`);
+        await heading.waitFor();
+        assert.equal(await heading.evaluate(node => node.tagName), "H2", `${id} heading is not a control`);
+        assert.equal(await heading.getAttribute("data-focus"), null);
+        assert.equal(await tv.page.locator(`[data-focus="section:${id}"]`).count(), 0);
+    }
+    await tv.page.locator('[data-focus="expand:continue_watching"]').click();
+    const catalogCard = tv.page.locator(".section-catalog-grid .browse-card").first();
+    const catalogError = tv.page.getByText("Something went wrong. Try again.");
+    await Promise.race([catalogCard.waitFor(), catalogError.waitFor()]);
+    const opened = tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).at(-1);
+    assert.equal(opened?.path.startsWith("/catalog/query?image_size=small"), true);
+    assert.deepEqual(opened?.body, { library_id: "12", limit: 60, source: "section", scope: "library", section_id: "continue_watching" });
+    assert.equal(await catalogError.count(), 0);
+    await catalogCard.waitFor();
+    assert.equal(await tv.page.locator(".section-catalog-title").innerText(), "Continue Watching");
+    await tv.remote(BACK);
+    assert.equal(await tv.focused(), "expand:continue_watching");
+    await tv.page.locator('[data-focus="expand:recently_added"]').click();
+    await tv.page.locator(".section-catalog-title").waitFor();
+    assert.equal(await tv.page.locator(".section-catalog-title").innerText(), "Recently Added");
+    assert.deepEqual(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).at(-1)?.body, { library_id: "12", limit: 60, source: "section", scope: "library", section_id: "recently_added" });
+    assert.equal(await tv.page.getByText("Something went wrong. Try again.").count(), 0);
 });
 
 function videoOnlyCatalog(): FakeCatalog {
@@ -876,6 +1352,7 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
     assert.equal(tv.fake.requests.length, reads, "focus performs no reads");
     await press(tv, "Enter");
     await showing(tv, "person:7");
+    await tv.eventually(async () => await tv.page.locator(".browse-grid .browse-card").count() === 24, "inline Person first page");
     assert.equal(await tv.page.locator(".browse-card").count(), 24);
     await tv.remote(BACK);
     await showing(tv, "item:movie:m0001");
@@ -919,6 +1396,8 @@ browseTest("S-D2 aggregate watched reconciles visible episodes in both direction
     await showing(tv, "item:series:s1");
     await seasonDetails(tv);
     assert.equal(await tv.page.locator(".browse-episode", { hasText: "Watched" }).count(), 3);
+    assert.equal(await tv.page.locator('.browse-episode .browse-card-subtitle', { hasText: 'Watched' }).count(), 0, 'watched state is a badge rather than visible caption text');
+    assert.equal(await tv.page.locator('.browse-episode .browse-watched').count(), 3);
     await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Mark all unwatched", exact: true }).click();
     await tv.page.getByRole("button", { name: "Mark all watched", exact: true }).waitFor();
@@ -957,7 +1436,7 @@ for (const kind of ["movie", "episode"]) {
     }, { catalog: new FakeDetails() });
 }
 
-browseTest("S-D1 synopsis closes on browse destruction and optional failures remain retryable", async (tv) => {
+browseTest("S-D1 synopsis closes on browse destruction while failed Related stays omitted", async (tv) => {
     await tv.page.route("**/api/v2/recommendations/similar/**", async (route) => {
         await route.fulfill({ status: 400, json: problem(400, "unavailable", "Unavailable").body });
     });
@@ -972,7 +1451,9 @@ browseTest("S-D1 synopsis closes on browse destruction and optional failures rem
     assert.equal(await tv.page.getByRole("dialog", { name: "Synopsis" }).count(), 1);
     await tv.remote(BACK);
     await tv.remote(BACK);
-    await tv.page.getByRole("button", { name: "Retry related titles", exact: true }).waitFor();
+    await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
+    assert.equal(await tv.page.locator('[data-detail-section="related"]').count(), 0);
+    assert.equal(await tv.page.getByRole("button", { name: "Retry related titles", exact: true }).count(), 0);
     await detailsMore(tv);
     await tv.page.locator('[data-focus="synopsis"]').click();
     await tv.page.evaluate(() => window.browseHarness.destroy());
@@ -1036,7 +1517,7 @@ for (const aggregate of ["series", "season"]) {
             await showing(tv, `item:${episodeId}`);
             await detailsMore(tv);
             await tv.eventually(async () => await tv.page.getByRole("button", { name: played ? "Mark unwatched" : "Mark watched", exact: true }).count() === 1, "covered episode reflects the aggregate change");
-            assert.equal(browseReads(tv, "/catalog/items/episode%3As1e12").length, 4, "Home and Card actions, then Details and its refresh");
+            assert.equal(browseReads(tv, "/catalog/items/episode%3As1e12").length, aggregate === "series" ? 6 : 4, "Home, Card actions, Details and refresh; Series also prefetches on season acceptance and watched invalidation");
             assert.equal(catalog.mutations.length, 1);
         }, { catalog: new FakeDetails() });
     }
@@ -1115,7 +1596,7 @@ browseTest("S-D3 unknown or mismatched watched postconditions remain errors", as
     assert.equal(await tv.page.locator('[data-focus="watched"]').getAttribute("aria-pressed"), "false");
 }, { catalog: new FakeDetails() });
 
-browseTest("Details portraits keep their circular geometry and combine one person's roles", async (tv) => {
+browseTest("Details portraits keep their circular geometry and retain the cast character", async (tv) => {
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await tv.page.locator('[data-focus="watchlist"]').waitFor();
@@ -1123,16 +1604,17 @@ browseTest("Details portraits keep their circular geometry and combine one perso
     await tv.jump(240);
     assert.deepEqual(await tv.page.locator(".details-photo").first().evaluate((node) => ({ width: node.clientWidth, height: node.clientHeight })), { width: 200, height: 200 });
     assert.equal(await tv.page.locator(".details-hero").evaluate((node) => {
-        const art = node.querySelector(".details-backdrop");
-        return art !== null && art.getBoundingClientRect().bottom <= node.getBoundingClientRect().bottom;
+        const art = node.querySelector(".skyline-art-frame");
+        return art !== null && getComputedStyle(node).overflow === "clip";
     }), true, "hero artwork cannot paint over later rails");
     assert.equal(await tv.page.locator('[data-focus="person:7"]').count(), 1);
-    await shows(tv, "Alex · Director");
+    await shows(tv, "Alex");
+    assert.equal(await tv.page.locator('[data-focus="person:7"] .browse-card-subtitle').textContent(), 'Alex');
 }, { catalog: new FakeDetails() });
 
-browseTest("long Details facts remain reachable with the remote", async (tv) => {
+browseTest("grouped Details facts remain reachable as one passive table with the remote", async (tv) => {
     await tv.page.route("**/api/v2/catalog/items/movie%3Am0001?**", async (route) => {
-        await route.fulfill({ status: 200, json: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", original_language: "en", crew: Array.from({ length: 35 }, (_, index) => ({ name: `Crew ${index}`, job: `Role ${index}` })) } });
+        await route.fulfill({ status: 200, json: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", studios: ['Studio'], countries: ['AU'], release_date: '2024-01-02', crew: Array.from({ length: 35 }, (_, index) => ({ name: `Crew ${index}`, job: 'Director' })) } });
     });
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
@@ -1144,13 +1626,17 @@ browseTest("long Details facts remain reachable with the remote", async (tv) => 
         await tv.jump(240);
         const fact = await tv.page.evaluate(() => {
             const node = document.activeElement;
-            if (!node?.matches(".details-facts .browse-text")) return undefined;
+            if (!node?.matches(".details-facts-table")) return undefined;
             const box = node.getBoundingClientRect();
             return { text: node.textContent ?? "", visible: box.top >= 0 && box.bottom <= 1080 };
         });
         if (fact !== undefined) { assert.equal(fact.visible, true); reached.add(fact.text); }
     }
-    assert.ok(reached.has("Role 34: Crew 34") && reached.has("Role 0: Crew 0") && reached.has("Original language: en"), JSON.stringify([...reached]));
+    assert.equal(reached.size, 1, 'facts form one passive focus target');
+    const facts = [...reached][0] ?? '';
+    assert.match(facts, /DIRECTORCrew 0, Crew 1, Crew 2/);
+    assert.match(facts, /STUDIOStudio/); assert.match(facts, /COUNTRYAU/); assert.match(facts, /RELEASED/);
+    assert.doesNotMatch(facts, /Crew 34/);
 }, { catalog: new FakeDetails() });
 
 browseTest("personal writes require confirmed state and discard late replies after a profile change", async (tv, catalog) => {
@@ -1180,7 +1666,7 @@ browseTest("personal writes require confirmed state and discard late replies aft
     assert.ok(writes.every((request) => request.headers["x-profile-id"] === "p-owner"));
 }, { catalog: new FakeDetails() });
 
-browseTest("optional Details reads load independently, fail, retry and report empty results", async (tv, catalog) => {
+browseTest("optional Details reads load independently and omit empty Related results", async (tv, catalog) => {
     assert.ok(catalog instanceof FakeDetails);
     const related = tv.fake.hold("/recommendations/similar/movie%3Am0001", true);
     const capability = tv.fake.hold("/capabilities/personal-lists", true);
@@ -1197,11 +1683,13 @@ browseTest("optional Details reads load independently, fail, retry and report em
     catalog.empty = true;
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
-    await shows(tv, "No related titles available.");
+    await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
+    assert.equal(await tv.page.locator('[data-detail-section="related"]').count(), 0);
     await tv.page.locator('[data-focus="person:7"]').focus();
     await press(tv, "Enter");
     await showing(tv, "person:7");
-    await shows(tv, "No available titles for this person.");
+    await shows(tv, "No available titles for this filter.");
+    await shows(tv, "0 titles");
     await tv.remote(BACK);
     await showing(tv, "item:movie:m0001");
     await tv.remote(BACK);
@@ -1219,7 +1707,7 @@ browseTest("series Details render related titles from the unpaginated server col
     assert.equal(await tv.page.getByRole("button", { name: "Retry related titles", exact: true }).count(), 0);
 }, { catalog: new FakeDetails() });
 
-browseTest("person, related and personal reads recover with explicit retries", async (tv) => {
+browseTest("personal reads retry explicitly and omitted Related recovers on a new visit", async (tv) => {
     let relatedFail = true;
     let personalFail = true;
     await tv.page.route("**/api/v2/recommendations/similar/**", async (route) => {
@@ -1232,19 +1720,25 @@ browseTest("person, related and personal reads recover with explicit retries", a
     });
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
-    await shows(tv, "Could not load related titles.");
+    await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
+    assert.equal(await tv.page.locator('[data-detail-section="related"]').count(), 0);
     await shows(tv, "Could not load personal actions.");
     relatedFail = false; personalFail = false;
-    await tv.page.getByRole("button", { name: "Retry related titles", exact: true }).click();
+    assert.equal(await tv.page.getByRole("button", { name: "Retry related titles", exact: true }).count(), 0);
     await detailsMore(tv);
     await tv.page.getByRole("button", { name: "Retry personal actions", exact: true }).click();
     await tv.page.getByRole("button", { name: "Add favorite", exact: true }).waitFor();
     await tv.remote(BACK);
-    await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "related retry");
+    await tv.remote(BACK);
+    await showing(tv, "home");
+    await activateDetails(tv);
+    await showing(tv, "item:movie:m0001");
+    await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "related new visit");
     const person = tv.fake.hold("/catalog/people/7", true);
     await tv.page.locator('[data-focus="person:7"]').focus();
     await press(tv, "Enter");
-    await showing(tv, "person:loading");
+    await showing(tv, "person:7");
+    await shows(tv, "Loading metadata");
     await tv.page.evaluate(() => window.browseHarness.clearProfile());
     person.release();
     await tv.jump(0);
@@ -1434,7 +1928,7 @@ browseTest("R2 cached library restores flyout modes without reads on focus", asy
     await tv.page.locator('[data-focus="movies"]').focus();
     await tv.jump(250);
     await press(tv, "ArrowDown", "ArrowRight");
-    assert.deepEqual(await tv.page.locator('.skyline-flyout [role="menuitem"]').allTextContents(), ["Recommended", "Collections", "Browse", "Genres", "A–Z", "Recently Added"]);
+    assert.deepEqual(await tv.page.locator('.skyline-flyout [role="menuitem"]').allTextContents(), ["Recommended", "Collections", "Browse"]);
     assert.equal(tv.fake.requests.length, reads);
 }, { multipleLibraries: true });
 
@@ -1480,20 +1974,21 @@ browseTest("a completed genre sort preserves its Sort control", async (tv) => {
     assert.equal(await tv.focused(), "sort");
 });
 
-browseTest("inline collection fans retain their width and contain their text", async (tv) => {
+browseTest("Collections posters retain their width and contain their text", async (tv) => {
     await tv.page.emulateMedia({ reducedMotion: "reduce" });
     await tv.page.locator('[data-focus="movies"]').click();
     await showing(tv, "library:12");
-    const fan = tv.page.locator('.browse-row .discovery-collection').first();
+    await selectLibraryMode(tv, "Collections");
+    const fan = tv.page.locator('.discovery-collection-grid .discovery-collection').first();
     const geometry = await fan.evaluate(node => {
         const card = node.getBoundingClientRect();
-        const text = Array.from(node.querySelectorAll('.discovery-collection-name, .discovery-collection-count')).map(item => item.getBoundingClientRect());
+        const text = Array.from(node.querySelectorAll('.browse-card-title, .browse-card-subtitle')).map(item => item.getBoundingClientRect());
         return { width: getComputedStyle(node).width, contained: text.every(item => item.right <= card.right && item.left >= card.left) };
     });
-    assert.deepEqual(geometry, { width: "430px", contained: true });
+    assert.deepEqual(geometry, { width: "260px", contained: true });
 });
 
-browseTest("A–Z first row returns directly to pills with multiple letters", async (tv, catalog) => {
+browseTest("A–Z first row returns directly to nav with multiple letters", async (tv, catalog) => {
     catalog.add({ id: "movie:alpha", type: "movie", title: "Alpha", libraryId: "12" });
     catalog.add({ id: "movie:zulu", type: "movie", title: "Zulu", libraryId: "12" });
     await tv.page.locator('[data-focus="movies"]').click();
@@ -1503,8 +1998,8 @@ browseTest("A–Z first row returns directly to pills with multiple letters", as
     assert.deepEqual(await tv.page.locator('.discovery-letters button').allTextContents(), ["A", "M", "Z"]);
     const reads = tv.fake.requests.length;
     await press(tv, "ArrowUp");
-    assert.equal(await tv.page.locator('.skyline-pills :focus').count(), 1, "Up reaches the pills without traversing the rail");
-    await press(tv, "ArrowDown");
+    assert.equal(await tv.page.locator('.skyline-roots :focus').count(), 1, `Up reaches navigation without traversing the rail: ${await tv.focused()}`);
+    await selectLibraryMode(tv, "A–Z");
     assert.equal(await tv.focused(), "movie:alpha");
     await press(tv, "ArrowRight", "ArrowRight", "ArrowRight", "ArrowRight", "ArrowRight", "ArrowRight");
     assert.equal(await tv.focused(), "letter:A");
@@ -1515,7 +2010,7 @@ browseTest("A–Z first row returns directly to pills with multiple letters", as
     await press(tv, "ArrowRight");
     assert.equal(await tv.focused(), "letter:Z");
     await press(tv, "ArrowUp", "ArrowUp", "ArrowUp");
-    assert.equal(await tv.page.locator('.skyline-pills :focus').count(), 1);
+    assert.equal(await tv.page.locator('.skyline-roots :focus').count(), 1);
     assert.equal(tv.fake.requests.length, reads);
 });
 
@@ -1654,8 +2149,10 @@ browseTest("entering Browse before Recommended finishes still discovers all exis
     await selectLibraryMode(tv, "Browse");
     await cancelled; held.release();
     await tv.page.locator('.catalog-grid .browse-card').first().waitFor();
-    await tv.eventually(async () => await tv.page.locator('[data-focus="mode:Genres"]').count() === 1, "Browse retains the supported destinations");
-    assert.deepEqual(await tv.page.locator('.skyline-pills [data-focus]').allTextContents(), ["Recommended", "Collections", "Browse", "Genres", "A–Z", "Recently Added"]);
+    for (const mode of ["Genres", "A–Z", "Recently Added"]) assert.equal(await tv.page.locator(`[data-focus="mode:${mode}"]`).count(), 1);
+    await tv.page.locator('[data-focus="movies"]').focus();
+    await tv.remote(40);
+    assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["Recommended", "Collections", "Browse"]);
 });
 
 browseTest("Browse preserves a long facet viewport after selecting its focused value", async (tv, catalog) => {
@@ -1996,8 +2493,14 @@ browseTest("R2 invalid cursor resets only the active query and cached reopening 
     assert.equal(tv.fake.requests.filter(request => request.path === "/catalog/query").pop()?.body?.cursor, undefined);
 });
 
-browseTest("activating current Recommended restores its content without reads", async (tv) => {
+browseTest("activating current Recommended restores its content without reads", async (tv, catalog) => {
     await tv.page.emulateMedia({ reducedMotion: "reduce" });
+    const household = catalog.households.get("p-owner");
+    assert.ok(household);
+    household.librarySections = [
+        { id: "first", title: "First", items: Array.from({ length: 24 }, (_, index) => `movie:m${String(index + 1).padStart(4, "0")}`) },
+        { id: "second", title: "Second", items: ["movie:m0025"] },
+    ];
     const paths = [13, 14, 15, 16].map(index => `/catalog/items/movie%3Am00${index}`);
     const held = paths.map(path => tv.fake.hold(path, true));
     await tv.page.locator('[data-focus="movies"]').click();
@@ -2007,12 +2510,12 @@ browseTest("activating current Recommended restores its content without reads", 
     const titles = await tv.page.locator('[data-view="library:12"] .home-section .browse-card:not(.skyline-explore)').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? ""));
     await tv.eventually(async () => titles.every(id => tv.fake.requests.some(request => request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(id)}`)), "accepted enrichment queue dispatched");
     await press(tv, "ArrowDown");
-    assert.equal(await tv.focused(), "collection:highlights");
+    assert.equal(await tv.focused(), "movie:m0025");
     const reads = tv.fake.requests.length;
     await selectLibraryMode(tv, "Recommended");
-    assert.equal(await tv.focused(), "collection:highlights");
+    assert.equal(await tv.focused(), "movie:m0025");
     assert.equal(tv.fake.requests.length, reads);
-    assert.equal(await tv.page.locator('.browse [data-focus="collection:highlights"]').evaluate(node => {
+    assert.equal(await tv.page.locator('.browse [data-focus="movie:m0025"]').evaluate(node => {
         const bounds = node.getBoundingClientRect();
         const viewport = node.closest('.skyline-content')?.getBoundingClientRect();
         return viewport !== undefined && bounds.top >= viewport.top && bounds.bottom <= viewport.bottom;
@@ -2025,7 +2528,7 @@ browseTest("activating current Recommended restores its content without reads", 
     assert.equal(tv.fake.requests.length, reads);
 });
 
-browseTest("R2 grid destinations retain pills without marquee and place rail on right", async (tv) => {
+browseTest("R2 grid destinations omit marquee and place rail on right", async (tv) => {
     await tv.page.emulateMedia({ reducedMotion: "reduce" });
     await tv.page.locator('[data-focus="movies"]').click();
     await showing(tv, "library:12");
@@ -2038,15 +2541,15 @@ browseTest("R2 grid destinations retain pills without marquee and place rail on 
     assert.ok(content !== null && content.y < 260);
 });
 
-browseTest("R2 Browse includes inline collections and Collections uses fan grid", async (tv) => {
+browseTest("R2 Recommended omits collections and Collections uses poster grid", async (tv) => {
     await tv.page.locator('[data-focus="movies"]').click();
     await showing(tv, "library:12");
-    assert.equal(await tv.page.locator('.browse [data-focus="collection:highlights"]').count(), 1);
-    await tv.page.locator('[data-focus="collections:all"]').click();
+    assert.equal(await tv.page.locator('.browse [data-focus="collection:highlights"]').count(), 0);
+    await selectLibraryMode(tv, "Collections");
     await tv.page.locator('.browse .discovery-collection').waitFor();
     const card = await tv.page.locator('.browse .discovery-collection').first().boundingBox();
-    assert.ok(card !== null && card.width >= 430 && card.height >= 234);
-    assert.equal(await tv.page.locator('.browse .discovery-collection-count').first().innerText(), "60 titles");
+    assert.ok(card !== null && card.width >= 260 && card.height >= 390);
+    assert.equal(await tv.page.locator('.browse .collection-poster .browse-card-subtitle').first().innerText(), "60 ITEMS");
 });
 
 browseTest("R2 capability read failure renders Retry", async (tv, catalog) => {
@@ -2058,10 +2561,10 @@ browseTest("R2 capability read failure renders Retry", async (tv, catalog) => {
     await tv.page.locator('[data-view="library:12"] .home-section .browse-card').first().waitFor();
     await tv.page.locator('[data-focus="movies"]').focus();
     await tv.remote(40);
-    assert.equal(await tv.page.locator('.skyline-selector [role="menuitem"]').count(), 6);
+    assert.equal(await tv.page.locator('.skyline-selector [role="menuitem"]').count(), 3);
 });
 
-browseTest("R2 Collections fan geometry and focus border stay inside the viewport", async (tv) => {
+browseTest("R2 Collections poster geometry and focus border stay inside the viewport", async (tv) => {
     await tv.page.emulateMedia({ reducedMotion: "reduce" });
     await tv.page.locator('[data-focus="movies"]').click();
     await showing(tv, "library:12");
@@ -2071,9 +2574,13 @@ browseTest("R2 Collections fan geometry and focus border stay inside the viewpor
         const grid = node.parentElement;
         const viewport = node.closest('.skyline-content')?.getBoundingClientRect();
         const card = node.getBoundingClientRect();
-        return { width: node.clientWidth + 4, height: node.clientHeight + 4, columns: grid === null ? "" : getComputedStyle(grid).gridTemplateColumns, gap: grid === null ? "" : getComputedStyle(grid).columnGap, visible: viewport !== undefined && card.top >= viewport.top && card.left >= viewport.left && card.bottom <= viewport.bottom };
+        return { width: node.clientWidth + 4, height: node.clientHeight + 4, columns: grid === null ? "" : getComputedStyle(grid).gridTemplateColumns, gap: grid === null ? "" : getComputedStyle(grid).columnGap, visible: viewport !== undefined && card.top >= viewport.top && card.left >= viewport.left && card.bottom <= viewport.bottom, card: card.toJSON(), viewport: viewport?.toJSON() };
     });
-    assert.deepEqual(geometry, { width: 430, height: 234, columns: "430px 430px 430px", gap: "26px", visible: true });
+    assert.equal(geometry.width, 264);
+    assert.ok(geometry.height >= 390);
+    assert.equal(geometry.columns.split(" ").length, 6);
+    assert.equal(geometry.gap, "40px");
+    assert.equal(geometry.visible, true, JSON.stringify(geometry));
 });
 
 browseTest("R2 personal collections retain server group and query source", async (tv, catalog) => {
@@ -2085,7 +2592,7 @@ browseTest("R2 personal collections retain server group and query source", async
     await shows(tv, "Mine");
     await tv.page.locator('[data-focus="collection:u1"]').click();
     await tv.eventually(async () => tv.fake.requests.some(request => request.body?.source === "user_collection"), "personal collection query");
-    assert.deepEqual(tv.fake.requests.filter(request => request.body?.source === "user_collection").pop()?.body, { library_id: "12", type: "movie", limit: 24, sort: "title", order: "asc", source: "user_collection", scope: "library", collection_id: "u1" });
+    assert.deepEqual(tv.fake.requests.filter(request => request.body?.source === "user_collection").pop()?.body, { limit: 60, match: "all", source: "user_collection", collection_id: "u1" });
 });
 
 browseTest("R2 filtered genres keep library chrome", async (tv) => {
@@ -2094,11 +2601,11 @@ browseTest("R2 filtered genres keep library chrome", async (tv) => {
     await selectLibraryMode(tv, "Genres");
     await tv.page.locator('[data-focus="genre:Drama"]').click();
     await shows(tv, "Title A–Z");
-    assert.equal(await tv.page.locator('.browse .skyline-pills button').count(), 6);
+    assert.equal(await tv.page.locator('.browse .skyline-pills button').count(), 0);
     assert.equal(await tv.page.locator('.browse .skyline-marquee').count(), 0);
 });
 
-browseTest("discovery exposes six real library destinations", async (tv) => {
+browseTest("discovery exposes three library menu destinations", async (tv) => {
     if (process.env.DISCOVERY_CAPTURE !== undefined) await tv.page.emulateMedia({ reducedMotion: "reduce" });
     await tv.page.locator('[data-focus="movies"]').click();
     await showing(tv, "library:12");
@@ -2111,7 +2618,7 @@ browseTest("discovery exposes six real library destinations", async (tv) => {
     }
     await tv.page.locator('[data-focus="movies"]').focus();
     await tv.remote(40);
-    assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["Recommended", "Collections", "Browse", "Genres", "A–Z", "Recently Added"]);
+    assert.deepEqual(await tv.page.locator('.skyline-selector [role="menuitem"]').allTextContents(), ["Recommended", "Collections", "Browse"]);
 });
 
 if (process.env.DISCOVERY_PACED !== undefined) {
@@ -2166,7 +2673,9 @@ for (const [tab, library, first] of [["movies", "12", "movie:m0001"], ["series",
         await tv.page.locator('[data-focus="collection:highlights"]').waitFor();
         await press(tv, "Enter");
         await shows(tv, "Library Highlights");
-        await tv.eventually(async () => tv.fake.requests.some(request => request.path.startsWith(`/library/${library}/collections/highlights/items?limit=24`)), "scoped collection items");
+        await tv.eventually(async () => tv.fake.requests.some(request => request.path.startsWith("/catalog/query") && request.body?.source === "library_collection" && request.body?.collection_id === "highlights" && request.body?.limit === 60), "scoped collection items");
+        assert.deepEqual(tv.fake.requests.filter(request => request.body?.source === "library_collection").at(-1)?.body, { source: "library_collection", collection_id: "highlights", limit: 60, match: "all" });
+        await tv.page.locator(`.collection-detail-grid [data-focus="${first}"]`).waitFor();
         await tv.remote(BACK);
         assert.equal(await tv.focused(), "collection:highlights");
         await selectLibraryMode(tv, "Genres");
@@ -2199,22 +2708,27 @@ for (const [tab, library, first] of [["movies", "12", "movie:m0001"], ["series",
     });
 }
 
-browseTest("discovery loading, retry and late answers preserve route and profile authority", async (tv, catalog) => {
+browseTest("discovery loading, member retry and late answers preserve route and profile authority", async (tv, catalog) => {
     await tv.page.locator('[data-focus="movies"]').click();
     await showing(tv, "library:12");
     const pending = tv.fake.hold("/library/12/collections", true);
     await selectLibraryMode(tv, "Collections");
-    await tv.page.locator('[aria-label="Loading"]').waitFor();
+    await tv.page.locator('[aria-label="Loading collections"]').waitFor();
     await tv.page.locator('[data-focus="series"]').click();
     await showing(tv, "library:13");
     pending.release();
     await tv.jump(500);
     assert.equal(await view(tv), "library:13");
-    catalog.failNext("/library/13/collections", problem(403, "forbidden", "Forbidden"));
     await selectLibraryMode(tv, "Collections");
-    await tv.page.locator('[data-focus="retry"]').waitFor();
-    await press(tv, "Enter");
     await tv.page.locator('[data-focus="collection:highlights"]').waitFor();
+    catalog.failNext("/catalog/query", problem(403, "forbidden", "Forbidden"));
+    await tv.page.locator('[data-focus="collection:highlights"]').click();
+    await tv.page.locator('[data-focus="retry"]').waitFor();
+    await tv.page.locator('[data-focus="retry"]').focus();
+    await press(tv, "Enter");
+    await tv.page.locator('.browse-grid .browse-card').first().waitFor();
+    await tv.remote(BACK);
+    assert.equal(await tv.focused(), "collection:highlights");
     const authority = tv.fake.hold("/catalog/query", true);
     const queries = tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length;
     await selectLibraryMode(tv, "Recently Added");
@@ -2254,27 +2768,32 @@ browseTest("discovery uses nonzero letter positions and cancels an obsolete quer
     await tv.page.locator('[data-focus="collection:highlights"]').waitFor();
     delayed.release();
     await tv.jump(500);
-    assert.equal(await tv.page.locator('.browse .skyline-pills [aria-pressed="true"]').innerText(), "Collections");
+    assert.equal(await tv.page.locator('.browse .discovery-collection-grid').count(), 1);
     assert.deepEqual(await cardIds(tv), []);
     const requests = tv.fake.requests.length;
     await tv.remote(BACK);
     await tv.page.locator('[data-focus="movies"]').focus();
     await tv.jump(250);
     await press(tv, "ArrowDown", "ArrowRight");
-    assert.deepEqual(await tv.page.locator('.skyline-flyout [role="menuitem"]').allTextContents(), ["Recommended", "Collections", "Browse", "Genres", "A–Z", "Recently Added"]);
+    assert.deepEqual(await tv.page.locator('.skyline-flyout [role="menuitem"]').allTextContents(), ["Recommended", "Collections", "Browse"]);
     await tv.remote(18);
     assert.equal(await tv.fake.requests.length, requests);
 }, { multipleLibraries: true });
 
 browseTest("Skyline keeps bounded type tabs and a passive debounced marquee", async (tv) => {
     assert.deepEqual(await cardIds(tv, ".browse-nav .browse-button"), ["search", "home", "movies", "series", "for_you", "calendar", "profiles"]);
-    assert.equal(await tv.page.locator(".skyline-marquee h1").textContent(), "Movie 0001");
+    const headline = (): Promise<string | null> => tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) h1").textContent();
+    assert.equal(await headline(), "Movie 0001");
     const reads = tv.fake.requests.length;
+    // The installed page clock keeps flowing, so a loaded runner can pass 150 ms before the next
+    // read. Pause it so only the jump below opens the debounced layer. The outgoing title stays
+    // mounted through the crossfade, so the read is the current layer.
+    await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now()) + 1000);
     await press(tv, "ArrowRight");
     assert.equal(await tv.focused(), "episode:s1e12");
-    assert.equal(await tv.page.locator(".skyline-marquee h1").textContent(), "Movie 0001");
+    assert.equal(await headline(), "Movie 0001");
     await tv.jump(150);
-    assert.equal(await tv.page.locator(".skyline-marquee h1").last().textContent(), "Harbor Lights", "episodes headline with their series");
+    assert.equal(await headline(), "Harbor Lights", "episodes headline with their series");
     assert.equal(tv.fake.requests.length, reads);
 });
 
@@ -2386,8 +2905,14 @@ browseTest("many libraries stay bounded; dwell and Back never commit; scope surv
     assert.ok(household);
     household.hidden = [];
     for (let index = 0; index < 20; index++) household.libraries.push({ id: String(index + 30), name: `Library ${index} with a long title`, type: "movies", sort_order: index + 10 });
+    const previousReads = detailReads(tv).length;
+    let release = (): void => {};
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    await tv.page.route("**/api/v2/catalog/items/**", async route => { await pending; await route.fallback(); });
     await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
     await showing(tv, "home");
+    release();
+    await homeDetailsRead(tv, previousReads);
     assert.equal(await tv.page.locator(".browse").evaluate((node) => node.scrollWidth), 1920);
     await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
     await tv.page.evaluate(() => { window.retainedNavigation = document.querySelector(".browse-nav"); });
@@ -2472,10 +2997,13 @@ browseTest("Home lists visible video libraries and supported rows, and every row
 
     await press(tv, "ArrowRight");
     assert.equal(await tv.focused(), "episode:s1e12");
-    await press(tv, "ArrowDown", "ArrowRight", "ArrowRight");
-    assert.equal(await tv.focused(), "movie:m0001", "Recently Added: series first, then movies");
+    const added = await cardIds(tv, '[data-section="recently_added"] .browse-card');
+    assert.deepEqual(added.slice(0, 3), ["series:s1", "series:s2", "movie:m0001"], "Recently Added: series first, then movies");
+    await press(tv, "ArrowDown");
+    // The old assertion pressed Right twice and expected movie:m0001, which encoded Down landing on the first card.
+    assert.equal(await tv.focused(), "movie:m0001", "Down from the second Continue Watching still keeps that column");
     await press(tv, "ArrowUp");
-    assert.equal(await tv.focused(), "episode:s1e12", "back to the card last focused in the row above");
+    assert.equal(await tv.focused(), "episode:s1e12", "Up along the same column returns to the still above");
     await press(tv, "ArrowUp", "ArrowRight");
     assert.equal(await tv.focused(), "movies");
     await press(tv, "ArrowUp");
@@ -2530,8 +3058,10 @@ browseTest(
         await press(tv, "ArrowLeft", "Enter");
         await shows(tv, "Page 3 of 209");
         assert.equal((await cardIds(tv))[0], "movie:m0049");
-        assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length, 5, "one request per page shown");
-        assert.ok(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).every(request => request.body?.limit === 24), "never the whole catalog");
+        assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length, 6, "Browse entry plus one request per A–Z page shown");
+        const queries = tv.fake.requests.filter(request => request.path.startsWith("/catalog/query"));
+        assert.equal(queries[0]?.body?.limit, 100, "Browse entry stays bounded");
+        assert.ok(queries.slice(1).every(request => request.body?.limit === 24), "A–Z reads only the shown page, never the whole catalog");
 
         await press(tv, "ArrowUp");
         assert.equal(await tv.focused(), "movie:m0049", "the card focused before is not on this page: Up enters the grid at its first card");
@@ -2541,7 +3071,7 @@ browseTest(
         await tv.page.evaluate(() => window.browseHarness.resume());
         await tv.remote(BACK);
         await showing(tv, "library:12");
-        await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length === 6, "the refresh after playback");
+        await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length === 7, "the refresh after playback");
         await shows(tv, "Page 3 of 209");
         assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).pop()?.body?.cursor, "cursor-48", "the refresh reloads the page shown, not the first");
         assert.equal(await tv.focused(), "movie:m0050", "focus returns to the card that was opened");
@@ -2588,7 +3118,7 @@ browseTest("series open seasons, episode Select plays directly, and playback ret
     await press(tv, "ArrowDown", "Enter");
     await showing(tv, "item:series:s1");
     await shows(tv, "Harbor Lights");
-    assert.equal(await tv.focused(), "next-episode");
+    await tv.eventually(async () => await tv.focused() === "next-episode", "Play receives initial Series focus");
     await press(tv, "ArrowDown", "ArrowRight");
     assert.equal(await tv.focused(), "season:2");
     await press(tv, "Enter");

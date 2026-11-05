@@ -154,6 +154,21 @@ export function decodeServerIdentity(value: unknown): string {
     return nonEmptyString(object(value, "server_identity"), "server_id", "server_identity");
 }
 
+/**
+ * `GET /system/setup` (`SetupStatus`). Both members are required.
+ * Apple TV shows the recovery screen from `needs_setup` alone.
+ */
+export interface SetupStatus {
+    readonly needsSetup: boolean;
+}
+
+export function decodeSetupStatus(value: unknown): SetupStatus {
+    const path = "setup_status";
+    const obj = object(value, path);
+    boolean(obj, "wizard_completed", path);
+    return { needsSetup: boolean(obj, "needs_setup", path) };
+}
+
 // --- Device sign-in ---
 
 const CAPABILITY_STATES = ["available", "disabled", "not_configured", "unsupported"] as const;

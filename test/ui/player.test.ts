@@ -398,6 +398,32 @@ const press = (page: Page, keyCode: number): Promise<void> => page.evaluate((cod
     target.dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, bubbles: true, cancelable: true }));
     target.dispatchEvent(new KeyboardEvent("keyup", { keyCode: code, bubbles: true, cancelable: true }));
 }, keyCode);
+
+test("skip taps accumulate while the previous seek callback is pending", async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), previewKey: "ready" });
+        await press(page, RIGHT);
+        await page.clock.fastForward(200);
+        await press(page, RIGHT);
+        await page.clock.fastForward(200);
+        assert.deepEqual(await commands(page), ["seekToSeconds 764", "seekToSeconds 774"]);
+        await show(page, { ...playing(TRACKS), positionSeconds: 774, previewKey: "ready" });
+        await press(page, RIGHT);
+        await page.clock.fastForward(200);
+        assert.deepEqual((await commands(page)).slice(-1), ["seekToSeconds 784"]);
+    } finally { await page.close(); }
+});
+
+test("reduced motion disables scrolling animation in the active track pane", async () => {
+    const { page } = await open();
+    try {
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await show(page, playing(TRACKS));
+        await openAudio(page);
+        assert.equal(await page.locator(".player-menu-list.player-menu-pane-active").evaluate(el => getComputedStyle(el).scrollBehavior), "auto");
+    } finally { await page.close(); }
+});
 const holdKey = (page: Page, keyCode: number): Promise<void> => page.evaluate((code) => {
     (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, bubbles: true, cancelable: true }));
 }, keyCode);

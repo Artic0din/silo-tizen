@@ -18,9 +18,13 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Restored sidecar captions and queued choices after refused subtitle reports, aligned subtitles after suspended preparation, and honoured published HLS rendition order.
+- Started watched On Deck titles from the beginning instead of retained progress.
 - Reported an HLS subtitle alignment failure instead of showing a track that the native player could not select.
 - Allowed pause during subtitle reports, queued choices needing a new stream, and replanned subtitle tracks that the native stream could not identify.
 - Cleared sidecar captions when selecting embedded subtitles and restored the last confirmed subtitle after a queued choice was refused.
+- Preserved repeated skip taps while seeking and disabled track-list scroll animation with reduced motion.
+
 - Followed playback after an external resume during scrubbing and preserved newer Play/Pause choices while a scrub seek landed.
 - Resumed committed scrubs after a server reanchor, kept Skip reachable with the remote, and let navigation cross Audio while its choices loaded.
 - Kept the latest Play/Pause choice when remote presses arrive during a seek.
@@ -186,6 +190,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Showed Apple TV's "This server isn't ready" screen when a server still needs setup, with Check again and Change server.
 - Added a page linking the silo-apple and silo-android design specs that apply to a TV client, for reading before porting a feature.
 - Added the Macroscope visible-change evidence check that silo-apple and silo-android run, tailored to the Samsung TV and its Apple TV comparison.
 - Added a CI check that fails when the app or its tests mention an `/api/v1` path, as silo-apple's does.

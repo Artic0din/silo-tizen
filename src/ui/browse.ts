@@ -166,6 +166,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         shuffleGeneration++;
         activeSection?.stop();
         if (activeBrowse !== undefined) stopFeed(activeBrowse);
+        if (activePersonal !== undefined) stopFeed(activePersonal);
         loading?.abort();
         loading = undefined;
         cancelSlow();

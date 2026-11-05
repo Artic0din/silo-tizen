@@ -487,6 +487,26 @@ test("review: large History posters fit five columns and remote rows", async () 
     } finally { await tv.page.context().close(); }
 });
 
+test("review: dismissing card actions resumes a cancelled one-row Favorites continuation", async () => {
+    const { tv, catalog } = await setup();
+    const cursor = "p-owner:favorites:video:24";
+    const held = tv.fake.hold(readPersonalPage("favorites", "movie", cursor).path, true);
+    try {
+        const first = catalog.route("POST", "/catalog/query", "p-owner", { source: "favorites", type: "video", limit: 24 });
+        const body = first?.body as { items: Record<string, unknown>[] };
+        catalog.pageReplies.push({ status: 200, body: { ...body, items: body.items.slice(0, 8), page: { has_more: true, next_cursor: cursor } } });
+        await openList(tv, "favorites");
+        await tv.eventually(async () => listReads(tv).some(read => read.body?.cursor === cursor), "continuation is pending");
+        await tv.page.locator(".personal-page .browse-card").first().focus();
+        const identity = await tv.focused();
+        await tv.down(13); await tv.jump(650); await tv.up(13);
+        await tv.page.getByRole("dialog", { name: "Card actions" }).waitFor();
+        await tv.remote(10009);
+        await tv.eventually(async () => await tv.page.locator(".personal-page .browse-card").count() > 8, "dismissal restarts the cancelled continuation");
+        assert.equal(await tv.focused(), identity);
+    } finally { held.release(); await tv.page.context().close(); }
+});
+
 test("review: a failed continuation in one-row Favorites has an explicit retry", async () => {
     const { tv, catalog } = await setup();
     try {

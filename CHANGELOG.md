@@ -9,6 +9,7 @@ All notable changes to this project are documented in this file.
 - Kept History's focused artwork and captions on screen at every poster size and repainted personal lists when presentation preferences arrived.
 - Preserved History's outer posters and focus outlines inside the scroll viewport's horizontal padding.
 - Offered an explicit retry when a Favorites continuation failed with only one row of cards to scroll.
+- Resumed personal-list pagination after dismissing card actions that cancelled a pending continuation.
 - Restored the For You menu on Down from the retained tab over Watchlist and Favorites, focusing Watchlist as on Apple TV.
 - Matched History's Apple TV title position and focused poster scroll clearance.
 - Matched Apple TV personal-list loading, root selection, Back navigation, grid spacing, and saved-list ordering.

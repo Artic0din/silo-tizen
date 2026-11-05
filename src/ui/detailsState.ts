@@ -286,6 +286,7 @@ export class DetailsState {
         this.episodePreferenceSource = previous.episodePreferenceDirty ? previous.episodePreferenceSource : undefined;
         for (const [id, state] of previous.previousEpisodeStates) this.previousEpisodeStates.set(id, state);
         for (const [id, state] of previous.episodeStates) this.previousEpisodeStates.set(id, state);
+        for (const id of previous.episodeRefusals) this.episodeRefusals.add(id);
         this.audioPreference.restore(previous.audioPreference);
         this.subtitlePreference.restore(previous.subtitlePreference);
         if (this.detail.versions.some(file => file.fileId === previous.selectedFileId)) this.selectedFileId = previous.selectedFileId;
@@ -609,7 +610,6 @@ export class DetailsState {
         this.episodeStates.clear();
         this.episodeReads.clear();
         this.episodeFailures.clear();
-        this.episodeRefusals.clear();
         this.episodeQueue.length = 0;
         this.episodeWorkers = 0;
     }

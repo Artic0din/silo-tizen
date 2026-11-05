@@ -221,9 +221,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let homeLibrariesNeedForeground = false;
     let retryHomeLibraries: (() => void) | undefined;
     let menuOrigin: { route: Route; focus: FocusTarget | undefined } | undefined;
+    const discardVisitedDetails = (id: string): boolean => {
+        if (detailWork?.detail.id === id) { detailWork.stop(); detailWork = undefined; }
+        return visitedDetails.delete(id);
+    };
     const personalPending = (): boolean => detailWork?.pending === true || cardActions.pending;
     const cardActions = new CardActions(container, session, state => {
         if (state.changes.size === 0) return;
+        visitedDetails.delete(state.detail.id);
         cache.invalidate();
         // Delivery may be uncertain; retained roots must reread even after a dismissed write.
         for (const entry of new Set([...roots.values(), ...stack])) entry.stale = true;
@@ -235,7 +240,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             showRoute(origin.route, origin.focus);
             render(origin.focus);
         }
-    }, personalPending, card => open({ kind: "item", id: card.id, title: card.title }));
+    }, personalPending, card => open({ kind: "item", id: card.id, title: card.title }), { get: id => visitedDetails.get(id), delete: discardVisitedDetails });
     const stopDetails = (): void => {
         if (detailWork !== undefined) {
             visitedDetails.delete(detailWork.detail.id);
@@ -574,6 +579,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }
                 const text = error instanceof CalendarTimezoneError ? error.message : failureText(error, current);
                 if ((current.kind === "item" || current.kind === "home" || current.kind === "for_you") && error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+                    if (current.kind === "item") discardVisitedDetails(current.id);
                     current.data = undefined;
                     if (current.kind === "home") shell.update([]);
                 }
@@ -605,17 +611,18 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const read = <T>(spec: RequestSpec<T>, signal: AbortSignal): Promise<T> => cache.read({ ...spec, signal }, request => session.call({ ...request, profileScoped: true }));
     const routeOffline = (current: Route): boolean => {
-        if (current.kind === "item" && current.data?.details?.offline === true) return true;
+        if ((current.kind === "item" || current.kind === "season") && current.data?.details?.offline === true) return true;
         const specs = current.kind === "home" ? [operations.listHomeSections(), operations.listUserLibraries(), operations.hiddenLibraries()]
             : current.kind === "for_you" ? [operations.recommendations()]
-            : current.kind === "item" ? [operations.getCatalogItem(current.id), operations.listSeriesSeasons(current.id)] : [];
+            : current.kind === "item" ? [operations.getCatalogItem(current.id), operations.listSeriesSeasons(current.id)]
+            : current.kind === "season" ? [operations.listSeasonEpisodes(current.seriesId, current.seasonNumber), ...(current.id === undefined ? [] : [operations.getCatalogItem(current.id)])] : [];
         return specs.some(spec => cache.isOffline(spec));
     };
     const recoverCachedRoute = (current: Route): void => {
         offlineRefreshAt = undefined;
         cancelOfflineRefresh();
         if (torn || top() !== current || (!routeOffline(current) && !deferredDetails.has(current))) return;
-        const details = current.kind === "item" ? current.data?.details : undefined;
+        const details = current.kind === "item" || current.kind === "season" ? current.data?.details : undefined;
         if (playing || loading !== undefined || document.hidden || cardActions.active || settingsScreen !== undefined || details?.panel !== undefined || details?.busy || details?.preparingPlay) {
             cancelOfflineRefresh = clock.schedule(() => recoverCachedRoute(current), 15000);
             return;
@@ -1192,7 +1199,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }, quiet);
                 return;
             case "season":
-                stopDetails();
+                if (current.data?.details === undefined) stopDetails();
                 load(current, async (signal) => {
                     const [episodes, detail] = await Promise.all([
                         read(operations.listSeasonEpisodes(current.seriesId, current.seasonNumber), signal),
@@ -1204,6 +1211,17 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     return { episodes, detail };
                 }, (data) => {
                     const previous = current.data?.details;
+                    if (previous?.panel !== undefined || previous?.busy || previous?.preparingPlay) { current.stale = true; deferredDetails.add(current); return; }
+                    deferredDetails.delete(current);
+                    if (previous !== undefined && data.detail !== undefined) {
+                        previous.acceptDetail(data.detail);
+                        if (data.detail.played !== undefined) previous.values.set("watched", data.detail.played);
+                        current.data = { ...data, details: previous };
+                        detailWork = previous;
+                        previous.start();
+                        return;
+                    }
+                    stopDetails();
                     current.data = data;
                     if (data.detail !== undefined) {
                         const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending, translations);

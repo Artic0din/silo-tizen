@@ -41,6 +41,76 @@ function liveRail(_arg: null): { left: number; width: number; scroll: number; pa
     };
 }
 
+detailTest("season Details automatically recovers an offline next episode", async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="series:s1-S1"]').waitFor();
+    let failures = 0;
+    tv.page.on("requestfailed", request => { if (request.url().includes("/catalog/items/episode%3A")) failures++; });
+    await tv.page.route("**/api/v2/catalog/items/episode%3A*", route => route.abort("connectionrefused"));
+    await tv.page.locator('[data-focus="series:s1-S1"]').click();
+    const primary = tv.page.locator('[data-focus="next-episode"]');
+    await tv.eventually(async () => failures >= 1, "first episode transport failure");
+    await tv.jump(1000);
+    await tv.eventually(async () => failures >= 2, "episode transport retry exhausted");
+    await tv.jump(0);
+    await tv.eventually(async () => await primary.getAttribute("aria-disabled") === "true", "episode read failed offline");
+    let seasonFailures = 0;
+    tv.page.on("requestfailed", request => { if (request.url().includes("/seasons/1/episodes")) seasonFailures++; });
+    await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**", route => route.abort("connectionrefused"));
+    await tv.jump(15000);
+    await tv.eventually(async () => seasonFailures >= 1, "automatic recovery attempted while still offline");
+    await tv.jump(1000);
+    await tv.eventually(async () => seasonFailures >= 2, "automatic recovery exhausted transport retry");
+    await tv.jump(0);
+    const beforeRetry = failures;
+    await primary.dispatchEvent("click");
+    await tv.eventually(async () => failures > beforeRetry, "visible episode owner remains active after failed recovery");
+    await tv.jump(1000);
+    await tv.eventually(async () => failures >= beforeRetry + 2, "manual episode transport retry exhausted");
+    await tv.jump(0);
+    const catalog = tv.fake.catalog;
+    assert.ok(catalog instanceof FakeDetails);
+    catalog.mutationFailure = problem(422, "validation_failed", "Unavailable action");
+    await tv.page.locator('[data-focus="more"]').click();
+    const panel = tv.page.getByRole("dialog", { name: "More", exact: true });
+    await panel.locator('[data-focus="watched"]').click();
+    await tv.page.locator('[data-focus="more"]').click();
+    await panel.getByRole("button", { name: "Retry watched", exact: true }).waitFor();
+    await tv.remote(10009);
+    const mutations = [...catalog.mutations];
+    await tv.page.unroute("**/api/v2/catalog/items/episode%3A*");
+    await tv.page.unroute("**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**");
+    await tv.jump(15000);
+    await tv.eventually(async () => await primary.getAttribute("aria-disabled") === "false", "season next episode recovered automatically");
+    assert.match(await primary.innerText(), /Play S1:E1/);
+    await tv.page.locator('[data-focus="more"]').click();
+    await panel.getByRole("button", { name: "Retry watched", exact: true }).waitFor({ timeout: 1500 });
+    assert.deepEqual(catalog.mutations, mutations, "automatic recovery never resends the failed write");
+});
+
+detailTest("stale season return restarts its personal action owner", async tv => {
+    const catalog = tv.fake.catalog;
+    assert.ok(catalog instanceof FakeDetails);
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="series:s1-S1"]').click();
+    await tv.page.locator('[data-focus="episode:s1e12"]').click({ button: "right" });
+    await tv.page.locator('[data-focus="episode-information"]').click();
+    catalog.mutationFailure = problem(422, "validation_failed", "Unavailable action");
+    const panel = tv.page.getByRole("dialog", { name: "More", exact: true });
+    await tv.page.locator('[data-focus="more"]').click();
+    await panel.locator('[data-focus="watched"]').click();
+    await tv.page.locator('[data-focus="more"]').click();
+    await panel.getByRole("button", { name: "Retry watched", exact: true }).waitFor();
+    await tv.remote(10009);
+    await tv.remote(10009);
+    await tv.page.locator('.browse-episodes').waitFor();
+    await tv.eventually(async () => /^Play S/.test(await tv.page.locator('[data-focus="next-episode"]').innerText()), "stale season refreshed");
+    const before = catalog.mutations.length;
+    await tv.page.locator('[data-focus="more"]').click();
+    await panel.locator('[data-focus="watched"]').click();
+    await tv.eventually(async () => catalog.mutations.length > before, "returned season action dispatched");
+});
+
 function liveScroll(_arg: null): number | null {
     const row = document.querySelector(".details-episodes");
     if (!(row instanceof HTMLElement) || !row.isConnected) return null;

@@ -39,6 +39,9 @@ While a cached page is unreachable, the visible route retries its normal reads a
 Cached metadata stays on screen without an unreachable notice, matching Apple TV.
 Optional personal, next-episode, title-art and related reads retain prior display values on transport failure.
 Series Play retains the cached episode owner and its normal launch behavior when its fresh read fails.
+Season Details also retries offline supporting reads automatically.
+Episode refusals survive cached revisits and recovery until a fresh episode read succeeds.
+Card menus reuse visited Details and personal display state on transport failure; server refusals, writes and confirmation reads still require normal authority checks.
 Apple's active episode selection overrides the overview suggestion; Show Series Info restores the selected season's suggestion independently of rail focus memory.
 Uncached optional failures omit the corresponding unavailable content rather than adding red notices.
 Failed episode hierarchy reads still show the episode Retry alongside retained episodes, as Apple TV does.

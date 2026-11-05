@@ -24,12 +24,75 @@ async function start(tv: Tv, catalog = new FakeDetails()): Promise<FakeDetails> 
 }
 const origin = (tv: Tv, continuing = false) => tv.page.locator(`[data-section="${continuing ? "continue_watching" : "recently_added"}"] [data-focus="movie:m0001"]`);
 const menu = (tv: Tv) => tv.page.getByRole("dialog", { name: "Card actions" });
+test("card menu reuses visited Details personal actions offline", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        await origin(tv).click();
+        await tv.page.locator('[data-focus="watchlist"]').waitFor();
+        await tv.remote(10009);
+        await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+        await hold(tv);
+        await tv.jump(35000);
+        await menu(tv).getByRole("button", { name: "Add to watchlist", exact: true }).waitFor({ timeout: 1500 });
+        await menu(tv).getByRole("button", { name: "Add favorite", exact: true }).waitFor();
+        await menu(tv).getByRole("button", { name: "Mark watched", exact: true }).waitFor();
+        assert.deepEqual(catalog.mutations, []);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
 async function hold(tv: Tv, continuing = false): Promise<void> {
     await origin(tv, continuing).focus();
     await tv.down(13);
     await tv.jump(650);
     await tv.up(13);
 }
+test("a card-menu write invalidates visited personal display fallback", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await origin(tv).click();
+        await tv.page.locator('[data-focus="watchlist"]').waitFor();
+        await tv.remote(10009);
+        await hold(tv);
+        await menu(tv).getByRole("button", { name: "Mark watched", exact: true }).click();
+        await menu(tv).getByRole("button", { name: "Mark unwatched", exact: true }).waitFor();
+        await tv.remote(10009);
+        await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+        await hold(tv);
+        await tv.jump(35000);
+        await menu(tv).getByRole("button", { name: "Try again", exact: true }).waitFor({ timeout: 1500 });
+        assert.equal(await menu(tv).locator('[data-focus="watched"]').count(), 0);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+for (const source of ["menu", "Details"]) for (const status of [403, 404]) test(`card menu refuses cached Details after ${source} HTTP ${status}`, async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await origin(tv).click();
+        await tv.page.locator('[data-focus="watchlist"]').waitFor();
+        await tv.remote(10009);
+        await tv.page.route("**/api/v2/catalog/items/movie%3Am0001?**", route => route.fulfill({ status, json: problem(status, "permission_denied", "Item refused") }));
+        if (source === "menu") {
+            await hold(tv);
+            await menu(tv).getByRole("button", { name: "Try again", exact: true }).waitFor();
+            assert.equal(await menu(tv).locator('[data-focus="watchlist"]').count(), 0);
+            assert.match(await menu(tv).innerText(), /Could not load card actions/);
+        } else {
+            await origin(tv).click();
+            await tv.page.locator('[data-focus="retry"]').waitFor();
+        }
+        await tv.remote(10009);
+        await tv.page.unroute("**/api/v2/catalog/items/movie%3Am0001?**");
+        await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+        await hold(tv);
+        await tv.jump(35000);
+        await menu(tv).getByRole("button", { name: "Try again", exact: true }).waitFor({ timeout: 1500 });
+        assert.equal(await menu(tv).locator('[data-focus="watchlist"]').count(), 0, "a refused cached owner cannot return offline");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
 for (const reducedMotion of ["no-preference", "reduce"] as const) {
     for (const continuing of [false, true]) test(`card actions ${reducedMotion}: real Enter hold suppresses ${continuing ? "Continue playback" : "Details"} and release`, async () => {
         const tv = await openTv(browser, { app: "browse" });

@@ -31,14 +31,14 @@ test("session artwork URLs survive fallback while persisted snapshots omit them"
     assert.deepEqual(new BrowseCache(store, scope, new AbortController().signal).peek(spec), { local_extras: [{}], cast: [{}] });
 });
 
-test("restored next episode remains available during failed offline revalidation", async () => {
+for (const status of [403, 404]) test(`restored next episode preserves refusal ${status} across an offline revisit`, async () => {
     const episode = { ...decodeItemDetail(fixture("get_catalog_item_ok")), id: "episode:one", type: "episode" as const };
     const detail = { ...episode, id: "series:one", type: "series" as const, playContentId: episode.id };
     let reply: "offline" | "fresh" | "denied" = "offline";
     const session = { onAuthorityChange: () => () => {}, call: async <T>(spec: RequestSpec<T>): Promise<T> => {
         if (spec.path.startsWith("/catalog/items/episode")) {
             if (reply === "fresh") return { ...episode, title: "Fresh episode" } as T;
-            if (reply === "denied") throw new ApiError({ kind: "http", status: 403, retryAfterSeconds: undefined });
+            if (reply === "denied") throw new ApiError({ kind: "http", status, retryAfterSeconds: undefined });
         }
         return offline();
     } } as unknown as NativeSession;
@@ -62,6 +62,18 @@ test("restored next episode remains available during failed offline revalidation
     assert.equal(state.nextEpisode, undefined, "a server refusal removes usable cached playback");
     assert.equal(state.nextEpisodeFailed, true);
     state.stop();
+    reply = "offline";
+    const revisit = new DetailsState(detail, session, () => {}, async () => {});
+    revisit.restore(state);
+    revisit.start();
+    await settle();
+    assert.equal(revisit.nextEpisode, undefined, "refused playback cannot return on an offline revisit");
+    assert.equal(revisit.nextEpisodeFailed, true);
+    reply = "fresh";
+    revisit.acceptDetail(detail);
+    await settle();
+    assert.equal(revisit.nextEpisodeState?.detail.title, "Fresh episode", "fresh authority can restore playback");
+    revisit.stop();
 });
 
 test("refresh transport failure leaves a mutation definitely unsent and retryable", async () => {

@@ -147,21 +147,35 @@ for (const mode of ["button", "auto"] as const) test(`series episode focus does 
     } finally { await tv.page.context().close(); }
 });
 
-test("the featured marquee waits 1500ms and other cards never start a translation", async () => {
+for (const leave of [false, true]) test(leave ? "leaving a featured card at 1499ms cancels its dwell immediately" : "the featured marquee waits 1500ms and other cards never start a translation", async () => {
     const tv = await openTv(browser, { app: "browse" });
     const catalog = new FakeHome();
     tv.fake.catalog = catalog;
     const translation = install(tv.fake, catalog, "auto", ["movie:m0004"]);
     try {
-        await signIn(tv);
+        await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
         const held = tv.fake.hold("/capabilities/metadata-ai");
+        await signIn(tv);
         await tv.page.evaluate(() => window.browseHarness.mount());
         await tv.page.locator('[data-view="home"] .skyline-marquee h1').waitFor();
+        const capability = tv.page.waitForResponse(response => response.url().includes('/capabilities/metadata-ai'));
         held.release();
+        await (await capability).finished();
         await tv.jump(0);
         assert.equal(translation.posts().length, 0);
         await tv.jump(1499);
         assert.equal(translation.posts().length, 0, "the dwell has not elapsed");
+        if (leave) {
+            await tv.remote(40);
+            assert.notEqual(await tv.focused(), "movie:m0004");
+            await tv.jump(1);
+            assert.equal(translation.posts().length, 0, "leaving cancels before the delayed preview applies");
+            await tv.jump(149);
+            await tv.jump(2000);
+            assert.equal(translation.posts().length, 0, "ordinary cards never translate");
+            assert.deepEqual(tv.console, []);
+            return;
+        }
         await tv.jump(1);
         await tv.eventually(() => Promise.resolve(translation.posts().length === 1), "featured dwell");
         assert.equal(translation.posts()[0]?.path.split("?")[0], "/catalog/items/movie%3Am0004/translate-description");

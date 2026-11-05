@@ -603,7 +603,12 @@ detailTest('Down into an alternate season starts at its first episode and retarg
     await tv.remote(40);
     assert.equal(await tv.focused(), 'episode:s1e21');
     await tv.page.getByRole('button', { name: /Play S2:E1|Resume S2:E1/ }).waitFor();
-    await tv.eventually(async () => Math.abs(await tv.page.locator('[data-focus="episode:s1e21"] .browse-art').evaluate(node => node.getBoundingClientRect().x) - 109) < 2, 'episode artwork settles at x109');
+    // The 360px frame starts at 111; the final 1.05 focus scale paints 9px left of it.
+    await tv.eventually(() => tv.page.evaluate(() => {
+        const card = document.querySelector('[data-focus="episode:s1e21"]');
+        const art = card?.querySelector('.browse-art')?.getBoundingClientRect();
+        return card !== null && card === document.activeElement && art !== undefined && Math.abs(card.getBoundingClientRect().x - 111) < 1 && Math.abs(art.x - 102) < 2 && Math.abs(art.width - 378) < 1;
+    }), 'episode artwork and focus scale settle at x102');
 });
 
 detailTest('Selecting the already loaded season resets entry to E01 without another episode read', async tv => {

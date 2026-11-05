@@ -219,6 +219,21 @@ export function decodeCard(value: unknown, path: string): Card {
     };
 }
 
+/** getHomeCapabilities: whether Home section reads accept `item_limit`. */
+export interface HomeCapabilities {
+    readonly state: string;
+    /** Advertised maximum. Absent when the server does not offer the parameter. */
+    readonly sectionItemLimitMax: number | undefined;
+}
+
+export function decodeHomeCapabilities(value: unknown): HomeCapabilities {
+    const path = "home_capabilities";
+    const obj = object(value, path);
+    const max = obj.section_item_limit_max === undefined ? undefined : integer(obj, "section_item_limit_max", path);
+    if (max !== undefined && max < 1) throw new WireError(`${path}.section_item_limit_max`, "a positive integer");
+    return { state: string(obj, "state", path), sectionItemLimitMax: max };
+}
+
 export interface HomeSection {
     readonly featured?: boolean;
     readonly id: string;
@@ -248,7 +263,7 @@ export interface CatalogPage {
     /** Absent on the last page. */
     readonly nextCursor: string | undefined;
     /** Items in the whole result; an estimate unless `totalExact`. */
-    readonly total: number;
+    readonly total: number | undefined;
     readonly totalExact: boolean;
 }
 
@@ -257,6 +272,15 @@ export function decodeCatalogCollection(value: unknown): { readonly items: reado
 }
 
 export function decodeCatalogPage(value: unknown): CatalogPage {
+    return decodePage(value, false);
+}
+
+/** Collection paging does not promise catalog totals. */
+export function decodeCollectionItemsPage(value: unknown): CatalogPage {
+    return decodePage(value, true);
+}
+
+function decodePage(value: unknown, optionalTotals: boolean): CatalogPage {
     const path = "catalog_page";
     const obj = object(value, path);
     const page = obj.page === undefined ? undefined : object(obj.page, `${path}.page`);
@@ -266,9 +290,21 @@ export function decodeCatalogPage(value: unknown): CatalogPage {
     return {
         items: array(obj, "items", path).map((entry, index) => decodeCard(entry, `${path}.items[${index}]`)),
         nextCursor,
-        total: integer(obj, "total", path),
-        totalExact: boolean(obj, "total_exact", path),
+        total: optionalTotals ? optionalInteger(obj, "total", path) : integer(obj, "total", path),
+        totalExact: optionalTotals ? optionalBoolean(obj, "total_exact", path) ?? false : boolean(obj, "total_exact", path),
     };
+}
+
+/** Saved-list envelopes carry opaque pagination without catalog query totals. */
+export function decodePersonalListPage(value: unknown): CatalogPage {
+    const path = "personal_list";
+    const obj = object(value, path);
+    const page = object(obj.page, `${path}.page`);
+    const more = boolean(page, "has_more", `${path}.page`);
+    const nextCursor = more ? string(page, "next_cursor", `${path}.page`) : undefined;
+    if (nextCursor === "") throw new WireError(`${path}.page.next_cursor`, "a nonempty continuation");
+    const cards = array(obj, "items", path).map((item, index) => decodeCard(item, `${path}.items[${index}]`));
+    return { items: cards, nextCursor, total: cards.length, totalExact: false };
 }
 
 // --- getCatalogItem ---

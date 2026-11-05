@@ -248,7 +248,9 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         zones.push({ id: "people", layout: "row", items: people });
     }
     if (state !== undefined) {
-        const related = titleCards(state.related ?? [], context);
+        // SimilarPosterItem keeps the poster fields and drops userState. The watched
+        // badge is userState.played, so a played recommendation does not show it.
+        const related = titleCards((state.related ?? []).map(card => ({ ...card, played: undefined })), context);
         const section = zoneNode("browse-row", related);
         section.setAttribute("data-detail-section", "related");
         content.push(el("h2", "browse-section-title", "Related titles"));
@@ -367,26 +369,25 @@ function titleCards(cards: readonly Card[], context: ViewContext): FocusItem[] {
     return items;
 }
 
-export function personView(person: Person, cards: readonly Card[], context: ViewContext, back: () => void, synopsis: Synopsis, seeAll: () => void): View {
-    const actions = [actionButton("back", "Back", back)];
-    const bio = person.bio;
-    actions.push(actionButton("see-all", "See all", seeAll));
-    if (bio) actions.push(actionButton("synopsis", "Read synopsis", () => synopsis.show(bio)));
+export function personHero(person: Person, baseUrl: string, metadataLoading = false): HTMLElement {
     const hero = el("div", "browse-detail details-person-hero");
-    hero.appendChild(personPortrait(person, context.baseUrl));
+    hero.appendChild(personPortrait(person, baseUrl));
     const info = el("div", "browse-detail-info");
     info.appendChild(heading(person.name));
     const facts = personMetadataBadges(person, new Date());
-    if (facts.length > 0) {
+    if (facts.length > 0 || metadataLoading) {
         const row = el("div", "person-facts");
         for (const fact of facts) row.appendChild(el("span", "person-fact", fact));
+        if (metadataLoading) {
+            const loading = el("span", "person-fact person-metadata-loading", "Loading metadata");
+            loading.setAttribute("role", "status");
+            row.appendChild(loading);
+        }
         info.appendChild(row);
     }
     if (person.bio) info.appendChild(el("p", "browse-text browse-overview", person.bio));
-    info.appendChild(zoneNode("browse-actions", actions));
     hero.appendChild(info);
-    const titles = titleCards(cards, context);
-    return { name: `person:${person.id}`, content: [hero, el("h2", "browse-section-title", "Filmography"), ...(titles.length === 0 ? lines(["No available titles for this person."]) : []), zoneNode("browse-row", titles)], zones: [{ id: "actions", layout: "row", items: actions }, { id: "filmography", layout: "row", items: titles }], focus: { zone: "actions", key: "back" }, back };
+    return hero;
 }
 
 function seasonItem(seriesId: string, seriesTitle: string, season: Season, context: ViewContext): FocusItem {

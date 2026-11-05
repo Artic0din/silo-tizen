@@ -32,7 +32,7 @@ export interface ViewContext {
     readonly posterWidth?: number;
     /** The profile's poster badges, read when a Home row renders; undefined while unknown, failed or off. */
     readonly cardOverlays?: () => CardOverlayPrefs | undefined;
-    /** Home rows draw poster badges (Apple MediaRow and EpisodeThumbCard); other card screens do not. */
+    /** A row may provide a captured preference document; otherwise catalog cards read the shared preferences. */
     readonly overlays?: CardOverlayPrefs | undefined;
     /** Continue Watching badges for the file the viewer last played, once Home's detail reads know it. */
     readonly savedFileOverlay?: (card: Card) => CardOverlay | undefined;
@@ -55,6 +55,15 @@ export function actionButton(key: string, label: string, onPress: () => void): F
     element.setAttribute("data-focus", key);
     element.addEventListener("click", onPress);
     return { key, element };
+}
+
+/** Apple ErrorView.recoveryPlan: a 401 offers sign-in, a 403 or 404 prefers leaving, and otherwise Try Again is the only action. */
+export function recoveryActions(error: { readonly headline: string; readonly signIn: boolean }, retry: FocusItem, back?: FocusItem, signIn?: FocusItem): FocusItem[] {
+    const items: FocusItem[] = [];
+    if (error.signIn && signIn !== undefined) items.push(signIn);
+    if (back !== undefined && (error.headline === "Not found" || error.headline === "Not allowed")) items.push(back);
+    items.push(retry);
+    return items;
 }
 
 /** SectionExploreAllCard keeps the current marquee while its row's trailing tile owns focus. */
@@ -126,7 +135,8 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     // Badges sit under the progress bar and the watched tick, which win a shared corner.
     const saved = continuing ? context.savedFileOverlay?.(card) : undefined;
     const scale = context.homeCaptions === true ? context.posterScale?.() ?? 1 : 1;
-    const badges = context.overlays === undefined ? undefined : overlayLayer(saved === undefined ? card : { ...card, overlay: saved }, context.overlays, thumbnail ? "wide" : "poster", (thumbnail ? HOME_STILL_WIDTH : context.posterWidth ?? HOME_POSTER_WIDTH) * scale);
+    const overlays = context.overlays ?? context.cardOverlays?.();
+    const badges = overlays === undefined ? undefined : overlayLayer(saved === undefined ? card : { ...card, overlay: saved }, overlays, thumbnail ? "wide" : "poster", (thumbnail ? HOME_STILL_WIDTH : context.posterWidth ?? (context.homeCaptions === true ? HOME_POSTER_WIDTH : 260)) * scale);
     if (badges !== undefined) element.firstElementChild?.insertBefore(badges, element.firstElementChild.querySelector(".skyline-progress"));
     if (card.played === true) {
         const tick = el("span", "browse-watched");
@@ -255,7 +265,8 @@ export function homeView(libraries: readonly UserLibrary[], sections: readonly H
         }
         const id = `section:${section.id}`;
         if (handlers.canExpand?.(section) !== false) cards.push(exploreAllCard(section.title, `expand:${section.id}`, layout === "thumbnail", () => handlers.expand(section)));
-        zones.push({ id, layout: "row", items: cards });
+        // Apple `focusSection`: Up and Down between these rows stay geometric, including a row already visited.
+        zones.push({ id, layout: "row", spatial: true, items: cards });
         const block = el("section", "browse-section home-section");
         block.setAttribute("data-section", section.id);
         const title = el("h2", "browse-section-title", section.title);
@@ -286,7 +297,7 @@ export interface PagerState {
 }
 
 /** One page of cards and the buttons that move between pages. */
-export function pagedGrid(state: PagerState, context: ViewContext): { content: HTMLElement[]; zones: Zone[] } {
+export function pagedGrid(state: PagerState, context: ViewContext, columns = GRID_COLUMNS): { content: HTMLElement[]; zones: Zone[] } {
     const cards = cardItems(state.page.items, context).slice(0, state.pageSize);
     const pager: FocusItem[] = [];
     if (state.index > 0) {
@@ -295,16 +306,16 @@ export function pagedGrid(state: PagerState, context: ViewContext): { content: H
     if (state.page.nextCursor !== undefined) {
         pager.push(actionButton("next", "Next page", state.next));
     }
-    const pages = Math.max(1, Math.ceil(state.page.total / state.pageSize));
+    const pages = Math.max(1, Math.ceil((state.page.total ?? state.page.items.length) / state.pageSize));
     const position = state.loading
         ? "Loading the page."
-        : `Page ${state.index + 1} of ${state.page.totalExact ? pages : `about ${pages}`}`;
+        : state.page.total === undefined ? `Page ${state.index + 1}` : `Page ${state.index + 1} of ${state.page.totalExact ? pages : `about ${pages}`}`;
     const status = el("p", "browse-text browse-page-status", position);
     status.setAttribute("role", "status");
     return {
         content: [zoneNode("browse-grid", cards), ...(cards.length === 0 && pager.length === 0 ? [] : [status]), zoneNode("browse-actions", pager)],
         zones: [
-            { id: "grid", layout: "grid", columns: GRID_COLUMNS, items: cards },
+            { id: "grid", layout: "grid", columns, items: cards },
             { id: "pager", layout: "row", items: pager },
         ],
     };

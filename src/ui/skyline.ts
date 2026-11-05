@@ -235,6 +235,7 @@ export class Skyline {
 
     private commit(target: RootTarget, mode?: LibraryMode): void {
         if (!this.visible) return;
+        const anchor = this.panelAnchor;
         this.shortcutSelection = typeof target !== "string" && this.panelAnchor?.startsWith("library:") ? this.panelAnchor : undefined;
         if (typeof target !== "string") {
             const type = this.panelTab ?? (target.type === "series" ? "series" : target.type === "music" ? "music" : "movies");
@@ -242,6 +243,9 @@ export class Skyline {
             try { this.storage?.setItem(`${this.storageKey}:${type}`, target.id); } catch { /* Keep the selection for this session. */ }
         }
         this.close();
+        // Loading can briefly restore the tab before content takes focus.
+        this.dismissedAnchor = anchor;
+        this.cancelDwell();
         this.activate(target, mode);
     }
 
@@ -272,6 +276,8 @@ export class Skyline {
         if (!this.selector.hidden) zones.push({ id: "selector", layout: this.confirmation ? "row" : "column", items: this.panel });
         if (!this.flyout.hidden) zones.push({ id: "flyout", layout: "column", items: this.flyoutItems });
         const prepare = (): void => {
+            // FocusHost has saved the viewport before child views move cached nodes.
+            view.prepare?.();
             this.container.classList.add("skyline-root");
             this.container.classList.toggle("skyline-preview", preview);
             this.container.classList.toggle("skyline-home", this.sharedScene);

@@ -1,17 +1,19 @@
 import type { Episode } from "../contracts/v2/catalog.ts";
 import type { FocusItem, Zone } from "./browseFocus.ts";
 import { actionButton, artwork, lines, mediaItem, thumbnailProgress, type ViewContext, zoneNode } from "./browseViews.ts";
+import { blurEpisodeStill, hidesEpisodeListStill } from "./episodeSpoilers.ts";
 import { el } from "./screen.ts";
 import type { SeriesEpisodes } from "./seriesEpisodes.ts";
 import { episodeAirDate, episodeRuntime } from "./episodeCaption.ts";
 
 interface EpisodeView { content: HTMLElement[]; zones: Zone[] }
-const visits = new WeakMap<SeriesEpisodes, { context: ViewContext; episodes: readonly Episode[] | undefined; season: number | undefined; loading: boolean; failed: boolean; boundaryFailed: boolean; view: EpisodeView }>();
+const visits = new WeakMap<SeriesEpisodes, { context: ViewContext; episodes: readonly Episode[] | undefined; season: number | undefined; loading: boolean; failed: boolean; boundaryFailed: boolean; hidesImages: boolean; view: EpisodeView }>();
 
 export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, focusEpisode?: (id: string) => void, currentEpisode?: string): { content: HTMLElement[]; zones: Zone[] } {
     const previous = visits.get(state);
+    const hidesImages = context.spoilers?.().hidesImages === true;
     // A hero repaint must not detach the episode receiving a pointer press or held Select.
-    if (previous !== undefined && previous.context.baseUrl === context.baseUrl && previous.episodes === state.railEpisodes && previous.season === state.seasonNumber && previous.loading === state.loading && previous.failed === state.failed && previous.boundaryFailed === state.boundaryFailed) {
+    if (previous !== undefined && previous.context.baseUrl === context.baseUrl && previous.episodes === state.railEpisodes && previous.season === state.seasonNumber && previous.loading === state.loading && previous.failed === state.failed && previous.boundaryFailed === state.boundaryFailed && previous.hidesImages === hidesImages) {
         for (const node of previous.view.content) { node.inert = false; node.removeAttribute("aria-hidden"); }
         for (const item of previous.view.zones[1]?.items ?? []) {
             if (item.key === currentEpisode) item.element.setAttribute("aria-current", "true"); else item.element.removeAttribute("aria-current");
@@ -66,7 +68,7 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, 
     }
     content.push(section);
     const view: EpisodeView = { content, zones };
-    visits.set(state, { context, episodes: state.railEpisodes, season: state.seasonNumber, loading: state.loading, failed: state.failed, boundaryFailed: state.boundaryFailed, view });
+    visits.set(state, { context, episodes: state.railEpisodes, season: state.seasonNumber, loading: state.loading, failed: state.failed, boundaryFailed: state.boundaryFailed, hidesImages, view });
     return view;
 }
 
@@ -75,8 +77,10 @@ function episodeCard(episode: Episode, context: ViewContext): FocusItem {
     element.type = "button";
     element.tabIndex = -1;
     element.setAttribute("data-focus", episode.id);
+    const art = artwork("browse-art browse-still", episode.stillUrl, context.baseUrl, episode.title);
+    if (hidesEpisodeListStill(episode, context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false })) blurEpisodeStill(art);
     const code = `S${String(episode.seasonNumber).padStart(2, "0")}E${String(episode.episodeNumber).padStart(2, "0")}`;
-    element.append(artwork("browse-art browse-still", episode.stillUrl, context.baseUrl, episode.title), el("span", "browse-card-title", `${code} · ${episode.title}`));
+    element.append(art, el("span", "browse-card-title", `${code} · ${episode.title}`));
     element.appendChild(el("span", "browse-card-subtitle", [episodeAirDate(episode.airDate), episodeRuntime(episode.runtimeMinutes)].filter(Boolean).join("  ·  ")));
     const position = episode.positionSeconds, duration = episode.durationSeconds;
     if (position !== undefined && duration !== undefined && duration > 0 && position > 0 && position < duration) {

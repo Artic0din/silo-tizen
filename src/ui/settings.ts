@@ -7,6 +7,7 @@ import { remoteKey } from "./keys.ts";
 import { SettingsState } from "./settingsState.ts";
 import type { ProfileLaunch, LaunchBehavior } from "../session/profileLaunch.ts";
 import { acknowledgementsDocument } from "./acknowledgements.ts";
+import type { EpisodeSpoilerPreferences } from "./episodeSpoilers.ts";
 import { settingsRows, rowValue, rowEdit, type SettingsRow } from "./settingsRows.ts";
 import { APPEARANCE_KEY } from "../contracts/v2/settingsRows.ts";
 import { qrCode } from "./qr.ts";
@@ -39,7 +40,7 @@ const BITRATE_CHOICES = [200000, 100000, 60000, 40000, 20000, 15000, 10000, 6000
 export interface SettingsActions { readonly profileName: string; readonly profileAvatarUrl?: string | undefined; readonly accountName?: string | undefined; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: (back: () => void) => void }
 export interface SettingsScreen { destroy(): void }
 
-export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean, titleArt?: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions, accounts?: (back: () => void) => void): SettingsScreen {
+export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean, titleArt?: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions, accounts?: (back: () => void) => void, spoilers?: EpisodeSpoilerPreferences): SettingsScreen {
     const container = el("section", "browse settings");
     container.setAttribute("aria-label", "Settings");
     root.appendChild(container);
@@ -85,9 +86,11 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         });
     };
     const state = new SettingsState(session, () => render());
+    const stopSpoilers = spoilers?.subscribe(() => { if (!torn) render(host.focused()); }) ?? (() => undefined);
     const destroy = (): void => {
         if (torn) return;
         torn = true;
+        stopSpoilers();
         launchController.abort();
         stopAuthority();
         state.stop();
@@ -610,6 +613,24 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 if (row.id === "poster-size") body.appendChild(el("p", "settings-value", "Poster size syncs with other TV-family devices on this profile."));
             }
             if (category === "playback") {
+                if (spoilers?.showsSettings === true) {
+                    body.appendChild(el("h3", "settings-section-header", "SPOILERS"));
+                    for (const [key, text, checked, setting] of [
+                        ["spoiler-images", "Blur unwatched episode images", spoilers.settings.hidesImages, "images"],
+                        ["spoiler-overviews", "Hide unwatched episode descriptions", spoilers.settings.hidesOverviews, "overviews"],
+                    ] as const) {
+                        const item = button(key, text, () => spoilers.toggle(setting));
+                        item.element.appendChild(el("span", "settings-row-value", checked ? "On" : "Off"));
+                        item.element.setAttribute("role", "switch");
+                        item.element.setAttribute("aria-label", text);
+                        item.element.setAttribute("aria-checked", String(checked));
+                        const unavailable = item.element.getAttribute("aria-disabled") === "true" || !spoilers.allowsEditing;
+                        item.element.setAttribute("aria-disabled", String(unavailable));
+                        rows.push(item);
+                        body.appendChild(item.element);
+                    }
+                    body.appendChild(el("p", "settings-value", spoilers.footer));
+                }
                 const skipRows = (["seek-back", "seek-forward"] as const).filter(id => state.definitions.some(def => def.key === PICKER_KEYS[id]));
                 if (skipRows.length > 0) body.appendChild(el("h3", "settings-section-header", "VIDEO"));
                 for (const id of skipRows) {

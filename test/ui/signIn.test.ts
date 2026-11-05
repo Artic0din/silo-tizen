@@ -1662,6 +1662,19 @@ tvTest("hidden, the code is not polled; back on screen it polls at once and code
         await tv.eventually(async () => tv.fake.devices.size === renewal, `renewal ${renewal}`);
     }
     await tv.jump(5 * MINUTE);
+    // The jump can return while the poll it started is still being recorded.
+    let recorded = -1;
+    let quiet = 0;
+    await tv.eventually(async () => {
+        const seen = polls(tv);
+        if (seen !== recorded) {
+            recorded = seen;
+            quiet = 0;
+            return false;
+        }
+        quiet += 1;
+        return quiet === 2;
+    }, "a poll already started while the screen is visible");
     await setHidden(tv, true);
     const before = polls(tv);
     await tv.jump(20 * MINUTE);

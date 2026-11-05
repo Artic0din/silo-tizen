@@ -10,6 +10,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Stopped a device-code poll from going out when its wait ended as the screen hid. A poll already sent still finishes, and coming back polls at once.
 - Kept Search's navigation column when a square People portrait animates on focus.
 - Kept Home rows when a return to Home joined a row-cap read that the previous visit had cancelled.
 - Preserved saved logins when entering another server and kept overflowing Accounts actions visible on screen.

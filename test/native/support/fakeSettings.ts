@@ -107,7 +107,7 @@ export class FakeSettings {
         }
         const key = pathname.slice("/settings/values/".length) as SettingsKey;
         if (!SETTINGS_KEYS.some(known => known === key) && key !== TITLE && key !== SUBTITLE_LANGUAGE_KEY && key !== SUBTITLE_MODE_KEY && key !== SHOW_FORCED_KEY) return problem(422, "validation_failed", "Unknown setting");
-        if (scope !== "profile" && !(key === "ui.card_presentation" && scope === "profile_client") && !([TITLE, "playback.subtitle_appearance", "ui.card_presentation", AUDIO_KEY, QUALITY_KEY, "playback.max_bitrate_kbps", "playback.auto_play_next", "playback.intro_skip_mode", "playback.auto_skip_credits"].includes(key) && scope === "profile_device" && device)) return problem(422, "validation_failed", "Invalid scope");
+        if (scope !== "profile" && !(key === "ui.card_presentation" && scope === "profile_client") && !([TITLE, "playback.subtitle_appearance", "ui.card_presentation", AUDIO_KEY, QUALITY_KEY, "playback.max_bitrate_kbps", "playback.auto_play_next", "playback.next_up_prompt_seconds", "playback.intro_skip_mode", "playback.auto_skip_credits"].includes(key) && scope === "profile_device" && device)) return problem(422, "validation_failed", "Invalid scope");
         if (method === "DELETE") {
             if (!rows.delete(key)) return problem(404, "not_found", "Unset");
             return { status: 204 };

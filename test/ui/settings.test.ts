@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
-import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, SHOW_FORCED_KEY } from "../../src/contracts/v2/settings.ts";
+import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, SHOW_FORCED_KEY } from "../../src/contracts/v2/settings.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
@@ -36,9 +36,59 @@ async function openSettings(tv: Tv): Promise<void> {
     await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).waitFor();
 }
 
+test("Settings pins its rail, resets pane scroll and keeps modal background geometry", async () => {
+    const { tv, settings } = await setup();
+    settings.remainingRows = true;
+    try {
+        await openSettings(tv);
+        const rail = await tv.page.evaluate(() => {
+            const first = document.querySelector<HTMLElement>('[data-focus="general"]')!;
+            const second = document.querySelector<HTMLElement>('[data-focus="playback"]')!;
+            return { width: first.getBoundingClientRect().width, height: first.getBoundingClientRect().height, pitch: second.getBoundingClientRect().top - first.getBoundingClientRect().top, icons: document.querySelectorAll('.settings-category-icon').length };
+        });
+        assert.deepEqual(rail, { width: 490, height: 82, pitch: 88, icons: 4 });
+        await tv.page.locator('[data-focus="subtitles"]').click();
+        const appearance = await tv.page.evaluate(() => {
+            const first = document.querySelector('[data-focus="appearance-fontSize"]')!.getBoundingClientRect();
+            const second = document.querySelector('[data-focus="appearance-fontFamily"]')!.getBoundingClientRect();
+            return { height: first.height, pitch: second.top - first.top,
+                order: [...document.querySelector('.settings-pane')!.children].filter(node => node.matches('.settings-subtitle-preview, [data-focus^="appearance-"], [data-focus="reset-appearance"]')).map(node => node.getAttribute('data-focus') ?? 'preview') };
+        });
+        assert.equal(appearance.height, 66);
+        assert.equal(appearance.pitch, 74);
+        assert.deepEqual(appearance.order.slice(0, 3), ["preview", "appearance-device", "appearance-fontSize"]);
+        assert.equal(appearance.order.at(-1), "reset-appearance");
+        assert.equal(await tv.page.locator('[data-focus="metadata-language"]').count(), 0, "metadata AI is unavailable");
+        assert.equal(await tv.page.locator('[data-focus="appearance-textOutlineColor"] .settings-row-value').textContent(), "—");
+        await tv.page.locator('[data-focus="appearance-position"]').focus();
+        await tv.jump(300);
+        const before = await tv.page.evaluate(() => ({ rail: document.querySelector('.settings-categories')!.getBoundingClientRect().top, header: document.querySelector('.settings-pane-header')!.getBoundingClientRect().top, top: document.querySelector('.settings-pane')!.scrollTop }));
+        assert.ok(before.top > 0);
+        await tv.page.locator('[data-focus="appearance-position"]').click();
+        assert.deepEqual(await tv.page.getByRole("radio").allTextContents(), ["Bottom", "Lower Third", "Top"]);
+        assert.equal(await tv.page.getByText("Choose an option", { exact: true }).count(), 1);
+        assert.equal(await tv.page.getByText("Menu to close", { exact: true }).count(), 1);
+        const during = await tv.page.evaluate(() => ({ rail: document.querySelector('.settings-categories')!.getBoundingClientRect().top, header: document.querySelector('.settings-pane-header')!.getBoundingClientRect().top }));
+        assert.equal(during.rail, before.rail, JSON.stringify(await tv.page.evaluate(() => [...document.querySelectorAll(".settings, .settings-panes, .settings-pane, .settings-categories")].map(n => ({name: n.className, height: n.clientHeight, scroll: n.scrollTop, rect: n.getBoundingClientRect().toJSON(), style: getComputedStyle(n).overflowY})))));
+        assert.equal(during.header, before.header);
+        const save = tv.fake.hold("/settings/values/playback.subtitle_appearance", true);
+        await tv.page.getByRole("radio", { name: "Top", exact: true }).click();
+        await tv.eventually(async () => tv.fake.requests.some(request => request.method === "PUT" && request.path.includes("playback.subtitle_appearance")), "appearance save pending");
+        const savingHeader = await tv.page.locator('.settings-pane-header').evaluate(node => node.getBoundingClientRect().top);
+        save.release();
+        assert.equal(savingHeader, before.header, "saving rerenders keep the background pane offset");
+        await tv.page.getByRole("dialog").waitFor({ state: "detached" });
+        await tv.page.locator('[data-focus="general"]').click();
+        assert.equal(await tv.page.locator('.settings-pane').evaluate(node => node.scrollTop), 0);
+        await tv.page.locator('[data-focus="subtitles"]').click();
+        assert.equal(await tv.page.locator('.settings-pane').evaluate(node => node.scrollTop), 0, "returning to a category starts at the top too");
+    } finally { await tv.page.context().close(); }
+});
+
 test("remaining settings expose only honoured rows and save profile appearance", async () => {
     const { tv, settings } = await setup();
     settings.remainingRows = true;
+    tv.fake.script("/capabilities/metadata-ai", { status: 200, body: { revision: "test", allowed: true, state: "available", on_view: "button" } });
     try {
         await openSettings(tv);
         assert.equal(await tv.page.getByRole("button", { name: /Poster Size/ }).count(), 1, "Poster Size row is available");
@@ -73,7 +123,8 @@ test("remaining settings expose only honoured rows and save profile appearance",
         assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small" });
         await tv.page.locator('[data-focus="appearance-fontColor"]').waitFor();
         await tv.page.getByRole("button", { name: /Font Color/ }).click();
-        await tv.page.getByRole("button", { name: "Use Profile Setting", exact: true }).click();
+        await tv.remote(10009);
+        await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).click();
         await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).getAttribute("aria-checked") === "false", "profile appearance restored");
         assert.equal(await tv.page.getByRole("alert").count(), 0, "device reset is confirmed at the deleted scope");
         assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small" });
@@ -89,7 +140,7 @@ test("remaining settings expose only honoured rows and save profile appearance",
         await tv.eventually(async () => settings.profile().get("catalog.metadata_language") === "fr", "metadata profile write");
         await tv.page.locator('[data-focus="metadata-language"]').waitFor();
         await tv.page.locator('[data-focus="server"]').click();
-        await tv.page.getByText(/^Address:/).waitFor();
+        await tv.page.getByText("Address", { exact: true }).waitFor();
         await tv.page.getByRole("button", { name: "Privacy Policy", exact: true }).click();
         assert.equal(await tv.page.getByRole("img", { name: "Privacy Policy QR code" }).count(), 1);
         assert.equal(await tv.page.getByRole("button", { name: /HDR|Lossless|Seek Cache/ }).count(), 0);
@@ -116,6 +167,12 @@ test("revision 25 nonnullable subtitle rows and Next Up stay available", async (
         await tv.page.getByRole("button", { name: /Show Next Up/ }).click();
         await tv.page.getByRole("radio", { name: "1 minute before end", exact: true }).click();
         await tv.eventually(async () => tv.fake.requests.some(r => r.method === "PUT" && r.path.includes("next_up_prompt_seconds?scope=profile_device")), "device Next Up write");
+        await tv.page.locator('[data-focus="next-up"]').waitFor();
+        const deviceId = tv.fake.requests.find(request => request.headers["x-silo-device-id"])?.headers["x-silo-device-id"];
+        assert.ok(deviceId);
+        assert.equal(settings.device("p-owner", deviceId).get("playback.next_up_prompt_seconds"), 60);
+        assert.equal(settings.profile().has("playback.next_up_prompt_seconds"), false);
+        assert.equal(await tv.page.getByRole("alert").count(), 0);
     } finally { await tv.page.context().close(); }
 });
 
@@ -140,6 +197,8 @@ test("measured Settings pickers centre the selected choice and privacy handoff",
         await tv.page.locator('[data-focus="server"]').click();
         await tv.page.locator('[data-focus="privacy"]').click();
         assert.equal(await tv.page.getByRole("dialog").count(), 1);
+        assert.equal(await tv.focused(), "back", "Privacy Done keeps initial focus inside the text column");
+        assert.equal(await tv.page.locator('.settings-privacy-copy [data-focus="back"]').count(), 1);
         assert.equal(await tv.page.getByText("Scan this code with your phone or tablet to read Silo's privacy policy.", { exact: true }).count(), 1);
         await tv.remote(10009);
         assert.equal(await tv.focused(), "privacy");
@@ -245,7 +304,7 @@ test("Use Synced TV Settings removes only the older poster device override", asy
         await tv.page.getByRole("button", { name: "Use Synced TV Settings", exact: true }).click();
         await tv.eventually(async () => !settings.device("p-owner", deviceId).has("ui.card_presentation"), "older device override cleared");
         assert.equal(settings.device("p-owner", "client:tv").has("ui.card_presentation"), true);
-        await tv.page.getByRole("button", { name: /Poster Size/ }).click();
+        assert.equal(await tv.page.getByRole("button", { name: "Use Profile Default", exact: true }).count(), 1);
         await tv.page.getByRole("button", { name: "Use Profile Default", exact: true }).click();
         await tv.eventually(async () => !settings.device("p-owner", "client:tv").has("ui.card_presentation"), "TV-family override cleared");
     } finally { await tv.page.context().close(); }
@@ -425,43 +484,18 @@ test("device pickers preserve profile, show inheritance, retain legacy audio nul
     } finally { await tv.page.context().close(); }
 });
 
-test("video intervals show numeric server labels, profile values and independent inherited resets", async () => {
-    const { tv, settings } = await setup();
+test("Playback omits skip interval editors and focus moves do not write settings", async () => {
+    const { tv } = await setup();
     try {
-        settings.supportsBatchedEffective = false;
         await openSettings(tv);
         await tv.page.locator('[data-focus="playback"]').click();
-        assert.equal(await tv.page.locator('[data-focus="seek-back"] .settings-row-value').textContent(), "10 seconds");
-        assert.equal(await tv.page.locator('[data-focus="seek-forward"] .settings-row-value').textContent(), "30 seconds");
-        for (const [picker, seconds] of [["seek-back", 15], ["seek-forward", 45]] as const) {
-            await tv.page.locator(`[data-focus="${picker}"]`).click();
-            assert.deepEqual(await tv.page.getByRole("radio").allTextContents(), ["5 seconds", "10 seconds", "15 seconds", "30 seconds", "45 seconds", "60 seconds", "90 seconds"]);
-            assert.equal(await tv.page.getByRole("radio", { name: "No preference", exact: true }).count(), 0);
-            assert.equal(await tv.page.locator('[data-focus="reset"]').count(), 0);
-            const count = tv.fake.requests.length;
-            await tv.page.keyboard.press("ArrowDown");
-            await tv.page.keyboard.press("ArrowDown");
-            assert.equal(tv.fake.requests.length, count);
-            for (let step = 0; step < 5; step++) await tv.page.keyboard.press("ArrowDown");
-            await tv.jump(250);
-            assert.equal(await tv.focused(), `${picker}:90`);
-            const bounds = await tv.page.getByRole("radio", { name: "90 seconds", exact: true }).boundingBox();
-            assert.ok(bounds !== null && bounds.y >= 0 && bounds.y + bounds.height <= 1080, "last numeric choice scrolls fully into view");
-            assert.equal(tv.fake.requests.length, count);
-            await tv.page.getByRole("radio", { name: `${seconds} seconds`, exact: true }).click();
-            await tv.page.locator(`[data-focus="${picker}"]`).waitFor();
-            assert.equal(await tv.focused(), picker);
-        }
-        for (const [picker, key, defaultSeconds] of [["seek-back", SEEK_BACK_KEY, 10], ["seek-forward", SEEK_FORWARD_KEY, 30]] as const) {
-            await tv.page.locator(`[data-focus="${picker}"]`).click();
-            await tv.page.locator('[data-focus="reset"]').click();
-            await tv.page.locator(`[data-focus="${picker}"]`).waitFor();
-            assert.equal(settings.profile().has(key), false);
-            assert.equal(await tv.page.locator(`[data-focus="${picker}"] .settings-row-value`).textContent(), `${defaultSeconds} seconds`);
-            if (key === SEEK_BACK_KEY) assert.equal(settings.profile().get(SEEK_FORWARD_KEY), 45);
-        }
-        assert.deepEqual(tv.fake.requests.filter(r => r.method === "DELETE").map(r => r.path), [`/settings/values/${SEEK_BACK_KEY}?scope=profile`, `/settings/values/${SEEK_FORWARD_KEY}?scope=profile`]);
-        assert.deepEqual(tv.console, []);
+        assert.equal(await tv.page.locator('[data-focus="seek-back"], [data-focus="seek-forward"]').count(), 0);
+        assert.deepEqual(await tv.page.locator(".settings-section-header").allTextContents(), ["QUALITY", "STREAMING", "EPISODES"]);
+        const requests = tv.fake.requests.length;
+        await tv.page.locator('[data-focus="quality"]').focus();
+        await tv.remote(40); await tv.remote(40);
+        assert.equal(tv.fake.requests.length, requests);
+        assert.equal(tv.fake.requests.filter(r => r.method === "PUT" || r.method === "DELETE").length, 0);
     } finally { await tv.page.context().close(); }
 });
 
@@ -488,26 +522,20 @@ test("Settings uses category, row and picker Back focus with no requests on focu
     } finally { await tv.page.context().close(); }
 });
 
-test("hidden libraries persist absent IDs and refresh Home and navigation on return", async () => {
+test("legacy hidden libraries can be cleared without a hidden-library editor", async () => {
     const { tv, settings } = await setup();
+    settings.profile().set(HIDDEN_KEY, [15, 999]);
     try {
-        settings.profile().set(HIDDEN_KEY, [15, 999]);
         await openSettings(tv);
         await tv.page.locator('[data-focus="server"]').click();
-        await tv.page.locator('[data-focus="hidden"]').click();
-        await tv.page.locator('[data-focus="library:12"]').click();
-        await tv.eventually(async () => JSON.stringify(settings.profile().get(HIDDEN_KEY)) === "[15,999,12]", "confirmed hidden libraries");
-        await tv.page.getByText("Saving…", { exact: true }).waitFor({ state: "hidden" });
-        const refreshedLibraries = tv.fake.hold("/user/libraries");
+        assert.equal(await tv.page.locator('[data-focus="hidden"]').count(), 0);
+        await tv.page.locator('[data-focus="restore-libraries"]').click();
+        await tv.eventually(async () => JSON.stringify(settings.profile().get(HIDDEN_KEY)) === "[]", "restored library visibility");
+        await tv.page.locator('[data-focus="restore-libraries"]').waitFor({ state: "detached" });
         await tv.remote(10009);
-        await tv.remote(10009);
-        await tv.remote(10009);
-        await tv.eventually(async () => tv.fake.requests.filter(request => request.path === "/user/libraries").length === 2, "refreshed Home libraries");
-        assert.ok(tv.fake.requests.some(request => request.path === "/user/libraries?include_hidden=true"));
-        refreshedLibraries.release();
-        // Rebuilding the tab strip removes focus for a moment before the same turn restores it,
-        // so a one-shot read can land on the first title in that gap.
-        await tv.eventually(async () => await tv.page.locator('[role="tab"][data-focus="movies"]').count() === 0 && await tv.focused() === "home", "Movies left the strip and focus returned to Home");
+        await tv.eventually(async () => tv.fake.requests.filter(r => r.path === "/user/libraries").length === 2, "catalog refreshed");
+        assert.equal(await tv.focused(), "home", "catalog invalidation returns to the refreshed Home route");
+        assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
 
@@ -553,36 +581,28 @@ test("settings refusal is retryable by reload, and a late answer cannot outlive 
     } finally { await tv.page.context().close(); }
 });
 
-test("hidden-library save preserves the later checkbox focus", async () => {
+test("library visibility recovery keeps authority and offers Retry after refusal", async () => {
     const { tv, settings } = await setup();
     settings.profile().set(HIDDEN_KEY, [12]);
     try {
-        await openSettings(tv);
-        await tv.page.locator('[data-focus="server"]').click();
-        await tv.page.locator('[data-focus="hidden"]').click();
-        await tv.page.locator('[data-focus="library:15"]').click();
-        await tv.page.getByText("Saving…", { exact: true }).waitFor({ state: "hidden" });
-        assert.equal(await tv.focused(), "library:15");
+        await openSettings(tv); await tv.page.locator('[data-focus="server"]').click();
+        tv.fake.script("/settings/values/" + HIDDEN_KEY + "?scope=profile", problem(403, "permission_denied", "Denied"));
+        await tv.page.locator('[data-focus="restore-libraries"]').click();
+        await tv.page.getByRole("alert").waitFor();
+        assert.deepEqual(settings.profile().get(HIDDEN_KEY), [12]);
+        assert.equal(await tv.focused(), "restore-libraries");
+        await tv.page.getByRole("button", { name: "Reload settings", exact: true }).click();
+        await tv.page.locator('[data-focus="restore-libraries"]').click();
+        await tv.eventually(async () => JSON.stringify(settings.profile().get(HIDDEN_KEY)) === "[]", "recovery retry");
     } finally { await tv.page.context().close(); }
 });
 
-test("empty hidden-library editor keeps Back and explicit-null controls reachable", async () => {
+test("no hidden value leaves no recovery action or mutation", async () => {
     const { tv } = await setup();
     try {
-        const catalog = new FakeCatalog();
-        const household = catalog.households.get("p-owner");
-        assert.ok(household);
-        household.libraries.splice(0);
-        tv.fake.catalog = catalog;
-        new FakeSettings(tv.fake);
-        await openSettings(tv);
-        await tv.page.locator('[data-focus="server"]').click();
-        await tv.page.locator('[data-focus="hidden"]').click();
-        await tv.page.getByText("No accessible libraries.", { exact: true }).waitFor();
-        assert.equal(await tv.focused(), "clear-hidden");
-        await tv.page.keyboard.press("ArrowDown");
-        assert.equal(await tv.focused(), "clear-hidden");
-        assert.equal(tv.fake.requests.filter(request => request.method === "PUT").length, 0);
+        await openSettings(tv); await tv.page.locator('[data-focus="server"]').click();
+        assert.equal(await tv.page.locator('[data-focus="hidden"], [data-focus="restore-libraries"]').count(), 0);
+        assert.equal(tv.fake.requests.filter(r => r.method === "PUT" || r.method === "DELETE").length, 0);
     } finally { await tv.page.context().close(); }
 });
 
@@ -725,7 +745,9 @@ test("bitrate uncertain readback keeps the draft and Retry checks the committed 
         await tv.jump(1000);
         await tv.page.getByRole("button", { name: "Check and retry", exact: true }).click();
         await tv.page.getByRole("alert").waitFor({ state: "hidden" });
-        await tv.page.getByText("Profile default: 4321 kbps", { exact: true }).waitFor();
+        await tv.eventually(async () => await tv.page.getByRole("textbox").getAttribute("readonly") === null, "confirmed readback");
+        assert.equal(await tv.page.getByRole("textbox").inputValue(), "4321");
+        assert.equal(await tv.page.locator('[data-focus="bitrate:4321"]').getAttribute("aria-checked"), "true");
         assert.equal(tv.fake.requests.filter(r => r.method === "PUT").length, 1);
         await tv.remote(10009);
         assert.equal(await tv.focused(), "bitrate");

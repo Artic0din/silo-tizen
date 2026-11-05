@@ -1,6 +1,39 @@
 # In-player quality
 
-## Settings reference and remaining parity gates (#104)
+## Settings follow-up after the 5 November comparison
+
+The implementation reference for this follow-up is Apple `7baff3ef657757cc0a69202e86dd4bd5c7fcb585`, restricted to tvOS code.
+A signed comparison ran at Tizen `f0ebc96`; these later changes need a new comparison.
+The installed Apple app wins where the source differs.
+
+| Source under `tvOS/Screens/Settings/` | Exact reference |
+| --- | --- |
+| `TVSettingsView.swift:141-144,179-204,242-258,444-465` | Rail width 490, pane gap 52, rail spacing 6, title 48, category title 25/detail 16, header tile 72 with icon 34 and gap 20 |
+| `TVSettingsComponents.swift:248-249` | Pane row padding 24 horizontal and 17 vertical; measured installed rows are 66 high with pitch 74, rail rows 82 high with pitch 88 |
+| `TVGeneralSettingsView.swift:24-44,72-102,153-176,183-217` | Paired Profile, launch footer, Cards & Posters, title-art footer, theme music and loop |
+| `TVSubtitleSettingsView.swift:18-20,85-102,105-145,183-193` | Metadata is conditionally under Subtitles; appearance starts with preview and device scope; Outline Color is “—” when outline is off |
+| `TVSettingsComponents.swift:589-630,700-719` | Privacy QR size 320 with padding 22 and gap 54, Done in the text column; picker subtitle and Menu hint |
+| `TVSettingsView.swift:437-439` | Category changes recreate the pane at the top |
+
+Paired Profile stays out because it binds an Apple TV OS user; Samsung has no matching identity owner.
+Theme music and loop stay out because this client has no title-page audio playback owner.
+Use Device Settings stays out because tvOS follows Accessibility caption preferences, with no established Samsung bridge.
+Connection measurement/adaptation, HDR, audio passthrough and buffer controls remain out without Samsung consumers.
+Watch Party stays behind #54, Diagnostics behind #218, and spoiler controls remain with #212.
+Show Next Up remains a real Apple row (`TVPlaybackSettingsView.swift:273-277`); playback use waits on #213.
+No upstream repository needs a write for these changes.
+
+Hidden Libraries no longer opens an editor.
+If a stored effective list is nonempty, Server offers Restore All Libraries, which writes an empty profile list through the existing confirmed Settings writer and refreshes the catalog on exit.
+The list has no local duplicate to clear.
+The recovery action disappears after confirmation; failures keep it available with the existing reload/retry path.
+Accounts covers server management, so the duplicate Manage Servers row is hidden when Accounts is available.
+
+Re-check on the other Mac: all four rail selections, profile/version placement, General top/bottom and descriptions, Playback groups and every picker, Subtitles with metadata AI enabled/disabled and profile/device appearance, outline off/on, Reset cancel/confirm, Server Accounts return and legacy library recovery, Privacy Done/Back, long-pane scrolling, category reset, and modal open/close without background movement.
+Use the same data, focus, viewport and scroll state at native 1920×1080; record remote movement and identify the newly signed package and installed assets.
+No simulator, TV, signed package, live server or native comparison ran for this follow-up.
+
+## Earlier Settings reference and remaining parity gates (#104)
 
 Reference: `Silo-Server/silo-apple` main at `9723df007baa8e933f5615cc14b13e99a6ee1ea1`.
 These are source observations, not verification of an installed Apple build.
@@ -21,11 +54,11 @@ No server or Apple source changes are required by this supported subset.
 | `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:174` | STREAMING: Audio Language, HDR, Dolby Vision, Seek Cache, Buffer Ahead, Lossless Multichannel Audio, TrueHD Atmos and DTS:X, Deinterlacing, Deinterlacing Field Rate | Only Audio Language offered; other controls need verified AVPlay equivalents and plan/capability consumption, not Apple-only stored settings |
 | `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:266` | EPISODES: Auto-Play Next Episode, Show Next Up, Skip Intros, Skip Credits | Omitted: existing EOF continuation is manual; need automatic successor and prompt policy owners and skip-policy consumption |
 | `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:305` | SPOILERS: Blur unwatched episode images, Hide unwatched episode descriptions; profile-wide, revision 17, only unstarted episodes | #177 belongs here. Omitted until episode card, season and Details consumers apply both server settings and refresh on profile/foreground transitions; no inert switches |
-| `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:342` | VIDEO and AUDIOBOOKS: Skip Back and Skip Forward; 5, 10, 15, 30, 45, 60, 90 seconds | Video rows supported, profile-scoped; audiobook rows need an audiobook player |
-| `tvOS/Screens/Settings/TVSubtitleSettingsView.swift:37` | PROFILE: Language, Behavior, Show Forced Subtitles; conditional METADATA: Metadata Language | Language, Behavior and Show Forced Subtitles write `playback.subtitle_language`, `playback.subtitle_mode` and `playback.show_forced_subtitles` at profile scope. Metadata Language is omitted: nothing in this client reads `catalog.metadata_language` |
-| `tvOS/Screens/Settings/TVSubtitleSettingsView.swift:103` | APPEARANCE: preview, Use Device Settings, Only on This Apple TV, Font Size/Family/Color, Text Opacity, Text Outline, Outline Color, Background Style/Opacity/Color, Position, Reset Appearance confirmation | Needs a scoped appearance writer and verified renderer support; OS Accessibility caption bridge has no established Tizen equivalent |
+| `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:342` | VIDEO and AUDIOBOOKS: Skip Back and Skip Forward; 5, 10, 15, 30, 45, 60, 90 seconds | Editors removed after the 5 November installed-app comparison: the running Apple app has no skip rows. Playback still reads server effective intervals (10 s back / 30 s forward defaults), including existing saved profile values; audiobook rows need an audiobook player |
+| `tvOS/Screens/Settings/TVSubtitleSettingsView.swift:37` | PROFILE: Language, Behavior, Show Forced Subtitles; conditional METADATA: Metadata Language | Language, Behavior and Show Forced Subtitles write `playback.subtitle_language`, `playback.subtitle_mode` and `playback.show_forced_subtitles` at profile scope. Metadata Language is offered in Subtitles under METADATA only when metadata AI is enabled, matching `TVSubtitleSettingsView.swift:18-20,85-102`; it invalidates catalog caches after confirmed changes |
+| `tvOS/Screens/Settings/TVSubtitleSettingsView.swift:103` | APPEARANCE: preview, Use Device Settings, Only on This Apple TV, Font Size/Family/Color, Text Opacity, Text Outline, Outline Color, Background Style/Opacity/Color, Position, Reset Appearance confirmation | Preview, scoped appearance writer, renderer and Reset are present. Use Device Settings stays omitted: Samsung has no established equivalent of the tvOS Accessibility caption bridge |
 | `tvOS/Screens/Settings/TVDiagnosticsSettingsPane.swift:12` | FEATURE STATE Status/Destination; CAPTURE Send Reports To, Debug Logging, Crash Reports (Ask/Always/Never); pending reports, Send Diagnostics Now, sent history, None empty states | No Diagnostics pane: needs consent, redaction, capture, queue, expiry, destination and upload owners (#137) |
-| `tvOS/Screens/Settings/TVSettingsView.swift:534` | ACTIVE SERVER Server/Address, Manage Servers; ABOUT App Version, Privacy Policy, Acknowledgements; EXTRA FEATURES feature toggles | Server/version info, existing switch-server callback when available and credits supported; privacy overlay and experimental-feature registry omitted |
+| `tvOS/Screens/Settings/TVSettingsView.swift:534` | ACTIVE SERVER Server/Address, Manage Servers; ABOUT App Version, Privacy Policy, Acknowledgements; EXTRA FEATURES feature toggles | Server/version info, Accounts owns server management, so its duplicate Manage Servers row is omitted. Privacy QR and credits are present; Watch Party remains gated by #54 |
 | `tvOS/Screens/Settings/TVSettingsView.swift:46` and `Components/AccountRemovalConfirmation.swift` | Sign Out asks to confirm; Cancel stays focused; the message says the account's profiles and settings leave the device | Confirmation is `Sign out of {account} on {server}?` with Cancel focused and Sign Out. The message says the server stays saved, because logout clears the account and does not remove the saved server |
 
 Apple focus follows `docs/tvos-focus.md:131`: Up/Down stays in the current pane; focus on a category previews its pane; Right/OK enters the first available control; Left/Back returns to that category.

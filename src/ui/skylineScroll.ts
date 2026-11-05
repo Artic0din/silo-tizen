@@ -62,8 +62,9 @@ export class SkylineScroll {
     }
 
     reveal(element: HTMLElement, container: HTMLElement): void {
+        if (element.closest(".settings-categories") !== null) return;
         if (element.closest(".browse-nav, .skyline-selector:not(.details-audio-picker)") !== null) return;
-        const viewport = element.closest<HTMLElement>(".browse-panel-list, .details-audio-picker, .settings-modal-options, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? container;
+        const viewport = element.closest<HTMLElement>(".browse-panel-list, .details-audio-picker, .settings-modal-options, .settings-pane, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? container;
         if (element.closest("[data-scroll-top]") !== null) {
             this.pinnedShelf = null;
             this.move(viewport, 0, 0);

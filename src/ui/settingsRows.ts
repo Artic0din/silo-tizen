@@ -33,7 +33,7 @@ export function settingsRows(category: string, state: SettingsState): readonly S
         appearance("backgroundColor", "Background Color", backgrounds),
         appearance("position", "Position", [["bottom", "Bottom"], ["lower-third", "Lower Third"], ["top", "Top"]]),
     ] : [];
-    return rows.filter(row => state.definitions.some(def => def.key === row.key)).map(row => {
+    return rows.filter(row => (row.key !== METADATA_KEY || state.metadataEnabled) && state.definitions.some(def => def.key === row.key)).map(row => {
         const current = rowValue(row, state);
         return row.member?.endsWith("Opacity") && typeof current === "number" && !row.choices.some(([value]) => value === current) ? { ...row, choices: [...row.choices, [current, `${current}%`] as const].sort(([a], [b]) => Number(a) - Number(b)) } : row;
     });

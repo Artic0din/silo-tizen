@@ -6,6 +6,7 @@ import type { UserLibrary } from "../contracts/v2/catalog.ts";
 import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, TITLE_ART_KEY, SEEK_KEYS, SETTINGS_KEYS, SHOW_FORCED_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, decodeSettingValue, numericLibraryId, profileSettings, type SettingsIdentity, type SettingsScope, type EffectiveSetting, type ExplicitSetting, type SettingDefinition, type SettingsKey, type SettingValue } from "../contracts/v2/settings.ts";
 import { NativeSession, SessionError } from "../session/session.ts";
 import { APPEARANCE_KEY, METADATA_KEY, INTRO_SKIP_KEY, CREDITS_SKIP_KEY } from "../contracts/v2/settingsRows.ts";
+import { descriptionTranslationOperations } from "../api/descriptionTranslationOperations.ts";
 import { DEFAULT_APPEARANCE } from "../contracts/v2/subtitles.ts";
 
 type TitleEdit = { key: typeof TITLE_ART_KEY; kind: "title"; profile: ExplicitSetting; steps: { scope: SettingsScope; value?: boolean; done?: boolean }[] };
@@ -13,6 +14,7 @@ type Edit = TitleEdit | ({ key: SettingsKey; scope?: SettingsScope; snapshot?: E
 class SettingsConflict extends Error {}
 
 export class SettingsState {
+    metadataEnabled = false;
     readonly explicit = new Map<SettingsKey, ExplicitSetting>();
     readonly device = new Map<SettingsKey, ExplicitSetting>();
     readonly client = new Map<SettingsKey, ExplicitSetting>();
@@ -98,6 +100,8 @@ export class SettingsState {
             const options = this.definitions.find(def => def.key === AUDIO_KEY)?.options.filter(option => option.introducedIn <= revision).map(option => option.value).filter((value): value is string => typeof value === "string") ?? [];
             this.audioOptions = [null, ...(revision >= 9 ? ["x-silo-original"] : []), ...options];
             this.subtitleOptions = this.definitions.find(def => def.key === SUBTITLE_LANGUAGE_KEY)?.options.filter(option => option.introducedIn <= revision && typeof option.value === "string").map(option => String(option.value)) ?? [];
+            this.metadataEnabled = keys.includes(METADATA_KEY) ? await this.call(descriptionTranslationOperations.metadataAI()).then(value => value.enabled, () => false) : false;
+            if (!this.active) return;
             this.loaded = true;
             this.retryEdit = undefined;
             if (capability.manifestRevision >= 16 && !this.definitions.some(def => def.key === TITLE_ART_KEY)) this.error = "Title-art settings are unavailable. Reload settings.";

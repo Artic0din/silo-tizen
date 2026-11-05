@@ -546,6 +546,7 @@ calendarTest("Calendar return revalidates mutations and preserves nearby identit
     await tv.page.getByText("Loading personal actions.", { exact: true }).waitFor({ state: "hidden" });
     await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
     await activate(tv, "watched");
+    await activate(tv, "more");
     await tv.eventually(async () => catalog.watched, "watched mutation");
     await tv.remote(10009); await tv.remote(10009); await ready(tv, 3);
     assert.match(await tv.page.locator('.calendar-event[data-content-id="movie:m0001"]').getAttribute("aria-label") ?? "", /Watched/);
@@ -617,7 +618,7 @@ calendarTest("Calendar failed revalidation retains only the current window with 
     assert.equal(await tv.page.locator(".calendar-event").count(), 0, "no previous-window cache leaks into an empty week");
 });
 
-calendarTest("Calendar Settings hidden-library return reuses current route and coherent multi-library access", async (tv, catalog) => {
+calendarTest("Calendar Settings library recovery reuses current route and coherent multi-library access", async (tv, catalog) => {
     const settings = new FakeSettings(tv.fake);
     settings.profile().set(HIDDEN_KEY, [15]);
     const routes = tv.fake.catalog; assert.ok(routes);
@@ -631,15 +632,15 @@ calendarTest("Calendar Settings hidden-library return reuses current route and c
     assert.equal(await tv.page.locator('.calendar-event[data-content-id="movie:archived"]').count(), 0);
     await activate(tv, "profiles"); await activate(tv, "settings");
     await tv.page.locator('[data-focus="server"]').click();
-    await tv.page.locator('[data-focus="hidden"]').click();
-    await tv.page.locator('[data-focus="library:12"]').click();
-    await tv.eventually(async () => JSON.stringify(settings.profile().get(HIDDEN_KEY)) === "[15,12]", "hidden library write");
+    await tv.page.locator('[data-focus="restore-libraries"]').click();
+    await tv.eventually(async () => JSON.stringify(settings.profile().get(HIDDEN_KEY)) === "[]", "library visibility restored");
     await tv.page.getByText("Saving…", { exact: true }).waitFor({ state: "hidden" });
-    await tv.remote(10009); await tv.remote(10009); await tv.remote(10009); await ready(tv, 2);
+    for (let step = 0; step < 3 && await tv.page.locator(".settings").count() > 0; step++) await tv.remote(10009);
+    await ready(tv, 33);
     assert.equal(await tv.page.locator('[data-focus="filter:everything"]').getAttribute("aria-pressed"), "true");
-    assert.ok((await tv.page.locator(".calendar-event").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-content-id")))).every(id => id?.startsWith("episode:") || id?.startsWith("season:")));
+    assert.equal(await tv.page.locator('.calendar-event[data-content-id="movie:archived"]').count(), 1, "restored library content is included");
     assert.equal(await tv.focused(), "calendar", "selected tab retains focus while revalidating after Settings");
-    assert.equal(await tv.page.locator('.browse-nav [data-focus="movies"]').count(), 0, "hidden-library refresh also updates existing Skyline scopes");
+    assert.equal(await tv.page.locator('.browse-nav [data-focus="movies"]').count(), 1, "visibility recovery also updates existing Skyline scopes");
 });
 
 calendarTest("Calendar premiere, episode context fallback, badges and distinct events retain server identity", async (tv, catalog) => {
@@ -683,7 +684,8 @@ calendarTest("Calendar-origin series refresh preserves a subsequently selected s
     await tv.page.locator('[data-view="item:episode:s1e11"]').waitFor();
     await tv.page.locator('[data-focus="more"]').click();
     await tv.page.locator('[data-focus="watched"]').click();
-    await tv.eventually(async () => catalog.mutations.length === 1 && await tv.page.getByRole("button", { name: "Mark watched", exact: true }).count() === 1, "episode mutation confirmed");
+    await activate(tv, "more");
+    await tv.eventually(async () => catalog.mutations.length === 1 && await tv.page.getByRole("button", { name: "Mark as Watched", exact: true }).count() === 1, "episode mutation confirmed");
     const refresh = tv.fake.hold("/catalog/items/series%3As1", true);
     await tv.remote(10009); await tv.remote(10009);
     await tv.page.locator('[data-view="item:series:s1"]').waitFor();
@@ -750,7 +752,8 @@ calendarTest("S-C2 Calendar re-entry refreshes watched changes made through Home
     await homeDetails(tv);
     await activate(tv, "more");
     await activate(tv, "watched");
-    await tv.eventually(async () => catalog.watched && await tv.page.getByRole("button", { name: "Mark unwatched", exact: true }).count() === 1, "confirmed watched state");
+    await activate(tv, "more");
+    await tv.eventually(async () => catalog.watched && await tv.page.getByRole("button", { name: "Mark as Unwatched", exact: true }).count() === 1, "confirmed watched state");
     await tv.remote(10009);
     await tv.remote(10009);
     await activate(tv, "calendar"); await ready(tv, 3);
@@ -764,9 +767,10 @@ for (const [action, id, expected] of [["favorites", "movie:m0001", 2], ["watchli
         await activate(tv, "calendar"); await ready(tv, 3);
         await homeDetails(tv, id);
         if (action === "favorites") await activate(tv, "more");
-        await tv.page.getByRole("button", { name: action === "favorites" ? "Remove favorite" : "Remove from watchlist", exact: true }).waitFor();
+        await tv.page.getByRole("button", { name: action === "favorites" ? "Remove from Favorites" : "Remove from watchlist", exact: true }).waitFor();
         await activate(tv, action);
-        await tv.eventually(async () => !(action === "favorites" ? catalog.favoriteIds : catalog.watchlistIds).has(id) && await tv.page.getByRole("button", { name: action === "favorites" ? "Add favorite" : "Add to watchlist", exact: true }).count() === 1, "confirmed membership removal");
+        if (action === "favorites") await activate(tv, "more");
+        await tv.eventually(async () => !(action === "favorites" ? catalog.favoriteIds : catalog.watchlistIds).has(id) && await tv.page.getByRole("button", { name: action === "favorites" ? "Add to Favorites" : "Add to watchlist", exact: true }).count() === 1, "confirmed membership removal");
         await tv.remote(10009);
         if (action === "favorites") await tv.remote(10009);
         await activate(tv, "calendar"); await ready(tv);

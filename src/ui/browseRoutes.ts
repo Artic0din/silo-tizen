@@ -9,7 +9,7 @@ import type { Person } from "../contracts/v2/details.ts";
 import type { DetailsState } from "./detailsState.ts";
 import { SessionError } from "../session/session.ts";
 import type { FocusTarget, View } from "./browseFocus.ts";
-import { itemView, seasonView, type Synopsis } from "./browseDetails.ts";
+import { itemView, seasonView } from "./browseDetails.ts";
 import type { EpisodeSelection, PlayRequest, SeriesContext } from "./browseModel.ts";
 import type { CalendarState } from "./calendarState.ts";
 import { calendarView, type CalendarHandlers } from "./calendarView.ts";
@@ -103,7 +103,6 @@ export interface RouteHandlers {
     readonly personalFilter: (route: Extract<Route, { kind: "personal" }>, filter: PersonalFilter) => void;
     readonly morePersonal: (route: Extract<Route, { kind: "personal" }>) => void;
     readonly signIn: (() => void) | undefined;
-    readonly synopsis: Synopsis;
     readonly context: ViewContext;
     readonly focusDefault: () => void;
     /** A read is in flight. */
@@ -183,13 +182,13 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
                 const episodeId = current.seriesContext?.episodeId;
                 const view = itemView(current.data.details?.detail ?? current.data.detail, current.data.seasons, {
                     ...context, open: destination => context.open(destination.kind === "season" && episodeId !== undefined ? { ...destination, episodeId } : destination),
-                }, handlers.play, pop, handlers.synopsis, current.data.details);
+                }, handlers.play, pop, current.data.details);
                 return withNote(view, current.failure);
             }
             break;
         case "season":
             if (current.data !== undefined) {
-                return withNote(seasonView(`season:${current.seriesId}:${current.seasonNumber}`, current.title, current.data.episodes, context, pop, handlers.play, handlers.synopsis, current.data.details?.detail ?? current.data.detail, current.data.details), current.failure);
+                return withNote(seasonView(`season:${current.seriesId}:${current.seasonNumber}`, current.title, current.data.episodes, context, pop, handlers.play, current.data.details?.detail ?? current.data.detail, current.data.details), current.failure);
             }
     }
     // Other routes keep the slow note. Home returned above: an empty page labelled "Loading home".

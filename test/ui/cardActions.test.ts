@@ -581,6 +581,8 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await tv.page.emulateMedia({ reducedMotion });
             const catalog = await start(tv);
             await origin(tv).click();
+            await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
+            await tv.page.getByText("Loading personal actions.", { exact: true }).waitFor({ state: "hidden" });
             const watchlist = tv.page.locator('.browse [data-focus="watchlist"]').first();
             await watchlist.waitFor({ timeout: 1500 });
             const first = tv.fake.hold("/watchlist/movie%3Am0001", true);

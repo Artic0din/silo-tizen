@@ -11,7 +11,7 @@ import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakeRequests } from "../native/support/fakeRequests.ts";
 import type { Reply } from "../native/support/fakeSilo.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
-import { CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
+import { CARD_OVERLAYS_KEY, CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
 import { detailReads, homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
@@ -97,6 +97,27 @@ browseTest("Search spatial People entry chooses the nearest title column", async
     const reads = tv.fake.requests.length;
     await press(tv, "ArrowDown");
     assert.equal(await tv.focused(), "movie:m0002");
+    await press(tv, "ArrowUp");
+    await tv.jump(250);
+    await tv.page.waitForTimeout(260);
+    const upFromFirst = await tv.page.evaluate(() => {
+        const field = document.querySelector("#browse-search")?.getBoundingClientRect();
+        const pills = document.querySelector(".search-filters")?.getBoundingClientRect();
+        const focused = document.activeElement?.getBoundingClientRect();
+        return {
+            scroll: document.querySelector(".browse")?.scrollTop ?? -1,
+            fieldTop: field?.top,
+            fieldBottom: field?.bottom,
+            pillsTop: pills?.top,
+            pillsBottom: pills?.bottom,
+            ringTop: focused?.top,
+        };
+    });
+    assert.equal(upFromFirst.scroll, 0, "Up from the first title row returns to the top");
+    assert.ok((upFromFirst.fieldTop ?? -1) >= 0 && (upFromFirst.fieldBottom ?? 0) > 40, `the keyboard stays visible, got ${upFromFirst.fieldTop}`);
+    assert.ok((upFromFirst.pillsTop ?? -1) >= 0 && (upFromFirst.pillsBottom ?? 0) <= 1080, `the filter pills stay visible, got ${upFromFirst.pillsTop}`);
+    assert.ok(Math.abs((upFromFirst.ringTop ?? 0) - 495) < 40, `Up from the first title row rests the ring near 495, got ${upFromFirst.ringTop}`);
+    await tv.page.locator('[data-focus="movie:m0002"]').focus();
     await press(tv, "ArrowDown", "ArrowDown");
     assert.equal(await tv.focused(), "movie:950");
     await tv.jump(250);
@@ -104,11 +125,55 @@ browseTest("Search spatial People entry chooses the nearest title column", async
     assert.equal(await tv.focused(), "movie:m0008", "Up from Requests enters the adjacent bottom grid row");
     await tv.jump(250);
     await tv.page.waitForTimeout(260);
-    const posterTop = await tv.page.locator('[data-focus="movie:m0008"] .browse-art').evaluate(node => node.getBoundingClientRect().top);
-    assert.ok(Math.abs(posterTop - 171) < 1, `Search upward reveal keeps the focused poster at 171px, got ${posterTop}`);
+    const revealed = await tv.page.evaluate(() => document.querySelector('[data-focus="movie:m0008"] .browse-art')?.getBoundingClientRect().top);
+    // The old pin was 160.4px (before that, 171px), measured on a different path. Up rests this ring at 495.
+    // The pills stay with the first-row return above: this bottom card sits a full results column below them.
+    const searchRevealTop = 495;
+    assert.ok(Math.abs((revealed ?? 0) - searchRevealTop) < 1, `Search upward reveal keeps the focused poster at ${searchRevealTop}px; the old pin was 160.4px, got ${revealed}`);
     assert.equal(await tv.page.locator('.search-navigation-title').evaluate(node => getComputedStyle(node).position), "absolute", "deep directional navigation does not show the navigation title");
     assert.equal(tv.fake.requests.length, reads);
 }, { catalog: new SearchEdgeCatalog() });
+
+browseTest("Search cards show the Returning badge Home and library already draw", async (tv, catalog) => {
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const reply = read(method, path, profile, body);
+        const url = new URL(path, "https://fake.invalid");
+        if (url.pathname !== "/catalog" || reply?.status !== 200 || url.searchParams.get("q") === null) return reply;
+        const response = reply.body as { items?: Record<string, unknown>[] };
+        if (!Array.isArray(response.items)) return reply;
+        return { ...reply, body: { ...response, items: response.items.map(item => item.content_id === "series:s1" ? { ...item, show_status: "returning series" } : item) } };
+    };
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Harbor");
+    await tv.remote(IME_DONE);
+    const card = tv.page.locator('.browse-grid [data-focus="series:s1"]');
+    await card.waitFor();
+    await tv.eventually(async () => await card.locator(".card-overlay").evaluate(node => node.textContent) === "Returning", "Search Returning badge");
+}, { beforeConnect: tv => {
+    const settings = new FakeSettings(tv.fake);
+    settings.overlayConfig = { enabled: true };
+    settings.profile().set(CARD_OVERLAYS_KEY, { version: 2, preset: "classic", order: ["show_status"], items: { show_status: { enabled: true, position: "top-right" } } });
+} });
+
+browseTest("Related shelf omits the watched badge Apple leaves off the similar card", async tv => {
+    await tv.page.route("**/api/v2/recommendations/similar/**", async route => {
+        const items = Array.from({ length: 24 }, (_, index) => ({
+            content_id: `movie:m${String(index + 2).padStart(4, "0")}`,
+            type: "movie",
+            title: index === 0 ? "Mercy" : `Movie ${String(index + 2).padStart(4, "0")}`,
+            poster_url: `/art/movie-${index + 2}.svg`,
+            ...(index === 0 ? { user_state: { played: true } } : {}),
+        }));
+        await route.fulfill({ json: { items } });
+    });
+    await activateDetails(tv);
+    await showing(tv, "item:movie:m0001");
+    const mercy = tv.page.locator('[data-detail-section="related"] [data-focus="movie:m0002"]');
+    await mercy.waitFor();
+    assert.equal(await mercy.locator(".browse-watched").count(), 0, "user_state.played is set, and the related card still has no watched badge");
+    assert.match(await mercy.innerText(), /Mercy/);
+});
 
 for (const coldStart of [false, true]) {
 browseTest(`Search retains the filter column through default People and ragged grid entry${coldStart ? " from the field on a cold visit" : ""}`, async tv => {

@@ -15,6 +15,9 @@ All notable changes to this project are documented in this file.
 - Kept Change Account reachable when a saved server is offline, prevented removed accounts from being restored by late refreshes, and scrolled account lists to keep remote focus visible.
 - Prevented failed replacement sign-ins from restoring old credentials and kept saved-sign-in removal scoped to the selected account.
 - Prevented replaced account sessions from overwriting a new sign-in and required fresh PIN proof after committing an account switch.
+- Drew the series status TV glyph as Apple's flat `tv` symbol, at that symbol's layout size, and stopped Search from pinning an upward move over the field and filters.
+- Drew the TV icon on Returning, Cancelled and Ended badges and raised Home headings by using Skyline's 14px card padding.
+- Raised the focused Search poster, darkened the Continue Watching focus shadow, showed the Returning badge on Search cards, and hid the watched tick on Related titles.
 - Showed Home rows as soon as they arrived, without waiting on library tabs or an uncapped sections read, and stopped the Home page from saying the server was still waiting. While those rows are still out, Home is an empty page labelled "Loading home" and the library tabs fill in on their own.
 - Stopped a delayed Home libraries read from putting a library back after it was hidden in Settings.
 - Kept remote navigation when those library tabs arrived on another page, and read them again after the app returned if that read had failed.

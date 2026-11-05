@@ -31,7 +31,7 @@ export class SkylineScroll {
     reveal(element: HTMLElement, container: HTMLElement): void {
         if (element.closest(".browse-nav, .skyline-selector:not(.details-audio-picker)") !== null) return;
         const viewport = element.closest<HTMLElement>(".browse-panel-list, .details-audio-picker, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? container;
-        if (container.dataset.view === "search" && element.closest(".search-filters") !== null) {
+        if (container.dataset.view === "search" && element.closest(".search-filters, .search-field") !== null) {
             this.move(viewport, 0, 0);
             return;
         }
@@ -46,6 +46,10 @@ export class SkylineScroll {
             const delta = card.left < bounds.left + left ? card.left - bounds.left - left : card.right > bounds.right - right ? card.right - bounds.right + right : 0;
             this.move(row, Math.max(0, row.scrollLeft + delta), 0);
         }
+        if (container.dataset.view === "search" && element.closest(".search-people-rail") !== null) {
+            this.move(viewport, 0, 0);
+            return;
+        }
         const rect = element.getBoundingClientRect();
         const bounds = viewport.getBoundingClientRect();
         // Apple's Requests band is view-aligned: the focused row's top sits on the band's top.
@@ -58,7 +62,8 @@ export class SkylineScroll {
         }
         const margins = getComputedStyle(element);
         let posterTop = rect.top;
-        if (container.dataset.view === "search" && element.closest(".browse-grid") !== null) {
+        const searchPoster = container.dataset.view === "search" && element.closest(".browse-grid") !== null;
+        if (searchPoster) {
             const art = element.querySelector<HTMLElement>(".browse-art");
             if (art !== null) {
                 const artRect = art.getBoundingClientRect();
@@ -68,7 +73,9 @@ export class SkylineScroll {
                 posterTop = artRect.top + (artRect.height - focusedHeight) / 2;
             }
         }
-        const topEdge = bounds.top + Math.max(12, parseFloat(margins.scrollMarginTop));
+        // Up in Search rests the focused poster ring at 495 so the field and filter pills stay
+        // on screen. The removed 160.4 scroll-margin pinned a different path and clipped those pills.
+        const topEdge = bounds.top + (searchPoster ? 495 : Math.max(12, parseFloat(margins.scrollMarginTop)));
         const bottomEdge = bounds.bottom - (container.dataset.view === "search"
             ? Math.max(32, parseFloat(getComputedStyle(viewport).scrollPaddingBottom) || 0)
             : Math.max(32, parseFloat(margins.scrollMarginBottom)));

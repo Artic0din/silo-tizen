@@ -4,8 +4,10 @@ import type { Episode, ItemDetail, Season } from "../contracts/v2/catalog.ts";
 import type { Credit, Person } from "../contracts/v2/details.ts";
 import type { Card } from "../contracts/v2/catalog.ts";
 import type { DetailsState } from "./detailsState.ts";
+import { TRANSLATE_DESCRIPTION_LABEL, type DescriptionTranslationStatus } from "./descriptionTranslation.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { artworkUrl, clockTime, episodeLabel, playChoices, type PlayRequest } from "./browseModel.ts";
+import { trailerCards, type TrailerCard } from "./trailerRail.ts";
 import { actionButton, artwork, cardItem, heading, lines, mediaItem, type ViewContext, zoneNode } from "./browseViews.ts";
 import { boxSetMovieRow, type BoxSetRowState } from "./boxSetRow.ts";
 import { personMetadataBadges, personPortrait } from "./personHero.ts";
@@ -100,6 +102,19 @@ function metaLine(detail: ItemDetail, state?: DetailsState): string {
     return parts.join("\u2002·\u2002");
 }
 
+function overviewText(overview: string, status: DescriptionTranslationStatus | undefined): HTMLElement {
+    const text = el("p", "browse-text browse-overview", overview);
+    if (status !== undefined) text.classList.add("has-translation-status");
+    if (status?.kind === "translating") text.classList.add("is-translating");
+    return text;
+}
+
+function translationStatus(status: DescriptionTranslationStatus): HTMLElement {
+    const line = el("p", "description-translation-status", status.text);
+    line.dataset.translationStatus = status.kind;
+    return line;
+}
+
 function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonly FocusItem[], state?: DetailsState, summary?: string): HTMLElement[] {
     const nodes: HTMLElement[] = [];
     const label = episodeLabel(detail.seasonNumber, detail.episodeNumber);
@@ -147,8 +162,10 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
         nodes.push(facts);
     }
     const overview = episode === undefined ? detail.overview : [playback?.detail.title ?? episode.title, episode.overview || playback?.detail.overview].filter(Boolean).join(" · ");
-    if (overview !== undefined && overview !== "") {
-        nodes.push(el("p", "browse-text browse-overview", overview));
+    const translation = state?.descriptions?.status(episode, playback?.detail);
+    if ((overview !== undefined && overview !== "") || translation !== undefined) {
+        if (overview !== undefined && overview !== "") nodes.push(overviewText(overview, translation));
+        if (translation !== undefined) nodes.push(translationStatus(translation));
     }
     const directors = detail.extra?.crew.filter(credit => credit.role.toLowerCase() === "director").map(credit => credit.name);
     const credit = detail.type === "movie" ? directors?.length ? `Directed by ${directors.slice(0, 2).join(", ")}` : undefined : detail.extra?.cast.length ? `Starring ${detail.extra.cast.slice(0, 3).map(person => person.name).join(", ")}` : undefined;
@@ -360,22 +377,21 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         content.push(...movieRow.content);
         zones.push(movieRow.zone);
     }
-    if (state !== undefined) {
-        const extras = (detail.extras ?? []).map(extra => {
-            const key = `extra:${extra.contentId}`, element = el("button", "browse-card details-extra");
-            element.type = "button"; element.tabIndex = -1; element.dataset.focus = key;
-            const title = state.extraPending === extra.contentId ? "Loading extra…" : state.extraFailed === extra.contentId ? `Retry ${extra.title || extra.kind}` : extra.title || extra.kind;
-            element.append(artwork("browse-art browse-still", extra.stillUrl, context.baseUrl, title), el("span", "browse-card-title", title), el("span", "browse-card-subtitle", extra.durationSeconds === undefined ? extra.kind : `${extra.kind} · ${clockTime(extra.durationSeconds)}`));
-            element.setAttribute("aria-disabled", String(state.extraPending !== undefined));
-            element.addEventListener("click", () => state.playExtra(extra, play));
-            return { key, element };
-        });
+    if (state !== undefined && (detail.type === "movie" || detail.type === "series")) {
+        // Show YouTube cards the way tvOS does when the YouTube app can open.
+        // Select cannot hand off or play them through AVPlay, so it stays on the card.
+        const extras = trailerCards(detail.extras, detail.videos, true).map(card => trailerCard(card, context, state, play));
         if (extras.length > 0) {
             content.push(el("h2", "browse-section-title", "Trailers & More"), zoneNode("browse-row details-extras", extras));
-            zones.push({ id: "extras", layout: "row", items: extras });
+            // TVTrailersRail is a focus section with user-initiated default focus
+            // on the first card, so every entry lands there. Other rails keep
+            // the last visited item.
+            zones.push({ id: "extras", layout: "row", items: extras, entry: extras[0]?.key });
             if (state.extraPending !== undefined) content.push(...lines(["Loading extra…"]));
             if (state.extraFailed !== undefined) content.push(...lines(["Could not load extra. Select its card to retry."], "error"));
         }
+    }
+    if (state !== undefined) {
         // TVSimilarRail passes neither overlayData nor userState to TVMediaCard.
         const related = titleCards((state.related ?? []).map(card => ({ ...card, played: undefined })), { ...context, overlays: undefined, cardOverlays: () => undefined });
         if (!state.relatedFailed && (state.related === undefined || related.length > 0)) {
@@ -465,6 +481,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         const season = seasons.find(season => season.seasonNumber === state.series?.seasonNumber);
         if (season !== undefined) items.push(actionButton("season-info", `${season.title} details`, () => context.open({ kind: "season", id: season.id, seriesId: detail.id, seasonNumber: season.seasonNumber, title: `${detail.title} · ${season.title}` })));
         if (overview) items.push(actionButton("synopsis", "Read synopsis", () => synopsis.show(overview)));
+        if (state.descriptions?.offers() === true) items.push(actionButton("translate-description", TRANSLATE_DESCRIPTION_LABEL, () => { state.descriptions?.translate(); state.closePanel(); }));
         if (["movie", "series"].includes(detail.type)) items.push(actionButton("rate", "Rate title", () => state.showPanel("rating")));
         return detailPanel(view, state, "More", items.length ? items : [actionButton("close-more", "Close", () => state.closePanel())], personal?.notes);
     }
@@ -473,6 +490,73 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         return detailPanel(view, state, "Rate title", rating.items, [rating.note]);
     }
     return view;
+}
+
+function trailerCard(card: TrailerCard, context: ViewContext, state: DetailsState, play: (request: PlayRequest) => void): FocusItem {
+    let title = card.title;
+    let key = card.id;
+    switch (card.role) {
+        case "local":
+            title = state.extraPending === card.extra.contentId ? "Loading extra…" : state.extraFailed === card.extra.contentId ? `Retry ${card.title}` : card.title;
+            key = `extra:${card.extra.contentId}`;
+            break;
+        case "remote":
+            break;
+        default: {
+            const unexpected: never = card;
+            return unexpected;
+        }
+    }
+    const local = card.role === "local" ? card.extra : undefined;
+    const element = el("button", "browse-card details-extra");
+    element.type = "button";
+    element.tabIndex = -1;
+    element.dataset.focus = key;
+    const still = artwork("browse-art browse-still", card.stillUrl, context.baseUrl, filmMark());
+    still.append(playMark());
+    element.append(still, el("span", "browse-card-title", title));
+    const pending = card.role === "local" && (state.extraPending === card.extra.contentId || state.extraFailed === card.extra.contentId);
+    if (card.caption !== undefined && !pending) element.append(el("span", "browse-card-subtitle", card.caption));
+    if (local !== undefined) {
+        element.setAttribute("aria-disabled", String(state.extraPending !== undefined));
+        element.addEventListener("click", () => state.playExtra(local, play));
+    }
+    return { key, element };
+}
+
+/** Stand-in for SF Symbol film at 48pt, used when a local extra has no still. */
+function filmMark(): SVGSVGElement {
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("viewBox", "0 0 48 48");
+    icon.setAttribute("width", "48");
+    icon.setAttribute("height", "48");
+    icon.setAttribute("aria-hidden", "true");
+    const frame = document.createElementNS(icon.namespaceURI, "rect");
+    frame.setAttribute("x", "6");
+    frame.setAttribute("y", "10");
+    frame.setAttribute("width", "36");
+    frame.setAttribute("height", "28");
+    frame.setAttribute("rx", "3");
+    frame.setAttribute("fill", "none");
+    frame.setAttribute("stroke", "currentColor");
+    frame.setAttribute("stroke-width", "2");
+    icon.append(frame);
+    return icon;
+}
+
+/** The existing Play glyph, drawn at the trailer's 24pt play.fill size. */
+function playMark(): HTMLElement {
+    const badge = el("span", "details-extra-play");
+    badge.setAttribute("aria-hidden", "true");
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("viewBox", "0 0 24 24");
+    icon.setAttribute("aria-hidden", "true");
+    const shape = document.createElementNS(icon.namespaceURI, "path");
+    shape.setAttribute("d", "M8 4 21 12 8 20Z");
+    shape.setAttribute("fill", "#fff");
+    icon.appendChild(shape);
+    badge.appendChild(icon);
+    return badge;
 }
 
 export function personalControls(state: DetailsState): { items: FocusItem[]; notes: HTMLElement[] } {

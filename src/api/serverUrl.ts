@@ -32,6 +32,7 @@ const API_PATH = /\/api(\/v\d+)?$/i;
 const NATIVE_SERVER_PORT = "8090";
 const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i;
 const HAS_PORT = /^(\[[^\]]*\]|[^/?#:[]*):\d+(?:[/?#]|$)/;
+const ADDRESS_PORT = /^(\[[^\]]*\]|[^/?#:[]*):(\d+)(?:[/?#]|$)/;
 
 export function parseServerUrl(input: string): ServerUrlResult {
     const trimmed = input.trim();
@@ -96,6 +97,31 @@ export function isPermittedUrl(url: URL, serverBaseUrl: string): boolean {
 export type AdvancedScheme = "auto" | "https" | "http";
 
 export type AdvancedAddress = { readonly ok: true; readonly address: string } | { readonly ok: false; readonly problem: "invalid_port" };
+
+/**
+ * Which field a bad port belongs to. A port typed into the address (`host:70000`) is the
+ * address's fault; only the Port field's own value outlines Port. A usable port is neither.
+ */
+export function portFieldFault(input: string, port: string): "address" | "port" | undefined {
+    const scheme = HAS_SCHEME.exec(input.trim())?.[0] ?? "";
+    const typed = ADDRESS_PORT.exec(input.trim().slice(scheme.length))?.[2];
+    if (typed !== undefined) {
+        return validPort(typed) ? undefined : "address";
+    }
+    const wanted = port.trim();
+    if (wanted === "") {
+        return undefined;
+    }
+    return validPort(wanted) ? undefined : "port";
+}
+
+function validPort(value: string): boolean {
+    if (!/^\d+$/.test(value)) {
+        return false;
+    }
+    const number = Number(value);
+    return number >= 1 && number <= 65535;
+}
 
 /** Applies a chosen protocol (replacing a typed one) and a port (unless one was typed) to the address. */
 export function advancedAddress(input: string, scheme: AdvancedScheme, port: string): AdvancedAddress {

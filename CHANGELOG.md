@@ -10,12 +10,19 @@ All notable changes to this project are documented in this file.
 - Added description translation on Details and the featured marquee, matching Apple TV's Translate Description action, Translating… status and Translated by AI label.
 - Added Change Account with several saved accounts per server and account management.
 
+### Removed
+
+- Removed Details Read synopsis, its expanded view, #66's personal star rating control, and Season details to match the controls reachable on Apple TV.
+
 ### Fixed
 
 - Selected seasons on resting pill focus without rereading cached episodes, bounded missing-season reads during remote sweeps, and centered the selected season pill like Apple TV.
+- Matched Remove Server to Apple TV's confirmation and returned Cancel and Back to the first account.
+- Corrected Details More dots and compact action rows, added capability-gated Shuffle Series using existing shuffle playback, and made unfocused Play adapt to the backdrop like the round actions.
 - Kept loaded-season episode focus free of reads, limited outer-edge loading to one debounced season request, required Retry for failed neighbours, and preserved the window during translation polls.
 - Kept Series episodes in Apple's continuous loaded-season window, clamped entry and remote focus at the final episode group, restored resume bars and edge peeks, and corrected the row's leading inset; the later corrections await signed comparison.
 - Made application sign-in tests wait for approval and the storage notice before continuing to profiles.
+- Matched Details More popovers and Start Over controls to Apple TV, and selected series playback from the current season's next-up suggestion.
 - Stopped a device-code poll from going out when its wait ended as the screen hid. A poll already sent still finishes, and coming back polls at once.
 - Kept Search's navigation column when a square People portrait animates on focus.
 - Restored Cast focus clearance and corrected Details episode spacing, picker selection, Related badges and action glyphs against Apple TV measurements.
@@ -41,6 +48,7 @@ All notable changes to this project are documented in this file.
 - Blocked account navigation during removal, guarded legacy sign-ins and released account chooser focus before session recovery.
 
 - Matched Accounts pane rows and Change Account layout, and returned Back from account management to Settings.
+- Restored saved-server pane focus, Back from Add server, and pending-removal focus on Samsung TV.
 - Preserved the selected account when retiring another session and kept guarded session-only sign-ins usable until restart.
 - Kept Change Account reachable when a saved server is offline, prevented removed accounts from being restored by late refreshes, and scrolled account lists to keep remote focus visible.
 - Prevented failed replacement sign-ins from restoring old credentials and kept saved-sign-in removal scoped to the selected account.

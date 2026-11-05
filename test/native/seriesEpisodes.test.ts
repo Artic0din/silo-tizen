@@ -96,6 +96,17 @@ test("season pill dwell reuses cached pages and bounds a sweep to one cancellabl
     assert.equal(h.reads().length, 4, "revisit never retries the cancelled automatic read");
 });
 
+test("a successful automatic season can load again after bounded cache eviction", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(); t.after(() => h.state.stop());
+    for (const season of [4, 5, 6, 7, 1, 2, 7]) {
+        h.state.focusSeason(season); t.mock.timers.tick(70); await h.settle();
+        assert.equal(h.state.failed, false, `successful season ${season} remains available after eviction`);
+        assert.equal(h.state.entryEpisode, `rail:${season}:0`);
+    }
+    assert.deepEqual(h.reads(), [2, 1, 3, 4, 5, 6, 7, 1, 2, 7].map(season => operations.listSeasonEpisodes("series:s1", season).path));
+});
+
 for (const outcome of ["success", "empty", "failure"] as const) test(`missing season pill ${outcome} consumes one read without warming or revisit retries`, async t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const h = await episodeRailHarness(outcome === "failure" ? 4 : undefined, outcome === "empty" ? 4 : undefined); t.after(() => h.state.stop());
@@ -213,7 +224,7 @@ test('episode row entry uses the current episode after the selected season loads
     const raw = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner');
     assert.ok(raw?.body && typeof raw.body === 'object');
     const body = raw.body as { items: Record<string, unknown>[] };
-    h.fake.script(operations.listSeasonEpisodes('series:s1', 1).path, { status: 200, body: { items: body.items.map((episode, index) => ({ ...episode, user_data: { played: false, in_progress_count: index === 1 ? 1 : 0 } })) } });
+    h.fake.script(operations.listSeasonEpisodes('series:s1', 1).path, { status: 200, body: { items: body.items.map((episode, index) => ({ ...episode, user_data: { played: false, is_in_progress: index === 1 } })) } });
     const state = new SeriesEpisodes(h.core.session, 'series:s1', seasons, () => undefined);
     state.start(); for (let index = 0; index < 5; index++) await h.clock.advance(0);
     assert.equal(state.entryEpisode, 'episode:s1e12');

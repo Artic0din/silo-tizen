@@ -123,7 +123,6 @@ They intercept it first, in an earlier phase of the DOM event path.
 | 3 | Card actions (`cardActions.ts`) | `document`, capture | Registered when its menu opens. Handles remote keys and Tab, then `stopImmediatePropagation`. |
 | 4 | `Skyline.onKey` | container, capture | Menus, dwell panels, Down into a panel, Back inside the shell. |
 | 4 | Settings (`settings.ts`) | container, capture | Left to the categories and the credits scroll. |
-| 5 | Synopsis dialog (`browseDetails.ts`) | its own element | `stopPropagation`, so the page's bubble listeners never see the key. |
 | 6 | `FocusHost.onKey`, `ScreenHost.onKey`, player `onKey` | `document`, bubble | Ordinary movement. `FocusHost` returns at once if `event.defaultPrevented`. |
 | 7 | App `onBack` (`src/app.ts`) | `window`, bubble | Opens the Exit dialog on an unhandled Back. |
 
@@ -135,7 +134,7 @@ When you add a modal:
 - Trap focus inside it.
 - Restore the previous element on close, as `exitDialog.ts` does with `previous`.
 - Make the page behind it `inert` and `aria-hidden`, or give the host a zones list that only contains the modal (as the Sign Out confirmation does).
-- Skip browse re-renders while it is open (`render` in `browse.ts` returns early when `synopsis.active` or `cardActions.active`).
+- Skip browse re-renders while it is open (`render` in `browse.ts` returns early when `cardActions.active`).
 
 ## Back Handling
 
@@ -199,7 +198,7 @@ Crossing into a loaded season in the Series rail only selects its cached page; i
 Initial row loading and explicit Select warm the neighbouring episode window; focus activation does not.
 The narrow rail exception is focus resting for 70 ms on an outer loaded edge with a missing neighbour: it requests that one season once per edge, without stacking pending reads or chaining further reads.
 An empty response consumes that edge's automatic read; a season-pill activation can load beyond it.
-If a successful page is later evicted by the bounded cache, reaching its edge can load that page again.
+If a successful page is later evicted by the bounded cache, reaching its edge or resting on its season pill can load that page again.
 Leaving the card before the dwell ends cancels the request before it starts.
 This preserves continuous navigation without loading every season up front.
 At Apple source revision `7baff3ef`, `TVItemDetailView.swift:462–466,927–1001` warms neighbours when the selected season changes; `TVEpisodeRail.swift:303–314,450–454` reports focus at the loaded window's first or last card.

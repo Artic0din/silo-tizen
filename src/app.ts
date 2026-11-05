@@ -83,6 +83,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
             ...(address || account ? { address: address ?? account!.baseUrl } : {}),
             ...(account ? { username: account.username } : {}),
             onChangeAccount: () => showAccounts(),
+            ...(pickerRequested ? { onCancel: () => showAccounts() } : {}),
             ...(chooseServer ? { chooseServer: true } : {}),
             onSignedIn: server => showProfiles(server, pickerRequested),
             ...(notice === undefined ? {} : { signedOut: notice }),

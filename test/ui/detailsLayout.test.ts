@@ -5,7 +5,7 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
-import { homeDetailsRead, launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
+import { homeDetailsRead, launchBrowser, openTv, pauseTvClock, readLive, type Tv } from "./support/tv.ts";
 
 detailTest("cached series Play retains its episode label offline", async tv => {
     const card = tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first();
@@ -378,6 +378,7 @@ detailTest('Failed season episode reconciliation keeps the existing playback own
 });
 
 detailTest("episode boundary failure requires explicit Retry while loaded-season focus stays read-free", async tv => {
+    await pauseTvClock(tv);
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
     const seasons = catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body as { items: Record<string, unknown>[] };
     const episodes = catalog.route("GET", "/catalog/series/series%3As1/seasons/1/episodes", "p-owner")?.body as { items: Record<string, unknown>[] };

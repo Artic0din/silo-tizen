@@ -122,9 +122,9 @@ export class NativeSession {
         return this.credential !== undefined;
     }
 
-    get account(): { readonly id: string; readonly username: string } | undefined {
+    get account(): { readonly id: string; readonly username: string; readonly role?: string } | undefined {
         const credential = this.credential;
-        return credential === undefined ? undefined : { id: credential.accountId, username: credential.username };
+        return credential === undefined ? undefined : { id: credential.accountId, username: credential.username, ...(credential.role === undefined ? {} : { role: credential.role }) };
     }
 
     get persistence(): Persistence {
@@ -184,6 +184,7 @@ export class NativeSession {
             serverId: this.server.serverId,
             accountId: account.id,
             username: account.username,
+            ...(account.role === undefined ? {} : { role: account.role }),
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken,
             accessExpiresAt: this.clock.now() + tokens.expiresInSeconds * 1000,

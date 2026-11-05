@@ -13,7 +13,7 @@ import type { Reply } from "../native/support/fakeSilo.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { CARD_OVERLAYS_KEY, CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
-import { detailReads, homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { detailReads, homeDetailsRead, launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
 const IME_DONE = 65376;
@@ -148,14 +148,19 @@ for (const multipleLibraries of [false, true]) browseTest(`section selection clo
     await tv.page.locator('.browse [data-focus="collection:highlights"]').waitFor();
     const loading = tv.fake.hold("/library/12/sections", true);
     await tv.page.locator('[data-focus="movies"]').evaluate(node => {
+        // Keep synthetic focus and input atomic while library loads settle.
         (node as HTMLElement).focus({ preventScroll: true });
         node.dispatchEvent(new KeyboardEvent("keydown", { keyCode: 40, bubbles: true, cancelable: true }));
         (document.activeElement ?? node).dispatchEvent(new KeyboardEvent("keyup", { keyCode: 40, bubbles: true, cancelable: true }));
     });
     if (multipleLibraries) {
-        await tv.page.locator('[data-focus="library:12"]').focus();
-        await tv.remote(39);
+        await tv.page.locator('[data-focus="library:12"]').evaluate(node => {
+            (node as HTMLElement).focus({ preventScroll: true });
+            node.dispatchEvent(new KeyboardEvent("keydown", { keyCode: 39, bubbles: true, cancelable: true }));
+            (document.activeElement ?? node).dispatchEvent(new KeyboardEvent("keyup", { keyCode: 39, bubbles: true, cancelable: true }));
+        });
     } else await tv.page.locator('[data-focus="section:Recommended"]').focus();
+    assert.equal(await tv.focused(), "section:Recommended");
     await tv.page.keyboard.press("Enter");
     await tv.jump(1000);
     loading.release();
@@ -2046,6 +2051,7 @@ browseTest("Collections posters retain their width and contain their text", asyn
 });
 
 browseTest("A–Z first row returns directly to nav with multiple letters", async (tv, catalog) => {
+    await pauseTvClock(tv);
     catalog.add({ id: "movie:alpha", type: "movie", title: "Alpha", libraryId: "12" });
     catalog.add({ id: "movie:zulu", type: "movie", title: "Zulu", libraryId: "12" });
     await tv.page.locator('[data-focus="movies"]').click();

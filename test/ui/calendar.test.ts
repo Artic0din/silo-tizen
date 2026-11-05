@@ -618,7 +618,7 @@ calendarTest("Calendar failed revalidation retains only the current window with 
     assert.equal(await tv.page.locator(".calendar-event").count(), 0, "no previous-window cache leaks into an empty week");
 });
 
-calendarTest("Calendar Settings hidden-library return reuses current route and coherent multi-library access", async (tv, catalog) => {
+calendarTest("Calendar Settings library recovery reuses current route and coherent multi-library access", async (tv, catalog) => {
     const settings = new FakeSettings(tv.fake);
     settings.profile().set(HIDDEN_KEY, [15]);
     const routes = tv.fake.catalog; assert.ok(routes);
@@ -631,15 +631,16 @@ calendarTest("Calendar Settings hidden-library return reuses current route and c
     await activate(tv, "calendar"); await ready(tv, 3); await activate(tv, "filter:everything"); await ready(tv, 32);
     assert.equal(await tv.page.locator('.calendar-event[data-content-id="movie:archived"]').count(), 0);
     await activate(tv, "profiles"); await activate(tv, "settings");
-    await tv.page.locator('[data-focus="hidden"]').click();
-    await tv.page.locator('[data-focus="library:12"]').click();
-    await tv.eventually(async () => JSON.stringify(settings.profile().get(HIDDEN_KEY)) === "[15,12]", "hidden library write");
+    await tv.page.locator('[data-focus="server"]').click();
+    await tv.page.locator('[data-focus="restore-libraries"]').click();
+    await tv.eventually(async () => JSON.stringify(settings.profile().get(HIDDEN_KEY)) === "[]", "library visibility restored");
     await tv.page.getByText("Saving…", { exact: true }).waitFor({ state: "hidden" });
-    await tv.remote(10009); await tv.remote(10009); await tv.remote(10009); await ready(tv, 2);
+    for (let step = 0; step < 3 && await tv.page.locator(".settings").count() > 0; step++) await tv.remote(10009);
+    await ready(tv, 33);
     assert.equal(await tv.page.locator('[data-focus="filter:everything"]').getAttribute("aria-pressed"), "true");
-    assert.ok((await tv.page.locator(".calendar-event").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-content-id")))).every(id => id?.startsWith("episode:") || id?.startsWith("season:")));
+    assert.equal(await tv.page.locator('.calendar-event[data-content-id="movie:archived"]').count(), 1, "restored library content is included");
     assert.equal(await tv.focused(), "calendar", "selected tab retains focus while revalidating after Settings");
-    assert.equal(await tv.page.locator('.browse-nav [data-focus="movies"]').count(), 0, "hidden-library refresh also updates existing Skyline scopes");
+    assert.equal(await tv.page.locator('.browse-nav [data-focus="movies"]').count(), 1, "visibility recovery also updates existing Skyline scopes");
 });
 
 calendarTest("Calendar premiere, episode context fallback, badges and distinct events retain server identity", async (tv, catalog) => {

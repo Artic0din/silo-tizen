@@ -20,7 +20,6 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Matched audiobook Play Again labels and chapter-control availability to Apple TV.
 - Refreshed episode spoiler protection after Settings changes and preserved saved switches during overlapping requests and failures.
 
 - Aligned Details supporting-section headings when moving Up and Down, restored visible Movie Cast to the page top, and removed duplicated space below the Details table.
@@ -132,6 +131,8 @@ All notable changes to this project are documented in this file.
 - Kept scrolled personal-list cards visible when pages appended or reads failed.
 - Opened History without the top menu, with a centered title, exact counts and Apple's unfiltered 60-item pages.
 - Kept personal-list focus and cached cards after failed reads and fitted large History posters to five columns.
+
+- Matched audiobook Play Again labels and chapter-control availability to Apple TV.
 
 ### Changed
 

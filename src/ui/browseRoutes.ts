@@ -96,7 +96,7 @@ export interface RouteHandlers {
     readonly more: (route: Extract<Route, { kind: "library" }>) => void;
     readonly preserve: (route: Extract<Route, { kind: "library" }>) => boolean;
     readonly gridColumns: number;
-    readonly shuffle: { readonly starting: boolean; readonly failure: string | undefined; readonly start: (route: Extract<Route, { kind: "library" }>) => void; readonly dismiss: () => void } | undefined;
+    readonly shuffle: { readonly starting: boolean; readonly failure: string | undefined; readonly start: (route: Extract<Route, { kind: "library" | "libraryResults" }>) => void; readonly dismiss: () => void } | undefined;
     readonly requests: (route: Extract<Route, { kind: "requests" }>) => RequestsHandlers;
     readonly personFilter: (route: Extract<Route, { kind: "person" }>, filter: MediaScope) => void;
     readonly calendar: (route: Extract<Route, { kind: "calendar" }>) => CalendarHandlers;
@@ -217,12 +217,16 @@ function grid(current: Route, pages: Pages, page: CatalogPage, handlers: RouteHa
         {
             page,
             index: pages.index,
-            pageSize: PAGE_SIZE,
+            pageSize: current.kind === "libraryResults" && current.source.kind === "collection" ? 60 : PAGE_SIZE,
             loading: handlers.busy,
             previous: () => handlers.turn(current, pages, -1),
             next: () => handlers.turn(current, pages, 1),
         },
-        current.kind === "search" ? searchCards(handlers.context) : handlers.context,
+        current.kind === "search"
+            ? searchCards(handlers.context)
+            : current.kind === "libraryResults" && current.source.kind === "collection"
+                ? { ...handlers.context, overlays: handlers.context.cardOverlays?.(), posterWidth: 260 * (handlers.context.posterScale?.() ?? 1) }
+                : handlers.context,
     );
 }
 

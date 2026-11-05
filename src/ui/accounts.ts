@@ -79,12 +79,17 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
                 item.element.append(el("span", "accounts-row-title", title));
                 if (value) item.element.append(el("span", "accounts-row-value", value));
                 if (destructive) item.element.classList.add("accounts-destructive");
-                else { const arrow = el("span", "accounts-chevron"); arrow.append(navigationIcon("chevron-right")); item.element.append(arrow); }
+                else {
+                    const arrow = el("span", "accounts-chevron");
+                    const icon = navigationIcon("chevron-right");
+                    icon.setAttribute("viewBox", "7 3 11 18");
+                    arrow.append(icon); item.element.append(arrow);
+                }
                 return item;
             };
             for (const address of [...new Set(rows.map(row => row.baseUrl))]) {
                 const serverName = cachedBranding(core.publicStorage, address)?.serverName ?? new URL(address).host;
-                panel.append(el("h2", "browse-section-title", serverName.toUpperCase()));
+                panel.append(el("h2", "accounts-section-header", serverName.toUpperCase()));
                 for (const row of rows.filter(row => row.baseUrl === address)) {
                     const detail = row.needsSignIn ? "Sign in again" : `${row.profileCount} ${row.profileCount === 1 ? "profile" : "profiles"}`;
                     const item = paneRow(row.id, row.username, () => row.needsSignIn ? expired(row) : confirm([row], false), detail);

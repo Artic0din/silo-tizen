@@ -38,7 +38,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
     } };
     const liveAccounts = new Map<string, ConnectedServer>();
     const liveKey = (baseUrl: string, accountId: string): string => JSON.stringify([baseUrl, accountId]);
-    activeCore = { ...activeCore, beforeAccountSignOut: async (baseUrl, accountId) => {
+    activeCore = { ...activeCore, reuseAccount: (baseUrl, accountId) => liveAccounts.get(liveKey(baseUrl, accountId)), beforeAccountSignOut: async (baseUrl, accountId) => {
         const key = liveKey(baseUrl, accountId);
         await liveAccounts.get(key)?.session.retire();
         liveAccounts.delete(key);

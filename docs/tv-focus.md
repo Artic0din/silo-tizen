@@ -188,18 +188,25 @@ Other layers:
 ## Never Fetch on Focus
 
 Search filter pills apply their filter immediately, matching Apple TV's segmented picker, and cancel superseded reads.
-Series season pills are another read-on-focus exception: after 70 ms of resting focus, a different season activates and loads its episodes, matching `TVSeriesDetailView.scheduleModeActivation`.
-Leaving a pill cancels its pending activation; selecting it remains immediate.
+Series season pills activate after 70 ms of resting focus, matching `TVSeriesDetailView.swift:780–793` at `7baff3ef657757cc0a69202e86dd4bd5c7fcb585` (paths below are under `iosApp/iosApp/tvOS/Screens/Detail/`).
+Already loaded seasons select without a read or neighbour warming.
+For a missing season, the dwell permits one bounded episode-page read; leaving cancels the wait and any pill-owned read, and revisiting a cancelled or failed read never retries automatically.
+Select remains immediate; Retry is the explicit recovery action.
+The pill nodes stay mounted during episode updates so repainting cannot cancel their focus or request.
+The selected pill centers on initial display and selection, clamped to the row ends, following `TVSeriesDetailView.swift:653–674`.
+The signed same-state comparison on 5 November 2026 at `93a39b3` confirmed the pill window; the later inset and hero corrections still need signed comparison.
 The current season keeps its current episode on focus, while a different season starts at E01 and retains pill focus until Down.
-Episode-card focus still uses prefetched data and never starts a detail read.
+Episode-card focus uses loaded episode summaries and never starts a detail read.
+Uncached playback and version/audio/subtitle activation resolve the selected episode's extra details explicitly.
 Crossing into a loaded season in the Series rail only selects its cached page; it starts no reads.
-Initial row loading and explicit season activation warm the neighbouring episode window.
+Initial row loading warms the neighbouring episode window; focus activation, Select and selected-season Retry do not.
 The narrow rail exception is focus resting for 70 ms on an outer loaded edge with a missing neighbour: it requests that one season once per edge, without stacking pending reads or chaining further reads.
 An empty response consumes that edge's automatic read; a season-pill activation can load beyond it.
-If a successful page is later evicted by the bounded cache, reaching its edge can load that page again.
+If a successful page is later evicted by the bounded cache, reaching its edge or resting on its season pill can load that page again.
 Leaving the card before the dwell ends cancels the request before it starts.
 This preserves continuous navigation without loading every season up front.
 At Apple source revision `7baff3ef`, `TVItemDetailView.swift:462–466,927–1001` warms neighbours when the selected season changes; `TVEpisodeRail.swift:303–314,450–454` reports focus at the loaded window's first or last card.
+Samsung bounds selection reads more strictly to avoid rate-limited request bursts while retaining the signed comparison's loaded-season behavior.
 Apple's failed-edge revisit retries (`TVItemDetailView.swift:297–300`, `TVSeriesDetailView.swift:589–592`); Tizen instead requires the explicit "Retry more episodes" action to protect the rate-limited server.
 Neither ordinary loaded-card movement nor revisiting a failed edge retries a read.
 Translation polls publish the selected season without restarting neighbour reads or clearing a failed edge, following `ItemDetailViewModel.swift:1752–1773` at the same Apple source revision.

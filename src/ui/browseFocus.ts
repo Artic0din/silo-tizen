@@ -271,7 +271,7 @@ export class FocusHost {
             row.scrollLeft = visit?.rows.get(this.rowKey(row, index)) ?? 0;
             const entry = row.dataset.scrollEntry === undefined ? undefined : Array.from(row.children).find((node): node is HTMLElement => node instanceof HTMLElement && node.dataset.focus === row.dataset.scrollEntry);
             if (entry !== undefined) {
-                row.scrollLeft = row.classList.contains("details-episodes") ? SkylineScroll.episodeOffset(row, entry) : entry.offsetLeft - row.offsetLeft - parseFloat(getComputedStyle(row).paddingLeft);
+                row.scrollLeft = row.classList.contains("details-episodes") ? SkylineScroll.episodeOffset(row, entry) : row.classList.contains("details-season-chips") ? SkylineScroll.seasonOffset(row, entry) : entry.offsetLeft - row.offsetLeft - parseFloat(getComputedStyle(row).paddingLeft);
             }
         });
         this.container.querySelectorAll<HTMLElement>(".browse-panel-list[data-scroll-key], .settings-modal-options[data-scroll-key], .settings-pane[data-scroll-key]").forEach(panel => { panel.scrollTop = visit?.panels.get(panel.dataset.scrollKey ?? "") ?? 0; });

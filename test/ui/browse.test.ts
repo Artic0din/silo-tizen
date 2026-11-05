@@ -1567,7 +1567,7 @@ for (const aggregate of ["series", "season"]) {
             await showing(tv, `item:${episodeId}`);
             await detailsMore(tv);
             await tv.eventually(async () => await tv.page.getByRole("button", { name: played ? "Mark as Unwatched" : "Mark as Watched", exact: true }).count() === 1, "covered episode reflects the aggregate change");
-            assert.equal(browseReads(tv, "/catalog/items/episode%3As1e12").length, aggregate === "series" ? 6 : 4, "Home, Card actions, Details and refresh; Series also prefetches on season acceptance and watched invalidation");
+            assert.equal(browseReads(tv, "/catalog/items/episode%3As1e12").length, 4, "Home, Card actions, Details and refresh; Series no longer hydrates every card");
             assert.equal(catalog.mutations.length, 1);
         }, { catalog: new FakeDetails() });
     }
@@ -3191,7 +3191,9 @@ browseTest("series open seasons, episode Select plays directly, and playback ret
     assert.equal(await tv.focused(), "episode:s1e22");
     await tv.remote(BACK);
     await showing(tv, "item:series:s1");
-    assert.equal(await tv.focused(), "series:s1-S2");
+    assert.equal(await tv.focused(), "next-episode");
+    const series = tv.fake.catalog?.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body as { overview: string };
+    assert.equal(await tv.page.locator('.details-editorial .browse-overview').textContent(), series.overview);
     await tv.remote(BACK);
     await showing(tv, "home");
     assert.equal(await tv.focused(), "series:s1");

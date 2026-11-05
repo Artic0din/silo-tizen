@@ -437,8 +437,12 @@ journey("failed append retains cards without an error panel and waits for near-e
     await all(tv);
     const ids = await grid(tv).evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus")));
     catalog.personReplies.push(problem(500, "internal_error", "Synthetic lookup failure"));
+    const end = grid(tv).last();
+    const focused = await end.getAttribute("data-focus");
+    await end.focus();
     await grid(tv).last().scrollIntoViewIfNeeded();
     await tv.eventually(async () => queries(tv).length === 2 && await tv.page.locator('[aria-label="Loading more titles"]').count() === 0, "failed append settled");
+    assert.equal(await tv.focused(), focused, "failed append retains remote focus on the end card");
     assert.equal(await tv.page.locator('[data-focus="retry"]').count(), 0);
     const target = lastQuery(tv)?.body?.cursor;
     assert.equal(typeof target, "string");

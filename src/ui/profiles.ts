@@ -148,7 +148,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
 
     const signOutButton = (): Control => button("signout", "Sign out", signOut);
 
-    const load = (then: (list: ProfileSummary[]) => void, focus?: string): void => {
+    const load = (then: (list: ProfileSummary[]) => void, focus?: string, restoreRememberedOffline = false): void => {
         const token = begin();
         const controller = new AbortController();
         pending = controller;
@@ -168,7 +168,8 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             (error: unknown) => {
                 if (token === view) {
                     pending = undefined;
-                    if (error instanceof ApiError && ["network", "timeout"].includes(error.failure.kind) && !options.pickerRequested && options.launch?.remembered) {
+                    // Launch may reopen a remembered profile offline. Switch Profile asked for the list.
+                    if (error instanceof ApiError && ["network", "timeout"].includes(error.failure.kind) && restoreRememberedOffline && options.launch?.remembered) {
                         const restore = new AbortController();
                         pending = restore;
                         void options.launch.restoreOffline(restore.signal).then(profile => {
@@ -412,7 +413,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             if (error instanceof SessionError && error.reason !== "unavailable") { expired(); return; }
             message("profile-launch-error", "Remembered profile didn't open", ["Could not verify the remembered profile. Try again or choose who's watching."], [button("retry", "Retry", launch), button("back", "Choose profile", () => picker(list)), signOutButton()], () => picker(list), "error");
         });
-    });
+    }, undefined, !options.pickerRequested);
     if (options.launch === undefined) showList();
     else launch();
     return {

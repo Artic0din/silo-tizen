@@ -592,10 +592,14 @@ export class DetailsState {
                 if (detail.id !== id || detail.type !== "episode") throw new ApiError({ kind: "invalid_response", path: "nextEpisode.item" });
                 this.episodeRefusals.delete(id);
                 const state = new DetailsState(detail, this.session, key => this.episodePreferenceChanged(state, key), this.watchedChanged, this.pendingElsewhere);
-                state.restore(this.previousEpisodeStates.get(id) ?? (this.previousNextEpisodeState?.detail.id === id ? this.previousNextEpisodeState : undefined));
+                // The fallback already on screen can hold this visit's version, audio, or subtitles.
+                const active = this.episodeStates.get(id);
+                const retained = active ?? this.previousEpisodeStates.get(id) ?? (this.previousNextEpisodeState?.detail.id === id ? this.previousNextEpisodeState : undefined);
+                state.restore(retained);
                 this.previousEpisodeStates.delete(id);
                 this.episodeStates.set(id, state);
                 state.start("playback");
+                if (active !== undefined && active !== state) active.stop();
             }).catch(error => {
                 if (!current()) return;
                 this.episodeFailures.add(id);

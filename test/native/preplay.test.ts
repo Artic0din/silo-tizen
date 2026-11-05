@@ -163,6 +163,83 @@ test("preference confirmation recovers after an interrupted save and failed deta
     state.stop();
 });
 
+test("reopened series keeps the active episode's version, audio and unresolved subtitles when revalidation completes", async () => {
+    const r = await rig();
+    r.state.stop();
+    const id = "episode:s1e11";
+    const path = "/catalog/items/episode%3As1e11?image_size=large";
+    const raw = r.catalog.route("GET", "/catalog/items/episode%3As1e11", "p-owner")?.body;
+    assert.ok(raw && typeof raw === "object");
+    const body = raw as Record<string, unknown>;
+    const versions = body.versions;
+    assert.ok(Array.isArray(versions) && typeof versions[0] === "object" && versions[0] !== null);
+    const file = versions[0] as Record<string, unknown>;
+    const audio = [
+        { default: true, language: "en", codec: "aac", channels: 2, title: "English" },
+        { default: false, language: "ja", codec: "aac", channels: 2, title: "Japanese" },
+    ];
+    const enriched = { ...body, versions: [
+        { ...file, file_id: "file-a", duration: 5400, audio_tracks: audio },
+        { ...file, file_id: "file-b", duration: 1200, edition_raw: "Alternate", audio_tracks: audio },
+    ] };
+    r.h.fake.script(path, { status: 200, body: enriched }, { status: 200, body: enriched });
+    const detail = decodeItemDetail(r.catalog.route("GET", "/catalog/items/series%3As1", "p-owner")?.body);
+    const seasons = decodeSeasons(r.catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body);
+    const create = (): DetailsState => {
+        const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
+        state.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes());
+        return state;
+    };
+    const previous = create();
+    previous.start();
+    await settle();
+    assert.equal(previous.cachedEpisode(id)?.detail.versions.some(version => version.fileId === "file-b"), true);
+    previous.stop();
+    const subtitlesPath = "/subtitle-prefs/series%3As1";
+    const audioPath = "/audio-prefs/series%3As1";
+    r.h.fake.script(subtitlesPath, { status: 500 });
+    const episode = r.h.fake.hold(path, true);
+    const subtitles = r.h.fake.hold(subtitlesPath, true);
+    const audioWrite = r.h.fake.hold(audioPath, true);
+    const state = create();
+    state.restore(previous);
+    state.start();
+    await settle();
+    const fallback = state.nextEpisodeState;
+    assert.ok(fallback);
+    assert.equal(fallback.detail.id, id);
+    assert.equal(state.cachedEpisode(id), fallback);
+    fallback.select("file-b");
+    fallback.selectAudio(1);
+    fallback.selectSubtitle("off");
+    await settle();
+    assert.equal(fallback.selectedFileId, "file-b");
+    assert.equal(fallback.audioTrackId(true), "file:file-b:audio:1");
+    assert.equal(fallback.subtitleIntent().kind, "off");
+    assert.equal(state.episodePreferencesBlocked, true);
+    episode.release();
+    await settle();
+    const current = state.cachedEpisode(id);
+    assert.ok(current);
+    assert.equal(current.selectedFileId, "file-b", "fresh episode metadata must keep the version chosen on the fallback");
+    assert.equal(current.audioTrackId(true), "file:file-b:audio:1", "fresh episode metadata must keep the audio chosen on the fallback");
+    assert.equal(current.subtitleIntent().kind, "off", "fresh episode metadata must keep the unresolved subtitle choice");
+    assert.equal(state.episodePreferencesBlocked, true);
+    assert.equal(state.unsettledEpisode, current);
+    subtitles.release();
+    await settle();
+    assert.equal(state.cachedEpisode(id), current);
+    assert.equal(current.subtitlePreference.failed, true);
+    assert.equal(current.subtitleIntent().kind, "off");
+    assert.equal(current.selectedFileId, "file-b");
+    assert.equal(current.audioTrackId(true), "file:file-b:audio:1");
+    assert.equal(state.episodePreferencesBlocked, true, "the current owner keeps Retry after the subtitle write fails");
+    assert.equal(state.unsettledEpisode, current);
+    state.stop();
+    audioWrite.release();
+    await settle();
+});
+
 test("repeated Series restores retain an unresolved episode choice until confirmation", async () => {
     const r = await rig(); r.state.stop();
     const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);

@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { operations } from "../../src/api/operations.ts";
+import { decodeItemDetail, decodeSeasons, type Season } from "../../src/contracts/v2/catalog.ts";
 import { DetailsState } from "../../src/ui/detailsState.ts";
+import { SeriesEpisodes } from "../../src/ui/seriesEpisodes.ts";
 import { FakeDetails } from "./support/fakeDetails.ts";
+import { problem } from "./support/fakeSilo.ts";
 import { connected, signIn } from "./support/harness.ts";
 
 async function setup() {
@@ -123,3 +126,45 @@ test("a shared pending predicate serializes independent Details owners without l
         assert.equal(first.changes.size + second.changes.size, 0);
     } finally { first.stop(); second.stop(); }
 });
+
+test("a failed series watched retry keeps each season rollup", async () => {
+    const h = await setup();
+    h.catalog.add({ id: "episode:s1e31", type: "episode", title: "Harbor Lights chapter 3.1", libraryId: "13", seriesId: "series:s1", season: 3, episode: 1 });
+    for (const episode of [21, 22, 23]) h.catalog.watchedEpisodes.add(`episode:s1e${episode}`);
+    const detail = decodeItemDetail(h.catalog.route("GET", "/catalog/items/series%3As1", "p-owner")?.body);
+    const seasons = decodeSeasons(h.catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body).map(season => seasonRollup(h.catalog, season));
+    assert.equal(detail.played, false, "one unwatched episode leaves the series partial");
+    assert.equal(seasons.find(season => season.seasonNumber === 1)?.userData?.played, true);
+    assert.equal(seasons.find(season => season.seasonNumber === 2)?.userData?.played, true);
+    const state = new DetailsState({ ...detail, playContentId: undefined }, h.core.session, () => undefined, async () => undefined);
+    state.series = new SeriesEpisodes(h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes(), 1);
+    try {
+        state.start("personal");
+        state.warmSeriesEpisodes();
+        await h.clock.advance(0);
+        assert.equal(state.seasonStates.get(1)?.values.get("watched"), true);
+        const failure = problem(422, "validation_failed", "Unavailable action");
+        h.catalog.mutationFailure = failure;
+        state.change("watched", true);
+        await h.clock.advance(0);
+        assert.equal(state.changes.get("watched")?.failed, true);
+        h.catalog.mutationFailure = failure;
+        const before = h.fake.requests.length;
+        state.change("watched", true, true);
+        await h.clock.advance(0);
+        assert.equal(state.changes.get("watched")?.failed, true);
+        assert.equal(state.values.get("watched"), false, "the series itself stays partial");
+        assert.equal(state.seasonStates.get(1)?.values.get("watched"), true, "reconcile must not treat series played:false as an unwatched season");
+        assert.equal(h.fake.requests.slice(before).filter(request => /\/catalog\/items\/series%3As1-S/.test(request.path)).length, 0, "reconciliation does not reread every season");
+        state.series.start();
+        state.series.select(2);
+        assert.equal(state.seasonStates.get(2)?.values.get("watched"), true, "a later watched season keeps its own rollup");
+        assert.deepEqual(h.catalog.mutations, ["POST /watched/series%3As1", "POST /watched/series%3As1"]);
+    } finally { state.stop(); }
+});
+
+function seasonRollup(catalog: FakeDetails, season: Season): Season {
+    const episodes = [...catalog.titles.values()].filter(title => title.seriesId === "series:s1" && title.season === season.seasonNumber);
+    const watched = episodes.filter(episode => catalog.watchedEpisodes.has(episode.id)).length;
+    return { ...season, userData: { played: episodes.length > 0 && watched === episodes.length, watchedCount: watched, inProgressCount: 0 } };
+}

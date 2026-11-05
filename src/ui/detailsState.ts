@@ -597,13 +597,13 @@ export class DetailsState {
         this.changed();
         const run = async (): Promise<void> => {
             if (reconcile) {
-                const actual = await this.refresh(kind, controller);
+                const actual = await this.refresh(kind, controller, target, false);
                 if (!this.current(controller) || actual === target) return;
             }
             if (!this.current(controller)) return;
             await this.session.call({ ...detailOperations.setPersonal(kind, this.detail.id, target), profileScoped: true, replayAfterRefresh: false, signal: controller.signal });
             if (!this.current(controller)) return;
-            const actual = await this.refresh(kind, controller);
+            const actual = await this.refresh(kind, controller, target, true);
             if (actual !== target) throw new Error("Personal state was not applied");
         };
         run().then(() => {
@@ -617,7 +617,7 @@ export class DetailsState {
         });
     }
 
-    private async refresh(kind: PersonalAction, controller: AbortController): Promise<boolean> {
+    private async refresh(kind: PersonalAction, controller: AbortController, requested = false, writeAccepted = false): Promise<boolean> {
         if (kind === "watched") {
             const detail = await this.read(operations.getCatalogItem(this.detail.id), controller);
             if (detail.id !== this.detail.id || detail.played === undefined) throw new Error("Watch state missing");
@@ -626,11 +626,15 @@ export class DetailsState {
             if (this.current(controller)) {
                 this.detail = detail;
                 this.values.set(kind, detail.played);
-                if (detail.type === "series") this.aggregateWatched = detail.played;
-                if (detail.type === "series") for (const owner of this.seasonStates.values()) {
-                    owner.values.set("watched", detail.played);
-                    owner.detail = { ...owner.detail, played: detail.played };
-                    owner.changes.delete("watched");
+                // Series played:false only means the show is incomplete. Copy it onto seasons
+                // after that write was accepted, or when the read shows the whole series watched.
+                if (detail.type === "series" && detail.played === requested && (detail.played === true || writeAccepted)) {
+                    this.aggregateWatched = detail.played;
+                    for (const owner of this.seasonStates.values()) {
+                        owner.values.set("watched", detail.played);
+                        owner.detail = { ...owner.detail, played: detail.played };
+                        owner.changes.delete("watched");
+                    }
                 }
                 this.invalidateEpisodes();
                 this.focusedEpisodeId = undefined;

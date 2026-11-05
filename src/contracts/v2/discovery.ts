@@ -148,6 +148,8 @@ export interface CollectionSummary {
     readonly posterUrl: string;
     readonly itemCount: number;
     readonly posterIsCollage: boolean;
+    /** Curated rows carry this; group cards do not, and inherit it by id. */
+    readonly collectionType: string | undefined;
 }
 export interface LibraryCollection extends CollectionSummary {
     readonly libraryId: string;
@@ -174,6 +176,7 @@ function collection(value: unknown, path: string): CollectionSummary {
         id: string(obj, "id", path), title: string(obj, "title", path),
         posterUrl: string(obj, "poster_url", path), itemCount: count(obj, "item_count", path),
         posterIsCollage: boolean(obj, "poster_is_collage", path),
+        collectionType: optionalString(obj, "collection_type", path),
     };
 }
 function collectionList(obj: Obj, path: string): CollectionSummary[] {

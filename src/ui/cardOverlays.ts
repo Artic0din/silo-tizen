@@ -1,7 +1,9 @@
 // Poster badges (`ui.card_overlays`): the document parser, the badge registry and the corner renderer.
 // Ported (AGPL-3.0-or-later) from silo-apple 1a7cceeaf3b2bfc4f889c00487d19b2c6f843940:
 // iosApp/iosApp/Overlays/{OverlayTypes,OverlaySchema,OverlayRegistry,OverlayExtractors,OverlayPresets,CardOverlays,OverlayIcon}.swift.
-// Generic badge icons are SF Symbols there and are not drawn here; brand marks are text in both.
+// Generic badge icons are SF Symbols there and are not drawn here, except the
+// series-status tv glyph: a flat screen in that symbol's layout box, without its foot.
+// Brand marks are text in both.
 
 import type { Card } from "../contracts/v2/catalog.ts";
 import { resolutionLabel, runtimeText } from "./cardPresentation.ts";
@@ -9,7 +11,7 @@ import { el } from "./screen.ts";
 
 type Position = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 type PresetId = "minimal" | "classic" | "vibrant" | "pill" | "square";
-type Icon = "generic" | "HDR" | "HDR10" | "DV" | "ATMOS" | "AV1";
+type Icon = "generic" | "tv" | "HDR" | "HDR10" | "DV" | "ATMOS" | "AV1";
 
 interface ItemConfig { readonly enabled: boolean; readonly position: Position; readonly accentColor: string | undefined; readonly showIcon: boolean | undefined }
 export interface CardOverlayPrefs { readonly preset: PresetId; readonly order: readonly string[]; readonly items: ReadonlyMap<string, ItemConfig> }
@@ -90,7 +92,7 @@ const REGISTRY: readonly OverlayDef[] = [
     { id: "original_language", position: "bottom-left", enabled: false, iconCapable: true, staticIcon: "generic", value: card => languageName(card.originalLanguage) },
     { id: "studio", position: "bottom-right", enabled: false, iconCapable: true, staticIcon: "generic", value: card => firstNonEmpty(card.studios) },
     { id: "network", position: "bottom-right", enabled: false, iconCapable: true, staticIcon: "generic", value: card => firstNonEmpty(card.networks) },
-    { id: "show_status", position: "top-right", enabled: false, iconCapable: true, staticIcon: "generic", value: card => showStatus(card.showStatus) },
+    { id: "show_status", position: "top-right", enabled: false, iconCapable: true, staticIcon: "tv", value: card => showStatus(card.showStatus) },
     // Ribbons whose data the server does not send yet; kept so stored documents keep their entries.
     { id: "imdb_top_250", position: "top-right", enabled: false, accent: "#f5c518", iconCapable: true, staticIcon: "generic", value: () => undefined },
     { id: "rt_certified_fresh", position: "top-right", enabled: false, accent: "#fa320a", iconCapable: false, value: () => undefined },
@@ -198,7 +200,7 @@ export function overlayLayer(card: Card, prefs: CardOverlayPrefs, variant: "post
             const icon = def.icon?.(card) ?? def.staticIcon;
             const showIcon = icon !== undefined && def.iconCapable && (config?.showIcon ?? preset.preferIcon);
             const accent = config?.accentColor ?? def.accent;
-            return [{ label, mark: showIcon && icon !== "generic" ? icon : undefined, accent: accent === undefined ? undefined : hex(accent) }];
+            return [{ label, mark: showIcon && icon !== undefined && icon !== "generic" && icon !== "tv" ? icon : undefined, tv: showIcon && icon === "tv", accent: accent === undefined ? undefined : hex(accent) }];
         });
         if (badges.length === 0) continue;
         const stack = el("span", `card-overlay-stack card-overlay-${position}`);
@@ -224,6 +226,16 @@ export function overlayLayer(card: Card, prefs: CardOverlayPrefs, variant: "post
             if (preset.shadow) style.textShadow = `0 ${px(1)} ${px(1)} rgba(0,0,0,.85)`;
             // A brand mark draws its own token, so the label drops it ("DV HDR10" with the DV mark reads "HDR10").
             const label = badge.mark === undefined ? badge.label : badge.label.split(" ").filter(word => word.toLowerCase() !== badge.mark?.toLowerCase()).join(" ");
+            if (badge.tv) {
+                const glyph = tvIcon();
+                // OverlayIcon draws SF Symbol "tv" at iconSize * scale. That image is not a
+                // square of the point size: at 48pt the symbol's layout box is 73×58.
+                glyph.style.width = px(preset.iconSize * TV_SYMBOL_WIDTH);
+                glyph.style.height = px(preset.iconSize * TV_SYMBOL_HEIGHT);
+                // OverlayBadgeView's HStack spacing, 4, separate from the stack gap.
+                if (label !== "") glyph.style.marginRight = px(4);
+                node.appendChild(glyph);
+            }
             if (badge.mark !== undefined) {
                 const mark = el("span", "card-overlay-mark", badge.mark);
                 mark.style.fontSize = px(preset.iconSize * 0.78);
@@ -236,4 +248,31 @@ export function overlayLayer(card: Card, prefs: CardOverlayPrefs, variant: "post
         layer.appendChild(stack);
     }
     return layer.childElementCount === 0 ? undefined : layer;
+}
+
+/**
+ * SF Symbol "tv" layout box divided by the font point size (`OverlayIcon` at 48pt
+ * is 73×58). CardOverlays passes `iconSize * scale` as that point size.
+ */
+const TV_SYMBOL_WIDTH = 73 / 48;
+const TV_SYMBOL_HEIGHT = 58 / 48;
+
+/**
+ * Flat screen of SF Symbol "tv", without its foot. The screen sits in the symbol's
+ * layout box (measured at 48pt: origin 6,4.25, size 60.75×40.75, corner 10).
+ */
+function tvIcon(): SVGSVGElement {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "card-overlay-icon");
+    svg.setAttribute("viewBox", "0 0 73 58");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS(svg.namespaceURI, "path");
+    path.setAttribute("d", roundedRect(6, 4.25, 60.75, 40.75, 10));
+    svg.appendChild(path);
+    return svg;
+}
+
+function roundedRect(x: number, y: number, width: number, height: number, radius: number): string {
+    const r = Math.min(radius, width / 2, height / 2);
+    return `M${x + r} ${y}H${x + width - r}A${r} ${r} 0 0 1 ${x + width} ${y + r}V${y + height - r}A${r} ${r} 0 0 1 ${x + width - r} ${y + height}H${x + r}A${r} ${r} 0 0 1 ${x} ${y + height - r}V${y + r}A${r} ${r} 0 0 1 ${x + r} ${y}Z`;
 }

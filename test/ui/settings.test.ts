@@ -47,6 +47,13 @@ test("Settings pins its rail, resets pane scroll and keeps modal background geom
             return { width: first.getBoundingClientRect().width, height: first.getBoundingClientRect().height, pitch: second.getBoundingClientRect().top - first.getBoundingClientRect().top, icons: document.querySelectorAll('.settings-category-icon').length };
         });
         assert.deepEqual(rail, { width: 490, height: 82, pitch: 88, icons: 4 });
+        const railDetails = await tv.page.evaluate(() => ({
+            signOutIcon: document.querySelector('[data-focus="settings-signout"] svg') !== null,
+            iconSize: getComputedStyle(document.querySelector('.settings-category-icon svg')!).width,
+            profileGap: getComputedStyle(document.querySelector('.settings-profile')!).gap,
+            versionTop: getComputedStyle(document.querySelector('.settings-version')!).marginTop,
+        }));
+        assert.deepEqual(railDetails, { signOutIcon: true, iconSize: "22px", profileGap: "18px", versionTop: "10px" });
         await tv.page.locator('[data-focus="subtitles"]').click();
         const appearance = await tv.page.evaluate(() => {
             const first = document.querySelector('[data-focus="appearance-fontSize"]')!.getBoundingClientRect();

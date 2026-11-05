@@ -27,15 +27,15 @@
 .settings-pane-header { display: flex; align-items: center; gap: 20px; padding: 0 24px; margin: 0 0 10px; }
 .settings-header-icon { display: grid; place-items: center; width: 72px; height: 72px; border-radius: 18px; background: #ffffff12; flex-shrink: 0; }
 .settings-header-icon svg { width: 34px; height: 34px; margin: 0; }
-.settings-category-icon { width: 34px; flex-shrink: 0; }
-.settings-category-icon svg { width: 34px; height: 34px; margin: 0; }
+.settings-category-icon, .settings-signout-icon { display: grid; place-items: center; width: 34px; flex-shrink: 0; }
+.settings-category-icon svg, .settings-signout-icon svg { width: 22px; height: 22px; margin: 0; }
 .settings-pane-header .browse-section-title { margin: 0 0 5px; font-size: 42px; font-weight: 700; }
 .settings-pane-header .settings-blurb { margin: 0; font-size: 20px; }
 .settings-row-title { font-size: 26px; }
 .settings-row-value { margin-left: auto; font-size: 24px; opacity: .68; }
 .settings-chevron { margin-left: 16px; font-size: 18px; opacity: .55; }
 .settings-controls .browse-button:has(.settings-row-value) { display: flex; align-items: center; gap: 16px; }
-.settings-version { margin: 24px 20px; font-size: 18px; color: var(--silo-secondary); }
+.settings-version { margin: 10px 20px 24px; font-size: 18px; color: var(--silo-secondary); }
 .settings-blurb { margin: -8px 0 28px; color: var(--silo-secondary); font-size: 24px; line-height: 1.35; }
 .settings-category-title, .settings-profile-name { display: block; font-size: 28px; line-height: 1.2; }
 .settings-category-detail, .settings-profile-account { display: block; margin-top: 4px; font-size: 20px; line-height: 1.2; color: var(--silo-secondary); }
@@ -43,8 +43,8 @@
 .settings-controls .browse-button,
 .settings-categories .browse-button { display: block; width: 100%; margin: 0 0 8px; border-radius: 14px; text-align: left; }
 .settings-categories .browse-button { display: flex; align-items: center; gap: 16px; box-sizing: border-box; height: 82px; padding: 15px 20px; margin-bottom: 6px; }
-.settings-categories .settings-profile { height: 98px; margin-bottom: 28px; }
-.settings-categories .settings-signout { margin-top: auto; }
+.settings-categories .settings-profile { height: 98px; margin-bottom: 28px; gap: 18px; }
+.settings-categories .settings-signout { margin-top: auto; height: auto; font-size: 27px; }
 .settings-categories .browse-title { font-size: 48px; margin: 0 20px 26px; }
 .settings-pane .browse-button, .settings-info-row { box-sizing: border-box; min-height: 66px; line-height: 32px; }
 .settings-info-row { display: flex; align-items: center; padding: 17px 24px; font-size: 26px; margin-bottom: 8px; }

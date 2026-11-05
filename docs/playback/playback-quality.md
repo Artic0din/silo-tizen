@@ -8,7 +8,7 @@ The installed Apple app wins where the source differs.
 
 | Source under `tvOS/Screens/Settings/` | Exact reference |
 | --- | --- |
-| `TVSettingsView.swift:141-144,179-204,242-258,444-465` | Rail width 490, pane gap 52, rail spacing 6, title 48, category title 25/detail 16, header tile 72 with icon 34 and gap 20 |
+| `TVSettingsView.swift:141-144,179-225,242-282,444-465` | Rail width 490, pane gap 52, rail spacing 6, title 48, category title 25/detail 16, rail glyph 22 inside width 34, profile avatar 68 with gap 18, version top inset 10, Sign Out font 27, header tile 72 with icon 34 and gap 20 |
 | `TVSettingsComponents.swift:248-249` | Pane row padding 24 horizontal and 17 vertical; measured installed rows are 66 high with pitch 74, rail rows 82 high with pitch 88 |
 | `TVGeneralSettingsView.swift:24-44,72-102,153-176,183-217` | Paired Profile, launch footer, Cards & Posters, title-art footer, theme music and loop |
 | `TVSubtitleSettingsView.swift:18-20,85-102,105-145,183-193` | Metadata is conditionally under Subtitles; appearance starts with preview and device scope; Outline Color is “—” when outline is off |

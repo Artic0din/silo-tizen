@@ -415,6 +415,8 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             if (actions.signOut !== undefined) {
                 const signOut = actionButton("settings-signout", "Sign Out", () => { confirmingSignOut = true; render({ zone: "settings-confirm", key: "cancel-signout" }); });
                 signOut.element.classList.add("settings-signout");
+                const icon = el("span", "settings-signout-icon");
+                icon.append(navigationIcon("signout")); signOut.element.prepend(icon);
                 categories.push(signOut);
             }
         }

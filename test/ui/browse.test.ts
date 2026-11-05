@@ -124,9 +124,13 @@ for (const multipleLibraries of [false, true]) browseTest(`section selection clo
     await tv.page.locator('[data-focus="movies"]').click();
     await showing(tv, "library:12");
     await selectLibraryMode(tv, "Collections");
+    await tv.page.locator('.browse [data-focus="collection:highlights"]').waitFor();
     const loading = tv.fake.hold("/library/12/sections", true);
-    await tv.page.locator('[data-focus="movies"]').focus();
-    await tv.remote(40);
+    await tv.page.locator('[data-focus="movies"]').evaluate(node => {
+        (node as HTMLElement).focus({ preventScroll: true });
+        node.dispatchEvent(new KeyboardEvent("keydown", { keyCode: 40, bubbles: true, cancelable: true }));
+        (document.activeElement ?? node).dispatchEvent(new KeyboardEvent("keyup", { keyCode: 40, bubbles: true, cancelable: true }));
+    });
     if (multipleLibraries) {
         await tv.page.locator('[data-focus="library:12"]').focus();
         await tv.remote(39);

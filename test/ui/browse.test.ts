@@ -1324,7 +1324,7 @@ async function seasonDetails(tv: Tv): Promise<void> {
     await showing(tv, "season:series:s1:1");
 }
 
-browseTest("richer Details: facts, versions, people, bounded filmography, related titles and Back focus", async (tv) => {
+browseTest("richer Details: facts, versions, people, accumulating filmography, related titles and Back focus", async (tv) => {
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     if (process.env.DETAILS_CAPTURE_DIR !== undefined) {
@@ -1352,8 +1352,8 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
     assert.equal(tv.fake.requests.length, reads, "focus performs no reads");
     await press(tv, "Enter");
     await showing(tv, "person:7");
-    await tv.eventually(async () => await tv.page.locator(".browse-grid .browse-card").count() === 24, "inline Person first page");
-    assert.equal(await tv.page.locator(".browse-card").count(), 24);
+    await tv.eventually(async () => await tv.page.locator(".browse-grid .browse-card").count() === 60, "inline Person first batch");
+    assert.equal(await tv.page.locator(".browse-card").count(), 60);
     await tv.remote(BACK);
     await showing(tv, "item:movie:m0001");
     assert.equal(await tv.focused(), "person:7");
@@ -1678,7 +1678,7 @@ browseTest("optional Details reads load independently, fail, retry and report em
     await tv.page.locator('[data-focus="person:7"]').focus();
     await press(tv, "Enter");
     await showing(tv, "person:7");
-    await shows(tv, "No available titles for this filter.");
+    await shows(tv, "No titles found");
     await shows(tv, "0 titles");
     await tv.remote(BACK);
     await showing(tv, "item:movie:m0001");

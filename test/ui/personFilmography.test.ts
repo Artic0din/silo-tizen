@@ -19,12 +19,17 @@ const metadataReads = (tv: Tv) => tv.fake.requests.filter(request => request.pat
 
 function population(): FakeDetails {
     const catalog = new FakeDetails();
-    // Series is wholly absent from the first 24 newest credits.
+    // Series is wholly absent from the first 60 newest credits.
     for (const title of catalog.titles.values()) {
         if (title.type === "movie") catalog.add({ ...title, year: 2030 });
     }
     catalog.add({ id: "movie:other-copy/+", title: "Movie 0002", type: "movie", libraryId: "12", year: 2030 });
     catalog.personCredits.get("7")?.push("movie:other-copy/+", "movie:m0002");
+    for (let index = 0; index < 60; index++) {
+        const id = `movie:extra${index}`;
+        catalog.add({ id, title: `Extra ${index}`, type: "movie", libraryId: "12", year: 2029 });
+        catalog.personCredits.get("7")?.push(id);
+    }
     return catalog;
 }
 
@@ -43,7 +48,7 @@ async function start(tv: Tv, catalog: FakeDetails, statusOverlays = false, prepa
     await tv.page.keyboard.press("Enter");
     await tv.page.locator('[data-focus="person:7"]').first().focus();
     await tv.page.keyboard.press("Enter");
-    await tv.eventually(async () => await tv.page.locator('.browse[data-view="person:7"] .browse-grid .browse-card').count() === 24, "inline person page");
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="person:7"] .browse-grid .browse-card').count() === 60, "inline person page");
 }
 
 test("late Person poster settings redraw the mounted grid", async () => {
@@ -62,13 +67,12 @@ test("late Person poster settings redraw the mounted grid", async () => {
 
 async function all(tv: Tv): Promise<void> {
     assert.equal(await tv.page.locator('[data-focus="see-all"]').count(), 0);
-    await tv.eventually(async () => await grid(tv).count() === 24, "inline filmography first page");
+    await tv.eventually(async () => await grid(tv).count() === 60, "inline filmography first page");
 }
 
 async function next(tv: Tv, number: number): Promise<void> {
-    await tv.page.locator('[data-focus="next"]').focus();
-    await tv.page.keyboard.press("Enter");
-    await tv.page.getByText(`Page ${number} of 3`, { exact: true }).waitFor();
+    await grid(tv).nth((number - 1) * 60 - 48).scrollIntoViewIfNeeded();
+    await tv.eventually(async () => await grid(tv).count() === Math.min(number * 60, 124), "near-end append");
 }
 
 function journey(name: string, body: (tv: Tv, catalog: FakeDetails) => Promise<void>): void {
@@ -83,6 +87,63 @@ function journey(name: string, body: (tv: Tv, catalog: FakeDetails) => Promise<v
     });
 }
 
+journey("incomplete Person dispatches once and polls independently of filter and paging", async tv => {
+    await tv.remote(BACK);
+    let complete = false;
+    let dispatches = 0;
+    let reads = 0;
+    await tv.page.route("**/api/v2/catalog/people/7", route => {
+        reads++;
+        return route.fulfill({ json: { id: "7", name: "River Vale", bio: "Updated biography", birth_date: "1980-04-12", ...(complete ? { photo_url: "/art/river.svg" } : {}) } });
+    });
+    await tv.page.route("**/api/v2/catalog/people/7/refresh", route => {
+        dispatches++;
+        assert.equal(route.request().method(), "POST");
+        return route.fulfill({ status: 202, json: { status: "queued", person_id: "7" } });
+    });
+    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.eventually(async () => dispatches === 1, "refresh dispatch");
+    await tv.page.getByText("Loading metadata", { exact: true }).waitFor();
+    await tv.page.locator('[data-focus="filter:series"]').click();
+    await tv.eventually(async () => await grid(tv).count() === 3, "filter during refresh");
+    complete = true;
+    await tv.jump(3000);
+    await tv.eventually(async () => reads === 2 && await tv.page.getByText("Loading metadata", { exact: true }).count() === 0, "complete metadata stops polling");
+    assert.equal(await tv.focused(), "filter:series");
+    await tv.jump(120000);
+    assert.equal(dispatches, 1);
+    assert.equal(reads, 2);
+});
+
+journey("metadata polling that expands the hero preserves the settled card reveal", async tv => {
+    await tv.remote(BACK);
+    let complete = false;
+    const biography = "A longer biography that expands the person header. ".repeat(35);
+    await tv.page.route("**/api/v2/catalog/people/7", route => route.fulfill({ json: {
+        id: "7", name: complete ? "River Vale with a longer credited name ".repeat(4) : "River Vale", photo_url: "/art/river.svg", birth_date: "1980-04-12", ...(complete ? { bio: biography } : {}),
+    } }));
+    await tv.page.route("**/api/v2/catalog/people/7/refresh", route => route.fulfill({ status: 202, json: { status: "queued", person_id: "7" } }));
+    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await grid(tv).first().waitFor();
+    await tv.page.locator('[data-focus="filter:video"]').focus();
+    await tv.page.keyboard.press("ArrowDown");
+    await tv.jump(250);
+    const id = await tv.focused();
+    const before = await tv.page.evaluate(() => ({ bottom: document.activeElement?.getBoundingClientRect().bottom ?? 0, hero: document.querySelector(".details-person-hero")?.getBoundingClientRect().height ?? 0 }));
+    complete = true;
+    await tv.jump(3000);
+    await tv.page.getByText(biography, { exact: true }).waitFor();
+    await tv.jump(250);
+    assert.equal(await tv.focused(), id);
+    const rect = await tv.page.evaluate(() => {
+        const bounds = document.activeElement?.getBoundingClientRect();
+        return { top: bounds?.top ?? -1, bottom: bounds?.bottom ?? 1081, hero: document.querySelector(".details-person-hero")?.getBoundingClientRect().height ?? 0 };
+    });
+    assert.ok(rect.hero > before.hero, "the metadata update must actually expand the header");
+    assert.ok(rect.top >= 0 && rect.bottom <= 1080, `expanded metadata keeps the full focused card visible: ${JSON.stringify(rect)}`);
+    assert.ok(Math.abs(rect.bottom - before.bottom) < 1, "the expanded header preserves the existing focused-card reveal margin");
+});
+
 journey("card quick-actions refresh full Filmography's committed page and retain nearby identity", async (tv, catalog) => {
     await all(tv);
     await next(tv, 2);
@@ -90,7 +151,7 @@ journey("card quick-actions refresh full Filmography's committed page and retain
     const id = cards[5];
     const nearby = cards[6];
     assert.ok(id); assert.ok(nearby);
-    const cursor = lastQuery(tv)?.body?.cursor;
+
     await grid(tv).nth(5).focus();
     await tv.down(13); await tv.jump(650); await tv.up(13);
     const panel = tv.page.getByRole("dialog", { name: "Card actions" });
@@ -99,18 +160,42 @@ journey("card quick-actions refresh full Filmography's committed page and retain
     catalog.removed.add(id);
     await tv.remote(BACK);
     await tv.eventually(async () => await tv.focused() === nearby, "nearby Filmography focus");
-    assert.equal(lastQuery(tv)?.body?.cursor, cursor);
+    assert.equal(queries(tv).slice(-2)[0]?.body?.cursor, undefined, "refresh starts at page one and retains loaded depth");
     assert.equal(lastQuery(tv)?.body?.person_id, "7");
-    await tv.page.getByText("Page 2 of 3", { exact: true }).waitFor();
+    assert.equal(await grid(tv).count(), 120);
 });
 
 journey("Person has count, filters and page two without extra ready controls", async tv => {
-    assert.equal(await tv.page.locator('.person-title-count').textContent(), "64 titles");
+    assert.equal(await tv.page.locator('.person-title-count').textContent(), "124 titles");
     assert.equal(await tv.page.locator('[data-focus^="filter:"]').count(), 3);
     for (const key of ["back", "see-all", "synopsis"]) assert.equal(await tv.page.locator(`[data-focus="${key}"]`).count(), 0);
     await next(tv, 2);
     assert.equal(await tv.page.locator('.details-person-hero').count(), 1);
     assert.equal(await tv.page.locator('.browse').getAttribute('data-view'), 'person:7');
+});
+
+journey("near-end append keeps mounted focus and allows only one page in flight", async tv => {
+    for (const key of ["next", "previous"]) assert.equal(await tv.page.locator(`[data-focus="${key}"]`).count(), 0);
+    assert.equal(await tv.page.locator(".browse-page-status").count(), 0);
+    const held = tv.fake.hold("/catalog/query", true);
+    const trigger = grid(tv).nth(12);
+    await trigger.evaluate(node => node.setAttribute("data-retained", "yes"));
+    await trigger.focus();
+    await tv.eventually(async () => queries(tv).length === 2, "eight-row threshold");
+    await tv.page.locator('[aria-label="Loading more titles"]').waitFor();
+    const id = await tv.focused();
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("ArrowLeft");
+    await tv.jump(300);
+    assert.equal(queries(tv).length, 2, "visible trigger cards cannot overlap requests");
+    held.release();
+    await tv.eventually(async () => await grid(tv).count() === 120, "second batch appended");
+    assert.equal(await tv.focused(), id);
+    assert.equal(await trigger.getAttribute("data-retained"), "yes", "the focused card was appended around, not remounted");
+    await tv.page.locator('[data-focus="filter:series"]').click();
+    await tv.eventually(async () => await grid(tv).count() === 3, "filter replaces accumulated titles");
+    assert.equal(lastQuery(tv)?.body?.cursor, undefined);
+    assert.equal(await tv.focused(), "filter:series");
 });
 
 journey("Person uses the Apple source geometry and remote zones", async tv => {
@@ -170,14 +255,18 @@ journey("Person uses the Apple source geometry and remote zones", async tv => {
     assert.equal(await tv.focused(), "filter:video", "column 0 meets All along its left edge, including when another chip was focused on the way down");
     await tv.jump(300);
     assert.equal(await tv.page.locator(".browse").evaluate(node => node.scrollTop), 0);
+    assert.equal(queries(tv).length, count, "navigation away from the end never fetches");
+    await tv.page.locator('[data-focus="filter:series"]').click();
+    await tv.eventually(async () => await grid(tv).count() === 3, "ragged final row");
+    const reads = queries(tv).length;
     await grid(tv).last().focus();
     await tv.page.keyboard.press("ArrowRight");
     assert.equal(await tv.focused(), await grid(tv).last().getAttribute("data-focus"));
     await tv.page.keyboard.press("ArrowDown");
-    assert.equal(await tv.focused(), "next");
+    assert.equal(await tv.focused(), await grid(tv).last().getAttribute("data-focus"));
     await tv.page.keyboard.press("ArrowUp");
     assert.equal(await tv.focused(), await grid(tv).last().getAttribute("data-focus"));
-    assert.equal(queries(tv).length, count, "navigation never fetches");
+    assert.equal(queries(tv).length, reads, "an exhausted grid never fetches on navigation");
 });
 
 journey("reopening Person starts on All while Details Back preserves its visit", async tv => {
@@ -190,7 +279,7 @@ journey("reopening Person starts on All while Details Back preserves its visit",
     await tv.page.locator('[data-focus="filter:series"]').focus();
     await tv.remote(BACK);
     await tv.page.locator('[data-focus="person:7"]').first().click();
-    await tv.eventually(async () => await grid(tv).count() === 24, "reopened All");
+    await tv.eventually(async () => await grid(tv).count() === 60, "reopened All");
     assert.equal(await tv.focused(), "filter:video");
     assert.equal(await tv.page.locator('[data-focus="filter:video"]').getAttribute("aria-pressed"), "true");
 });
@@ -201,7 +290,7 @@ journey("failed availability probes keep filters visible and late metadata canno
     catalog.route = (method, path, profile, body) => body?.limit === 1 ? problem(403, "permission_denied", "Synthetic probe failure") : read(method, path, profile, body);
     const held = tv.fake.hold("/catalog/people/7", true);
     await tv.page.locator('[data-focus="person:7"]').first().click();
-    await tv.eventually(async () => await grid(tv).count() === 24, "credits before metadata");
+    await tv.eventually(async () => await grid(tv).count() === 60, "credits before metadata");
     assert.equal(await tv.page.locator('[data-focus^="filter:"]').count(), 3);
     await tv.remote(BACK);
     held.release();
@@ -239,7 +328,7 @@ journey("selecting Series while availability probes are still out keeps that chi
         return response.url().includes("/catalog/query") && data.includes('"limit":1');
     })));
     await tv.page.locator('[data-focus="filter:series"]').click();
-    await tv.eventually(async () => lastQuery(tv)?.body?.type === "series" && await tv.page.getByText("No available titles for this filter.", { exact: true }).count() === 1, "Series chosen before probes finish");
+    await tv.eventually(async () => lastQuery(tv)?.body?.type === "series" && await tv.page.getByText("No titles found", { exact: true }).count() === 1, "Series chosen before probes finish");
     assert.equal(await tv.focused(), "filter:series");
     releaseProbes();
     await probeAnswers;
@@ -255,10 +344,10 @@ journey("credits and hero shell remain usable while metadata is pending", async 
     await tv.remote(BACK);
     const held = tv.fake.hold("/catalog/people/7", true);
     await tv.page.locator('[data-focus="person:7"]').first().click();
-    await tv.eventually(async () => await grid(tv).count() === 24, "independent credits");
+    await tv.eventually(async () => await grid(tv).count() === 60, "independent credits");
     assert.equal(await tv.page.locator(".details-person-hero").count(), 1);
     await tv.page.getByText("Loading metadata", { exact: true }).waitFor();
-    await tv.page.getByText("Page 1 of 3", { exact: true }).waitFor();
+    assert.equal(await grid(tv).count(), 60);
     await next(tv, 2);
     assert.equal(await tv.page.locator(".details-person-hero").count(), 1);
     await tv.page.getByText("Loading metadata", { exact: true }).waitFor();
@@ -299,8 +388,6 @@ journey("person full journey reaches third page, server filters whole population
     await all(tv);
     const firstIds = await grid(tv).evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus")));
     assert.ok(firstIds.every(id => !id?.startsWith("series:")));
-    await tv.page.locator('.browse-grid [data-focus="movie:m0002"] .browse-art-missing').waitFor();
-    await tv.page.locator('.browse-grid [data-focus="movie:m0003"] .browse-art-missing').waitFor();
     assert.equal(queries(tv)[0]?.body?.cursor, undefined, "GET preview cursor cannot seed POST");
     const count = tv.fake.requests.length;
     await tv.page.locator('[data-focus="filter:series"]').focus();
@@ -312,20 +399,22 @@ journey("person full journey reaches third page, server filters whole population
     assert.equal(lastQuery(tv)?.body?.type, "series");
     await tv.page.locator('[data-focus="filter:movie"]').focus();
     await tv.page.keyboard.press("Enter");
-    await tv.eventually(async () => lastQuery(tv)?.body?.type === "movie" && await grid(tv).count() === 24, "movies");
+    await tv.eventually(async () => lastQuery(tv)?.body?.type === "movie" && await grid(tv).count() === 60, "movies");
     await tv.page.locator('[data-focus="filter:video"]').focus();
     await tv.page.keyboard.press("Enter");
-    await tv.eventually(async () => lastQuery(tv)?.body?.type === "video" && await grid(tv).count() === 24, "All");
+    await tv.eventually(async () => lastQuery(tv)?.body?.type === "video" && await grid(tv).count() === 60, "All");
     await next(tv, 2);
     await next(tv, 3);
-    assert.equal(await grid(tv).count(), 16);
+    assert.equal(await grid(tv).count(), 124);
+    await tv.page.locator('.browse-grid [data-focus="movie:m0002"] .browse-art-missing').waitFor();
+    await tv.page.locator('.browse-grid [data-focus="movie:m0003"] .browse-art-missing').waitFor();
     const card = grid(tv).last();
     const id = await card.getAttribute("data-focus");
     await card.focus();
     await tv.page.keyboard.press("Enter");
     await tv.eventually(async () => await tv.page.locator(".browse").getAttribute("data-view") === `item:${id}`, "third-page Details");
     await tv.remote(BACK);
-    await tv.page.getByText("Page 3 of 3", { exact: true }).waitFor();
+    assert.equal(await grid(tv).count(), 124);
     assert.equal(await tv.focused(), id);
     await tv.remote(BACK);
     assert.equal(metadataReads(tv), 1);
@@ -334,25 +423,29 @@ journey("person full journey reaches third page, server filters whole population
         assert.equal(request.method, "POST");
         assert.equal(request.body?.sort, "year");
         assert.equal(request.body?.order, "desc");
-        assert.equal(request.body?.limit, 24);
+        assert.equal(request.body?.limit, 60);
         assert.equal(request.body?.person_id, "7");
         assert.equal(request.headers["x-profile-id"], "p-owner");
     }
     assert.equal(tv.fake.requests.filter(request => /search\/capabilities/.test(request.path)).length, 0);
 });
 
-journey("failed Next retains visible page and target for explicit Retry", async (tv, catalog) => {
+journey("failed append retains cards without an error panel and waits for near-end reentry", async (tv, catalog) => {
     await all(tv);
     const ids = await grid(tv).evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus")));
     catalog.personReplies.push(problem(500, "internal_error", "Synthetic lookup failure"));
-    await tv.page.locator('[data-focus="next"]').click();
-    await tv.page.locator('[data-focus="retry"]').waitFor();
+    await grid(tv).last().scrollIntoViewIfNeeded();
+    await tv.eventually(async () => queries(tv).length === 2 && await tv.page.locator('[aria-label="Loading more titles"]').count() === 0, "failed append settled");
+    assert.equal(await tv.page.locator('[data-focus="retry"]').count(), 0);
     const target = lastQuery(tv)?.body?.cursor;
     assert.equal(typeof target, "string");
     assert.deepEqual(await grid(tv).evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus"))), ids);
     const before = queries(tv).length;
-    await tv.page.locator('[data-focus="retry"]').click();
-    await tv.page.getByText("Page 2 of 3", { exact: true }).waitFor();
+    await tv.jump(2000);
+    assert.equal(queries(tv).length, before, "no timed pagination retries");
+    await grid(tv).first().scrollIntoViewIfNeeded();
+    await tv.page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await next(tv, 2);
     assert.equal(queries(tv).length, before + 1);
     assert.equal(lastQuery(tv)?.body?.cursor, target);
 });
@@ -362,31 +455,27 @@ for (const continuation of ["missing", "empty", "repeated"]) journey(`malformed 
     await next(tv, 2);
     const previous = lastQuery(tv)?.body?.cursor;
     const before = await grid(tv).evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus")));
-    catalog.personReplies.push({ status: 200, body: { items: [], total: 64, total_exact: true, window_cursor: "synthetic", page: { has_more: true,
+    catalog.personReplies.push({ status: 200, body: { items: [], total: 124, total_exact: true, window_cursor: "synthetic", page: { has_more: true,
         ...(continuation === "missing" ? {} : { next_cursor: continuation === "empty" ? "" : previous }) } } });
-    await tv.page.locator('[data-focus="next"]').click();
-    await tv.page.getByText("The server sent an answer this TV could not read.", { exact: true }).waitFor();
+    await grid(tv).last().scrollIntoViewIfNeeded();
+    await tv.eventually(async () => queries(tv).length === 3 && await tv.page.locator('[aria-label="Loading more titles"]').count() === 0, "malformed append settled");
     assert.deepEqual(await grid(tv).evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus"))), before);
     const count = queries(tv).length;
     await tv.jump(2000);
     assert.equal(queries(tv).length, count, "no automatic protocol retry");
-    await tv.page.locator('[data-focus="retry"]').click();
-    await tv.page.getByText("Page 3 of 3", { exact: true }).waitFor();
+    assert.equal(await tv.page.locator('[data-focus="retry"]').count(), 0, "Apple keeps a nonempty grid visible without an error panel");
+    await grid(tv).first().scrollIntoViewIfNeeded();
+    await tv.page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await next(tv, 3);
 });
 
-journey("invalid cursor discards only filmography paging; one explicit Retry starts page zero", async (tv, catalog) => {
+journey("invalid cursor restarts filmography once without reloading metadata", async (tv, catalog) => {
     await all(tv);
     await next(tv, 2);
     catalog.personReplies.push(problem(400, "invalid_cursor", "Invalid cursor"));
-    await tv.page.locator('[data-focus="next"]').click();
-    await tv.page.getByText("The list changed. Try again.", { exact: true }).waitFor();
-    assert.equal(await grid(tv).count(), 0);
-    const count = queries(tv).length;
-    await tv.jump(2000);
-    assert.equal(queries(tv).length, count);
-    await tv.page.locator('[data-focus="retry"]').click();
-    await tv.page.getByText("Page 1 of 3", { exact: true }).waitFor();
-    assert.equal(queries(tv).length, count + 1);
+    await grid(tv).last().scrollIntoViewIfNeeded();
+    await tv.eventually(async () => await grid(tv).count() === 60, "restarted first page");
+    assert.equal(queries(tv).length, 4, "one rejected continuation and one fresh first page");
     assert.equal(lastQuery(tv)?.body?.cursor, undefined);
     assert.equal(metadataReads(tv), 1);
     assert.equal(await tv.page.locator(".details-person-hero").count(), 1);
@@ -396,7 +485,7 @@ journey("interrupted Next cannot advance after visible-card Details, one resume 
     await all(tv);
     const held = tv.fake.hold("/catalog/query", true);
     const before = queries(tv).length;
-    await tv.page.locator('[data-focus="next"]').click();
+    await grid(tv).last().scrollIntoViewIfNeeded();
     await tv.eventually(async () => queries(tv).length === before + 1, "held Next");
     await tv.page.locator('.browse-grid [data-focus="movie:m0001"]').click();
     await tv.page.locator('[data-focus="resume"]').click();
@@ -405,12 +494,12 @@ journey("interrupted Next cannot advance after visible-card Details, one resume 
     await tv.page.evaluate(() => window.browseHarness.resume());
     await tv.page.locator('[data-focus="resume"]').waitFor();
     await tv.remote(BACK);
-    await tv.page.getByText("Page 1 of 3", { exact: true }).waitFor();
+    assert.equal(await grid(tv).count(), 60);
     assert.equal(lastQuery(tv)?.body?.cursor, undefined, "Back refreshes committed page, never abandoned target");
     held.release();
     await tv.jump(300);
     assert.equal(await tv.focused(), "movie:m0001");
-    assert.equal(await tv.page.getByText("Page 1 of 3", { exact: true }).count(), 1);
+    assert.equal(await grid(tv).count(), 60);
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 1);
     await tv.remote(BACK);
     await tv.eventually(async () => await tv.focused() === "person:7", "origin after playback");
@@ -428,9 +517,9 @@ journey("refresh uses nearby card fallback on a committed later page", async (tv
     catalog.removed.add(removed);
     const count = queries(tv).length;
     await tv.remote(BACK);
-    await tv.eventually(async () => queries(tv).length === count + 1 && !await tv.page.locator(`.browse-grid [data-focus="${removed}"]`).count(), "refreshed membership");
+    await tv.eventually(async () => queries(tv).length === count + 2 && !await tv.page.locator(`.browse-grid [data-focus="${removed}"]`).count(), "refreshed membership");
     assert.equal(await tv.focused(), ids[6]);
-    assert.equal(await tv.page.getByText("Page 2 of 3", { exact: true }).count(), 1);
+    assert.equal(await grid(tv).count(), 120);
 });
 
 journey("filter race fences old answer; failed and empty filters keep controls reachable", async (tv, catalog) => {
@@ -451,7 +540,7 @@ journey("filter race fences old answer; failed and empty filters keep controls r
     assert.equal(await tv.page.locator('[data-focus="filter:movie"]').getAttribute("aria-pressed"), "true");
     catalog.empty = true;
     await tv.page.locator('[data-focus="retry"]').click();
-    await tv.page.getByText("No available titles for this filter.", { exact: true }).waitFor();
+    await tv.page.getByText("No titles found", { exact: true }).waitFor();
     await tv.page.locator('[data-focus="filter:movie"]').focus();
     await tv.page.keyboard.press("ArrowRight");
     assert.equal(await tv.focused(), "filter:series");
@@ -466,7 +555,9 @@ for (const action of ["unchanged filter focus", "moved focus", "Back and menu", 
     await tv.page.locator('[data-focus="person:7"]').first().click();
     await tv.eventually(async () => queries(tv).length === before + 1, "new visit initial read");
     await tv.jump(5000);
-    await tv.page.getByText("Still waiting for the server.", { exact: true }).waitFor();
+    await tv.page.locator('[aria-label="Loading titles"]').waitFor();
+    assert.equal(await tv.page.locator('[aria-label="Loading titles"]').textContent(), "", "Apple reserves a clear loading frame");
+    assert.equal(await tv.page.locator('[aria-label="Loading titles"]').evaluate(node => node.getBoundingClientRect().height), 420);
     if (action === "moved focus") {
         await tv.page.keyboard.press("ArrowRight");
         assert.equal(await tv.focused(), "filter:movie");
@@ -482,7 +573,7 @@ for (const action of ["unchanged filter focus", "moved focus", "Back and menu", 
     held.release();
     await tv.jump(300);
     if (action === "moved focus" || action === "unchanged filter focus") {
-        await tv.eventually(async () => await grid(tv).count() === 24, "settled read");
+        await tv.eventually(async () => await grid(tv).count() === 60, "settled read");
         assert.equal(await tv.focused(), focus);
     } else if (action === "Back and menu") {
         assert.equal(await tv.focused(), focus);
@@ -584,17 +675,17 @@ journey("filmography filter controls occupy their own space above the grid", asy
     });
     assert.ok(bounds.filtersTop >= bounds.headingBottom, "Person filters must not overlap the heading");
     assert.ok(bounds.gridTop >= bounds.filtersBottom, "filters reserve space before the cards");
-    const reads = tv.fake.requests.length;
+    const reads = queries(tv).length;
     for (const key of ["ArrowDown", "ArrowDown", "ArrowDown", "ArrowDown", "ArrowUp", "ArrowUp", "ArrowUp", "ArrowUp", "ArrowUp"]) {
         await tv.page.keyboard.press(key);
         await tv.jump(250);
         const rect = await tv.page.evaluate(() => {
             const bounds = document.activeElement?.getBoundingClientRect();
-            return { top: bounds?.top ?? -1, bottom: bounds?.bottom ?? 1081 };
+            return { top: bounds?.top ?? -1, bottom: bounds?.bottom ?? 1081, focus: document.activeElement?.getAttribute("data-focus"), scroll: document.querySelector(".browse")?.scrollTop, time: performance.now() };
         });
-        assert.ok(rect.top >= 0 && rect.bottom <= 1080, "remote focus remains in the viewport");
+        assert.ok(rect.top >= 0 && rect.bottom <= 1080, `remote focus remains in the viewport after ${key}: ${JSON.stringify(rect)}`);
     }
-    assert.equal(tv.fake.requests.length, reads, "remote movement never loads another page");
+    assert.equal(queries(tv).length, reads + 1, "scrolling into the final eight rows loads one additional page");
 });
 
 journey("Person count labels preserve exact, approximate, singular and empty totals", async (tv, catalog) => {
@@ -620,6 +711,6 @@ journey("failed initial works read retains metadata and filter recovery", async 
     await tv.page.keyboard.press("ArrowDown");
     assert.equal(await tv.focused(), "retry", "Down follows the visible chips-to-Retry order");
     await tv.page.keyboard.press("Enter");
-    await tv.page.getByText("64 titles", { exact: true }).waitFor();
+    await tv.page.getByText("124 titles", { exact: true }).waitFor();
     assert.equal(metadataReads(tv), reads);
 });

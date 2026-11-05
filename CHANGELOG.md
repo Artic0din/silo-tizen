@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Loaded Person filmography in 60-title batches while scrolling and refreshed incomplete person metadata automatically.
 - Added Change Account with several saved accounts per server and account management.
 
 ### Fixed

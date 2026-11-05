@@ -186,7 +186,8 @@ Other layers:
 
 ## Never Fetch on Focus
 
-Search filter pills are the sole exception: focus applies their filter immediately, matching Apple TV's segmented picker, and cancels superseded reads.
+Search filter pills apply their filter on focus, matching Apple TV's segmented picker, and cancel superseded reads.
+Person's grid also loads another page when scrolling reveals a cell within the final eight rows, matching Apple's tvOS grid; card focus handlers do not fetch.
 
 Moving focus never starts a request, activates a route or writes data.
 Fetching belongs to explicit activation (Enter), to a view loading, or to a one-off prefetch.

@@ -113,6 +113,44 @@ journey("a failed libraries read keeps Home and retries the tabs after the app r
     catalog.failNext("/user/libraries", problem(503, "service_unavailable", "Unavailable"), problem(503, "service_unavailable", "Unavailable"));
 });
 
+journey("a failed libraries read after returning to a profile keeps that profile's Movies and Series", async (tv, catalog) => {
+    const libraryReads = (): number => tv.fake.requests.filter(request => request.path === "/user/libraries").length;
+    await tv.eventually(async () => await tv.page.locator('[data-focus="movies"]').count() === 1 && await tv.page.locator('[data-focus="series"]').count() === 1, "owner library tabs");
+    const before = libraryReads();
+    catalog.failNext("/user/libraries", problem(503, "service_unavailable", "Unavailable"), problem(503, "service_unavailable", "Unavailable"));
+    await tv.page.evaluate(() => window.browseHarness.clearProfile());
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner")), "selected");
+    await tv.page.evaluate(() => window.browseHarness.mount());
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="home"] [data-section="recent/12"]').count() === 1, "rows after returning");
+    await tv.jump(1000);
+    await tv.eventually(async () => libraryReads() >= before + 2, "libraries read exhausted its retry");
+    assert.equal(libraryReads(), before + 2, "the failed read is not followed by a successful one");
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 1);
+    assert.equal(await tv.page.locator('[data-focus="series"]').count(), 1);
+    assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
+    assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+    assert.equal(await tv.page.locator('[data-view="home"] [role="alert"]').count(), 0);
+});
+
+journey("a failed libraries read after switching to a restricted profile drops the previous profile's Series", async (tv, catalog) => {
+    const libraryReads = (): number => tv.fake.requests.filter(request => request.path === "/user/libraries").length;
+    await tv.eventually(async () => await tv.page.locator('[data-focus="series"]').count() === 1, "owner Series tab");
+    const before = libraryReads();
+    catalog.failNext("/user/libraries", problem(503, "service_unavailable", "Unavailable"), problem(503, "service_unavailable", "Unavailable"));
+    await tv.page.evaluate(() => window.browseHarness.clearProfile());
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.selectProfile("p-kid", "2468")), "verified");
+    await tv.page.evaluate(() => window.browseHarness.mount());
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="home"] [data-section="kids_picks"]').count() === 1, "restricted profile rows");
+    await tv.jump(1000);
+    await tv.eventually(async () => libraryReads() >= before + 2, "libraries read exhausted its retry");
+    assert.equal(libraryReads(), before + 2);
+    assert.equal(await tv.page.locator('[data-focus="series"]').count(), 0, "the previous profile's Series stays off the bar");
+    assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0, "this profile has no last-known tabs to keep");
+    assert.equal(await tv.page.locator('[data-section="kids_picks"]').count(), 1);
+    assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);
+    assert.equal(await tv.page.locator('[data-view="home"] [role="alert"]').count(), 0);
+});
+
 journey("a delayed Home sections read never says it is still waiting", async tv => {
     assert.equal(await tv.page.locator('[data-section="recent/12"]').count(), 1);
     assert.equal(await tv.page.getByText("Still waiting for the server.", { exact: true }).count(), 0);

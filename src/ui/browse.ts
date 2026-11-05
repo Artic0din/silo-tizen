@@ -90,6 +90,17 @@ function unsupportedHomeItemLimit(error: unknown): boolean {
         && error.failure.problem.errors.some(item => item.location === "query.item_limit" && item.code === "unknown_parameter");
 }
 
+/**
+ * Last libraries that painted the bar for one profile. Browse is removed when
+ * the profile changes, so this is Apple's per-profile snapshot: `loadLibraries`
+ * clears the bar when the authority changes (`TVMainTabView.swift:1008-1014`),
+ * `clearPerProfileCaches` drops the in-memory `user:` list, and a failed fetch
+ * keeps only what was reseeded for the profile that is current now
+ * (`TVMainTabView.swift:1018-1036`). Another profile's libraries are never read
+ * from here.
+ */
+const rememberedLibraryTabs = new Map<string, UserLibrary[]>();
+
 export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const server = options.server;
     const session = server.session;
@@ -566,7 +577,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
     // Library tabs are not part of the Home rows. Apple paints sections without waiting
     // for them (HomeViewModel.fetchAndApplySections, HomeViewModel.swift:237).
-    let pendingHomeLibraries: UserLibrary[] | undefined;
+    const libraryTabsKey = JSON.stringify([server.server.serverId, session.account?.id, session.activeProfile.id]);
+    const rememberLibraryTabs = (visible: readonly UserLibrary[]): void => {
+        rememberedLibraryTabs.set(libraryTabsKey, visible.map(library => ({ ...library })));
+    };
+    let pendingHomeLibraries: UserLibrary[] | undefined = rememberedLibraryTabs.get(libraryTabsKey)?.map(library => ({ ...library }));
     const readHomeLibraries = (current: Extract<Route, { kind: "home" }>): void => {
         homeLibraries?.abort();
         const controller = new AbortController();
@@ -582,6 +597,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (signal.aborted || torn || current.kind !== "home") return;
             homeLibrariesFailed = false;
             const visible = visibleLibraries(libraries, hidden);
+            rememberLibraryTabs(visible);
             pendingHomeLibraries = visible;
             // shell.update replaces the nav, including a focused tab. Keep the target captured
             // before that replacement so Back from Settings stays on Profiles.
@@ -598,8 +614,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }, (error: unknown) => {
             if (signal.aborted || torn || (error instanceof ApiError && error.aborted)) return;
             if (error instanceof ApiError) {
-                // Home rows stay. Apple keeps the bar it has and does not show an error
-                // (TVMainTabView.loadLibraries, TVMainTabView.swift:1032-1036).
+                // Home rows stay, and so does this profile's bar (seeded above, or empty
+                // when this profile has never loaded). Apple keeps that bar and shows no
+                // error (TVMainTabView.swift:1032-1036). The previous profile's libraries
+                // were already dropped when the authority changed (TVMainTabView.swift:1008-1014).
                 homeLibrariesFailed = true;
                 return;
             }
@@ -852,6 +870,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     state.data = { query: data.query, days: data.days };
                     if (data.libraries !== undefined) {
                         const libraries = visibleLibraries(data.libraries[0], data.libraries[1]);
+                        rememberLibraryTabs(libraries);
+                        pendingHomeLibraries = libraries;
                         shell.update(libraries);
                         if (home.kind === "home" && home.data !== undefined) home.data.libraries = libraries;
                         calendarLibrariesStale = false;
@@ -1657,7 +1677,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const enrichedScene = (): boolean => { const current = top(); return current?.kind === "home" || current?.kind === "for_you" || (current?.kind === "library" && current.discovery?.mode === "Recommended"); };
     shell.details = (card, continuing) => !enrichedScene() ? { line: undefined, badges: undefined } : { line: homeDetails.detailLine(card.id), badges: continuing ? homeDetails.savedFile(card)?.badges : undefined };
     shell.filled = card => enrichedScene() ? homeDetails.filled(card) : card;
-    shell.update([]);
+    // This profile's last bar, or no library tabs when it has none. An empty
+    // update here would drop Movies and Series that a later failed read should keep.
+    shell.update(pendingHomeLibraries ?? []);
     void navigation.reload();
     void probeRequests();
     stack = [home];

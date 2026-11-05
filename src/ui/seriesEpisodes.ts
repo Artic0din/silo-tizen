@@ -9,6 +9,7 @@ export class SeriesEpisodes {
     entryEpisode: string | undefined;
     failed = false;
     selectionChanged = false;
+    focusSelectedEpisode = false;
     private active = false;
     private loaded = false;
     private controller: AbortController | undefined;
@@ -24,7 +25,14 @@ export class SeriesEpisodes {
         this.seasons = seasons;
         this.changed = changed;
         this.entryEpisode = preferredEpisode;
-        this.seasonNumber = seasons.find(season => season.seasonNumber === preferredSeason)?.seasonNumber ?? seasons.find(season => !season.isSpecials)?.seasonNumber ?? seasons[0]?.seasonNumber;
+        const regular = seasons.filter(season => !season.isSpecials && season.seasonNumber !== 0);
+        const initial = seasons.find(season => season.seasonNumber === preferredSeason)
+            ?? seasons.find(season => (season.userData?.inProgressCount ?? 0) > 0)
+            ?? seasons.find(season => (season.userData?.watchedCount ?? 0) > 0 && (season.userData?.watchedCount ?? 0) < season.episodeCount)
+            ?? regular.find(season => !season.userData?.played)
+            ?? seasons.find(season => !season.userData?.played)
+            ?? regular[0] ?? seasons[0];
+        this.seasonNumber = initial?.seasonNumber;
     }
 
     start(): void {
@@ -44,9 +52,22 @@ export class SeriesEpisodes {
     }
 
     select(season: number): void {
-        if (!this.active || !this.seasons.some(item => item.seasonNumber === season) || (season === this.seasonNumber && (this.episodes !== undefined || this.controller !== undefined))) return;
+        if (!this.active || !this.seasons.some(item => item.seasonNumber === season)) return;
+        if (season === this.seasonNumber && this.episodes !== undefined) {
+            this.focusSelectedEpisode = true;
+            this.entryEpisode = this.episodes[0]?.id;
+            this.changed();
+            return;
+        }
+        if (season === this.seasonNumber && this.controller !== undefined) {
+            this.focusSelectedEpisode = true;
+            this.entryEpisode = undefined;
+            this.changed();
+            return;
+        }
         this.seasonNumber = season;
         this.selectionChanged = true;
+        this.focusSelectedEpisode = true;
         this.entryEpisode = undefined;
         this.load();
     }
@@ -78,6 +99,7 @@ export class SeriesEpisodes {
             if (!current()) return;
             this.controller = undefined;
             this.episodes = episodes;
+            if (!episodes.some(episode => episode.id === this.entryEpisode)) this.entryEpisode = (this.focusSelectedEpisode ? episodes[0] : episodes.find(episode => episode.inProgress) ?? episodes.find(episode => !episode.played) ?? episodes[0])?.id;
             this.loaded = true;
             this.changed();
         }, () => {

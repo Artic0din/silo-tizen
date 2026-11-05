@@ -16,11 +16,118 @@ const BITRATE = "playback.max_bitrate_kbps" as SettingsKey;
 const SEEK_BACK = "player.video_skip_back_seconds" as SettingsKey;
 const SEEK_FORWARD = "player.video_skip_forward_seconds" as SettingsKey;
 
+test("device save leaves disagreeing profile intact and clear reveals profile", async () => {
+    const { state, core, fakeSettings, fake } = await setup(true);
+    const device = fakeSettings.device("p-owner", core.session.http.deviceId);
+    fakeSettings.profile().set(QUALITY, "1080p");
+    device.set(QUALITY, "480p");
+    await state.load();
+    assert.equal(state.effective.get(QUALITY)?.value, "480p");
+    await state.save(QUALITY, "720p");
+    assert.equal(device.get(QUALITY), "720p");
+    assert.equal(fakeSettings.profile().get(QUALITY), "1080p");
+    await state.reset(QUALITY);
+    assert.equal(device.has(QUALITY), false);
+    assert.equal(state.effective.get(QUALITY)?.value, "1080p");
+    assert.deepEqual(fake.requests.filter(r => r.method === "PUT" || r.method === "DELETE").map(r => r.path), ["PUT", "DELETE"].map(() => `/settings/values/${QUALITY}?scope=profile_device`));
+    state.stop();
+});
+
 test("video seek intervals are numeric enum members, never nullable or coerced", () => {
     for (const key of [SEEK_BACK, SEEK_FORWARD]) {
         for (const value of [5, 10, 15, 30, 45, 60, 90]) assert.equal(decodeSettingValue(key, value), value);
         for (const value of [null, undefined, "15", 15.5, 20, false, true]) assert.throws(() => decodeSettingValue(key, value), String(value));
     }
+});
+
+test("device null, unfamiliar audio and profile-only seek retain distinct semantics", async () => {
+    const { state, core, fakeSettings, fake } = await setup(true);
+    const device = fakeSettings.device("p-owner", core.session.http.deviceId);
+    fakeSettings.profile().set(AUDIO_KEY, "fr");
+    fakeSettings.profile().set(BITRATE, 6000);
+    device.set(AUDIO_KEY, null);
+    await state.load();
+    assert.deepEqual(state.stored(AUDIO_KEY), { isSet: true, value: null, revision: 7 });
+    await state.save(AUDIO_KEY, null);
+    assert.equal(fake.requests.filter(r => r.method === "DELETE" || r.method === "PUT").length, 0);
+    await state.save(AUDIO_KEY, "yue-Hant-HK");
+    assert.equal(device.get(AUDIO_KEY), "yue-Hant-HK");
+    await state.load();
+    assert.equal(state.stored(AUDIO_KEY)?.isSet && device.get(AUDIO_KEY), "yue-Hant-HK");
+    await state.save(AUDIO_KEY, null);
+    assert.equal(device.has(AUDIO_KEY), false);
+    assert.equal(state.effective.get(AUDIO_KEY)?.value, "fr");
+    await state.save(BITRATE, null);
+    assert.equal(device.has(BITRATE), true);
+    assert.equal(device.get(BITRATE), null);
+    assert.equal(state.effective.get(BITRATE)?.value, null);
+    await state.reset(BITRATE);
+    assert.equal(device.has(BITRATE), false);
+    assert.equal(state.effective.get(BITRATE)?.value, 6000);
+    for (const key of [SEEK_BACK, SEEK_FORWARD]) {
+        await state.save(key, 45);
+        assert.equal(fakeSettings.profile().get(key), 45);
+        assert.equal(device.has(key), false);
+        await state.reset(key);
+        assert.equal(fakeSettings.profile().has(key), false);
+    }
+    assert.equal(fakeSettings.profile().get(AUDIO_KEY), "fr");
+    assert.equal(fakeSettings.profile().get(BITRATE), 6000);
+    state.stop();
+});
+
+test("device scope requires capability as well as definition and single-key effective reads remain supported", async () => {
+    const { state, fake, fakeSettings } = await setup(true);
+    fakeSettings.supportsBatchedEffective = false;
+    await state.load();
+    assert.equal(state.scope(QUALITY), "profile_device");
+    await state.save(QUALITY, "720p");
+    assert.equal(state.error, undefined);
+    fake.script("/settings/contract/capabilities", { status: 200, body: {
+        api_version: 1, revision: "opaque-24", manifest_revision: 24, state: "available", allowed: true,
+        scopes: ["profile"], supports_batched_effective: false,
+    } });
+    await state.load();
+    assert.equal(state.scope(QUALITY), "profile");
+    await state.save(QUALITY, "1080p");
+    assert.equal(fakeSettings.profile().get(QUALITY), "1080p");
+    assert.equal(state.effective.get(QUALITY)?.value, "720p");
+    assert.equal(fake.requests.filter(r => r.method === "PUT").length, 2);
+    state.stop();
+});
+
+test("device uncertain committed write serializes activation, reads before retry, and fences replacement", async () => {
+    const { state, core, fakeSettings, fake, clock } = await setup(true);
+    const device = fakeSettings.device("p-owner", core.session.http.deviceId);
+    fakeSettings.profile().set(QUALITY, "1080p");
+    const path = operations.settingsValues([QUALITY], "profile_device").path;
+    const hold = fake.hold(path);
+    fake.dropNextAnswer(`/settings/values/${QUALITY}?scope=profile_device`);
+    const saving = state.save(QUALITY, "720p");
+    while (!fake.requests.some(r => r.path === path)) await new Promise<void>(resolve => setImmediate(resolve));
+    await state.save(QUALITY, "2160p");
+    fake.script(path, problem(429, "rate_limited", "Wait", { "Retry-After": "1" }));
+    hold.release();
+    await saving;
+    assert.equal(device.get(QUALITY), "720p");
+    assert.equal(state.canRetry, true);
+    assert.ok(state.error);
+    await state.retry();
+    assert.equal(fake.requests.filter(r => r.method === "PUT").length, 1);
+    await clock.advance(1000);
+    await state.retry();
+    assert.equal(state.error, undefined);
+    assert.equal(fake.requests.filter(r => r.method === "PUT").length, 1);
+    const late = fake.hold(`/settings/values/${QUALITY}?scope=profile_device`, true);
+    const next = state.save(QUALITY, "480p");
+    while (fake.requests.filter(r => r.method === "PUT").length < 2) await new Promise<void>(resolve => setImmediate(resolve));
+    core.profiles.clear();
+    late.release();
+    await next;
+    assert.equal(state.loaded, false);
+    assert.equal(state.device.size, 0);
+    assert.equal(state.explicit.size, 0);
+    assert.equal(fakeSettings.profile().get(QUALITY), "1080p");
 });
 
 test("Settings confirmed seek writes and DELETE resets feed fresh real controller directions", async () => {
@@ -287,11 +394,12 @@ test("the hidden-library editor can request hidden libraries explicitly", () => 
     assert.equal(operations.listUserLibraries().path, "/user/libraries");
 });
 
-async function setup() {
+async function setup(deviceScope = false) {
     const harness = await connected();
     await signIn(harness);
     harness.fake.catalog = new FakeCatalog();
     const fake = new FakeSettings(harness.fake);
+    fake.devicePlayback = deviceScope;
     const profile = (await harness.core.profiles.list())[0];
     assert.ok(profile);
     harness.core.profiles.select(profile);
@@ -325,8 +433,25 @@ test("profile null is explicit, reset removes only the profile row, effective ov
     assert.deepEqual(put?.body, { value: null });
     assert.equal(put?.headers["x-profile-id"], core.session.activeProfile?.id);
     assert.equal(put?.headers["x-silo-client-family"], undefined);
-    assert.ok(fake.requests.some(request => request.path === operations.settingsValues(SETTINGS_KEYS).path));
+    assert.ok(fake.requests.some(request => request.path === operations.settingsValues(SETTINGS_KEYS.filter(key => state.definitions.some(def => def.key === key))).path));
     state.stop();
+});
+
+test("already-achieved metadata edits invalidate catalogs without another write", async () => {
+    for (const reset of [false, true]) {
+        const { state, fakeSettings, fake } = await setup();
+        fakeSettings.remainingRows = true;
+        fakeSettings.profile().set("catalog.metadata_language", "en");
+        await state.load();
+        if (reset) fakeSettings.profile().delete("catalog.metadata_language");
+        else fakeSettings.profile().set("catalog.metadata_language", "fr");
+        if (reset) await state.reset("catalog.metadata_language");
+        else await state.save("catalog.metadata_language", "fr");
+        assert.equal(state.error, undefined);
+        assert.equal(fake.requests.filter(request => request.method === "PUT" || request.method === "DELETE").length, 0);
+        assert.equal(state.hiddenChanged, true);
+        state.stop();
+    }
 });
 
 test("hidden edits rebase on explicit scope, preserve inaccessible IDs and serialize edits", async () => {

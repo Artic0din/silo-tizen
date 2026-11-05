@@ -4,9 +4,10 @@
 
 import type { Card, CardOverlay, CatalogPage, HomeSection, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
-import { artworkUrl, type Destination, destinationOf } from "./browseModel.ts";
+import { artworkUrl, type Destination, type EpisodeSelection, browseCardDestination, destinationOf } from "./browseModel.ts";
 import { type CardOverlayPrefs, overlayLayer } from "./cardOverlays.ts";
 import { homeCaption } from "./cardPresentation.ts";
+import { blurEpisodeStill, hidesCardImage, type EpisodeSpoilerSettings } from "./episodeSpoilers.ts";
 import { el } from "./screen.ts";
 
 /** Home artwork widths in browse.css (Apple SiloTheme poster and EpisodeThumbCard widths); badges scale from them. */
@@ -21,8 +22,10 @@ export interface ViewContext {
     /** Resolves relative artwork references. */
     readonly baseUrl: string;
     readonly open: (destination: Destination) => void;
-    readonly preview?: (card: Card, row: string, continuing?: boolean) => void;
+    readonly preview?: (card: Card, row: string, continuing?: boolean, featured?: boolean) => void;
     readonly continueWatching?: boolean;
+    /** Apple `SectionRow.layout` on tvOS. Unset keeps the Continue Watching still and poster otherwise. */
+    readonly cardLayout?: "poster" | "thumbnail";
     /** Home captions episodes with their series and an `S01E02 · Pilot` line, as Apple TV does. */
     readonly homeCaptions?: boolean;
     readonly posterScale?: () => number;
@@ -30,19 +33,26 @@ export interface ViewContext {
     readonly posterWidth?: number;
     /** The profile's poster badges, read when a Home row renders; undefined while unknown, failed or off. */
     readonly cardOverlays?: () => CardOverlayPrefs | undefined;
-    /** Home rows draw poster badges (Apple MediaRow and EpisodeThumbCard); other card screens do not. */
+    /** A row may provide a captured preference document; otherwise catalog cards read the shared preferences. */
     readonly overlays?: CardOverlayPrefs | undefined;
     /** Continue Watching badges for the file the viewer last played, once Home's detail reads know it. */
     readonly savedFileOverlay?: (card: Card) => CardOverlay | undefined;
     readonly resume?: (id: string, title: string) => void;
-    readonly playEpisode?: (id: string, title: string, startOver?: boolean) => void;
-    readonly quickActions?: (card: Pick<Card, "id" | "title" | "type">) => void;
+    readonly playEpisode?: (id: string, title: string, startOver?: boolean, selection?: EpisodeSelection) => void;
+    readonly quickActions?: (card: Pick<Card, "id" | "title" | "type">, play?: () => void) => void;
+    readonly cardDestination?: (card: Card) => Destination | undefined;
+    /** Profile spoiler switches. Absent reads as both off. */
+    readonly spoilers?: () => EpisodeSpoilerSettings;
+}
+
+function spoilerSettings(context: ViewContext): EpisodeSpoilerSettings {
+    return context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false };
 }
 
 /** Only catalog media receives hold/right-click actions; navigation tiles keep their clicks. */
-export function mediaItem(item: FocusItem, card: Pick<Card, "id" | "title" | "type">, context: ViewContext): FocusItem {
+export function mediaItem(item: FocusItem, card: Pick<Card, "id" | "title" | "type">, context: ViewContext, contextPlay?: () => void): FocusItem {
     if (context.quickActions === undefined || !["movie", "series", "episode", "season"].includes(card.type)) return item;
-    const quickAction = (): void => context.quickActions?.(card);
+    const quickAction = (): void => context.quickActions?.(card, contextPlay);
     item.element.addEventListener("contextmenu", event => { event.preventDefault(); item.element.focus({ preventScroll: true }); quickAction(); });
     return { ...item, quickAction };
 }
@@ -55,13 +65,22 @@ export function actionButton(key: string, label: string, onPress: () => void): F
     return { key, element };
 }
 
+/** Apple ErrorView.recoveryPlan: a 401 offers sign-in, a 403 or 404 prefers leaving, and otherwise Try Again is the only action. */
+export function recoveryActions(error: { readonly headline: string; readonly signIn: boolean }, retry: FocusItem, back?: FocusItem, signIn?: FocusItem): FocusItem[] {
+    const items: FocusItem[] = [];
+    if (error.signIn && signIn !== undefined) items.push(signIn);
+    if (back !== undefined && (error.headline === "Not found" || error.headline === "Not allowed")) items.push(back);
+    items.push(retry);
+    return items;
+}
+
 /** SectionExploreAllCard keeps the current marquee while its row's trailing tile owns focus. */
-function exploreAllCard(rowTitle: string, key: string, continuing: boolean, onPress: () => void): FocusItem {
+export function exploreAllCard(rowTitle: string, key: string, wide: boolean, onPress: () => void): FocusItem {
     const element = el("button", "browse-card skyline-explore");
     element.type = "button";
     element.setAttribute("data-focus", key);
     element.setAttribute("aria-label", `Explore all, ${rowTitle}`);
-    if (continuing) element.classList.add("skyline-continue");
+    if (wide) element.classList.add("skyline-continue");
     const tile = el("span", "browse-art skyline-explore-tile");
     const icon = el("span", "skyline-explore-icon");
     icon.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 12h15M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -99,9 +118,17 @@ export function artwork(className: string, reference: string | undefined, baseUr
     return box;
 }
 
+export function thumbnailProgress(fraction: number): HTMLElement {
+    const progress = el("span", "skyline-progress");
+    const fill = el("span", "skyline-progress-fill");
+    fill.style.width = `${Math.min(100, Math.max(0, fraction * 100))}%`;
+    progress.appendChild(fill);
+    return progress;
+}
+
 /** Undefined for media this client does not browse. */
 export function cardItem(card: Card, context: ViewContext): FocusItem | undefined {
-    const destination = destinationOf(card);
+    const destination = context.cardDestination?.(card) ?? (card.type === "season" ? destinationOf(card) : browseCardDestination(card));
     if (destination === undefined) {
         return undefined;
     }
@@ -109,21 +136,21 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     element.type = "button";
     element.setAttribute("data-focus", card.id);
     const continuing = context.continueWatching === true;
-    element.appendChild(artwork("browse-art", continuing ? card.backdropUrl ?? card.posterUrl : card.posterUrl, context.baseUrl, card.title));
-    if (continuing) {
+    const thumbnail = context.cardLayout === "thumbnail" || (context.cardLayout === undefined && continuing);
+    const art = artwork("browse-art", thumbnail ? card.backdropUrl ?? card.posterUrl : card.posterUrl, context.baseUrl, card.title);
+    if (hidesCardImage(card, spoilerSettings(context), thumbnail)) blurEpisodeStill(art);
+    element.appendChild(art);
+    if (thumbnail) {
         element.classList.add("skyline-continue");
-        if (card.positionSeconds !== undefined && card.durationSeconds !== undefined && card.durationSeconds > 0) {
-            const progress = el("span", "skyline-progress");
-            const fill = el("span", "skyline-progress-fill");
-            fill.style.width = `${Math.min(100, Math.max(0, card.positionSeconds / card.durationSeconds * 100))}%`;
-            progress.appendChild(fill);
-            element.firstElementChild?.appendChild(progress);
+        if (card.positionSeconds !== undefined && card.durationSeconds !== undefined && card.durationSeconds > 0 && card.positionSeconds > 0) {
+            element.firstElementChild?.appendChild(thumbnailProgress(card.positionSeconds / card.durationSeconds));
         }
     }
     // Badges sit under the progress bar and the watched tick, which win a shared corner.
     const saved = continuing ? context.savedFileOverlay?.(card) : undefined;
     const scale = context.homeCaptions === true ? context.posterScale?.() ?? 1 : 1;
-    const badges = context.overlays === undefined ? undefined : overlayLayer(saved === undefined ? card : { ...card, overlay: saved }, context.overlays, continuing ? "wide" : "poster", (continuing ? HOME_STILL_WIDTH : context.posterWidth ?? HOME_POSTER_WIDTH) * scale);
+    const overlays = context.overlays ?? context.cardOverlays?.();
+    const badges = overlays === undefined ? undefined : overlayLayer(saved === undefined ? card : { ...card, overlay: saved }, overlays, thumbnail ? "wide" : "poster", (thumbnail ? HOME_STILL_WIDTH : context.posterWidth ?? (context.homeCaptions === true ? HOME_POSTER_WIDTH : 260)) * scale);
     if (badges !== undefined) element.firstElementChild?.insertBefore(badges, element.firstElementChild.querySelector(".skyline-progress"));
     if (card.played === true) {
         const tick = el("span", "browse-watched");
@@ -135,16 +162,13 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     if (caption.line !== undefined) {
         element.appendChild(el("span", "browse-card-subtitle", caption.line));
     }
-    element.addEventListener("click", () => {
-        if (card.type === "episode" && context.playEpisode !== undefined) context.playEpisode(card.id, card.title);
-        else if (continuing && context.resume !== undefined && (card.type === "movie" || card.type === "episode")) context.resume(card.id, card.title);
-        else context.open(destination);
-    });
+    element.addEventListener("click", () => context.open(destination));
     element.addEventListener("focus", () => context.preview?.(card, "Browse"));
-    return mediaItem({ key: card.id, element }, card, context);
+    const play = card.type === "movie" || card.type === "episode" ? () => context.resume?.(card.id, card.title) : undefined;
+    return mediaItem({ key: card.id, element, ...(play === undefined ? {} : { play }) }, card, context, continuing ? play : undefined);
 }
 
-function cardItems(cards: readonly Card[], context: ViewContext): FocusItem[] {
+export function cardItems(cards: readonly Card[], context: ViewContext): FocusItem[] {
     const result: FocusItem[] = [];
     for (const card of cards) {
         const item = cardItem(card, context);
@@ -196,24 +220,64 @@ export interface HomeHandlers {
     readonly chooseProfile: () => void;
 }
 
+/** Resume rows. Apple `ResolvedSection.isContinueWatchingSection`: the server type, not the title. */
+function isContinueWatching(sectionType: string): boolean {
+    const type = sectionType.toLowerCase();
+    return type === "continue_watching" || type === "in_progress";
+}
+
+function isTvItem(type: Card["type"]): boolean {
+    switch (type) {
+        case "episode":
+        case "series":
+        case "season":
+            return true;
+        case "movie":
+        case "unknown":
+            return false;
+        default: {
+            const exhaustive: never = type;
+            return exhaustive;
+        }
+    }
+}
+
+/**
+ * Apple `SectionRow.layout(for:)` on tvOS (`SectionRow.swift`). The server sends the row type and
+ * items; it does not send a card shape. A type containing "next", and Continue Watching, are
+ * stills. Any other row is a still only when it contains an episode and every browsable item is
+ * TV, so one episode does not turn a shared movie row into stills. An all-audiobook row is square
+ * on Apple; this client does not browse audiobooks, so that row is omitted before layout.
+ */
+export function homeRowLayout(sectionType: string, cards: readonly Pick<Card, "type">[]): "poster" | "thumbnail" {
+    const type = sectionType.toLowerCase();
+    if (type.includes("next") || isContinueWatching(type)) return "thumbnail";
+    if (cards.some(card => card.type === "episode") && cards.every(card => isTvItem(card.type))) return "thumbnail";
+    return "poster";
+}
+
 /** SectionRowLimit.cards caps each Home shelf without changing the server's order. */
-export function homeRows(sections: readonly HomeSection[]): { section: HomeSection; continuing: boolean; cards: Card[] }[] {
-    return sections.map(section => ({ section, continuing: section.sectionType === "continue_watching", cards: section.items.filter(card => destinationOf(card) !== undefined).slice(0, HOME_ROW_CARDS) }));
+export function homeRows(sections: readonly HomeSection[]): { section: HomeSection; continuing: boolean; layout: "poster" | "thumbnail"; cards: Card[] }[] {
+    return sections.map(section => {
+        const cards = section.items.filter(card => destinationOf(card) !== undefined).slice(0, HOME_ROW_CARDS);
+        return { section, continuing: isContinueWatching(section.sectionType), layout: homeRowLayout(section.sectionType, cards), cards };
+    });
 }
 
 export function homeView(libraries: readonly UserLibrary[], sections: readonly HomeSection[], context: ViewContext, handlers: HomeHandlers): View {
     const zones: Zone[] = [];
     const content: HTMLElement[] = [];
     // Server order is the profile's order; featured rows render as ordinary rows (Apple HomeViewModel).
-    for (const { section, continuing, cards: titles } of homeRows(sections)) {
-        const cards = cardItems(titles, { ...context, continueWatching: continuing, homeCaptions: true, overlays: context.cardOverlays?.(), preview: (card) => context.preview?.(card, section.title, continuing) });
+    for (const { section, continuing, layout, cards: titles } of homeRows(sections)) {
+        const cards = cardItems(titles, { ...context, continueWatching: continuing, cardLayout: layout, homeCaptions: true, overlays: context.cardOverlays?.(), preview: (card) => context.preview?.(card, section.title, continuing, section.featured === true) });
         // A row of only books, podcasts or other media this client does not browse is left out.
         if (cards.length === 0) {
             continue;
         }
         const id = `section:${section.id}`;
-        if (handlers.canExpand?.(section) !== false) cards.push(exploreAllCard(section.title, `expand:${section.id}`, continuing, () => handlers.expand(section)));
-        zones.push({ id, layout: "row", items: cards });
+        if (handlers.canExpand?.(section) !== false) cards.push(exploreAllCard(section.title, `expand:${section.id}`, layout === "thumbnail", () => handlers.expand(section)));
+        // Apple `focusSection`: Up and Down between these rows stay geometric, including a row already visited.
+        zones.push({ id, layout: "row", spatial: true, items: cards });
         const block = el("section", "browse-section home-section");
         block.setAttribute("data-section", section.id);
         const title = el("h2", "browse-section-title", section.title);
@@ -244,7 +308,7 @@ export interface PagerState {
 }
 
 /** One page of cards and the buttons that move between pages. */
-export function pagedGrid(state: PagerState, context: ViewContext): { content: HTMLElement[]; zones: Zone[] } {
+export function pagedGrid(state: PagerState, context: ViewContext, columns = GRID_COLUMNS): { content: HTMLElement[]; zones: Zone[] } {
     const cards = cardItems(state.page.items, context).slice(0, state.pageSize);
     const pager: FocusItem[] = [];
     if (state.index > 0) {
@@ -253,16 +317,16 @@ export function pagedGrid(state: PagerState, context: ViewContext): { content: H
     if (state.page.nextCursor !== undefined) {
         pager.push(actionButton("next", "Next page", state.next));
     }
-    const pages = Math.max(1, Math.ceil(state.page.total / state.pageSize));
+    const pages = Math.max(1, Math.ceil((state.page.total ?? state.page.items.length) / state.pageSize));
     const position = state.loading
         ? "Loading the page."
-        : `Page ${state.index + 1} of ${state.page.totalExact ? pages : `about ${pages}`}`;
+        : state.page.total === undefined ? `Page ${state.index + 1}` : `Page ${state.index + 1} of ${state.page.totalExact ? pages : `about ${pages}`}`;
     const status = el("p", "browse-text browse-page-status", position);
     status.setAttribute("role", "status");
     return {
         content: [zoneNode("browse-grid", cards), ...(cards.length === 0 && pager.length === 0 ? [] : [status]), zoneNode("browse-actions", pager)],
         zones: [
-            { id: "grid", layout: "grid", columns: GRID_COLUMNS, items: cards },
+            { id: "grid", layout: "grid", columns, items: cards },
             { id: "pager", layout: "row", items: pager },
         ],
     };

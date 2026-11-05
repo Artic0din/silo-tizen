@@ -361,6 +361,9 @@ export class DeviceLogin {
             } catch {
                 return;
             }
+            // The wait can end in the same turn the screen hides. Apple's loop checks
+            // isActive before the next poll; a request already on the wire still finishes.
+            if (!this.active) continue;
             const lastChance = this.clock.now() >= deadline;
             // A request that hangs until its timeout counts from when it was sent.
             const sentAt = this.clock.now();

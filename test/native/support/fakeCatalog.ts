@@ -21,10 +21,13 @@ export interface FakeTitle {
     readonly duration?: number;
 }
 
+interface LibraryRow { id: string; sectionType?: string; title: string; items: string[] }
 interface Household {
     readonly libraries: { id: string; name: string; type: string; sort_order: number }[];
     hidden: number[] | null;
-    sections: { id: string; sectionType?: string; title: string; items: string[] }[];
+    sections: LibraryRow[];
+    /** When set, replaces the synthetic Library Picks row for this profile. */
+    librarySections?: LibraryRow[];
 }
 
 const OWNER = "p-owner";
@@ -42,7 +45,10 @@ export class FakeCatalog implements CatalogRoutes {
     readonly playbackWatched = new Set<string>();
     readonly watchOverrides = new Map<string, Record<string, unknown>>();
     persistStops = true;
+    /** Episode cards and rows carry still artwork and a description the spoiler switches can hide. */
+    episodeStills = false;
     private readonly failures = new Map<string, Reply[]>();
+    private readonly collectionLibraries = new Map<string, string>();
     private readonly searchContinuations = new Map<string, { q: string; type: string | null; household: Household; offset: number }>();
 
     constructor(movieCount = 60) {
@@ -164,17 +170,28 @@ export class FakeCatalog implements CatalogRoutes {
         if (url.pathname === "/catalog/search/capabilities") return { status: 200, body: this.searchCapabilities };
         if (url.pathname === "/catalog/filters") return { status: 200, body: { ...fixture("get_catalog_filters_ok"), genres: ["Drama", "Comedy"] } };
         const library = /^\/library\/([^/]+)\/(sections|collections)(?:\/([^/]+)\/items)?$/.exec(url.pathname);
-        const id = library?.[1] ?? (typeof body?.library_id === "string" ? body.library_id : undefined);
+        const collection = body?.source === "library_collection" || body?.source === "user_collection";
+        const collectionLibrary = collection && typeof body?.collection_id === "string" ? this.collectionLibraries.get(body.collection_id) : undefined;
+        const id = library?.[1] ?? (typeof body?.library_id === "string" ? body.library_id : collectionLibrary ?? (collection ? household.libraries[0]?.id : undefined));
         if (id === undefined) return undefined;
         if (!household.libraries.some(item => item.id === id)) return problem(404, "not_found", "Not found");
         const titles = [...this.titles.values()].filter(title => title.libraryId === id && this.visible(household, title.id) && (title.type === "movie" || title.type === "series"));
         if (library?.[2] === "sections" && method === "GET") {
-            const section = { id: "library-picks", section_type: "recently_added", title: "Library Picks", total_count: titles.length, items: titles.slice(0, 24).map(title => this.card(title.id)) };
-            return { status: 200, body: library[3] === undefined ? { sections: titles.length === 0 ? [] : [section] } : section };
+            const rows = household.librarySections ?? (titles.length === 0 ? [] : [{ id: "library-picks", sectionType: "recently_added", title: "Library Picks", items: titles.slice(0, 24).map(title => title.id) }]);
+            const sectionBody = (row: LibraryRow): Record<string, unknown> => {
+                const items = row.items.filter(item => this.visible(household, item)).map(item => this.card(item));
+                return { id: row.id, section_type: row.sectionType ?? row.id, title: row.title, total_count: items.length, items };
+            };
+            if (library[3] !== undefined) {
+                const row = rows.find(item => item.id === decodeURIComponent(library[3] ?? ""));
+                return row === undefined ? problem(404, "not_found", "Not found") : { status: 200, body: sectionBody(row) };
+            }
+            return { status: 200, body: { sections: rows.map(sectionBody).filter(section => arrayOf(section.items).length > 0) } };
         }
         if (library?.[2] === "collections" && library[3] === undefined) {
             if (titles.length === 0) return { status: 200, body: { library_id: id, collections: [], groups: [], ungrouped: { sort_order: 1, collections: [] } } };
             const collection = { id: "highlights", library_id: id, library_ids: [id], group_id: "curated", title: "Library Highlights", poster_url: "", item_count: titles.length, poster_is_collage: false };
+            this.collectionLibraries.set(collection.id, id);
             return { status: 200, body: { library_id: id, collections: [collection], groups: [{ id: "curated", name: "Curated", kind: "admin", sort_mode: "name_asc", sort_order: 0, collections: [collection] }], ungrouped: { sort_order: 1, collections: [] } } };
         }
         if (url.pathname === "/catalog/letters") {
@@ -184,7 +201,7 @@ export class FakeCatalog implements CatalogRoutes {
         }
         if (url.pathname !== "/catalog/query" && library?.[3] === undefined) return undefined;
         const descending = body?.order === "desc";
-        const ordered = [...titles].sort((a, b) => a.title.localeCompare(b.title));
+        const ordered = collection && body?.sort === undefined ? [...titles] : [...titles].sort((a, b) => a.title.localeCompare(b.title));
         if (descending) ordered.reverse();
         const groups = body?.groups;
         const filtered = Array.isArray(groups) && JSON.stringify(groups).includes('"Comedy"') ? [] : ordered;
@@ -258,6 +275,7 @@ export class FakeCatalog implements CatalogRoutes {
                         episode_number: episode.episode,
                         title: episode.title,
                         user_data: { ...toRecord(template.user_data), played: episode.episode === 1 },
+                        ...(this.episodeStills ? { still_url: `/art/${encodeURIComponent(episode.id)}-still.svg`, still_is_episode_still: true } : {}),
                         files: [{ file_id: this.fileIds.get(episode.id) ?? `f-${episode.id}`, resolution: "1080p", hdr: false, file_size: 1 }],
                     })),
                 },
@@ -330,6 +348,12 @@ export class FakeCatalog implements CatalogRoutes {
         if (series !== undefined) {
             Object.assign(card, { series_id: series.id, series_title: series.title, season_number: title.season, episode_number: title.episode });
         }
+        if (this.episodeStills && title.type === "episode") {
+            card.backdrop_url = `/art/${encodeURIComponent(id)}-still.svg`;
+            card.backdrop_is_episode_still = true;
+            card.poster_is_episode_still = true;
+            card.overview = "Secret chapter";
+        }
         const position = this.progress.get(id);
         if (position !== undefined) {
             card.position_seconds = position;
@@ -353,6 +377,8 @@ export class FakeCatalog implements CatalogRoutes {
         if (title.type === "series") {
             body.play_content_id = this.episodes(id)[0]?.id;
         }
+        // The catalog item fixture is a played movie. An episode still under test follows its own user_data.
+        if (this.episodeStills && title.type === "episode") body.user_state = { ...toRecord(body.user_state), played: this.playbackWatched.has(id) };
         return body;
     }
 

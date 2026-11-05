@@ -92,7 +92,7 @@ export class AccountVault extends CredentialVault {
         this.storage = storage;
         this.address = baseUrl;
         this.directory = new AccountDirectory(directoryStorage, random);
-        this.activeId = accountId ?? this.directory.list().find(row => row.id === this.directory.selected && row.baseUrl === baseUrl)?.id;
+        this.activeId = this.directory.list().find(row => row.id === (accountId ?? this.directory.selected) && row.baseUrl === baseUrl)?.id;
     }
     get localAccountId(): string | undefined { return this.activeId; }
     private accountVault(id: string): CredentialVault {

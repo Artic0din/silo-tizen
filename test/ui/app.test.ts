@@ -127,8 +127,18 @@ for (const column of ["accounts-rail", "accounts-pane", "accounts-settings"]) ap
     const first = tv.page.locator(`.${column} button`).first();
     await first.focus();
     const count = await tv.page.locator(`.${column} button`).count();
+    let removalRevealed = false;
     for (let i = 1; i < count; i++) {
         await tv.page.keyboard.press("ArrowDown");
+        if (column === "accounts-settings") {
+            await tv.jump(300);
+            const row = await tv.page.locator(":focus").evaluate(node => {
+                const bounds = node.getBoundingClientRect();
+                return { top: bounds.top, bottom: bounds.bottom, screen: window.innerHeight, key: node.getAttribute("data-focus") };
+            });
+            assert.ok(row.top >= 0 && row.bottom <= row.screen, JSON.stringify(row));
+            if (row.key?.startsWith("remove:")) removalRevealed = true;
+        }
         if (column === "accounts-rail" && i === count - 2) {
             await tv.jump(300);
             assert.ok(await tv.page.locator(".accounts-rail").evaluate(node => {
@@ -139,6 +149,7 @@ for (const column of ["accounts-rail", "accounts-pane", "accounts-settings"]) ap
         }
     }
     await tv.jump(300);
+    if (column === "accounts-settings") assert.ok(removalRevealed, "the removal row was reached and visible");
     const bounds = await tv.page.locator(`.${column}`).evaluate(node => {
         const viewport = node.getBoundingClientRect();
         const focused = document.activeElement!.getBoundingClientRect();

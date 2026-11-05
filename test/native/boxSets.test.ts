@@ -14,7 +14,8 @@ import {
     decodeCatalogBoxSetList,
     decodeCatalogItemBoxSet,
 } from "../../src/contracts/v2/boxSets.ts";
-import { boxSetRowFilms, boxSetRowSlots, boxSetRowStart } from "../../src/ui/boxSetRow.ts";
+import type { NativeSession } from "../../src/session/session.ts";
+import { BoxSetRowState, boxSetRowFilms, boxSetRowSlots, boxSetRowStart } from "../../src/ui/boxSetRow.ts";
 import { WireError } from "../../src/contracts/v2/wire.ts";
 
 const harryPotter = {
@@ -103,4 +104,61 @@ test("a movie page reads its box set, and the row keeps the film on screen", () 
     assert.equal(boxSetRowSlots(1744, 220, 44), 6);
     const films = Array.from({ length: 8 }, (_, index) => ({ id: `hp${index}` }));
     assert.deepEqual(boxSetRowFilms(films, "hp7", 6, true).map(film => film.id), ["hp3", "hp4", "hp5", "hp6", "hp7"]);
+});
+
+test("a finished box-set row refreshes when the movie is marked watched, and Back restarts a cancelled read once", async () => {
+    const pending: Array<(detail: ReturnType<typeof decodeCatalogBoxSetDetail>) => void> = [];
+    const session = {
+        call: () => new Promise(resolve => pending.push(resolve)),
+    } as unknown as NativeSession;
+    const row = new BoxSetRowState(session, "movie:m0001", async () => true, () => undefined);
+    const answer = (played: boolean) => decodeCatalogBoxSetDetail({
+        ...harryPotter,
+        played_count: played ? 1 : 0,
+        items: [movie("movie:m0001", "Philosopher's Stone", 2001, played)],
+    });
+    const settle = async (): Promise<void> => {
+        await Promise.resolve();
+        await Promise.resolve();
+    };
+    const take = (index: number): (detail: ReturnType<typeof decodeCatalogBoxSetDetail>) => void => {
+        const resolve = pending[index];
+        assert.ok(resolve, `box-set read ${index + 1} was sent`);
+        return resolve;
+    };
+
+    row.start();
+    await settle();
+    assert.equal(pending.length, 1);
+    row.start();
+    await settle();
+    assert.equal(pending.length, 1, "a read still out is left alone");
+    take(0)(answer(false));
+    await settle();
+    assert.equal(row.detail?.items[0]?.played, false);
+
+    row.start();
+    await settle();
+    assert.equal(pending.length, 2, "marking the movie watched rereads the finished row");
+    take(1)(answer(true));
+    await settle();
+    assert.equal(row.detail?.items[0]?.played, true, "the row shows the film as watched");
+
+    row.start();
+    await settle();
+    const held = pending.length;
+    assert.equal(held, 3);
+    row.stop();
+    row.start();
+    await settle();
+    assert.equal(pending.length, held + 1, "Back starts the cancelled read again");
+    row.start();
+    await settle();
+    assert.equal(pending.length, held + 1, "Back starts that read once");
+    take(held - 1)(answer(true));
+    await settle();
+    assert.equal(row.detail?.items[0]?.played, true, "the cancelled answer does not replace the row");
+    take(held)(answer(false));
+    await settle();
+    assert.equal(row.detail?.items[0]?.played, false);
 });

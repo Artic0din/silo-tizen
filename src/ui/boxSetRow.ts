@@ -96,6 +96,9 @@ export class BoxSetRowState {
                 this.detail = undefined;
                 this.changed();
             }
+        } finally {
+            // Only this read may release itself. A later start, including a watched refresh, can then proceed.
+            if (this.controller === controller) this.controller = undefined;
         }
     }
 }

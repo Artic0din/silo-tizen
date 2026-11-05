@@ -36,16 +36,22 @@ async function signIn(tv: Tv): Promise<void> {
     await tv.page.locator('[data-screen="code"]').waitFor();
     const code = [...tv.fake.devices.keys()].pop();
     assert.ok(code !== undefined);
-    tv.fake.approve(code);
-    await tv.jump(5000);
-    // "Signed in as …" holds for a second before sign-in moves on.
-    await tv.jump(1000);
-    if (await tv.page.locator('[data-screen="notice"]').count()) await tv.page.getByRole("button", { name: "Continue", exact: true }).click();
-    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    await approveSignIn(tv, code);
     await tv.page.locator('[data-focus="profile:p-owner"]').click();
     await tv.page.locator('[data-focus="ask-every-launch"]').click();
     await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
     await homeDetailsRead(tv);
+}
+
+async function approveSignIn(tv: Tv, code: string): Promise<void> {
+    tv.fake.approve(code);
+    await tv.jump(5000);
+    // The poll and vault callbacks must finish before advancing the approval pause.
+    await tv.page.locator('[data-screen="approved"], [data-screen="notice"], [data-screen="profiles"]').waitFor();
+    if (await tv.screen() === "approved") await tv.jump(1000);
+    await tv.page.locator('[data-screen="notice"], [data-screen="profiles"]').waitFor();
+    if (await tv.screen() === "notice") await tv.page.getByRole("button", { name: "Continue", exact: true }).click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
 }
 
 appTest("pending account removal blocks Cancel and Back until it settles", async tv => {
@@ -209,10 +215,7 @@ appTest("a guarded replacement reuses its live session but cannot restore after 
     await tv.page.evaluate(() => { window.appHarness.keyManager.failSave = true; });
     await tv.page.locator('[data-focus="add-account"]').click();
     await tv.page.locator('[data-screen="code"]').waitFor();
-    tv.fake.approve([...tv.fake.devices.keys()].pop()!);
-    await tv.jump(5000); await tv.jump(1000);
-    if (await tv.page.locator('[data-screen="notice"]').count()) await tv.page.getByRole("button", { name: "Continue", exact: true }).click();
-    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    await approveSignIn(tv, [...tv.fake.devices.keys()].pop()!);
     const devices = tv.fake.devices.size;
     await tv.page.locator('[data-focus="change-server"]').click();
     await tv.page.locator('[data-view="change-account"]').waitFor();

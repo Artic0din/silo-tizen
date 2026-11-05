@@ -1,8 +1,12 @@
-import { boolean, object, optionalString, string, WireError } from "./wire.ts";
+import { boolean, integer, object, optionalString, string, WireError } from "./wire.ts";
 import { decodeAudioTracks } from "./playback.ts";
 import type { SubtitleTrack } from "./playback.ts";
 
 export type SubtitleSignature = Pick<SubtitleTrack, "source" | "language" | "codec" | "label" | "forced" | "hearingImpaired">;
+export interface CatalogSubtitleTrack extends SubtitleSignature {
+    readonly selectionIndex: number | undefined;
+    readonly externalPath: string;
+}
 export type SubtitleIntent = { readonly kind: "auto" } | { readonly kind: "off" } | { readonly kind: "track"; readonly signature: SubtitleSignature };
 export interface SubtitlePreferences {
     readonly mode: "auto" | "always" | "off";
@@ -12,14 +16,15 @@ export interface SubtitlePreferences {
     readonly signature: SubtitleSignature | undefined;
 }
 
-export function decodeCatalogSubtitles(value: unknown, path: string): readonly SubtitleSignature[] {
+export function decodeCatalogSubtitles(value: unknown, path: string): readonly CatalogSubtitleTrack[] {
     const version = object(value, path);
     if (version.subtitle_tracks === undefined) return [];
     if (!Array.isArray(version.subtitle_tracks)) throw new WireError(`${path}.subtitle_tracks`, "an array");
     return version.subtitle_tracks.map((value: unknown, ordinal: number) => {
         const name = `${path}.subtitle_tracks[${ordinal}]`;
         const track = object(value, name);
-        return { source: track.external === undefined || !boolean(track, "external", name) ? "embedded" : "external", language: optionalString(track, "language", name), codec: optionalString(track, "codec", name), label: optionalString(track, "title", name) || optionalString(track, "embedded_title", name), forced: track.forced === undefined ? false : boolean(track, "forced", name), hearingImpaired: track.hearing_impaired === undefined ? false : boolean(track, "hearing_impaired", name) };
+        const external = track.external === undefined ? false : boolean(track, "external", name);
+        return { selectionIndex: (track.index === undefined ? (external ? undefined : 0) : integer(track, "index", name)), externalPath: external ? optionalString(track, "file_name", name) ?? "" : "", source: external ? "external" : "embedded", language: optionalString(track, "language", name), codec: optionalString(track, "codec", name), label: optionalString(track, "title", name) ?? optionalString(track, "embedded_title", name), forced: track.forced === undefined ? false : boolean(track, "forced", name), hearingImpaired: track.hearing_impaired === undefined ? false : boolean(track, "hearing_impaired", name) };
     });
 }
 

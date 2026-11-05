@@ -29,6 +29,16 @@ function liveScroll(_arg: null): number | null {
     return row.scrollLeft;
 }
 
+/** Season acceptance reads the playback episode, not every painted card. Count focus only after those item reads stop. */
+async function settledEpisodePrefetch(tv: Tv): Promise<void> {
+    const itemReads = (): number => tv.fake.requests.filter(request => request.path.startsWith("/catalog/items/")).length;
+    await tv.eventually(async () => {
+        const before = itemReads();
+        await tv.jump(100);
+        return itemReads() === before;
+    }, "opening episode prefetches settled");
+}
+
 for (const season of [1, 2, 30]) detailTest(`fresh season ${season} has no retained-reopen offset`, async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog);
     const seasons = catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body as { items: Record<string, unknown>[] };
@@ -580,6 +590,7 @@ detailTest("Final season E05 clamps with one successor while start and interior 
     assert.ok(Math.abs(end.cards[14]!.x - 1151) < 2, JSON.stringify(end));
     assert.ok(Math.abs(end.cards[15]!.right - 1817) < 2, JSON.stringify(end));
     assert.equal(end.scroll, 3846);
+    await settledEpisodePrefetch(tv);
     const reads = tv.fake.requests.length;
     await card('s13e5').focus(); await tv.jump(500);
     const middle = await readLive(tv, liveRail, null, value => {
@@ -617,6 +628,7 @@ detailTest("Apple loaded-season window rebases E05 and retains remote focus acro
     }, null, value => value === 111, "E05 frame x with loaded predecessor"), 111);
     await tv.page.locator('[data-focus="episode:s14e5"]').focus();
     await tv.jump(1500);
+    await settledEpisodePrefetch(tv);
     const reads = tv.fake.requests.length;
     await tv.remote(37);
     assert.equal(await tv.focused(), 'episode:s14e4');
@@ -1198,6 +1210,7 @@ detailTest("episode focus swaps cached hero and selectors without starting a rea
     await tv.page.locator('[data-focus="episode:s1e12"]').focus();
     await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).waitFor();
     assert.match(await tv.page.locator('.details-editorial .browse-overview').textContent() ?? '', /Harbor Lights chapter 1\.2/);
+    await settledEpisodePrefetch(tv);
     const before = tv.fake.requests.length;
     await tv.page.locator('[data-focus="episode:s1e11"]').focus();
     await tv.page.getByRole('button', { name: /Play S1:E1|Resume S1:E1/ }).waitFor();

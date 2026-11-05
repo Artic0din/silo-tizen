@@ -1,3 +1,6 @@
+/** Apple's focused History rows 2 and 3 put the unlifted poster top here. */
+const HISTORY_POSTER_TOP = 554;
+
 /** Retarget from the visible position; focus itself must never invoke browser scrolling. */
 export class SkylineScroll {
     private readonly frames = new Map<HTMLElement, number>();
@@ -53,6 +56,25 @@ export class SkylineScroll {
         }
         const rect = element.getBoundingClientRect();
         const bounds = viewport.getBoundingClientRect();
+        if (container.dataset.view === "personal:history" && element.closest(".catalog-grid") !== null) {
+            // HistoryView's plain ScrollView uses native edge reveal, not Home's row alignment.
+            // Keep the measured compact anchor, bounded by the complete focused card.
+            // Use final focus geometry so animation frames cannot retarget the scroll.
+            const art = element.querySelector<HTMLElement>(".browse-art");
+            if (art !== null) {
+                const height = parseFloat(getComputedStyle(art).height);
+                const artRect = art.getBoundingClientRect();
+                const top = artRect.top + (artRect.height - height) / 2;
+                const gap = parseFloat(getComputedStyle(element).getPropertyValue("--card-caption-gap"));
+                const captionLift = Math.max(0, height * .025 + 8 - gap);
+                const focusedHeight = Math.max(height * 1.025, element.offsetHeight + captionLift);
+                const anchor = Math.min(HISTORY_POSTER_TOP, bounds.bottom - 32 - focusedHeight);
+                const firstRow = element.offsetTop === (element.parentElement?.firstElementChild as HTMLElement | null)?.offsetTop;
+                const delta = top < bounds.top + 12 ? top - bounds.top - 12 : top > anchor ? top - anchor : 0;
+                this.move(viewport, 0, firstRow ? 0 : Math.max(0, viewport.scrollTop + delta));
+                return;
+            }
+        }
         // Apple's Requests band is view-aligned: the focused row's top sits on the band's top.
         // Apple view-aligns a Home row (`scrollTargetBehavior(.viewAligned)` on TVSkylineSectionFeed)
         // and a Requests row, so the focused row's top sits on the band's top.

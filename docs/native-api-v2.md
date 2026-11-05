@@ -255,7 +255,8 @@ Defined in `src/api/operations.ts` unless noted.
 | getWatch (detail) | `GET /watch/{id}` | safe |
 | resume position | `GET /watch/{id}?file_id=` (`src/api/detailOperations.ts`) | safe |
 | person | `GET /catalog/people/{id}` (`src/api/detailOperations.ts`) | safe |
-| filmography | `queryCatalogItems`: `POST /catalog/query?image_size=small`, body from `personQuery` (`src/ui/personFilmography.ts`) | safe |
+| refresh person metadata | `POST /catalog/people/{id}/refresh` (`src/api/detailOperations.ts`), queued receipt for the requested person | never |
+| filmography | `queryCatalogItems`: `POST /catalog/query?image_size=small`, body from `personQuery` (`src/ui/personFilmography.ts`), 60-title pages | safe |
 | similar | `GET /recommendations/similar/{id}?limit=24&image_size=small` (`src/api/detailOperations.ts`) | safe |
 | library sections | `GET /library/{id}/sections?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
 | section items | `GET /library/{id}/sections/{sectionId}/items?image_size=small` (`src/api/discoveryOperations.ts`) | safe |

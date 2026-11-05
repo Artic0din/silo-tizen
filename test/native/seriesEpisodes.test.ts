@@ -43,15 +43,15 @@ for (const recovery of ["retry", "selection"] as const) test(`one neighbour succ
     state.stop();
 });
 
-async function episodeRailHarness(failedSeason?: number, emptySeason?: number, heldSeason?: number) {
+async function episodeRailHarness(failedSeason?: number, emptySeason?: number, heldSeason?: number, seasonCount = 7) {
     const h = await connected(); await signIn(h);
     const profile = (await h.core.profiles.list()).find(profile => profile.id === "p-owner"); assert.ok(profile); h.core.profiles.select(profile);
     const catalog = new FakeDetails(); h.fake.catalog = catalog;
-    const seasons = decodeSeasons({ items: [1, 2, 3, 4, 5, 6, 7].map(number => ({ content_id: `s${number}`, season_number: number, title: `Season ${number}`, episode_count: 14 })) });
+    const seasons = decodeSeasons({ items: Array.from({ length: seasonCount }, (_, index) => ({ content_id: `s${index + 1}`, season_number: index + 1, title: `Season ${index + 1}`, episode_count: 14 })) });
     const body = catalog.route("GET", "/catalog/series/series%3As1/seasons/1/episodes", "p-owner")?.body as { items: Record<string, unknown>[] };
     for (const season of seasons) {
         const response = { status: 200, body: { items: Array.from({ length: 14 }, (_, index) => ({ ...body.items[0], content_id: `rail:${season.seasonNumber}:${index}`, season_number: season.seasonNumber, episode_number: index + 1 })) } };
-        h.fake.script(operations.listSeasonEpisodes("series:s1", season.seasonNumber).path, season.seasonNumber === failedSeason ? problem(422, "validation_failed", "Unavailable") : season.seasonNumber === emptySeason ? { status: 200, body: { items: [] } } : response, response);
+        h.fake.script(operations.listSeasonEpisodes("series:s1", season.seasonNumber).path, season.seasonNumber === failedSeason ? problem(422, "validation_failed", "Unavailable") : season.seasonNumber === emptySeason ? { status: 200, body: { items: [] } } : response, response, response);
     }
     const state = new SeriesEpisodes(h.core.session, "series:s1", seasons, () => undefined, 2);
     const held = heldSeason === undefined ? undefined : h.fake.hold(operations.listSeasonEpisodes("series:s1", heldSeason).path, true);
@@ -187,6 +187,25 @@ test("a successful automatic season can load again after bounded cache eviction"
         assert.equal(h.state.entryEpisode, `rail:${season}:0`);
     }
     assert.deepEqual(h.reads(), [2, 1, 3, 4, 5, 6, 7, 1, 2, 7].map(season => operations.listSeasonEpisodes("series:s1", season).path));
+});
+
+test("a cancelled season reloads after neighbour recovery once its page is evicted", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(undefined, undefined, undefined, 14); t.after(() => h.state.stop());
+    const held = h.fake.hold(operations.listSeasonEpisodes("series:s1", 4).path, true);
+    h.state.focusSeason(4); t.mock.timers.tick(70); await h.settle();
+    h.state.focusSeason(3); t.mock.timers.tick(70); await h.settle();
+    held.release(); await h.settle();
+    const restored = new SeriesEpisodes(h.core.session, "series:s1", h.state.seasons, () => undefined, 3);
+    restored.restore(h.state, true); h.state.stop(); t.after(() => restored.stop());
+    restored.start(); await h.settle();
+    assert.equal(restored.railEpisodes?.some(episode => episode.id === "rail:4:0"), true, "restored refresh warms the cancelled neighbour");
+    for (const season of [10, 11, 12, 13, 14]) { restored.focusSeason(season); t.mock.timers.tick(70); await h.settle(); }
+    restored.focusSeason(4); t.mock.timers.tick(70); await h.settle();
+    assert.equal(restored.failed, false);
+    assert.equal(restored.interrupted, false, "a successful neighbour page must not leave the cancellation marker");
+    assert.equal(restored.entryEpisode, "rail:4:0");
+    assert.deepEqual(h.reads(), [2, 1, 3, 4, 3, 4, 10, 11, 12, 13, 14, 4].map(season => operations.listSeasonEpisodes("series:s1", season).path));
 });
 
 for (const outcome of ["failed", "cancelled"] as const) test(`rail boundaries cannot retry a ${outcome} automatic pill read`, async t => {

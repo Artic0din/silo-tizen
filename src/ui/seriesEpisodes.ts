@@ -159,6 +159,7 @@ export class SeriesEpisodes {
         this.requestedBoundaries.clear();
         this.failedNeighbors.clear();
         this.failedSelections.clear();
+        this.cancelledSeasons.delete(season);
         this.controller?.abort();
         this.controller = undefined;
         this.neighbors?.abort();
@@ -176,6 +177,7 @@ export class SeriesEpisodes {
 
     publishTranslatedEpisodes(season: number, episodes: readonly Episode[]): void {
         if (!this.active || this.seasonNumber !== season) return;
+        this.cancelledSeasons.delete(season);
         this.episodes = episodes;
         this.pages.set(season, episodes);
         this.updateWindow();
@@ -221,6 +223,7 @@ export class SeriesEpisodes {
             this.failed = false;
             this.episodes = episodes;
             this.failedSelections.delete(season);
+            this.cancelledSeasons.delete(season);
             this.pages.set(season, episodes);
             this.updateWindow();
             if (!episodes.some(episode => episode.id === this.entryEpisode)) this.entryEpisode = (this.focusSelectedEpisode ? episodes[0] : episodes.find(episode => episode.inProgress) ?? episodes.find(episode => !episode.played) ?? episodes[0])?.id;
@@ -320,6 +323,7 @@ export class SeriesEpisodes {
             if (!this.active || controller.signal.aborted) return;
             this.failedNeighbors.delete(number);
             this.failedSelections.delete(number);
+            this.cancelledSeasons.delete(number);
             this.pages.set(number, page);
             if (this.seasonNumber === number && this.episodes === undefined) {
                 this.failed = false;

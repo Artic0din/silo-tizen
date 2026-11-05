@@ -208,13 +208,15 @@ test("For You retains cached recommendations after remount while unreachable", a
         await start(tv);
         await tv.page.locator('[data-focus="for_you"]').click();
         await tv.page.locator('[data-view="for_you"] .browse-card').first().waitFor();
-        await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+        let rejected = 0;
+        await tv.page.route("**/api/v2/**", route => { rejected++; return route.abort("connectionrefused"); });
         await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
         await tv.page.locator('[data-focus="for_you"]').click();
         await tv.page.locator('[data-view="for_you"] .browse-card').first().waitFor();
         await tv.jump(35000);
         await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.cacheOffline("for_you")), "cached transport failure");
         assert.ok(await tv.page.locator('[data-view="for_you"] .browse-card').count() > 0);
+        assert.ok(rejected > 0, "fresh mount attempted reads while unreachable");
         assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Can't reach server|showing cached content/);
     } finally { await tv.page.context().close(); }
 });

@@ -15,6 +15,39 @@ function storage() {
     return { values, getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); }, removeItem: (key: string) => { values.delete(key); } };
 }
 const scope = ["server", "account", "profile"] as const;
+test("Details reads touch LRU order and retain relative artwork in memory", async () => {
+    const cache = new BrowseCache(undefined, scope, new AbortController().signal);
+    const item = (id: number): RequestSpec<unknown> => ({ ...spec, path: `/catalog/items/${id}` });
+    for (let id = 0; id < 20; id++) await cache.read(item(id), async request => request.decode({ poster_url: "/api/v2/images/poster" }));
+    assert.deepEqual(cache.peek(item(0)), { poster_url: "/api/v2/images/poster" });
+    await cache.read(item(20), async request => request.decode({}));
+    assert.ok(cache.peek(item(0)));
+    assert.equal(cache.peek(item(1)), undefined);
+});
+test("Details LRU touches protect a visited title from the next insertion", async () => {
+    const cache = new BrowseCache(undefined, scope, new AbortController().signal);
+    const item = (id: number): RequestSpec<unknown> => ({ ...spec, path: `/catalog/items/${id}` });
+    for (let id = 0; id < 20; id++) await cache.read(item(id), async request => request.decode(id));
+    assert.equal(cache.peek(item(0)), 0);
+    await cache.read(item(20), async request => request.decode(20));
+    assert.equal(cache.peek(item(0)), 0);
+    assert.equal(cache.peek(item(1)), undefined);
+});
+test("enrichment transport failures cannot displace Home recovery", async () => {
+    const cache = new BrowseCache(undefined, scope, new AbortController().signal);
+    await cache.read(spec, async request => request.decode({}));
+    await cache.read(spec, offline);
+    for (let id = 0; id < 40; id++) await assert.rejects(cache.read({ ...spec, path: `/catalog/items/${id}` }, offline));
+    assert.equal(cache.isOffline(spec), true);
+});
+test("recovery drops a removed version selection", async () => {
+    const h = await connected(); await signIn(h);
+    const detail = decodeItemDetail(fixture("get_catalog_item_ok"));
+    const state = new DetailsState(detail, h.core.session, () => {}, async () => {});
+    state.selectedFileId = "removed-file";
+    state.acceptDetail(detail);
+    assert.equal(state.selectedFileId, undefined);
+});
 test("cached responses survive a new owner, remain available offline and recover", async () => {
     const store = storage();
     const cache = new BrowseCache(store, scope, new AbortController().signal);

@@ -30,11 +30,11 @@ function persistent(key: string): boolean {
     return key === "/home/sections" || key === "/recommendations/discover" || key === "/user/libraries" || key === "/settings/values/effective";
 }
 
-// Keep metadata, never URL capabilities or credentials. Artwork falls back to existing placeholders.
-function clean(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map(clean);
+// Relative artwork paths can survive in memory; URL capabilities never enter snapshots.
+function clean(value: unknown, artwork = false): unknown {
+    if (Array.isArray(value)) return value.map(child => clean(child, artwork));
     if (typeof value !== "object" || value === null) return value;
-    return Object.fromEntries(Object.entries(value).filter(([key]) => !/url|token|authorization|password|secret/i.test(key)).map(([key, child]) => [key, clean(child)]));
+    return Object.fromEntries(Object.entries(value).filter(([key, child]) => !/url|token|authorization|password|secret/i.test(key) || (artwork && /^(poster|backdrop|logo)_url$/.test(key) && typeof child === "string" && /^\/(?!\/)[^?#]*$/.test(child))).map(([key, child]) => [key, clean(child, artwork)]));
 }
 
 /** One active authority owns memory and optional snapshots; no expiry, like Apple. */
@@ -86,8 +86,11 @@ export class BrowseCache {
     peek<T>(spec: RequestSpec<T>): T | undefined {
         const key = cacheKey(spec);
         const raw = key === undefined || this.closed ? undefined : this.entries.get(key);
-        if (raw === undefined) return undefined;
-        try { return spec.decode(clean(JSON.parse(raw))); }
+        if (raw === undefined || key === undefined) return undefined;
+        try {
+            this.entries.delete(key); this.entries.set(key, raw);
+            return spec.decode(clean(JSON.parse(raw), !persistent(key)));
+        }
         catch { if (key !== undefined) this.entries.delete(key); return undefined; }
     }
 
@@ -111,7 +114,7 @@ export class BrowseCache {
             if (key === undefined || this.closed || spec.signal?.aborted || !(error instanceof ApiError) || !["network", "timeout"].includes(error.failure.kind)) throw error;
             this.unreachable.add(key);
             if (this.unreachable.size > MAX_ENTRIES) {
-                const oldest = this.unreachable.values().next().value;
+                const oldest = [...this.unreachable].find(key => !persistent(key));
                 if (oldest !== undefined) this.unreachable.delete(oldest);
             }
             const cached = this.peek(spec);
@@ -121,7 +124,7 @@ export class BrowseCache {
     }
 
     private store(key: string, raw: unknown): void {
-        const value = JSON.stringify(clean(raw));
+        const value = JSON.stringify(clean(raw, !persistent(key)));
         this.entries.delete(key);
         if (value.length * 2 > MAX_BYTES / 2) return;
         this.entries.set(key, value);

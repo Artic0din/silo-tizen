@@ -112,6 +112,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const clock = options.clock ?? systemClock;
     const cache = browseCache(options.publicStorage, [server.server.serverId, session.account?.id ?? "", session.activeProfile.id], session.authoritySignal);
     const cachedDetailOwners = new WeakSet<DetailsState>();
+    const visitedDetails = new Map<string, DetailsState>();
     const deferredDetails = new WeakSet<Route>();
     let cancelOfflineRefresh = (): void => {};
     const container = el("div", "browse");
@@ -235,6 +236,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         render({ zone: more ? "more" : "actions", key: "synopsis" });
     });
     const stopDetails = (): void => {
+        if (detailWork !== undefined) {
+            visitedDetails.delete(detailWork.detail.id);
+            visitedDetails.set(detailWork.detail.id, detailWork);
+            if (visitedDetails.size > 20) visitedDetails.delete(visitedDetails.keys().next().value!);
+        }
         synopsis.destroy(); detailWork?.stop(); detailWork = undefined;
         personRead?.controller.abort();
         if (personRead?.route.kind === "person") { personRead.route.metadataLoading = false; personRead.route.availabilityLoading = false; }
@@ -596,6 +602,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const read = <T>(spec: RequestSpec<T>, signal: AbortSignal): Promise<T> => cache.read({ ...spec, signal }, request => session.call({ ...request, profileScoped: true }));
     const routeOffline = (current: Route): boolean => {
+        if (current.kind === "item" && current.data?.details?.offline === true) return true;
         const specs = current.kind === "home" ? [operations.listHomeSections(), operations.listUserLibraries(), operations.hiddenLibraries()]
             : current.kind === "for_you" ? [operations.recommendations()]
             : current.kind === "item" ? [operations.getCatalogItem(current.id), operations.listSeriesSeasons(current.id)] : [];
@@ -678,7 +685,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         });
     };
     // Detail fields Home shows but its rows lack, read once per Home load and never on focus.
-    const homeDetails = new HomeEnrichment(read, id => { if (!torn) shell.refreshDetails(id); }, () => {
+    const homeDetails = new HomeEnrichment((spec, signal) => session.call({ ...spec, signal, profileScoped: true }), id => { if (!torn) shell.refreshDetails(id); }, () => {
         // Continue Watching cards redraw once with saved-file badges, keeping focus where it is.
         const current = top();
         if (!torn && !playing && current !== undefined && (current.kind === "home" || isSectionRoute(current) || current.kind === "libraryResults" || (current.kind === "library" && current.discovery?.mode === "Recommended")) && presentation.cardOverlays !== undefined) {
@@ -1109,7 +1116,6 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 search(current, quiet);
                 return;
             case "item":
-                const detailEntryRevision = inputRevision;
                 if (current.data?.details === undefined) stopDetails();
                 load(current, async (signal) => {
                     // Slots follow response fields: backdrop_width also sizes a still returned in backdrop_url.
@@ -1130,25 +1136,24 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                         if (data.detail.type === "series") {
                             const series = previous.series;
                             series?.stop();
-                            const season = inputRevision === detailEntryRevision ? data.contextSeason ?? series?.seasonNumber : series?.seasonNumber;
+                            const season = series?.selectionChanged ? series.seasonNumber : data.contextSeason ?? series?.seasonNumber;
                             previous.series = new SeriesEpisodes(session, data.detail.id, data.seasons, () => detailsChanged(current), season, current.seriesContext?.episodeId);
-                            previous.series.restore(series);
+                            previous.series.restore(series, true);
                             previous.series.start();
                         }
                         current.data = { ...data, details: previous };
-                        if (current.focus === undefined && data.contextSeason !== undefined && data.seasons.some(item => item.seasonNumber === data.contextSeason)) return { zone: "seasons", key: `season:${data.contextSeason}` };
+                        if (!previous.series?.selectionChanged && current.focus === undefined && data.contextSeason !== undefined && data.seasons.some(item => item.seasonNumber === data.contextSeason)) return { zone: "seasons", key: `season:${data.contextSeason}` };
                         return;
                     }
                     const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending);
                     details.restore(previous);
                     if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, () => detailsChanged(current), previous?.series?.seasonNumber ?? data.contextSeason, current.seriesContext?.episodeId);
-                    details.series?.restore(previous?.series);
+                    details.series?.restore(previous?.series, true);
                     details.related = quiet ? previous?.related : undefined;
                     stopDetails();
                     current.data = { ...data, details };
                     detailWork = details;
                     details.start();
-                    if (details.related !== undefined) details.loadRelated();
                     const season = data.contextSeason;
                     if (current.focus === undefined && season !== undefined && data.seasons.some(item => item.seasonNumber === season)) return { zone: "seasons", key: `season:${season}` };
                 }, quiet);
@@ -1423,7 +1428,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (detail !== undefined) {
                 const seasons = cache.peek(operations.listSeriesSeasons(current.id)) ?? [];
                 const details = new DetailsState(detail, session, key => detailsChanged(current, key), (value, signal) => refreshWatched(current, value, signal), personalPending);
+                details.restore(visitedDetails.get(current.id));
                 if (detail.type === "series") details.series = new SeriesEpisodes(session, detail.id, seasons, () => detailsChanged(current), current.seriesContext?.seasonNumber, current.seriesContext?.episodeId);
+                details.series?.restore(visitedDetails.get(current.id)?.series);
                 current.data = { detail, seasons, details };
                 cachedDetailOwners.add(details);
                 current.stale = true;
@@ -1862,6 +1869,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 presentation.reload();
                 void navigation.reload();
                 if (hiddenChanged) {
+                    cache.invalidate();
+                    visitedDetails.clear();
                     // This read still has the hidden list from before Settings. Calendar
                     // applies the new one; the old answer must not put those tabs back.
                     homeLibraries?.abort();

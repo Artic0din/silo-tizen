@@ -13,21 +13,28 @@ Authority loss clears memory and snapshots and fences pending responses.
 Account removal also clears snapshots when no Browse screen is mounted.
 Changing any scope component closes the previous cache owner.
 Optional storage failures leave the memory cache usable.
-URL and credential fields are removed recursively before caching; artwork uses the existing fallback when its URL is unavailable.
+Persistent snapshots strip URL and credential fields recursively.
+In-memory Details retains relative artwork paths without query strings; signed or external URLs still use the existing fallback.
 Snapshots are decoded with the existing API decoders before use.
 
 The cache has no time expiry.
 It keeps at most 32 responses overall, including at most 20 Details/season responses, with a 512 KiB UTF-16 payload budget and a 1 MiB snapshot-read ceiling.
-Oldest written responses leave first.
+Reads touch the response eviction order.
+Home enrichment has its own owner and cannot populate or evict the visited Details pool.
+Up to 20 visited Details states retain supporting display reads in memory.
+Personal-write reconciliation and confirmation always require fresh reads.
 Metadata writes and returning from playback invalidate snapshots, with a generation fence against older reads.
 While a cached page is unreachable, the visible route retries its normal reads after 15 seconds.
 Cached metadata stays on screen without an unreachable notice, matching Apple TV.
+Optional personal, next-episode, title-art and related reads retain prior display values on transport failure.
+Uncached optional failures omit the corresponding unavailable content rather than adding red notices.
+Failed episode hierarchy reads still show the episode Retry alongside retained episodes, as Apple TV does.
 Recovery replaces the metadata.
 The app uses native API v2 reads for recovery, because Apple's unversioned health endpoint is outside this client's contract.
 
 ## Apple reference
 
-Read-only `origin/main` source: `Silo-Server/silo-apple`, commit `bef81e8652a89c23a1c3cf07e312e9444baa6c4c`.
+Read-only `origin/main` source: `Silo-Server/silo-apple`, commit `7baff3ef657757cc0a69202e86dd4bd5c7fcb585`.
 This identifies source, not an installed Apple build.
 
 - `iosApp/iosApp/Networking/ResponseCache.swift:7-12`: decoded responses, stale while revalidating, no TTL or LRU at this owner.
@@ -44,7 +51,11 @@ This identifies source, not an installed Apple build.
 Home's `ServerUnreachablePill` at line 180 sits after the non-tvOS `#else` at line 107.
 Tizen follows the tvOS branch and keeps cached Home, For You and Details visible without that notice.
 Downloads are excluded; no tvOS download flow is ported.
-The byte budget, metadata-only artwork fallback, conservative cache invalidation and recovery through page reads are explicit Tizen choices.
+The byte budget, restricted artwork paths, conservative cache invalidation and recovery through page reads are explicit Tizen choices.
+Apple's `tvOS/Caching/ItemDetailCache.swift:25-34,149-160` retains 20 visited view models in LRU order; Home enrichment uses the separate shared response cache.
+`Screens/Detail/ItemDetailViewModel.swift:385-390,570-622,1431-1433` preserves cached detail, hierarchy and personal values.
+`tvOS/Screens/Detail/TVItemDetailView.swift:868-873` retains usable cached next-episode playback detail.
+`tvOS/Screens/Detail/TVSeriesDetailView.swift:582-589,801-811` explicitly offers hierarchy Retry, including with cached episodes.
 
 ## Pending native comparison
 

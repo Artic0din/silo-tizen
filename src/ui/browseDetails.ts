@@ -156,11 +156,11 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         const target = state?.nextEpisode;
         const targetChoices = target === undefined ? undefined : playChoices(target);
         const label = target === undefined ? "Loading episode…" : `${targetChoices?.resume === undefined ? "Play" : "Resume"} ${episodeLabel(target.seasonNumber, target.episodeNumber) ?? target.title}`;
-        const primary = actionButton("next-episode", state?.nextEpisodeFailed === true ? "Retry episode" : target !== undefined && targetChoices === undefined ? "Episode unavailable" : label, () => {
+        const primary = actionButton("next-episode", state?.nextEpisodeFailed === true ? (state.offline ? "Episode unavailable" : "Retry episode") : target !== undefined && targetChoices === undefined ? "Episode unavailable" : label, () => {
             if (state?.nextEpisodeFailed === true) state.loadNextEpisode();
             else if (target !== undefined && targetChoices !== undefined) context.playEpisode?.(target.id, target.title);
         });
-        primary.element.setAttribute("aria-disabled", String(state?.nextEpisodeFailed !== true && targetChoices === undefined));
+        primary.element.setAttribute("aria-disabled", String(targetChoices === undefined && (state?.offline === true || state?.nextEpisodeFailed !== true)));
         actions.push(primary);
         if (targetChoices?.resume !== undefined && target !== undefined) actions.push(actionButton("start-over-episode", "Start Over", () => context.playEpisode?.(target.id, target.title, true)));
         if (target !== undefined && targetChoices === undefined) notes.push("This episode has no file this TV can play.");
@@ -195,7 +195,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     if (actions.length === 0 && seasonItems.length === 0) {
         actions.push(actionButton("back", "Back", back));
     }
-    if (state?.titleArtPolicy === "failed") actions.push(actionButton("retry-title-art", "Retry title art", () => state.loadTitleArt()));
+    if (state?.titleArtPolicy === "failed" && !state.offline) actions.push(actionButton("retry-title-art", "Retry title art", () => state.loadTitleArt()));
     if (state?.failedPlay !== undefined) {
         const request = state.failedPlay;
         actions.push(actionButton("retry-play", "Try again", () => play(request)));
@@ -225,8 +225,8 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     if (state?.failedPlay !== undefined) {
         content.push(...lines(["Could not check resume position."], "error"));
     }
-    if (state?.nextEpisodeFailed === true) content.push(...lines(["Could not load the next episode."], "error"));
-    if (state?.titleArtPolicy === "failed") content.push(...lines(["Could not load title-art settings."], "error"));
+    if (state?.nextEpisodeFailed === true && !state.offline) content.push(...lines(["Could not load the next episode."], "error"));
+    if (state?.titleArtPolicy === "failed" && !state.offline) content.push(...lines(["Could not load title-art settings."], "error"));
     if (series !== undefined) content.push(...series.content);
     else if (seasonItems.length > 0) {
         content.push(el("h2", "browse-section-title", "Seasons"), zoneNode("browse-row", seasonItems));
@@ -247,14 +247,14 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         content.push(el("h2", "browse-section-title", "Cast & Crew"), zoneNode("browse-row details-people", people));
         zones.push({ id: "people", layout: "row", items: people });
     }
-    if (state !== undefined) {
+    if (state !== undefined && !(state.offline && state.related === undefined)) {
         // SimilarPosterItem keeps the poster fields and drops userState. The watched
         // badge is userState.played, so a played recommendation does not show it.
         const related = titleCards((state.related ?? []).map(card => ({ ...card, played: undefined })), context);
         const section = zoneNode("browse-row", related);
         section.setAttribute("data-detail-section", "related");
         content.push(el("h2", "browse-section-title", "Related titles"));
-        if (state.relatedFailed) {
+        if (state.relatedFailed && !state.offline) {
             const retry = actionButton("retry-related", "Retry related titles", () => state.loadRelated());
             content.push(...lines(["Could not load related titles."], "error"), zoneNode("browse-actions", [retry]));
             related.push(retry);
@@ -330,6 +330,7 @@ export function personalControls(state: DetailsState): { items: FocusItem[]; not
     const items: FocusItem[] = [];
     const notes: HTMLElement[] = [];
     for (const kind of ["watched", "favorites", "watchlist"] as const) {
+        if (kind !== "watched" && state.personalSupported === false) continue;
         const value = state.values.get(kind);
         if (value === undefined) continue;
         const change = state.changes.get(kind);
@@ -340,8 +341,8 @@ export function personalControls(state: DetailsState): { items: FocusItem[]; not
         items.push(item);
         if (change?.failed) notes.push(...lines([`Could not update ${kind}.`], "error"));
     }
-    if (state.personalFailed) items.push(actionButton("retry-personal", "Retry personal actions", () => { if (!state.busy) state.loadPersonal(); }));
-    if (state.personalSupported === undefined) notes.push(...lines([state.personalFailed ? "Could not load personal actions." : "Loading personal actions."], state.personalFailed ? "error" : "info"));
+    if (state.personalFailed && !state.offline) items.push(actionButton("retry-personal", "Retry personal actions", () => { if (!state.busy) state.loadPersonal(); }));
+    if (state.personalSupported === undefined && !state.offline) notes.push(...lines([state.personalFailed ? "Could not load personal actions." : "Loading personal actions."], state.personalFailed ? "error" : "info"));
     return { items, notes };
 }
 

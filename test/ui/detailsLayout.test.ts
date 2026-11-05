@@ -86,6 +86,11 @@ detailTest("More owns accessible personal-action loading and failure announcemen
 detailTest("cached Details recovery restores failed personal controls", async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().waitFor();
     await homeDetailsRead(tv);
+    const personal = tv.fake.hold("/capabilities/personal-lists", true);
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
+    await tv.remote(10009);
+    personal.release();
     await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     await tv.jump(35000);

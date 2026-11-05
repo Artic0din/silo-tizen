@@ -19,6 +19,27 @@ const BACK = 10009;
 const IME_DONE = 65376;
 const PAGE_SIZE = 24;
 
+for (const outage of ["all", "supporting"] as const) browseTest(`offline Details retains supporting content and recovers: ${outage}`, async tv => {
+    const card = tv.page.locator('.browse-card[data-focus="movie:m0002"]').first();
+    await card.click();
+    await showing(tv, "item:movie:m0002");
+    await tv.page.locator('[data-detail-section="related"] .browse-card').first().waitFor();
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.remote(BACK);
+    const blocked = outage === "all" ? "**/api/v2/**" : "**/api/v2/recommendations/similar/**";
+    await tv.page.route(blocked, route => route.abort("connectionrefused"));
+    await card.click();
+    await showing(tv, "item:movie:m0002");
+    await tv.jump(35000);
+    assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Could not load|Retry personal|Retry title|Retry related/);
+    assert.ok(await tv.page.locator('[data-detail-section="related"] .browse-card').count() > 0);
+    assert.equal(await tv.page.locator('[data-focus="watchlist"]').count(), 1);
+    await tv.page.unroute(blocked);
+    const reads = tv.fake.requests.filter(request => request.path.startsWith("/recommendations/similar/")).length;
+    await tv.jump(35000);
+    await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/recommendations/similar/")).length > reads, "automatic supporting recovery");
+}, { catalog: new FakeDetails() });
+
 browseTest("collection detail matches measured Apple layout and truncates long captions", async (tv, catalog) => {
     await tv.page.route("**/api/v2/shuffles/capabilities", route => route.fulfill({ json: { allowed: true, state: "available", scope_kinds: ["library_collection"] } }));
     await tv.page.locator('[data-focus="movies"]').click();
@@ -1337,8 +1358,10 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
     assert.equal((await tv.page.evaluate(() => window.browseHarness.plays))[0]?.fileId, "43");
     assert.equal((await tv.page.evaluate(() => window.browseHarness.plays))[0]?.startSeconds, 0);
     const personal = tv.fake.hold("/capabilities/personal-lists");
+    const personalReads = tv.fake.requests.filter(request => request.path === "/capabilities/personal-lists").length;
     await tv.page.evaluate(() => window.browseHarness.resume());
-    await shows(tv, "Loading personal actions.");
+    await tv.eventually(async () => tv.fake.requests.filter(request => request.path === "/capabilities/personal-lists").length > personalReads, "personal refresh started");
+    assert.equal(await tv.page.locator('[data-focus="watchlist"]').count(), 1, "cached personal actions remain visible while refreshing");
     personal.release();
     await tv.page.locator('[data-focus="watchlist"]').waitFor();
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "refreshed related titles");
@@ -1683,6 +1706,7 @@ browseTest("optional Details reads load independently, fail, retry and report em
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await tv.eventually(async () => tv.fake.requests.filter((request) => request.path === "/capabilities/personal-lists").length === 3, "unsupported capability");
+    await tv.eventually(async () => await tv.page.locator('[data-focus="watchlist"], [data-focus="favorites"]').count() === 0, "unsupported capability applied");
     assert.equal(await tv.page.locator('[data-focus="watchlist"], [data-focus="favorites"]').count(), 0);
 }, { catalog: new FakeDetails() });
 

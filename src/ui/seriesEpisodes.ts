@@ -8,6 +8,7 @@ export class SeriesEpisodes {
     episodes: readonly Episode[] | undefined;
     entryEpisode: string | undefined;
     failed = false;
+    selectionChanged = false;
     private active = false;
     private loaded = false;
     private controller: AbortController | undefined;
@@ -31,7 +32,8 @@ export class SeriesEpisodes {
         if (!this.loaded && this.controller === undefined && !this.failed) this.load(true);
     }
 
-    restore(previous: SeriesEpisodes | undefined): void {
+    restore(previous: SeriesEpisodes | undefined, sameVisit = false): void {
+        this.selectionChanged = sameVisit && previous?.selectionChanged === true;
         if (previous !== undefined && previous.seasonNumber === this.seasonNumber) this.episodes = previous.episodes;
     }
 
@@ -44,6 +46,7 @@ export class SeriesEpisodes {
     select(season: number): void {
         if (!this.active || !this.seasons.some(item => item.seasonNumber === season) || (season === this.seasonNumber && (this.episodes !== undefined || this.controller !== undefined))) return;
         this.seasonNumber = season;
+        this.selectionChanged = true;
         this.entryEpisode = undefined;
         this.load();
     }

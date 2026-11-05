@@ -33,6 +33,9 @@ export class DetailsState {
     nextEpisodeFailed = false;
     private nextEpisodeRevision = 0;
     private full = false;
+    private restored = false;
+    private readonly responses = new Map<string, unknown>();
+    offline = false;
     private audioPick: { fileId: string; ordinal: number; inventory: string } | undefined;
     private subtitlePick: { fileId: string; inventory: string; intent: SubtitleIntent } | undefined;
     related: readonly Card[] | undefined;
@@ -64,19 +67,22 @@ export class DetailsState {
     get busy(): boolean { return this.pending || this.rating.pending || this.pendingElsewhere(); }
 
     acceptDetail(detail: ItemDetail): void {
+        const retrySupporting = this.offline;
+        this.offline = false;
         const changedTarget = this.detail.playContentId !== detail.playContentId;
         this.detail = detail;
+        if (!detail.versions.some(file => file.fileId === this.selectedFileId)) this.selectedFileId = undefined;
         if (changedTarget) {
             this.nextEpisodeRevision++;
             this.nextEpisode = undefined;
             this.nextEpisodeLoading = false;
             this.nextEpisodeFailed = false;
         }
-        if (changedTarget || this.nextEpisodeFailed) this.loadNextEpisode();
+        if (changedTarget || this.nextEpisodeFailed || retrySupporting) this.loadNextEpisode();
         if (this.controller === undefined || !this.full) return;
-        if (this.personalFailed) this.loadPersonal();
-        if (this.relatedFailed) this.loadRelated();
-        if (this.titleArtPolicy === "failed") this.loadTitleArt();
+        if (this.personalFailed || retrySupporting) this.loadPersonal();
+        if (this.relatedFailed || retrySupporting) this.loadRelated();
+        if (this.titleArtPolicy === "failed" || retrySupporting) this.loadTitleArt();
         if (this.rating.failed && this.rating.failedTarget === undefined) this.rating.load();
     }
 
@@ -88,7 +94,7 @@ export class DetailsState {
         this.stopAuthority = this.session.onAuthorityChange(() => { this.stop(); this.changed(); });
         if (mode === "full") this.series?.start();
         if (mode === "full") this.loadTitleArt();
-        if (mode === "full" && this.nextEpisode === undefined && !this.nextEpisodeFailed) this.loadNextEpisode();
+        if (mode === "full" && (this.nextEpisode === undefined || this.restored) && !this.nextEpisodeFailed) this.loadNextEpisode();
         let interrupted = false;
         for (const [kind, change] of this.changes) {
             if (change.pending) {
@@ -97,8 +103,9 @@ export class DetailsState {
             }
         }
         if (interrupted) this.changed();
-        if (mode === "full" && this.related === undefined) this.loadRelated();
-        if (this.personalSupported === undefined) this.loadPersonal();
+        if (mode === "full" && (this.related === undefined || this.restored)) this.loadRelated();
+        if (this.personalSupported === undefined || (this.restored && this.changes.size === 0)) this.loadPersonal();
+        this.restored = false;
     }
 
     stop(): void {
@@ -151,6 +158,12 @@ export class DetailsState {
 
     restore(previous: DetailsState | undefined): void {
         if (previous === undefined) return;
+        this.restored = true;
+        for (const [key, value] of previous.responses) this.responses.set(key, value);
+        this.related = previous.related;
+        this.nextEpisode = previous.nextEpisode?.id === this.detail.playContentId ? previous.nextEpisode : undefined;
+        this.personalSupported = previous.personalSupported;
+        for (const [key, value] of previous.values) if (key !== "watched") this.values.set(key, value);
         if (this.detail.versions.some(file => file.fileId === previous.selectedFileId)) this.selectedFileId = previous.selectedFileId;
         this.audioPick = previous.audioPick;
         this.subtitlePick = previous.subtitlePick;
@@ -232,8 +245,18 @@ export class DetailsState {
         });
     }
 
-    private read<T>(spec: RequestSpec<T>, controller: AbortController): Promise<T> {
-        return this.session.call({ ...spec, profileScoped: true, signal: controller.signal });
+    private async read<T>(spec: RequestSpec<T>, controller: AbortController, cachedDisplay = true): Promise<T> {
+        try {
+            const value = await this.session.call({ ...spec, profileScoped: true, signal: controller.signal });
+            if (this.current(controller)) this.responses.set(spec.path, value);
+            return value;
+        } catch (error) {
+            if (this.current(controller) && error instanceof ApiError && ["network", "timeout"].includes(error.failure.kind)) {
+                this.offline = true;
+                if (cachedDisplay && this.responses.has(spec.path)) return this.responses.get(spec.path) as T;
+            }
+            throw error;
+        }
     }
 
     private current(controller: AbortController): boolean {
@@ -342,7 +365,7 @@ export class DetailsState {
 
     private async refresh(kind: PersonalAction, controller: AbortController): Promise<boolean> {
         if (kind === "watched") {
-            const detail = await this.read(operations.getCatalogItem(this.detail.id), controller);
+            const detail = await this.read(operations.getCatalogItem(this.detail.id), controller, false);
             if (detail.id !== this.detail.id || detail.played === undefined) throw new Error("Watch state missing");
             if (!this.current(controller)) return detail.played;
             await this.watchedChanged(detail, controller.signal);
@@ -356,7 +379,7 @@ export class DetailsState {
             }
             return detail.played;
         }
-        const membership = await this.read(detailOperations.membership(kind, this.detail.id), controller);
+        const membership = await this.read(detailOperations.membership(kind, this.detail.id), controller, false);
         if (membership.id !== this.detail.id) throw new Error("Membership item mismatch");
         if (this.current(controller)) this.values.set(kind, membership.member);
         return membership.member;

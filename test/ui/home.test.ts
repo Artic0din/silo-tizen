@@ -34,12 +34,14 @@ journey("an explicit Home access refusal removes hydrated cached rows", async tv
 
 journey("Home retains cached rows after remount offline and refreshes on recovery", async tv => {
     const before = await homeTitles(tv);
+    let rejected = 0;
     assert.ok(before.length > 0);
-    await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+    await tv.page.route("**/api/v2/**", route => { rejected++; return route.abort("connectionrefused"); });
     await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
     await tv.jump(35000);
     await tv.eventually(async () => (await homeTitles(tv)).length > 0, "cached Home rows");
     assert.deepEqual(await homeTitles(tv), before);
+    assert.ok(rejected > 0, "fresh mount attempted reads while unreachable");
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.cacheOffline()), "cached transport failure");
     assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Can't reach server|showing cached content/);
     await tv.page.unroute("**/api/v2/**");
@@ -52,6 +54,12 @@ journey("Details reopens cached metadata while unreachable", async tv => {
     await tv.page.locator(card).click();
     await tv.page.locator('[data-view="item:movie:m0004"]').waitFor();
     await tv.remote(10009);
+    const enrichmentBefore = detailReads(tv).length;
+    await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+    await tv.page.locator('[data-view="home"] [data-section]').first().waitFor();
+    const titles = await homeTitles(tv);
+    await tv.eventually(async () => detailReads(tv).length >= enrichmentBefore + titles.length, "new Home mount reread every visible title");
+    await detailsRead(tv);
     await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
     await tv.page.locator(card).click();
     await tv.page.locator('[data-view="item:movie:m0004"] h1').waitFor();
@@ -59,6 +67,8 @@ journey("Details reopens cached metadata while unreachable", async tv => {
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.cacheOffline("movie:m0004")), "cached transport failure");
     assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Can't reach server|showing cached content/);
     assert.match(await tv.page.locator(".browse").innerText(), /Movie 0004/);
+    assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Could not load|Retry personal|Retry title|Retry related/);
+    assert.ok(await tv.page.locator('.details-backdrop img, img.details-backdrop').count() > 0);
 });
 
 journey("Home resumes cached recovery after a hidden retry deadline", async tv => {
@@ -83,6 +93,9 @@ journey("Home resumes cached recovery after a hidden retry deadline", async tv =
 
 journey("automatic cached Details recovery preserves an open More panel", async tv => {
     const card = '[data-section="recent/12"] [data-focus="movie:m0004"]';
+    await tv.page.locator(card).click();
+    await tv.page.locator('[data-view="item:movie:m0004"]').waitFor();
+    await tv.remote(10009);
     await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
     await tv.page.locator(card).click();
     await tv.jump(35000);
@@ -99,6 +112,9 @@ journey("automatic cached Details recovery preserves an open More panel", async 
 });
 
 journey("Details retries a recovery response deferred by a newly opened control", async tv => {
+    await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0004"]').click();
+    await tv.page.locator('[data-view="item:movie:m0004"]').waitFor();
+    await tv.remote(10009);
     await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
     await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0004"]').click();
     await tv.jump(35000);

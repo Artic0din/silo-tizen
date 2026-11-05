@@ -697,6 +697,24 @@ calendarTest("Calendar-origin series refresh preserves a subsequently selected s
     assert.equal(await tv.focused(), "episode:s1e11");
 });
 
+calendarTest("cached Calendar series recovery preserves the user's season and focus", async tv => {
+    await activate(tv, "calendar"); await ready(tv, 3);
+    await tv.page.locator('.calendar-event[data-content-id="season:s1:2"]').click();
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e21"]').waitFor();
+    await tv.remote(10009);
+    await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+    await tv.page.locator('.calendar-event[data-content-id="season:s1:2"]').click();
+    await tv.page.locator('[data-focus="season:1"]').click();
+    await tv.page.locator('[data-focus="season:1"]').focus();
+    await tv.jump(35000);
+    assert.equal(await tv.page.locator('[data-focus="season:1"]').getAttribute("aria-pressed"), "true");
+    assert.equal(await tv.focused(), "season:1");
+    await tv.page.unroute("**/api/v2/**");
+    await tv.jump(35000);
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e11"]').waitFor();
+    assert.equal(await tv.focused(), "season:1");
+});
+
 calendarTest("Calendar loading status leaves the origin shelf geometry unchanged on return", async (tv) => {
     await activate(tv, "calendar"); await ready(tv, 3); await activate(tv, "day:2025-12-29");
     const shelfTop = () => tv.page.locator('.browse [data-section="2025-12-29"]').evaluate(node => node.getBoundingClientRect().top + (node.closest(".skyline-content")?.scrollTop ?? 0));

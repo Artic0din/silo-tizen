@@ -110,6 +110,14 @@ export function artwork(className: string, reference: string | undefined, baseUr
     return box;
 }
 
+export function thumbnailProgress(fraction: number): HTMLElement {
+    const progress = el("span", "skyline-progress");
+    const fill = el("span", "skyline-progress-fill");
+    fill.style.width = `${Math.min(100, Math.max(0, fraction * 100))}%`;
+    progress.appendChild(fill);
+    return progress;
+}
+
 /** Undefined for media this client does not browse. */
 export function cardItem(card: Card, context: ViewContext): FocusItem | undefined {
     const destination = destinationOf(card);
@@ -125,11 +133,7 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     if (thumbnail) {
         element.classList.add("skyline-continue");
         if (card.positionSeconds !== undefined && card.durationSeconds !== undefined && card.durationSeconds > 0 && card.positionSeconds > 0) {
-            const progress = el("span", "skyline-progress");
-            const fill = el("span", "skyline-progress-fill");
-            fill.style.width = `${Math.min(100, Math.max(0, card.positionSeconds / card.durationSeconds * 100))}%`;
-            progress.appendChild(fill);
-            element.firstElementChild?.appendChild(progress);
+            element.firstElementChild?.appendChild(thumbnailProgress(card.positionSeconds / card.durationSeconds));
         }
     }
     // Badges sit under the progress bar and the watched tick, which win a shared corner.

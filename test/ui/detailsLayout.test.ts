@@ -7,6 +7,57 @@ import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
+detailTest("Episode rail paints neighbouring stills to both screen edges without changing scroll steps", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog);
+    const body = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner')?.body as { items: Record<string, unknown>[] };
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**', route => route.fulfill({ json: { items: Array.from({ length: 8 }, (_, index) => ({ ...body.items[0], content_id: `episode:edge${index}`, episode_number: index + 1 })) } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:edge7"]').waitFor(); await tv.jump(500);
+    const row = tv.page.locator('.details-episodes');
+    await row.evaluate(node => { node.scrollLeft = 150; });
+    const bounds = await row.evaluate(node => {
+        const art = node.querySelector('.browse-art')!.getBoundingClientRect();
+        return { left: node.getBoundingClientRect().left, right: node.getBoundingClientRect().right, visible: document.elementFromPoint(1, art.y + art.height / 2)?.closest('[data-focus]')?.getAttribute('data-focus') };
+    });
+    assert.equal(bounds.left, 0);
+    assert.equal(bounds.right, 1920);
+    assert.equal(bounds.visible, 'episode:edge0', JSON.stringify(bounds));
+    await tv.page.locator('[data-focus="episode:edge0"]').focus(); await tv.jump(500);
+    assert.equal(await row.evaluate(node => node.scrollLeft), 0);
+    await tv.remote(39); await tv.jump(500);
+    assert.equal(await row.evaluate(node => node.scrollLeft), 400);
+    const lastVisible = await row.evaluate(node => {
+        const art = node.querySelector('.browse-art')!.getBoundingClientRect();
+        return document.elementFromPoint(1919, art.y + art.height / 2)?.closest('[data-focus]')?.getAttribute('data-focus');
+    });
+    assert.equal(lastVisible, 'episode:edge5');
+});
+
+detailTest("Episode resume bar uses TVEpisodeRail's exact bottom edge metrics and visibility rules", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog);
+    const body = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner')?.body as { items: Record<string, unknown>[] };
+    const states = [
+        { played: false, position_seconds: 60, duration_seconds: 240 },
+        { played: true, position_seconds: 60, duration_seconds: 240 },
+        { played: false, position_seconds: 0, duration_seconds: 240 },
+        { played: false, position_seconds: 240, duration_seconds: 240 },
+        { played: false, position_seconds: 300, duration_seconds: 240 },
+        { played: false, position_seconds: 60, duration_seconds: 0 },
+        { played: false, position_seconds: 60 },
+    ];
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**', route => route.fulfill({ json: { items: states.map((user_data, index) => ({ ...body.items[0], content_id: `episode:progress${index}`, episode_number: index + 1, user_data })) } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:progress0"]').waitFor();
+    assert.equal(await tv.page.locator('.details-episodes .skyline-progress').count(), 2);
+    for (const index of [0, 1]) {
+        const metrics = await tv.page.locator(`[data-focus="episode:progress${index}"] .skyline-progress`).evaluate(node => {
+            const style = getComputedStyle(node), fill = node.firstElementChild!;
+            return { height: style.height, bottom: style.bottom, left: style.left, right: style.right, background: style.backgroundColor, fill: getComputedStyle(fill).backgroundColor, width: (fill as HTMLElement).style.width };
+        });
+        assert.deepEqual(metrics, { height: '5px', bottom: '0px', left: '0px', right: '0px', background: 'rgba(0, 0, 0, 0.6)', fill: 'rgb(255, 255, 255)', width: '25%' });
+    }
+});
+
 detailTest("Final season E05 clamps with one successor while start and interior anchors remain bounded", async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog);
     const seasons = catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body as { items: Record<string, unknown>[] };
@@ -16,27 +67,29 @@ detailTest("Final season E05 clamps with one successor while start and interior 
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('[data-focus="episode:s13e10"]').waitFor();
     const card = (id: string) => tv.page.locator(`[data-focus="episode:${id}"]`);
-    const measure = () => tv.page.locator('.details-episodes').evaluate(row => ({ scroll: row.scrollLeft, cards: [...row.querySelectorAll('.browse-art')].map(node => ({ x: node.getBoundingClientRect().x, right: node.getBoundingClientRect().right })) }));
+    const measure = () => tv.page.locator('.details-episodes').evaluate(row => ({ scroll: row.scrollLeft, cards: [...row.querySelectorAll('.browse-art')].map(node => ({ x: node.getBoundingClientRect().x, frameX: node.parentElement!.getBoundingClientRect().x, right: node.getBoundingClientRect().right })) }));
     await card('s14e5').focus(); await tv.jump(1500);
     await tv.eventually(async () => card('s14e5').locator('.browse-art').evaluate(node => node.getBoundingClientRect().width > 325), 'E05 focus lift settled');
     const end = await measure();
-    // Two pixels cover CSS subpixel and scroll-position rounding. The supplied
-    // right-edge measurement is approximate and the existing Tizen leading slot
-    // is 7px right of Swift's 100px inset. Assert the derived edge separately.
-    assert.ok(Math.abs(end.cards[14]!.x - 1158) < 2, JSON.stringify(end));
-    assert.ok(Math.abs(end.cards[15]!.right - 1815) < 12, JSON.stringify(end));
-    assert.ok(Math.abs(end.cards[15]!.right - 1824.74) < 2, JSON.stringify(end));
+    // The row-local leading slot is now Swift's 100px, 7px left of its old
+    // 107px slot. Keep painted focus bounds separate from the unscaled frame.
+    // Integer scrollLeft rounds the 3845.6px terminal offset to 3846px.
+    assert.ok(Math.abs(end.cards[14]!.frameX - 1158) < 1, JSON.stringify(end));
+    assert.ok(Math.abs(end.cards[14]!.x - 1151) < 2, JSON.stringify(end));
+    assert.ok(Math.abs(end.cards[15]!.right - 1817) < 1, JSON.stringify(end));
+    assert.equal(end.scroll, 3846);
     const reads = tv.fake.requests.length;
     await card('s13e5').focus(); await tv.jump(500);
     await tv.eventually(async () => card('s13e5').locator('.browse-art').evaluate(node => node.getBoundingClientRect().width > 325), 'interior focus lift settled');
     const middle = await measure();
-    assert.ok(Math.abs(middle.cards[4]!.x - 109) < 2, JSON.stringify(middle));
+    assert.ok(Math.abs(middle.cards[4]!.x - 102) < 2, JSON.stringify(middle));
     assert.ok(Math.abs(middle.scroll - 1398.4) < 1, JSON.stringify(middle));
     await card('s13e1').focus(); await tv.jump(500); await tv.remote(37);
     await tv.eventually(async () => card('s13e1').locator('.browse-art').evaluate(node => node.getBoundingClientRect().width > 325), 'first focus lift settled');
     const start = await measure();
     assert.equal(start.scroll, 0);
-    assert.ok(Math.abs(start.cards[0]!.x - 109) < 2, JSON.stringify(start));
+    assert.ok(Math.abs(start.cards[0]!.frameX - 109) < 1, JSON.stringify(start));
+    assert.ok(Math.abs(start.cards[0]!.x - 102) < 2, JSON.stringify(start));
     assert.equal(await tv.focused(), 'episode:s13e1');
     assert.equal(tv.fake.requests.length, reads, 'loaded neighbour and interior focus start no reads');
 }, 'compact');
@@ -51,7 +104,7 @@ detailTest("Apple loaded-season window rebases E05 and retains remote focus acro
     await tv.page.locator('[data-focus="episode:s13e10"]').waitFor();
     const scroll = () => tv.page.locator('.details-episodes').evaluate(row => row.scrollLeft);
     await tv.eventually(async () => await scroll() === 5600, 'resume E05 rebased after ten predecessors');
-    assert.equal(await tv.page.locator('[data-focus="episode:s14e5"]').evaluate(node => node.getBoundingClientRect().x), 118);
+    assert.equal(await tv.page.locator('[data-focus="episode:s14e5"]').evaluate(node => node.getBoundingClientRect().x), 111);
     await tv.page.locator('[data-focus="episode:s14e5"]').focus();
     await tv.jump(1500);
     const reads = tv.fake.requests.length;
@@ -100,14 +153,14 @@ for (const current of [1, 5]) detailTest(`Measured five-card episode rail with E
     await tv.page.locator('[data-focus="episode:s1e11"]').focus();
     await tv.jump(500);
     await tv.eventually(async () => (await measure()).cards[0]!.width > 377, 'first card lift settled');
-    assert.ok(Math.abs((await measure()).cards[0]!.x - 109) < 2);
+    assert.ok(Math.abs((await measure()).cards[0]!.x - 102) < 2);
     await tv.page.locator('[data-focus="episode:s1e15"]').focus();
     await tv.jump(500);
     await tv.eventually(async () => (await measure()).cards[4]!.width > 377, 'E05 lift settled');
     const focused = await measure();
     assert.ok(Math.abs(rest.cards[0]!.width - 360) < 1, JSON.stringify(rest));
     assert.equal(rest.scroll, current === 1 ? 0 : 400);
-    assert.ok(Math.abs(focused.cards[4]!.x - 1309) < 2, JSON.stringify(focused));
+    assert.ok(Math.abs(focused.cards[4]!.x - 1302) < 2, JSON.stringify(focused));
 });
 
 for (const art of [

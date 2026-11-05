@@ -981,7 +981,10 @@
 .details-rating-score { font-weight: 700; color: #fff; }
 .details-genres { margin-left: 0; }
 .details-season-chips { padding: 4px 0; }
-.details-series-rail .details-episodes { padding: 12px calc(59px + 360px * var(--poster-scale, 1) * .025 + 2px); }
+/* Paint to the screen edges while retaining the logical scroll viewport.
+   TVDetailLayout's 100px leading inset belongs to this rail, not Cast or Related. */
+.details-series-rail .details-episodes { --episode-paint-end: 88px; margin-left: -88px; margin-right: -88px; padding: 12px calc(100px + 360px * var(--poster-scale, 1) * .025 + 2px); }
+.details-episodes .skyline-progress { bottom: 0; left: 0; right: 0; height: 5px; background: rgba(0,0,0,.6); }
 .browse:has(.details-hero) > .browse-row:has(+ .browse-section-title) { margin-bottom: 35px; }
 /* The episode row already contributes 12px of bottom padding. */
 .browse:has(.details-hero) > .details-series-rail { margin-bottom: calc(79px - 12px); }

@@ -1,6 +1,6 @@
 import type { Episode } from "../contracts/v2/catalog.ts";
 import type { FocusItem, Zone } from "./browseFocus.ts";
-import { actionButton, artwork, lines, mediaItem, type ViewContext, zoneNode } from "./browseViews.ts";
+import { actionButton, artwork, lines, mediaItem, thumbnailProgress, type ViewContext, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
 import type { SeriesEpisodes } from "./seriesEpisodes.ts";
 import { episodeAirDate, episodeRuntime } from "./episodeCaption.ts";
@@ -68,6 +68,10 @@ function episodeCard(episode: Episode, context: ViewContext): FocusItem {
     const code = `S${String(episode.seasonNumber).padStart(2, "0")}E${String(episode.episodeNumber).padStart(2, "0")}`;
     element.append(artwork("browse-art browse-still", episode.stillUrl, context.baseUrl, episode.title), el("span", "browse-card-title", `${code} · ${episode.title}`));
     element.appendChild(el("span", "browse-card-subtitle", [episodeAirDate(episode.airDate), episodeRuntime(episode.runtimeMinutes)].filter(Boolean).join("  ·  ")));
+    const position = episode.positionSeconds, duration = episode.durationSeconds;
+    if (position !== undefined && duration !== undefined && duration > 0 && position > 0 && position < duration) {
+        element.firstElementChild?.appendChild(thumbnailProgress(position / duration));
+    }
     if (episode.played) { const badge = el("span", "browse-watched"); badge.setAttribute("aria-label", "Watched"); element.firstElementChild?.appendChild(badge); }
     // Anchoring on mouse-down moves the button away before mouse-up can click it.
     element.addEventListener("mousedown", event => event.preventDefault());

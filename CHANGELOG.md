@@ -10,7 +10,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Kept Series episodes in Apple's continuous loaded-season window and clamped entry and remote focus at the final episode group, preserving fractional Compact card widths; native comparison remains pending.
+- Kept Series episodes in Apple's continuous loaded-season window, clamped entry and remote focus at the final episode group, restored resume bars and edge peeks, and corrected the row's leading inset; the later corrections await signed comparison.
 - Restored Cast focus clearance and corrected Details episode spacing, picker selection, Related badges and action glyphs against Apple TV measurements.
 - Corrected Details caption gaps, resting Cast spacing, series colours and genres, and intrinsic Versions sizing.
 - Activated Series seasons on resting focus, preserved complete episode scroll steps, and corrected Details spacing, hero contrast, Versions and SDH subtitle presentation.

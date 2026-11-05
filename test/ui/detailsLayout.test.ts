@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
-import { CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
+import { CARD_PRESENTATION_KEY, CARD_OVERLAYS_KEY } from "../../src/contracts/v2/settings.ts";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
@@ -125,6 +125,38 @@ detailTest('Details rail clearances and white focus styling follow the measured 
         return node.querySelector('svg')!.getBoundingClientRect().width + node.querySelector('.details-action-label')!.getBoundingClientRect().width + parseFloat(style.columnGap) + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
     });
     assert.ok(Math.abs(width - intrinsic) < 2, `Versions width ${width}, intrinsic ${intrinsic}`);
+});
+
+detailTest('Related posters omit status overlays enabled in profile settings', async tv => {
+    new FakeSettings(tv.fake).profile().set(CARD_OVERLAYS_KEY, { version: 2, order: ['show_status'], items: { show_status: { enabled: true, position: 'top-right' } } });
+    await tv.page.route('**/api/v2/recommendations/similar/**', route => route.fulfill({ json: { items: [{ content_id: 'series:related', type: 'series', title: 'Related Series', show_status: 'returning series' }] } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-detail-section="related"] .browse-card').waitFor();
+    assert.equal(await tv.page.locator('[data-detail-section="related"] .card-overlay-layer').count(), 0);
+    assert.equal(await tv.page.locator('[data-detail-section="related"]').getByText('RETURNING', { exact: false }).count(), 0);
+});
+
+detailTest('Series episode captions leave the measured 79px heading clearance', async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('.details-episodes .browse-card-subtitle').first().waitFor();
+    const gap = await tv.page.locator('.details-series-rail').evaluate(rail => rail.nextElementSibling!.getBoundingClientRect().top - rail.querySelector('.browse-card-subtitle')!.getBoundingClientRect().bottom);
+    assert.ok(Math.abs(gap - 79) < 3, `episode caption clearance ${gap}`);
+});
+
+detailTest('Details picker selection uses a check without a resting fill', async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.page.locator('[data-focus="audio"]').click();
+    await tv.page.locator('[data-focus="audio:0"]').focus();
+    const selected = tv.page.locator('[data-focus="audio:auto"]');
+    assert.equal(await selected.evaluate(node => getComputedStyle(node).backgroundColor), 'rgba(0, 0, 0, 0)');
+    assert.equal(await selected.evaluate(node => getComputedStyle(node, '::before').content), '"✓"');
+});
+
+detailTest('Details More and Subtitles use white ellipsis and caption bubble glyphs', async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.page.locator('[data-focus="play"]').focus();
+    assert.equal(await tv.page.locator('[data-focus="more"]').evaluate(node => getComputedStyle(node).color), 'rgb(255, 255, 255)');
+    assert.equal(await tv.page.locator('[data-focus="subtitles"] svg').getAttribute('data-symbol'), 'captions.bubble');
 });
 
 detailTest('Down into an alternate season starts at its first episode and retargets the hero', async tv => {
@@ -573,7 +605,13 @@ detailTest('Series remote navigation scrolls down to Cast and back to episodes',
         const rect = card.getBoundingClientRect();
         return rect.top + (rect.height - card.offsetHeight) / 2;
     });
-    assert.ok(Math.abs(restingTop - 603) < 3, `resting cast circle top ${restingTop}`);
+    // The running Apple build measured 615; TVDetailCastRail includes 12px vertical padding.
+    assert.ok(Math.abs(restingTop - 615) < 3, `resting cast circle top ${restingTop}`);
+    assert.ok(await tv.page.locator('.details-people').evaluate(row => {
+        const photo = row.querySelector('.details-photo')!.getBoundingClientRect();
+        const bounds = row.getBoundingClientRect();
+        return photo.top - 2 >= bounds.top && photo.bottom + 2 <= bounds.bottom;
+    }), 'scaled portrait and focus ring stay inside the row paint area');
     await tv.remote(38);
     assert.match(await tv.focused() ?? '', /^episode:/);
 });

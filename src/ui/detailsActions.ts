@@ -9,7 +9,7 @@ const ICONS: Readonly<Record<string, string>> = {
     "next-episode": "M8 4 21 12 8 20Z",
     version: "M7 2H17M5 5H19M4 8H20V22H4Z",
     audio: "M3 9H7L13 4V20L7 15H3ZM17 8Q23 12 17 16",
-    subtitles: "M3 5H21V19H3ZM6 11H10M6 14H11M14 11H18M14 14H18",
+    subtitles: "M5 4H19Q22 4 22 7V15Q22 18 19 18H10L5 22V18Q2 18 2 15V7Q2 4 5 4ZM6 9H11M6 13H10M14 9H18M13 13H18",
     watchlist: "M6 3H18V22L12 18 6 22Z",
     more: "M4 12H5M11 12H12M18 12H19",
 };
@@ -30,6 +30,7 @@ export function detailAction(item: FocusItem): FocusItem {
     const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     icon.setAttribute("viewBox", "0 0 24 24");
     icon.setAttribute("aria-hidden", "true");
+    if (item.key === "subtitles") icon.dataset.symbol = "captions.bubble";
     icon.setAttribute("fill", "none");
     icon.setAttribute("stroke", "currentColor");
     icon.setAttribute("stroke-width", item.key === "more" ? "4" : "1.8");

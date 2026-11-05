@@ -370,8 +370,8 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
             if (state.extraPending !== undefined) content.push(...lines(["Loading extra…"]));
             if (state.extraFailed !== undefined) content.push(...lines(["Could not load extra. Select its card to retry."], "error"));
         }
-        // SimilarPosterItem omits userState, including its watched badge.
-        const related = titleCards((state.related ?? []).map(card => ({ ...card, played: undefined })), context);
+        // TVSimilarRail passes neither overlayData nor userState to TVMediaCard.
+        const related = titleCards((state.related ?? []).map(card => ({ ...card, played: undefined })), { ...context, overlays: undefined, cardOverlays: () => undefined });
         if (!state.relatedFailed && (state.related === undefined || related.length > 0)) {
             const section = zoneNode("browse-row", related);
             section.setAttribute("data-detail-section", "related");

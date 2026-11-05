@@ -951,6 +951,7 @@
 .details-track-popover .details-option-title, .details-track-popover .details-option-subtext { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .details-track-popover .browse-button { position: relative; padding-left: 56px; }
 .details-track-popover [aria-checked="true"]::before { content: "✓"; position: absolute; left: 20px; top: 20px; }
+.skyline-selector.details-track-popover .browse-button[aria-checked="true"]:not(:focus) { background: transparent; }
 .details-track-popover .browse-section-title { font-size: 18px; letter-spacing: 2px; opacity: .6; }
 .details-option-subtext { display: block; font-size: 20px; line-height: 26px; opacity: .65; }
 /* Detail metrics are scoped here after the shared Home card and heading rules. */
@@ -972,7 +973,7 @@
 .details-episodes .browse-watched { background: #fff; }
 .details-editorial .details-circle:is(:focus, [aria-expanded="true"]) { background: #fff; color: #000; width: auto; padding: 0 28px; }
 .details-circle[aria-expanded="true"] .details-action-label { position: static; width: auto; height: auto; clip-path: none; }
-.details-editorial .details-circle { gap: 14px; font-size: 26px; font-weight: 600; background: rgba(255,255,255,.10); border-color: transparent; }
+.details-editorial .details-circle { gap: 14px; font-size: 26px; font-weight: 600; color: #fff; background: rgba(255,255,255,.10); border-color: transparent; }
 .details-circle svg { width: 38px; height: 38px; }
 .details-editorial .details-circle:focus { background: #fff; }
 .details-external-rating { margin: 0; gap: 8px; }
@@ -982,9 +983,11 @@
 .details-season-chips { padding: 4px 0; }
 .details-series-rail .details-episodes { padding: 12px calc(59px + 360px * var(--poster-scale, 1) * .025 + 2px); }
 .browse:has(.details-hero) > .browse-row:has(+ .browse-section-title) { margin-bottom: 35px; }
-.browse:has(.details-hero) > .details-series-rail { margin-bottom: 79px; }
+/* The episode row already contributes 12px of bottom padding. */
+.browse:has(.details-hero) > .details-series-rail { margin-bottom: calc(79px - 12px); }
 .browse:has(.details-hero) .details-facts { margin-top: 34px; }
-.browse:has(.details-hero) > .details-people { padding-top: 0; }
+/* TVDetailCastRail pads both edges by 12px so its 1.05 focus lift fits. */
+.browse:has(.details-hero) > .details-people { padding-top: 12px; }
 .browse .details-series-rail .browse-card { margin-right: 40px; }
 .details-facts-table { position: relative; margin-left: 12px; }
 .details-facts-table:focus { background: transparent; }

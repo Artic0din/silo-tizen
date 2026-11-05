@@ -199,6 +199,11 @@ test("measured Settings pickers centre the selected choice and privacy handoff",
         assert.equal(await tv.page.getByRole("dialog").count(), 1);
         assert.equal(await tv.focused(), "back", "Privacy Done keeps initial focus inside the text column");
         assert.equal(await tv.page.locator('.settings-privacy-copy [data-focus="back"]').count(), 1);
+        const hand = await tv.page.locator('.settings-privacy-copy > svg path').evaluate(node => {
+            const bounds = (node as SVGGraphicsElement).getBBox();
+            return { y: bounds.y, height: bounds.height };
+        });
+        assert.ok(hand.y >= 0 && hand.y + hand.height <= 24, "the hand stays inside its icon viewBox");
         assert.equal(await tv.page.getByText("Scan this code with your phone or tablet to read Silo's privacy policy.", { exact: true }).count(), 1);
         await tv.remote(10009);
         assert.equal(await tv.focused(), "privacy");

@@ -23,6 +23,15 @@ test("episode rows retain air date, overview and episode ratings", () => {
     assert.deepEqual(episodes[0]?.ratings, [{ name: "IMDb", display: "8.1" }]);
 });
 
+test("episode rows retain resume seconds from user data", () => {
+    const episode = { content_id: "episode:1", season_number: 1, episode_number: 2, title: "Pilot", runtime: 52 };
+    const decode = (user_data: Record<string, unknown>) => decodeEpisodes({ items: [{ ...episode, user_data }] })[0];
+    assert.equal(decode({ played: true, position_seconds: 60.5, duration_seconds: 240 })?.positionSeconds, 60.5);
+    assert.equal(decode({ played: true, position_seconds: 60.5, duration_seconds: 240 })?.durationSeconds, 240);
+    assert.throws(() => decode({ played: false, position_seconds: "60", duration_seconds: 240 }), WireError);
+    assert.throws(() => decode({ played: false, position_seconds: 60, duration_seconds: "240" }), WireError);
+});
+
 test("local extras retain authoritative watch targets and numeric file IDs", () => {
     const detail = decodeItemDetail({ ...fixture("get_catalog_item_ok"), extras: [{ content_id: "extra:1", file_id: 71, kind: "trailer", title: "Trailer", duration_seconds: 90, still_url: "/extra.jpg" }] });
     assert.deepEqual(detail.extras, [{ contentId: "extra:1", fileId: "71", kind: "trailer", title: "Trailer", durationSeconds: 90, stillUrl: "/extra.jpg" }]);

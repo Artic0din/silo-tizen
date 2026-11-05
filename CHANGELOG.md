@@ -12,10 +12,12 @@ All notable changes to this project are documented in this file.
 
 ### Removed
 
-- Removed Settings skip-interval and Hidden Libraries editors and duplicate Manage Servers navigation to match the measured Apple TV menus; existing hidden libraries can still be restored.
+- Removed the Settings Hidden Libraries editor and duplicate Manage Servers navigation; existing hidden libraries can still be restored.
 - Removed Details Read synopsis, its expanded view, #66's personal star rating control, and Season details to match the controls reachable on Apple TV.
 
 ### Fixed
+
+- Restored VIDEO skip intervals and corrected Settings pane margins, Sign Out, subtitle appearance cards, picker indicators and server credits after the full Apple TV comparison.
 
 - Matched Settings rail icons, row spacing, pane headers, subtitle appearance order and picker hints; pinned the rail and preserved the pane behind modals.
 - Stopped featured descriptions from starting an automatic translation after focus moved to another card.
@@ -25,7 +27,7 @@ All notable changes to this project are documented in this file.
 
 - Preserved Settings row fixtures across contract refreshes, offered automatic-skip undo after successful seeking, and refreshed catalog metadata for changes already saved on another device.
 
-- Restored supported subtitle rows, centred Settings pickers and privacy handoff, aligned pane order, and added the Show Next Up choice.
+- Restored supported subtitle rows, centred Settings pickers and privacy handoff, and aligned pane order; deferred the Show Next Up editor until its playback reader lands.
 
 - Added supported Apple TV settings for poster size, advisory age, profile timing, episode playback, metadata and subtitle appearance, and kept profile subtitle edits independent of narrower overrides.
 

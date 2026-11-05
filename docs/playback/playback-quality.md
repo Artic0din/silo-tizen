@@ -1,9 +1,11 @@
 # In-player quality
 
-## Settings follow-up after the 5 November comparison
+## Settings follow-up after the 6 November comparison
 
 The implementation reference for this follow-up is Apple `7baff3ef657757cc0a69202e86dd4bd5c7fcb585`, restricted to tvOS code.
-A signed comparison ran at Tizen `f0ebc96`; these later changes need a new comparison.
+A signed re-check at Tizen `63821ba` on 6 November passed focus, Back, scroll, pickers, QR, Accounts, pinned rail, scroll reset and stable modal background, as reported in the implementation brief.
+It also confirmed VIDEO skip rows after scrolling farther down.
+These later corrections need a new signed comparison.
 The installed Apple app wins where the source differs.
 
 | Source under `tvOS/Screens/Settings/` | Exact reference |
@@ -20,7 +22,7 @@ Theme music and loop stay out because this client has no title-page audio playba
 Use Device Settings stays out because tvOS follows Accessibility caption preferences, with no established Samsung bridge.
 Connection measurement/adaptation, HDR, audio passthrough and buffer controls remain out without Samsung consumers.
 Watch Party stays behind #54, Diagnostics behind #218, and spoiler controls remain with #212.
-Show Next Up remains a real Apple row (`TVPlaybackSettingsView.swift:273-277`); playback use waits on #213.
+Show Next Up is a real Apple row (`TVPlaybackSettingsView.swift:273-277`); its Samsung editor is omitted until #213 supplies the playback reader.
 No upstream repository needs a write for these changes.
 
 Hidden Libraries no longer opens an editor.
@@ -33,9 +35,9 @@ Re-check on the other Mac: all four rail selections, profile/version placement, 
 Use the same data, focus, viewport and scroll state at native 1920×1080; record remote movement and identify the newly signed package and installed assets.
 No simulator, TV, signed package, live server or native comparison ran for this follow-up.
 
-## Earlier Settings reference and remaining parity gates (#104)
+## Settings reference and remaining parity gates (#104)
 
-Reference: `Silo-Server/silo-apple` main at `9723df007baa8e933f5615cc14b13e99a6ee1ea1`.
+Reference: `Silo-Server/silo-apple` at `7baff3ef657757cc0a69202e86dd4bd5c7fcb585`.
 These are source observations, not verification of an installed Apple build.
 All Apple paths below are relative to `iosApp/iosApp/`.
 Tizen retains its existing SettingsState, session authority, launch preference and browse focus owners.
@@ -45,16 +47,17 @@ No server or Apple source changes are required by this supported subset.
 | --- | --- | --- |
 | `tvOS/Screens/Settings/TVSettingsView.swift:164` | 490-point rail, 52-point gap; profile card, General, Playback, Subtitles, conditional Diagnostics, Server, Sign Out, Silo version | Profile card shows the active profile and account line; General, Playback, Subtitles and Server are present; Diagnostics stays out until #137; Sign Out confirmation and package version are present |
 | `tvOS/Screens/Settings/TVGeneralSettingsView.swift:23` | APPLE TV USER: Paired Silo Profile; PROFILE AT LAUNCH: Profile Selection | Launch picker offers Automatic and Every Time through the existing protected launch owner; no Apple TV OS user pairing |
-| `Shared/ProfileLaunchBehavior.swift:5` | Automatic, Every Time, After 1 Hour, After 12 Hours | Timed choices omitted: need an away-time lifecycle policy and persistence in ProfileLaunch |
+| `Shared/ProfileLaunchBehavior.swift:5` | Automatic, Every Time, After 1 Hour, After 12 Hours | All four choices use the existing protected ProfileLaunch owner; Automatic uses the last profile on Samsung because there is no Apple TV OS user pairing. |
 | `tvOS/Screens/Settings/TVGeneralSettingsView.swift:166` | TITLE PAGES: Show Title Art, Apply to All Devices, each On/Off | Existing title-art owner and profile/device reconciliation retained |
-| `tvOS/Screens/Settings/TVGeneralSettingsView.swift:53` | THEME MUSIC: Play Theme Music, Loop Theme Music; SYNC SOURCE: Use Synced TV Settings; CARDS & POSTERS: Show Advisory Age, Poster Size, Use Profile Default; TOP MENU: Show Audiobooks | Omitted: need theme playback, advisory-age consumer, family-scoped presentation editor and audiobook root support; poster size is currently read-only. No synced navigation-menu editor is added |
+| `tvOS/Screens/Settings/TVGeneralSettingsView.swift:50-126` | THEME MUSIC: Play Theme Music, Loop Theme Music; SYNC SOURCE: Use Synced TV Settings; CARDS & POSTERS: Show Advisory Age, Poster Size, Use Profile Default; TOP MENU: Show Audiobooks | Advisory age and TV-family poster editing are supported, including clearing older device overrides and Use Profile Default before the footer. Theme music has no playback owner. Show Audiobooks remains with open PR #230, which supplies the navigation switch and audiobook player. |
 | `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:66` | QUALITY: Resolution, Maximum Bitrate, conditional Lower quality when buffering and learned limit Reset; CONNECTION: Connection Speed and test | Resolution and bitrate supported; probe, learned-limit and buffering policy controls omitted until those runtime owners exist |
 | `Networking/SiloQualityPresets.swift:146` | Resolution order Auto, 4K, 1080p, 720p, 480p; bitrate caps 200000, 100000, 60000, 40000, 20000, 15000, 10000, 6000, 4000, 2000, 1500 kbps plus No limit | Same named choices, filtered by server support; unfamiliar stored caps retained. Existing validated custom-kbps input remains an explicit Tizen extension |
 | `tvOS/Screens/Settings/TVSettingsComponents.swift:44` | Audio Language from server options; device Use Profile Setting first; legacy No preference retained only when stored | Device scope, legacy null and individual inherited resets retained; language display currently follows server tags |
 | `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:174` | STREAMING: Audio Language, HDR, Dolby Vision, Seek Cache, Buffer Ahead, Lossless Multichannel Audio, TrueHD Atmos and DTS:X, Deinterlacing, Deinterlacing Field Rate | Only Audio Language offered; other controls need verified AVPlay equivalents and plan/capability consumption, not Apple-only stored settings |
-| `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:266` | EPISODES: Auto-Play Next Episode, Show Next Up, Skip Intros, Skip Credits | Omitted: existing EOF continuation is manual; need automatic successor and prompt policy owners and skip-policy consumption |
-| `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:305` | SPOILERS: Blur unwatched episode images, Hide unwatched episode descriptions; profile-wide, revision 17, only unstarted episodes | #177 belongs here. Omitted until episode card, season and Details consumers apply both server settings and refresh on profile/foreground transitions; no inert switches |
-| `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:342` | VIDEO and AUDIOBOOKS: Skip Back and Skip Forward; 5, 10, 15, 30, 45, 60, 90 seconds | Editors removed after the 5 November installed-app comparison: the running Apple app has no skip rows. Playback still reads server effective intervals (10 s back / 30 s forward defaults), including existing saved profile values; audiobook rows need an audiobook player |
+| `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:262-290` | EPISODES: Auto-Play Next Episode, Show Next Up, Skip Intros, Skip Credits | Auto-play, intro and credits policies are consumed by PlaybackController. Show Next Up is omitted until #213 supplies its playback reader; the prior editor saved unused values. |
+| `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:297-312` | SPOILERS: Blur unwatched episode images, Hide unwatched episode descriptions; profile-wide, revision 17, only unstarted episodes | Remains with #212; no switches are exposed before its episode consumers exist. |
+| `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:329-343` | VIDEO and AUDIOBOOKS: Skip Back and Skip Forward; 5, 10, 15, 30, 45, 60, 90 seconds | VIDEO editors restored after the 6 November full-scroll comparison confirmed the running Apple app has these rows. Playback reads server effective intervals (10 s back / 30 s forward defaults); audiobook rows remain with the player in open PR #230. |
+| `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:408-429` | RESET: Use Profile Settings with confirmation | Clears only supported device playback overrides through the existing confirmed writer, preserving profile defaults and profile-owned video intervals. Stops on a failed confirmation; Retry reconciles the failed row and resumes the remaining reset. |
 | `tvOS/Screens/Settings/TVSubtitleSettingsView.swift:37` | PROFILE: Language, Behavior, Show Forced Subtitles; conditional METADATA: Metadata Language | Language, Behavior and Show Forced Subtitles write `playback.subtitle_language`, `playback.subtitle_mode` and `playback.show_forced_subtitles` at profile scope. Metadata Language is offered in Subtitles under METADATA only when metadata AI is enabled, matching `TVSubtitleSettingsView.swift:18-20,85-102`; it invalidates catalog caches after confirmed changes |
 | `tvOS/Screens/Settings/TVSubtitleSettingsView.swift:103` | APPEARANCE: preview, Use Device Settings, Only on This Apple TV, Font Size/Family/Color, Text Opacity, Text Outline, Outline Color, Background Style/Opacity/Color, Position, Reset Appearance confirmation | Preview, scoped appearance writer, renderer and Reset are present. Use Device Settings stays omitted: Samsung has no established equivalent of the tvOS Accessibility caption bridge |
 | `tvOS/Screens/Settings/TVDiagnosticsSettingsPane.swift:12` | FEATURE STATE Status/Destination; CAPTURE Send Reports To, Debug Logging, Crash Reports (Ask/Always/Never); pending reports, Send Diagnostics Now, sent history, None empty states | No Diagnostics pane: needs consent, redaction, capture, queue, expiry, destination and upload owners (#137) |

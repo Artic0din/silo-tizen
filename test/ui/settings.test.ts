@@ -5,7 +5,7 @@ import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, SHOW_FORCED_KEY } from "../../src/contracts/v2/settings.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -59,7 +59,7 @@ test("Settings pins its rail, resets pane scroll and keeps modal background geom
             const first = document.querySelector('[data-focus="appearance-fontSize"]')!.getBoundingClientRect();
             const second = document.querySelector('[data-focus="appearance-fontFamily"]')!.getBoundingClientRect();
             return { height: first.height, pitch: second.top - first.top,
-                order: [...document.querySelector('.settings-pane')!.children].filter(node => node.matches('.settings-subtitle-preview, [data-focus^="appearance-"], [data-focus="reset-appearance"]')).map(node => node.getAttribute('data-focus') ?? 'preview') };
+                order: [...document.querySelectorAll('.settings-pane .settings-subtitle-preview, .settings-pane [data-focus^="appearance-"], .settings-pane [data-focus="reset-appearance"]')].map(node => node.getAttribute('data-focus') ?? 'preview') };
         });
         assert.equal(appearance.height, 66);
         assert.equal(appearance.pitch, 74);
@@ -154,7 +154,7 @@ test("remaining settings expose only honoured rows and save profile appearance",
     } finally { await tv.page.context().close(); }
 });
 
-test("revision 25 nonnullable subtitle rows and Next Up stay available", async () => {
+test("revision 25 subtitle rows stay available without saving unused Next Up values", async () => {
     const { tv, settings } = await setup(true);
     settings.revision = 25;
     settings.profileSubtitles = true;
@@ -171,15 +171,41 @@ test("revision 25 nonnullable subtitle rows and Next Up stay available", async (
         assert.equal(await tv.page.locator('[data-focus="subtitle-mode"]').count(), 1);
         assert.equal(await tv.page.getByRole("switch", { name: "Show Forced Subtitles", exact: true }).count(), 1);
         await tv.page.locator('[data-focus="playback"]').click();
-        await tv.page.getByRole("button", { name: /Show Next Up/ }).click();
-        await tv.page.getByRole("radio", { name: "1 minute before end", exact: true }).click();
-        await tv.eventually(async () => tv.fake.requests.some(r => r.method === "PUT" && r.path.includes("next_up_prompt_seconds?scope=profile_device")), "device Next Up write");
-        await tv.page.locator('[data-focus="next-up"]').waitFor();
+        assert.equal(await tv.page.locator('[data-focus="next-up"]').count(), 0);
         const deviceId = tv.fake.requests.find(request => request.headers["x-silo-device-id"])?.headers["x-silo-device-id"];
         assert.ok(deviceId);
-        assert.equal(settings.device("p-owner", deviceId).get("playback.next_up_prompt_seconds"), 60);
+        assert.equal(settings.device("p-owner", deviceId).has("playback.next_up_prompt_seconds"), false);
         assert.equal(settings.profile().has("playback.next_up_prompt_seconds"), false);
         assert.equal(await tv.page.getByRole("alert").count(), 0);
+    } finally { await tv.page.context().close(); }
+});
+
+for (const failFirst of [false, true]) test(`Playback profile reset confirms and clears device overrides with retry=${failFirst}`, async () => {
+    const { tv, settings } = await setup(true);
+    settings.profile().set(QUALITY_KEY, "720p");
+    const deviceId = tv.fake.requests.find(request => request.headers['x-silo-device-id'])?.headers['x-silo-device-id'];
+    assert.ok(deviceId);
+    const device = settings.device('p-owner', deviceId);
+    device.set(QUALITY_KEY, "1080p");
+    device.set(BITRATE_KEY, 1500);
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        await tv.page.getByRole('button', { name: 'Use Profile Settings', exact: true }).click();
+        assert.equal(await tv.focused(), 'cancel-playback-reset');
+        await tv.remote(10009);
+        assert.equal(device.get(QUALITY_KEY), '1080p');
+        await tv.page.getByRole('button', { name: 'Use Profile Settings', exact: true }).click();
+        if (failFirst) tv.fake.script(`/settings/values/${QUALITY_KEY}?scope=profile_device`, problem(503, 'unavailable', 'Try again'));
+        await tv.page.getByRole('button', { name: 'Reset', exact: true }).click();
+        if (failFirst) {
+            await tv.page.getByRole('button', { name: 'Check and retry', exact: true }).waitFor();
+            await tv.jump(5000);
+            await tv.page.getByRole('button', { name: 'Check and retry', exact: true }).click();
+        }
+        await tv.eventually(async () => !device.has(QUALITY_KEY) && !device.has(BITRATE_KEY), 'device playback reset');
+        assert.equal(settings.profile().get(QUALITY_KEY), '720p');
+        assert.ok(tv.fake.requests.filter(r => r.method === 'DELETE').every(r => r.path.includes('scope=profile_device')));
     } finally { await tv.page.context().close(); }
 });
 
@@ -496,18 +522,54 @@ test("device pickers preserve profile, show inheritance, retain legacy audio nul
     } finally { await tv.page.context().close(); }
 });
 
-test("Playback omits skip interval editors and focus moves do not write settings", async () => {
+test("Playback restores video skip intervals after episodes and focus moves do not write settings", async () => {
     const { tv } = await setup();
     try {
         await openSettings(tv);
         await tv.page.locator('[data-focus="playback"]').click();
-        assert.equal(await tv.page.locator('[data-focus="seek-back"], [data-focus="seek-forward"]').count(), 0);
-        assert.deepEqual(await tv.page.locator(".settings-section-header").allTextContents(), ["QUALITY", "STREAMING", "EPISODES"]);
+        assert.equal(await tv.page.locator('[data-focus="seek-back"], [data-focus="seek-forward"]').count(), 2);
+        assert.deepEqual(await tv.page.locator(".settings-section-header").allTextContents(), ["QUALITY", "STREAMING", "EPISODES", "VIDEO"]);
         const requests = tv.fake.requests.length;
         await tv.page.locator('[data-focus="quality"]').focus();
         await tv.remote(40); await tv.remote(40);
         assert.equal(tv.fake.requests.length, requests);
         assert.equal(tv.fake.requests.filter(r => r.method === "PUT" || r.method === "DELETE").length, 0);
+    } finally { await tv.page.context().close(); }
+});
+
+test("Settings uses the measured Apple pane margins and borderless sign out", async () => {
+    const { tv } = await setup();
+    try {
+        await openSettings(tv);
+        const geometry = await readLive(tv, () => {
+            const rail = document.querySelector('[data-focus="general"]');
+            const row = document.querySelector('[data-focus="title-art"]');
+            const header = document.querySelector('.settings-pane-header');
+            const signout = document.querySelector('[data-focus="settings-signout"]');
+            if (!rail?.isConnected || !row?.isConnected || !header?.isConnected || !signout?.isConnected) return null;
+            return { rail: rail.getBoundingClientRect().x, row: row.getBoundingClientRect().x, width: row.getBoundingClientRect().width, header: header.getBoundingClientRect().y, signoutHeight: signout.getBoundingClientRect().height, border: getComputedStyle(signout).borderWidth };
+        }, null, () => true, "live Settings geometry");
+        assert.deepEqual(geometry, { rail: 164, row: 728, width: 1006, header: 108, signoutHeight: 33, border: "0px" });
+    } finally { await tv.page.context().close(); }
+});
+
+test("Subtitles keeps its descriptive footer visible below Reset", async () => {
+    const { tv, settings } = await setup();
+    settings.remainingRows = true;
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="subtitles"]').click();
+        await tv.page.locator('[data-focus="reset-appearance"]').focus();
+        await tv.jump(500);
+        const visible = await readLive(tv, () => {
+            const footer = document.querySelector('.settings-appearance-footer');
+            const pane = document.querySelector('.settings-pane');
+            if (!footer?.isConnected || !pane?.isConnected) return null;
+            return { bottom: footer.getBoundingClientRect().bottom, paneBottom: pane.getBoundingClientRect().bottom };
+        }, null, () => true, 'subtitle footer geometry');
+        assert.ok(visible.bottom <= visible.paneBottom, JSON.stringify(visible));
+        assert.equal(await tv.page.locator('[data-focus="appearance-device"] .settings-row-value').textContent(), 'Off');
+        assert.equal(await tv.page.locator('.settings-nested-group [data-focus="appearance-textOutline"][role="switch"]').count(), 1);
     } finally { await tv.page.context().close(); }
 });
 

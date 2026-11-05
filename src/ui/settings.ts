@@ -45,6 +45,8 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     let category: Category = "general";
     let picker: Picker | undefined;
     let extraPicker: SettingsRow | undefined;
+    let confirmingPlaybackReset = false;
+    let pendingPlaybackReset: SettingsKey[] = [];
     let privacy = false;
     let paneSnapshot: HTMLElement | undefined;
     let activeModal: string | undefined;
@@ -95,7 +97,8 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     const exit = (): void => { const changed = state.hiddenChanged; destroy(); close(changed); };
     const rowFocus = (): FocusTarget => ({ zone: "settings-rows", key: returnRow });
     const back = (): void => {
-        if (confirmingAppearanceReset) { confirmingAppearanceReset = false; render({ zone: "settings-rows", key: "reset-appearance" }); }
+        if (confirmingPlaybackReset) { if (state.busy) return; confirmingPlaybackReset = false; pendingPlaybackReset = []; render({ zone: "settings-rows", key: "reset-playback" }); }
+        else if (confirmingAppearanceReset) { confirmingAppearanceReset = false; render({ zone: "settings-rows", key: "reset-appearance" }); }
         else if (privacy) { privacy = false; render({ zone: "settings-rows", key: "privacy" }); }
         else if (extraPicker !== undefined) { const key = extraPicker.id; extraPicker = undefined; render({ zone: "settings-rows", key }); }
         else if (choosingLaunch) { choosingLaunch = false; render({ zone: "settings-rows", key: "remember-profile" }); }
@@ -172,6 +175,21 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         return nodes;
     };
     const retryButton = (): FocusItem[] => state.error === undefined ? [] : [button("retry", state.canRetry ? "Check and retry" : "Reload settings", () => { void state.retry(); })];
+    const resetPlayback = async (retry = false): Promise<void> => {
+        if (state.busy) return;
+        if (retry) {
+            await state.retry();
+            if (torn || state.error !== undefined) return;
+        }
+        while (pendingPlaybackReset.length > 0) {
+            const key = pendingPlaybackReset[0];
+            if (torn || !confirmingPlaybackReset || key === undefined) return;
+            await state.reset(key);
+            if (torn || state.error !== undefined) return;
+            pendingPlaybackReset.shift();
+        }
+        if (!torn) back();
+    };
 
     const showModal = (name: string, title: string, content: HTMLElement[], controls: FocusItem[], zone = "settings-picker"): void => {
         const card = el("div", "settings-modal settings-controls");
@@ -184,11 +202,16 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             if (item.element.getAttribute("aria-checked") === "true") {
                 const check = el("span", "settings-checkmark");
                 check.setAttribute("aria-hidden", "true");
-                item.element.appendChild(check);
+                item.element.prepend(check);
             }
         }
         card.append(...content);
-        if (name !== "settings:privacy") card.append(el("p", "settings-picker-subtitle", "Choose an option"), el("span", "settings-picker-hint", "Menu to close"));
+        if (name !== "settings:privacy") {
+            const hint = el("span", "settings-picker-hint");
+            const icon = el("span", "settings-back-icon", "↩"); icon.setAttribute("aria-hidden", "true");
+            hint.append(icon, el("span", "", "Menu to close"));
+            card.append(el("p", "settings-picker-subtitle", "Choose an option"), hint);
+        }
         const privacyCopy = card.querySelector(".settings-privacy-copy");
         if (privacyCopy !== null) privacyCopy.append(...controls.map(item => item.element));
         else card.append(list);
@@ -319,6 +342,18 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
 
     function render(focus?: FocusTarget): void {
         if (torn) return;
+        if (confirmingPlaybackReset) {
+            const playbackKeys: readonly SettingsKey[] = [QUALITY_KEY, BITRATE_KEY, AUDIO_KEY, ...settingsRows("playback", state).map(row => row.key)];
+            const keys = playbackKeys.filter(key => state.scope(key) === "profile_device");
+            const controls = [button("cancel-playback-reset", "Cancel", back), button("confirm-playback-reset", "Reset", () => {
+                if (state.busy) return;
+                if (pendingPlaybackReset.length === 0) pendingPlaybackReset = [...keys];
+                void resetPlayback();
+            }), ...(state.error === undefined ? [] : [button("retry", state.canRetry ? "Check and retry" : "Reload settings", () => { void resetPlayback(true); })])];
+            showModal("settings:reset-playback", "Use Profile Settings?", [el("h1", "browse-title", "Use Profile Settings?"), el("p", "settings-value", "Removes the playback settings changed on this TV, so it uses your profile's settings again."), ...feedback()], controls);
+            return;
+        }
+        if (torn) return;
         if (confirmingAppearanceReset) {
             const controls = [actionButton("cancel", "Cancel", back), button("reset", "Reset", () => { void state.save(APPEARANCE_KEY, { ...DEFAULT_APPEARANCE }).then(() => { if (!torn && confirmingAppearanceReset && state.error === undefined) back(); }); }), ...retryButton()];
             host.show({ name: "settings:reset-appearance", content: [el("h1", "browse-title", "Reset Appearance?"), el("p", "settings-value", state.scope(APPEARANCE_KEY) === "profile_device" ? "This restores this TV's subtitle appearance to the defaults." : "This restores this profile's subtitle appearance to the defaults on all devices."), ...feedback(), zoneNode("settings-controls", controls)], zones: [{ id: "settings-picker", layout: "column", items: controls }], focus: { zone: "settings-picker", key: "cancel" }, back });
@@ -428,7 +463,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         const headerCopy = el("div", ""); headerCopy.append(el("h2", "browse-section-title", CATEGORY_LABELS[category]), el("p", "settings-blurb", CATEGORY_BLURBS[category]));
         header.append(tile, headerCopy);
         body.append(header, ...feedback());
-        const pickers: readonly Picker[] = category === "playback" ? ["quality", "bitrate", "audio"] : [];
+        const pickers: readonly Picker[] = category === "playback" ? ["quality", "bitrate", "audio", "seek-back", "seek-forward"] : [];
         if (category === "server") {
             const info = (title: string, value: string): HTMLElement => {
                 const row = el("div", "settings-info-row"); row.append(el("span", "", title), el("span", "settings-row-value", value)); return row;
@@ -503,9 +538,10 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             body.appendChild(el("p", "settings-value", all ? "Title art applies on every device signed into this profile." : "Use logo artwork as the title when available. Only affects this TV. Your other devices keep their own setting."));
         }
         for (const id of pickers) {
+            if (id === "seek-back" || id === "seek-forward") continue;
             const key = PICKER_KEYS[id];
             if (!state.loaded || !state.definitions.some(def => def.key === key)) continue;
-            const section = id === "quality" ? "QUALITY" : id === "audio" ? "STREAMING" : id === "seek-back" ? "VIDEO" : undefined;
+            const section = id === "quality" ? "QUALITY" : id === "audio" ? "STREAMING" : undefined;
             if (section !== undefined) body.appendChild(el("h3", "settings-section-header", section));
             const item = button(id, PICKER_LABELS[id], () => openPicker(id));
             const value = state.effective.get(key)?.value ?? null;
@@ -551,10 +587,10 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 const outlineOff = row.member === "textOutlineColor" && rowValue({ ...row, member: "textOutline" }, state) !== true;
                 const backgroundOff = (row.member === "backgroundOpacity" || row.member === "backgroundColor") && rowValue({ ...row, member: "backgroundStyle" }, state) !== "box";
                 item.element.appendChild(el("span", "settings-row-value", outlineOff || backgroundOff ? "—" : row.choices.find(([choice]) => choice === value)?.[1] ?? String(value)));
+                if (row.id !== "advisory-age" && row.member !== "textOutline") item.element.appendChild(el("span", "settings-chevron", "›"));
                 if (row.id === "advisory-age" || row.member === "textOutline") { item.element.setAttribute("role", "switch"); item.element.setAttribute("aria-label", row.title); item.element.setAttribute("aria-checked", String(value === true)); }
                 rows.push(item); body.appendChild(item.element);
                 if (row.id === "advisory-age") body.appendChild(el("p", "settings-value", "Show a suggested minimum viewer age, such as Common Sense Media’s, on movie and show details. This does not change what the profile may watch."));
-                if (row.id === "poster-size") body.appendChild(el("p", "settings-value", "Poster size syncs with other TV-family devices on this profile."));
                 if (row.id === "poster-size" && state.client.get(row.key)?.isSet) {
                     const inherited = button("poster-profile-default", "Use Profile Default", () => { void state.reset(row.key); });
                     rows.push(inherited); body.appendChild(inherited.element);
@@ -563,6 +599,23 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                     item.element.setAttribute("aria-disabled", "true");
                     const synced = button("use-synced-tv", "Use Synced TV Settings", () => { void state.resetPosterDevice(); });
                     rows.push(synced); body.appendChild(synced.element);
+                }
+                if (row.id === "poster-size") body.appendChild(el("p", "settings-value", "Poster size syncs with other TV-family devices on this profile."));
+            }
+            if (category === "playback") {
+                const skipRows = (["seek-back", "seek-forward"] as const).filter(id => state.definitions.some(def => def.key === PICKER_KEYS[id]));
+                if (skipRows.length > 0) body.appendChild(el("h3", "settings-section-header", "VIDEO"));
+                for (const id of skipRows) {
+                    const item = button(id, PICKER_LABELS[id], () => openPicker(id));
+                    item.element.replaceChildren(el("span", "settings-row-title", PICKER_LABELS[id]), el("span", "settings-row-value", label(state.effective.get(PICKER_KEYS[id])?.value ?? (id === "seek-back" ? 10 : 30), PICKER_KEYS[id])), el("span", "settings-chevron", "›"));
+                    rows.push(item); body.appendChild(item.element);
+                }
+                if (skipRows.length > 0) body.appendChild(el("p", "settings-value", "Used by the remote and on-screen skip buttons. Applies to every device signed in to this profile."));
+                const playbackKeys: readonly SettingsKey[] = [QUALITY_KEY, BITRATE_KEY, AUDIO_KEY, ...settingsRows("playback", state).map(row => row.key)];
+                if (playbackKeys.some(key => state.scope(key) === "profile_device")) {
+                    const reset = button("reset-playback", "Use Profile Settings", () => { confirmingPlaybackReset = true; render(); });
+                    rows.push(reset);
+                    body.append(el("h3", "settings-section-header", "RESET"), reset.element, el("p", "settings-value", "Removes the playback settings changed on this TV, so it uses your profile's settings again."));
                 }
             }
             if (category === "subtitles" && state.definitions.some(def => def.key === APPEARANCE_KEY)) {
@@ -577,16 +630,25 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 preview.style.top = "auto"; preview.style.bottom = "auto";
                 body.appendChild(preview);
                 const reset = button("reset-appearance", "Reset Appearance", () => { confirmingAppearanceReset = true; render(); });
-                rows.push(reset); body.append(reset.element, note(APPEARANCE_KEY));
+                rows.push(reset); body.append(reset.element, el("p", "settings-value settings-appearance-footer", `${state.scope(APPEARANCE_KEY) === "profile_device" ? "Saved only on this TV. Other devices use the profile's settings." : "Saved for this profile on all devices."} Subtitles with their own built-in styling keep their original appearance; image-based subtitles keep their authored fonts and colors but follow the size, position, and background settings.`));
                 if (state.definitions.some(def => def.key === APPEARANCE_KEY && def.device)) {
                     const device = state.scope(APPEARANCE_KEY) === "profile_device";
                     const toggle = button("appearance-device", "Only on This TV", () => { void state.setAppearanceDevice(!device); });
                     toggle.element.setAttribute("role", "switch"); toggle.element.setAttribute("aria-label", "Only on This TV"); toggle.element.setAttribute("aria-checked", String(device));
+                    toggle.element.appendChild(el("span", "settings-row-value", device ? "On" : "Off"));
                     rows.push(toggle); body.appendChild(toggle.element);
                 }
             }
         }
         if (state.loaded && rows.length === 0) body.appendChild(el("p", "browse-text", "No supported settings in this category."));
+        if (category === "server") {
+            for (const row of rows) {
+                const icon = row.key === "accounts" ? "switch-profile" : row.key === "privacy" ? "privacy" : row.key === "acknowledgements" ? "credits" : "switch-server";
+                row.element.classList.add("settings-server-action");
+                row.element.prepend(navigationIcon(icon));
+                row.element.appendChild(navigationIcon(row.key === "privacy" ? "qr" : row.key === "acknowledgements" ? "document" : "chevron-right"));
+            }
+        }
         const retries = retryButton();
         rows.push(...retries);
 
@@ -598,6 +660,9 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             body.insertBefore(el("h3", "settings-section-header", "APPEARANCE"), firstAppearance);
             body.insertBefore(preview, firstAppearance);
             if (deviceToggle !== null) body.insertBefore(deviceToggle, firstAppearance);
+            const group = el("div", "settings-nested-group");
+            body.insertBefore(group, firstAppearance);
+            for (const row of rows.filter(item => item.key.startsWith("appearance-") && item.key !== "appearance-device" || item.key === "reset-appearance")) group.appendChild(row.element);
         }
         body.appendChild(zoneNode("settings-controls", retries));
         // Remote order follows the visible order, including connected Retry controls.

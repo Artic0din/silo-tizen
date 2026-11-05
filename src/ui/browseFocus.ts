@@ -457,8 +457,9 @@ export class FocusHost {
         // Opening the cascade must not replace the content return target.
         if (this.tracksContent(zone.id)) this.contentZone = zone.id;
         this.navigationItem = item;
+        const previous = document.activeElement;
         item.element.focus({ preventScroll: true });
-        this.scroll.reveal(item.element, this.container);
+        this.scroll.reveal(item.element, this.container, previous);
     }
 
     /** Chrome zones are not a page's content return target. */

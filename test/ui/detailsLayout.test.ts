@@ -29,6 +29,69 @@ function liveScroll(_arg: null): number | null {
     return row.scrollLeft;
 }
 
+for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} reveals supporting headings in both directions`, async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    catalog.videos = [{ site_key: 'trailer-key', site: 'YouTube', kind: 'trailer', name: 'Trailer' }];
+    const body = catalog.route('GET', `/catalog/items/${encodeURIComponent(media)}`, 'p-owner')?.body as Record<string, unknown>;
+    await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(media)}?**`, route => route.fulfill({ json: {
+        ...body, content_rating: 'PG', overview: 'A remote observatory receives a message that changes the lives of everyone on the night shift. '.repeat(3),
+        studios: ['Studio'], countries: ['AU'], release_date: '2020-01-01',
+        ...(media.startsWith('series') ? { networks: ['Network'], first_air_date: '2020-01-01', last_air_date: '2021-01-01' } : { networks: ['Network'] }),
+    } }));
+    await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
+    await tv.page.locator('.details-extras [data-focus]').first().waitFor();
+    await tv.page.locator('[data-detail-section="related"] [data-focus]').first().waitFor();
+    await tv.page.evaluate(() => document.fonts.ready);
+    await tv.jump(500);
+    if (media.startsWith('movie')) {
+        const stack = await readLive(tv, () => {
+            const nodes = ['.browse-meta', '.browse-overview', '.details-director', '.details-playback-summary', '.browse-actions'].map(selector => document.querySelector(`.details-editorial ${selector}`));
+            return nodes.some(node => !node?.isConnected) ? null : nodes.map(node => node!.getBoundingClientRect().top);
+        }, null, value => value.length === 5, 'movie hero stack');
+        assert.ok(stack.every((value, index) => Math.abs(value - [291, 334, 450, 492, 556][index]!) <= 3), JSON.stringify(stack));
+    }
+    const sample = (selector: string) => readLive(tv, selector => {
+        const section = document.querySelector<HTMLElement>(selector);
+        const page = document.querySelector<HTMLElement>('.browse');
+        const header = section?.matches('.details-facts') ? section.firstElementChild : section?.previousElementSibling;
+        if (!section?.isConnected || !page || !header) return null;
+        return { heading: header.getBoundingClientRect().top, scroll: page.scrollTop, maximum: page.scrollHeight - page.clientHeight, height: page.scrollHeight, bottom: section.getBoundingClientRect().bottom, focused: section.contains(document.activeElement) };
+    }, selector, value => value.focused, 'live supporting heading');
+    const check = async (selector: string, target: number, key: number) => {
+        await tv.remote(key); await tv.jump(500);
+        const value = await sample(selector);
+        assert.ok(Math.abs(value.heading - target) <= 3, `${selector}: ${JSON.stringify(value)} target ${target}`);
+    };
+    const series = media.startsWith('series');
+    if (series) {
+        await tv.remote(40); await tv.remote(40);
+        assert.equal(await tv.page.locator('.browse').evaluate(node => node.scrollTop), 0);
+    }
+    await check('.details-people', series ? 367 : 546, 40);
+    await check('.details-extras', 501, 40);
+    await check('[data-detail-section="related"]', series ? 547 : 321, 40);
+    await tv.remote(40); await tv.jump(500);
+    const end = await sample('.details-facts');
+    assert.equal(end.scroll, end.maximum);
+    assert.ok(Math.abs(end.bottom - 940) <= 1, '140px total bottom padding');
+    // Fake facts differ from the captured title: residuals +4.61 Movie / +5.41 Series.
+    assert.ok(Math.abs(end.heading - (series ? 457.41 : 528.61)) <= 3, JSON.stringify(end));
+    console.log(`${media} Details heading ${end.heading}, residual ${end.heading - (series ? 452 : 524)}, page height ${end.height}`);
+    await check('[data-detail-section="related"]', series ? 111 : 321, 38);
+    await check('.details-extras', 111, 38);
+    await check('.details-people', series ? 367 : 690, 38);
+    if (!series) assert.equal((await sample('.details-people')).scroll, 0);
+    const reads = tv.fake.requests.length;
+    await tv.remote(39); await tv.jump(500);
+    assert.equal(tv.fake.requests.length, reads, 'horizontal focus does not fetch');
+    await tv.remote(38); await tv.jump(500);
+    if (series) { await tv.remote(38); await tv.remote(38); await tv.jump(500); }
+    assert.equal(await readLive(tv, () => {
+        const page = document.querySelector<HTMLElement>('.browse');
+        return page === null ? null : page.scrollTop;
+    }, null, value => value === 0, 'hero returns to scroll zero'), 0);
+});
+
 
 detailTest('nested presentations of one title preserve the ancestor visit', async tv => {
     await tv.page.route('**/api/v2/recommendations/similar/**', route => route.fulfill({ json: { items: ['movie:m0001', 'movie:m0002'].map(content_id => ({ content_id, type: 'movie', title: content_id })) } }));

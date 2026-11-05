@@ -135,10 +135,11 @@
 .details-series-rail .browse-row { padding-top: 12px; }
 .browse .details-series-rail .browse-card { margin-right: 54px; }
 .details-series-rail .browse-card { scroll-margin-top: 24px; }
-.browse.details-series-scene { padding-bottom: 540px; }
+/* TVDetailLayout.pageBottomPadding is 140, shared by Movie and Series. */
+.browse:has(.details-hero) { padding-bottom: 140px; }
 .browse .details-series-rail .browse-card.skyline-continue, .browse .details-series-rail .skyline-continue .browse-art { width: calc(360px * var(--poster-scale, 1)); }
 .browse .details-series-rail .skyline-continue .browse-art { height: calc(200px * var(--poster-scale, 1)); }
-.details-facts { margin: 51px 0 140px; }
+.details-facts { margin: 51px 0 0; }
 .details-facts-table { max-width: 1400px; margin: 14px 0 0; }
 .details-fact-row { display: flex; gap: 64px; padding: 22px 0; border-top: 1px solid rgba(255,255,255,.08); }
 .details-fact-row:first-child { border-top: 0; }

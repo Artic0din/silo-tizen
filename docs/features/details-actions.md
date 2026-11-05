@@ -66,19 +66,23 @@ The #247 scroll audit at the Apple SHA above found these distinct owners, all un
 - `TVDetailFactsSection.swift:14-22,24-61` makes the whole table one passive focus target with a 14-point vertical highlight bleed; it specifies no explicit scroll anchor.
 - `TVDetailHero.swift:18` supplies 140 points of bottom content padding; both page bodies apply it (`TVMovieDetailView.swift:120`, `TVSeriesDetailView.swift:292`).
 
-The existing `SkylineScroll` owner already resets hero/editorial focus to zero and centers movie Related sections.
-No second scroll owner or per-state correction was added.
-A signed comparison on 6 November 2026 at 1920x1080 used Samsung head `76b2784` and the running Apple app at `7baff3e`.
-Its settled measurements supersede the earlier estimates: downward reveal targets a focused-frame bottom near y904; upward reveal targets heading y111 unless no reveal is needed; Movie Related and Series Cast are centered; Details reaches the page end.
-Apple's Movie Details heading was y524 at scroll1573, and Series Details was y452 at scroll2073.
-The later route-isolation change needs a new signed re-check.
-Scroll parity remains incomplete: in the desktop fixture, the trailer card starts 69.2px below its heading, versus 25px for the supplied Apple focused frame.
-Placing the current heading at y111 therefore places the card at y180.2 rather than y136; scrolling 44.2px farther would instead move the heading to y66.8.
-The focused-frame geometry must be reconciled before treating one scroll rule as matching both measurements.
+`SkylineScroll` owns the heading-based reveal rule; the focus host passes the previous focus to distinguish Up from Down.
+The settled running Apple app at `7baff3e` on 6 November 2026 supplies Down heading targets Cast 546, Trailers 501 and Series posters 547, and Up heading 111.
+Apple's trailer image starts 69px below its heading, matching Samsung's 69.2px; its focused frame includes about 44px of padding above the image and is not comparable to Samsung's card frame.
+Movie Related uses heading 321 and Series Cast uses 367 in both directions because the local complete section heights differ from Swift's centered anchors.
+Up resets to zero when the heading and focused artwork are fully visible there, including Movie Cast at heading 690.
+Horizontal moves preserve the section's vertical position; hero actions, season pills and episode rows stay at scroll zero.
+Details scrolls to `scrollHeight - clientHeight`, with 140px of total bottom padding from `TVDetailLayout.pageBottomPadding` and no duplicate facts margin.
+This removes 540px of duplicated Series bottom space; the earlier approximate 516px page-height difference also includes content/layout differences.
+With representative five-row Movie and six-row Series fake tables, Details headings are 528.61 and 457.41: residuals +4.61 and +5.41 against Apple's 524 and 452.
+The fake page heights are 2664 and 3171, so their absolute page maxima do not substitute for the captured titles' maxima.
+Tests assert directional headings within three pixels, the movie stack 291/334/450/492/556, top resets, page-end arithmetic and the stated Details residuals.
+The route-isolation and scroll changes need a new signed same-state re-check.
 No simulator, TV, live server or signed package was used for this follow-up.
 
 Metadata already includes the outlined rating chip and rating artwork (`TVDetailHero.swift:360-446`); Related Movies and Recommended Series already match (`TVMovieDetailView.swift:289`, `TVSeriesDetailView.swift:1117`).
-The optional advisory-age chip (`TVDetailHero.swift:450-453`) remains a separate preference-gated difference; the existing row must not be replaced with guessed technical badges.
+The optional advisory-age chip (`TVDetailHero.swift:450-453`) remains the outstanding #247 implementation item: Swift requires `AdvisoryAgePreferenceStore.showsAdvisoryAge`, which has no corresponding preference owner here.
+Adding that preference lifecycle falls outside this scroll change, so #247 stays open.
 
 The later comparison must cover Movie and Series fresh opening and reopening after Cast/table scroll; Up through every hero action; return from episode information with Season 2 selected; focused middle and terminal Details tables; first and subsequent trailers with and without Cast; Related Movies and Recommended Series; rated metadata with advisory preference off/on; and the rest hero including the movie stack y291/334/450/492/556.
 Repeat Series rail entry, horizontal terminal clamp and Up return at Compact, Standard and Large to protect #246.

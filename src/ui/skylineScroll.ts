@@ -3,8 +3,11 @@ import { episodeRailOffset } from "./episodeRail.ts";
 /** Apple's focused History rows 2 and 3 put the unlifted poster top here. */
 const HISTORY_POSTER_TOP = 554;
 
-/** Retarget from the visible position; focus itself must never invoke browser scrolling. */
-const DETAILS_CAST_HEADING_CENTRE_OFFSET = 6;
+// Measured from the running Apple TV app at 7baff3e, 6 Nov 2026: tvOS focus reveal, not Swift offsets.
+const DETAILS_DOWN_HEADING = { cast: 546, trailers: 501, posters: 547 };
+const DETAILS_UP_HEADING = 111;
+// The local section heights differ from Swift's complete centered anchors.
+const DETAILS_CENTER_HEADING = { moviePosters: 321, seriesCast: 367 };
 
 export class SkylineScroll {
     private readonly frames = new Map<HTMLElement, number>();
@@ -61,7 +64,7 @@ export class SkylineScroll {
         this.frames.set(node, requestAnimationFrame(frame));
     }
 
-    reveal(element: HTMLElement, container: HTMLElement): void {
+    reveal(element: HTMLElement, container: HTMLElement, previous?: Element | null): void {
         if (element.closest(".browse-nav, .skyline-selector:not(.details-audio-picker)") !== null) return;
         const viewport = element.closest<HTMLElement>(".browse-panel-list, .details-audio-picker, .skyline-content, .accounts-rail, .accounts-pane, .accounts-settings") ?? container;
         if (element.closest("[data-scroll-top]") !== null) {
@@ -97,19 +100,26 @@ export class SkylineScroll {
             this.move(viewport, 0, 0);
             return;
         }
-        const related = element.closest<HTMLElement>('[data-detail-section="related"]');
-        if (related !== null) {
-            const rail = related.getBoundingClientRect();
-            const header = related.previousElementSibling?.getBoundingClientRect();
-            const centre = ((header?.top ?? rail.top) + rail.bottom) / 2;
-            this.move(viewport, 0, Math.max(0, viewport.scrollTop + centre - (bounds.top + bounds.bottom) / 2));
-            return;
-        }
-        const cast = element.closest<HTMLElement>(".details-people");
-        if (cast !== null) {
-            // tvOS centers the supporting section's leading anchor, not the full portrait rail.
-            const header = cast.previousElementSibling?.getBoundingClientRect();
-            this.move(viewport, 0, Math.max(0, viewport.scrollTop + (header?.top ?? rect.top) - bounds.top - bounds.height / 2 - DETAILS_CAST_HEADING_CENTRE_OFFSET));
+        const section = element.closest<HTMLElement>('.details-people, .details-extras, [data-detail-section="related"], .details-facts');
+        if (section !== null) {
+            if (previous !== undefined && previous !== element && section.contains(previous)) return;
+            if (section.classList.contains('details-facts')) {
+                this.move(viewport, 0, viewport.scrollHeight - viewport.clientHeight);
+                return;
+            }
+            const header = section.previousElementSibling?.getBoundingClientRect();
+            if (header === undefined) return;
+            const headingTop = viewport.scrollTop + header.top - bounds.top;
+            const up = previous?.isConnected === true && previous.getBoundingClientRect().top > rect.top;
+            const series = container.querySelector('.details-hero')?.getAttribute('data-media-type') === 'series';
+            const cast = section.classList.contains('details-people');
+            const posters = section.hasAttribute('data-detail-section');
+            const centered = series && cast ? DETAILS_CENTER_HEADING.seriesCast : !series && posters ? DETAILS_CENTER_HEADING.moviePosters : undefined;
+            const target = centered ?? (up ? DETAILS_UP_HEADING : cast ? DETAILS_DOWN_HEADING.cast : posters ? DETAILS_DOWN_HEADING.posters : DETAILS_DOWN_HEADING.trailers);
+            // A section fully reachable on the unscrolled page needs no upward reveal.
+            const artwork = element.querySelector('.browse-art');
+            const visibleAtTop = headingTop >= 0 && viewport.scrollTop + (artwork ?? element).getBoundingClientRect().bottom - bounds.top <= viewport.clientHeight;
+            this.move(viewport, 0, up && visibleAtTop ? 0 : Math.max(0, headingTop - target));
             return;
         }
         const shelf = element.closest<HTMLElement>('[data-scroll-align="bottom"]');

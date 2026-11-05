@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept a Person filter the viewer already chose when a slower availability probe would have removed its chip.
 - Moved Up from a Person filmography card to the chip closest to that card's left edge, leaving the card in place when no chip meets it, and scrolled the first row to the page's 72 px bottom padding plus the tvOS safe area.
 
 - Reset fresh Person visits from Search and applied delayed poster and badge preferences on Person.

@@ -219,6 +219,37 @@ journey("availability comes from server probes, not the loaded first page", asyn
     assert.equal(await tv.page.locator(".browse-page-status").count(), 0, "no Page 1 of 1");
 });
 
+journey("selecting Series while availability probes are still out keeps that chip and its results", async (tv, catalog) => {
+    catalog.personCredits.set("7", ["movie:m0001"]);
+    const transport = tv.fake.fetch.bind(tv.fake);
+    let releaseProbes = (): void => undefined;
+    const probes = new Promise<void>((resolve) => { releaseProbes = resolve; });
+    (tv.fake as { fetch: typeof tv.fake.fetch }).fetch = async (url, init) => {
+        const body = typeof init.body === "string" ? JSON.parse(init.body) as { source?: string; limit?: number } : undefined;
+        if (body?.source === "person" && body.limit === 1) await probes;
+        return transport(url, init);
+    };
+    await tv.remote(BACK);
+    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.eventually(async () => await grid(tv).count() === 1, "movie credit before probes");
+    assert.equal(await tv.page.locator('[data-focus^="filter:"]').count(), 3, "all chips stay while probes are out");
+    const probeAnswers = Promise.all([0, 1].map(() => tv.page.waitForResponse((response) => {
+        const data = response.request().postData() ?? "";
+        return response.url().includes("/catalog/query") && data.includes('"limit":1');
+    })));
+    await tv.page.locator('[data-focus="filter:series"]').click();
+    await tv.eventually(async () => lastQuery(tv)?.body?.type === "series" && await tv.page.getByText("No available titles for this filter.", { exact: true }).count() === 1, "Series chosen before probes finish");
+    assert.equal(await tv.focused(), "filter:series");
+    releaseProbes();
+    await probeAnswers;
+    await tv.page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(undefined)))));
+    assert.equal(await tv.page.locator('[data-focus^="filter:"]').count(), 3, "a filter change drops the late probe, so Series stays");
+    assert.equal(await tv.page.locator('[data-focus="filter:series"]').getAttribute("aria-pressed"), "true");
+    assert.equal(lastQuery(tv)?.body?.type, "series");
+    assert.equal(await tv.focused(), "filter:series");
+    assert.equal(await tv.page.locator('[data-focus="filter:series"]').count(), 1);
+});
+
 journey("credits and hero shell remain usable while metadata is pending", async tv => {
     await tv.remote(BACK);
     const held = tv.fake.hold("/catalog/people/7", true);

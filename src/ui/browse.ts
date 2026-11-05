@@ -192,6 +192,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let stack: Route[] = [];
     let loading: AbortController | undefined;
     let personRead: { route: Route; controller: AbortController } | undefined;
+    let personFilterGeneration = 0;
     let homeLibraries: AbortController | undefined;
     let cancelSlow: () => void = () => undefined;
     let cancelSearch: () => void = () => undefined;
@@ -1079,13 +1080,15 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 }, (error: unknown) => {
                     if (!metadataSignal.aborted) current.metadataFailure = failureText(error, current) ?? "Could not load metadata. Try again.";
                 }).finally(() => { if (!metadataSignal.aborted) { current.metadataLoading = false; repaint(); } }) : Promise.resolve();
+                const probedGeneration = personFilterGeneration;
                 const availability = loadAvailability ? Promise.resolve().then(() => Promise.all((["movie", "series"] as const).map(async type => {
                     try {
                         const page = await read(operations.queryCatalogItems({ ...personQuery(current.id, type), limit: 1 }), metadataSignal);
                         return page.items.length > 0 || page.total > 0;
                     } catch { return undefined; }
                 }))).then(([movies, series]) => {
-                    if (!metadataSignal.aborted) {
+                    // A filter chosen while these probes were out keeps its chip (PersonDetailView.swift refreshAvailableFilters).
+                    if (!metadataSignal.aborted && probedGeneration === personFilterGeneration) {
                         current.availableFilters = ["video", ...(movies === false ? [] : ["movie" as const]), ...(series === false ? [] : ["series" as const])];
                         current.availabilityLoading = false;
                         repaint();
@@ -1567,6 +1570,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
 
     const personFilter = (current: Extract<Route, { kind: "person" }>, filter: MediaScope): void => {
         if (current.filter === filter) return;
+        personFilterGeneration += 1;
         current.filter = filter;
         current.pages = newPages();
         current.pendingIndex = undefined;

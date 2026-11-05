@@ -101,6 +101,25 @@ for (const multipleLibraries of [false, true]) browseTest(`section selection clo
     assert.ok((await tv.focused())?.startsWith("movie:"));
 }, { multipleLibraries });
 
+browseTest("empty Genres retains the No titles message alongside mode controls", async tv => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await tv.page.route("**/api/v2/catalog/filters**", route => route.fulfill({ json: { ...fixture("get_catalog_filters_ok"), genres: [] } }));
+    await selectLibraryMode(tv, "Genres");
+    await shows(tv, "No titles");
+    assert.ok(await tv.page.locator('.skyline-pills .browse-button').count() > 0);
+});
+
+browseTest("empty Recently Added renders only one No titles message", async tv => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await selectLibraryMode(tv, "Browse");
+    await tv.page.route("**/api/v2/catalog/query**", route => route.fulfill({ json: { window_cursor: "empty", effective_sort: { field: "added_at", order: "desc" }, items: [], total: 0, total_exact: true, page: { has_more: false } } }));
+    await selectLibraryMode(tv, "Recently Added");
+    await shows(tv, "No titles");
+    assert.equal(await tv.page.getByText("No titles", { exact: true }).count(), 1);
+});
+
 browseTest("collection members do not wait for optional Shuffle capabilities", async (tv) => {
     let release: (() => void) | undefined;
     const held = new Promise<void>(resolve => { release = resolve; });

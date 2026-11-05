@@ -93,7 +93,7 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
             content.push(loading);
         }
     }
-    if (state.data !== undefined && route.failure === undefined && zones.every(zone => zone.items.length === 0)) content.push(...lines(state.mode === "Collections" ? ["No collections yet", "Collections created on the server will appear here."] : ["No titles"]));
+    if (state.data !== undefined && route.failure === undefined && zones.every(zone => zone.items.length === 0 || (zone.id === "pills" && state.mode === "Genres" && state.genre === undefined))) content.push(...lines(state.mode === "Collections" ? ["No collections yet", "Collections created on the server will appear here."] : ["No titles"]));
     const firstZone = zones.find(zone => (zone.id === "grid" || zone.id.startsWith("section:")) && zone.items.length > 0) ?? zones.find(zone => zone.id !== "pills" && zone.items.length > 0) ?? zones.find(zone => zone.items.length > 0);
     const first = firstZone?.items[0];
     return { name: state.data === undefined && route.failure === undefined ? "library:loading" : `library:${route.library.id}`, content, zones, focus: first === undefined ? { zone: "nav", key: route.library.type === "series" ? "series" : "movies" } : { zone: firstZone?.id ?? "nav", key: first.key }, back: handlers.pop };

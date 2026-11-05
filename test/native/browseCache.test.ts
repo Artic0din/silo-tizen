@@ -295,3 +295,81 @@ test("fresh series metadata resets next-episode state owned by the cached play t
     assert.equal(state.nextEpisodeLoading, false);
     assert.equal(state.nextEpisodeFailed, false);
 });
+
+const movie = decodeItemDetail(fixture("get_catalog_item_ok"));
+
+/** Personal and similar reads answer directly. Every other read is a transport failure. */
+function supportingVisits(status: number): { refuse(next: "personal" | "similar" | "offline"): void; open(previous?: DetailsState): Promise<DetailsState> } {
+    let phase: "warm" | "personal" | "similar" | "offline" = "warm";
+    const session = { onAuthorityChange: () => () => {}, call: async <T>(request: RequestSpec<T>): Promise<T> => {
+        const path = request.path;
+        const personal = path === "/capabilities/personal-lists" || path.includes("/membership");
+        const similar = path.startsWith("/recommendations/similar/");
+        if (phase === "offline" || (!personal && !similar)) throw new ApiError({ kind: "network" });
+        if ((phase === "personal" && personal) || (phase === "similar" && similar)) throw new ApiError({ kind: "http", status, retryAfterSeconds: undefined });
+        if (path === "/capabilities/personal-lists") return true as T;
+        if (personal) return { id: movie.id, member: true } as T;
+        return { items: [{ id: "movie:related" }] } as T;
+    } } as unknown as NativeSession;
+    return {
+        refuse(next) { phase = next; },
+        async open(previous) {
+            const state = new DetailsState(movie, session, () => {}, async () => {});
+            state.restore(previous);
+            state.start();
+            await settle();
+            return state;
+        },
+    };
+}
+
+for (const status of [403, 404, 501] as const) test(`personal HTTP ${status} cannot return from cache after an offline revisit`, async () => {
+    const visits = supportingVisits(status);
+    const warm = await visits.open();
+    assert.equal(warm.personalSupported, true);
+    assert.equal(warm.values.get("favorites"), true);
+    assert.equal(warm.related?.[0]?.id, "movie:related");
+    visits.refuse("personal");
+    const refused = await visits.open(warm);
+    if (status === 403) assert.equal(refused.personalFailed, true);
+    else assert.equal(refused.personalSupported, false, "an explicit personal refusal marks the lists unsupported");
+    assert.equal(refused.related?.[0]?.id, "movie:related", "a personal refusal leaves the similar response");
+    visits.refuse("offline");
+    const revisit = await visits.open(refused);
+    if (status === 403) assert.equal(revisit.personalFailed, true, "cached personal capability must not count as a fresh success");
+    else assert.equal(revisit.personalSupported, false, "unsupported personal lists must not reappear from cache");
+    assert.equal(revisit.relatedFailed, false);
+    assert.equal(revisit.related?.[0]?.id, "movie:related");
+    warm.stop(); refused.stop(); revisit.stop();
+});
+
+for (const status of [403, 404] as const) test(`similar HTTP ${status} cannot return from cache after an offline revisit`, async () => {
+    const visits = supportingVisits(status);
+    const warm = await visits.open();
+    visits.refuse("similar");
+    const refused = await visits.open(warm);
+    assert.equal(refused.relatedFailed, true);
+    assert.equal(refused.personalSupported, true, "a similar refusal leaves personal responses");
+    visits.refuse("offline");
+    const revisit = await visits.open(refused);
+    assert.equal(revisit.relatedFailed, true, "a refused similar response must not come back offline");
+    assert.equal(revisit.personalSupported, true);
+    assert.equal(revisit.personalFailed, false);
+    assert.equal(revisit.values.get("favorites"), true);
+    warm.stop(); refused.stop(); revisit.stop();
+});
+
+test("a network failure keeps cached personal and supporting responses", async () => {
+    const visits = supportingVisits(404);
+    const warm = await visits.open();
+    visits.refuse("offline");
+    const revisit = await visits.open(warm);
+    assert.equal(revisit.personalSupported, true);
+    assert.equal(revisit.personalFailed, false);
+    assert.equal(revisit.values.get("favorites"), true);
+    assert.equal(revisit.values.get("watchlist"), true);
+    assert.equal(revisit.relatedFailed, false);
+    assert.equal(revisit.related?.[0]?.id, "movie:related");
+    assert.equal(revisit.offline, true);
+    warm.stop(); revisit.stop();
+});

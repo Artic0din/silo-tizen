@@ -446,6 +446,8 @@ export class DetailsState {
             if (this.current(controller)) this.responses.set(spec.path, value);
             return value;
         } catch (error) {
+            // A 403 or 404 refuses this response. A later transport failure must not serve it.
+            if (this.current(controller) && error instanceof ApiError && (error.status === 403 || error.status === 404)) this.responses.delete(spec.path);
             if (this.current(controller) && error instanceof ApiError && ["network", "timeout"].includes(error.failure.kind)) {
                 this.offline = true;
                 if (cachedDisplay && this.responses.has(spec.path)) return this.responses.get(spec.path) as T;
@@ -726,8 +728,13 @@ export class DetailsState {
             if (this.current(controller)) this.changed();
         }, (error: unknown) => {
             if (!this.current(controller)) return;
-            if (error instanceof ApiError && (error.status === 404 || error.status === 501)) this.personalSupported = false;
-            else this.personalFailed = true;
+            if (error instanceof ApiError && (error.status === 404 || error.status === 501)) {
+                this.personalSupported = false;
+                // 501 is not a 403/404, and one refused membership can sit beside a newer capability answer.
+                this.responses.delete(detailOperations.personalCapability().path);
+                this.responses.delete(detailOperations.membership("watchlist", this.detail.id).path);
+                this.responses.delete(detailOperations.membership("favorites", this.detail.id).path);
+            } else this.personalFailed = true;
             this.changed();
         });
     }

@@ -519,6 +519,83 @@ test("explicit pause and play are idempotent and leave pending seeks alone", asy
     r.controller.destroy();
 });
 
+test("a pending scrub resume publishes the latest transport command, including another Pause", async () => {
+    const r = await rig();
+    await playMovie(r);
+    r.controller.setPaused(true);
+    r.controller.seekToSeconds(45);
+    r.controller.setPaused(false);
+    const pending = last(r.views);
+    assert.ok(pending.phase === "paused");
+    assert.equal(pending.resumePending, true);
+    const count = pending.transportCommandCount;
+    assert.equal(count, 2);
+    r.controller.setPaused(true);
+    r.controller.setPaused(true);
+    const paused = last(r.views);
+    assert.ok(paused.phase === "paused");
+    assert.equal(paused.resumePending, false);
+    assert.equal(paused.transportCommandCount, 4);
+    r.avplay.finishSeek();
+    assert.equal(r.avplay.state, "PAUSED");
+    r.controller.destroy();
+});
+
+for (const newerPause of [false, true]) test(`a committed scrub queues its target and latest intent behind a pending seek (${newerPause})`, async () => {
+    const r = await rig();
+    await playMovie(r);
+    r.controller.setPaused(true);
+    r.controller.seekToSeconds(45);
+    r.controller.setPaused(false);
+    r.controller.setPaused(true);
+    const calls = r.avplay.calls.length;
+    r.controller.seekToSeconds(60);
+    r.controller.seekToSeconds(75);
+    r.controller.setPaused(false);
+    if (newerPause) r.controller.setPaused(true);
+    assert.equal(r.avplay.calls.length, calls);
+    r.avplay.finishSeek();
+    assert.equal(r.avplay.calls.at(-1), "seekTo 75000");
+    assert.equal(r.avplay.state, "PAUSED");
+    r.avplay.finishSeek();
+    assert.equal(r.avplay.positionMs, 75000);
+    assert.equal(r.avplay.state, newerPause ? "PAUSED" : "PLAYING");
+    r.controller.destroy();
+});
+
+for (const ending of ["back", "destroy", "suspend"] as const) test(`${ending} discards a scrub target queued behind a pending seek`, async () => {
+    const r = await rig();
+    await playMovie(r);
+    r.controller.seekToSeconds(45);
+    r.controller.seekToSeconds(75);
+    const calls = r.avplay.calls.length;
+    r.controller[ending]();
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    assert.deepEqual(r.avplay.calls.slice(calls), [ending === "suspend" ? "suspend" : "close"]);
+    assert.equal(r.avplay.state, ending === "suspend" ? "PLAYING" : "NONE");
+    r.controller.destroy();
+});
+
+test("a queued scrub reanchor records resume without playing the outgoing stream", async () => {
+    const r = await rig();
+    r.server.next.push({ timeline: { can_seek_anywhere: true, seek_window_end_seconds: 60 } });
+    await playMovie(r);
+    r.controller.setPaused(true);
+    r.controller.seekToSeconds(45);
+    r.controller.seekToSeconds(75);
+    r.controller.setPaused(false);
+    const plays = r.avplay.calls.filter(call => call === "play").length;
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    assert.equal(r.avplay.calls.filter(call => call === "play").length, plays);
+    assert.equal(only(bodies(r.h, "/replan")).operation, "seek_reanchor");
+    r.avplay.finishPrepare();
+    r.avplay.finishSeek();
+    assert.equal(r.avplay.state, "PLAYING");
+    r.controller.destroy();
+});
+
 test("a resume asked for during an in-flight seek plays once that seek settles", async () => {
     const r = await rig();
     await playMovie(r);

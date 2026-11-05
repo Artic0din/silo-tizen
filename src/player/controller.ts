@@ -145,6 +145,8 @@ export type PlaybackView =
           readonly durationSeconds: number | undefined;
           readonly buffering: boolean;
           readonly upNext?: { readonly next: PlayRequest | undefined; readonly deck: readonly PlayRequest[]; readonly countdown: number | undefined; readonly status: string };
+          readonly resumePending?: boolean;
+          readonly transportCommandCount?: number;
           readonly tracks: TrackView;
           readonly seekIntervals: { readonly backward: number; readonly forward: number };
           readonly previewKey?: string | undefined;
@@ -225,6 +227,7 @@ interface Attempt {
     promptPending: boolean;
     promptLookedUp: boolean;
     prompt: { next: PlayRequest | undefined; deck: readonly PlayRequest[]; fromDeck: boolean } | undefined;
+    transportCommandCount: number;
     autoNext: boolean;
     introMode: "never" | "ask" | "always";
     skipCredits: boolean;
@@ -320,6 +323,7 @@ interface Attempt {
     seekFailure: string | undefined;
     /** Pause or resume asked for while a local seek is settling. Applied when that seek ends. */
     pauseAfterSeek: boolean | undefined;
+    queuedSeekSeconds: number | undefined;
     progress: Promise<void> | undefined;
     cancelTimer: (() => void) | undefined;
     stopSpec: RequestSpec<PlaybackMutation> | undefined;
@@ -382,6 +386,7 @@ export class PlaybackController implements PlayerControls {
         const attempt: Attempt = {
             autoNextSupported: false,
             promptSeconds: 30, promptSupported: false, promptDismissed: false, promptPending: false, promptLookedUp: false, prompt: undefined,
+            transportCommandCount: 0,
             autoNext: false,
             ai: undefined, search: undefined, display: undefined, aiBlockedFiles: new Set(), pendingAIResult: undefined,
             introMode: "ask", skipCredits: false, skippedMarkers: new Set(), undoSkip: undefined, pendingSkipUndo: undefined,
@@ -443,6 +448,7 @@ export class PlaybackController implements PlayerControls {
             endedDuringChange: false,
             seekFailure: undefined,
             pauseAfterSeek: undefined,
+            queuedSeekSeconds: undefined,
             progress: undefined,
             cancelTimer: undefined,
             stopSpec: undefined,
@@ -476,6 +482,7 @@ export class PlaybackController implements PlayerControls {
         if (attempt === undefined) {
             return;
         }
+        attempt.transportCommandCount++;
         // A seek reanchor replaces the transport; preparation must use the latest intent.
         if (!attempt.started) {
             if (attempt.presented) attempt.paused = paused;
@@ -484,9 +491,10 @@ export class PlaybackController implements PlayerControls {
         // AVPlay rejects play and pause while seekTo is outstanding. Keep the request and apply it when the seek ends.
         if (attempt.busy && this.pending.seek !== undefined && attempt.change.state !== "changing") {
             attempt.pauseAfterSeek = paused;
+            this.showPlayback(attempt);
             return;
         }
-        if (attempt.paused === paused) return;
+        if (attempt.paused === paused) { this.showPlayback(attempt); return; }
         if (attempt.busy && !attempt.reporting && !(attempt.change.state === "changing" && attempt.change.kind === "quality")) {
             return;
         }
@@ -533,13 +541,21 @@ export class PlaybackController implements PlayerControls {
     }
 
     seekToSeconds(seconds: number): void {
+        this.seekAbsolute(seconds);
+    }
+
+    private seekAbsolute(seconds: number, requestedPaused?: boolean): void {
         const attempt = this.active();
         const plan = attempt?.plan;
-        if (attempt === undefined || plan === undefined || !attempt.started || attempt.busy) {
+        if (attempt === undefined || plan === undefined || !attempt.started) {
             return;
         }
         const duration = plan.durationSeconds;
         const target = Math.max(0, Math.min(seconds, duration ?? Number.MAX_VALUE));
+        if (attempt.busy) {
+            if (this.pending.seek !== undefined && attempt.change.state !== "changing" && !attempt.hidden && !attempt.restoring) attempt.queuedSeekSeconds = target;
+            return;
+        }
         if (attempt.undoSkip?.seconds === target) attempt.undoSkip = undefined;
         const timeline = plan.timeline;
         const local =
@@ -547,10 +563,12 @@ export class PlaybackController implements PlayerControls {
             target >= timeline.timelineOffsetSeconds &&
             (timeline.seekWindowStartSeconds === undefined || target >= timeline.seekWindowStartSeconds) &&
             (timeline.seekWindowEndSeconds === undefined || target <= timeline.seekWindowEndSeconds);
-        attempt.pauseAfterSeek = undefined;
+        attempt.pauseAfterSeek = requestedPaused;
         attempt.busy = true;
         this.clearThumbnails(attempt);
         if (!local) {
+            if (requestedPaused !== undefined) attempt.paused = requestedPaused;
+            attempt.pauseAfterSeek = undefined;
             // An open or partial window has no bytes there yet: the server re-anchors the timeline.
             this.closeTransport();
             attempt.started = false;
@@ -562,6 +580,7 @@ export class PlaybackController implements PlayerControls {
         const settled = (moved: boolean): void => {
             if (transport !== this.transport || !attempt.live) {
                 attempt.pauseAfterSeek = undefined;
+                attempt.queuedSeekSeconds = undefined;
                 return;
             }
             attempt.busy = false;
@@ -572,9 +591,17 @@ export class PlaybackController implements PlayerControls {
             attempt.seekFailure = undefined;
             const pauseAfterSeek = attempt.pauseAfterSeek;
             attempt.pauseAfterSeek = undefined;
+            const queued = attempt.queuedSeekSeconds;
+            attempt.queuedSeekSeconds = undefined;
             if (failure !== undefined) {
                 if (pauseAfterSeek !== undefined) attempt.paused = pauseAfterSeek;
                 this.routeFailed(attempt, failure);
+                return;
+            }
+            if (queued !== undefined) {
+                this.finishSkipSeek(attempt, moved);
+                this.seekAbsolute(queued, pauseAfterSeek);
+                this.showPlayback(attempt);
                 return;
             }
             if (pauseAfterSeek !== undefined && pauseAfterSeek !== attempt.paused) {
@@ -631,6 +658,7 @@ export class PlaybackController implements PlayerControls {
         attempt.resumeGeneration += 1;
         attempt.restoring = false;
         attempt.hidden = true;
+        attempt.queuedSeekSeconds = undefined;
         this.capturePosition(attempt);
         this.holdTimers(attempt);
         const seek = this.pending.seek;
@@ -1162,6 +1190,7 @@ export class PlaybackController implements PlayerControls {
 
     /** A codec or route failure on this TV: the server picks the next route, a bounded number of times. */
     private routeFailed(attempt: Attempt, classification: string): void {
+        attempt.queuedSeekSeconds = undefined;
         attempt.pendingSkipUndo = undefined;
         const plan = attempt.plan;
         if (!attempt.live || plan === undefined) {
@@ -2726,6 +2755,8 @@ export class PlaybackController implements PlayerControls {
                 countdown: attempt.autoNext && !attempt.prompt.fromDeck && attempt.prompt.next !== undefined ? Math.max(0, Math.ceil((plan.durationSeconds ?? 0) - attempt.sourceSeconds)) : undefined,
                 status: attempt.prompt.next === undefined ? "More To Watch" : "Up Next",
             } }),
+            resumePending: attempt.paused && attempt.pauseAfterSeek === false,
+            transportCommandCount: attempt.transportCommandCount,
             tracks: trackView(attempt, plan),
             seekIntervals: attempt.seekIntervals,
             previewKey: frozen ? undefined : attempt.planAttemptId,

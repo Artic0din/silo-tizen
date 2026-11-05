@@ -482,6 +482,116 @@ const holdKey = (page: Page, keyCode: number): Promise<void> => page.evaluate((c
     (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, bubbles: true, cancelable: true }));
 }, keyCode);
 
+test("external playback resume drops a timeline preview and follows the playhead", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await press(page, ENTER);
+        await show(page, { ...playing(TRACKS), phase: "paused" });
+        await holdKey(page, RIGHT);
+        await page.clock.fastForward(400);
+        await show(page, { ...playing(TRACKS), positionSeconds: 200 });
+        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), "200");
+        assert.equal(await page.locator(".player-bar-preview").count(), 0);
+        await page.clock.fastForward(500);
+        await show(page, { ...playing(TRACKS), positionSeconds: 201 });
+        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), "201");
+        assert.deepEqual(await commands(page), ["setPaused true"]);
+        await page.clock.fastForward(5000);
+        assert.equal(await page.locator(".player-overlay-hidden").count(), 1);
+    } finally { await page.close(); }
+});
+
+test("a Left or Right hold keeps active playback running", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await holdKey(page, RIGHT);
+        await page.clock.fastForward(400);
+        assert.deepEqual(await commands(page), []);
+        await show(page, { ...playing(TRACKS), positionSeconds: 760 });
+        assert.equal(await page.locator(".player-bar-preview").count(), 1, "playing ticks retain a hold preview");
+        await press(page, BACK);
+        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), "760");
+        assert.deepEqual(await commands(page), []);
+    } finally { await page.close(); }
+});
+
+test("Select holds a pending resume and returns it on an unmoved commit", async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), phase: "paused", resumePending: true, transportCommandCount: 1 });
+        await press(page, ENTER);
+        assert.deepEqual(await commands(page), ["setPaused true"]);
+        await show(page, { ...playing(TRACKS), phase: "paused", resumePending: false, transportCommandCount: 2 });
+        await press(page, ENTER);
+        assert.deepEqual(await commands(page), ["setPaused true", "setPaused false"]);
+    } finally { await page.close(); }
+});
+
+for (const newerPause of [false, true]) test(`a hold returns a pending resume only without a newer Pause (${newerPause})`, async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), phase: "paused", resumePending: true, transportCommandCount: 1 });
+        await holdKey(page, RIGHT);
+        await page.clock.fastForward(400);
+        assert.deepEqual(await commands(page), ["setPaused true"]);
+        await show(page, { ...playing(TRACKS), phase: "paused", previewKey: "landed-seek", resumePending: false, transportCommandCount: newerPause ? 3 : 2 });
+        await press(page, BACK);
+        assert.deepEqual(await commands(page), newerPause ? ["setPaused true"] : ["setPaused true", "setPaused false"]);
+    } finally { await page.close(); }
+});
+
+for (const newerPause of [false, true]) test(`a committed scrub does not send another resume when the controller lands (${newerPause})`, async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), phase: "paused", resumePending: true, transportCommandCount: 1 });
+        await press(page, ENTER);
+        await show(page, { ...playing(TRACKS), phase: "paused", resumePending: false, transportCommandCount: 2 });
+        await press(page, RIGHT);
+        await press(page, ENTER);
+        const committed = ["setPaused true", "seekToSeconds 764", "setPaused false"];
+        assert.deepEqual(await commands(page), committed, "the controller owns the committed target and intent");
+        await show(page, { ...playing(TRACKS), phase: "paused", previewKey: "landed", resumePending: false, transportCommandCount: newerPause ? 3 : 2 });
+        assert.deepEqual(await commands(page), committed);
+    } finally { await page.close(); }
+});
+
+test("a committed automatic hold retains its exact target while the first seek lands", async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), phase: "paused", resumePending: true, transportCommandCount: 1 });
+        await holdKey(page, RIGHT);
+        await page.clock.fastForward(400);
+        await show(page, { ...playing(TRACKS), phase: "paused", resumePending: false, transportCommandCount: 2 });
+        const target = await page.getByRole("slider").getAttribute("aria-valuenow");
+        await press(page, ENTER);
+        await page.clock.fastForward(500);
+        const committed = ["setPaused true", `seekToSeconds ${target}`, "setPaused false"];
+        assert.deepEqual(await commands(page), committed);
+        assert.equal(await page.locator(".player-rate:not([hidden])").count(), 0);
+        await press(page, RIGHT);
+        await show(page, { ...playing(TRACKS), phase: "paused", previewKey: "landed", transportCommandCount: 2 });
+        assert.deepEqual(await commands(page), committed);
+    } finally { await page.close(); }
+});
+
+for (const ending of ["back", "loading", "destroy"] as const) test(`a committed scrub sends no later input after ${ending}`, async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), phase: "paused", resumePending: true, transportCommandCount: 1 });
+        await press(page, ENTER);
+        await show(page, { ...playing(TRACKS), phase: "paused", resumePending: false, transportCommandCount: 2 });
+        await press(page, RIGHT);
+        await press(page, ENTER);
+        if (ending === "back") await press(page, BACK);
+        else if (ending === "loading") await show(page, { phase: "loading", title: "Replacement" });
+        else await page.evaluate(() => window.player.destroy());
+        await show(page, { ...playing(TRACKS), phase: "paused", previewKey: "landed", transportCommandCount: 2 });
+        assert.deepEqual(await commands(page), ["setPaused true", "seekToSeconds 764", "setPaused false", ...(ending === "back" ? ["back"] : [])]);
+    } finally { await page.close(); }
+});
+
 test("the scrubber steps, scrubs and seeks like the Apple TV remote", async () => {
     const { page, logs } = await open();
     try {

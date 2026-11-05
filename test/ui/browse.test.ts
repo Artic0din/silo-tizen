@@ -1350,7 +1350,7 @@ async function press(tv: Tv, ...keys: string[]): Promise<void> {
     }
 }
 
-/** Details regressions enter from an ordinary row; Continue Watching now resumes directly. */
+/** Details regressions enter from an ordinary row; Select now opens Details on every shared card surface. */
 async function activateDetails(tv: Tv, id = "movie:m0001", information = false): Promise<void> {
     if (await view(tv) === "home") {
         await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).focus();
@@ -3172,6 +3172,43 @@ browseTest("series open seasons, episode Select plays directly, and playback ret
     assert.equal(await tv.focused(), "series:s1");
 }, { catalog: new FakeDetails() });
 
+for (const mediaKey of [415, 10252]) {
+    browseTest(`Continue episode Select opens context and media key ${mediaKey} plays once`, async (tv, catalog) => {
+        catalog.progress.set("episode:s1e12", 420);
+        const card = tv.page.locator('[data-section="continue_watching"] [data-focus="episode:s1e12"]');
+        await card.focus();
+        await press(tv, "Enter");
+        await showing(tv, "item:series:s1");
+        await tv.eventually(async () => await tv.page.locator('[data-focus="season:1"]').getAttribute("aria-pressed") === "true", "context season");
+        await tv.page.getByRole("button", { name: /Resume S1:E2/ }).waitFor();
+        assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0);
+        assert.equal(tv.fake.requests.filter(request => request.path === "/playback/start").length, 0);
+        await tv.remote(BACK);
+        await showing(tv, "home");
+        assert.equal(await tv.focused(), "episode:s1e12");
+        await tv.remote(mediaKey);
+        await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), "one media handoff");
+        assert.equal((await tv.page.evaluate(() => window.browseHarness.plays))[0]?.contentId, "episode:s1e12");
+    }, { catalog: new FakeDetails() });
+}
+
+browseTest("Continue movie Select opens its Details without playback", async tv => {
+    await tv.page.locator('[data-section="continue_watching"] [data-focus="movie:m0001"]').focus();
+    await press(tv, "Enter");
+    await showing(tv, "item:movie:m0001");
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0);
+});
+
+browseTest("Continue context menu offers Resume without activating Select", async (tv, catalog) => {
+    catalog.progress.set("episode:s1e12", 420);
+    await tv.page.locator('[data-section="continue_watching"] [data-focus="episode:s1e12"]').click({ button: "right" });
+    await tv.page.locator('[data-focus="card-play"]').waitFor();
+    assert.equal(await tv.page.locator('[data-focus="card-play"]').innerText(), "Resume");
+    assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0);
+    await tv.page.locator('[data-focus="card-play"]').click();
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), "context Resume handoff");
+}, { catalog: new FakeDetails() });
+
 browseTest("episode-aware Search opens the series and preserves explicit information, query and Back focus", async (tv, catalog) => {
     catalog.progress.set("episode:s1e12", 420);
     await tv.page.locator('[data-focus="search"]').click();
@@ -3188,7 +3225,7 @@ browseTest("episode-aware Search opens the series and preserves explicit informa
     await press(tv, "Enter");
     await showing(tv, "item:series:s1");
     await shows(tv, "Harbor Lights");
-    assert.equal(await tv.focused(), "season:1");
+    assert.equal(await tv.focused(), "next-episode");
     assert.equal(await tv.page.locator('[data-view="item:episode:s1e12"]').count(), 0);
     assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0);
     assert.equal(tv.fake.requests.some(request => request.method === "POST" && request.path === "/playback/start"), false);

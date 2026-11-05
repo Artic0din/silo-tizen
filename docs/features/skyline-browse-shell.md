@@ -59,7 +59,9 @@ More > Show Series Info restores the overview without a read.
 Rail Select carries confirmed version/audio/subtitle selections through the existing fresh catalog and progress resolution route.
 Ordinary episode Details/Back retains the selected season, loaded rail and focused episode.
 Season tabs select the inline episode rail.
-Episode Select on the rail, season list and ordinary media cards prepares playback directly.
+Episode Select on the Details rail and season list prepares playback directly.
+Select on shared browse cards opens Details: episodes open their parent series with their season and episode active; movies open themselves.
+Remote MediaPlay and MediaPlayPause resume a focused movie or episode through the existing resolution route, including the last-used version on Continue Watching.
 The existing resolution route owns catalog/file selection, fresh resume, loading, Retry and cancellation before the player handoff.
 It checks fresh progress even when cached progress is zero, while explicit Start Over sends zero without a progress read.
 Series and season primary actions resolve the server's target episode on entry and show Play/Resume S#:E#; unavailable metadata or files retain a truthful loading, retry or unavailable action.
@@ -398,13 +400,13 @@ Focus and scroll return to the origin identity, with the next surviving card at 
 Late replies preserve subsequent navigation.
 The desktop keyboard/release tests do not establish physical Samsung Select repeat or release delivery; real-TV validation remains required.
 An invalid cursor clears that row's continuation; only explicit Retry restarts it.
-Continue Watching activation resolves the profile-authorized item and reuses `playChoices` for its last available file, source resume position and file-duration end margin.
+Continue Watching remote Play resolves the profile-authorized item and reuses `playChoices` for its last available file, source resume position and file-duration end margin.
 It hands off once through the existing app/player owner without showing Details.
 Back or account/profile authority changes cancel resolution; unavailable files and unreadable or failed reads retain Retry and Back.
 Playback return restores the originating row rather than replaying the resolution route.
-Other Home rows still open normal Details pages.
+Select on all Home rows opens Details; Continue Watching hold Select also offers Play or Resume in Card actions.
 This is a scoped Home journey delivery against canonical Apple `f33479404712737499b22365430db1885cf6c6ab` and the guide hash `2d42d292e01ab6ee539278b63c286756fc432edf876a9286a33c9e853672cac2`.
-The guide takes precedence over Apple's current Details activation for Continue Watching.
+The Select and Play behavior follows Apple `7baff3ef657757cc0a69202e86dd4bd5c7fcb585`; native same-state acceptance remains pending.
 It does not complete whole-Home parity, issue #28, preplay controls, next-up behaviour or hardware acceptance.
 Progress appears only when the server supplies position and duration.
 The first card previews immediately; subsequent previews wait 150 ms and crossfade for 240 ms.

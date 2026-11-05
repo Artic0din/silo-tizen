@@ -4,7 +4,7 @@
 
 import type { Card, CardOverlay, CatalogPage, HomeSection, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
-import { artworkUrl, type Destination, type EpisodeSelection, destinationOf } from "./browseModel.ts";
+import { artworkUrl, type Destination, type EpisodeSelection, browseCardDestination, destinationOf } from "./browseModel.ts";
 import { type CardOverlayPrefs, overlayLayer } from "./cardOverlays.ts";
 import { homeCaption } from "./cardPresentation.ts";
 import { el } from "./screen.ts";
@@ -38,15 +38,14 @@ export interface ViewContext {
     readonly savedFileOverlay?: (card: Card) => CardOverlay | undefined;
     readonly resume?: (id: string, title: string) => void;
     readonly playEpisode?: (id: string, title: string, startOver?: boolean, selection?: EpisodeSelection) => void;
-    readonly quickActions?: (card: Pick<Card, "id" | "title" | "type">) => void;
-    /** Search supplies Apple's card route. Other grids keep `destinationOf`. */
+    readonly quickActions?: (card: Pick<Card, "id" | "title" | "type">, play?: () => void) => void;
     readonly cardDestination?: (card: Card) => Destination | undefined;
 }
 
 /** Only catalog media receives hold/right-click actions; navigation tiles keep their clicks. */
-export function mediaItem(item: FocusItem, card: Pick<Card, "id" | "title" | "type">, context: ViewContext): FocusItem {
+export function mediaItem(item: FocusItem, card: Pick<Card, "id" | "title" | "type">, context: ViewContext, contextPlay?: () => void): FocusItem {
     if (context.quickActions === undefined || !["movie", "series", "episode", "season"].includes(card.type)) return item;
-    const quickAction = (): void => context.quickActions?.(card);
+    const quickAction = (): void => context.quickActions?.(card, contextPlay);
     item.element.addEventListener("contextmenu", event => { event.preventDefault(); item.element.focus({ preventScroll: true }); quickAction(); });
     return { ...item, quickAction };
 }
@@ -122,7 +121,7 @@ export function thumbnailProgress(fraction: number): HTMLElement {
 
 /** Undefined for media this client does not browse. */
 export function cardItem(card: Card, context: ViewContext): FocusItem | undefined {
-    const destination = (context.cardDestination ?? destinationOf)(card);
+    const destination = context.cardDestination?.(card) ?? (card.type === "season" ? destinationOf(card) : browseCardDestination(card));
     if (destination === undefined) {
         return undefined;
     }
@@ -154,13 +153,10 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     if (caption.line !== undefined) {
         element.appendChild(el("span", "browse-card-subtitle", caption.line));
     }
-    element.addEventListener("click", () => {
-        if (card.type === "episode" && context.playEpisode !== undefined) context.playEpisode(card.id, card.title);
-        else if (continuing && context.resume !== undefined && (card.type === "movie" || card.type === "episode")) context.resume(card.id, card.title);
-        else context.open(destination);
-    });
+    element.addEventListener("click", () => context.open(destination));
     element.addEventListener("focus", () => context.preview?.(card, "Browse"));
-    return mediaItem({ key: card.id, element }, card, context);
+    const play = card.type === "movie" || card.type === "episode" ? () => context.resume?.(card.id, card.title) : undefined;
+    return mediaItem({ key: card.id, element, ...(play === undefined ? {} : { play }) }, card, context, continuing ? play : undefined);
 }
 
 function cardItems(cards: readonly Card[], context: ViewContext): FocusItem[] {

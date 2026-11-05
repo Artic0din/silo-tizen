@@ -65,6 +65,9 @@
 .details-editorial .browse-meta { font-size: 24px; line-height: 36px; margin: 0 0 14px; }
 .details-logo { display: block; max-width: 650px; max-height: 160px; object-fit: contain; object-position: left center; }
 .details-editorial .browse-overview { max-width: 1080px; font-size: 26px; line-height: 36px; max-height: 108px; margin-bottom: 14px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.details-editorial .browse-overview.has-translation-status { -webkit-line-clamp: 2; max-height: 72px; margin-bottom: 6px; }
+.details-editorial .browse-overview.is-translating { opacity: 0.5; }
+.description-translation-status { margin: 0 0 14px; font-size: 21px; line-height: 26px; font-weight: 500; color: var(--silo-secondary); }
 .details-editorial .browse-actions { margin-bottom: 0; }
 .details-editorial .browse-button { padding: 18px 28px; margin-right: 16px; }
 .details-director, .details-playback-summary { margin: 0 0 20px; color: var(--silo-secondary); font-size: 20px; line-height: 26px; }
@@ -76,6 +79,7 @@
 .details-playback-summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .details-playback-summary strong { font-size: 23px; }
 .details-hero[data-media-type="series"] .details-editorial .browse-overview { height: 112px; max-height: 112px; }
+.details-hero[data-media-type="series"] .details-editorial .browse-overview.has-translation-status { height: auto; max-height: 72px; }
 .details-series-editorial { position: relative; height: 435px; overflow: hidden; }
 .details-hero[data-media-type="series"] { overflow: visible; }
 .details-hero:not([data-media-type="series"]) { height: auto; min-height: 690px; }
@@ -798,6 +802,10 @@
 .skyline-library .skyline-meta { font-size: 19px; }
 .skyline-chip { flex-shrink: 0; display: inline-block; margin-right: 10px; padding: 5px 10px; border: 1px solid rgba(255,255,255,.24); border-radius: 6px; background: rgba(255,255,255,.07); color: rgba(255,255,255,.92); font-size: 15px; font-weight: 600; letter-spacing: 1.2px; line-height: 1.2; }
 .skyline-synopsis { max-width: 780px; margin: 0 0 14px; overflow: hidden; font-size: 22px; line-height: 28px; color: rgba(237,237,237,.6); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.skyline-synopsis.is-translating { opacity: 0.5; }
+.skyline-translation-visible .skyline-synopsis { -webkit-line-clamp: 2; }
+.skyline-title-wrapped.skyline-translation-visible .skyline-synopsis, .skyline-library .skyline-translation-visible .skyline-synopsis { -webkit-line-clamp: 1; }
+.skyline-translation-status { flex: none; margin-right: 18px; font-size: 0.85em; font-weight: 500; }
 .skyline-title-wrapped .skyline-synopsis, .skyline-library .skyline-synopsis { -webkit-line-clamp: 2; }
 .skyline-meta-lead, .skyline-meta-trailing { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .skyline-meta-dot { flex-shrink: 0; white-space: pre; }
@@ -819,7 +827,8 @@
 .skyline-library .skyline-title.skyline-title-logo { height: 150px; }
 /* Apple detailLine: one line at the meta size. The marquee stack's meta and badge rows are framed at 27
    (TVFocusMarquee.swift); a 24px estimate sat the bottom-anchored logo slot 3px too low. */
-.skyline-detail-line { max-width: 780px; height: 27px; margin: 0 0 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 20px; line-height: 27px; font-weight: 500; color: rgba(237,237,237,.5); }
+.skyline-detail-line { display: flex; max-width: 780px; height: 27px; margin: 0 0 14px; overflow: hidden; white-space: nowrap; font-size: 20px; line-height: 27px; font-weight: 500; color: rgba(237,237,237,.5); }
+.skyline-detail-text { overflow: hidden; text-overflow: ellipsis; }
 .skyline-library .skyline-detail-line { font-size: 19px; }
 .skyline-badges { display: flex; align-items: center; height: 27px; }
 .browse-section { margin-bottom: 32px; position: relative; }

@@ -193,7 +193,8 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
             if (state?.nextEpisodeFailed === true) state.loadNextEpisode();
             else playNext();
         });
-        const awaitingFile = targetChoices === undefined && (state?.offline === true || (target !== undefined && state?.nextEpisodeFailed !== true));
+        const failed = state?.nextEpisodeFailed === true;
+        const awaitingFile = targetChoices === undefined && (state?.offline === true || labelTarget === undefined && !failed || target !== undefined && !failed);
         primary.element.setAttribute("aria-disabled", String(state?.episodePreferencesBlocked || awaitingFile));
         actions.push(primary);
         if (canResume) actions.push(actionButton("start-over-episode", "Start Over", () => playNext(true)));

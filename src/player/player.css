@@ -521,7 +521,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .player-menu-list {
+    .player-menu-list.player-menu-pane-active {
         scroll-behavior: auto;
     }
 }

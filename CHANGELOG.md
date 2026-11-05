@@ -18,6 +18,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserved repeated skip taps while seeking and disabled track-list scroll animation with reduced motion.
+
 - Followed playback after an external resume during scrubbing and preserved newer Play/Pause choices while a scrub seek landed.
 - Resumed committed scrubs after a server reanchor, kept Skip reachable with the remote, and let navigation cross Audio while its choices loaded.
 - Kept the latest Play/Pause choice when remote presses arrive during a seek.
@@ -183,6 +185,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Showed Apple TV's "This server isn't ready" screen when a server still needs setup, with Check again and Change server.
 - Added a page linking the silo-apple and silo-android design specs that apply to a TV client, for reading before porting a feature.
 - Added the Macroscope visible-change evidence check that silo-apple and silo-android run, tailored to the Samsung TV and its Apple TV comparison.
 - Added a CI check that fails when the app or its tests mention an `/api/v1` path, as silo-apple's does.

@@ -8,6 +8,12 @@ All notable changes to this project are documented in this file.
 
 - Corrected Calendar wall-clock times, spatial shelf return and top restoration, clipped captions, strip placement, and Apple-style loading, empty and error states after native comparison.
 - Down from the Calendar tab opens the selected filter, shelf-to-shelf moves keep the first card's column and bottom-align the day shelf, and scrolled Calendar passes under the top bar.
+- Kept a Person filter the viewer already chose when a slower availability probe would have removed its chip.
+- Moved Up from a Person filmography card to the chip closest to that card's left edge, leaving the card in place when no chip meets it, and scrolled the first row to the page's 72 px bottom padding plus the tvOS safe area.
+
+- Reset fresh Person visits from Search and applied delayed poster and badge preferences on Person.
+
+- Corrected Person safe-area insets, title-count spacing, biography weight, server-driven filters, fresh-visit focus and independent metadata loading, restored catalog status badges, and returned the full hero when focus moved back to its chips.
 - Drew the series status TV glyph as Apple's flat `tv` symbol, at that symbol's layout size, and stopped Search from pinning an upward move over the field and filters.
 - Drew the TV icon on Returning, Cancelled and Ended badges and raised Home headings by using Skyline's 14px card padding.
 - Raised the focused Search poster, darkened the Continue Watching focus shadow, showed the Returning badge on Search cards, and hid the watched tick on Related titles.
@@ -36,6 +42,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Showed the title count, All/Movies/Series filters and paged filmography beneath the Person hero, with one Back returning to the originating credit.
 - Matched Apple TV's outlined card focus with a smaller lift, softer captions and a persistent outline on the Series row's current episode.
 - Started the horizontal navigation column after leaving a text field, and reset it at the top bar or a page's first card.
 

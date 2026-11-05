@@ -38,7 +38,8 @@ export class SkylineScroll {
             this.move(viewport, 0, 0);
             return;
         }
-        if (container.dataset.view === "search" && element.closest(".search-filters, .search-field") !== null) {
+        if (element.closest(".person-filmography-filters") !== null ||
+            (container.dataset.view === "search" && element.closest(".search-filters, .search-field") !== null)) {
             this.move(viewport, 0, 0);
             return;
         }

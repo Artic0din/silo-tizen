@@ -748,6 +748,84 @@ journey("Home poster badges scale from Apple's 185pt poster and Continue Watchin
     assert.equal(await wide.locator(".card-overlays + .skyline-progress").count(), 1, "the progress bar draws over the badges");
 }, catalog => { enrichHome(catalog, badgeFields); enrichDetails(catalog, detailFields); }, () => undefined);
 
+const badgePx = (value: number, artWidth: number): number => Math.round(value * artWidth / 185 * 100) / 100;
+/** SF Symbol "tv" layout box at iconSize 12 times the poster scale. The old value was a square of that point size. */
+const tvLayout = (artWidth: number): { width: string; height: string } => ({
+    width: `${Math.round(12 * 73 / 48 * artWidth / 185 * 100) / 100}px`,
+    height: `${Math.round(12 * 58 / 48 * artWidth / 185 * 100) / 100}px`,
+});
+
+journey("Home headings below a row use Skyline's 14px card padding plus the 10px row gap", async tv => {
+    const measured = await tv.page.evaluate(() => {
+        const row = document.querySelector('[data-section="resume/opaque"] .browse-row');
+        const card = document.querySelector('[data-section="resume/opaque"] .browse-card:not(.skyline-explore)');
+        const title = document.querySelector('[data-section="future/opaque"] .browse-section-title');
+        if (!(row instanceof HTMLElement) || !(card instanceof HTMLElement) || !(title instanceof HTMLElement)) throw new Error("missing home row");
+        return { paddingBottom: getComputedStyle(row).paddingBottom, gap: title.getBoundingClientRect().top - card.getBoundingClientRect().bottom };
+    });
+    // The previous 24px bottom padding was MediaRow's default vertical padding. Skyline passes rowBandCardVerticalPadding, 14.
+    assert.equal(measured.paddingBottom, "14px", "Skyline card strip padding is 14px, not the 24px default");
+    assert.ok(Math.abs(measured.gap - 24) < 1, `the next heading is 14px below the landscape card plus the 10px row gap, got ${measured.gap}`);
+});
+
+journey("series status badges draw the tv icon at Apple's scaled pill size", async (tv, catalog) => {
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const reply = read(method, path, profile, body);
+        const response = reply?.body;
+        if (!path.startsWith("/catalog/query") || reply?.status !== 200 || typeof response !== "object" || response === null || !("items" in response) || !Array.isArray(response.items)) return reply;
+        return { ...reply, body: { ...response, items: response.items.map(item => typeof item === "object" && item !== null ? { ...item, show_status: "returning series" } : item) } };
+    };
+    const homeArt = 176 * 0.86;
+    const badge = tv.page.locator(`${POSTER} .card-overlay`);
+    await tv.eventually(async () => await badge.count() > 0, "home status badge");
+    const home = await badge.evaluate(node => {
+        const icon = node.querySelector("svg");
+        const style = getComputedStyle(node);
+        const iconStyle = icon === null ? undefined : getComputedStyle(icon);
+        return { text: node.textContent, font: style.fontSize, pad: style.padding, radius: style.borderRadius, icon: icon === null || iconStyle === undefined ? undefined : { width: icon.style.width, height: icon.style.height, gap: icon.style.marginRight, used: iconStyle.width } };
+    });
+    assert.equal(home.text, "Returning");
+    assert.equal(home.font, `${badgePx(10, homeArt)}px`, "pill text is fontSize 10 times the poster width over 185");
+    assert.equal(home.pad, `${badgePx(4, homeArt)}px ${badgePx(10, homeArt)}px`);
+    assert.equal(home.radius, "999px", "the pill preset is a capsule");
+    // The old square icon was iconSize 12 times the scale (a point-size box). SF Symbol "tv" lays out at 73/48 by 58/48 of that point size.
+    const homeIcon = tvLayout(homeArt);
+    assert.equal(home.icon?.width, homeIcon.width);
+    assert.equal(home.icon?.height, homeIcon.height);
+    assert.equal(home.icon?.gap, `${badgePx(4, homeArt)}px`, "icon-to-text spacing is the 4pt HStack spacing times the scale");
+    assert.ok(home.icon !== undefined && Math.abs(parseFloat(home.icon.used) - parseFloat(homeIcon.width)) < 0.05);
+    assert.equal(await tv.page.locator('[data-section="hero/opaque"] .card-overlay').textContent(), "Ended");
+    assert.equal(await tv.page.locator('[data-section="because/opaque"] .card-overlay').textContent(), "Cancelled");
+    assert.equal(await tv.page.locator('[data-section="hero/opaque"] .card-overlay svg').count(), 1);
+    assert.equal(await tv.page.locator('[data-section="because/opaque"] .card-overlay svg').count(), 1);
+    await tv.page.locator('[data-focus="expand:recent/12"]').click();
+    const gridCard = tv.page.locator('.section-catalog-grid [data-focus="movie:m0006"]');
+    await gridCard.waitFor();
+    const grid = await gridCard.locator(".browse-art").evaluate(node => {
+        const badge = node.querySelector(".card-overlay");
+        const icon = badge?.querySelector("svg");
+        if (!(badge instanceof HTMLElement) || icon === null || icon === undefined) return { width: (node as HTMLElement).offsetWidth, badge: undefined };
+        const style = getComputedStyle(badge);
+        return { width: (node as HTMLElement).offsetWidth, badge: { text: badge.textContent, font: style.fontSize, pad: style.padding, radius: style.borderRadius, icon: { width: icon.style.width, height: icon.style.height, gap: icon.style.marginRight } } };
+    });
+    const gridArt = 260 * 0.86;
+    assert.equal(grid.width, 224, "compact library posters are 260 times 0.86, which rounds to 224");
+    assert.equal(grid.badge?.text, "Returning");
+    // 10 * 223.6 / 185 is 12.09. The captured 15.8px is not this font size.
+    assert.equal(grid.badge?.font, `${badgePx(10, gridArt)}px`, "12.09px text on the 224-wide card, from fontSize 10 times 260*0.86/185");
+    assert.equal(grid.badge?.pad, `${badgePx(4, gridArt)}px ${badgePx(10, gridArt)}px`);
+    assert.equal(grid.badge?.radius, "999px");
+    // The old square icon was 14.5px (iconSize 12 times 260*0.86/185). The symbol box is wider than that point size.
+    const gridIcon = tvLayout(gridArt);
+    assert.equal(grid.badge?.icon?.width, gridIcon.width);
+    assert.equal(grid.badge?.icon?.height, gridIcon.height);
+    assert.equal(grid.badge?.icon?.gap, `${badgePx(4, gridArt)}px`);
+}, catalog => enrichHome(catalog, { ...badgeFields, "movie:m0004": { show_status: "ended" }, "movie:m0005": { show_status: "cancelled" } }), settings => {
+    settings.profile().set(CARD_OVERLAYS_KEY, { version: 2, preset: "pill", order: ["show_status"], items: { resolution: { enabled: false, position: "top-left" }, hdr: { enabled: false, position: "top-left" }, audio: { enabled: false, position: "top-left" }, release_type: { enabled: false, position: "bottom-left" }, show_status: { enabled: true, position: "top-right" } } });
+    settings.profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" });
+});
+
 for (const [size, scale] of [["compact", 0.86], ["standard", 1], ["large", 1.2]] as const) journey(`Home ${size} artwork and poster badges follow the profile's TV size`, async tv => {
     const sizes = await tv.page.locator(`${POSTER} .browse-art`).evaluate(node => {
         const badge = node.querySelector<HTMLElement>(".card-overlay");

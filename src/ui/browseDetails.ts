@@ -248,7 +248,9 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         zones.push({ id: "people", layout: "row", items: people });
     }
     if (state !== undefined) {
-        const related = titleCards(state.related ?? [], context);
+        // SimilarPosterItem keeps the poster fields and drops userState. The watched
+        // badge is userState.played, so a played recommendation does not show it.
+        const related = titleCards((state.related ?? []).map(card => ({ ...card, played: undefined })), context);
         const section = zoneNode("browse-row", related);
         section.setAttribute("data-detail-section", "related");
         content.push(el("h2", "browse-section-title", "Related titles"));

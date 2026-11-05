@@ -74,18 +74,31 @@ journey("Home paints its rows while libraries are still out and does not say it 
 }, undefined, undefined, { beforeMount: tv => { heldLibraries = tv.fake.hold("/user/libraries", true); }, readyTimeout: 4000 });
 
 let heldCalendarLibraries: { release(): void };
+const focusPlace = (tv: Tv) => tv.page.evaluate(() => ({ key: document.activeElement?.getAttribute("data-focus") ?? null, connected: document.activeElement?.isConnected === true }));
 journey("library tabs that arrive on Calendar keep Up on the new bar", async tv => {
     assert.equal(await tv.page.locator('[data-focus="movies"]').count(), 0);
     await tv.page.locator('[data-focus="calendar"]').focus();
     await tv.page.keyboard.press("Enter");
-    await tv.eventually(async () => await tv.page.locator('.browse[data-view="calendar"] [data-focus="previous-week"]').count() === 1 && await tv.page.getByText("Loading the week.", { exact: true }).count() === 0, "Calendar settled");
-    await tv.page.locator('[data-focus="previous-week"]').focus();
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="calendar"] [data-focus="filter:following"]').count() === 1 && await tv.page.locator('.browse[data-view="calendar"] [data-focus="previous-week"]').count() === 1 && await tv.page.getByText("Loading the week.", { exact: true }).count() === 0, "Calendar settled");
+    // The week chevron (`previous-week`) used to be the first focusable, and Up from it was expected to land on `calendar`.
+    // That press now stops on the filter row (`filter:following`); the bar is the next Up from there.
+    await tv.page.locator('[data-focus="filter:following"]').focus();
     heldCalendarLibraries.release();
     await tv.eventually(async () => await tv.page.locator('.browse-nav [data-focus="movies"]').count() === 1, "library tabs on Calendar");
+    assert.deepEqual(await focusPlace(tv), { key: "filter:following", connected: true }, "late tabs leave focus on the filter row");
     await tv.page.keyboard.press("ArrowUp");
-    const landed = await tv.page.evaluate(() => ({ key: document.activeElement?.getAttribute("data-focus"), connected: document.activeElement?.isConnected === true }));
-    assert.deepEqual(landed, { key: "calendar", connected: true });
+    assert.deepEqual(await focusPlace(tv), { key: "calendar", connected: true }, "Up from the filter row reaches Calendar; the old assertion expected calendar from previous-week");
 }, undefined, undefined, { beforeMount: tv => { heldCalendarLibraries = tv.fake.hold("/user/libraries", true); }, readyTimeout: 4000 });
+
+journey("Up from Calendar's filter row reaches the Calendar tab when library tabs are already on the bar", async tv => {
+    await tv.eventually(async () => await tv.page.locator('.browse-nav [data-focus="movies"]').count() === 1, "library tabs before Calendar");
+    await tv.page.locator('[data-focus="calendar"]').focus();
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await tv.page.locator('.browse[data-view="calendar"] [data-focus="filter:following"]').count() === 1 && await tv.page.getByText("Loading the week.", { exact: true }).count() === 0, "Calendar settled");
+    await tv.page.locator('[data-focus="filter:following"]').focus();
+    await tv.page.keyboard.press("ArrowUp");
+    assert.deepEqual(await focusPlace(tv), { key: "calendar", connected: true });
+});
 
 let heldStaleLibraries: { release(): void };
 let hiddenLibrarySettings: FakeSettings;

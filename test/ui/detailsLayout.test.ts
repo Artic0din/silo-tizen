@@ -511,14 +511,28 @@ detailTest('Track popovers anchor to the selector without dimming and focus Auto
 });
 
 detailTest('late Series episodes do not steal focus after remote navigation', async tv => {
-    const held = tv.fake.hold('/catalog/series/series%3As1/seasons/1/episodes', true);
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const reply = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner');
+    let release: () => void = () => {}, delivered: () => void = () => {};
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const responseDelivered = new Promise<void>(resolve => { delivered = resolve; });
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**', async route => {
+        await held;
+        await route.fulfill({ json: reply?.body });
+        delivered();
+    });
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('[data-focus="season:1"]').focus();
     await tv.remote(39);
     assert.equal(await tv.focused(), 'season:2');
-    held.release();
-    await tv.page.locator('[data-focus="episode:s1e11"]').waitFor();
+    await tv.jump(100);
+    await tv.page.locator('[data-focus="episode:s1e21"]').waitFor();
+    release();
+    await responseDelivered;
+    await tv.page.waitForLoadState('networkidle');
+    await tv.page.locator('[data-focus="episode:s1e21"]').waitFor();
     assert.equal(await tv.focused(), 'season:2');
+    assert.equal(await tv.page.locator('[data-focus="season:2"]').getAttribute('aria-pressed'), 'true');
 });
 
 detailTest('Series watched episodes show a check badge without a text glyph', async tv => {

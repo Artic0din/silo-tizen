@@ -293,8 +293,8 @@ test("the versions decoder keeps each file's audio_tracks in server order and to
         {
             fileId: "7",
             audio: [
-                { isDefault: false, language: "ja", codec: "aac", channels: 2, title: undefined },
-                { isDefault: true, language: undefined, codec: undefined, channels: undefined, title: "Director" },
+                { isDefault: false, language: "ja", codec: "aac", channels: 2, title: undefined, rawTitle: undefined, embeddedTitle: undefined, layout: undefined },
+                { isDefault: true, language: undefined, codec: undefined, channels: undefined, title: "Director", rawTitle: undefined, embeddedTitle: "Director", layout: undefined },
             ],
         },
     ]);

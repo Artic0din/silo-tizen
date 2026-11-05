@@ -119,6 +119,7 @@ journey("Details retries a recovery response deferred by a newly opened control"
     await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0004"]').click();
     await tv.jump(35000);
     await tv.page.locator('[data-focus="more"]').waitFor();
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.cacheOffline("movie:m0004")), "Details transport failure settled");
     await tv.page.unroute("**/api/v2/**");
     const path = "/catalog/items/movie%3Am0004";
     const held = tv.fake.hold(path, true);

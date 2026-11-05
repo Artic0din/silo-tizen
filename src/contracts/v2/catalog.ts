@@ -516,6 +516,8 @@ export function decodeSeasons(value: unknown): Season[] {
 // --- listSeasonEpisodes ---
 
 export interface Episode {
+    readonly positionSeconds?: number | undefined;
+    readonly durationSeconds?: number | undefined;
     readonly inProgress?: boolean;
     readonly airDate?: string | undefined;
     readonly overview?: string | undefined;
@@ -539,6 +541,10 @@ export function decodeEpisodes(value: unknown): Episode[] {
         const inProgress = user?.is_in_progress === undefined ? false : boolean(user, "is_in_progress", `${path}.user_data`);
         return {
             ...(inProgress ? { inProgress: true } : {}),
+            ...(user === undefined ? {} : {
+                positionSeconds: optionalNumber(user, "position_seconds", `${path}.user_data`),
+                durationSeconds: optionalNumber(user, "duration_seconds", `${path}.user_data`),
+            }),
             airDate: optionalString(obj, "air_date", path),
             overview: optionalString(obj, "overview", path),
             ratings: decodeDetailExtras(obj).ratings,

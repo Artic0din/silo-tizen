@@ -41,6 +41,19 @@ export function detailAction(item: FocusItem): FocusItem {
     if (startOver || ["play", "resume", "next-episode"].includes(item.key)) shape.setAttribute("fill", "currentColor");
     if (item.key === "watchlist" && button.getAttribute("aria-pressed") === "true") shape.setAttribute("fill", "currentColor");
     icon.appendChild(shape);
+    if (item.key === "more") {
+        icon.dataset.symbol = "ellipsis";
+        shape.remove();
+        for (const x of [5, 12, 19]) {
+            const dot = document.createElementNS(icon.namespaceURI, "circle");
+            dot.setAttribute("cx", String(x));
+            dot.setAttribute("cy", "12");
+            dot.setAttribute("r", "1.9");
+            dot.setAttribute("fill", "currentColor");
+            dot.setAttribute("stroke", "none");
+            icon.append(dot);
+        }
+    }
     button.append(icon, el("span", "details-action-label", label));
     return item;
 }
@@ -56,6 +69,7 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
     panel.append(el("h2", "browse-section-title", popover ? title.toUpperCase() : title), ...notes, zoneNode("details-audio-options", items));
     if (popover) {
         panel.classList.add("details-track-popover");
+        if (name === "more") panel.classList.add("details-more-popover");
         for (const item of items) {
             const title = item.element.firstChild;
             if (title?.nodeType === Node.TEXT_NODE) title.replaceWith(el("span", "details-option-title", title.textContent ?? ""));

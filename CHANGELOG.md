@@ -16,6 +16,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Corrected Details More dots and compact action rows, added capability-gated Shuffle Series using existing shuffle playback, and made unfocused Play adapt to the backdrop like the round actions.
+- Kept loaded-season episode focus free of reads, limited outer-edge loading to one debounced season request, required Retry for failed neighbours, and preserved the window during translation polls.
+- Kept Series episodes in Apple's continuous loaded-season window, clamped entry and remote focus at the final episode group, restored resume bars and edge peeks, and corrected the row's leading inset; the later corrections await signed comparison.
 - Made application sign-in tests wait for approval and the storage notice before continuing to profiles.
 - Matched Details More popovers and Start Over controls to Apple TV, and selected series playback from the current season's next-up suggestion.
 - Stopped a device-code poll from going out when its wait ended as the screen hid. A poll already sent still finishes, and coming back polls at once.

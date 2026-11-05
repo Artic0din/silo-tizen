@@ -436,6 +436,12 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
             }
         }
         if (detail.type === "series" && state.focusedEpisodeId !== undefined) items.unshift(actionButton("series-overview", "Show Series Info", () => state.showSeriesOverview()));
+        if (detail.type === "series" && state.shuffleSupported && seasons.reduce((count, season) => count + season.episodeCount, 0) >= 2) {
+            const shuffle = actionButton("shuffle-series", state.shuffleStarting ? "Starting shuffle…" : "Shuffle Series", () => state.startShuffle(play));
+            shuffle.element.setAttribute("aria-disabled", String(state.shuffleStarting));
+            items.unshift(shuffle);
+            if (state.shuffleFailed) menuNotes.push(...lines(["Couldn't start the shuffle. Try again."], "error"));
+        }
         if (state.descriptions?.offers() === true) items.push(actionButton("translate-description", TRANSLATE_DESCRIPTION_LABEL, () => { state.descriptions?.translate(); state.closePanel(); }));
         return detailPanel(view, state, "More", items.length ? items : [actionButton("close-more", "Close", () => state.closePanel())], menuNotes);
     }

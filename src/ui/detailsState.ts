@@ -1,5 +1,6 @@
 // Optional Details reads and explicit personal writes. The route owns and stops this work.
 import { ApiError } from "../api/errors.ts";
+import { shufflePick } from "../player/nextShuffle.ts";
 import type { RequestSpec } from "../api/http.ts";
 import { detailOperations, type PersonalAction } from "../api/detailOperations.ts";
 import { operations } from "../api/operations.ts";
@@ -62,6 +63,9 @@ export class DetailsState {
     nextEpisodeFailed = false;
     extraPending: string | undefined;
     extraFailed: string | undefined;
+    shuffleSupported = false;
+    shuffleStarting = false;
+    shuffleFailed = false;
     private full = false;
     private audioPick: { fileId: string; ordinal: number; inventory: string } | undefined;
     private audioAuto = false;
@@ -105,7 +109,7 @@ export class DetailsState {
             replaceEpisodes: (season, episodes) => {
                 const series = this.series;
                 if (series === undefined || series.seasonNumber !== season) return true;
-                series.replace(season, episodes);
+                series.publishTranslatedEpisodes(season, episodes);
                 return !episodes.some((episode) => episode.pendingTranslationLanguage !== undefined);
             },
             changed: () => this.changed(),
@@ -151,6 +155,14 @@ export class DetailsState {
         if (mode === "full") this.series?.start();
         if (mode === "full") this.warmSeriesEpisodes();
         if (mode === "full") this.loadTitleArt();
+        if (mode === "full" && this.detail.type === "series") {
+            const controller = this.controller;
+            void this.read(operations.shuffleCapabilities(), controller).then(capability => {
+                if (!this.current(controller)) return;
+                this.shuffleSupported = capability.usable && capability.scopeKinds.includes("series");
+                this.changed();
+            }, () => undefined);
+        }
         if (mode === "full" && this.nextEpisode === undefined && !this.nextEpisodeFailed) this.loadNextEpisode();
         let interrupted = false;
         for (const [kind, change] of this.changes) {
@@ -166,6 +178,7 @@ export class DetailsState {
     }
 
     stop(): void {
+        this.shuffleStarting = false;
         for (const state of this.seasonStates.values()) state.stop();
         this.descriptions?.stop();
         this.extraPending = undefined;
@@ -362,6 +375,29 @@ export class DetailsState {
         });
     }
 
+    startShuffle(handoff: (request: PlayRequest) => void): void {
+        const controller = this.controller;
+        if (controller === undefined || !this.shuffleSupported || this.shuffleStarting || this.detail.type !== "series") return;
+        this.shuffleStarting = true;
+        this.shuffleFailed = false;
+        this.changed();
+        void (async () => {
+            try {
+                const shuffle = await this.session.call({ ...operations.createShuffle(this.detail.id, "series"), profileScoped: true, replayAfterRefresh: false, signal: controller.signal });
+                if (!this.current(controller)) return;
+                const request = await shufflePick(spec => this.read(spec, controller), shuffle);
+                if (!this.current(controller)) return;
+                if (request === undefined) throw new Error("Shuffle has no playable file");
+                this.closePanel();
+                handoff(request);
+            } catch {
+                if (this.current(controller)) this.shuffleFailed = true;
+            } finally {
+                if (this.current(controller)) { this.shuffleStarting = false; this.changed(); }
+            }
+        })();
+    }
+
     private read<T>(spec: RequestSpec<T>, controller: AbortController): Promise<T> {
         return this.session.call({ ...spec, profileScoped: true, signal: controller.signal });
     }
@@ -378,7 +414,7 @@ export class DetailsState {
         this.changed();
     }
 
-    warmSeriesEpisodes(): void {
+    warmSeriesEpisodes(translate = true): void {
         if (!["series", "season"].includes(this.detail.type)) return;
         const season = this.series?.seasons.find(season => season.seasonNumber === this.series?.seasonNumber);
         if (season !== undefined && (this.aggregateWatched !== undefined || season.userData !== undefined) && !this.seasonStates.has(season.seasonNumber)) {
@@ -392,15 +428,15 @@ export class DetailsState {
             this.focusedEpisodeId = this.series.entryEpisode;
         }
         if (this.detail.playContentId !== undefined) this.queueEpisode(this.detail.playContentId);
-        if (this.series?.episodes !== undefined && this.focusedEpisodeId !== undefined && !this.series.episodes.some(episode => episode.id === this.focusedEpisodeId)) this.focusedEpisodeId = undefined;
-        for (const episode of this.series?.episodes ?? []) this.queueEpisode(episode.id);
+        if (this.series?.railEpisodes !== undefined && this.focusedEpisodeId !== undefined && !this.series.railEpisodes.some(episode => episode.id === this.focusedEpisodeId)) this.focusedEpisodeId = undefined;
+        for (const episode of this.series?.railEpisodes ?? []) this.queueEpisode(episode.id);
         this.syncEpisode();
         this.changed();
-        this.descriptions?.consider();
+        this.descriptions?.consider(translate);
     }
 
     focusEpisode(id: string): void {
-        if (this.focusedEpisodeId === id || !this.series?.episodes?.some(episode => episode.id === id)) return;
+        if (this.focusedEpisodeId === id || !this.series?.railEpisodes?.some(episode => episode.id === id)) return;
         this.focusedEpisodeId = id;
         // Focus only selects a preloaded owner. Reads belong to season acceptance and explicit Retry.
         this.syncEpisode();

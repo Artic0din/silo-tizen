@@ -896,6 +896,10 @@ test("Favorites filters the whole result before paging and retains opaque contin
 
 test("a failed later page keeps the rows, and an invalid cursor restarts from the first page", async () => {
     const { tv, catalog } = await setup();
+    const invalidPath = readPersonalPage("watchlist", "movie", "p-owner:watchlist:video:48").path;
+    const invalid = tv.fake.hold(invalidPath, true);
+    // The observer can prefetch as soon as 48 cards paint, before the host resumes.
+    tv.fake.script(invalidPath, problem(400, "invalid_cursor", "Invalid cursor"));
     try {
         await openList(tv, "watchlist");
         catalog.pageReplies.push(problem(503, "service_unavailable", "Unavailable"), problem(503, "service_unavailable", "Unavailable"));
@@ -915,15 +919,15 @@ test("a failed later page keeps the rows, and an invalid cursor restarts from th
         await loadThrough(tv, 48);
         assert.equal(await tv.page.locator('.browse [data-focus="movie:m0025"]').count(), 1);
         assert.equal(listReads(tv).filter(request => request.body?.cursor === "p-owner:watchlist:video:24").length > 0, true);
-        catalog.pageReplies.push(problem(400, "invalid_cursor", "Invalid cursor"));
         const mark = listReads(tv).length;
+        invalid.release();
         await tv.eventually(async () => {
             await revealEnd(tv);
             return listReads(tv).slice(mark).some(request => request.body?.cursor === undefined);
         }, "invalid cursor restarted");
         assert.equal(await tv.page.locator('.browse [data-focus="movie:m0001"]').count(), 1);
         assert.equal(await tv.page.locator('[data-focus="retry"]').count(), 0);
-    } finally { await tv.page.context().close(); }
+    } finally { invalid.release(); await tv.page.context().close(); }
 });
 
 test("capability failures are retryable errors, unsupported is explicit, empty remains navigable", async () => {

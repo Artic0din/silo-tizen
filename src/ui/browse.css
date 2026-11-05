@@ -959,6 +959,7 @@
 .details-track-popover [aria-checked="true"]::before { content: "✓"; position: absolute; left: 20px; top: 20px; }
 .skyline-selector.details-track-popover .browse-button[aria-checked="true"]:not(:focus) { background: transparent; }
 .details-track-popover .browse-section-title { font-size: 18px; letter-spacing: 2px; opacity: .6; }
+.details-more-popover .browse-button { height: 54px; font-size: 22px; }
 .details-option-subtext { display: block; font-size: 20px; line-height: 26px; opacity: .65; }
 /* Detail metrics are scoped here after the shared Home card and heading rules. */
 .browse:has(.details-hero) > .browse-section-title, .browse:has(.details-hero) .details-facts > .browse-section-title { margin-left: 12px; margin-bottom: 14px; font-size: 36px; line-height: 43.2px; font-weight: 600; }
@@ -974,7 +975,7 @@
 .details-hero[data-media-type="movie"] .details-playback-summary { margin-bottom: 19px; }
 .details-editorial .details-playback-summary strong { font-weight: 600; color: rgba(237,237,237,.5); }
 .details-editorial .details-playback-summary span { color: rgba(255,255,255,.9); }
-.details-editorial .details-play:not(:focus) { background: rgb(31,51,57); border-color: transparent; }
+.details-editorial .details-play:not(:focus) { background: rgba(255,255,255,.10); border-color: transparent; }
 .details-hero .browse-meta, .details-director { color: rgba(237,237,237,.75); }
 .details-episodes .browse-watched { background: #fff; }
 .details-editorial .details-circle:is(:focus, [aria-expanded="true"]) { background: #fff; color: #000; width: auto; padding: 0 28px; }
@@ -987,7 +988,10 @@
 .details-rating-score { font-weight: 700; color: #fff; }
 .details-genres { margin-left: 0; }
 .details-season-chips { padding: 4px 0; }
-.details-series-rail .details-episodes { padding: 12px calc(59px + 360px * var(--poster-scale, 1) * .025 + 2px); }
+/* Paint to the screen edges while retaining the logical scroll viewport.
+   TVDetailLayout's 100px leading inset belongs to this rail, not Cast or Related. */
+.details-series-rail .details-episodes { --episode-paint-end: 88px; margin-left: -88px; margin-right: -88px; padding: 12px calc(100px + 360px * var(--poster-scale, 1) * .025 + 2px); }
+.details-episodes .skyline-progress { bottom: 0; left: 0; right: 0; height: 5px; background: rgba(0,0,0,.6); }
 .browse:has(.details-hero) > .browse-row:has(+ .browse-section-title) { margin-bottom: 35px; }
 /* TVTrailersRail rail padding 12 plus body section spacing 64 is the 76px caption-to-heading gap. */
 .browse:has(.details-hero) > .browse-row.details-extras { margin-bottom: 64px; padding: 12px 0; }

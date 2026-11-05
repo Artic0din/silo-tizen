@@ -29,13 +29,22 @@ function liveScroll(_arg: null): number | null {
     return row.scrollLeft;
 }
 
-/** Season acceptance reads the playback episode, not every painted card. Count focus only after those item reads stop. */
+/** Season acceptance reads the playback episode, not every painted card. Count focus only after those replies, and every read they start, have finished. */
 async function settledEpisodePrefetch(tv: Tv): Promise<void> {
-    const itemReads = (): number => tv.fake.requests.filter(request => request.path.startsWith("/catalog/items/")).length;
+    let stable = -1;
     await tv.eventually(async () => {
-        const before = itemReads();
-        await tv.jump(100);
-        return itemReads() === before;
+        const ids = await tv.page.locator('.details-episodes [data-focus^="episode:"]').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? ""));
+        const count = tv.fake.requests.length;
+        if (ids.length === 0 || tv.pendingReplies !== 0) {
+            stable = -1;
+            return false;
+        }
+        // Same count on the next turn: a delivered reply did not record another read.
+        if (stable !== count) {
+            stable = count;
+            return false;
+        }
+        return true;
     }, "opening episode prefetches settled");
 }
 

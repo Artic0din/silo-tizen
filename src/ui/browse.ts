@@ -20,6 +20,7 @@ import { operations } from "../api/operations.ts";
 import { detailOperations } from "../api/detailOperations.ts";
 import type { ItemDetail, UserLibrary } from "../contracts/v2/catalog.ts";
 import { DetailsState } from "./detailsState.ts";
+import { DescriptionTranslations } from "./descriptionTranslation.ts";
 import { freshPlayPosition } from "./playbackPreparation.ts";
 import { SeriesEpisodes } from "./seriesEpisodes.ts";
 import { CardActions } from "./cardActions.ts";
@@ -118,6 +119,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let cancelOfflineRefresh = (): void => {};
     let offlineRefreshRoute: Route | undefined;
     let offlineRefreshAt: number | undefined;
+    const translations = new DescriptionTranslations(session, clock);
     const container = el("div", "browse");
     root.appendChild(container);
     const host = new FocusHost(container);
@@ -160,9 +162,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     applyCardSize();
     let shownOverlays: CardOverlayPrefs | undefined = presentation.cardOverlays;
     const previews = new WeakMap<Route, () => void>();
-    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, cardOverlays: () => presentation.cardOverlays, posterScale: () => presentation.posterScale, savedFileOverlay: card => homeDetails.savedFile(card)?.overlay, open: (destination) => open(destination), preview: (card, row, continuing) => {
+    const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, cardOverlays: () => presentation.cardOverlays, posterScale: () => presentation.posterScale, savedFileOverlay: card => homeDetails.savedFile(card)?.overlay, open: (destination) => open(destination), preview: (card, row, continuing, featured) => {
         const current = top();
-        const preview = (): void => shell.preview(card, row, continuing);
+        const preview = (): void => shell.preview(card, row, continuing ?? false, featured === true);
         if (current !== undefined) previews.set(current, preview);
         preview();
     }, resume: (id, title) => {
@@ -491,6 +493,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             return;
         }
         torn = true;
+        translations.reset();
         stopSearchSupplement();
         presentation.stop();
         activeSection?.stop();
@@ -1148,18 +1151,20 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     if (previous?.panel !== undefined || previous?.busy || previous?.preparingPlay) { current.stale = true; deferredDetails.add(current); return; }
                     deferredDetails.delete(current);
                     if (previous !== undefined && cachedDetailOwners.has(previous)) {
-                        if (!cache.isOffline(operations.getCatalogItem(current.id))) cachedDetailOwners.delete(previous);
-                        previous.acceptDetail(data.detail);
-                        if (data.detail.played !== undefined) previous.values.set("watched", data.detail.played);
-                        if (data.detail.type === "series") {
+                        const offline = cache.isOffline(operations.getCatalogItem(current.id));
+                        const detail = offline ? previous.detail : data.detail;
+                        if (!offline) cachedDetailOwners.delete(previous);
+                        previous.acceptDetail(detail);
+                        if (detail.played !== undefined) previous.values.set("watched", detail.played);
+                        if (detail.type === "series") {
                             const series = previous.series;
                             series?.stop();
                             const season = series?.selectionChanged ? series.seasonNumber : data.contextSeason ?? series?.seasonNumber;
-                            previous.series = new SeriesEpisodes(session, data.detail.id, data.seasons, () => previous.warmSeriesEpisodes(), season, current.seriesContext?.episodeId);
+                            previous.series = new SeriesEpisodes(session, detail.id, data.seasons, () => previous.warmSeriesEpisodes(), season, current.seriesContext?.episodeId);
                             previous.series.restore(series, true);
                             previous.series.start();
                         }
-                        current.data = { ...data, details: previous };
+                        current.data = { ...data, detail, details: previous };
                         if (!previous.series?.selectionChanged && current.focus === undefined && data.contextSeason !== undefined && data.seasons.some(item => item.seasonNumber === data.contextSeason)) return { zone: "seasons", key: `season:${data.contextSeason}` };
                         return;
                     }
@@ -1176,7 +1181,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                             if (top() === current && enter && episode !== undefined) { render({ zone: "seasons", key: `season:${details.series.seasonNumber}` }); return; }
                         }
                         detailsChanged(current, audioClosed);
-                    }, (detail, signal) => refreshWatched(current, detail, signal), personalPending);
+                    }, (detail, signal) => refreshWatched(current, detail, signal), personalPending, translations);
                     details.restore(previous);
                     if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, () => details.warmSeriesEpisodes(), previous?.series?.seasonNumber ?? data.contextSeason, current.seriesContext?.episodeId);
                     details.series?.restore(previous?.series, true);
@@ -1204,7 +1209,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     const previous = current.data?.details;
                     current.data = data;
                     if (data.detail !== undefined) {
-                        const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending);
+                        const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending, translations);
                         details.restore(previous);
                         current.data.details = details;
                         detailWork = details;
@@ -1457,13 +1462,15 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             current.data = cache.peek(operations.recommendations());
             if (current.data !== undefined) current.stale = true;
         } else if (current.kind === "item" && current.data === undefined) {
-            const detail = cache.peek(operations.getCatalogItem(current.id));
+            const cached = cache.peek(operations.getCatalogItem(current.id));
+            const previous = visitedDetails.get(current.id);
+            const detail = cached === undefined ? undefined : previous?.detail ?? cached;
             if (detail !== undefined) {
                 const seasons = cache.peek(operations.listSeriesSeasons(current.id)) ?? [];
-                const details = new DetailsState(detail, session, key => detailsChanged(current, key), (value, signal) => refreshWatched(current, value, signal), personalPending);
-                details.restore(visitedDetails.get(current.id));
+                const details = new DetailsState(detail, session, key => detailsChanged(current, key), (value, signal) => refreshWatched(current, value, signal), personalPending, translations);
+                details.restore(previous);
                 if (detail.type === "series") details.series = new SeriesEpisodes(session, detail.id, seasons, () => details.warmSeriesEpisodes(), current.seriesContext?.seasonNumber, current.seriesContext?.episodeId);
-                details.series?.restore(visitedDetails.get(current.id)?.series);
+                details.series?.restore(previous?.series);
                 current.data = { detail, seasons, details };
                 cachedDetailOwners.add(details);
                 current.stale = true;
@@ -1962,6 +1969,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             catch { return false; } // Optional dialog copy cannot block Browse; logout checks storage itself.
         })(),
     }, focus => render(focus), options.publicStorage, `silo.skyline.scope:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`, context.baseUrl);
+    shell.translations = translations;
+    translations.subscribeMode(() => { if (!torn) shell.armTranslation(); });
+    translations.cards.subscribe(() => { if (!torn) shell.refreshTranslation(); });
+    void translations.ensure();
     shell.titleArt = () => presentation.showsTitleArt;
     const enrichedScene = (): boolean => { const current = top(); return current?.kind === "home" || current?.kind === "for_you" || (current?.kind === "library" && current.discovery?.mode === "Recommended"); };
     shell.details = (card, continuing) => !enrichedScene() ? { line: undefined, badges: undefined } : { line: homeDetails.detailLine(card.id), badges: continuing ? homeDetails.savedFile(card)?.badges : undefined };

@@ -108,7 +108,7 @@ export class DetailsState {
             replaceEpisodes: (season, episodes) => {
                 const series = this.series;
                 if (series === undefined || series.seasonNumber !== season) return true;
-                series.replace(season, episodes);
+                series.publishTranslatedEpisodes(season, episodes);
                 return !episodes.some((episode) => episode.pendingTranslationLanguage !== undefined);
             },
             changed: () => this.changed(),
@@ -425,21 +425,21 @@ export class DetailsState {
         this.changed();
     }
 
-    warmSeriesEpisodes(): void {
+    warmSeriesEpisodes(translate = true): void {
         if (!["series", "season"].includes(this.detail.type)) return;
         if (this.series?.focusSelectedEpisode && this.series.episodes !== undefined) {
             this.focusedEpisodeId = this.series.entryEpisode;
         }
         if (this.detail.playContentId !== undefined) this.queueEpisode(this.detail.playContentId);
-        if (this.series?.episodes !== undefined && this.focusedEpisodeId !== undefined && !this.series.episodes.some(episode => episode.id === this.focusedEpisodeId)) this.focusedEpisodeId = undefined;
-        for (const episode of this.series?.episodes ?? []) this.queueEpisode(episode.id);
+        if (this.series?.railEpisodes !== undefined && this.focusedEpisodeId !== undefined && !this.series.railEpisodes.some(episode => episode.id === this.focusedEpisodeId)) this.focusedEpisodeId = undefined;
+        for (const episode of this.series?.railEpisodes ?? []) this.queueEpisode(episode.id);
         this.syncEpisode();
         this.changed();
-        this.descriptions?.consider();
+        this.descriptions?.consider(translate);
     }
 
     focusEpisode(id: string): void {
-        if (this.focusedEpisodeId === id || !this.series?.episodes?.some(episode => episode.id === id)) return;
+        if (this.focusedEpisodeId === id || !this.series?.railEpisodes?.some(episode => episode.id === id)) return;
         this.focusedEpisodeId = id;
         // Focus only selects a preloaded owner. Reads belong to season acceptance and explicit Retry.
         this.syncEpisode();

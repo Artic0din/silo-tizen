@@ -364,9 +364,14 @@ export class ItemDescriptionTranslation {
         this.seasonRun.cancel();
     }
 
-    consider(): void {
+    consider(automatic = true): void {
         if (this.closed || this.translations.onView() !== "auto") return;
-        this.begin(true);
+        if (automatic) this.begin(true);
+        else {
+            const targets = descriptionTargets(this.surface.detail(), this.surface.season(), this.surface.episodes());
+            this.cancelStale(this.item, targets.item);
+            this.cancelStale(this.seasonRun, targets.season);
+        }
     }
 
     translate(): void {

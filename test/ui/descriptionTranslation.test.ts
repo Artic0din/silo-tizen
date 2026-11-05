@@ -149,21 +149,30 @@ test("fresh metadata starts automatic translation on a cached Details owner", as
     } finally { await tv.page.context().close(); }
 });
 
-test("series episode focus does not request a description translation", async () => {
+for (const mode of ["button", "auto"] as const) test(`series episode focus does not request a description translation in ${mode} mode`, async () => {
     const tv = await openTv(browser, { app: "browse" });
     const catalog = new FakeDetails();
     tv.fake.catalog = catalog;
-    const translation = install(tv.fake, catalog, "button", ["episode:s1e11", "episode:s1e12"]);
+    const translation = install(tv.fake, catalog, mode, ["episode:s1e11", "episode:s1e12", "episode:s1e21", "episode:s1e22"]);
     try {
         await signIn(tv);
         await tv.page.evaluate(() => window.browseHarness.mount());
         await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
-        await tv.page.locator('[data-focus="episode:s1e12"]').waitFor();
+        await tv.page.locator('[data-focus="episode:s1e22"]').waitFor();
+        if (mode === "auto") await tv.eventually(() => Promise.resolve(translation.posts().length === 1), "initial selected season translation");
         const before = translation.posts().length;
         await tv.page.locator('[data-focus="episode:s1e11"]').focus();
         await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+        await tv.page.locator('[data-focus="episode:s1e21"]').focus();
+        await tv.page.locator('[data-focus="episode:s1e22"]').focus();
         await tv.jump(3000);
         assert.equal(translation.posts().length, before);
+        if (mode === "auto") {
+            await tv.page.locator('[data-focus="season:1"]').click();
+            await tv.eventually(() => Promise.resolve(translation.posts().length === before + 1), "returning explicitly can resume the interrupted season translation");
+            await tv.page.locator('[data-focus="season:2"]').click();
+            await tv.eventually(() => Promise.resolve(translation.posts().length === before + 2), "explicit season activation still translates automatically");
+        }
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

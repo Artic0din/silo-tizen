@@ -91,7 +91,7 @@ test("season detail prefetch bounds concurrency and cancels queued and late work
     assert.ok(row && title);
     const ids = Array.from({ length: 6 }, (_, index) => `episode:batch-${index}`);
     const held = ids.map(id => { r.catalog.titles.set(id, { ...title, id }); return r.h.fake.hold(`/catalog/items/${encodeURIComponent(id)}?image_size=large`, true); });
-    state.series.episodes = ids.map(id => ({ ...row, id }));
+    state.series.replace(state.series.seasonNumber!, ids.map(id => ({ ...row, id })));
     state.warmSeriesEpisodes(); await settle();
     const reads = (): number => r.h.fake.requests.filter(request => request.path.startsWith('/catalog/items/episode%3Abatch-')).length;
     assert.equal(reads(), 4);

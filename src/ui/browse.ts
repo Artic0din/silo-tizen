@@ -1160,7 +1160,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                             const series = previous.series;
                             series?.stop();
                             const season = series?.selectionChanged ? series.seasonNumber : data.contextSeason ?? series?.seasonNumber;
-                            previous.series = new SeriesEpisodes(session, detail.id, data.seasons, () => previous.warmSeriesEpisodes(), season, current.seriesContext?.episodeId);
+                            previous.series = new SeriesEpisodes(session, detail.id, data.seasons, reason => previous.warmSeriesEpisodes(reason === "load"), season, current.seriesContext?.episodeId);
                             previous.series.restore(series, true);
                             previous.series.start();
                         }
@@ -1183,7 +1183,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                         detailsChanged(current, audioClosed);
                     }, (detail, signal) => refreshWatched(current, detail, signal), personalPending, translations);
                     details.restore(previous);
-                    if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, () => details.warmSeriesEpisodes(), previous?.series?.seasonNumber ?? data.contextSeason, current.seriesContext?.episodeId);
+                    if (data.detail.type === "series") details.series = new SeriesEpisodes(session, data.detail.id, data.seasons, reason => details.warmSeriesEpisodes(reason === "load"), previous?.series?.seasonNumber ?? data.contextSeason, current.seriesContext?.episodeId);
                     details.series?.restore(previous?.series, true);
                     details.related = quiet ? previous?.related : undefined;
                     stopDetails();
@@ -1469,7 +1469,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 const seasons = cache.peek(operations.listSeriesSeasons(current.id)) ?? [];
                 const details = new DetailsState(detail, session, key => detailsChanged(current, key), (value, signal) => refreshWatched(current, value, signal), personalPending, translations);
                 details.restore(previous);
-                if (detail.type === "series") details.series = new SeriesEpisodes(session, detail.id, seasons, () => details.warmSeriesEpisodes(), current.seriesContext?.seasonNumber, current.seriesContext?.episodeId);
+                if (detail.type === "series") details.series = new SeriesEpisodes(session, detail.id, seasons, reason => details.warmSeriesEpisodes(reason === "load"), current.seriesContext?.seasonNumber, current.seriesContext?.episodeId);
                 details.series?.restore(previous?.series);
                 current.data = { detail, seasons, details };
                 cachedDetailOwners.add(details);

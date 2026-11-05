@@ -17,6 +17,7 @@ export class CardActions {
     private items: FocusItem[] = [];
     private failed = false;
     private pressed = false;
+    private play: (() => void) | undefined;
     private card: Pick<Card, "id" | "title" | "type"> | undefined;
     private readonly container: HTMLElement;
     private readonly session: NativeSession;
@@ -37,9 +38,10 @@ export class CardActions {
     get active(): boolean { return this.panel !== undefined; }
     get pending(): boolean { return this.state?.pending === true; }
 
-    open(card: Pick<Card, "id" | "title" | "type">): void {
+    open(card: Pick<Card, "id" | "title" | "type">, play?: () => void): void {
         if (this.active) return;
         this.card = card;
+        this.play = play;
         this.panel = el("div", "card-actions-scrim");
         this.container.appendChild(this.panel);
         document.addEventListener("keydown", this.onKey, true);
@@ -85,6 +87,11 @@ export class CardActions {
         content.appendChild(el("h1", "browse-section-title", this.state?.detail.title ?? this.card?.title ?? ""));
         const controls = this.state === undefined ? undefined : personalControls(this.state);
         this.items = [...controls?.items ?? [], ...(this.failed ? [actionButton("retry-card-actions", "Try again", () => this.load())] : []), actionButton("close-card-actions", "Close", () => this.close())];
+        const play = this.play;
+        if (play !== undefined && this.state !== undefined) this.items.unshift(actionButton("card-play", (this.state.detail.watch?.positionSeconds ?? 0) > 0 ? "Resume" : "Play", () => {
+            this.close();
+            play();
+        }));
         const card = this.card;
         if (card?.type === "episode" && this.information !== undefined) this.items.splice(this.items.length - 1, 0, actionButton("episode-information", "Episode information", () => {
             this.close();

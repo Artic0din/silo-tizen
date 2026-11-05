@@ -32,9 +32,11 @@ import { AUTO_NEXT_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KE
 import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
 import { markerAt, type SkipMarker } from "../contracts/v2/markers.ts";
 import { nextEpisode, onDeckPlays } from "./nextEpisode.ts";
-import { NEXT_UP_PROMPT_KEY } from "../contracts/v2/settings.ts";
+import { NEXT_UP_KEY } from "../contracts/v2/settings.ts";
+import { INTRO_SKIP_KEY, CREDITS_SKIP_KEY } from "../contracts/v2/settingsRows.ts";
 import { nextShuffle } from "./nextShuffle.ts";
 import { SubtitleAI, type SubtitleAIView } from "./subtitleAI.ts";
+const SKIP_UNDO_MILLISECONDS = 5000;
 import { DEFAULT_APPEARANCE, decodeCues, type SubtitleAppearance, type SubtitleCue } from "../contracts/v2/subtitles.ts";
 import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
 import { initialSubtitle } from "./preplaySubtitles.ts";
@@ -132,6 +134,7 @@ export type PlaybackView =
           readonly previewKey?: string | undefined;
           readonly captions?: { readonly text: string; readonly appearance: SubtitleAppearance } | undefined;
           readonly skipMarker?: SkipMarker | undefined;
+          readonly undoSkipSeconds?: number | undefined;
       }
     | { readonly phase: "error"; readonly title: string; readonly error: PlaybackError; readonly retryable?: boolean }
     | { readonly phase: "closed" };
@@ -206,6 +209,11 @@ interface Attempt {
     promptLookedUp: boolean;
     prompt: { next: PlayRequest | undefined; deck: readonly PlayRequest[]; fromDeck: boolean } | undefined;
     autoNext: boolean;
+    introMode: "never" | "ask" | "always";
+    skipCredits: boolean;
+    skippedMarkers: Set<SkipMarker>;
+    undoSkip: { seconds: number; until: number } | undefined;
+    pendingSkipUndo: number | undefined;
     ai: SubtitleAI | undefined;
     readonly aiBlockedFiles: Set<string>;
     pendingAIResult: string | undefined;
@@ -356,6 +364,7 @@ export class PlaybackController implements PlayerControls {
             autoNextSupported: false,
             promptSeconds: 30, promptSupported: false, promptDismissed: false, promptPending: false, promptLookedUp: false, prompt: undefined,
             autoNext: false,
+            introMode: "ask", skipCredits: false, skippedMarkers: new Set(), undoSkip: undefined, pendingSkipUndo: undefined,
             ai: undefined, aiBlockedFiles: new Set(), pendingAIResult: undefined,
             appearance: DEFAULT_APPEARANCE, subtitleSync: 0, cues: [], captionAbort: undefined, captionNotice: "", captionPreferenceNotice: "", captionKey: undefined, captionPreferencesRead: false, seriesSubtitle: request.episode ? { busy: false, message: "" } : undefined,
             request,
@@ -512,6 +521,7 @@ export class PlaybackController implements PlayerControls {
         }
         const duration = plan.durationSeconds;
         const target = Math.max(0, Math.min(seconds, duration ?? Number.MAX_VALUE));
+        if (attempt.undoSkip?.seconds === target) attempt.undoSkip = undefined;
         const timeline = plan.timeline;
         const local =
             timeline.canSeekAnywhere &&
@@ -562,6 +572,7 @@ export class PlaybackController implements PlayerControls {
                 }
             }
             if (moved) this.updatePrompt(attempt);
+            this.finishSkipSeek(attempt, moved);
             this.showPlayback(attempt);
         };
         try {
@@ -841,13 +852,23 @@ export class PlaybackController implements PlayerControls {
             if (!attempt.live) return false;
             if (contract.apiVersion !== 1 || contract.revision < capability.manifestRevision) throw new Error("Settings contract changed");
             const definitions = profileSettings(contract, capability);
-            attempt.promptSupported = definitions.some(def => def.key === NEXT_UP_PROMPT_KEY);
+            attempt.promptSupported = definitions.some(def => def.key === NEXT_UP_KEY);
             if (attempt.promptSupported) {
                 try {
-                    const values = await call(operations.effectiveSettings([NEXT_UP_PROMPT_KEY]));
-                    const seconds = values.get(NEXT_UP_PROMPT_KEY)?.value;
+                    const values = await call(operations.effectiveSettings([NEXT_UP_KEY]));
+                    const seconds = values.get(NEXT_UP_KEY)?.value;
                     if (typeof seconds === "number") attempt.promptSeconds = seconds;
                 } catch { /* Apple's default remains usable offline. */ }
+            }
+            for (const key of [INTRO_SKIP_KEY, CREDITS_SKIP_KEY] as const) {
+                if (!definitions.some(def => def.key === key)) continue;
+                try {
+                    const values = await call(operations.effectiveSettings([key]));
+                    if (!attempt.live) return false;
+                    const value = values.get(key)?.value;
+                    if (key === INTRO_SKIP_KEY && (value === "never" || value === "ask" || value === "always")) attempt.introMode = value;
+                    if (key === CREDITS_SKIP_KEY) attempt.skipCredits = value === true;
+                } catch { /* Unavailable optional preferences retain manual skipping. */ }
             }
             if (definitions.some(def => def.key === AUTO_NEXT_KEY)) {
                 attempt.autoNextSupported = true;
@@ -1083,6 +1104,7 @@ export class PlaybackController implements PlayerControls {
 
     /** A codec or route failure on this TV: the server picks the next route, a bounded number of times. */
     private routeFailed(attempt: Attempt, classification: string): void {
+        attempt.pendingSkipUndo = undefined;
         const plan = attempt.plan;
         if (!attempt.live || plan === undefined) {
             return;
@@ -1510,6 +1532,7 @@ export class PlaybackController implements PlayerControls {
             attempt.started = true;
             attempt.presented = true;
             attempt.resuming = false;
+            this.finishSkipSeek(attempt, true);
             if (attempt.recovery?.active === true) attempt.recovery.recovered(this.deps.clock.now());
             if (attempt.cancelTimer === undefined) {
                 this.scheduleProgress(attempt);
@@ -1566,6 +1589,14 @@ export class PlaybackController implements PlayerControls {
                 const plan = attempt.plan;
                 if (current() && attempt.started && (!attempt.busy || attempt.change.state === "changing" || attempt.reporting) && plan !== undefined) {
                     attempt.sourceSeconds = milliseconds / 1000 + plan.timeline.timelineOffsetSeconds;
+                    const marker = markerAt(attempt.markers?.segments ?? [], attempt.sourceSeconds);
+                    if (!attempt.busy && marker !== undefined && !attempt.skippedMarkers.has(marker) && ((marker.kind === "intro" && attempt.introMode === "always") || (marker.kind === "credits" && attempt.skipCredits))) {
+                        attempt.skippedMarkers.add(marker);
+                        attempt.undoSkip = undefined;
+                        attempt.pendingSkipUndo = marker.startSeconds;
+                        this.seekToSeconds(marker.endSeconds);
+                        return;
+                    }
                     this.updatePrompt(attempt);
                     this.showPlayback(attempt);
                 }
@@ -1591,6 +1622,14 @@ export class PlaybackController implements PlayerControls {
                 }
             },
         };
+    }
+
+    private finishSkipSeek(attempt: Attempt, moved: boolean): void {
+        const seconds = attempt.pendingSkipUndo;
+        attempt.pendingSkipUndo = undefined;
+        if (moved && seconds !== undefined) {
+            attempt.undoSkip = { seconds, until: this.deps.clock.now() + SKIP_UNDO_MILLISECONDS };
+        }
     }
 
     private beginCompletion(attempt: Attempt): void {
@@ -2614,7 +2653,8 @@ export class PlaybackController implements PlayerControls {
             seekIntervals: attempt.seekIntervals,
             previewKey: frozen ? undefined : attempt.planAttemptId,
             captions: attempt.hidden || attempt.restoring || frozen ? undefined : { text: attempt.cues.filter(cue => attempt.sourceSeconds - attempt.subtitleSync / 1000 >= cue.start && attempt.sourceSeconds - attempt.subtitleSync / 1000 < cue.end).map(cue => cue.text).join("\n"), appearance: attempt.appearance },
-            skipMarker: frozen ? undefined : markerAt(attempt.markers?.segments ?? [], attempt.sourceSeconds),
+            skipMarker: frozen ? undefined : markerAt((attempt.markers?.segments ?? []).filter(marker => marker.kind !== "intro" || attempt.introMode !== "never"), attempt.sourceSeconds),
+            undoSkipSeconds: attempt.undoSkip !== undefined && this.deps.clock.now() < attempt.undoSkip.until ? attempt.undoSkip.seconds : undefined,
         });
     }
 

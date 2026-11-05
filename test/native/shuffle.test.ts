@@ -7,6 +7,11 @@ test("Shuffle operations retain the pinned retry and scope contracts", () => {
     const create = operations.createShuffle("12");
     assert.equal(create.retry, "never");
     assert.deepEqual(create.body, { scope: { kind: "library", id: "12" } });
+    for (const kind of ["library_collection", "user_collection"] as const) {
+        const collection = operations.createShuffle("opaque/id", kind);
+        assert.deepEqual(collection.body, { scope: { kind, id: "opaque/id" } });
+        assert.equal(collection.retry, "never");
+    }
     const advance = operations.advanceShuffle("sh/1", "movie:done");
     assert.equal(advance.retry, "safe");
     assert.equal(advance.path, "/shuffles/sh%2F1/advance");

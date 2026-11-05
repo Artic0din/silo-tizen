@@ -1055,6 +1055,84 @@
 /* Shuffle stays focusable while it starts (a disabled button loses focus); it dims to 60%. */
 .browse .browse-controls .browse-control-starting { opacity: .6; }
 
+/* Apple tvOS WatchlistView and FavoritesView (silo-apple 9723df0): contentTopInset 188,
+   safePadding 80, title 64 bold, eight 176-point posters, column gap 40, row gap 60. */
+.personal-lists.skyline-grid .skyline-content { top: 188px; left: 80px; width: 1760px; height: 892px; }
+.personal-lists .personal-page { padding-bottom: 80px; }
+.personal-lists .browse-title { margin: 0 0 40px; font-size: 64px; font-weight: 700; line-height: 77px; color: #ededed; }
+.personal-lists .personal-filters { position: static; display: flex; gap: 14px; width: auto; margin: 0 0 40px; }
+.personal-lists .personal-filters .browse-button { margin: 0; padding: 12px 28px; border: 1px solid rgba(255,255,255,.09); border-radius: 999px; background: rgba(255,255,255,.07); color: #ededed; font-size: 24px; font-weight: 600; line-height: 1.2; transition: transform 120ms ease-out, opacity 120ms ease-out; }
+.personal-lists .personal-filters .browse-button[aria-pressed="true"] { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.1); color: #ededed; }
+.personal-lists .personal-filters .browse-button:focus { background: #ededed; color: #000; border-color: transparent; box-shadow: none; transform: scale(1.04); }
+.personal-lists .personal-filters .browse-button:active { opacity: .82; }
+.personal-lists .personal-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; width: 1760px; padding: 0; }
+.personal-lists .personal-grid .browse-card { width: 176px; margin: 0; padding: 0; border: 0; border-radius: 0; transition: none; }
+.personal-lists .personal-grid .browse-card:focus { transform: none; border-color: transparent; box-shadow: none; }
+.personal-lists .personal-grid .browse-art { width: 176px; height: 264px; border-radius: 12px; transition: transform 120ms ease-out, box-shadow 120ms ease-out; }
+.personal-lists .personal-grid .browse-card:focus .browse-art { transform: scale(1.05); box-shadow: 0 8px 18px rgba(0,0,0,.45), 0 0 0 4px rgba(255,255,255,.7); }
+.personal-lists .personal-grid .browse-card-title { margin: 22px 0 0; padding: 0; font: 500 24px/29px var(--silo-font); color: rgba(237,237,237,.45); text-align: center; transition: color 120ms ease-out, text-shadow 120ms ease-out; }
+.personal-lists .personal-grid .browse-card-subtitle { margin: 4px 0 0; padding: 0; font: 400 20px/24px var(--silo-font); color: rgba(237,237,237,.32); text-align: center; transition: color 120ms ease-out, text-shadow 120ms ease-out; }
+.personal-lists .personal-grid .browse-card:focus .browse-card-title { color: #fff; font-weight: 500; text-shadow: 0 0 8px rgba(255,255,255,.22), 0 0 3px rgba(255,255,255,.12); }
+.personal-lists .personal-grid .browse-card:focus .browse-card-subtitle { color: rgba(255,255,255,.92); font-weight: 400; text-shadow: 0 0 8px rgba(255,255,255,.22), 0 0 3px rgba(255,255,255,.12); }
+.personal-lists .personal-loading,
+.personal-lists .personal-status,
+.personal-lists .personal-empty,
+.personal-history .personal-loading,
+.personal-history .personal-status,
+.personal-history .personal-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; min-height: 640px; margin: 0; padding: 0 60px; border: 0; background: transparent; color: #ededed; font: inherit; text-align: center; }
+.personal-lists .personal-loading:focus,
+.personal-lists .personal-status:focus,
+.personal-lists .personal-empty:focus,
+.personal-history .personal-loading:focus,
+.personal-history .personal-status:focus,
+.personal-history .personal-empty:focus { background: transparent; color: #ededed; border-color: transparent; box-shadow: none; transform: none; }
+.personal-lists .personal-loading:focus,
+.personal-history .personal-loading:focus { outline: none; }
+.personal-lists .personal-empty,
+.personal-history .personal-empty { gap: 12px; }
+.personal-lists .personal-empty-icon,
+.personal-history .personal-empty-icon { width: 44px; height: 44px; color: rgba(237,237,237,.3); }
+.personal-lists .personal-empty-title,
+.personal-history .personal-empty-title { font-size: 28px; font-weight: 600; }
+.personal-lists .personal-empty-subtitle,
+.personal-history .personal-empty-subtitle { max-width: 1200px; font-size: 22px; font-weight: 400; color: rgba(237,237,237,.6); }
+.personal-lists .personal-section-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; min-height: 430px; text-align: center; }
+.personal-lists .personal-section-icon { width: 54px; height: 54px; color: rgba(237,237,237,.34); }
+.personal-lists .personal-section-title { margin: 0; font-size: 30px; font-weight: 600; color: #ededed; }
+.personal-lists .personal-section-subtitle { margin: 0; font-size: 22px; font-weight: 400; color: rgba(237,237,237,.6); }
+.personal-lists .personal-status { font-size: 30px; }
+@media (prefers-reduced-motion: reduce) {
+    .personal-lists .personal-grid .browse-card:focus .browse-art,
+    .personal-lists .personal-filters .browse-button:focus { transform: none; }
+}
+
+/* History uses the existing pushed-page title treatment in place of tvOS system navigation chrome. */
+/* HistoryView pads the grid inside its ScrollView; that padding must not clip focused artwork. */
+.personal-history .skyline-content { top: 146px; left: 80px; width: 1760px; height: 934px; overflow-y: auto; }
+.personal-history .personal-page { padding: 16px 48px 60px; }
+/* HistoryView uses a system navigationTitle with no numeric offset; the signed capture
+   places its visible title at y64, 9.5 points below the previous Tizen capture. */
+.personal-history > .browse-title { position: fixed; top: 65.5px; left: 48px; width: 1824px; font-size: 56px; line-height: 64px; }
+.personal-history .personal-count { margin: 0 0 48px; font-size: 22px; font-weight: 400; line-height: 26px; color: rgba(237,237,237,.6); }
+.personal-history .catalog-grid { grid-template-columns: repeat(var(--grid-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; width: 1664px; margin: 0; padding: 0; }
+.personal-history .catalog-grid .browse-card { --card-caption-gap: 22px; }
+.personal-history .catalog-grid .browse-card-title { margin-top: 22px; }
+
+/* ErrorView, shared with the Requests hub: 48pt icon, 36 semibold headline, 26 body, Try Again 200 wide. */
+.personal-lists .personal-failure,
+.personal-history .personal-failure { position: fixed; top: 0; left: 0; box-sizing: border-box; width: 1920px; height: 1080px; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.personal-failure .search-state-icon { display: flex; align-items: center; justify-content: center; width: 50px; height: 53px; margin: 0 0 48px; color: #b00020; }
+.personal-failure .search-state-icon svg { flex: none; width: 52px; height: 52px; }
+.personal-failure .search-state-title { margin: 0 0 48px; font-size: 36px; line-height: 43px; font-weight: 600; color: #ededed; }
+.personal-failure .search-state-description { margin: 0; padding: 0 60px; font-size: 26px; line-height: 32px; color: rgba(237,237,237,.6); }
+.personal-failure .browse-actions { display: flex; flex-direction: column; align-items: center; gap: 16px; margin: 64px 0 0; }
+.personal-failure .browse-button { box-sizing: border-box; width: 200px; height: 62px; margin: 0; padding: 0 18px; border: 0; border-radius: 31px; background: rgba(237,237,237,.72); color: #000; font-size: 28px; line-height: 34px; font-weight: 600; }
+.personal-failure .browse-button:focus { background: #ededed; color: #000; transform: scale(1.055); box-shadow: inset 0 0 0 2px #fff, 0 0 0 2px #fff, 0 0 12px 8px rgba(255,255,255,.36), 0 8px 48px rgba(237,237,237,.48); }
+.personal-failure .browse-button + .browse-button { width: auto; height: auto; padding: 4px 24px; border-radius: 22px; background: transparent; color: rgba(237,237,237,.6); font-size: 26px; line-height: 32px; font-weight: 400; }
+.personal-failure .browse-button + .browse-button:focus { background: #ededed; color: #000; }
+@media (prefers-reduced-motion: reduce) {
+    .personal-failure .browse-button:focus { transform: none; }
+}
 /* tvOS adds its 80/60 safe area to the Swift page padding; measured in the signed comparison. */
 .browse[data-view^="person:"] { padding: 108px 160px 132px; }
 .browse[data-view^="person:"] .details-person-hero { margin: 0 0 48px; }

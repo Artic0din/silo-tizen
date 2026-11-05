@@ -1104,6 +1104,44 @@ for (const withMedia of [false, true]) {
     }, { catalog });
 }
 
+browseTest("Movies opens on the server shelf without sort chips, and a saved Browse sort waits for Browse", async (tv, catalog) => {
+    const household = catalog.households.get("p-owner");
+    assert.ok(household);
+    household.librarySections = [{ id: "new_releases", sectionType: "recently_added", title: "New Releases", items: ["movie:m0005", "movie:m0001", "movie:m0003"] }];
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    assert.equal(await tv.page.locator('[data-section="new_releases"] .browse-section-title').innerText(), "New Releases");
+    assert.deepEqual(await cardIds(tv, '[data-section="new_releases"] .browse-card:not(.skyline-explore)'), ["movie:m0005", "movie:m0001", "movie:m0003"]);
+    assert.equal(await tv.page.locator('.browse-controls [data-focus="sort"]').count(), 0);
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length, 0);
+    await tv.eventually(async () => ["movie:m0005", "movie:m0001", "movie:m0003"].every(id => tv.fake.requests.some(request => request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(id)}`)), "shelf enrichment finished");
+    const reads = tv.fake.requests.length;
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), "movie:m0001");
+    assert.equal(tv.fake.requests.length, reads, "moving focus does not fetch");
+    await selectLibraryMode(tv, "Browse");
+    await tv.page.locator('.catalog-grid .browse-card').first().waitFor();
+    assert.equal(await tv.page.locator('.browse-controls [data-focus="sort"]').textContent(), "Sort · TitleA–Z");
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).at(-1)?.body?.sort, "title");
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).at(-1)?.body?.order, "asc");
+    await tv.page.locator('.browse-controls [data-focus="sort"]').click();
+    await tv.page.locator('[data-focus="sort:year"]').click();
+    await tv.page.locator('.catalog-grid .browse-card').first().waitFor();
+    assert.equal(await tv.page.locator('.browse-controls [data-focus="sort"]').textContent(), "Sort · YearNewest");
+    await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+    await showing(tv, "home");
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    assert.equal(await tv.page.locator('[data-section="new_releases"] .browse-section-title').innerText(), "New Releases");
+    assert.deepEqual(await cardIds(tv, '[data-section="new_releases"] .browse-card:not(.skyline-explore)'), ["movie:m0005", "movie:m0001", "movie:m0003"]);
+    assert.equal(await tv.page.locator('.browse-controls [data-focus="sort"]').count(), 0);
+    assert.equal(await tv.focused(), "movie:m0005");
+    await selectLibraryMode(tv, "Browse");
+    await tv.page.locator('.catalog-grid .browse-card').first().waitFor();
+    assert.equal(await tv.page.locator('.browse-controls [data-focus="sort"]').textContent(), "Sort · YearNewest");
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).at(-1)?.body?.sort, "year");
+});
+
 let lateLibrarySize: { release(): void };
 browseTest("late Recommended poster preferences keep the focused card", async tv => {
     await tv.page.locator('[data-focus="movies"]').click();

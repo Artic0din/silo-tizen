@@ -1061,3 +1061,25 @@
 @media (prefers-reduced-motion: reduce) {
     .personal-failure .browse-button:focus { transform: none; }
 }
+/* tvOS adds its 80/60 safe area to the Swift page padding; measured in the signed comparison. */
+.browse[data-view^="person:"] { padding: 108px 160px 132px; }
+.browse[data-view^="person:"] .details-person-hero { margin: 0 0 48px; }
+.browse[data-view^="person:"] .browse-title { margin-bottom: 0; }
+.browse[data-view^="person:"] .person-facts { display: flex; gap: 12px; margin: 0; }
+.browse[data-view^="person:"] .person-fact { flex-shrink: 0; margin: 0; }
+.browse[data-view^="person:"] .browse-overview { margin: 0; color: rgba(237, 237, 237, 0.6); font-size: 26px; font-weight: 400; }
+.browse[data-view^="person:"] .browse-detail-info > * + * { margin-top: 22px; }
+.person-filmography-heading { display: flex; align-items: baseline; gap: 60px; margin: 0 0 20px; }
+.person-filmography-heading .browse-section-title { margin: 0; font-size: 36px; font-weight: 600; }
+.person-title-count { color: rgba(237, 237, 237, 0.6); font-size: 22px; font-weight: 400; }
+.browse[data-view^="person:"] .person-filmography-filters { display: flex; gap: 8px; padding: 8px 0; margin: 0 0 28px; }
+.browse[data-view^="person:"] .person-filmography-filters .browse-button { margin: 0; padding: 10px 22px; border-width: 1px; border-radius: 999px; font-size: 22px; font-weight: 400; background: rgba(21, 23, 28, 0.55); color: rgba(237, 237, 237, 0.6); border-color: rgba(255, 255, 255, 0.08); transition: transform var(--silo-fast) ease-out; }
+.browse[data-view^="person:"] .person-filmography-filters .browse-button[aria-pressed="true"] { background: #0e0f12; color: var(--silo-text); border-color: rgba(255, 255, 255, 0.16); }
+.browse[data-view^="person:"] .person-filmography-filters .browse-button:focus { outline: none; background: rgba(14, 15, 18, 0.8); color: var(--silo-text); border-color: rgba(237, 237, 237, 0.85); box-shadow: inset 0 0 0 1px rgba(237, 237, 237, 0.85); transform: scale(1.06); }
+.browse[data-view^="person:"] .person-filmography-filters .browse-button[aria-pressed="true"]:focus { background: #0e0f12; }
+.browse[data-view^="person:"] .browse-grid { width: auto; margin: 0; padding: 0; grid-template-columns: repeat(var(--grid-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; }
+/* PersonDetailView.swift:440 pads the scroll content 72pt at the bottom. The focus
+   viewport also excludes tvOS's 60px vertical safe area, so the shared scroll owner
+   keeps the focused card 132px above the screen. The generic 32px margin (92px with
+   the safe area) left the row 40px too low. */
+.browse[data-view^="person:"] .browse-grid .browse-card { scroll-margin-top: 72px; scroll-margin-bottom: 132px; }

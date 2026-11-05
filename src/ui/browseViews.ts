@@ -32,7 +32,7 @@ export interface ViewContext {
     readonly posterWidth?: number;
     /** The profile's poster badges, read when a Home row renders; undefined while unknown, failed or off. */
     readonly cardOverlays?: () => CardOverlayPrefs | undefined;
-    /** Home rows draw poster badges (Apple MediaRow and EpisodeThumbCard); other card screens do not. */
+    /** A row may provide a captured preference document; otherwise catalog cards read the shared preferences. */
     readonly overlays?: CardOverlayPrefs | undefined;
     /** Continue Watching badges for the file the viewer last played, once Home's detail reads know it. */
     readonly savedFileOverlay?: (card: Card) => CardOverlay | undefined;
@@ -135,7 +135,8 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     // Badges sit under the progress bar and the watched tick, which win a shared corner.
     const saved = continuing ? context.savedFileOverlay?.(card) : undefined;
     const scale = context.homeCaptions === true ? context.posterScale?.() ?? 1 : 1;
-    const badges = context.overlays === undefined ? undefined : overlayLayer(saved === undefined ? card : { ...card, overlay: saved }, context.overlays, thumbnail ? "wide" : "poster", (thumbnail ? HOME_STILL_WIDTH : context.posterWidth ?? HOME_POSTER_WIDTH) * scale);
+    const overlays = context.overlays ?? context.cardOverlays?.();
+    const badges = overlays === undefined ? undefined : overlayLayer(saved === undefined ? card : { ...card, overlay: saved }, overlays, thumbnail ? "wide" : "poster", (thumbnail ? HOME_STILL_WIDTH : context.posterWidth ?? (context.homeCaptions === true ? HOME_POSTER_WIDTH : 260)) * scale);
     if (badges !== undefined) element.firstElementChild?.insertBefore(badges, element.firstElementChild.querySelector(".skyline-progress"));
     if (card.played === true) {
         const tick = el("span", "browse-watched");

@@ -1,6 +1,7 @@
 import { ApiError } from "../api/errors.ts";
 import type { JsonValue, RequestSpec } from "../api/http.ts";
 import { subtitleDisplayOperations as operations } from "../api/subtitleDisplayOperations.ts";
+import { subtitleOperations } from "../api/subtitleOperations.ts";
 import { decodeSettingsCapabilities } from "../contracts/v2/settings.ts";
 import { DEFAULT_APPEARANCE, type SubtitleAppearance } from "../contracts/v2/subtitles.ts";
 import type { NativeSession } from "../session/session.ts";
@@ -62,15 +63,23 @@ export class SubtitleDisplay {
             const contract = await this.call(operations.contract());
             const support = subtitleControlSupport(contract, capability);
             const device = support.deviceScope ? await this.call(operations.deviceAppearance(this.profileId, this.session.http.deviceId)) : false;
+            const [appearance, delay] = await Promise.all([
+                support.styling ? this.call(subtitleOperations.subtitleAppearance(this.profileId)) : this.appearance,
+                support.delay ? this.call(subtitleOperations.subtitleSync()) : this.delayMs,
+            ]);
             if (this.abort.signal.aborted) return;
+            this.appearance = appearance;
+            this.delayMs = delay;
             this.support = support;
             this.syncScopes = allowedScopes(contract, SYNC_KEY);
             this.manifest = decodeSettingsCapabilities(capability).manifestRevision;
             this.deviceOverride = device;
             this.loaded = true;
+            this.onChange(appearance, delay);
         } catch {
             if (this.abort.signal.aborted) return;
             this.loaded = true;
+            this.message = "Could not load subtitle preferences. Reopen playback to retry.";
         }
         this.changed();
     }
@@ -110,6 +119,18 @@ export class SubtitleDisplay {
         await this.commit(async () => {
             await this.call(operations.delete(APPEARANCE_KEY, "profile_device"));
             if (this.support.syncAtProfile) await this.call(operations.delete(SYNC_KEY, "profile_device"));
+            this.deviceOverride = false;
+            try {
+                const [appearance, delay] = await Promise.all([
+                    this.support.styling ? this.call(subtitleOperations.subtitleAppearance(this.profileId)) : this.appearance,
+                    this.support.delay ? this.call(subtitleOperations.subtitleSync()) : this.delayMs,
+                ]);
+                this.appearance = appearance;
+                this.delayMs = delay;
+            } catch (error) {
+                this.support = { ...this.support, styling: false, delay: false, deviceScope: false };
+                throw error;
+            }
         }, () => { this.deviceOverride = false; });
     }
 

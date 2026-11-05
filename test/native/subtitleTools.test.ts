@@ -188,6 +188,35 @@ function stored(key: string, scope: string, value: unknown, isSet = true) {
     return { status: 200, body: { key, scope, profile_id: "p-owner", ...(scope === "profile_device" ? { device_id: "device" } : {}), value, revision: 8, is_set: isSet } };
 }
 
+for (const inherited of [false, true]) for (const supportedSync of [false, true]) {
+    test(`appearance edits load effective values with inherited reset ${inherited} and sync ${supportedSync}`, async () => {
+        const h = await signed();
+        h.fake.script("/settings/contract/capabilities", { status: 200, body: capability(24) });
+        h.fake.script("/settings/contract", { status: 200, body: contract(24, [appearanceDef, ...(supportedSync ? [syncDef] : [])]) });
+        h.fake.script(`/settings/values?scope=profile_device&keys=${APPEARANCE}`, { status: 200, body: { revision: 24, items: [{ key: APPEARANCE, scope: "profile_device", profile_id: "p-owner", device_id: h.core.session.http.deviceId, is_set: inherited }] } });
+        const effective = (color: string, sync: number): void => {
+            h.fake.script("/settings/subtitle-appearance/effective", { status: 200, body: { profile_id: "p-owner", effective_value: JSON.stringify({ ...DEFAULT_APPEARANCE, fontColor: color }) } });
+            if (supportedSync) h.fake.script(`/settings/values/effective?keys=${SYNC}`, { status: 200, body: { items: [{ key: SYNC, value: sync }] } });
+        };
+        effective("#00ff00", 400);
+        const display = new SubtitleDisplay(h.core.session, "p-owner", () => undefined, () => undefined);
+        await display.load();
+        if (inherited) {
+            effective("#ff0000", 100);
+            h.fake.script(`/settings/values/${APPEARANCE}?scope=profile_device`, { status: 204 });
+            h.fake.script(`/settings/values/${SYNC}?scope=profile_device`, { status: 204 });
+            await display.setDeviceOverride(false);
+        }
+        h.fake.script(`/settings/values/${APPEARANCE}?scope=profile`, stored(APPEARANCE, "profile", DEFAULT_APPEARANCE));
+        await display.setSize("small");
+        const write = h.fake.requests.filter(request => request.method === "PUT").at(-1);
+        assert.equal((write?.body?.value as { fontColor?: string }).fontColor, inherited ? "#ff0000" : "#00ff00");
+        assert.equal(display.view?.delayMs, supportedSync ? inherited ? 100 : 400 : 0);
+        if (!supportedSync) assert.equal(h.fake.requests.some(request => request.path === `/settings/values/effective?keys=${SYNC}`), false);
+        display.destroy();
+    });
+}
+
 test("delay and appearance write the advertised scope and a failed write is recoverable", async () => {
     const h = await signed();
     let applied: { appearance: typeof DEFAULT_APPEARANCE; sync: number } | undefined;
@@ -195,6 +224,8 @@ test("delay and appearance write the advertised scope and a failed write is reco
     h.fake.script("/settings/contract", { status: 200, body: contract(24, [appearanceDef, syncDef]) });
     h.fake.script(`/settings/values?scope=profile_device&keys=${APPEARANCE}`, { status: 200, body: { revision: 24, items: [{ key: APPEARANCE, scope: "profile_device", profile_id: "p-owner", device_id: h.core.session.http.deviceId, is_set: false }] } });
     const display = new SubtitleDisplay(h.core.session, "p-owner", (appearance, sync) => { applied = { appearance, sync }; }, () => undefined);
+    h.fake.script("/settings/subtitle-appearance/effective", { status: 200, body: { profile_id: "p-owner", effective_value: JSON.stringify(DEFAULT_APPEARANCE) } });
+    h.fake.script(`/settings/values/effective?keys=${SYNC}`, { status: 200, body: { items: [{ key: SYNC, value: 0 }] } });
     await display.load();
     display.adopt(DEFAULT_APPEARANCE, 0);
     assert.equal(display.view?.delay, true);

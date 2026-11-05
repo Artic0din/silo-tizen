@@ -2926,7 +2926,7 @@ function trackView(attempt: Attempt, plan: PlaybackPlan): TrackView {
 /** Delay and styling apply to overlay cues. AVPlay-drawn text and burn-in have no offset or style path here. */
 function subtitleOverlay(attempt: Attempt, plan: PlaybackPlan): boolean {
     const id = shownSubtitle(attempt, plan);
-    if (id === undefined || plan.subtitle.mode === "off") return true;
+    if (id === undefined) return true;
     if (plan.subtitle.mode === "burn_in") return false;
     const row = plan.subtitle.inventory.find(entry => entry.trackId === id);
     return row === undefined || !inStreamCandidate(plan, row);

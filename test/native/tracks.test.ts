@@ -1189,6 +1189,17 @@ function renditionPlan(subtitle: number, name: string, index: number) {
     };
 }
 
+test("a native subtitle selected from an Off plan hides overlay-only tools", async () => {
+    const r = await rig();
+    r.server.next.push({ delivery: "original_http", clearSubtitle: true });
+    r.avplay.tracks = [{ index: 4, type: "TEXT", extra_info: JSON.stringify({ track_lang: "eng" }) }];
+    await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.controller.selectSubtitle("file:42:subtitle:1");
+    assert.equal(r.avplay.calls.includes("setSelectTrack TEXT 4"), true);
+    assert.equal(tracks(r).subtitleTools?.overlay, false);
+    r.controller.destroy();
+});
+
 test("start advertises embedded subtitle and HLS rendition features, and repeats renditions-all only when the server advertises it", async () => {
     const plain = await rig();
     await playMovie(plain, { ...MOVIE, startSeconds: 0 });

@@ -326,14 +326,18 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         { id: "actions", layout: "row", items: actions, restoreEntry: actions.find(action => ["resume", "play", "next-episode"].includes(action.key))?.key ?? "watchlist" },
         ...series?.zones ?? [{ id: "seasons", layout: "row" as const, items: seasonItems }],
     ];
-    const credits: Credit[] = [];
-    for (const credit of [...detail.extra?.cast ?? [], ...detail.extra?.crew ?? []]) {
-        const index = credits.findIndex((previous) => credit.id ? previous.id === credit.id : previous.id === undefined && previous.name === credit.name);
-        const previous = credits[index];
-        if (previous === undefined) credits.push(credit);
-    }
+    const credits = detail.extra?.cast ?? [];
     if (credits.length > 0) {
-        const people = credits.slice(0, 24).map((credit) => creditCard(credit, context));
+        const people = credits.slice(0, 24).map((credit, index) => {
+            const item = creditCard(credit, context);
+            // One person can hold multiple cast credits; each needs its own focus target.
+            if (credits.slice(0, index).some(previous => previous.id === credit.id && (credit.id !== undefined || previous.name === credit.name && previous.role === credit.role))) {
+                const key = `${item.key}:credit:${index}`;
+                item.element.dataset.focus = key;
+                return { ...item, key };
+            }
+            return item;
+        });
         content.push(el("h2", "browse-section-title", "Cast & Crew"), zoneNode("browse-row details-people", people));
         zones.push({ id: "people", layout: "row", items: people });
     }

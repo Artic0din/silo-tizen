@@ -489,6 +489,31 @@ for (const id of ['movie:m0001', 'series:s1']) detailTest(`${id} Details omits c
     assert.equal(tv.fake.requests.filter(request => request.path.startsWith('/ratings/')).length, 0);
 });
 
+for (const media of ['movie:m0001', 'series:s1']) for (const count of [20, 25]) detailTest(`275 ${media} Cast ${count} preserves wire cast order and repeated credits without crew`, async tv => {
+    const body = tv.fake.catalog?.route('GET', `/catalog/items/${encodeURIComponent(media)}`, 'p-owner')?.body as Record<string, unknown>;
+    const cast = Array.from({ length: count }, (_, index) => ({ person_id: index < 2 ? 'same' : String(index), name: `Actor ${index}`, character: `Role ${index}`, order: count - index }));
+    await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(media)}?**`, route => route.fulfill({ json: { ...body, cast, crew: [{ person_id: 'director', name: 'Director', job: 'Director' }] } }));
+    await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
+    await tv.page.locator('.details-people').waitFor();
+    assert.deepEqual(await tv.page.locator('.details-people .browse-card-title').allTextContents(), cast.slice(0, 24).map(person => person.name));
+    assert.equal(new Set(await tv.page.locator('.details-people [data-focus]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-focus')))).size, Math.min(count, 24));
+});
+
+detailTest('275 More glass obscures the page with blur and pinned Swift tint stroke shadow', async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.page.locator('[data-focus="more"]').click();
+    const glass = await tv.page.locator('.details-more-popover').evaluate(node => {
+        const style = getComputedStyle(node);
+        return { blur: style.backdropFilter, tint: style.backgroundColor, border: style.borderTopColor, width: style.borderTopWidth, shadow: style.boxShadow };
+    });
+    assert.equal(glass.blur, 'blur(30px)');
+    assert.equal(glass.tint, 'rgba(0, 0, 0, 0.45)');
+    assert.equal(glass.border, 'rgba(255, 255, 255, 0.1)');
+    assert.equal(glass.width, '1px');
+    assert.equal(glass.shadow, 'rgba(0, 0, 0, 0.45) 0px 18px 32px 0px');
+});
+
 detailTest('More is an anchored popover with Apple ordering and immediate Back focus', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     await tv.eventually(async () => await tv.page.locator('[data-focus="watchlist"]').count() === 1, 'personal actions loaded');
@@ -531,11 +556,11 @@ detailTest('More ellipsis has three round six-pixel dots at rest and focus', asy
     }
 });
 
-detailTest('More uses available space below then above the trigger', async tv => {
+detailTest('More uses available space below then above then bottom-pinned and clamps x', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('[data-focus="watchlist"]').waitFor();
-    for (const top of [250, 850]) {
-        const style = await tv.page.addStyleTag({ content: `[data-focus="more"] { position: fixed !important; top: ${top}px !important; }` });
+    for (const [top, left, height] of [[250, 0, 0], [850, 1800, 0], [500, 800, 900]]) {
+        const style = await tv.page.addStyleTag({ content: `[data-focus="more"] { position: fixed !important; top: ${top}px !important; left: ${left}px !important; } ${height ? `.details-more-popover { height: ${height}px !important; }` : ''}` });
         await tv.page.locator('[data-focus="more"]').focus();
         await tv.page.keyboard.press('Enter');
         const placedBelow = top === 250;
@@ -545,9 +570,10 @@ detailTest('More uses available space below then above the trigger', async tv =>
             if (panel === null || anchor === null || !panel.isConnected || !anchor.isConnected) return null;
             const bounds = anchor.getBoundingClientRect();
             void below;
-            return { top: parseFloat(panel.style.top), height: panel.offsetHeight, anchorTop: bounds.top, anchorBottom: bounds.bottom };
-        }, placedBelow, sample => sample.top === (placedBelow ? sample.anchorBottom + 14 : sample.anchorTop - 14 - sample.height), "More popover placement");
-        assert.equal(placement.top, placedBelow ? placement.anchorBottom + 14 : placement.anchorTop - 14 - placement.height);
+            return { left: parseFloat(panel.style.left), top: parseFloat(panel.style.top), height: panel.offsetHeight, anchorTop: bounds.top, anchorBottom: bounds.bottom };
+        }, placedBelow, sample => sample.top === (height ? 1080 - 48 - sample.height : placedBelow ? sample.anchorBottom + 14 : sample.anchorTop - 14 - sample.height), "More popover placement");
+        assert.equal(placement.top, height ? 1080 - 48 - placement.height : placedBelow ? placement.anchorBottom + 14 : placement.anchorTop - 14 - placement.height);
+        assert.equal(placement.left, Math.max(48, Math.min(left!, 1920 - 48 - 560)));
         await tv.remote(10009);
         await style.evaluate(node => node.parentNode?.removeChild(node));
     }

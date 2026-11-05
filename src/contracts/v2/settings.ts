@@ -22,8 +22,11 @@ export const AUTO_NEXT_KEY = "playback.auto_play_next";
 export const CARD_OVERLAYS_KEY = "ui.card_overlays";
 export const CARD_OVERLAYS_ENABLED_KEY = "ui.card_overlays_enabled";
 export const CARD_PRESENTATION_KEY = "ui.card_presentation";
+/** Profile switches from settings manifest revision 17. The consumed contract subset does not list them. */
+export const SPOILER_IMAGE_KEY = "catalog.hide_unwatched_episode_images";
+export const SPOILER_OVERVIEW_KEY = "catalog.hide_unwatched_episode_overviews";
 export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY, QUALITY_KEY, BITRATE_KEY, ...SEEK_KEYS, TITLE_ART_KEY, AUTO_NEXT_KEY, NEXT_UP_KEY, ...ROW_KEYS] as const;
-export type SettingsKey = (typeof SETTINGS_KEYS)[number] | typeof AUTO_NEXT_KEY | typeof SUBTITLE_LANGUAGE_KEY | typeof SUBTITLE_MODE_KEY | typeof SHOW_FORCED_KEY | typeof CARD_OVERLAYS_KEY | typeof CARD_OVERLAYS_ENABLED_KEY | typeof CARD_PRESENTATION_KEY | typeof PRIMARY_MENU_KEY;
+export type SettingsKey = (typeof SETTINGS_KEYS)[number] | typeof AUTO_NEXT_KEY | typeof SUBTITLE_LANGUAGE_KEY | typeof SUBTITLE_MODE_KEY | typeof SHOW_FORCED_KEY | typeof CARD_OVERLAYS_KEY | typeof CARD_OVERLAYS_ENABLED_KEY | typeof CARD_PRESENTATION_KEY | typeof PRIMARY_MENU_KEY | typeof SPOILER_IMAGE_KEY | typeof SPOILER_OVERVIEW_KEY;
 type Json = null | boolean | string | number | readonly Json[] | { readonly [member: string]: Json | undefined };
 export type SettingValue = null | boolean | string | number | readonly number[] | { readonly [member: string]: Json | undefined };
 export type SettingsScope = "profile" | "profile_device" | "profile_client";
@@ -234,6 +237,10 @@ export function decodeSettingValue(key: SettingsKey, value: unknown): SettingVal
     }
     if (key === TITLE_ART_KEY) {
         if (typeof value !== "boolean") throw new WireError("title_art.value", "a JSON boolean");
+        return value;
+    }
+    if (key === SPOILER_IMAGE_KEY || key === SPOILER_OVERVIEW_KEY) {
+        if (typeof value !== "boolean") throw new WireError("episode_spoiler.value", "a JSON boolean");
         return value;
     }
     if (key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY) {

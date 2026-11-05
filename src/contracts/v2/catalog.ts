@@ -132,6 +132,10 @@ export interface Card {
     readonly played?: boolean | undefined;
     /** Title logo art (`logo_url`); shown only where the profile's title-art setting allows. */
     readonly logoUrl?: string | undefined;
+    /** True when the poster is an episode still. Absent means unknown. */
+    readonly posterIsEpisodeStill?: boolean;
+    /** True when the backdrop is an episode still. Absent means unknown. */
+    readonly backdropIsEpisodeStill?: boolean;
     /** Fields the card overlay badges and the marquee rating read. */
     readonly ratingImdb?: number | undefined;
     readonly ratingTmdb?: number | undefined;
@@ -217,6 +221,8 @@ export function decodeCard(value: unknown, path: string): Card {
         title: string(obj, "title", path),
         year: optionalInteger(obj, "year", path),
         posterUrl: optionalString(obj, "poster_url", path),
+        ...(obj.poster_is_episode_still === undefined ? {} : { posterIsEpisodeStill: boolean(obj, "poster_is_episode_still", path) }),
+        ...(obj.backdrop_is_episode_still === undefined ? {} : { backdropIsEpisodeStill: boolean(obj, "backdrop_is_episode_still", path) }),
         seriesId: optionalString(obj, "series_id", path),
         seriesTitle: optionalString(obj, "series_title", path),
         seasonNumber: optionalInteger(obj, "season_number", path),
@@ -331,6 +337,8 @@ export interface PlayableFile {
 
 export interface WatchState {
     readonly played: boolean;
+    /** Present only when the wire object includes `is_in_progress`. */
+    readonly isInProgress?: boolean;
     readonly positionSeconds: number | undefined;
     readonly lastFileId: string | undefined;
 }
@@ -353,7 +361,9 @@ export interface ItemDetail {
     readonly contentRating: string | undefined;
     readonly genres: readonly string[];
     readonly posterUrl: string | undefined;
+    readonly posterIsEpisodeStill?: boolean;
     readonly backdropUrl: string | undefined;
+    readonly backdropIsEpisodeStill?: boolean;
     readonly durationSeconds: number | undefined;
     readonly seriesId: string | undefined;
     readonly seriesTitle: string | undefined;
@@ -420,6 +430,7 @@ function decodeWatch(value: unknown, path: string): WatchState | undefined {
     const obj = object(value, path);
     return {
         played: boolean(obj, "played", path),
+        ...(obj.is_in_progress === undefined ? {} : { isInProgress: boolean(obj, "is_in_progress", path) }),
         positionSeconds: optionalNumber(obj, "position_seconds", path),
         lastFileId: optionalString(obj, "last_file_id", path),
     };
@@ -446,7 +457,9 @@ export function decodeItemDetail(value: unknown): ItemDetail {
         contentRating: optionalString(obj, "content_rating", path),
         genres: stringArray(obj, "genres", path),
         posterUrl: optionalString(obj, "poster_url", path),
+        ...(obj.poster_is_episode_still === undefined ? {} : { posterIsEpisodeStill: boolean(obj, "poster_is_episode_still", path) }),
         backdropUrl: optionalString(obj, "backdrop_url", path),
+        ...(obj.backdrop_is_episode_still === undefined ? {} : { backdropIsEpisodeStill: boolean(obj, "backdrop_is_episode_still", path) }),
         durationSeconds: optionalNumber(obj, "duration_seconds", path),
         seriesId: optionalString(obj, "series_id", path),
         seriesTitle: optionalString(obj, "series_title", path),
@@ -518,6 +531,7 @@ export function decodeSeasons(value: unknown): Season[] {
 // --- listSeasonEpisodes ---
 
 export interface Episode {
+    /** Present only when episode `user_data` includes `position_seconds`. */
     readonly positionSeconds?: number | undefined;
     readonly durationSeconds?: number | undefined;
     readonly inProgress?: boolean;
@@ -531,7 +545,11 @@ export interface Episode {
     readonly title: string;
     readonly runtimeMinutes: number;
     readonly stillUrl: string | undefined;
+    /** True when `stillUrl` is an episode still. Absent means unknown. */
+    readonly stillIsEpisodeStill?: boolean;
     readonly played: boolean;
+    /** Present only when episode `user_data` includes `is_in_progress`. */
+    readonly isInProgress?: boolean;
     readonly pendingTranslationLanguage?: string;
     readonly machineTranslatedFields?: readonly string[];
 }
@@ -539,12 +557,13 @@ export interface Episode {
 export function decodeEpisodes(value: unknown): Episode[] {
     return items(value, "episodes", (entry, path) => {
         const obj = object(entry, path);
+        const watch = decodeWatch(obj.user_data, `${path}.user_data`);
         const user = obj.user_data === undefined ? undefined : object(obj.user_data, `${path}.user_data`);
         const inProgress = user?.is_in_progress === undefined ? false : boolean(user, "is_in_progress", `${path}.user_data`);
         return {
             ...(inProgress ? { inProgress: true } : {}),
             ...(user === undefined ? {} : {
-                positionSeconds: optionalNumber(user, "position_seconds", `${path}.user_data`),
+                positionSeconds: watch?.positionSeconds,
                 durationSeconds: optionalNumber(user, "duration_seconds", `${path}.user_data`),
             }),
             airDate: optionalString(obj, "air_date", path),
@@ -561,7 +580,9 @@ export function decodeEpisodes(value: unknown): Episode[] {
             title: string(obj, "title", path),
             runtimeMinutes: integer(obj, "runtime", path),
             stillUrl: optionalString(obj, "still_url", path),
-            played: decodeWatch(obj.user_data, `${path}.user_data`)?.played ?? false,
+            ...(obj.still_is_episode_still === undefined ? {} : { stillIsEpisodeStill: boolean(obj, "still_is_episode_still", path) }),
+            played: watch?.played ?? false,
+            ...(watch?.isInProgress === undefined ? {} : { isInProgress: watch.isInProgress }),
             ...translationMembers(obj, path),
         };
     });

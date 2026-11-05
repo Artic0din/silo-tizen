@@ -14,6 +14,7 @@ import type { PrimaryMenu } from "../contracts/v2/navigation.ts";
 import { navigationIcon } from "./navigationIcon.ts";
 import { remoteKey } from "./keys.ts";
 import { heroBackdrop, type Tints } from "./heroBackdrop.ts";
+import { hidesCardOverview, hidesMarqueeBackdrop, marqueeUsesSeriesArt, type EpisodeSpoilerSettings } from "./episodeSpoilers.ts";
 import { DescriptionTranslations, MARQUEE_TRANSLATION_DWELL_MS, marqueeTranslationRequest } from "./descriptionTranslation.ts";
 import type { LibraryMode } from "./libraryDiscovery.ts";
 import { PERSONAL_TITLES, type PersonalSource } from "./personalLists.ts";
@@ -129,6 +130,8 @@ export class Skyline {
     private readonly baseUrl: string;
     /** Whether the profile's title-art setting lets a logo replace the marquee title. */
     titleArt: () => boolean = () => false;
+    /** Profile spoiler switches. Off until browse installs the owner. */
+    spoilers: () => EpisodeSpoilerSettings = () => ({ hidesImages: false, hidesOverviews: false });
     filled: (card: Card) => Card = card => card;
     /** What Home's detail reads added for a title: the aired and cast line, and Continue Watching's saved-file chips. */
     details: (card: Card, continuing: boolean) => { readonly line: string | undefined; readonly badges: readonly string[] | undefined } = () => ({ line: undefined, badges: undefined });
@@ -401,7 +404,8 @@ export class Skyline {
         if (shown === undefined || layer === null || this.translations === undefined) return;
         const presentation = this.translations.cards.presentation(shown.card);
         let synopsis = layer.querySelector<HTMLElement>(".skyline-synopsis");
-        if (presentation.overview !== undefined && presentation.overview !== "") {
+        if (hidesCardOverview(shown.card, this.spoilers())) synopsis?.remove();
+        else if (presentation.overview !== undefined && presentation.overview !== "") {
             if (synopsis === null) {
                 synopsis = el("p", "skyline-synopsis", presentation.overview);
                 layer.querySelector(".skyline-detail-line")?.before(synopsis);
@@ -430,14 +434,15 @@ export class Skyline {
         const title = el("h1", "skyline-title", marqueeTitle(card));
         layer.append(el("span", "skyline-row-name silo-sr-only", row), title);
         layer.appendChild(el("div", "skyline-meta-line"));
-        if (card.overview) layer.appendChild(el("p", "skyline-synopsis", card.overview));
+        const settings = this.spoilers();
+        if (card.overview && !hidesCardOverview(card, settings)) layer.appendChild(el("p", "skyline-synopsis", card.overview));
         // Aired date and cast, and saved-file chips, come from Home's detail reads; the line keeps its space until then.
         const detailLine = el("div", "skyline-detail-line");
         detailLine.appendChild(el("span", "skyline-detail-text"));
         layer.append(detailLine, el("div", "skyline-badges"));
         this.fillDetails(layer, card, continuing);
-        const seriesArt = card.type === "episode" && card.seriesBackdropUrl !== undefined;
-        const background = artworkUrl(seriesArt ? card.seriesBackdropUrl : card.backdropUrl, this.baseUrl);
+        const seriesArt = marqueeUsesSeriesArt(card, settings);
+        const background = hidesMarqueeBackdrop(card, settings) ? undefined : artworkUrl(seriesArt ? card.seriesBackdropUrl : card.backdropUrl, this.baseUrl);
         if (background !== undefined && this.sharedScene) {
             layer.prepend(heroBackdrop(background, seriesArt ? undefined : card.backdropThumbhash, this.tints));
         } else if (background !== undefined) {

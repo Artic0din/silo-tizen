@@ -7,6 +7,7 @@ import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { artworkUrl, type Destination, type EpisodeSelection, browseCardDestination, destinationOf } from "./browseModel.ts";
 import { type CardOverlayPrefs, overlayLayer } from "./cardOverlays.ts";
 import { homeCaption } from "./cardPresentation.ts";
+import { blurEpisodeStill, hidesCardImage, type EpisodeSpoilerSettings } from "./episodeSpoilers.ts";
 import { el } from "./screen.ts";
 
 /** Home artwork widths in browse.css (Apple SiloTheme poster and EpisodeThumbCard widths); badges scale from them. */
@@ -40,6 +41,12 @@ export interface ViewContext {
     readonly playEpisode?: (id: string, title: string, startOver?: boolean, selection?: EpisodeSelection) => void;
     readonly quickActions?: (card: Pick<Card, "id" | "title" | "type">, play?: () => void) => void;
     readonly cardDestination?: (card: Card) => Destination | undefined;
+    /** Profile spoiler switches. Absent reads as both off. */
+    readonly spoilers?: () => EpisodeSpoilerSettings;
+}
+
+function spoilerSettings(context: ViewContext): EpisodeSpoilerSettings {
+    return context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false };
 }
 
 /** Only catalog media receives hold/right-click actions; navigation tiles keep their clicks. */
@@ -130,7 +137,9 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     element.setAttribute("data-focus", card.id);
     const continuing = context.continueWatching === true;
     const thumbnail = context.cardLayout === "thumbnail" || (context.cardLayout === undefined && continuing);
-    element.appendChild(artwork("browse-art", thumbnail ? card.backdropUrl ?? card.posterUrl : card.posterUrl, context.baseUrl, card.title));
+    const art = artwork("browse-art", thumbnail ? card.backdropUrl ?? card.posterUrl : card.posterUrl, context.baseUrl, card.title);
+    if (hidesCardImage(card, spoilerSettings(context), thumbnail)) blurEpisodeStill(art);
+    element.appendChild(art);
     if (thumbnail) {
         element.classList.add("skyline-continue");
         if (card.positionSeconds !== undefined && card.durationSeconds !== undefined && card.durationSeconds > 0 && card.positionSeconds > 0) {

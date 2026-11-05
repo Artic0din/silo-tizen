@@ -10,6 +10,7 @@ import { artworkUrl, clockTime, episodeLabel, playChoices, type PlayRequest } fr
 import { trailerCards, type TrailerCard } from "./trailerRail.ts";
 import { actionButton, artwork, cardItem, heading, lines, mediaItem, type ViewContext, zoneNode } from "./browseViews.ts";
 import { boxSetMovieRow, type BoxSetRowState } from "./boxSetRow.ts";
+import { blurEpisodeStill, episodeDetailPresentation, hidesEpisodeListStill } from "./episodeSpoilers.ts";
 import { personMetadataBadges, personPortrait } from "./personHero.ts";
 import { el } from "./screen.ts";
 import { detailAction, detailPanel } from "./detailsActions.ts";
@@ -98,7 +99,9 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
         if (ratingChip) facts.prepend(el("span", "details-rating-badge", ratingChip));
         nodes.push(facts);
     }
-    const overview = episode === undefined ? detail.overview : [playback?.detail.title ?? episode.title, episode.overview || playback?.detail.overview].filter(Boolean).join(" · ");
+    const presentation = episodeDetailPresentation(detail, context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false }, state?.values.get("watched"));
+    const episodeOverview = episode === undefined ? undefined : episodeDetailPresentation({ type: "episode", overview: episode.overview || playback?.detail.overview, watch: { played: episode.played, isInProgress: episode.isInProgress, positionSeconds: episode.positionSeconds } }, context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false }).overview;
+    const overview = episode === undefined ? presentation.overview : [playback?.detail.title ?? episode.title, episodeOverview].filter(Boolean).join(" · ");
     const translation = state?.descriptions?.status(episode, playback?.detail);
     if ((overview !== undefined && overview !== "") || translation !== undefined) {
         if (overview !== undefined && overview !== "") nodes.push(overviewText(overview, translation));
@@ -121,6 +124,7 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     layout.dataset.mediaType = detail.type;
     const backdrop = artworkUrl(detail.backdropUrl ?? detail.posterUrl, context.baseUrl);
     const background = heroBackdrop(backdrop ?? "", undefined, detailPalette, true);
+    if (presentation.hideBackdrop) blurEpisodeStill(background.querySelector<HTMLElement>(".skyline-art-frame")!);
     const wash = background.querySelector<HTMLElement>(".skyline-tint-wash")!;
     wash.classList.add("details-page-wash");
     wash.remove();
@@ -207,7 +211,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     } };
     const series = state?.series === undefined ? undefined : seriesEpisodesView(state.series, seriesContext, id => state.focusEpisode(id), next);
     const seasonItems = series?.zones[0]?.items ?? (detail.type === "series" ? seasons.map((season) => seasonItem(detail.id, detail.title, season, context)) : []);
-    const overview = detail.overview;
+    const overview = episodeDetailPresentation(detail, context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false }, state?.values.get("watched")).overview;
     const file = playbackDetail.versions.find(file => file.fileId === playbackChoices?.fromStart.fileId);
     const audio = file?.audio ?? [];
     const selectedAudio = tracks?.audioTrackId(true);
@@ -609,7 +613,9 @@ export function seasonView(name: string, title: string, episodes: readonly Episo
         const element = el("button", "browse-episode");
         element.type = "button";
         element.setAttribute("data-focus", episode.id);
-        element.appendChild(artwork("browse-art browse-still", episode.stillUrl, context.baseUrl, episode.title));
+        const art = artwork("browse-art browse-still", episode.stillUrl, context.baseUrl, episode.title);
+        if (hidesEpisodeListStill(episode, context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false })) blurEpisodeStill(art);
+        element.appendChild(art);
         const info = el("span", "browse-episode-info");
         info.appendChild(el("span", "browse-card-title", `${episode.episodeNumber}. ${episode.title}`));
         const runtime = episode.runtimeMinutes > 0 ? `${episode.runtimeMinutes} min` : "";

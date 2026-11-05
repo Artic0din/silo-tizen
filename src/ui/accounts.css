@@ -1,0 +1,48 @@
+.accounts-screen { position: fixed; inset: 0; z-index: 10; padding: 60px 90px 44px; color: var(--silo-text); background: #000; overflow: hidden; font-family: var(--silo-font); }
+.accounts-screen > :not(.marquee-backdrop) { position: relative; }
+.accounts-wordmark { width: 150px; height: 64px; object-fit: contain; object-position: left; margin-bottom: 30px; }
+.accounts-title { font-size: 88px; font-weight: 900; line-height: 1.1; margin: 0 0 22px; }
+.accounts-columns { display: flex; gap: 40px; margin-top: 48px; height: 650px; }
+.accounts-rail, .accounts-pane { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; padding: 16px 12px; margin: -16px -12px; }
+.accounts-rail { width: 520px; flex-shrink: 0; box-sizing: content-box; }
+.accounts-pane { width: 784px; gap: 16px; }
+.accounts-screen button { color: var(--silo-text); font: inherit; text-align: left; background: #ffffff12; border: 1px solid #ffffff24; border-radius: 16px; padding: 16px; min-height: 88px; flex-shrink: 0; }
+.accounts-rail button { width: 520px; font-size: 25px; }
+.accounts-rail button { height: 88px; box-sizing: border-box; padding-block: 15px; }
+.accounts-pane > button { width: 760px; min-height: 128px; border-radius: 30px; padding: 24px; font-size: 34px; }
+.accounts-screen button:focus { color: #000; background: #ededed; outline: none; }
+.accounts-pane > button:focus { transform: scale(1.03); }
+.account-card { display: flex; align-items: center; gap: 22px; }
+.accounts-pane > button.account-card { height: 128px; border: 0; box-shadow: inset 0 0 0 1px #ffffff24; }
+.accounts-server-mark { width: 56px; height: 56px; object-fit: contain; margin-right: 18px; vertical-align: middle; }
+.account-initial { width: 80px; height: 80px; display: grid; place-items: center; border-radius: 20px; background: linear-gradient(to bottom right, #eaa65c, #a8521d, #5e290d); color: #fff6ea; flex-shrink: 0; }
+.account-name { font-size: 34px; font-weight: 700; flex: 1; overflow: hidden; }
+.account-count { display: block; font-size: 23px; font-weight: 400; opacity: .65; }
+.account-badge { font-size: 18px; font-weight: 600; letter-spacing: .8px; border: 1px solid #ffffff24; border-radius: 18px; padding: 7px 16px; color: #ededed; background: #000d; white-space: nowrap; }
+.accounts-dialog { margin: 160px auto; width: 1000px; padding: 48px; background: #15171c; border-radius: 30px; }
+.accounts-dialog button { margin: 12px; min-width: 240px; }
+.accounts-screen .accounts-scrim { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to top, #0008, transparent 35%), linear-gradient(to right, #000c, #0009 30%, #0003 58%, #0002 80%, #0005); }
+.accounts-screen > .signin-text { line-height: 39.2px; }
+.accounts-rail button { background: transparent; border-color: transparent; }
+.accounts-rail button[aria-selected="true"]:not(:focus) { background: #ffffff12; }
+.accounts-rail [data-focus="add-server"] { margin-top: 8px; }
+.accounts-plus { display: inline-grid; place-items: center; font-size: 28px; }
+.accounts-management { padding: 128px 168px; }
+.accounts-settings { display: flex; flex-direction: column; gap: 8px; width: 1080px; max-height: calc(100vh - 128px - 64px); overflow-y: auto; padding: 0 18px 64px; }
+.accounts-settings-header { display: flex; align-items: center; gap: 20px; padding: 0 24px; margin-bottom: 10px; }
+.accounts-settings-icon { display: grid; place-items: center; width: 72px; height: 72px; border-radius: 18px; background: #ffffff12; font-size: 34px; flex-shrink: 0; }
+.accounts-settings-icon svg { width: 34px; height: 34px; margin: 0; }
+.accounts-settings h1 { margin: 0 0 5px; font-size: 42px; }
+.accounts-settings-header p { margin: 0; font-size: 20px; color: var(--silo-secondary); }
+.accounts-settings button { display: flex; align-items: center; gap: 16px; font-size: 26px; min-height: 66px; height: 66px; padding: 17px 24px; border-radius: 14px; }
+.accounts-row-title { flex: 1; }
+.accounts-row-value { font-size: 24px; opacity: .68; }
+.accounts-chevron { display: flex; opacity: .55; }
+.accounts-chevron svg { width: 11px; height: 18px; margin: 0; }
+.accounts-settings button { width: 1080px; }
+.accounts-section-header { margin: 0 0 20px; padding: 0 24px; font-size: 19px; line-height: 36px; font-weight: 600; letter-spacing: 1.2px; color: var(--silo-secondary); }
+.accounts-settings [data-focus="add-server"] { margin-top: 18px; }
+.accounts-settings > p { font-size: 20px; line-height: normal; margin: 14px 0 0; padding: 0 24px; }
+.accounts-settings .accounts-destructive { color: #b00020; }
+.accounts-settings .accounts-destructive:focus { color: #d22f3f; }
+@media (prefers-reduced-motion: reduce) { .accounts-screen * { transition: none; } }

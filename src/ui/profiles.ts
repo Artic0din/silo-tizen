@@ -28,6 +28,7 @@ export interface ProfileHandoff {
 }
 
 export interface ProfileOptions {
+    readonly pickerRequested?: boolean;
     readonly onChangeServer: () => void;
     readonly server: ConnectedServer;
     readonly clock?: Clock;
@@ -155,6 +156,11 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             (list) => {
                 if (token === view) {
                     pending = undefined;
+                    const id = server.accounts.localAccountId;
+                    if (id) {
+                        try { server.accounts.directory.update(id, { profileCount: list.length }); }
+                        catch { /* The count is a display cache; the profile response remains usable. */ }
+                    }
                     then(list);
                 }
             },
@@ -358,6 +364,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
     };
 
     const launch = (): void => load(list => {
+        if (options.pickerRequested) { picker(list); return; }
         const token = view;
         const controller = new AbortController();
         pending = controller;

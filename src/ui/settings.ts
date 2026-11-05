@@ -32,10 +32,10 @@ type Picker = "hidden" | "audio" | "quality" | "bitrate" | "seek-back" | "seek-f
 const PICKER_KEYS = { hidden: HIDDEN_KEY, audio: AUDIO_KEY, quality: QUALITY_KEY, bitrate: BITRATE_KEY, "seek-back": SEEK_BACK_KEY, "seek-forward": SEEK_FORWARD_KEY, "subtitle-language": SUBTITLE_LANGUAGE_KEY, "subtitle-mode": SUBTITLE_MODE_KEY } as const;
 const PICKER_LABELS = { hidden: "Hidden libraries", audio: "Audio Language", quality: "Resolution", bitrate: "Maximum Bitrate", "seek-back": "Skip Back", "seek-forward": "Skip Forward", "subtitle-language": "Language", "subtitle-mode": "Behavior" } as const;
 const BITRATE_CHOICES = [200000, 100000, 60000, 40000, 20000, 15000, 10000, 6000, 4000, 2000, 1500];
-export interface SettingsActions { readonly profileName: string; readonly profileAvatarUrl?: string | undefined; readonly accountName?: string | undefined; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: () => void }
+export interface SettingsActions { readonly profileName: string; readonly profileAvatarUrl?: string | undefined; readonly accountName?: string | undefined; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: (back: () => void) => void }
 export interface SettingsScreen { destroy(): void }
 
-export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions): SettingsScreen {
+export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions, accounts?: (back: () => void) => void): SettingsScreen {
     const container = el("section", "browse settings");
     container.setAttribute("aria-label", "Settings");
     root.appendChild(container);
@@ -436,8 +436,27 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             body.appendChild(el("p", "settings-value", `Address: ${session.http.base.baseUrl}`));
             const policy = actionButton("privacy", "Privacy Policy", () => { privacy = true; render(); });
 
+            if (accounts) {
+                const item = actionButton("accounts", "Accounts", () => {
+                    host.stop(); container.hidden = true;
+                    accounts(() => {
+                        if (torn) return;
+                        container.hidden = false; host.listen();
+                        category = "general"; returnRow = "hidden";
+                        render({ zone: "settings-categories", key: "general" });
+                    });
+                });
+                rows.push(item); body.append(item.element);
+            }
             if (actions?.switchServer !== undefined) {
-                const manage = actionButton("manage-servers", "Manage Servers", () => { destroy(); actions.switchServer?.(); });
+                const manage = actionButton("manage-servers", "Manage Servers", () => {
+                    host.stop(); container.hidden = true;
+                    actions.switchServer?.(() => {
+                        if (torn) return;
+                        container.hidden = false; host.listen();
+                        render({ zone: "settings-rows", key: "manage-servers" });
+                    });
+                });
                 rows.push(manage); body.appendChild(manage.element);
             }
             // Apple's Server pane: an ABOUT section whose Acknowledgements row opens the credits.

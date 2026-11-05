@@ -3,6 +3,7 @@ import "./theme.css";
 import "./app.css";
 import "./ui/signIn.css";
 import "./ui/browse.css";
+import "./ui/accounts.css";
 import "./player/player.css";
 
 const root = document.getElementById("screen");

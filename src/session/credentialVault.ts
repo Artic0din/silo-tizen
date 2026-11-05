@@ -104,11 +104,11 @@ export class CredentialVault {
     /** Storage operations run one at a time, in call order. */
     private queue: Promise<unknown> = Promise.resolve();
 
-    constructor(store: SecretStore, publicStorage: PublicStorage | undefined, baseUrl: string) {
+    constructor(store: SecretStore, publicStorage: PublicStorage | undefined, baseUrl: string, accountId?: string) {
         this.store = store;
         this.publicStorage = publicStorage;
         this.baseUrl = baseUrl;
-        const hash = aliasHash(baseUrl);
+        const hash = aliasHash(accountId === undefined ? baseUrl : JSON.stringify([baseUrl, accountId]));
         this.aliasPrefix = `silo.native.v${RECORD_VERSION}.${hash}.`;
         this.floorKey = `silo.native.clearedGeneration.${hash}`;
     }
@@ -116,6 +116,8 @@ export class CredentialVault {
     get persistent(): boolean {
         return this.store.persistent;
     }
+
+    async drain(): Promise<void> { await this.queue; }
 
     load(): Promise<VaultLoad> {
         return this.serialize(() => this.loadNow());
@@ -132,6 +134,9 @@ export class CredentialVault {
     clear(): Promise<VaultClear> {
         return this.serialize(() => this.clearNow());
     }
+
+    prepareSignIn(_credential?: StoredCredential): Promise<VaultClear> { return this.clear(); }
+    signOut(): Promise<VaultClear> { return this.clear(); }
 
     private serialize<T>(operation: () => Promise<T>): Promise<T> {
         const result = this.queue.then(operation, operation);

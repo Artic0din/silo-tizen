@@ -65,7 +65,8 @@ export interface BrowseOptions {
     /** The person asked for the profile screens; browse has already removed itself. */
     readonly onChooseProfile: () => void;
     readonly onSignOut?: () => void;
-    readonly onSwitchServer?: () => void;
+    readonly onSwitchServer?: (back: () => void) => void;
+    readonly onAccounts?: (back: () => void) => void;
     readonly profileName?: string;
     readonly profileAvatarUrl?: string;
     readonly clock?: Clock;
@@ -597,7 +598,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (error instanceof ApiError && error.status === 404) rememberHomeLimit(null);
         }).finally(() => { if (homeLimitFlight === flight) homeLimitFlight = undefined; });
         homeLimitFlight = flight;
-        return flight;
+        // The shared read keeps the first visit's signal. A return that joined it
+        // after that visit left starts its own read instead of keeping the abort.
+        return flight.catch((error: unknown) => {
+            if (error instanceof ApiError && error.aborted && !signal.aborted) return probeHomeLimit(signal);
+            throw error;
+        });
     };
     // Library tabs are not part of the Home rows. Apple paints sections without waiting
     // for them (HomeViewModel.fetchAndApplySections, HomeViewModel.swift:237).
@@ -1805,8 +1811,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 switchProfile: chooseProfile,
                 serverName: cachedBranding(options.publicStorage, context.baseUrl)?.serverName,
                 ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
-                ...(options.onSwitchServer === undefined ? {} : { switchServer: () => { teardown(); options.onSwitchServer?.(); } }),
-            });
+                ...(options.onSwitchServer === undefined ? {} : { switchServer: options.onSwitchServer }),
+            }, options.onAccounts);
         },
         personal: (source, anchor = "profiles") => {
             const origin = top();
@@ -1815,8 +1821,27 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (origin !== undefined) origin.focus = { zone: "nav", key: selected };
         },
         switchProfile: chooseProfile,
-        ...(options.onSwitchServer === undefined ? {} : { switchServer: () => { teardown(); options.onSwitchServer?.(); } }),
+        ...(options.onSwitchServer === undefined ? {} : { switchServer: () => {
+            host.holdVisit();
+            shell.hide();
+            host.stop();
+            container.hidden = true;
+            playing = true;
+            options.onSwitchServer?.(() => {
+                if (torn) return;
+                playing = false;
+                container.hidden = false;
+                host.listen();
+                const current = top();
+                if (current !== undefined) showRoute(current, tabFocus(current));
+            });
+        } }),
         ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
+        ...(session.account ? { accountName: session.account.username } : {}),
+        lastAccount: (() => {
+            try { return server.accounts.directory.list().filter(row => row.baseUrl === context.baseUrl).length === 1; }
+            catch { return false; } // Optional dialog copy cannot block Browse; logout checks storage itself.
+        })(),
     }, focus => render(focus), options.publicStorage, `silo.skyline.scope:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`, context.baseUrl);
     shell.titleArt = () => presentation.showsTitleArt;
     const enrichedScene = (): boolean => { const current = top(); return current?.kind === "home" || current?.kind === "for_you" || (current?.kind === "library" && current.discovery?.mode === "Recommended"); };

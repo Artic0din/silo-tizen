@@ -312,6 +312,44 @@ journey("Home reads sections again without the row cap when the server rejects i
     };
 });
 
+let heldRowCap: { release(): void };
+journey("returning to Home during a held row-cap read still paints rows", async tv => {
+    assert.ok(await tv.page.locator('[data-view="home"] [data-section] .browse-card').count() > 0);
+    assert.equal(await tv.page.locator('[data-view="home"] [role="alert"]').count(), 0);
+    const caps = tv.fake.requests.filter(request => new URL(request.path, "https://fake.invalid").pathname === "/home/capabilities");
+    assert.equal(caps.length, 2, "the return reads the row cap again after the cancelled join");
+    const sections = tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).map(request => request.path);
+    assert.ok(sections.some(path => path.includes("item_limit=20")), sections.join(" "));
+}, catalog => {
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const url = new URL(path, "https://fake.invalid");
+        if (url.pathname === "/home/capabilities") return { status: 200, body: { state: "available", section_item_limit_max: 100 } };
+        return read(method, path, profile, body);
+    };
+}, undefined, {
+    beforeMount: tv => { heldRowCap = tv.fake.hold("/home/capabilities", true); },
+    beforeReady: async tv => {
+        try {
+            await tv.eventually(async () => tv.fake.requests.some(request => new URL(request.path, "https://fake.invalid").pathname === "/home/capabilities"), "row-cap read started");
+            assert.equal(await tv.page.locator('[data-view="home"] [data-section]').count(), 0);
+            // One turn, so the return joins the read the leave is still cancelling.
+            await tv.page.evaluate(() => {
+                const press = (key: string): void => {
+                    const button = document.querySelector<HTMLButtonElement>(`[data-focus="${key}"]`);
+                    if (button === null) throw new Error(`missing ${key}`);
+                    button.click();
+                };
+                press("calendar");
+                press("home");
+            });
+            await tv.eventually(async () => await tv.page.locator('[data-view="home"] [data-section] .browse-card').count() > 0, "Home rows after returning during the held row-cap read");
+        } finally { heldRowCap.release(); }
+    },
+    readyTimeout: 4000,
+    whileReading: true,
+});
+
 journey("Home keeps the server's row order and shows featured rows as ordinary rows", async tv => {
     assert.deepEqual(await tv.page.locator('[data-section]').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-section"))), ["hero/opaque", "recent/12", "because/opaque", "resume/opaque", "future/opaque", "for/you"]);
     assert.equal(await tv.page.locator('[data-section="hero/opaque"] .browse-section-title').innerText(), "Featured");

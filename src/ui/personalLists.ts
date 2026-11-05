@@ -45,7 +45,7 @@ export function readPersonalPage(source: PersonalSource, filter: PersonalFilter,
 /** CatalogGrid.loadMoreLead: the card this far from the end asks for the next page. */
 const LOAD_LEAD = 6;
 /** Apple tvOS WatchlistView / FavoritesView: eight 176-point posters in a 1760-point safe width. */
-const DENSE_COLUMNS = 8;
+export const DENSE_COLUMNS = 8;
 const DENSE_WIDTH = 1760;
 const DENSE_POSTER = 176;
 /** History adds 48-point content padding inside the TV's 80-point safe area. */
@@ -122,6 +122,11 @@ function continuousGrid(route: PersonalRoute, handlers: RouteHandlers, columns: 
     void preview;
     const grid = feedGrid(route.pages, page, context, LOAD_LEAD, handlers.busy, () => handlers.morePersonal(route), columns, posterWidth, gridWidth);
     if (posterWidth === DENSE_POSTER) grid.content[0]?.classList.add("personal-grid");
+    if (route.failure !== undefined) {
+        const retry = actionButton("retry", "Try Again", () => handlers.retry(route));
+        grid.content.push(zoneNode("browse-actions", [retry]));
+        grid.zones.push({ id: "status", layout: "row", items: [retry] });
+    }
     return grid;
 }
 

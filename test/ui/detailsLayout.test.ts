@@ -7,6 +7,22 @@ import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
+for (const id of ['movie:m0001', 'series:s1']) detailTest(`${id} Details omits controls absent from tvOS and keeps focus at the last section`, async tv => {
+    await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).first().click();
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    if (id === 'series:s1') await tv.page.locator('[data-focus="episode:s1e11"]').waitFor();
+    assert.equal(await tv.page.getByRole('button', { name: /Read synopsis|Rate title|Season .* details/ }).count(), 0);
+    const lastKey = id === 'movie:m0001' ? 'fact:0' : 'series:s1-S1';
+    await tv.page.locator(`[data-focus="${lastKey}"]`).focus();
+    await tv.remote(40);
+    assert.equal(await tv.focused(), lastKey);
+    await tv.remote(38);
+    assert.ok(await tv.page.locator(id === 'movie:m0001' ? '[data-detail-section="related"] :focus' : '.details-people :focus').count(), `Up focused ${await tv.focused()}`);
+    await tv.remote(40);
+    assert.equal(await tv.focused(), lastKey);
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith('/ratings/')).length, 0);
+});
+
 detailTest('More is an anchored popover with Apple ordering and immediate Back focus', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     await tv.eventually(async () => await tv.page.locator('[data-focus="watchlist"]').count() === 1, 'personal actions loaded');
@@ -106,7 +122,7 @@ detailTest('Series More restores fresh season watch state after changing it on t
     await tv.page.locator('[data-focus="more"]').click();
     await tv.page.getByRole('button', { name: 'Mark Season Watched', exact: true }).waitFor();
     await tv.remote(10009);
-    await tv.page.locator('[data-focus="season-info"]').click();
+    await tv.page.locator('[data-focus="series:s1-S1"]').click();
     await tv.page.locator('[data-view="season:series:s1:1"]').waitFor();
     await tv.page.locator('[data-focus="more"]').click();
     await tv.page.getByRole('button', { name: 'Mark Season Watched', exact: true }).click();
@@ -518,7 +534,7 @@ detailTest('Auto subtitle readout resolves forced tracks using effective and exp
 
 detailTest('Season hero and playback controls precede the episode list', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
-    await tv.page.locator('[data-focus="season-info"]').click();
+    await tv.page.locator('[data-focus="series:s1-S1"]').click();
     await tv.page.locator('.browse-episodes').waitFor();
     assert.equal(await tv.page.locator('.details-hero').evaluate(node => Boolean(node.compareDocumentPosition(document.querySelector('.browse-episodes')!) & Node.DOCUMENT_POSITION_FOLLOWING)), true);
 });
@@ -535,7 +551,7 @@ detailTest('Season primary playback refreshes a shared Auto change from another 
         return route.fulfill(off ? { json: { series_id: 'series:s1', subtitle_mode: 'off', subtitle_track_index: -1 } } : { status: 404 });
     });
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
-    await tv.page.locator('[data-focus="season-info"]').click();
+    await tv.page.locator('[data-focus="series:s1-S1"]').click();
     await tv.page.locator('[data-focus="episode:s1e12"]').click({ button: 'right' });
     await tv.page.locator('[data-focus="episode-information"]').click();
     await tv.page.locator('[data-focus="subtitles"]').click();
@@ -562,7 +578,7 @@ for (const [kind, id] of [['Movie', 'movie:m0001'], ['Episode', 'episode:s1e11']
             await tv.page.locator('[data-focus="episode:s1e11"]').click({ button: 'right' });
             await tv.page.locator('[data-focus="episode-information"]').click();
         } else {
-            await tv.page.locator('[data-focus="season-info"]').click();
+            await tv.page.locator('[data-focus="series:s1-S1"]').click();
         }
     }
     await tv.page.locator(`.details-hero[data-media-type="${kind.toLowerCase()}"]`).waitFor();
@@ -889,11 +905,6 @@ detailTest("movie Details keeps playback and personal controls in one row with c
         await tv.page.getByRole("dialog", { name: "Version", exact: true }).waitFor();
         await tv.page.locator('[data-focus="version:43"]').click();
         assert.equal(await tv.focused(), "version");
-        await tv.page.locator('[data-focus="rate"]').click();
-        await tv.page.locator('[data-focus="rating:2"]').click();
-        await tv.page.getByText("Your rating: 2 of 5 stars", { exact: true }).waitFor();
-        await tv.remote(10009);
-        assert.equal(await tv.focused(), "rate");
 });
 
 detailTest('Details restores the hero from supporting rails and uses native selector presentation', async tv => {

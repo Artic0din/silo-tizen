@@ -10,9 +10,7 @@ import { artworkUrl, clockTime, episodeLabel, playChoices, type PlayRequest } fr
 import { actionButton, artwork, cardItem, heading, lines, mediaItem, type ViewContext, zoneNode } from "./browseViews.ts";
 import { personMetadataBadges, personPortrait } from "./personHero.ts";
 import { el } from "./screen.ts";
-import { SkylineScroll } from "./skylineScroll.ts";
-import { remoteKey } from "./keys.ts";
-import { detailAction, detailPanel, ratingControls } from "./detailsActions.ts";
+import { detailAction, detailPanel } from "./detailsActions.ts";
 import { initialSubtitle, matchesSubtitle } from "../player/preplaySubtitles.ts";
 import type { SubtitleSignature } from "../contracts/v2/preplaySubtitles.ts";
 import { seriesEpisodesView } from "./seriesEpisodesView.ts";
@@ -22,68 +20,6 @@ import { episodeAirDate, episodeRuntime } from "./episodeCaption.ts";
 import { TMDB_LOGO_PATH } from "./acknowledgements.ts";
 
 const detailPalette = new Map<string, Tints>();
-
-/** Browse owns the dialog across optional-data renders and stops it on route teardown. */
-export class Synopsis {
-    private panel: HTMLElement | undefined;
-    private covered: { element: HTMLElement; inert: boolean; hidden: string | null }[] = [];
-    private readonly scroll = new SkylineScroll();
-    private readonly container: HTMLElement;
-    private readonly closed: () => void;
-
-    constructor(container: HTMLElement, closed: () => void) {
-        this.container = container;
-        this.closed = closed;
-    }
-
-    get active(): boolean { return this.panel !== undefined; }
-
-    destroy(): void {
-        this.scroll.stop();
-        this.panel?.remove();
-        this.panel = undefined;
-        for (const { element, inert, hidden } of this.covered) {
-            element.inert = inert;
-            if (hidden === null) element.removeAttribute("aria-hidden"); else element.setAttribute("aria-hidden", hidden);
-        }
-        this.covered = [];
-    }
-
-    show(text: string): void {
-        this.destroy();
-        this.covered = Array.from(this.container.children).filter((node): node is HTMLElement => node instanceof HTMLElement).map(element => ({ element, inert: element.inert, hidden: element.getAttribute("aria-hidden") }));
-        for (const { element } of this.covered) { element.inert = true; element.setAttribute("aria-hidden", "true"); }
-        const panel = el("div", "skyline-synopsis-dialog");
-        this.panel = panel;
-        panel.tabIndex = 0;
-        panel.setAttribute("role", "dialog");
-        panel.setAttribute("aria-modal", "true");
-        panel.setAttribute("aria-label", "Synopsis");
-        panel.appendChild(el("p", "browse-text", text));
-        const close = (): void => {
-            this.destroy();
-            this.closed();
-        };
-        const closeButton = actionButton("close-synopsis", "Close synopsis", close);
-        panel.prepend(closeButton.element);
-        panel.addEventListener("keydown", (event) => {
-            event.stopPropagation();
-            const key = remoteKey(event);
-            if (key === "down" || key === "up") {
-                event.preventDefault();
-                this.scroll.move(panel, 0, Math.max(0, Math.min(panel.scrollHeight - panel.clientHeight, panel.scrollTop + (key === "down" ? 240 : -240))));
-            } else if (key === "back" || key === "enter") {
-                event.preventDefault();
-                close();
-            } else if (event.key === "Tab") {
-                event.preventDefault();
-                closeButton.element.focus({ preventScroll: true });
-            }
-        });
-        this.container.appendChild(panel);
-        panel.focus({ preventScroll: true });
-    }
-}
 
 function metaLine(detail: ItemDetail, state?: DetailsState): string {
     const parts: string[] = [];
@@ -204,7 +140,7 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     return [wash, layout];
 }
 
-export function itemView(detail: ItemDetail, seasons: readonly Season[], context: ViewContext, play: (request: PlayRequest) => void, back: () => void, synopsis: Synopsis, state?: DetailsState): View {
+export function itemView(detail: ItemDetail, seasons: readonly Season[], context: ViewContext, play: (request: PlayRequest) => void, back: () => void, state?: DetailsState): View {
     detail = state === undefined ? detail : { ...detail, versions: state.detail.versions };
     const tracks = state?.nextEpisodeState ?? state;
     const playbackDetail = tracks?.detail ?? detail;
@@ -359,11 +295,6 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         { id: "actions", layout: "row", items: actions },
         ...series?.zones ?? [{ id: "seasons", layout: "row" as const, items: seasonItems }],
     ];
-    const tools: FocusItem[] = [];
-    if (overview) tools.push(actionButton("synopsis", "Read synopsis", () => synopsis.show(overview)));
-    if (state !== undefined && ["movie", "series"].includes(detail.type)) tools.push(actionButton("rate", "Rate title", () => state.showPanel("rating")));
-    const selectedSeason = seasons.find(season => season.seasonNumber === state?.series?.seasonNumber);
-    if (selectedSeason !== undefined) tools.push(actionButton("season-info", `${selectedSeason.title} details`, () => context.open({ kind: "season", id: selectedSeason.id, seriesId: detail.id, seasonNumber: selectedSeason.seasonNumber, title: `${detail.title} · ${selectedSeason.title}` })));
     const credits: Credit[] = [];
     for (const credit of [...detail.extra?.cast ?? [], ...detail.extra?.crew ?? []]) {
         const index = credits.findIndex((previous) => credit.id ? previous.id === credit.id : previous.id === undefined && previous.name === credit.name);
@@ -420,10 +351,6 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         const items = [{ key: "fact:0", element: table }];
         content.push(panel);
         zones.push({ id: "facts", layout: "column", items });
-    }
-    if (tools.length > 0) {
-        content.push(zoneNode("browse-actions", tools));
-        zones.push({ id: "detail-tools", layout: "row", items: tools });
     }
     const first = actions[0] ?? seasonItems[0];
     const view: View = { name: `item:${detail.id}`, content, zones, focus: first === undefined ? undefined : { zone: actions[0] === undefined ? "seasons" : "actions", key: first.key }, back };
@@ -512,10 +439,6 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         if (state.descriptions?.offers() === true) items.push(actionButton("translate-description", TRANSLATE_DESCRIPTION_LABEL, () => { state.descriptions?.translate(); state.closePanel(); }));
         return detailPanel(view, state, "More", items.length ? items : [actionButton("close-more", "Close", () => state.closePanel())], menuNotes);
     }
-    if (state?.panel === "rating") {
-        const rating = ratingControls(state);
-        return detailPanel(view, state, "Rate title", rating.items, [rating.note]);
-    }
     return view;
 }
 
@@ -595,7 +518,7 @@ function seasonItem(seriesId: string, seriesTitle: string, season: Season, conte
     return mediaItem({ key, element }, { id: season.id, title: season.title, type: "season" }, context);
 }
 
-export function seasonView(name: string, title: string, episodes: readonly Episode[], context: ViewContext, back: () => void, play: (request: PlayRequest) => void, synopsis: Synopsis, detail?: ItemDetail, state?: DetailsState): View {
+export function seasonView(name: string, title: string, episodes: readonly Episode[], context: ViewContext, back: () => void, play: (request: PlayRequest) => void, detail?: ItemDetail, state?: DetailsState): View {
     const items = episodes.map((episode): FocusItem => {
         const element = el("button", "browse-episode");
         element.type = "button";
@@ -614,7 +537,7 @@ export function seasonView(name: string, title: string, episodes: readonly Episo
         element.addEventListener("click", () => context.playEpisode === undefined ? context.open({ kind: "item", id: episode.id, title: episode.title }) : context.playEpisode(episode.id, episode.title));
         return mediaItem({ key: episode.id, element }, { id: episode.id, title: episode.title, type: "episode" }, context);
     });
-    const header = detail === undefined ? undefined : itemView(detail, [], context, play, back, synopsis, state);
+    const header = detail === undefined ? undefined : itemView(detail, [], context, play, back, state);
     const heroEnd = (header?.content.findIndex(node => node.classList.contains("details-hero")) ?? -1) + 1;
     const content = [...(header?.content.slice(0, heroEnd) ?? [heading(title)]), ...(items.length === 0 ? lines(["This season has no episodes yet."]) : []), zoneNode("browse-episodes", items), ...header?.content.slice(heroEnd) ?? []];
     const fallback = items.length === 0 ? [actionButton("back", "Back", back)] : [];

@@ -16,16 +16,20 @@ tvOS offers it only when remote trailers can be displayed (`TVItemDetailView.swi
 The pinned native contract includes `POST /api/v2/catalog/items/{id}/trailers/refresh`.
 Samsung has no verified remote-trailer playback or handoff, so the tvOS displayability gate keeps this action hidden; adding an unreachable discovery operation would not make it usable.
 Watch Party stays hidden pending #54's capability, opt-in and device gates (`Screens/WatchParty/WatchPartyEntry.swift:7-24`).
-Series/season Shuffle and Translate Description are also absent from Samsung's current Details capabilities.
+Series/season Shuffle remains outside Samsung's current Details capabilities.
+Translate Description follows the existing server and language gates.
 The trailers rail and episode row are unchanged here.
 
 Start Over follows Resume and precedes playback selectors.
 It uses the `backward.end.fill` silhouette and the existing circle's 76 by 76 footprint, 38-point icon slot and 26-point focused label (`TVDetailActions.swift:327-385,491-502`).
 The label appears on focus; it is icon-only at rest.
 
-Read synopsis, Rate title and season details remain reachable in the supporting Details controls.
-This is an explicit placement exception: the pinned tvOS hero synopsis is deliberately non-focusable (`TVHeroSynopsis.swift:4-35`), and its movie/series trees do not expose a personal rating editor.
-No Apple position is claimed for these Samsung controls.
+Removed Read synopsis and its expanded view because the tvOS hero synopsis is deliberately non-focusable (`TVHeroSynopsis.swift:4-35`).
+Removed #66's Rate title control and personal star editor because neither is reachable on tvOS.
+External rating data, including TMDB scores, remains visible.
+Removed Season details: tvOS season tabs select the inline episode rail and expose only a watched context action (`TVSeriesDetailView.swift:608-647`).
+Supporting focus follows Cast, Trailers, Similar, then the Details table (`TVSeriesDetailView.swift:282-289,1114-1180`).
+Down at the final available section keeps its current focus; no empty supporting-control zone remains.
 
 For series rewatch, Apple chooses the requested season, an in-progress season, a partially watched season, the first unplayed numbered season, Specials, or the first numbered season.
 It then chooses an in-progress episode, the first unwatched episode, or the first episode (`Networking/Models.swift:874-909`, `Screens/Detail/ItemDetailViewModel.swift:1115-1125`, `TVItemDetailView.swift:786-795`).

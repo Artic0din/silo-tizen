@@ -1,6 +1,6 @@
 import type { DetailsState } from "./detailsState.ts";
 import type { FocusItem, View } from "./browseFocus.ts";
-import { actionButton, zoneNode } from "./browseViews.ts";
+import { zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
 import { remoteKey } from "./keys.ts";
 
@@ -43,28 +43,6 @@ export function detailAction(item: FocusItem): FocusItem {
     icon.appendChild(shape);
     button.append(icon, el("span", "details-action-label", label));
     return item;
-}
-
-export function ratingControls(state: DetailsState): { items: FocusItem[]; note: HTMLElement } {
-    const rating = state.rating;
-    const items = [1, 2, 3, 4, 5].map(stars => {
-        const item = actionButton(`rating:${stars}`, `${stars} ${stars === 1 ? "star" : "stars"}`, () => rating.save(stars));
-        item.element.setAttribute("aria-pressed", String(rating.value === stars));
-        item.element.setAttribute("aria-disabled", String(state.busy || rating.loading || rating.value === undefined));
-        return item;
-    });
-    const clear = actionButton("rating:clear", "Clear rating", () => rating.save(null));
-    clear.element.setAttribute("aria-disabled", String(state.busy || rating.loading || rating.value === undefined));
-    items.push(clear);
-    if (rating.failed) {
-        const retry = actionButton("rating:retry", "Retry rating", () => rating.failedTarget === undefined ? rating.load() : rating.save(rating.failedTarget, true));
-        retry.element.setAttribute("aria-disabled", String(state.busy || rating.loading || rating.pending));
-        items.push(retry);
-    }
-    const status = rating.failed ? "Could not confirm rating." : rating.pending ? "Saving rating…" : rating.loading ? "Loading rating…" : rating.value == null ? "Your rating: Not rated" : `Your rating: ${rating.value} of 5 stars`;
-    const note = el("p", "browse-text", status);
-    note.setAttribute("role", rating.failed ? "alert" : "status");
-    return { items, note };
 }
 
 export function detailPanel(view: View, state: DetailsState, title: string, items: FocusItem[], notes: HTMLElement[] = []): View {

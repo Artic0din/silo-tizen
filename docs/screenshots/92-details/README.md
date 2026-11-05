@@ -1,7 +1,8 @@
 # Details layout and preplay evidence
 
 This is a bounded Details improvement for [#92](https://github.com/Artic0din/silo-tizen/issues/92), not a whole-screen Apple parity PASS.
-Movie actions now share one row, Version/Audio/Subtitles have focused dialogs, More retains personal actions and rating access, and series show season chips with an inline episode rail.
+These historical captures show one row of movie actions, Version/Audio/Subtitles dialogs, personal actions in More, and series season chips with an inline episode rail.
+Current Details controls are documented in [Details actions](../../features/details-actions.md).
 Issue #92 remains open for the differences below.
 
 ## Build and capture identity
@@ -42,14 +43,11 @@ The baseline also recorded a related-title error below the entry viewport; no fi
 | --- | --- | --- |
 | ![Version dialog](version.png) | ![Audio dialog](audio.png) | ![Subtitle dialog](subtitles.png) |
 
-| More | Nested rating |
-| --- | --- |
-| ![More actions](more.png) | ![Rating dialog](rating.png) |
+![Historical More actions](more.png)
 
 Trusted remote key events opened each dialog and returned to its initiating control.
 The captured dialogs each left eight underlying content regions inert.
-The nested rating journey returned first to Rate title in More, then to the main More control.
-No live rating, membership, progress or subtitle-preference write was made during these captures.
+No live membership, progress or subtitle-preference write was made during these captures.
 Subtitle options retain language even when the server supplies generic stream titles such as SUBRIP.
 The [short focus recording](movie-dialog-focus.mp4) shows dialog navigation in this signed build.
 Its frames retain their measured capture timing; it is a sampled recording, not a frame-rate or animation-performance benchmark.

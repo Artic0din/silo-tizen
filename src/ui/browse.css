@@ -767,8 +767,6 @@
 .browse-row .skyline-continue .browse-art { width: 372px; height: 209px; }
 .skyline-progress { position: absolute; bottom: 12px; left: 14px; right: 14px; height: 5px; background: rgba(255,255,255,.26); }
 .skyline-progress-fill { display: block; height: 100%; background: #fff; }
-.skyline-synopsis-dialog { position: fixed; z-index: 20; top: 100px; left: 200px; width: 1520px; height: 880px; padding: 48px; overflow: auto; background: #15171c; border: 2px solid #fff; border-radius: 18px; outline: none; }
-.skyline-synopsis-dialog .browse-text { max-width: none; color: #ededed; }
 .skyline-route-outgoing { position: fixed; top: 0; left: 0; pointer-events: none; z-index: 3; animation: skyline-leave var(--silo-page) ease-out forwards; }
 .skyline-content-enter { animation: skyline-appear var(--silo-page) ease-out both; }
 .skyline-content-drift { animation: skyline-content-rise var(--silo-page) ease-out both; }

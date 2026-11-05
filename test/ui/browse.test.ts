@@ -1333,7 +1333,7 @@ async function detailsMore(tv: Tv): Promise<void> {
 }
 
 async function seasonDetails(tv: Tv): Promise<void> {
-    await tv.page.locator('[data-focus="season-info"]').click();
+    await tv.page.locator('[data-focus="series:s1-S1"]').click();
     await showing(tv, "season:series:s1:1");
 }
 
@@ -1372,34 +1372,6 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
     assert.equal(await tv.focused(), "person:7");
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "the bounded related rail");
     assert.equal(await tv.page.getByRole("button", { name: /trailer/i }).count(), 0);
-}, { catalog: new FakeDetails() });
-
-browseTest("S-D1 synopsis keeps its dialog and focus while optional Details settle", async (tv) => {
-    const related = tv.fake.hold("/recommendations/similar/movie%3Am0001", true);
-    const capability = tv.fake.hold("/capabilities/personal-lists", true);
-    await activateDetails(tv);
-    await showing(tv, "item:movie:m0001");
-    await tv.page.locator('[data-focus="synopsis"]').focus();
-    await press(tv, "Enter");
-    const dialog = tv.page.getByRole("dialog", { name: "Synopsis" });
-    await dialog.getByRole("button", { name: "Close synopsis" }).focus();
-    related.release(); capability.release();
-    await tv.eventually(async () => tv.fake.requests.some((request) => request.path === "/favorites/movie%3Am0001/membership"), "optional membership reads");
-    await tv.jump(240);
-    assert.equal(await dialog.count(), 1, "optional responses must preserve the active synopsis");
-    assert.equal(await tv.focused(), "close-synopsis");
-    await tv.remote(BACK);
-    assert.equal(await dialog.count(), 0);
-    assert.equal(await tv.focused(), "synopsis");
-    await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "updated data after closing");
-    await press(tv, "Enter");
-    await dialog.getByRole("button", { name: "Close synopsis" }).click();
-    assert.equal(await tv.focused(), "synopsis");
-    await press(tv, "Enter");
-    await tv.page.evaluate(() => window.browseHarness.clearProfile());
-    assert.equal(await dialog.count(), 0);
-    await tv.remote(BACK);
-    assert.equal(await tv.page.locator("#successor").count(), 1);
 }, { catalog: new FakeDetails() });
 
 browseTest("S-D2 aggregate watched reconciles visible episodes in both directions", async (tv, catalog) => {
@@ -1453,23 +1425,18 @@ for (const kind of ["movie", "episode"]) {
     }, { catalog: new FakeDetails() });
 }
 
-browseTest("S-D1 synopsis closes on browse destruction while failed Related stays omitted", async (tv) => {
+browseTest("S-D1 failed Related stays omitted across browse destruction", async (tv) => {
     await tv.page.route("**/api/v2/recommendations/similar/**", async (route) => {
         await route.fulfill({ status: 400, json: problem(400, "unavailable", "Unavailable").body });
     });
     const related = tv.fake.hold("/capabilities/personal-lists", true);
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
-    await tv.page.locator('[data-focus="synopsis"]').focus();
-    await press(tv, "Enter");
     related.release();
     await tv.eventually(async () => tv.fake.requests.some((request) => request.path === "/favorites/movie%3Am0001/membership"), "membership answer");
-    assert.equal(await tv.page.getByRole("dialog", { name: "Synopsis" }).count(), 1);
-    await tv.remote(BACK);
     await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
     assert.equal(await tv.page.locator('[data-detail-section="related"]').count(), 0);
     assert.equal(await tv.page.getByRole("button", { name: "Retry related titles", exact: true }).count(), 0);
-    await tv.page.locator('[data-focus="synopsis"]').click();
     await tv.page.evaluate(() => window.browseHarness.destroy());
     assert.equal(await tv.page.getByRole("dialog").count(), 0);
     await tv.page.evaluate(() => window.browseHarness.mount());
@@ -1855,10 +1822,9 @@ browseTest("season Details keeps episodes first, exposes real facts and restores
     const personal = tv.fake.hold("/favorites/series%3As1/membership");
     await press(tv, "ArrowDown", "Enter");
     await showing(tv, "item:series:s1");
-    await tv.page.locator('[data-focus="season-info"]').focus();
+    await tv.page.locator('[data-focus="series:s1-S1"]').focus();
     await tv.page.keyboard.down("Enter");
     personal.release();
-    await showing(tv, "season:series:s1:1");
     await tv.page.keyboard.up("Enter");
     await showing(tv, "season:series:s1:1");
     await shows(tv, "The first season follows the night shift at a coastal observatory.");
@@ -2971,22 +2937,7 @@ browseTest("many libraries stay bounded; dwell and Back never commit; scope surv
     await showing(tv, "library:15");
 });
 
-browseTest("long synopsis expands and scrolls accessibly; empty search omits Page 1 of 1", async (tv, catalog) => {
-    catalog.failNext("/catalog/items/movie%3Am0001", { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", overview: "A long synopsis. ".repeat(900) } });
-    await activateDetails(tv);
-    await showing(tv, "item:movie:m0001");
-    await tv.page.locator('[data-focus="synopsis"]').focus();
-    await press(tv, "Enter");
-    const dialog = tv.page.getByRole("dialog", { name: "Synopsis" });
-    assert.equal(await dialog.isVisible(), true);
-    await press(tv, "ArrowDown");
-    await tv.page.clock.runFor(220);
-    assert.ok(await dialog.evaluate((node) => node.scrollTop > 0));
-    await tv.remote(BACK);
-    assert.equal(await tv.focused(), "synopsis");
-    await tv.remote(BACK);
-    await tv.remote(BACK);
-    await showing(tv, "home");
+browseTest("empty search omits Page 1 of 1", async (tv) => {
     await tv.page.locator('[data-focus="search"]').click();
     await tv.page.fill("#browse-search", "no-such-title");
     await tv.remote(IME_DONE);
@@ -3151,7 +3102,7 @@ browseTest("series open seasons, episode Select plays directly, and playback ret
     await press(tv, "ArrowDown", "ArrowRight");
     assert.equal(await tv.focused(), "season:2");
     await press(tv, "Enter");
-    await tv.page.locator('[data-focus="season-info"]').click();
+    await tv.page.locator('[data-focus="series:s1-S2"]').click();
     await showing(tv, "season:series:s1:2");
     await shows(tv, "Harbor Lights · Season 2");
     assert.equal(await tv.focused(), "episode:s1e21");
@@ -3171,7 +3122,7 @@ browseTest("series open seasons, episode Select plays directly, and playback ret
     assert.equal(await tv.focused(), "episode:s1e22");
     await tv.remote(BACK);
     await showing(tv, "item:series:s1");
-    assert.equal(await tv.focused(), "season-info");
+    assert.equal(await tv.focused(), "series:s1-S2");
     await tv.remote(BACK);
     await showing(tv, "home");
     assert.equal(await tv.focused(), "series:s1");

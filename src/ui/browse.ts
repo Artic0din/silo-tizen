@@ -23,7 +23,6 @@ import { DescriptionTranslations } from "./descriptionTranslation.ts";
 import { freshPlayPosition } from "./playbackPreparation.ts";
 import { SeriesEpisodes } from "./seriesEpisodes.ts";
 import { CardActions } from "./cardActions.ts";
-import { Synopsis } from "./browseDetails.ts";
 import type { ConnectedServer } from "../session/core.ts";
 import type { PublicStorage } from "../session/deviceIdentity.ts";
 import { Skyline } from "./skyline.ts";
@@ -228,11 +227,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             render(origin.focus);
         }
     }, personalPending, card => open({ kind: "item", id: card.id, title: card.title }));
-    const synopsis = new Synopsis(container, () => {
-        render({ zone: "detail-tools", key: "synopsis" });
-    });
     const stopDetails = (): void => {
-        synopsis.destroy(); detailWork?.stop(); detailWork = undefined;
+        detailWork?.stop(); detailWork = undefined;
         personRead?.controller.abort();
         if (personRead?.route.kind === "person") { personRead.route.metadataLoading = false; personRead.route.availabilityLoading = false; }
         personRead = undefined;
@@ -643,7 +639,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const shownShell = shown?.kind === "home" || shown?.kind === "for_you" || shown?.kind === "library" || shown?.kind === "personal" || shown?.kind === "calendar";
             // The page in front has to take the new buttons. Calendar and For You can open
             // before this read finishes (TVMainTabView reconcileVisibleRootsChange, TVMainTabView.swift:1065).
-            if (!playing && shownShell && settingsScreen === undefined && !cardActions.active && !synopsis.active) render(focus);
+            if (!playing && shownShell && settingsScreen === undefined && !cardActions.active) render(focus);
         }, (error: unknown) => {
             if (signal.aborted || torn || (error instanceof ApiError && error.aborted)) return;
             if (error instanceof ApiError) {
@@ -694,7 +690,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }
         if (top() === current) {
             if (cardActions.active) cardActions.render();
-            else render(returnKey === undefined ? undefined : { zone: returnKey === "rate" ? "detail-tools" : "actions", key: returnKey });
+            else render(returnKey === undefined ? undefined : { zone: "actions", key: returnKey });
         }
     };
 
@@ -833,11 +829,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         }, quiet || current.pages.page !== undefined);
     };
     const morePersonal = (current: Extract<Route, { kind: "personal" }>): void => {
-        if (torn || playing || top() !== current || loading !== undefined || cardActions.active || synopsis.active || settingsScreen !== undefined || current.failure !== undefined || current.pages.page?.nextCursor === undefined) return;
+        if (torn || playing || top() !== current || loading !== undefined || cardActions.active || settingsScreen !== undefined || current.failure !== undefined || current.pages.page?.nextCursor === undefined) return;
         loadPersonal(current, true, true);
     };
     const moreBrowse = (current: Extract<Route, { kind: "library" }>): void => {
-        if (torn || playing || top() !== current || loading !== undefined || cardActions.active || synopsis.active || settingsScreen !== undefined || current.discovery?.panel !== undefined || shuffleFailure?.route === current || current.failure !== undefined || current.discovery?.snapshot?.page.nextCursor === undefined) return;
+        if (torn || playing || top() !== current || loading !== undefined || cardActions.active || settingsScreen !== undefined || current.discovery?.panel !== undefined || shuffleFailure?.route === current || current.failure !== undefined || current.discovery?.snapshot?.page.nextCursor === undefined) return;
         loadBrowse(current, true, true);
     };
     const changeBrowse = (current: Extract<Route, { kind: "library" }>, change: BrowseChange): void => {
@@ -1376,7 +1372,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const panel = (current?.kind === "item" || current?.kind === "season") ? current.data?.details?.panel : undefined;
         stopDetails();
         if (current !== undefined) {
-            current.focus = panel === undefined ? host.focused() : { zone: "actions", key: panel === "rating" ? "more" : panel };
+            current.focus = panel === undefined ? host.focused() : { zone: "actions", key: panel };
             if (current.kind === "homeSection" || current.kind === "person") current.pendingIndex = undefined;
         }
         loading?.abort();
@@ -1480,7 +1476,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         activeBrowse = undefined;
         cancelCalendarDay();
         const current = top();
-        if (current === undefined || torn || playing || synopsis.active || cardActions.active || settingsScreen !== undefined) {
+        if (current === undefined || torn || playing || cardActions.active || settingsScreen !== undefined) {
             return;
         }
         if (searchReturnFocus?.route === current && current.kind === "search" && current.supplement?.requests !== undefined) {
@@ -1499,7 +1495,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             loading?.abort(); loading = undefined; cancelSlow();
             route.filter = filter; route.pages = undefined; search(route);
         };
-        const handlers = { context, synopsis, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, searchFilter, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, morePersonal, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: (current.kind === "library" || current.kind === "libraryResults" && current.source.kind === "collection") && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
+        const handlers = { context, focusDefault: () => host.focusDefault(), busy: loading !== undefined, searchHead, input, searchFilter, push, pop, play, chooseProfile, retry, turn, mode, jump, sort, genre, personalFilter, morePersonal, signIn: options.onSignOut, personFilter, calendar: calendarHandlers, requests: requestsHandlers, browse: changeBrowse, more: moreBrowse, preserve: (route: Extract<Route, { kind: "library" }>) => browsePrefs.preserve(route.library), gridColumns: presentation.posterScale > 1 ? 5 : 6, shuffle: (current.kind === "library" || current.kind === "libraryResults" && current.source.kind === "collection") && canShuffle(current) ? { starting: shuffleStarting, failure: shuffleFailure?.route === current ? shuffleFailure.text : undefined, start: startShuffle, dismiss: () => { shuffleFailure = undefined; render({ zone: "controls", key: "shuffle" }); } } : undefined };
         container.classList.toggle("section-catalog", isSectionRoute(current) || current.kind === "recommendationSection");
         const browsing = current.kind === "library" && current.discovery?.mode === "Browse";
         container.classList.toggle("library-browse", browsing);
@@ -1520,7 +1516,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (isSectionRoute(current)) activeSection = sectionCatalog(current);
         const view = activeSection !== undefined && isSectionRoute(current)
             ? activeSection.view(current, context, loading !== undefined, pop, () => retry(current), () => {
-                if (top() !== current || torn || playing || loading !== undefined || cardActions.active || synopsis.active || settingsScreen !== undefined || current.failure !== undefined || current.pages.page?.nextCursor === undefined) return;
+                if (top() !== current || torn || playing || loading !== undefined || cardActions.active || settingsScreen !== undefined || current.failure !== undefined || current.pages.page?.nextCursor === undefined) return;
                 loadSection(current, true, true);
             }) : routeView(current, { ...handlers, retryPeople: route => {
                 if (top() !== route || route.searchType === undefined || route.query.trim() === "") return;

@@ -38,7 +38,7 @@ The Details fake lists different audio inventories for files 42 and 43; the play
 Skyline regressions cover full profile names, the contrast of an unfocused empty server field, and Samsung media-key registration and dispatch.
 Player tests cover explicit Play/Pause idempotency, visible transport focus, seek preview/commit/cancel and preservation of the preview during live progress updates.
 Profile seek tests save 15/45 through Settings and consume them through the real controller and screen, including numeric enum boundaries, independent DELETE resets, unbatched reads, unsupported servers, malformed responses, Retry and authority replacement.
-Browse and composition tests also cover bounded type tabs, menu dwell and dismissal, server/profile-scoped library persistence, intermediate scroll frames, debounced previews and full synopsis access.
+Browse and composition tests also cover bounded type tabs, menu dwell and dismissal, server/profile-scoped library persistence, intermediate scroll frames, debounced previews and non-focusable Details synopsis text.
 
 Native transport tests cover headers, timeouts, HTTPS and logout, while native browse and composed-app tests cover the current focus and return behavior.
 Desktop Chromium and fake AVPlay do not prove real video/audio, TV keyboard behavior or Tizen 8.0's Chromium 108 rendering.

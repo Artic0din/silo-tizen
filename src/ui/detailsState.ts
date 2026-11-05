@@ -8,7 +8,6 @@ import { playChoices, type PlayRequest } from "./browseModel.ts";
 import type { Clock } from "../api/clock.ts";
 import type { NativeSession } from "../session/session.ts";
 import { readSettingsCapability, readTitleArt } from "./presentationSettings.ts";
-import { RatingState } from "./ratingState.ts";
 import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
 import { SeriesEpisodes } from "./seriesEpisodes.ts";
 import { freshPlayPosition } from "./playbackPreparation.ts";
@@ -28,13 +27,12 @@ const EPISODE_PREFETCH_CONCURRENCY = 4;
 
 export class DetailsState {
     readonly descriptions: ItemDescriptionTranslation | undefined;
-    readonly rating: RatingState;
     readonly audioPreference: PreplayAudioPreference;
     readonly subtitlePreference: PreplayTrackPreference<SubtitlePreferencePick, SubtitlePreference>;
     series: SeriesEpisodes | undefined;
     detail: ItemDetail;
     selectedFileId: string | undefined;
-    panel: "audio" | "version" | "subtitles" | "more" | "rating" | undefined;
+    panel: "audio" | "version" | "subtitles" | "more" | undefined;
     get audioOpen(): boolean { return this.panel === "audio"; }
     preparingPlay = false;
     failedPlay: PlayRequest | undefined;
@@ -115,7 +113,6 @@ export class DetailsState {
         this.changed = changed;
         this.watchedChanged = watchedChanged;
         this.pendingElsewhere = pendingElsewhere;
-        this.rating = new RatingState(session, detail.id, () => this.changed(), () => this.pending || this.pendingElsewhere());
         this.audioPreference = new PreplayAudioPreference(session, detail.seriesId || detail.id, () => this.changed(), async signal => {
             const refreshed = await session.call({ ...operations.getCatalogItem(detail.id), profileScoped: true, signal });
             if (refreshed.id !== detail.id) throw new Error("Audio readback item mismatch");
@@ -136,7 +133,7 @@ export class DetailsState {
     get pending(): boolean { return [...this.changes.values()].some(change => change.pending) || [...this.seasonStates.values()].some(state => state.pending); }
     readonly seasonStates = new Map<number, DetailsState>();
     private aggregateWatched: boolean | undefined;
-    get busy(): boolean { return this.pending || this.rating.pending || this.pendingElsewhere() || this.episodePreferencesBlocked; }
+    get busy(): boolean { return this.pending || this.pendingElsewhere() || this.episodePreferencesBlocked; }
 
     start(mode: "full" | "personal" | "playback" = "full"): void {
         if (this.controller !== undefined) return;
@@ -146,7 +143,6 @@ export class DetailsState {
         if (["movie", "episode"].includes(this.detail.type)) this.subtitlePreference.start();
         this.full = mode === "full";
         if (this.full && this.episodePreferenceDirty) this.episodePreferenceChanged(this);
-        if (mode === "full" && ["movie", "series"].includes(this.detail.type)) this.rating.start();
         this.stopAuthority = this.session.onAuthorityChange(() => { this.stop(); this.changed(); });
         if (mode === "playback") return;
         this.nextEpisodeState?.start("playback");
@@ -183,7 +179,6 @@ export class DetailsState {
         this.episodeWorkers = 0;
         this.audioPreference.stop();
         this.subtitlePreference.stop();
-        this.rating.stop();
         this.series?.stop();
         this.controller?.abort();
         this.controller = undefined;
@@ -270,7 +265,7 @@ export class DetailsState {
     closePanel(): void {
         const panel = this.panel;
         this.panel = undefined;
-        this.changed(panel === "rating" ? "rate" : panel);
+        this.changed(panel);
     }
     showAudio(): void { this.showPanel("audio"); }
     closeAudio(): void { this.closePanel(); }

@@ -199,7 +199,7 @@ for (const destination of ["series", "season"]) preplay(`${destination} Resume r
     playback.items.set("episode:s1e11", ["42"]);
     await series(tv);
     if (destination === "season") {
-        await tv.page.locator('[data-focus="season-info"]').click();
+        await tv.page.locator('[data-focus="series:s1-S1"]').click();
     }
     await tv.page.getByRole("button", { name: "Resume S1:E1", exact: true }).waitFor();
     const path = "/watch/episode%3As1e11?file_id=42";
@@ -228,7 +228,7 @@ for (const destination of ["series", "season"]) preplay(`${destination} keeps an
     playback.items.set("episode:s1e11", ["42"]);
     await series(tv);
     if (destination === "season") {
-        await tv.page.locator('[data-focus="season-info"]').click();
+        await tv.page.locator('[data-focus="series:s1-S1"]').click();
     }
     await tv.page.locator('[data-focus="version"]').click();
     await tv.page.locator('[data-focus="version:42"]').click();

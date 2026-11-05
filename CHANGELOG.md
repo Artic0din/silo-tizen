@@ -9,6 +9,10 @@ All notable changes to this project are documented in this file.
 - Added description translation on Details and the featured marquee, matching Apple TV's Translate Description action, Translating… status and Translated by AI label.
 - Added Change Account with several saved accounts per server and account management.
 
+### Removed
+
+- Removed Details Read synopsis, its expanded view, #66's personal star rating control, and Season details to match the controls reachable on Apple TV.
+
 ### Fixed
 
 - Matched Details More popovers and Start Over controls to Apple TV, and selected series playback from the current season's next-up suggestion.

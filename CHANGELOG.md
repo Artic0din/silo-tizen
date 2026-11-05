@@ -14,6 +14,9 @@ All notable changes to this project are documented in this file.
 - Kept Change Account reachable when a saved server is offline, prevented removed accounts from being restored by late refreshes, and scrolled account lists to keep remote focus visible.
 - Prevented failed replacement sign-ins from restoring old credentials and kept saved-sign-in removal scoped to the selected account.
 - Prevented replaced account sessions from overwriting a new sign-in and required fresh PIN proof after committing an account switch.
+- Moved the Home logo slot up to Apple's marquee stack and landed Down from a landscape card on the poster nearest that card.
+- Kept the column when moving down between Home rows, and fitted hero title art in Apple's 200px logo slot.
+- Down from the top bar lands on the leftmost card instead of the card remembered in the row.
 - Matched Apple TV library shelf order and the Recommended, Collections and Browse section menu, keeping Collections in its own destination.
 - Restored each page's hero after returning from the profile menu and painted the avatar's white focus ring above its image.
 - Renamed the profile menu's Switch Server row to Change Account, after Settings and before Sign Out.

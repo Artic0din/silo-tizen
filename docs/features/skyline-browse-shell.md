@@ -204,7 +204,7 @@ Movies and series show `year · genre · runtime`; time left appears only in Con
 The content rating leads the meta line as a chip, and resolution, dynamic range and audio from `overlay_summary` follow as chips.
 Movies and series add one score after the meta text: IMDb, else TMDB, out of 10 with one decimal, as a dimmed text mark and a bold score.
 TMDB scores use TMDB's approved logo instead of a text mark, as Apple does; Settings > Server > Acknowledgements carries the notice TMDB's terms require (see `app/third-party/README.md`).
-The card's `logo_url` replaces the text title once the image loads, aspect-fit inside 880×200 on Home and 880×150 on a library landing.
+The card's `logo_url` replaces the text title once the image loads. It scales to fit a fixed 880×200 slot and sits on the left, vertically centred. Home, For You and library Recommended share that home-scale slot.
 Logos follow Apple `TitleArtPreferences`: they show unless the server's last confirmed `ui.title_art` answer for this server and profile is off.
 That answer comes from the same capability, contract and effective-value reads Details uses and is kept on the TV, so a pending or failed read keeps it and a server without the key drops it.
 Home uses medium row artwork with the 1344 px backdrop fill and 880 px logo slots when per-slot widths are supported, scaled by device pixel ratio.

@@ -125,7 +125,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             assert.equal(tv.fake.requests.length, reads, "dwell and focus never fetch");
             await tv.page.keyboard.press("Enter");
             await ready(tv, "library:12");
-            assert.equal(await tv.page.locator('.skyline-pills [aria-pressed="true"]').innerText(), "Collections");
+            assert.equal(await tv.page.locator('.discovery-collection-grid').count(), 1);
             assert.equal(await tv.page.locator(".skyline-selector").first().isVisible(), false);
             const loadedReads = tv.fake.requests.length;
             await tv.page.locator('[data-focus="movies"]').focus();
@@ -134,7 +134,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await keys(tv, 40, 40, 10009);
             assert.equal(await tv.focused(), "movies");
             assert.equal(tv.fake.requests.length, loadedReads);
-            assert.equal(await tv.page.locator('.skyline-pills [aria-pressed="true"]').innerText(), "Collections", "Back dismisses without committing another mode");
+            assert.equal(await tv.page.locator('.discovery-collection-grid').count(), 1, "Back dismisses without committing another mode");
             assert.deepEqual(tv.console, []);
         } finally { await tv.page.context().close(); }
     });
@@ -170,7 +170,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
         } finally { await tv.page.context().close(); }
     });
 
-    test(`deliberate pills crossfade once while loading answers keep chrome focus (${reducedMotion})`, async () => {
+    test(`deliberate library modes crossfade once while loading answers keep chrome focus (${reducedMotion})`, async () => {
         const tv = await openTv(browser, { app: "browse" });
         try {
             await tv.page.emulateMedia({ reducedMotion });
@@ -180,7 +180,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await tv.jump(200);
             const held = tv.fake.hold("/library/12/collections", true);
             await selectLibraryMode(tv, "Collections");
-            assert.equal(await tv.focused(), "mode:Collections");
+            assert.equal(await tv.focused(), "movies");
             const layers = reducedMotion === "reduce" ? 0 : 1;
             assert.equal(await tv.page.locator(".skyline-route-outgoing").count(), layers, "same-name library mode must animate its deliberate switch");
             assert.equal(await tv.page.locator(".skyline-content-drift").count() > 0, reducedMotion !== "reduce");
@@ -232,7 +232,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             assert.equal(tv.fake.requests.length, reads);
             await tv.page.keyboard.press("Enter");
             await ready(tv, "library:15");
-            assert.equal(await tv.page.locator('.skyline-pills [aria-pressed="true"]').innerText(), "Collections");
+            assert.equal(await tv.page.locator('.discovery-collection-grid').count(), 1);
             await tv.page.locator('[data-focus="movies"]').focus();
             await tv.jump(250);
             await keys(tv, 40);
@@ -258,7 +258,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
         } finally { await tv.page.context().close(); }
     });
 
-    test(`rapid pills keep one inert snapshot and destroy clears motion work (${reducedMotion})`, async () => {
+    test(`rapid library modes keep one inert snapshot and destroy clears motion work (${reducedMotion})`, async () => {
         const tv = await openTv(browser, { app: "browse" });
         try {
             await tv.page.emulateMedia({ reducedMotion });
@@ -268,10 +268,8 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await tv.jump(200);
             await selectLibraryMode(tv, "Collections");
             await ready(tv, "library:12");
+            for (const mode of ["Collections", "Genres", "A–Z"] as const) await selectLibraryMode(tv, mode);
             const state = await tv.page.evaluate(() => {
-                for (const key of ["mode:Collections", "mode:Genres", "mode:A–Z"]) {
-                    document.querySelector<HTMLButtonElement>(`[data-focus="${key}"]`)?.click();
-                }
                 const snapshots = document.querySelectorAll(".skyline-route-outgoing");
                 return { layers: snapshots.length, nested: document.querySelectorAll(".skyline-route-outgoing .skyline-route-outgoing").length, metadata: document.querySelectorAll(".skyline-route-outgoing [id], .skyline-route-outgoing [data-focus], .skyline-route-outgoing [data-section], .skyline-route-outgoing .browse-nav").length, tabbable: Array.from(document.querySelectorAll<HTMLElement>(".skyline-route-outgoing button, .skyline-route-outgoing input")).filter(node => node.tabIndex !== -1).length };
             });

@@ -6,6 +6,13 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept collection titles in the server's order, matching Apple TV instead of sorting them alphabetically.
+- Lowered the collection Shuffle row, dimmed its heading and count, matched caption spacing, and restored watched badges through profile-aware catalog reads.
+- Dimmed collection titles, showed profile poster overlays, kept collection focus rings on artwork, and closed section menus during content loading.
+- Matched collection page spacing, Shuffle controls, and truncated poster captions to Apple TV.
+- Opened collection pages without requiring catalog totals, showed their item count and Shuffle action, and aligned the Collections grid with Apple TV.
+
+- Displayed Collections as portrait posters with visible missing-artwork placeholders and moved library mode selection into the navigation menu.
 - Kept History's focused artwork and captions on screen at every poster size and repainted personal lists when presentation preferences arrived.
 - Preserved History's outer posters and focus outlines inside the scroll viewport's horizontal padding.
 - Offered an explicit retry when a Favorites continuation failed and the observed end cards could not scroll out of view.

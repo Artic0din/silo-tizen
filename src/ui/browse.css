@@ -704,7 +704,19 @@
 .discovery-letters { position: fixed; right: 88px; top: 240px; width: 40px; height: 780px; flex-direction: column; flex-wrap: nowrap; }
 .discovery-letters .browse-button { width: 40px; min-height: 26px; padding: 2px; margin: 0; font-family: monospace; font-size: 15px; }
 .discovery-letters [aria-pressed="true"] { background: #fff; color: #000; }
-.discovery-collection-grid { display: grid; grid-template-columns: repeat(3, 430px); grid-column-gap: 26px; grid-row-gap: 26px; padding: 16px 12px; }
+.discovery-collection-grid { display: grid; grid-template-columns: repeat(var(--collection-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 60px; justify-items: center; padding: 16px 0 0; }
+.skyline-grid .skyline-content:has(.discovery-collection-grid) { top: 244px; left: 0; width: 1920px; height: 836px; padding: 0 80px 60px; }
+.browse-section:has(.discovery-collection-grid) { margin-bottom: 44px; }
+.browse-section:has(.discovery-collection-grid):last-child { margin-bottom: 0; }
+.collection-group-title { margin: 0 0 20px; font-family: ui-monospace, monospace; font-size: 22px; letter-spacing: 5.72px; color: rgba(237,237,237,.38); text-transform: uppercase; }
+.browse .catalog-grid .collection-poster { width: calc(260px * var(--poster-scale, 1)); height: auto; padding: 0; border: 0; border-radius: 0; background: none; }
+.browse .catalog-grid .collection-poster:focus { transform: none; background: none; box-shadow: none; }
+.browse .catalog-grid .collection-poster .browse-art { transition: transform var(--silo-fast) ease-out, box-shadow var(--silo-fast) ease-out; }
+.browse .catalog-grid .collection-poster:focus .browse-art { transform: scale(1.05); box-shadow: 0 0 0 4px rgba(255,255,255,.7), 0 8px 18px rgba(0,0,0,.45); }
+.discovery-collection .browse-art-fallback { position: absolute; inset: 0; padding: 0; }
+.collection-stack { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; color: rgba(255,255,255,.85); }
+.collection-stack svg { width: 56px; height: 56px; }
+@media (prefers-reduced-motion: reduce) { .browse .catalog-grid .collection-poster:focus .browse-art { transform: none; box-shadow: 0 0 0 4px rgba(255,255,255,.7); } }
 .browse .discovery-collection { position: relative; width: 430px; height: 234px; flex-shrink: 0; padding: 24px; margin: 0; border-radius: 16px; white-space: normal; overflow-wrap: break-word; background: linear-gradient(#2e3036,#121316); border: 2px solid rgba(255,255,255,.12); }
 .browse .browse-row .discovery-collection { width: 430px; margin-right: 24px; }
 .discovery-collection-art { position: absolute; left: 28px; top: 36px; width: 104px; height: 156px; transform: rotate(-8deg); overflow: hidden; border-radius: 8px; }
@@ -876,14 +888,27 @@
 .browse .calendar-event:not(:focus) .browse-card-title { color: rgba(237,237,237,.85); }
 /* Requests and Calendar captions live outside their focus-styled buttons. */
 .browse .browse-card:is(.details-person, .requests-card, .calendar-event) :is(.browse-card-title, .browse-card-subtitle) { transform: none; text-shadow: none; }
+.browse:has(> .collection-detail-title) { padding: 62px 128px 60px; }
+.collection-detail-title { text-align: center; width: 100%; margin: 0 0 28px; font-size: 59px; line-height: 71px; color: #404040; }
+.collection-detail-actions { display: flex; align-items: center; gap: 48px; height: 53px; margin: 0 0 48px; }
+.collection-detail-actions .browse-text { margin: 0; font-size: 22px; line-height: 27px; color: rgba(237,237,237,.6); }
+.browse .collection-detail-actions .browse-button { display: inline-flex; align-items: center; justify-content: center; width: 175px; height: 53px; margin: 0; padding: 12px 22px; border: 1px solid rgba(255,255,255,.09); border-radius: 27px; font-size: 24px; font-weight: 500; background: rgba(255,255,255,.07); }
+.browse .collection-detail-actions .browse-button:focus { transform: scale(1.04); background: #ededed; color: #000; border-color: transparent; }
+.browse .collection-detail-grid { display: grid; width: 100%; padding: 0 0 48px; grid-template-columns: repeat(var(--collection-detail-columns, 6), minmax(0, 1fr)); column-gap: 40px; row-gap: 57px; justify-items: center; }
+.collection-detail-grid .browse-card-title { margin: 22px 0 4px; padding: 0; font-size: 24px; line-height: 29px; }
+/* The measured tvOS collection metadata is larger than the shared source token. */
+.collection-detail-grid .browse-card-subtitle { margin: 0; padding: 0; font-size: 22px; line-height: 27px; }
+.collection-detail-grid .browse-card { --card-art-height: calc(390px * var(--poster-scale, 1)); --card-caption-gap: 22px; }
+.browse .collection-detail-grid .browse-card { width: calc(260px * var(--poster-scale, 1)); border: 0; }
+.browse .collection-detail-grid .browse-art { width: calc(260px * var(--poster-scale, 1)); height: calc(390px * var(--poster-scale, 1)); }
 /* Collection tiles contain the collage and caption, so the tile owns focus. */
-.browse .discovery-collection:focus { transform: scale(1.05); outline: 4px solid rgba(255,255,255,.7); outline-offset: -2px; box-shadow: 0 8px 36px rgba(0,0,0,.45); }
+.browse .discovery-collection:not(.collection-poster):focus { transform: scale(1.05); outline: 4px solid rgba(255,255,255,.7); outline-offset: -2px; box-shadow: 0 8px 36px rgba(0,0,0,.45); }
 @media (prefers-reduced-motion: reduce) {
     .browse .browse-card:focus .browse-art { --card-focus-scale: 1; }
     .browse .browse-card:is(:focus, [aria-current="true"]) .browse-art,
     .browse .browse-card:is(:focus, [aria-current="true"]) :is(.browse-card-title, .browse-card-subtitle),
     .browse .details-person:focus,
-    .browse .discovery-collection:focus { transform: none; }
+    .browse .discovery-collection:not(.collection-poster):focus { transform: none; }
 }
 /* Keep the file-bound picker over Details, using Skyline's existing glass and focus grammar. */
 .details-audio-picker { position: fixed; left: 88px; top: 420px; width: 620px; max-height: 560px; overflow-y: auto; z-index: 12; }

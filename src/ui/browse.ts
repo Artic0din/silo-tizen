@@ -1511,7 +1511,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 const seasons = cache.peek(operations.listSeriesSeasons(current.id)) ?? [];
                 const details = new DetailsState(detail, session, key => detailsChanged(current, key), (value, signal) => refreshWatched(current, value, signal), personalPending, translations);
                 details.restore(previous);
-                if (detail.type === "series") details.series = new SeriesEpisodes(session, detail.id, seasons, reason => details.warmSeriesEpisodes(reason === "load"), current.seriesContext?.seasonNumber, current.seriesContext?.episodeId);
+                if (detail.type === "series") details.series = new SeriesEpisodes(session, detail.id, seasons, reason => details.warmSeriesEpisodes(reason === "load"), current.seriesContext?.seasonNumber ?? (current.seriesContext === undefined ? seriesSeasons.get(current.id) : undefined), current.seriesContext?.episodeId);
                 details.series?.restore(previous?.series);
                 current.data = { detail, seasons, details };
                 cachedDetailOwners.add(details);

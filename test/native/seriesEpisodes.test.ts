@@ -43,7 +43,7 @@ for (const recovery of ["retry", "selection"] as const) test(`one neighbour succ
     state.stop();
 });
 
-async function episodeRailHarness(failedSeason?: number) {
+async function episodeRailHarness(failedSeason?: number, emptySeason?: number, heldSeason?: number) {
     const h = await connected(); await signIn(h);
     const profile = (await h.core.profiles.list()).find(profile => profile.id === "p-owner"); assert.ok(profile); h.core.profiles.select(profile);
     const catalog = new FakeDetails(); h.fake.catalog = catalog;
@@ -51,14 +51,75 @@ async function episodeRailHarness(failedSeason?: number) {
     const body = catalog.route("GET", "/catalog/series/series%3As1/seasons/1/episodes", "p-owner")?.body as { items: Record<string, unknown>[] };
     for (const season of seasons) {
         const response = { status: 200, body: { items: Array.from({ length: 14 }, (_, index) => ({ ...body.items[0], content_id: `rail:${season.seasonNumber}:${index}`, season_number: season.seasonNumber, episode_number: index + 1 })) } };
-        h.fake.script(operations.listSeasonEpisodes("series:s1", season.seasonNumber).path, season.seasonNumber === failedSeason ? problem(422, "validation_failed", "Unavailable") : response, response);
+        h.fake.script(operations.listSeasonEpisodes("series:s1", season.seasonNumber).path, season.seasonNumber === failedSeason ? problem(422, "validation_failed", "Unavailable") : season.seasonNumber === emptySeason ? { status: 200, body: { items: [] } } : response, response);
     }
     const state = new SeriesEpisodes(h.core.session, "series:s1", seasons, () => undefined, 2);
+    const held = heldSeason === undefined ? undefined : h.fake.hold(operations.listSeasonEpisodes("series:s1", heldSeason).path, true);
     const settle = async (): Promise<void> => { for (let i = 0; i < 8; i++) await h.clock.advance(0); };
     const reads = () => h.fake.requests.filter(request => request.path.includes("/episodes")).map(request => request.path);
     state.start(); await settle();
-    return { ...h, state, settle, reads };
+    return { ...h, state, settle, reads, held };
 }
+
+test("selecting an in-flight neighbour exposes selected-season failure without duplicate reads", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(3, undefined, 3); t.after(() => h.state.stop());
+    h.state.focusSeason(3); t.mock.timers.tick(70); await h.settle();
+    assert.equal(h.reads().length, 3);
+    h.held?.release(); await h.settle();
+    assert.equal(h.state.failed, true, "a finished failure must replace the selected loading state");
+    assert.equal(h.state.boundaryFailed, false, "selected-season recovery belongs to Retry episodes");
+    h.state.focusSeason(2); t.mock.timers.tick(70); await h.settle();
+    h.state.focusSeason(3); t.mock.timers.tick(70); await h.settle();
+    assert.equal(h.reads().length, 3, "failed prefetch is never retried by pill focus");
+});
+
+test("season pill dwell reuses cached pages and bounds a sweep to one cancellable read", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(); t.after(() => h.state.stop());
+    assert.equal(h.reads().length, 3);
+    h.state.focusSeason(3); t.mock.timers.tick(69); await h.settle();
+    assert.equal(h.state.seasonNumber, 2);
+    t.mock.timers.tick(1); await h.settle();
+    assert.equal(h.state.seasonNumber, 3);
+    assert.equal(h.state.entryEpisode, "rail:3:0");
+    assert.equal(h.reads().length, 3, "cached selection sends zero reads");
+    for (const season of [7, 6, 5, 4]) { h.state.focusSeason(season); t.mock.timers.tick(60); await h.settle(); }
+    assert.equal(h.reads().length, 3, "holding across missing pills sends zero reads");
+    const held = h.fake.hold(operations.listSeasonEpisodes("series:s1", 4).path, true);
+    t.mock.timers.tick(10); await h.settle();
+    assert.equal(h.reads().length, 4);
+    h.state.focusSeason(3); t.mock.timers.tick(70); await h.settle();
+    held.release(); await h.settle();
+    assert.equal(h.state.seasonNumber, 3, "abandoned read cannot select its season");
+    h.state.focusSeason(4); t.mock.timers.tick(70); await h.settle();
+    assert.equal(h.reads().length, 4, "revisit never retries the cancelled automatic read");
+});
+
+for (const outcome of ["success", "empty", "failure"] as const) test(`missing season pill ${outcome} consumes one read without warming or revisit retries`, async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(outcome === "failure" ? 4 : undefined, outcome === "empty" ? 4 : undefined); t.after(() => h.state.stop());
+    h.state.focusSeason(4); t.mock.timers.tick(70); await h.settle();
+    assert.equal(h.reads().length, 4);
+    assert.equal(h.state.failed, outcome === "failure");
+    if (outcome === "empty") assert.deepEqual(h.state.episodes, []);
+    for (const season of [3, 4, 3, 4]) { h.state.focusSeason(season); t.mock.timers.tick(70); await h.settle(); }
+    assert.equal(h.reads().length, 4, "completion and revisits never chain or retry reads");
+});
+
+for (const timing of ["pending", "completed"] as const) test(`Select confirms a ${timing} pill read across blur and warms its neighbours once`, async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(); t.after(() => h.state.stop());
+    const held = h.fake.hold(operations.listSeasonEpisodes("series:s1", 4).path, true);
+    h.state.focusSeason(4); t.mock.timers.tick(70); await h.settle();
+    assert.equal(h.reads().length, 4);
+    if (timing === "completed") { held.release(); await h.settle(); }
+    h.state.select(4); h.state.blurSeason(); await h.settle();
+    held.release(); await h.settle();
+    assert.equal(h.state.failed, false);
+    assert.equal(h.state.entryEpisode, "rail:4:0");
+    assert.equal(h.reads().length, 5, "confirmation reuses the pending read and warms only missing season 5");
+});
 
 test("focus crosses loaded seasons without episode reads or chained prefetch", async t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });

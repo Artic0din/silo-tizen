@@ -21,19 +21,18 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, 
         return previous.view;
     }
     const seasons = state.seasons.map(season => {
+        const retained = previous?.view.zones[0]?.items.find(item => item.key === `season:${season.seasonNumber}`);
+        if (retained !== undefined) {
+            retained.element.setAttribute("aria-pressed", String(season.seasonNumber === state.seasonNumber));
+            return retained;
+        }
         const item = actionButton(`season:${season.seasonNumber}`, season.title, () => state.select(season.seasonNumber));
-        let dwell: ReturnType<typeof setTimeout> | undefined;
-        item.element.addEventListener("focus", () => {
-            if (season.seasonNumber === state.seasonNumber) return;
-            dwell = setTimeout(() => {
-                if (item.element.isConnected && document.activeElement === item.element) state.select(season.seasonNumber);
-            }, 70);
-        });
-        item.element.addEventListener("blur", () => clearTimeout(dwell));
+        item.element.addEventListener("focus", () => state.focusSeason(season.seasonNumber));
+        item.element.addEventListener("blur", () => state.blurSeason());
         item.element.setAttribute("aria-pressed", String(season.seasonNumber === state.seasonNumber));
         return mediaItem(item, { id: season.id, title: season.title, type: "season" }, context);
     });
-    const content = [zoneNode("browse-row details-season-chips", seasons)];
+    const content = [previous?.view.content[0] ?? zoneNode("browse-row details-season-chips", seasons)];
     content[0]!.dataset.scrollEntry = `season:${state.seasonNumber}`;
     const episodes = (state.railEpisodes ?? []).map(episode => {
         const item = episodeCard(episode, context);

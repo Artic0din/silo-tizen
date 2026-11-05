@@ -7,6 +7,35 @@ import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
+detailTest("season focus centers the selected pill and Down uses its E01 without Select", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const seasons = catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body as { items: Record<string, unknown>[] };
+    const episodes = catalog.route("GET", "/catalog/series/series%3As1/seasons/1/episodes", "p-owner")?.body as { items: Record<string, unknown>[] };
+    await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons?**", route => route.fulfill({ json: { items: Array.from({ length: 30 }, (_, index) => ({ ...seasons.items[0], content_id: `season:${index + 1}`, season_number: index + 1, title: `Series ${index + 1}`, user_data: { played: index < 17, in_progress_count: index === 17 ? 1 : 0 } })) } }));
+    const reads: number[] = [];
+    await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons/*/episodes?**", route => {
+        const season = Number(new URL(route.request().url()).pathname.split("/").at(-2));
+        reads.push(season);
+        return route.fulfill({ json: { items: Array.from({ length: 14 }, (_, index) => ({ ...episodes.items[0], content_id: `episode:${season}:${index + 1}`, season_number: season, episode_number: index + 1 })) } });
+    });
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:19:14"]').waitFor();
+    assert.deepEqual([...reads].sort((a, b) => a - b), [17, 18, 19]);
+    const centered = async (season: number) => tv.page.locator(`[data-focus="season:${season}"]`).evaluate(node => {
+        const pill = node.getBoundingClientRect(), row = node.parentElement!.getBoundingClientRect();
+        return Math.abs((pill.left + pill.right) / 2 - (row.left + row.right) / 2) <= 1;
+    });
+    await tv.eventually(() => centered(18), "initial selected pill centered");
+    await tv.page.locator('[data-focus="season:18"]').focus();
+    await tv.remote(37); await tv.jump(100);
+    await tv.eventually(async () => await tv.page.locator('[data-focus="season:17"]').getAttribute("aria-pressed") === "true", "focus selects cached season");
+    assert.equal(await tv.focused(), "season:17");
+    assert.equal(reads.length, 3);
+    await tv.eventually(() => centered(17), "focus-selected pill centered");
+    await tv.remote(40);
+    assert.equal(await tv.focused(), "episode:17:1");
+});
+
 detailTest("episode boundary failure requires explicit Retry while loaded-season focus stays read-free", async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
     const seasons = catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body as { items: Record<string, unknown>[] };
@@ -336,6 +365,8 @@ detailTest('Related posters omit status overlays enabled in profile settings', a
 detailTest('Series episode captions leave the measured 79px heading clearance', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('.details-episodes .browse-card-subtitle').first().waitFor();
+    // Supporting sections load independently of the episode rail.
+    await tv.page.locator('.details-series-rail + *').waitFor();
     const gap = await tv.page.locator('.details-series-rail').evaluate(rail => rail.nextElementSibling!.getBoundingClientRect().top - rail.querySelector('.browse-card-subtitle')!.getBoundingClientRect().bottom);
     assert.ok(Math.abs(gap - 79) < 3, `episode caption clearance ${gap}`);
 });
@@ -1050,7 +1081,7 @@ detailTest("series Details activates season chips on focus and restores its inli
     assert.equal(await tv.focused(), "season:2");
     await tv.jump(100);
     await tv.page.locator('.details-episodes [data-focus="episode:s1e21"]').waitFor();
-    assert.equal(episodeReads(), before + 1);
+    assert.equal(episodeReads(), before, "focus selects the already warmed season without rereading it");
     await tv.page.locator('[data-focus="episode:s1e21"]').click({ button: "right" });
     await tv.page.locator('[data-focus="episode-information"]').click();
     await tv.page.locator('[data-view="item:episode:s1e21"]').waitFor();
@@ -1058,7 +1089,7 @@ detailTest("series Details activates season chips on focus and restores its inli
     await tv.page.locator('[data-view="item:series:s1"]').waitFor();
     assert.equal(await tv.focused(), "episode:s1e21");
     assert.equal(await tv.page.locator('[data-focus="season:2"]').getAttribute("aria-pressed"), "true");
-    assert.equal(episodeReads(), before + 1, "ordinary Back reuses the loaded season");
+    assert.equal(episodeReads(), before, "ordinary Back reuses the loaded season");
 });
 
 detailTest("series shares the full detail hero and next-episode track selectors", async tv => {

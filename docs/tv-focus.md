@@ -187,12 +187,16 @@ Other layers:
 ## Never Fetch on Focus
 
 Search filter pills apply their filter immediately, matching Apple TV's segmented picker, and cancel superseded reads.
-Series season pills are another read-on-focus exception: after 70 ms of resting focus, a different season activates and loads its episodes, matching `TVSeriesDetailView.scheduleModeActivation`.
-Leaving a pill cancels its pending activation; selecting it remains immediate.
+Series season pills activate after 70 ms of resting focus, matching `TVSeriesDetailView.swift:780–793` at `7baff3ef657757cc0a69202e86dd4bd5c7fcb585` (paths below are under `iosApp/iosApp/tvOS/Screens/Detail/`).
+Already loaded seasons select without a read or neighbour warming.
+For a missing season, the dwell permits one bounded episode-page read; leaving cancels the wait and any pill-owned read, and revisiting a cancelled or failed read never retries automatically.
+Select remains immediate; Retry is the explicit recovery action.
+The pill nodes stay mounted during episode updates so repainting cannot cancel their focus or request.
+The selected pill centers on initial display and selection, clamped to the row ends, following `TVSeriesDetailView.swift:653–674`; the reported Series 15–26 versus 17–28 window still needs a same-state comparison.
 The current season keeps its current episode on focus, while a different season starts at E01 and retains pill focus until Down.
 Episode-card focus still uses prefetched data and never starts a detail read.
 Crossing into a loaded season in the Series rail only selects its cached page; it starts no reads.
-Initial row loading and explicit season activation warm the neighbouring episode window.
+Initial row loading and explicit Select warm the neighbouring episode window; focus activation does not.
 The narrow rail exception is focus resting for 70 ms on an outer loaded edge with a missing neighbour: it requests that one season once per edge, without stacking pending reads or chaining further reads.
 An empty response consumes that edge's automatic read; a season-pill activation can load beyond it.
 If a successful page is later evicted by the bounded cache, reaching its edge can load that page again.

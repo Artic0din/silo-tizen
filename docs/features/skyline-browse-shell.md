@@ -224,8 +224,8 @@ Back from Requests, History or Settings keeps the profile menu closed and restor
 Back from the open profile menu itself still restores avatar focus.
 The header uses the confirmed server branding name, falling back to the host when none is cached.
 Every focused menu row uses a white platter and black text, including Sign Out.
-Change Account currently opens the existing server selection without logging out or deleting saved sign-ins.
-The real Change Account screen and multi-account support are tracked in [#185](https://github.com/Artic0din/silo-tizen/issues/185).
+Change Account opens saved accounts without logging out or deleting saved sign-ins.
+Back leaves the profile menu closed and restores the selected tab and its page.
 The header keeps the server name because Tizen has no multiple saved accounts per server.
 Sign Out requires confirmation; Cancel and Back preserve the session and restore avatar focus.
 Its two-action layout follows `TVSettingsConfirmationOverlay`: centered surface, 48/42 px padding, 38 px title, 22 px message, horizontal 260 px buttons with 16 px spacing and a 0.62 black backdrop.

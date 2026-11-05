@@ -645,6 +645,10 @@ for (const action of abandonmentActions) {
         assert.equal(await handoffs(tv), 0);
         await tv.eventually(async () => tv.fake.revokedSessions.size === 1, "the abandoned server session to be revoked");
         await tv.page.evaluate(() => window.harness.mount());
+        await tv.page.locator('[data-screen="entry"]').waitFor();
+        assert.equal(await tv.page.locator("#signin-address").inputValue(), "", "an abandoned first account leaves no saved server");
+        await tv.page.fill("#signin-address", "silo.example.test");
+        await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
         await codeScreen(tv);
         assert.equal(await handoffs(tv), 0, "restart cannot restore the abandoned account");
     });
@@ -751,14 +755,15 @@ tvTest("signing out offline still clears the TV, and the address screen says wha
     assert.equal(await tv.screen(), "entry");
     await shows(tv, "Signed out on this TV.");
     await shows(tv, "The server could not be reached, so it may still list this TV's session.");
-    assert.equal(await tv.page.inputValue("#signin-address"), "https://silo.example.test");
-    assert.equal(await tv.focused(), "connect");
+    assert.equal(await tv.page.inputValue("#signin-address"), "", "signing out of the only account removes the saved server");
+    assert.equal(await tv.focused(), "address", "the removed server must be entered again");
     assert.equal(await tv.page.evaluate(() => window.harness.keyManager?.items.size), 0);
 
     const before = tv.fake.requests.length;
     tv.offline = false;
     assert.equal(tv.fake.requests.length, before, "no reconnect until asked");
-    await tv.page.keyboard.press("Enter");
+    await tv.page.fill("#signin-address", "silo.example.test");
+    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
     await codeScreen(tv);
 });
 

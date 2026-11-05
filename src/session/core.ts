@@ -12,10 +12,13 @@ import { Profiles } from "./profiles.ts";
 import { ProfileLaunch } from "./profileLaunch.ts";
 import { openSecretStore, type TizenKeyManager } from "./secretStore.ts";
 import { NativeSession, type RestoreResult } from "./session.ts";
+import { AccountVault, type SavedAccount } from "./accounts.ts";
+import type { SecretStore } from "./secretStore.ts";
 
 export interface SessionCoreDeps {
+    readonly transientAccounts?: { readonly secrets: SecretStore; readonly storage: PublicStorage };
     readonly fetch: FetchLike;
-    /** localStorage; holds only the public device id and logout floors, never tokens. */
+    /** localStorage; public device identity, account metadata and logout floors, never tokens. */
     readonly publicStorage: PublicStorage | undefined;
     /** `findTizenKeyManager()` on a TV; undefined keeps credentials in memory for this run. */
     readonly keyManager: TizenKeyManager | undefined;
@@ -24,6 +27,11 @@ export interface SessionCoreDeps {
     readonly deviceName: string;
     readonly devicePlatform: string;
     readonly clock?: Clock;
+    readonly localAccountId?: string;
+    readonly addAccount?: boolean;
+    readonly reuseAccount?: (baseUrl: string, accountId: string) => ConnectedServer | undefined;
+    readonly beforeAccountSignIn?: (baseUrl: string, accountId: string) => Promise<void>;
+    readonly beforeAccountSignOut?: (baseUrl: string, accountId: string) => Promise<void>;
 }
 
 export interface ConnectedServer {
@@ -33,6 +41,7 @@ export interface ConnectedServer {
     readonly profiles: Profiles;
     readonly profileLaunch: ProfileLaunch;
     readonly restore: RestoreResult;
+    readonly accounts: AccountVault;
     /** A fresh sign-in flow; call `start()` to show a code. */
     createDeviceLogin(): DeviceLogin;
 }
@@ -47,9 +56,21 @@ export async function connect(serverAddress: string, deps: SessionCoreDeps, sign
         return discovered;
     }
     const server = discovered.server;
-    const vault = new CredentialVault(openSecretStore(deps.keyManager), deps.publicStorage, server.http.base.baseUrl);
-    const session = new NativeSession(server, vault, clock);
+    let vault: AccountVault;
+    const transient = deps.keyManager === undefined ? deps.transientAccounts : undefined;
+    try { vault = new AccountVault(transient?.secrets ?? openSecretStore(deps.keyManager), transient?.storage ?? deps.publicStorage, server.http.base.baseUrl, deps.randomBytes, deps.localAccountId, deps.addAccount, transient?.storage); }
+    catch {
+        // Unreadable metadata must not overwrite saved accounts; sign-in can still be session-only.
+        vault = new AccountVault(deps.transientAccounts?.secrets ?? openSecretStore(undefined), deps.transientAccounts?.storage, server.http.base.baseUrl, deps.randomBytes, undefined, true, deps.transientAccounts?.storage);
+    }
+    const session = new NativeSession(server, vault, clock, async accountId => {
+        await deps.beforeAccountSignIn?.(server.http.base.baseUrl, accountId);
+    });
     const restore = await session.restore();
+    if (restore === "signed_in" && session.account) {
+        const cached = deps.reuseAccount?.(server.http.base.baseUrl, session.account.id);
+        if (cached?.session.signedIn && cached.server.serverId === server.serverId) return { ...cached, restore: "signed_in" };
+    }
     return {
         status: "connected",
         server,
@@ -57,18 +78,39 @@ export async function connect(serverAddress: string, deps: SessionCoreDeps, sign
         profiles: new Profiles(session, clock),
         profileLaunch: new ProfileLaunch(session, deps.publicStorage, openSecretStore(deps.keyManager), deps.randomBytes, server.serverId),
         restore,
+        accounts: vault,
         createDeviceLogin: () => new DeviceLogin(session, clock, device.name, device.platform),
     };
 }
 
-/** Deletes a server's stored credential without contacting it, e.g. while it is unreachable. */
+/** Offline removal still clears local authority; reachable accounts also revoke their session. */
+export async function signOutSavedAccount(account: SavedAccount, deps: SessionCoreDeps): Promise<VaultClear> {
+    await deps.beforeAccountSignOut?.(account.baseUrl, account.accountId);
+    try {
+        const connected = await connect(account.baseUrl, { ...deps, addAccount: true });
+        if (connected.status === "connected") {
+            const transient = deps.keyManager === undefined ? deps.transientAccounts : undefined;
+            const vault = new CredentialVault(transient?.secrets ?? openSecretStore(deps.keyManager), transient?.storage ?? deps.publicStorage, account.baseUrl, account.id);
+            const session = new NativeSession(connected.server, vault, deps.clock ?? systemClock);
+            await session.restore();
+            if (session.signedIn && (await session.logout()).storage === "failed") return "failed";
+        }
+    } catch {
+        // Discovery can fail offline; protected storage remains the local sign-out authority.
+    }
+    const transient = deps.keyManager === undefined ? deps.transientAccounts : undefined;
+    return new AccountVault(transient?.secrets ?? openSecretStore(deps.keyManager), transient?.storage ?? deps.publicStorage, account.baseUrl, deps.randomBytes, account.id, false, transient?.storage).signOut();
+}
+
+/** Clears only the selected sign-in, or the legacy sign-in when no account is selected. */
 export async function forgetStoredCredential(
     serverAddress: string,
-    deps: Pick<SessionCoreDeps, "publicStorage" | "keyManager">,
+    deps: Pick<SessionCoreDeps, "publicStorage" | "keyManager" | "localAccountId">,
 ): Promise<VaultClear | ServerUrlProblem> {
     const parsed = parseServerUrl(serverAddress);
     if (!parsed.ok) {
         return parsed.problem;
     }
-    return new CredentialVault(openSecretStore(deps.keyManager), deps.publicStorage, parsed.base.baseUrl).clear();
+    const store = openSecretStore(deps.keyManager);
+    return new AccountVault(store, deps.publicStorage, parsed.base.baseUrl, () => undefined, deps.localAccountId).clear();
 }

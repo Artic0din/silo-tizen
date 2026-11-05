@@ -218,6 +218,8 @@ Outcomes:
 | No answer, or another status of 500 or above | `uncertain`; it may have counted. |
 
 `ProfileLaunch` (`src/session/profileLaunch.ts`) can remember a profile choice per account and device.
+Fresh TVs show the profile picker even for one unprotected profile until the viewer chooses Remember.
+Account migration preserves the existing launch choice and does not select a profile.
 The choice is public storage and the PIN proof is in KeyManager under a random alias.
 On restore it re-checks the profile with a profile-scoped `GET /user/libraries`.
 Remembering a PIN proof is refused when protected storage is not persistent.

@@ -217,6 +217,7 @@ The app honours `prefers-reduced-motion: reduce`.
 Focus itself and key handling are synchronous in both modes.
 Reduced motion changes how things move, never where focus lands or when.
 Focus moves use `focus({ preventScroll: true })` and the host scrolls via `SkylineScroll.reveal`, so the browser never scrolls on its own.
+Account chooser columns and the Accounts settings list use the same reveal owner to keep focused rows and Add actions visible.
 (`ScreenHost` uses a plain `focus()`.)
 
 ## Player Keys

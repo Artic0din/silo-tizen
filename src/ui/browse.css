@@ -51,41 +51,56 @@
 /* Pushed Details pages: editorial hero and remote-reachable rails, no root chrome. */
 .details-hero {
     position: relative;
-    min-height: 600px;
-    margin-bottom: 28px;
+    height: 690px;
+    margin: -56px -88px 0;
+    isolation: isolate;
+    overflow: clip;
 }
-.details-backdrop {
-    position: absolute;
-    top: -56px;
-    right: -88px;
-    bottom: 0;
-    width: 1500px;
-    overflow: hidden;
-    pointer-events: none;
-}
-.details-backdrop::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    background: linear-gradient(90deg, #000 0%, rgba(0,0,0,.7) 36%, rgba(0,0,0,.15) 100%), linear-gradient(0deg, #000 0%, transparent 60%);
-}
-.details-editorial { position: relative; padding-top: 48px; width: 1000px; }
-.details-editorial .browse-title { max-width: 950px; font-size: 76px; margin-bottom: 28px; }
-.details-logo { display: block; max-width: 860px; max-height: 180px; object-fit: contain; object-position: left center; }
-.details-editorial .browse-overview { max-width: 880px; font-size: 26px; line-height: 30px; max-height: 90px; margin-bottom: 20px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.details-hero .skyline-hero-backdrop { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.browse:has(> .details-page-wash) { isolation: isolate; }
+.details-page-wash { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+.details-rating-badge { flex-shrink: 0; margin-right: 14px; padding: 4px 10px; border: 1.5px solid rgba(255,255,255,.78); border-radius: 5px; color: #fff; font-size: 18px; font-weight: 700; }
+.details-editorial { position: relative; padding-top: 116px; margin-left: 100px; width: 1080px; }
+.details-editorial .browse-title { max-width: 1080px; margin: 0 0 14px; }
+.details-editorial .browse-meta { font-size: 24px; line-height: 36px; margin: 0 0 14px; }
+.details-logo { display: block; max-width: 650px; max-height: 160px; object-fit: contain; object-position: left center; }
+.details-editorial .browse-overview { max-width: 1080px; font-size: 26px; line-height: 36px; max-height: 108px; margin-bottom: 14px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .details-editorial .browse-actions { margin-bottom: 0; }
 .details-editorial .browse-button { padding: 18px 28px; margin-right: 16px; }
 .details-director, .details-playback-summary { margin: 0 0 20px; color: var(--silo-secondary); font-size: 20px; line-height: 26px; }
+.details-playback-summary { display: flex; gap: 8px; width: 1031px; height: 44px; margin-bottom: 18px; }
+.details-playback-summary > div { display: flex; align-items: baseline; gap: 6px; overflow: hidden; font-size: 23px; }
+.details-playback-summary > div:nth-child(1) { width: 313px; }
+.details-playback-summary > div:nth-child(2) { width: 364px; }
+.details-playback-summary > div:nth-child(3) { width: 338px; }
+.details-playback-summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.details-playback-summary strong { font-size: 23px; }
+.details-hero[data-media-type="series"] .details-editorial .browse-overview { height: 112px; max-height: 112px; }
+.details-series-editorial { position: relative; height: 435px; overflow: hidden; }
+.details-hero[data-media-type="series"] { overflow: visible; }
+.details-hero:not([data-media-type="series"]) { height: auto; min-height: 690px; }
+.details-series-primary { height: 351px; overflow: hidden; }
+.details-series-disclosure { position: absolute; bottom: 0; left: 0; width: 1080px; height: 80px; }
+.details-series-disclosure .details-director { height: 28px; margin: 0 0 8px; overflow: hidden; white-space: nowrap; }
+.details-series-disclosure .details-playback-summary { margin-bottom: 0; }
+.details-hero[data-media-type="series"] .details-editorial .browse-actions { margin-top: 6px; }
+.details-director { font-size: 23px; line-height: 28px; margin-bottom: 14px; }
 .details-editorial .browse-actions { display: flex; align-items: center; gap: 18px; }
 .details-editorial .details-action { display: inline-flex; align-items: center; justify-content: center; gap: 18px; flex-shrink: 0; height: 76px; margin: 0; border-radius: 38px; }
 .details-action svg { width: 32px; height: 32px; flex-shrink: 0; }
-.details-editorial .details-play { min-width: 300px; font-size: 28px; }
+.details-editorial .details-play { min-width: 340px; font-size: 29px; }
 .details-editorial .details-circle { width: 76px; padding: 0; }
 .details-circle .details-action-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.details-editorial .details-circle:focus { width: auto; padding: 0 28px; }
+.details-circle:focus .details-action-label { position: static; width: auto; height: auto; clip-path: none; }
+.details-external-rating { display: inline-flex; align-items: center; gap: 10px; margin: 0 14px; }
+.details-external-rating img { width: 54px; height: 20px; }
+.details-rating-divider { height: 22px; border-left: 1px solid rgba(255,255,255,.45); }
+.details-genres { margin-left: 14px; }
+.details-related-placeholder { display: inline-block; width: calc(220px * var(--poster-scale, 1)); height: calc(330px * var(--poster-scale, 1)); margin-right: 44px; border-radius: 12px; background: rgba(255,255,255,.1); }
 .details-versions { margin-bottom: 28px; padding-bottom: 12px; }
+.details-extras .details-extra { width: 470px; margin-right: 48px; }
+.details-extras .browse-still { width: 470px; height: 264px; border-radius: 18px; }
 .details-versions .browse-button[aria-pressed="true"] { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.4); }
 .details-versions .browse-button:focus { background: #fff; color: #000; }
 .browse-row .browse-card.details-person { width: 200px; margin-right: 60px; border: 0; border-radius: 0; }
@@ -98,13 +113,26 @@
 .details-photo .browse-art-fallback { position: absolute; inset: 0; font-size: 0; }
 .details-photo .browse-art-fallback::before { content: ""; position: absolute; top: 64px; left: 80px; width: 40px; height: 40px; border-radius: 50%; background: var(--silo-secondary); }
 .details-photo .browse-art-fallback::after { content: ""; position: absolute; top: 110px; left: 62px; width: 76px; height: 30px; border-radius: 38px 38px 8px 8px; background: var(--silo-secondary); }
-.details-season-chips { margin-bottom: 0; padding: 8px 0; }
-.details-season-chips .browse-button { font-size: 24px; padding: 12px 24px; margin-right: 12px; border-radius: 28px; }
+.details-season-chips { margin-bottom: 14px; padding: 4px 0; }
+.details-season-chips .browse-button { height: 52px; font-size: 22px; padding: 0 24px; margin-right: 12px; border-radius: 28px; }
 .details-season-chips .browse-button[aria-pressed="true"] { background: rgba(255,255,255,.16); }
 .details-season-chips .browse-button:focus { background: #fff; color: #000; }
-.details-series-rail .browse-row { padding-top: 34px; }
+.details-series-rail .browse-row { padding-top: 12px; }
+.browse .details-series-rail .browse-card { margin-right: 54px; }
 .details-series-rail .browse-card { scroll-margin-top: 24px; }
-.details-facts { padding: 24px; margin: 32px 0 48px; }
+.browse.details-series-scene { padding-bottom: 540px; }
+.browse .details-series-rail .browse-card.skyline-continue, .browse .details-series-rail .skyline-continue .browse-art { width: calc(360px * var(--poster-scale, 1)); }
+.browse .details-series-rail .skyline-continue .browse-art { height: calc(200px * var(--poster-scale, 1)); }
+.details-facts { margin: 51px 0 140px; }
+.details-facts-table { max-width: 1400px; margin: 14px 0 0; }
+.details-fact-row { display: flex; gap: 64px; padding: 22px 0; border-top: 1px solid rgba(255,255,255,.08); }
+.details-fact-row:first-child { border-top: 0; }
+.details-fact-row dt { width: 260px; flex-shrink: 0; font-size: 18px; font-weight: 700; letter-spacing: 2px; color: rgba(237,237,237,.5); }
+.details-fact-row dd { margin: 0; font-size: 22px; }
+.details-facts-table:focus { outline: none; background: rgba(255,255,255,.06); }
+.browse [data-detail-section="related"] .browse-card, .browse [data-detail-section="related"] .browse-art { width: calc(220px * var(--poster-scale, 1)); }
+.browse [data-detail-section="related"] .browse-art { height: calc(330px * var(--poster-scale, 1)); }
+.browse [data-detail-section="related"] .browse-card { margin-right: 44px; }
 .details-facts .browse-text { padding: 12px; font-size: 24px; border: 2px solid transparent; border-radius: 12px; }
 .details-facts .browse-text:focus { outline: none; border-color: #fff; }
 /* tvOS person portrait is 300×450, not the 260×390 poster. siloSmall capsules, 12px radius. */
@@ -474,7 +502,8 @@
 }
 
 /* Apple EpisodeSpoilerBlur.radius is 24. The image grows by that radius on every side (48px) so the blur fringe falls outside the clip, matching SwiftUI blur(radius:opaque: true). */
-.episode-spoiler-blur > .browse-art-image {
+.episode-spoiler-blur > .browse-art-image,
+.details-hero .episode-spoiler-blur > .skyline-backdrop {
     filter: blur(24px);
     width: calc(100% + 48px);
     height: calc(100% + 48px);
@@ -763,8 +792,8 @@
 .skyline-home .home-section .browse-row { margin-left: -80px; padding-left: 80px; --reveal-end: 80px; }
 .skyline-home .skyline-hero-backdrop { position: fixed; inset: 0; width: 1920px; height: 1080px; z-index: -2; pointer-events: none; }
 .skyline-home .skyline-tint-wash { position: absolute; inset: 0; background: #000; }
-.skyline-home .skyline-art-frame { position: absolute; top: 0; left: 691.2px; width: 1228.8px; height: 756px; overflow: hidden; mask-image: linear-gradient(to bottom, #000 0%, #000 38%, rgba(0,0,0,.88) 52%, rgba(0,0,0,.58) 68%, rgba(0,0,0,.24) 81%, transparent 90%); }
-.skyline-home .skyline-backdrop { position: static; display: block; width: 100%; height: 100%; object-fit: cover; mask-image: linear-gradient(to left, #000 0%, #000 32%, transparent 100%); }
+.skyline-home .skyline-art-frame, .details-hero .skyline-art-frame { position: absolute; top: 0; left: 691.2px; width: 1228.8px; height: 756px; overflow: hidden; mask-image: linear-gradient(to bottom, #000 0%, #000 38%, rgba(0,0,0,.88) 52%, rgba(0,0,0,.58) 68%, rgba(0,0,0,.24) 81%, transparent 90%); }
+.skyline-home .skyline-backdrop, .details-hero .skyline-backdrop { position: static; display: block; width: 100%; height: 100%; object-fit: cover; mask-image: linear-gradient(to left, #000 0%, #000 32%, transparent 100%); }
 .skyline-home .skyline-top-scrim, .requests-preview .skyline-top-scrim { position: absolute; top: 0; left: 0; width: 100%; height: 190px; background: linear-gradient(rgba(0,0,0,.5), transparent); }
 .skyline-grid .skyline-content { top: 228px; height: 852px; }
 .skyline-grid .browse-grid { width: 1680px; }
@@ -925,6 +954,54 @@
 .details-audio-picker { position: fixed; left: 88px; top: 420px; width: 620px; max-height: 560px; overflow-y: auto; z-index: 12; }
 .details-audio-options { display: flex; flex-direction: column; gap: 12px; }
 .details-audio-options .browse-button { width: 100%; text-align: left; }
+.details-track-popover { width: 560px; padding: 14px; border-radius: 24px; background: #28282b; box-shadow: 0 12px 40px rgba(0,0,0,.4); }
+.details-track-popover .details-audio-options { gap: 2px; }
+.details-track-popover .browse-button { box-sizing: border-box; height: 76px; padding-top: 13px; padding-bottom: 13px; font-size: 24px; line-height: 28px; }
+.details-track-popover .details-option-subtext { font-size: 17px; line-height: 20px; }
+.details-track-popover .details-option-title, .details-track-popover .details-option-subtext { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.details-track-popover .browse-button { position: relative; padding-left: 56px; }
+.details-track-popover [aria-checked="true"]::before { content: "✓"; position: absolute; left: 20px; top: 20px; }
+.skyline-selector.details-track-popover .browse-button[aria-checked="true"]:not(:focus) { background: transparent; }
+.details-track-popover .browse-section-title { font-size: 18px; letter-spacing: 2px; opacity: .6; }
+.details-option-subtext { display: block; font-size: 20px; line-height: 26px; opacity: .65; }
+/* Detail metrics are scoped here after the shared Home card and heading rules. */
+.browse:has(.details-hero) > .browse-section-title, .browse:has(.details-hero) .details-facts > .browse-section-title { margin-left: 12px; margin-bottom: 14px; font-size: 36px; line-height: 43.2px; font-weight: 600; }
+.details-editorial .browse-title:has(.details-logo) { display: flex; align-items: flex-end; height: 160px; }
+.details-editorial .browse-meta { line-height: 29px; }
+.details-hero[data-media-type="series"] .browse-meta { height: 36px; }
+.details-hero[data-media-type="series"] .details-editorial .browse-meta { color: rgb(225,227,228); }
+.details-editorial .browse-overview { line-height: 34px; max-height: 102px; color: rgb(237,237,237); }
+.details-hero[data-media-type="series"] .details-editorial .browse-overview { height: 102px; max-height: 102px; color: rgb(244,245,246); }
+.details-editorial .browse-meta { margin-bottom: 10px; }
+.details-hero[data-media-type="movie"] .browse-overview { margin-bottom: 16px; }
+.details-hero[data-media-type="movie"] .details-director { margin-bottom: 15px; }
+.details-hero[data-media-type="movie"] .details-playback-summary { margin-bottom: 19px; }
+.details-editorial .details-playback-summary strong { font-weight: 600; color: rgba(237,237,237,.5); }
+.details-editorial .details-playback-summary span { color: rgba(255,255,255,.9); }
+.details-editorial .details-play:not(:focus) { background: rgb(31,51,57); border-color: transparent; }
+.details-hero .browse-meta, .details-director { color: rgba(237,237,237,.75); }
+.details-episodes .browse-watched { background: #fff; }
+.details-editorial .details-circle:is(:focus, [aria-expanded="true"]) { background: #fff; color: #000; width: auto; padding: 0 28px; }
+.details-circle[aria-expanded="true"] .details-action-label { position: static; width: auto; height: auto; clip-path: none; }
+.details-editorial .details-circle { gap: 14px; font-size: 26px; font-weight: 600; color: #fff; background: rgba(255,255,255,.10); border-color: transparent; }
+.details-circle svg { width: 38px; height: 38px; }
+.details-editorial .details-circle:focus { background: #fff; }
+.details-external-rating { margin: 0; gap: 8px; }
+.details-external-rating img { width: auto; height: 16.8px; }
+.details-rating-score { font-weight: 700; color: #fff; }
+.details-genres { margin-left: 0; }
+.details-season-chips { padding: 4px 0; }
+.details-series-rail .details-episodes { padding: 12px calc(59px + 360px * var(--poster-scale, 1) * .025 + 2px); }
+.browse:has(.details-hero) > .browse-row:has(+ .browse-section-title) { margin-bottom: 35px; }
+/* The episode row already contributes 12px of bottom padding. */
+.browse:has(.details-hero) > .details-series-rail { margin-bottom: calc(79px - 12px); }
+.browse:has(.details-hero) .details-facts { margin-top: 34px; }
+/* TVDetailCastRail pads both edges by 12px so its 1.05 focus lift fits. */
+.browse:has(.details-hero) > .details-people { padding-top: 12px; }
+.browse .details-series-rail .browse-card { margin-right: 40px; }
+.details-facts-table { position: relative; margin-left: 12px; }
+.details-facts-table:focus { background: transparent; }
+.details-facts-table:focus::before { content: ""; position: absolute; inset: -14px -28px; border-radius: 12px; background: rgba(255,255,255,.06); pointer-events: none; }
 /* Calendar events keep their own metadata and are never paged or capped.
    The shared content box is full width, like Home: Apple's shelves use scrollClipDisabled
    and run to the screen edge. The 80pt safe padding stays inside, so headings and the

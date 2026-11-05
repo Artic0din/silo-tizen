@@ -59,7 +59,10 @@ test("unwatched episode stills blur and descriptions drop while series text stay
         assert.equal(await tv.page.locator(".browse-overview").count(), 0);
         assert.equal(await tv.page.locator('[data-focus="synopsis"]').count(), 0);
         assert.equal(await tv.page.getByText("A synthetic episode for the browse tests.", { exact: true }).count(), 0);
-        assert.equal(await tv.page.locator(".details-backdrop.episode-spoiler-blur .browse-art-image").evaluate(node => getComputedStyle(node).filter), "blur(24px)");
+        assert.equal(await tv.page.locator(".details-hero .episode-spoiler-blur .skyline-backdrop").evaluate(node => getComputedStyle(node).filter), "blur(24px)");
+        const blur = await tv.page.locator(".details-hero .episode-spoiler-blur .skyline-backdrop").evaluate(node => ({ width: node.getBoundingClientRect().width, frame: node.parentElement!.getBoundingClientRect().width, margin: getComputedStyle(node).marginLeft }));
+        assert.equal(blur.width, blur.frame + 48);
+        assert.equal(blur.margin, "-24px");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

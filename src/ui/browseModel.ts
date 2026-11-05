@@ -20,6 +20,8 @@ export interface PlayRequest {
     readonly startSeconds: number | undefined;
 }
 
+export type EpisodeSelection = Partial<Pick<PlayRequest, "fileId" | "audioTrackId" | "subtitle">>;
+
 /** A place a card or row opens. Items open their detail page; seasons open their episode list. */
 export type Destination =
     | { readonly kind: "person"; readonly id: string; readonly title: string }

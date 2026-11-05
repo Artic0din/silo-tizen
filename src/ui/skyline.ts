@@ -463,6 +463,8 @@ export class Skyline {
             const delta = rect.left < row.left ? rect.left - row.left : rect.right > row.right ? rect.right - row.right : 0;
             if (delta !== 0) this.scroll.move(this.roots, this.roots.scrollLeft + delta, 0);
         }
+        // A personal list keeps its tab. Dwell would reopen For You and steal Down.
+        if (this.personalListVisible() && item.key === this.selected) return;
         if (item.key === "profiles") {
             this.cancelDwell = this.clock.schedule(() => {
                 if (document.activeElement === item.element && this.visible) this.openProfile();
@@ -522,11 +524,20 @@ export class Skyline {
         this.refresh();
     }
 
+    /** Watchlist and Favorites stay on screen under the tab that opened them. */
+    private personalListVisible(): boolean {
+        return this.container.classList.contains("personal-lists");
+    }
+
     private readonly onKey = (event: KeyboardEvent): void => {
         if (!this.visible) return;
         const key = remoteKey(event);
         const anchor = this.items.find(item => item.element === document.activeElement);
         if (key === "down" && anchor?.element.hasAttribute("aria-haspopup")) {
+            if (this.personalListVisible() && anchor.key === this.selected) {
+                this.cancelDwell();
+                return;
+            }
             event.preventDefault();
             this.cancelDwell();
             if (anchor.key === "profiles") this.openProfile();

@@ -153,34 +153,73 @@ test("native comparison: History title matches the captured system title", async
     } finally { await tv.page.context().close(); }
 });
 test("native comparison: History scrolls first, middle and last rows to the native focus anchor", async () => {
-    const { tv, catalog } = await setup();
+    const { tv, catalog } = await setup(false, "compact");
     try {
         await tv.page.emulateMedia({ reducedMotion: "reduce" });
         const reply = catalog.route("POST", "/catalog/query", "p-owner", { source: "history", limit: 60 });
         const body = reply?.body as { items: Record<string, unknown>[] };
-        catalog.pageReplies.push({ status: 200, body: { ...body, items: body.items.slice(0, 24), page: { has_more: false } } });
+        // Four compact rows end before the fourth poster can reach y554. Six rows leave that scroll room.
+        catalog.pageReplies.push({ status: 200, body: { ...body, items: body.items.slice(0, 36), page: { has_more: false } } });
         await openList(tv, "history");
+        // The signed compact poster is 224 wide. Its caption is the 22px history gap, 29px title, 4px title margin and 24px subtitle.
+        const signedCaption = 22 + 29 + 4 + 24;
+        await tv.eventually(async () => Math.abs(await tv.page.locator(".personal-history .browse-art").first().evaluate(node => node.getBoundingClientRect().width) - 224) < 1, "signed 224-wide poster");
+        const row = await tv.page.locator(".personal-history").evaluate(node => {
+            const cards = [...node.querySelectorAll(".browse-card")];
+            const art = cards[0]?.querySelector(".browse-art")?.getBoundingClientRect();
+            const first = cards[0]?.getBoundingClientRect().top ?? 0;
+            const next = cards[6]?.getBoundingClientRect().top ?? 0;
+            return { artWidth: art?.width ?? 0, artHeight: art?.height ?? 0, first, pitch: next - first };
+        });
+        assert.ok(Math.abs(row.artWidth - 224) < 1, "signed poster is 224 wide");
+        assert.ok(Math.abs(row.pitch - (row.artHeight + signedCaption + 60)) < 1, "row height is the 224-wide poster plus its caption, not the taller 529px fake row");
         const geometry = () => tv.page.locator(".personal-history").evaluate(node => {
             const card = node.querySelector(".browse-card:focus");
             const art = card?.querySelector(".browse-art");
             return { card: card?.getBoundingClientRect().top, art: art?.getBoundingClientRect().top, scroll: node.querySelector(".skyline-content")?.scrollTop };
         });
+        const applePosterTop = 554;
         assert.deepEqual(await geometry(), { card: 236, art: 236, scroll: 0 });
-        await tv.remote(40);
-        assert.deepEqual(await geometry(), { card: 564, art: 564, scroll: 201 });
-        await tv.remote(40);
-        assert.deepEqual(await geometry(), { card: 564, art: 564, scroll: 730 });
-        await tv.remote(40);
-        assert.deepEqual(await geometry(), { card: 564, art: 564, scroll: 1259 });
+        for (const index of [1, 2, 3]) {
+            await tv.remote(40);
+            const got = await geometry();
+            const scroll = row.first + index * row.pitch - applePosterTop;
+            assert.ok(Math.abs((got.art ?? 0) - applePosterTop) < 1, `row ${index + 1} poster top is Apple's y554, replacing the old y564 anchor`);
+            assert.ok(Math.abs((got.card ?? 0) - applePosterTop) < 1, `row ${index + 1} card top matches its poster`);
+            assert.ok(Math.abs((got.scroll ?? 0) - scroll) < 1, `row ${index + 1} scroll uses the 224-wide row, replacing the old taller-row scroll`);
+        }
         await tv.page.emulateMedia({ reducedMotion: "no-preference" });
+        const lift = row.artHeight * 0.025;
+        const contentTop = await tv.page.locator(".personal-history .skyline-content").evaluate(node => node.getBoundingClientRect().top);
         // The focus lift changes the painted frame, never the scroll anchor.
-        await tv.eventually(async () => Math.abs(((await geometry()).art ?? 0) - 554.25) < .1, "focused poster lift");
+        await tv.eventually(async () => Math.abs(((await geometry()).art ?? 0) - (applePosterTop - lift)) < .2, "focused poster lift of the 224-wide poster; the old 554.25 was the 390px poster parked at y564");
         await tv.remote(38);
-        await tv.eventually(async () => Math.abs(((await geometry()).art ?? 0) - 148.25) < .1, "previous row top edge");
+        await tv.eventually(async () => Math.abs(((await geometry()).art ?? 0) - (contentTop + 12 - lift)) < 1, "previous row top edge; the old 148.25 was the 390px lift");
         await tv.remote(38);
-        await tv.eventually(async () => Math.abs(((await geometry()).art ?? 0) - 148.25) < .1, "second row top edge");
+        await tv.eventually(async () => Math.abs(((await geometry()).art ?? 0) - (contentTop + 12 - lift)) < 1, "second row top edge; the old 148.25 was the 390px lift");
         await tv.remote(38);
         await tv.eventually(async () => (await geometry()).scroll === 0, "first row returns to the top");
+    } finally { await tv.page.context().close(); }
+});
+test("Down from the retained For You tab enters the visible watchlist", async () => {
+    const { tv } = await setup();
+    try {
+        await tv.page.locator('[data-focus="for_you"]').click();
+        await tv.page.locator('[data-view="for_you"]').waitFor();
+        await tv.page.locator('[data-focus="for_you"]').focus();
+        await tv.remote(40);
+        await tv.page.locator('[data-focus="watchlist"]').click();
+        const card = tv.page.locator('[data-view="personal:watchlist"] .browse-card').first();
+        await card.waitFor();
+        const key = await card.getAttribute("data-focus");
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "for_you");
+        assert.equal(await tv.page.locator('[data-view="personal:watchlist"]').count(), 1);
+        await tv.jump(250);
+        assert.equal(await tv.page.locator(".skyline-selector:not([hidden])").count(), 0, "dwell must not reopen For You over a visible list");
+        await tv.remote(40);
+        assert.equal(await tv.page.locator(".skyline-selector:not([hidden])").count(), 0, "Down must not reopen the For You menu");
+        assert.equal(await tv.focused(), key, "Down from the retained tab enters the list");
     } finally { await tv.page.context().close(); }
 });
 test("pinned History scope distinguishes aggregated media from episode queries", () => {
@@ -237,11 +276,12 @@ test("History count uses exact totals and ignores server estimates", async () =>
 });
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
-async function setup(record = false, large = false): Promise<{ tv: Tv; catalog: PersonalCatalog }> {
+async function setup(record = false, poster: boolean | "compact" = false): Promise<{ tv: Tv; catalog: PersonalCatalog }> {
     const tv = await openTv(browser, { app: "browse", ...(!record || process.env.PERSONAL_VIDEO === undefined ? {} : { video: process.env.PERSONAL_VIDEO }) });
     const catalog = new PersonalCatalog();
     tv.fake.catalog = catalog;
-    if (large) new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "large", caption: "title_metadata" });
+    const size = poster === true ? "large" : poster === "compact" ? "compact" : undefined;
+    if (size !== undefined) new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: size, caption: "title_metadata" });
     await tv.page.evaluate(() => window.browseHarness.connect());
     await tv.eventually(async () => tv.fake.devices.size > 0, "device code");
     tv.fake.approve([...tv.fake.devices.keys()][0] ?? "");

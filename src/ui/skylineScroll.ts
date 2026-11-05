@@ -1,4 +1,5 @@
-const HISTORY_POSTER_BOTTOM_CLEARANCE = 126;
+/** Apple's focused History rows 2 and 3 put the unlifted poster top here. */
+const HISTORY_POSTER_TOP = 554;
 
 /** Retarget from the visible position; focus itself must never invoke browser scrolling. */
 export class SkylineScroll {
@@ -52,16 +53,16 @@ export class SkylineScroll {
         const bounds = viewport.getBoundingClientRect();
         if (container.dataset.view === "personal:history" && element.closest(".catalog-grid") !== null) {
             // HistoryView's plain ScrollView uses native edge reveal, not Home's row alignment.
-            // The signed tvOS comparison puts a 390-point poster at y564 on downward reveal
-            // (bottom y954). Anchor the unlifted artwork so focus animation cannot retarget it.
+            // Park the unlifted poster top at Apple's y554. A bottom anchor tuned to the
+            // test's 390px poster leaves the signed 224×335 row about 54px low.
+            // Focus scale must not retarget the anchor.
             const art = element.querySelector<HTMLElement>(".browse-art");
             if (art !== null) {
                 const height = parseFloat(getComputedStyle(art).height);
                 const artRect = art.getBoundingClientRect();
                 const top = artRect.top + (artRect.height - height) / 2;
-                const bottom = bounds.bottom - HISTORY_POSTER_BOTTOM_CLEARANCE;
                 const firstRow = element.offsetTop === (element.parentElement?.firstElementChild as HTMLElement | null)?.offsetTop;
-                const delta = top < bounds.top + 12 ? top - bounds.top - 12 : top + height > bottom ? top + height - bottom : 0;
+                const delta = top < bounds.top + 12 ? top - bounds.top - 12 : top > HISTORY_POSTER_TOP ? top - HISTORY_POSTER_TOP : 0;
                 this.move(viewport, 0, firstRow ? 0 : Math.max(0, viewport.scrollTop + delta));
                 return;
             }

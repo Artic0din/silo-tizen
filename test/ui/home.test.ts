@@ -49,6 +49,20 @@ journey("Home retains cached rows after remount offline and refreshes on recover
     await tv.eventually(() => tv.page.evaluate(() => !window.browseHarness.cacheOffline()), "recovered Home");
 });
 
+test("missing Details artwork renders its tint without an empty image", async () => {
+    const page = await browser.newPage();
+    try {
+        const fixture = await build({ entryPoints: [new URL("../../src/ui/heroBackdrop.ts", import.meta.url).pathname], bundle: true, format: "iife", globalName: "HomeBackdropFixture", target: "chrome108", write: false });
+        await page.addScriptTag({ content: fixture.outputFiles[0]?.text ?? "" });
+        const content = await page.evaluate(() => {
+            const fixture = Reflect.get(window, "HomeBackdropFixture") as typeof import("../../src/ui/heroBackdrop.ts");
+            const backdrop = fixture.heroBackdrop("", undefined, new Map(), true);
+            return { images: backdrop.querySelectorAll("img").length, frames: backdrop.querySelectorAll(".skyline-art-frame").length, washes: backdrop.querySelectorAll(".skyline-tint-wash").length };
+        });
+        assert.deepEqual(content, { images: 0, frames: 0, washes: 1 });
+    } finally { await page.context().close(); }
+});
+
 journey("Details reopens cached metadata while unreachable", async tv => {
     const card = '[data-section="recent/12"] [data-focus="movie:m0004"]';
     await tv.page.locator(card).click();

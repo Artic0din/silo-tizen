@@ -13,7 +13,7 @@ import type { Reply } from "../native/support/fakeSilo.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { CARD_OVERLAYS_KEY, CARD_PRESENTATION_KEY } from "../../src/contracts/v2/settings.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
-import { homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { detailReads, homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
 const IME_DONE = 65376;
@@ -124,9 +124,13 @@ for (const multipleLibraries of [false, true]) browseTest(`section selection clo
     await tv.page.locator('[data-focus="movies"]').click();
     await showing(tv, "library:12");
     await selectLibraryMode(tv, "Collections");
+    await tv.page.locator('.browse [data-focus="collection:highlights"]').waitFor();
     const loading = tv.fake.hold("/library/12/sections", true);
-    await tv.page.locator('[data-focus="movies"]').focus();
-    await tv.remote(40);
+    await tv.page.locator('[data-focus="movies"]').evaluate(node => {
+        (node as HTMLElement).focus({ preventScroll: true });
+        node.dispatchEvent(new KeyboardEvent("keydown", { keyCode: 40, bubbles: true, cancelable: true }));
+        (document.activeElement ?? node).dispatchEvent(new KeyboardEvent("keyup", { keyCode: 40, bubbles: true, cancelable: true }));
+    });
     if (multipleLibraries) {
         await tv.page.locator('[data-focus="library:12"]').focus();
         await tv.remote(39);
@@ -2886,8 +2890,14 @@ browseTest("many libraries stay bounded; dwell and Back never commit; scope surv
     assert.ok(household);
     household.hidden = [];
     for (let index = 0; index < 20; index++) household.libraries.push({ id: String(index + 30), name: `Library ${index} with a long title`, type: "movies", sort_order: index + 10 });
+    const previousReads = detailReads(tv).length;
+    let release = (): void => {};
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    await tv.page.route("**/api/v2/catalog/items/**", async route => { await pending; await route.fallback(); });
     await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
     await showing(tv, "home");
+    release();
+    await homeDetailsRead(tv, previousReads);
     assert.equal(await tv.page.locator(".browse").evaluate((node) => node.scrollWidth), 1920);
     await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
     await tv.page.evaluate(() => { window.retainedNavigation = document.querySelector(".browse-nav"); });

@@ -34,6 +34,7 @@ export interface CredentialsView {
     /** Undefined on a server without code sign-in: no phone route to point at. */
     readonly phone: (() => void) | undefined;
     readonly change: () => void;
+    readonly changeLabel?: string;
     readonly back: () => void;
 }
 
@@ -84,7 +85,7 @@ export function credentialsScreen(view: CredentialsView): CredentialsScreen {
     if (view.phone !== undefined) {
         row.push(marqueeButton("phone", "Use your phone instead", "plain", view.phone, { glyph: "qrcode" }));
     }
-    row.push(marqueeButton("change", "Change server", "plain", view.change));
+    row.push(marqueeButton("change", view.changeLabel ?? "Change server", "plain", view.change));
     // Nothing else may start, or leave, while a sign-in is in flight.
     for (const control of row.slice(1)) {
         control.element.toggleAttribute("disabled", view.submitting);

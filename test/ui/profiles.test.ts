@@ -38,7 +38,7 @@ tvTest("the profile picker uses source-sized circular avatars and centered accou
     assert.equal(geometry.accountWeight, "400");
     assert.equal(geometry.footerGap, 20);
     assert.equal(await tv.page.getByText(/^Signed in as /).isVisible(), true);
-    assert.equal(await tv.page.getByRole("button", { name: "Change server", exact: true }).isVisible(), true);
+    assert.equal(await tv.page.getByRole("button", { name: "Change account", exact: true }).isVisible(), true);
     assert.equal(await tv.page.getByRole("button", { name: "Add profile", exact: true }).isVisible(), true);
 });
 
@@ -740,7 +740,7 @@ tvTest("creation validates locally and cancellation restores Add without launchi
     await screenIs(tv, "profiles");
     assert.equal(await tv.focused(), "add-profile");
     assert.equal((await handed(tv)).length, 0);
-    await tv.page.getByRole("button", { name: "Change server", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Change account", exact: true }).click();
     assert.equal(await tv.page.locator('[data-screen="server-selection"]').count(), 1);
     assert.equal(tv.fake.revokedSessions.size, 0);
 });

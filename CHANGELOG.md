@@ -4,8 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added Change Account with several saved accounts per server and account management.
+
 ### Fixed
 
+- Preserved saved logins when entering another server and kept overflowing Accounts actions visible on screen.
+- Placed Accounts below the Server heading, matched its section labels and chevrons to Apple TV, and reused the saved account's session when restoring through server entry.
+- Matched Accounts spacing, footnote size, chevron symbols and return focus to Apple TV, and kept the profile picker until Remember is chosen even with one unprotected profile.
+- Blocked account navigation during removal, guarded legacy sign-ins and released account chooser focus before session recovery.
+
+- Matched Accounts pane rows and Change Account layout, and returned Back from account management to Settings.
+- Preserved the selected account when retiring another session and kept guarded session-only sign-ins usable until restart.
+- Kept Change Account reachable when a saved server is offline, prevented removed accounts from being restored by late refreshes, and scrolled account lists to keep remote focus visible.
+- Prevented failed replacement sign-ins from restoring old credentials and kept saved-sign-in removal scoped to the selected account.
+- Prevented replaced account sessions from overwriting a new sign-in and required fresh PIN proof after committing an account switch.
 - Corrected Calendar wall-clock times, spatial shelf return and top restoration, clipped captions, strip placement, and Apple-style loading, empty and error states after native comparison.
 - Kept the focus a viewer moved during Calendar's Today request, revealed a day shelf that starts below the page, and spaced day headings at Apple's 595px pitch.
 - Down from the Calendar tab opens the selected filter, shelf-to-shelf moves keep the first card's column and bottom-align the day shelf, and scrolled Calendar passes under the top bar.
@@ -157,6 +171,8 @@ All notable changes to this project are documented in this file.
 - Added a CI workflow that runs the type checks, the build and all tests.
 
 ### Fixed
+
+- Matched Apple TV’s fixed top menu and moved Requests into the profile menu with Back restoring its row.
 
 - Kept a rating write running when the details page restarted, and read the rating only after it settled, so the page shows the stored rating instead of the old one.
 - Measured current Continue Watching artwork in geometry regressions without retaining nodes across Home redraws.

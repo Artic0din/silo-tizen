@@ -28,6 +28,8 @@ interface ProfileMenu {
     readonly signOut?: () => void;
     readonly switchServer?: () => void;
     readonly serverName?: () => string | undefined;
+    readonly accountName?: string;
+    readonly lastAccount?: boolean;
 }
 
 type RootTarget = "home" | "search" | "calendar" | "for_you" | UserLibrary;
@@ -661,7 +663,11 @@ export class Skyline {
         this.panel = [actionButton("cancel-signout", "Cancel", () => this.back()), actionButton("confirm-signout", "Sign Out", () => { if (!this.visible || !this.confirmation) return; this.close(); signOut(); })];
         this.panel[1]?.element.classList.add("skyline-destructive");
         const header = el("div", "skyline-confirm-header");
-        header.append(el("h2", "skyline-confirm-title", "Sign Out"), el("p", "skyline-confirm-message", "Sign out of Silo on this TV?"));
+        const server = this.profiles.serverName?.() ?? "the server";
+        const message = this.profiles.lastAccount
+            ? `This account's profiles and settings leave this TV, and ${server} will be removed from it.`
+            : "This account's profiles and settings leave this TV. The server stays saved, so you can sign in again.";
+        header.append(el("h2", "skyline-confirm-title", `Sign out of ${this.profiles.accountName ?? "this account"} on ${server}?`), el("p", "skyline-confirm-message", message));
         const actions = el("div", "skyline-confirm-actions");
         actions.append(...this.panel.map(item => item.element));
         replaceNodes(this.selector, [header, actions]);

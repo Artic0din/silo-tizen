@@ -1,4 +1,5 @@
 import { operations } from "../api/operations.ts";
+import { ApiError } from "../api/errors.ts";
 import type { Episode, Season } from "../contracts/v2/catalog.ts";
 import type { NativeSession } from "../session/session.ts";
 import { episodeWindow, orderedEpisodeSeasons, retainEpisodePages } from "./episodeRail.ts";
@@ -28,6 +29,7 @@ export class SeriesEpisodes {
     private focusedSeason: number | undefined;
     entryEpisode: string | undefined;
     failed = false;
+    private readonly transportFailures = new Set<number>();
     selectionChanged = false;
     focusSelectedEpisode = false;
     selectionOwnsHero = false;
@@ -76,7 +78,8 @@ export class SeriesEpisodes {
             for (const number of previous.failedSelections) this.failedSelections.add(number);
             for (const number of previous.cancelledSeasons) this.cancelledSeasons.add(number);
             this.loaded = !refresh && previous.loaded;
-            this.failed = previous.failed;
+            for (const number of previous.transportFailures) this.transportFailures.add(number);
+            this.failed = previous.failed && !(refresh && previous.seasonNumber !== undefined && previous.transportFailures.has(previous.seasonNumber));
         }
     }
 
@@ -163,6 +166,7 @@ export class SeriesEpisodes {
 
     replace(season: number, episodes: readonly Episode[]): void {
         if (!this.active || this.seasonNumber !== season) return;
+        this.transportFailures.delete(season);
         this.blur();
         this.requestedBoundaries.clear();
         this.failedNeighbors.clear();
@@ -229,6 +233,7 @@ export class SeriesEpisodes {
             this.controller = undefined;
             this.automaticRead = false;
             this.failed = false;
+            this.transportFailures.delete(season);
             this.episodes = episodes;
             this.failedSelections.delete(season);
             this.cancelledSeasons.delete(season);
@@ -238,15 +243,21 @@ export class SeriesEpisodes {
             this.loaded = true;
             this.changed("load");
             if (warm) this.warmNeighbors();
-        }, () => {
+        }, (error: unknown) => {
             if (!current()) return;
             if (!this.pages.has(season)) this.failedNeighbors.add(season);
             this.controller = undefined;
             this.automaticRead = false;
             this.failed = true;
+            this.recordFailure(season, error);
             this.failedSelections.add(season);
             this.changed("load");
         });
+    }
+
+    private recordFailure(season: number, error: unknown): void {
+        if (error instanceof ApiError && !error.aborted && ["network", "timeout"].includes(error.failure.kind)) this.transportFailures.add(season);
+        else this.transportFailures.delete(season);
     }
 
     focus(id: string): void {
@@ -331,6 +342,7 @@ export class SeriesEpisodes {
             const page = await this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, number), retry: "never", profileScoped: true, signal: controller.signal });
             if (!this.active || controller.signal.aborted) return;
             this.failedNeighbors.delete(number);
+            this.transportFailures.delete(number);
             this.failedSelections.delete(number);
             this.cancelledSeasons.delete(number);
             this.pages.set(number, page);
@@ -346,8 +358,9 @@ export class SeriesEpisodes {
             this.updateWindow();
             this.changed("neighbor");
             return page;
-        } catch {
+        } catch (error: unknown) {
             if (!controller.signal.aborted) {
+                this.recordFailure(number, error);
                 this.failedNeighbors.add(number);
                 if (this.seasonNumber === number && this.episodes === undefined) {
                     this.failed = true;

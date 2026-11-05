@@ -27,7 +27,7 @@ export class SeriesEpisodes {
     get loading(): boolean { return this.controller !== undefined; }
     private readonly session: NativeSession;
     private readonly seriesId: string;
-    readonly seasons: readonly Season[];
+    seasons: readonly Season[];
     private readonly changed: (reason: SeriesEpisodeUpdate) => void;
 
     constructor(session: NativeSession, seriesId: string, seasons: readonly Season[], changed: (reason: SeriesEpisodeUpdate) => void, preferredSeason?: number, preferredEpisode?: string) {

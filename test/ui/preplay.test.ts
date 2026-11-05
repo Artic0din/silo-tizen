@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakePlayback } from "../native/support/fakePlayback.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 import { object } from "../../src/contracts/v2/wire.ts";
 
 class AudioPreferenceDetails extends FakeDetails {
@@ -199,8 +199,7 @@ for (const destination of ["series", "season"]) preplay(`${destination} Resume r
     playback.items.set("episode:s1e11", ["42"]);
     await series(tv);
     if (destination === "season") {
-        await tv.page.locator('[data-focus="more"]').click();
-        await tv.page.locator('[data-focus="season-info"]').click();
+        await tv.page.locator('[data-focus="series:s1-S1"]').click();
     }
     await tv.page.getByRole("button", { name: "Resume S1:E1", exact: true }).waitFor();
     const path = "/watch/episode%3As1e11?file_id=42";
@@ -229,8 +228,7 @@ for (const destination of ["series", "season"]) preplay(`${destination} keeps an
     playback.items.set("episode:s1e11", ["42"]);
     await series(tv);
     if (destination === "season") {
-        await tv.page.locator('[data-focus="more"]').click();
-        await tv.page.locator('[data-focus="season-info"]').click();
+        await tv.page.locator('[data-focus="series:s1-S1"]').click();
     }
     await tv.page.locator('[data-focus="version"]').click();
     await tv.page.locator('[data-focus="version:42"]').click();
@@ -640,6 +638,7 @@ preplay("malformed watch offers a reachable retry without fabricating playback",
 });
 
 preplay("bounded unavailable watch uses cached progress once and ignores a late success", async (tv) => {
+    await pauseTvClock(tv);
     const held = tv.fake.hold(WATCH, true);
     await tv.page.locator('[data-focus="resume"]').click();
     await tv.eventually(async () => tv.fake.requests.some(r => r.path === WATCH), "watch read");

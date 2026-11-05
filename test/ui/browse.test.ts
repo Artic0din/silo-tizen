@@ -3171,6 +3171,7 @@ browseTest("Continue Watching uses section type rather than its opaque identity"
 });
 
 browseTest("a populated Home changes route without copying every descendant's computed styles", async (tv, catalog) => {
+    await pauseTvClock(tv);
     const household = catalog.households.get("p-owner");
     assert.ok(household !== undefined);
     household.sections = Array.from({ length: 6 }, (_, row) => ({
@@ -3180,7 +3181,7 @@ browseTest("a populated Home changes route without copying every descendant's co
     }));
     await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
     await showing(tv, "home");
-    await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
+    await tv.eventually(async () => await tv.page.locator('[data-view="home"] [data-section^="shelf-"] .browse-card:not(.skyline-explore)').count() === 120, "populated replacement Home shelves");
     const response = tv.fake.hold("/library/12/sections", true);
     const reads = await tv.page.evaluate(() => {
         let calls = 0;

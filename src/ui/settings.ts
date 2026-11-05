@@ -614,10 +614,13 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                         ["spoiler-images", "Blur unwatched episode images", spoilers.settings.hidesImages, "images"],
                         ["spoiler-overviews", "Hide unwatched episode descriptions", spoilers.settings.hidesOverviews, "overviews"],
                     ] as const) {
-                        const item = actionButton(key, text, () => spoilers.toggle(setting));
+                        const item = button(key, text, () => spoilers.toggle(setting));
+                        item.element.appendChild(el("span", "settings-row-value", checked ? "On" : "Off"));
                         item.element.setAttribute("role", "switch");
+                        item.element.setAttribute("aria-label", text);
                         item.element.setAttribute("aria-checked", String(checked));
-                        item.element.setAttribute("aria-disabled", String(!spoilers.allowsEditing));
+                        const unavailable = item.element.getAttribute("aria-disabled") === "true" || !spoilers.allowsEditing;
+                        item.element.setAttribute("aria-disabled", String(unavailable));
                         rows.push(item);
                         body.appendChild(item.element);
                     }

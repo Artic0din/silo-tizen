@@ -1558,6 +1558,8 @@ test("autoplay cancellation, disabled preference, suspension and authority chang
 test("an exhausted series offers the first On Deck title and does not count down into it", async () => {
     const r = await autoplayRig(true);
     for (const id of ["episode:s1e13", "episode:s1e21", "episode:s1e22", "episode:s1e23"]) r.catalog.removed.add(id);
+    r.catalog.progress.set("movie:m0001", 600);
+    r.catalog.playbackWatched.add("movie:m0001");
     await playMovie(r, EPISODE);
     r.avplay.listener?.onstreamcompleted();
     await r.h.clock.advance(15000);
@@ -1566,6 +1568,7 @@ test("an exhausted series offers the first On Deck title and does not count down
     assert.equal(done.next?.contentId, "movie:m0001");
     assert.equal(done.next?.fileId, "f-movie:m0001");
     assert.equal(done.next?.episode, undefined);
+    assert.equal(done.next?.startSeconds, 0);
     assert.equal(done.countdown, undefined);
     assert.equal(bodies(r.h, "/start").length, 1, "On Deck waits for Play next");
     r.controller.playNext();

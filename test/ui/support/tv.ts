@@ -18,7 +18,7 @@ const THEME = readFileSync(new URL("../../../src/theme.css", import.meta.url), "
 const CSS: Record<TvApp, string> = {
     signIn: readFileSync(new URL("../../../src/ui/signIn.css", import.meta.url), "utf8"),
     browse: readFileSync(new URL("../../../src/ui/browse.css", import.meta.url), "utf8"),
-    application: ["ui/signIn.css", "ui/browse.css", "player/player.css", "app.css"].map((name) => readFileSync(new URL(`../../../src/${name}`, import.meta.url), "utf8")).join("\n"),
+    application: ["ui/signIn.css", "ui/browse.css", "ui/accounts.css", "player/player.css", "app.css"].map((name) => readFileSync(new URL(`../../../src/${name}`, import.meta.url), "utf8")).join("\n"),
 };
 const HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -81,6 +81,8 @@ export interface Tv {
     offline: boolean;
     /** Requests that failed as unreachable. */
     blocked: number;
+    /** API calls whose reply has not been delivered to the page. */
+    pendingReplies: number;
     /** Moves both clocks; due timers fire once, so one poll runs per step. */
     jump(ms: number): Promise<void>;
     /** Sends a key code the way the TV remote does (Back is 10009). */
@@ -123,6 +125,7 @@ export async function openTv(
         console: logs,
         offline: false,
         blocked: 0,
+        pendingReplies: 0,
         async jump(ms) {
             await clock.advance(ms);
             await page.clock.fastForward(ms);
@@ -201,29 +204,68 @@ export async function openTv(
             await route.fulfill({ status: 404 });
             return;
         }
-        const body = request.postData();
-        let response: Response;
+        tv.pendingReplies++;
         try {
-            response = await fake.fetch(request.url(), {
-                method: request.method(),
-                headers: await request.allHeaders(),
-                ...(body === null ? {} : { body }),
+            const body = request.postData();
+            let response: Response;
+            try {
+                response = await fake.fetch(request.url(), {
+                    method: request.method(),
+                    headers: await request.allHeaders(),
+                    ...(body === null ? {} : { body }),
+                });
+            } catch {
+                // The fake processed the request but lost its answer (dropNextAnswer).
+                await route.abort("connectionreset");
+                return;
+            }
+            const headers: Record<string, string> = {};
+            response.headers.forEach((value, key) => {
+                headers[key] = value;
             });
-        } catch {
-            // The fake processed the request but lost its answer (dropNextAnswer).
-            await route.abort("connectionreset");
-            return;
+            // The page may have abandoned the request while the fake held its answer.
+            await route.fulfill({ status: response.status, headers, body: await response.text() }).catch(() => undefined);
+        } finally {
+            tv.pendingReplies--;
         }
-        const headers: Record<string, string> = {};
-        response.headers.forEach((value, key) => {
-            headers[key] = value;
-        });
-        // The page may have abandoned the request while the fake held its answer.
-        await route.fulfill({ status: response.status, headers, body: await response.text() }).catch(() => undefined);
     });
     await page.clock.install({ time: clock.now() });
     await page.goto(`${origin}/tv/index.html${options.profiles === true ? "?flow=profiles" : ""}${options.production === true ? "#production" : options.sessionOnly === true ? "#session-only" : ""}`);
     return tv;
+}
+
+/**
+ * Reads style or geometry from the node connected in that same browser turn.
+ * A Details repaint can replace a node after a locator resolves and before
+ * `locator.evaluate` runs; the detached node then reports 0, "" or null.
+ * Repeats until the live node is connected and `accept` holds. A timeout
+ * includes the last value read.
+ */
+export async function readLive<T, Arg>(tv: Tv, read: (arg: Arg) => T | null, arg: Arg, accept: (value: T) => boolean, what: string): Promise<T> {
+    let last: T | null = null;
+    try {
+        await tv.eventually(async () => {
+            // Playwright's evaluate argument is Unboxed<Arg>. A generic Arg does
+            // not survive that conditional, so the call is typed directly.
+            const evaluate = tv.page.evaluate.bind(tv.page) as <R, A>(pageFunction: (value: A) => R | Promise<R>, value: A) => Promise<R>;
+            const value = await evaluate(read, arg);
+            last = value;
+            return value !== null && accept(value);
+        }, what);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`${message}; last ${JSON.stringify(last)}`);
+    }
+    if (last === null || !accept(last)) throw new Error(`timed out waiting for ${what}; last ${JSON.stringify(last)}`);
+    return last;
+}
+
+/** Call before starting a deadline or intermediate animation under test. */
+export async function pauseTvClock(tv: Tv): Promise<void> {
+    // pauseAt advances existing timers; leave room for the protocol round trip
+    // before starting the timed action, then fastForward keeps the clock paused.
+    const protocolMarginMs = 1000;
+    await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now()) + protocolMarginMs);
 }
 
 /** The titles whose item detail was read, in request order. */
@@ -232,9 +274,9 @@ export function detailReads(tv: Tv): string[] {
 }
 
 /** Waits until Home has sent its detail read for every title it drew (Home reads them once as it loads). */
-export async function homeDetailsRead(tv: Tv): Promise<string[]> {
+export async function homeDetailsRead(tv: Tv, previousReads = 0): Promise<string[]> {
     const titles = await tv.page.locator('[data-view="home"] [data-section] .browse-card:not(.skyline-explore)').evaluateAll(nodes => [...new Set(nodes.map(node => node.getAttribute("data-focus") ?? ""))]);
-    await tv.eventually(async () => titles.every(id => detailReads(tv).includes(id)), "Home detail reads");
+    await tv.eventually(async () => titles.every(id => detailReads(tv).slice(previousReads).includes(id)), "Home detail reads");
     await tv.jump(0);
     return titles;
 }

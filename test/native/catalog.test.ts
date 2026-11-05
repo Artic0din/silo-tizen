@@ -15,7 +15,41 @@ import {
     type ItemDetail,
 } from "../../src/contracts/v2/catalog.ts";
 import { WireError } from "../../src/contracts/v2/wire.ts";
-import { artworkUrl, clockTime, destinationOf, playChoices, resumeSeconds, visibleLibraries } from "../../src/ui/browseModel.ts";
+
+test("episode rows retain air date, overview and episode ratings", () => {
+    const episodes = decodeEpisodes({ items: [{ content_id: "episode:1", season_number: 1, episode_number: 2, title: "Pilot", runtime: 52, air_date: "2026-02-18", overview: "An arrival", ratings: [{ name: "IMDb", display: "8.1" }] }] });
+    assert.equal(episodes[0]?.airDate, "2026-02-18");
+    assert.equal(episodes[0]?.overview, "An arrival");
+    assert.deepEqual(episodes[0]?.ratings, [{ name: "IMDb", display: "8.1" }]);
+});
+
+test("episode rows retain resume seconds from user data", () => {
+    const episode = { content_id: "episode:1", season_number: 1, episode_number: 2, title: "Pilot", runtime: 52 };
+    const decode = (user_data: Record<string, unknown>) => decodeEpisodes({ items: [{ ...episode, user_data }] })[0];
+    assert.equal(decode({ played: true, position_seconds: 60.5, duration_seconds: 240 })?.positionSeconds, 60.5);
+    assert.equal(decode({ played: true, position_seconds: 60.5, duration_seconds: 240 })?.durationSeconds, 240);
+    assert.throws(() => decode({ played: false, position_seconds: "60", duration_seconds: 240 }), WireError);
+    assert.throws(() => decode({ played: false, position_seconds: 60, duration_seconds: "240" }), WireError);
+});
+
+test("local extras retain authoritative watch targets and numeric file IDs", () => {
+    const detail = decodeItemDetail({ ...fixture("get_catalog_item_ok"), extras: [{ content_id: "extra:1", file_id: 71, kind: "trailer", title: "Trailer", duration_seconds: 90, still_url: "/extra.jpg" }] });
+    assert.deepEqual(detail.extras, [{ contentId: "extra:1", fileId: "71", kind: "trailer", title: "Trailer", durationSeconds: 90, stillUrl: "/extra.jpg" }]);
+});
+
+test("item videos keep the contract fields and a missing official flag does not reject the detail", () => {
+    const detail = decodeItemDetail({ ...fixture("get_catalog_item_ok"), videos: [
+        { kind: "trailer", site: "YouTube", site_key: "abc_def-1", name: "Official Trailer", language: "en", is_official: true },
+        { kind: "teaser", site: "vimeo", site_key: "v1" },
+    ] });
+    assert.deepEqual(detail.videos, [
+        { kind: "trailer", site: "YouTube", siteKey: "abc_def-1", name: "Official Trailer", language: "en", isOfficial: true },
+        { kind: "teaser", site: "vimeo", siteKey: "v1", name: undefined, language: undefined, isOfficial: false },
+    ]);
+    assert.deepEqual(decodeItemDetail(fixture("get_catalog_item_ok")).videos, []);
+    assert.throws(() => decodeItemDetail({ ...fixture("get_catalog_item_ok"), videos: [{ kind: "trailer", site: "youtube", site_key: "k", is_official: "yes" }] }), WireError);
+});
+import { artworkUrl, clockTime, destinationOf, playChoices, resumeSeconds, browseCardDestination, visibleLibraries } from "../../src/ui/browseModel.ts";
 import { moveWithin } from "../../src/ui/browseFocus.ts";
 import { fixture } from "./support/fakeSilo.ts";
 
@@ -70,11 +104,11 @@ test("browse fixtures decode with the production decoders", () => {
     const detail = decodeItemDetail(fixture("get_catalog_item_ok"));
     assert.equal(detail.type, "movie");
     assert.equal(detail.tagline, "A Los Angeles crime saga");
-    assert.deepEqual(detail.versions, [{ fileId: "120", durationSeconds: 0, audio: [], label: "2160p" }]);
+    assert.deepEqual(detail.versions, [{ detailLabel: "0 MB", fileId: "120", effectiveAudioTrackIndex: 1, durationSeconds: 0, audio: [], label: "2160p" }]);
     assert.deepEqual(detail.watch, { played: true, positionSeconds: undefined, lastFileId: "120" });
 
     assert.deepEqual(decodeSeasons(fixture("list_series_seasons_ok")), [
-        { isSpecials: false, id: "series:severance-S01", seasonNumber: 1, title: "Season 1", episodeCount: 9, posterUrl: "https://images.example/season.webp" },
+        { userData: { played: false, watchedCount: 1, inProgressCount: 0 }, isSpecials: false, id: "series:severance-S01", seasonNumber: 1, title: "Season 1", episodeCount: 9, posterUrl: "https://images.example/season.webp" },
     ]);
     assert.equal(decodeSeasons(fixture("list_series_seasons_without_artwork"))[0]?.posterUrl, undefined);
 
@@ -131,6 +165,8 @@ test("browse operations are profile-scoped reads on the documented paths", () =>
         operations.listUserLibraries(),
         operations.hiddenLibraries(),
         operations.listHomeSections(),
+        operations.listHomeSections({ logo_width: "880" }, 20),
+        operations.homeCapabilities(),
         operations.listCatalogItems({ libraryId: "12", type: "movie", limit: 24, cursor: "abc/+=" }),
         operations.listCatalogItems({ q: "heat & co", type: "video", limit: 24, cursor: undefined }),
         operations.getCatalogItem("movie:heat 1995"),
@@ -141,6 +177,8 @@ test("browse operations are profile-scoped reads on the documented paths", () =>
         "GET /user/libraries",
         "GET /settings/values/effective?keys=ui.disabled_library_ids",
         "GET /home/sections?image_size=small",
+        "GET /home/sections?image_size=small&logo_width=880&item_limit=20",
+        "GET /home/capabilities",
         "GET /catalog?library_id=12&type=movie&limit=24&cursor=abc%2F%2B%3D&image_size=small",
         "GET /catalog?q=heat%20%26%20co&type=video&limit=24&image_size=small",
         "GET /catalog/items/movie%3Aheat%201995?image_size=large",
@@ -166,6 +204,23 @@ test("Home keeps movies, series, seasons and episodes, and leaves other media ou
     assert.deepEqual(destinationOf({ ...card, type: "season", seriesId: "s", seasonNumber: 0 }), { kind: "season", id: "x", seriesId: "s", seasonNumber: 0, title: "X" });
     assert.equal(destinationOf({ ...card, type: "season" }), undefined, "a season without its series cannot open");
     assert.equal(destinationOf({ ...card, type: "unknown" }), undefined);
+});
+
+test("Search Select opens an episode or season on its series and leaves movies and series on themselves", () => {
+    const card = { id: "episode:s1e12", title: "Pilot", year: undefined, posterUrl: undefined, seriesId: "series:s1", seriesTitle: "Harbor Lights", seasonNumber: 1, episodeNumber: 2 };
+    assert.deepEqual(browseCardDestination({ ...card, type: "episode" }), {
+        kind: "item", id: "series:s1", title: "Harbor Lights", seriesContext: { seasonNumber: 1, episodeId: "episode:s1e12" },
+    });
+    assert.deepEqual(browseCardDestination({ ...card, type: "episode", seriesTitle: "  " }), {
+        kind: "item", id: "series:s1", title: "Pilot", seriesContext: { seasonNumber: 1, episodeId: "episode:s1e12" },
+    });
+    assert.deepEqual(browseCardDestination({ ...card, type: "episode", seriesId: " episode:s1e12 " }), { kind: "item", id: "episode:s1e12", title: "Pilot" });
+    assert.deepEqual(browseCardDestination({ ...card, id: "season:s1", type: "season", episodeNumber: undefined, title: "Season 1" }), {
+        kind: "item", id: "series:s1", title: "Harbor Lights", seriesContext: { seasonNumber: 1, episodeId: undefined },
+    });
+    assert.deepEqual(browseCardDestination({ ...card, id: "movie:heat", type: "movie", seriesId: undefined, title: "Heat" }), { kind: "item", id: "movie:heat", title: "Heat" });
+    assert.deepEqual(browseCardDestination({ ...card, id: "series:s1", type: "series", seriesId: undefined, title: "Harbor Lights" }), { kind: "item", id: "series:s1", title: "Harbor Lights" });
+    assert.equal(browseCardDestination({ ...card, type: "unknown" }), undefined);
 });
 
 test("libraries: video kinds in server order, minus the profile's own hidden list", () => {

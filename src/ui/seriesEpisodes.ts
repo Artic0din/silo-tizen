@@ -4,6 +4,7 @@ import type { NativeSession } from "../session/session.ts";
 import { episodeWindow, orderedEpisodeSeasons, retainEpisodePages } from "./episodeRail.ts";
 
 const BOUNDARY_DWELL_MS = 70;
+type SeriesEpisodeUpdate = "load" | "focus" | "neighbor" | "translation";
 
 /** One accepted series visit owns its selected season and episode read. */
 export class SeriesEpisodes {
@@ -27,9 +28,9 @@ export class SeriesEpisodes {
     private readonly session: NativeSession;
     private readonly seriesId: string;
     readonly seasons: readonly Season[];
-    private readonly changed: () => void;
+    private readonly changed: (reason: SeriesEpisodeUpdate) => void;
 
-    constructor(session: NativeSession, seriesId: string, seasons: readonly Season[], changed: () => void, preferredSeason?: number, preferredEpisode?: string) {
+    constructor(session: NativeSession, seriesId: string, seasons: readonly Season[], changed: (reason: SeriesEpisodeUpdate) => void, preferredSeason?: number, preferredEpisode?: string) {
         this.session = session;
         this.seriesId = seriesId;
         this.seasons = seasons;
@@ -74,13 +75,13 @@ export class SeriesEpisodes {
         if (season === this.seasonNumber && this.episodes !== undefined) {
             this.focusSelectedEpisode = true;
             this.entryEpisode = this.episodes[0]?.id;
-            this.changed();
+            this.changed("load");
             return;
         }
         if (season === this.seasonNumber && this.controller !== undefined) {
             this.focusSelectedEpisode = true;
             this.entryEpisode = undefined;
-            this.changed();
+            this.changed("load");
             return;
         }
         this.seasonNumber = season;
@@ -105,8 +106,16 @@ export class SeriesEpisodes {
         this.updateWindow();
         this.loaded = true;
         this.failed = false;
-        this.changed();
+        this.changed("load");
         this.warmNeighbors();
+    }
+
+    publishTranslatedEpisodes(season: number, episodes: readonly Episode[]): void {
+        if (!this.active || this.seasonNumber !== season) return;
+        this.episodes = episodes;
+        this.pages.set(season, episodes);
+        this.updateWindow();
+        this.changed("translation");
     }
 
     retry(): void { if (this.active && this.controller === undefined) this.load(true); }
@@ -117,7 +126,7 @@ export class SeriesEpisodes {
             this.failedNeighbors.delete(number);
             void this.readNeighbor(number);
         }
-        this.changed();
+        this.changed("neighbor");
     }
 
     private load(retain = false): void {
@@ -135,7 +144,7 @@ export class SeriesEpisodes {
         if (!retain) { this.episodes = undefined; this.railEpisodes = undefined; }
         this.loaded = false;
         this.failed = false;
-        this.changed();
+        this.changed("load");
         const current = (): boolean => this.active && this.controller === controller && !controller.signal.aborted;
         this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, season), profileScoped: true, signal: controller.signal }).then(episodes => {
             if (!current()) return;
@@ -145,13 +154,13 @@ export class SeriesEpisodes {
             this.updateWindow();
             if (!episodes.some(episode => episode.id === this.entryEpisode)) this.entryEpisode = (this.focusSelectedEpisode ? episodes[0] : episodes.find(episode => episode.inProgress) ?? episodes.find(episode => !episode.played) ?? episodes[0])?.id;
             this.loaded = true;
-            this.changed();
+            this.changed("load");
             this.warmNeighbors();
         }, () => {
             if (!current()) return;
             this.controller = undefined;
             this.failed = true;
-            this.changed();
+            this.changed("load");
         });
     }
 
@@ -168,7 +177,7 @@ export class SeriesEpisodes {
             this.seasonNumber = episode.seasonNumber;
             this.episodes = this.pages.get(episode.seasonNumber);
             this.focusSelectedEpisode = false;
-            this.changed();
+            this.changed("focus");
         }
         // Only the outer loaded edge needs another page; a cached-season crossing does not.
         const direction = index === 0 ? -1 : index === episodes.length - 1 ? 1 : 0;
@@ -236,10 +245,10 @@ export class SeriesEpisodes {
             if (!this.active || controller.signal.aborted) return;
             this.pages.set(number, page);
             this.updateWindow();
-            this.changed();
+            this.changed("neighbor");
             return page;
         } catch {
-            if (!controller.signal.aborted) { this.failedNeighbors.add(number); this.changed(); }
+            if (!controller.signal.aborted) { this.failedNeighbors.add(number); this.changed("neighbor"); }
             return;
         } finally { if (!controller.signal.aborted) this.pendingNeighbors.delete(number); }
     }

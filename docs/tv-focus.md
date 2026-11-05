@@ -201,8 +201,10 @@ This preserves continuous navigation without loading every season up front.
 At Apple source revision `7baff3ef`, `TVItemDetailView.swift:462–466,927–1001` warms neighbours when the selected season changes; `TVEpisodeRail.swift:303–314,450–454` reports focus at the loaded window's first or last card.
 Apple's failed-edge revisit retries (`TVItemDetailView.swift:297–300`, `TVSeriesDetailView.swift:589–592`); Tizen instead requires the explicit "Retry more episodes" action to protect the rate-limited server.
 Neither ordinary loaded-card movement nor revisiting a failed edge retries a read.
+Translation polls publish the selected season without restarting neighbour reads or clearing a failed edge, following `ItemDetailViewModel.swift:1752–1773` at the same Apple source revision.
+Featured cards are another exception. In the server's auto mode, the marquee starts a description translation only after that card has held the preview for 1500 ms, matching Apple TV's featured-card dwell. Moving on before then starts nothing. Details translation starts with the page. Focusing another episode does not.
 
-Outside the named filter, season-pill and outer-edge exceptions, moving focus never starts a request, activates a route or writes data.
+Outside the named filter, season-pill, outer-edge and featured-card exceptions, moving focus never starts a request, activates a route or writes data.
 Fetching belongs to explicit activation (Enter), to a view loading, or to a one-off prefetch.
 
 - Card focus calls `context.preview`, which only redraws the marquee from data already in memory (`Skyline.preview`).

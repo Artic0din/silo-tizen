@@ -21,7 +21,7 @@ export interface ViewContext {
     /** Resolves relative artwork references. */
     readonly baseUrl: string;
     readonly open: (destination: Destination) => void;
-    readonly preview?: (card: Card, row: string, continuing?: boolean) => void;
+    readonly preview?: (card: Card, row: string, continuing?: boolean, featured?: boolean) => void;
     readonly continueWatching?: boolean;
     /** Apple `SectionRow.layout` on tvOS. Unset keeps the Continue Watching still and poster otherwise. */
     readonly cardLayout?: "poster" | "thumbnail";
@@ -262,7 +262,7 @@ export function homeView(libraries: readonly UserLibrary[], sections: readonly H
     const content: HTMLElement[] = [];
     // Server order is the profile's order; featured rows render as ordinary rows (Apple HomeViewModel).
     for (const { section, continuing, layout, cards: titles } of homeRows(sections)) {
-        const cards = cardItems(titles, { ...context, continueWatching: continuing, cardLayout: layout, homeCaptions: true, overlays: context.cardOverlays?.(), preview: (card) => context.preview?.(card, section.title, continuing) });
+        const cards = cardItems(titles, { ...context, continueWatching: continuing, cardLayout: layout, homeCaptions: true, overlays: context.cardOverlays?.(), preview: (card) => context.preview?.(card, section.title, continuing, section.featured === true) });
         // A row of only books, podcasts or other media this client does not browse is left out.
         if (cards.length === 0) {
             continue;

@@ -252,7 +252,12 @@ detailTest('Hero uses measured series colours and genres only at rest', async tv
     await tv.page.locator('[data-focus="audio"]').waitFor();
     await tv.eventually(async () => tv.page.locator('.details-editorial .browse-meta').evaluateAll(nodes => nodes.length === 1 && getComputedStyle(nodes[0]!).color === 'rgb(225, 227, 228)'), 'series metadata colour after optional-data repaint');
     assert.equal(await tv.page.locator('.details-genres').count(), 1);
-    assert.equal(await tv.page.locator('.details-editorial .browse-overview').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).color)[0]), 'rgb(244, 245, 246)');
+    // A node handle can detach during an optional-data repaint; resolve and measure atomically.
+    assert.equal(await tv.page.evaluate(() => {
+        const overview = document.querySelector('.details-editorial .browse-overview');
+        if (overview === null) throw new Error('Series overview missing');
+        return getComputedStyle(overview).color;
+    }), 'rgb(244, 245, 246)');
     await tv.page.locator('[data-focus="audio"]').focus();
     assert.equal(await tv.page.locator('.details-play').evaluate(node => getComputedStyle(node).backgroundColor), 'rgb(31, 51, 57)');
     assert.equal(await tv.page.locator('.details-playback-summary strong').first().evaluate(node => getComputedStyle(node).color), 'rgba(237, 237, 237, 0.5)');

@@ -6,11 +6,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added description translation on Details and the featured marquee, matching Apple TV's Translate Description action, Translating… status and Translated by AI label.
 - Added Change Account with several saved accounts per server and account management.
 
 ### Fixed
 
-- Kept loaded-season episode focus free of reads, limited outer-edge loading to one debounced season request, and required Retry for failed neighbours.
+- Kept loaded-season episode focus free of reads, limited outer-edge loading to one debounced season request, required Retry for failed neighbours, and preserved the window during translation polls.
 - Kept Series episodes in Apple's continuous loaded-season window, clamped entry and remote focus at the final episode group, restored resume bars and edge peeks, and corrected the row's leading inset; the later corrections await signed comparison.
 - Stopped a device-code poll from going out when its wait ended as the screen hid. A poll already sent still finishes, and coming back polls at once.
 - Kept Search's navigation column when a square People portrait animates on focus.

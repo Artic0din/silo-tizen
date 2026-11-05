@@ -6,6 +6,8 @@ import { FakeDetails } from "./support/fakeDetails.ts";
 import { connected, signIn } from "./support/harness.ts";
 import { problem } from "./support/fakeSilo.ts";
 import { decodeSeasons } from "../../src/contracts/v2/catalog.ts";
+import { DetailsState } from "../../src/ui/detailsState.ts";
+import { DescriptionTranslations, type DetailSurface, type ItemDescriptionTranslation } from "../../src/ui/descriptionTranslation.ts";
 
 for (const recovery of ["retry", "selection"] as const) test(`one neighbour success preserves the other edge's failure and ${recovery} recovery`, async t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
@@ -41,7 +43,7 @@ for (const recovery of ["retry", "selection"] as const) test(`one neighbour succ
     state.stop();
 });
 
-async function episodeRailHarness() {
+async function episodeRailHarness(failedSeason?: number) {
     const h = await connected(); await signIn(h);
     const profile = (await h.core.profiles.list()).find(profile => profile.id === "p-owner"); assert.ok(profile); h.core.profiles.select(profile);
     const catalog = new FakeDetails(); h.fake.catalog = catalog;
@@ -49,7 +51,7 @@ async function episodeRailHarness() {
     const body = catalog.route("GET", "/catalog/series/series%3As1/seasons/1/episodes", "p-owner")?.body as { items: Record<string, unknown>[] };
     for (const season of seasons) {
         const response = { status: 200, body: { items: Array.from({ length: 14 }, (_, index) => ({ ...body.items[0], content_id: `rail:${season.seasonNumber}:${index}`, season_number: season.seasonNumber, episode_number: index + 1 })) } };
-        h.fake.script(operations.listSeasonEpisodes("series:s1", season.seasonNumber).path, response, response);
+        h.fake.script(operations.listSeasonEpisodes("series:s1", season.seasonNumber).path, season.seasonNumber === failedSeason ? problem(422, "validation_failed", "Unavailable") : response, response);
     }
     const state = new SeriesEpisodes(h.core.session, "series:s1", seasons, () => undefined, 2);
     const settle = async (): Promise<void> => { for (let i = 0; i < 8; i++) await h.clock.advance(0); };
@@ -99,6 +101,38 @@ test("a long rail round trip can reload successful neighbours evicted by the bou
     }
     assert.deepEqual(h.reads(), [2, 1, 3, 4, 5, 6, 7, 2, 1, 6].map(number => operations.listSeasonEpisodes("series:s1", number).path));
     assert.equal(h.state.railEpisodes?.at(-1)?.id, "rail:6:13");
+});
+
+class CapturedTranslations extends DescriptionTranslations {
+    surface: DetailSurface | undefined;
+    override open(surface: DetailSurface): ItemDescriptionTranslation {
+        this.surface = surface;
+        return super.open(surface);
+    }
+}
+
+for (const boundary of ["pending", "failed"] as const) test(`translation polls retain the loaded episode window and its ${boundary} neighbour`, async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(boundary === "failed" ? 4 : undefined); t.after(() => h.state.stop());
+    const held = boundary === "pending" ? h.fake.hold(operations.listSeasonEpisodes("series:s1", 4).path, true) : undefined;
+    h.state.focus("rail:3:13"); t.mock.timers.tick(70); await h.settle();
+    const translations = new CapturedTranslations(h.core.session, h.clock);
+    const detail = await h.core.session.call({ ...operations.getCatalogItem("series:s1"), profileScoped: true });
+    const details = new DetailsState(detail, h.core.session, () => undefined, async () => undefined, () => false, translations);
+    details.series = h.state;
+    assert.ok(translations.surface);
+    const reads = h.reads(), ids = h.state.railEpisodes?.map(episode => episode.id);
+    const translated = h.state.episodes!.map(episode => ({ ...episode, title: "Translated title", pendingTranslationLanguage: "de" }));
+    for (let index = 0; index < 3; index++) {
+        assert.equal(translations.surface.replaceEpisodes(3, translated), false);
+        await h.settle();
+        assert.deepEqual(h.state.railEpisodes?.map(episode => episode.id), ids);
+        assert.deepEqual(h.reads(), reads, "translation publication never starts neighbour reads");
+        assert.equal(h.state.boundaryFailed, boundary === "failed");
+        assert.equal(h.state.episodes?.[0]?.title, "Translated title");
+    }
+    held?.release(); await h.settle();
+    if (held !== undefined) assert.equal(h.state.railEpisodes?.at(-1)?.id, "rail:4:13", "translation did not cancel the pending neighbour");
 });
 
 test('series entry follows the current season instead of the first season', async () => {

@@ -29,6 +29,7 @@ export interface SessionCoreDeps {
     readonly clock?: Clock;
     readonly localAccountId?: string;
     readonly addAccount?: boolean;
+    readonly reuseAccount?: (baseUrl: string, accountId: string) => ConnectedServer | undefined;
     readonly beforeAccountSignIn?: (baseUrl: string, accountId: string) => Promise<void>;
     readonly beforeAccountSignOut?: (baseUrl: string, accountId: string) => Promise<void>;
 }
@@ -66,6 +67,10 @@ export async function connect(serverAddress: string, deps: SessionCoreDeps, sign
         await deps.beforeAccountSignIn?.(server.http.base.baseUrl, accountId);
     });
     const restore = await session.restore();
+    if (restore === "signed_in" && session.account) {
+        const cached = deps.reuseAccount?.(server.http.base.baseUrl, session.account.id);
+        if (cached?.session.signedIn && cached.server.serverId === server.serverId) return { ...cached, restore: "signed_in" };
+    }
     return {
         status: "connected",
         server,

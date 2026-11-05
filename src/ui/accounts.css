@@ -38,7 +38,9 @@
 .accounts-row-title { flex: 1; }
 .accounts-row-value { font-size: 24px; opacity: .68; }
 .accounts-chevron { display: flex; opacity: .55; }
-.accounts-chevron svg { width: 18px; height: 18px; margin: 0; }
+.accounts-chevron svg { width: 11px; height: 18px; margin: 0; }
+.accounts-settings button { width: 1080px; }
+.accounts-section-header { margin: 0 0 20px; padding: 0 24px; font-size: 19px; line-height: 36px; font-weight: 600; letter-spacing: 1.2px; color: var(--silo-secondary); }
 .accounts-settings [data-focus="add-server"] { margin-top: 18px; }
 .accounts-settings > p { font-size: 20px; line-height: normal; margin: 14px 0 0; padding: 0 24px; }
 .accounts-settings .accounts-destructive { color: #b00020; }

@@ -240,6 +240,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         });
         const rows: FocusItem[] = [];
         const body = el("div", "settings-pane");
+        body.append(el("h2", "browse-section-title", CATEGORY_LABELS[category]), ...(category === "server" ? [] : feedback()));
         if (category === "server" && accounts) {
             const item = actionButton("accounts", "Accounts", () => {
                 host.stop(); container.hidden = true;
@@ -252,7 +253,6 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             });
             rows.push(item); body.append(item.element);
         }
-        body.append(el("h2", "browse-section-title", CATEGORY_LABELS[category]), ...(category === "server" ? [] : feedback()));
         const pickers: readonly Picker[] = category === "general" ? ["hidden"] : category === "playback" ? ["audio", "quality", "bitrate", "seek-back", "seek-forward"] : [];
         if (category === "server") {
             // Apple's Server pane: an ABOUT section whose Acknowledgements row opens the credits.

@@ -306,10 +306,10 @@ export function pagedGrid(state: PagerState, context: ViewContext, columns = GRI
     if (state.page.nextCursor !== undefined) {
         pager.push(actionButton("next", "Next page", state.next));
     }
-    const pages = Math.max(1, Math.ceil(state.page.total / state.pageSize));
+    const pages = Math.max(1, Math.ceil((state.page.total ?? state.page.items.length) / state.pageSize));
     const position = state.loading
         ? "Loading the page."
-        : `Page ${state.index + 1} of ${state.page.totalExact ? pages : `about ${pages}`}`;
+        : state.page.total === undefined ? `Page ${state.index + 1}` : `Page ${state.index + 1} of ${state.page.totalExact ? pages : `about ${pages}`}`;
     const status = el("p", "browse-text browse-page-status", position);
     status.setAttribute("role", "status");
     return {

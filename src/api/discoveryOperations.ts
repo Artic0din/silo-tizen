@@ -1,4 +1,4 @@
-import { decodeCatalogPage, decodeHomeSections, decodePersonalListPage } from "../contracts/v2/catalog.ts";
+import { decodeCollectionItemsPage, decodeHomeSections, decodePersonalListPage } from "../contracts/v2/catalog.ts";
 import {
     type CatalogFiltersRequest, type CatalogLettersRequest, type CatalogQueryRequest,
     decodeCatalogFilters, decodeCatalogLetters, decodeCatalogQueryPage,
@@ -34,7 +34,7 @@ export const discoveryOperations = {
         read(`/library/${encodeURIComponent(libraryId)}/collections`, decodeLibraryCollections),
     getLibraryCollectionItems: (libraryId: string, collectionId: string, page: CollectionPageRequest) => {
         bounded(page.limit, 1, 200);
-        return read(`/library/${encodeURIComponent(libraryId)}/collections/${encodeURIComponent(collectionId)}/items${params({ limit: page.limit, cursor: page.cursor })}`, decodeCatalogPage);
+        return read(`/library/${encodeURIComponent(libraryId)}/collections/${encodeURIComponent(collectionId)}/items${params({ limit: page.limit, cursor: page.cursor })}`, decodeCollectionItemsPage);
     },
     getCatalogFilters: (request: CatalogFiltersRequest) =>
         read("/catalog/filters" + params(request), decodeCatalogFilters),

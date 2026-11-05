@@ -237,6 +237,7 @@ export class Skyline {
 
     private commit(target: RootTarget, mode?: LibraryMode): void {
         if (!this.visible) return;
+        const anchor = this.panelAnchor;
         this.shortcutSelection = typeof target !== "string" && this.panelAnchor?.startsWith("library:") ? this.panelAnchor : undefined;
         if (typeof target !== "string") {
             const type = this.panelTab ?? (target.type === "series" ? "series" : target.type === "music" ? "music" : "movies");
@@ -244,6 +245,9 @@ export class Skyline {
             try { this.storage?.setItem(`${this.storageKey}:${type}`, target.id); } catch { /* Keep the selection for this session. */ }
         }
         this.close();
+        // Loading can briefly restore the tab before content takes focus.
+        this.dismissedAnchor = anchor;
+        this.cancelDwell();
         this.activate(target, mode);
     }
 

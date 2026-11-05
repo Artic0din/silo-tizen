@@ -127,6 +127,27 @@ test("retirement drains a refresh write already queued in the account vault", as
     assert.equal(retired, true);
 });
 
+test("server entry reuses the cached owner and logout fences its late refresh", async () => {
+    const h = await connected(); await signIn(h);
+    const held = h.fake.hold("/auth/refresh", true);
+    const refreshing = h.core.session.refresh();
+    await h.clock.advance(0);
+    const restored = await connect(h.fake.origin, {
+        fetch: h.fake.fetch, publicStorage: h.storage, keyManager: h.keyManager,
+        randomBytes: (bytes: Uint8Array) => { bytes.fill(7); }, deviceName: "Test TV", devicePlatform: "tizen", clock: h.clock,
+        reuseAccount: () => h.core,
+    });
+    assert.equal(restored.status, "connected");
+    if (restored.status !== "connected") throw Error("fixture missing");
+    try {
+        assert.equal(restored.restore, "signed_in");
+        assert.equal(restored.session, h.core.session);
+        await restored.session.logout();
+    } finally { held.release(); await refreshing; }
+    assert.equal(h.core.session.signedIn, false);
+    assert.deepEqual(h.core.accounts.directory.list(), []);
+});
+
 test("removing an inactive cached account fences its late refresh writes", async () => {
     const h = await connected(); await signIn(h);
     const account = h.core.accounts.directory.list()[0]!;

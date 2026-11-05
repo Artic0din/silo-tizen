@@ -12,7 +12,7 @@ let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
 const BACK = 10009;
-const grid = (tv: Tv) => tv.page.locator(".browse-grid .browse-card");
+const grid = (tv: Tv) => tv.page.locator('.browse[data-view^="person:"] .browse-grid .browse-card');
 const queries = (tv: Tv) => tv.fake.requests.filter(request => request.path.startsWith("/catalog/query") && request.body?.source === "person" && request.body?.limit !== 1);
 const lastQuery = (tv: Tv) => queries(tv)[queries(tv).length - 1];
 const metadataReads = (tv: Tv) => tv.fake.requests.filter(request => request.path === "/catalog/people/7").length;

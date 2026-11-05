@@ -81,6 +81,7 @@ test("Settings Accounts uses pane rows and Back returns to Settings", async () =
         await tv.page.locator('[data-focus="profiles"]').click();
         await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
         await tv.page.locator('[data-focus="server"]').click();
+        assert.deepEqual(await tv.page.locator('.settings-pane').evaluate(node => [...node.children].filter(child => child.matches('h2, h3, button')).map(child => child.textContent)), ["Server", "Accounts", "ABOUT", "Acknowledgements"]);
         await tv.page.getByRole("button", { name: "Accounts", exact: true }).click();
         await tv.page.locator('[data-view="accounts-settings"]').waitFor();
         const pane = await tv.page.evaluate(() => {
@@ -92,12 +93,19 @@ test("Settings Accounts uses pane rows and Back returns to Settings", async () =
                 addGap: document.querySelector('[data-focus="add-server"]')!.getBoundingClientRect().y - remove.getBoundingClientRect().y,
                 footnote: getComputedStyle(document.querySelector('.accounts-settings > p')!).fontSize,
                 height: row.getBoundingClientRect().height, chevron: row.querySelector('.accounts-chevron svg') !== null,
+                arrow: row.querySelector('.accounts-chevron path')!.getBoundingClientRect().toJSON(),
+                section: getComputedStyle(document.querySelector('.accounts-settings h2')!).fontSize,
                 red: getComputedStyle(remove).color, destructiveChevron: remove.querySelector('.accounts-chevron') !== null };
         });
         assert.equal(pane.header, "42px");
         assert.equal(pane.icon, true);
         assert.equal(pane.height, 66);
         assert.equal(pane.chevron, true);
+        assert.equal(pane.arrow.width, 7);
+        assert.equal(pane.arrow.height, 14);
+        // The 1.8px stroke adds 0.9px on each edge: painted bounds are 9 by 16 at x1231.
+        assert.equal(pane.arrow.x, 1232);
+        assert.equal(pane.section, "19px");
         assert.equal(pane.x, 186);
         assert.equal(pane.y, 290);
         assert.equal(pane.addGap, 92);

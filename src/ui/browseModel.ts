@@ -21,6 +21,8 @@ export interface PlayRequest {
     readonly startSeconds: number | undefined;
 }
 
+export type EpisodeSelection = Partial<Pick<PlayRequest, "fileId" | "audioTrackId" | "subtitle">>;
+
 /** A place a card or row opens. Items open their detail page; seasons open their episode list. */
 export type Destination =
     | { readonly kind: "person"; readonly id: string; readonly title: string }
@@ -49,6 +51,35 @@ export function destinationOf(card: Card): Destination | undefined {
         case "unknown":
             return undefined;
     }
+}
+
+/** A series id that names a different parent, as Apple `SeriesDetailContext.parentID`. */
+function parentSeriesId(card: Card): string | undefined {
+    const seriesId = card.seriesId?.trim();
+    if (seriesId === undefined || seriesId === "" || seriesId === card.id) return undefined;
+    return seriesId;
+}
+
+function seriesCardTitle(card: Card): string {
+    const seriesTitle = card.seriesTitle?.trim();
+    return seriesTitle === undefined || seriesTitle === "" ? card.title : seriesTitle;
+}
+
+/**
+ * Browse Select follows Apple `Route.itemDetail(browseItem:)`.
+ * An episode opens its series on that episode. A season opens the series
+ * on that season. Movies and series open themselves.
+ */
+export function browseCardDestination(card: Card): Destination | undefined {
+    const seriesId = parentSeriesId(card);
+    // Unknown media stays omitted. An episode number on a season still names the parent series.
+    if (card.type !== "unknown" && seriesId !== undefined && (card.type === "episode" || card.episodeNumber !== undefined)) {
+        return { kind: "item", id: seriesId, title: seriesCardTitle(card), seriesContext: { seasonNumber: card.seasonNumber, episodeId: card.id } };
+    }
+    if (card.type === "season" && seriesId !== undefined && card.seasonNumber !== undefined) {
+        return { kind: "item", id: seriesId, title: seriesCardTitle(card), seriesContext: { seasonNumber: card.seasonNumber, episodeId: undefined } };
+    }
+    return destinationOf(card);
 }
 
 /**

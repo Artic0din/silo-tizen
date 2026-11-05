@@ -2,26 +2,35 @@
 import { boolean, integer, object, string, WireError } from "./wire.ts";
 import { PRIMARY_MENU_KEY, decodePrimaryMenu } from "./navigation.ts";
 import { AUDIOBOOK_SEEK_KEYS } from "./audiobooks.ts";
+import { ROW_KEYS, INTRO_SKIP_KEY, CREDITS_SKIP_KEY, ADVISORY_KEY, APPEARANCE_KEY, METADATA_KEY } from "./settingsRows.ts";
+import { decodeAppearance } from "./subtitles.ts";
 
 export const HIDDEN_KEY = "ui.disabled_library_ids";
 export const TITLE_ART_KEY = "ui.title_art";
 export const AUDIO_KEY = "playback.audio_language";
 export const QUALITY_KEY = "playback.preferred_quality";
 export const BITRATE_KEY = "playback.max_bitrate_kbps";
+export const SUBTITLE_LANGUAGE_KEY = "playback.subtitle_language" as const;
+export const SUBTITLE_MODE_KEY = "playback.subtitle_mode" as const;
+export const SHOW_FORCED_KEY = "playback.show_forced_subtitles" as const;
 export const SEEK_BACK_KEY = "player.video_skip_back_seconds";
 export const SEEK_FORWARD_KEY = "player.video_skip_forward_seconds";
 export const SEEK_KEYS = [SEEK_BACK_KEY, SEEK_FORWARD_KEY] as const;
 const SEEK_SECONDS = [5, 10, 15, 30, 45, 60, 90];
+export const NEXT_UP_KEY = "playback.next_up_prompt_seconds";
 export const AUTO_NEXT_KEY = "playback.auto_play_next";
 /** Read-only here: the profile's poster-badge document (`card-overlays.json`) and its on/off choice. */
 export const CARD_OVERLAYS_KEY = "ui.card_overlays";
 export const CARD_OVERLAYS_ENABLED_KEY = "ui.card_overlays_enabled";
 export const CARD_PRESENTATION_KEY = "ui.card_presentation";
-export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY, QUALITY_KEY, BITRATE_KEY, ...SEEK_KEYS, TITLE_ART_KEY] as const;
-export type SettingsKey = (typeof AUDIOBOOK_SEEK_KEYS)[number] | (typeof SETTINGS_KEYS)[number] | typeof AUTO_NEXT_KEY | typeof CARD_OVERLAYS_KEY | typeof CARD_OVERLAYS_ENABLED_KEY | typeof CARD_PRESENTATION_KEY | typeof PRIMARY_MENU_KEY;
+/** Profile switches from settings manifest revision 17. The consumed contract subset does not list them. */
+export const SPOILER_IMAGE_KEY = "catalog.hide_unwatched_episode_images";
+export const SPOILER_OVERVIEW_KEY = "catalog.hide_unwatched_episode_overviews";
+export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY, QUALITY_KEY, BITRATE_KEY, ...SEEK_KEYS, ...AUDIOBOOK_SEEK_KEYS, TITLE_ART_KEY, AUTO_NEXT_KEY, NEXT_UP_KEY, ...ROW_KEYS] as const;
+export type SettingsKey = (typeof SETTINGS_KEYS)[number] | typeof AUTO_NEXT_KEY | typeof SUBTITLE_LANGUAGE_KEY | typeof SUBTITLE_MODE_KEY | typeof SHOW_FORCED_KEY | typeof CARD_OVERLAYS_KEY | typeof CARD_OVERLAYS_ENABLED_KEY | typeof CARD_PRESENTATION_KEY | typeof PRIMARY_MENU_KEY | typeof SPOILER_IMAGE_KEY | typeof SPOILER_OVERVIEW_KEY;
 type Json = null | boolean | string | number | readonly Json[] | { readonly [member: string]: Json | undefined };
 export type SettingValue = null | boolean | string | number | readonly number[] | { readonly [member: string]: Json | undefined };
-export type SettingsScope = "profile" | "profile_device";
+export type SettingsScope = "profile" | "profile_device" | "profile_client";
 export interface SettingsIdentity { readonly profileId: string; readonly deviceId: string; readonly manifestRevision?: number }
 export interface SettingsCapabilities {
     readonly apiVersion: number;
@@ -38,6 +47,8 @@ export interface SettingDefinition {
     readonly key: SettingsKey;
     readonly introducedIn: number;
     readonly profile: boolean;
+    readonly device: boolean;
+    readonly client?: boolean;
     readonly options: readonly { value: string | number; label: string; introducedIn: number; deprecated: boolean }[];
 }
 export interface SettingsContract {
@@ -89,20 +100,29 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
     let titleArtSeen = false;
     for (const raw of array(obj.definitions, "settings_contract.definitions")) {
         const def = object(raw, "setting_definition");
-        const key = ([...SETTINGS_KEYS, AUTO_NEXT_KEY] as const).find(key => def.key === key);
+        const key = ([...SETTINGS_KEYS, AUTO_NEXT_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, SHOW_FORCED_KEY] as const).find(key => def.key === key);
         if (key === undefined) continue;
         if (key === TITLE_ART_KEY) {
             if (titleArtSeen) throw new WireError("setting_definition.key", "each title-art key once");
             titleArtSeen = true;
         }
         const schema = object(def.value_schema, "setting_definition.value_schema");
-        const seek = key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY;
+        const extra = ROW_KEYS.some(row => row === key);
+        if (extra && (def.persistence !== "remote" || schema.type !== (key === INTRO_SKIP_KEY ? "enum" : key === METADATA_KEY ? "language_tag" : key === APPEARANCE_KEY || key === CARD_PRESENTATION_KEY ? "object" : "boolean"))) continue;
+        const seek = key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY || AUDIOBOOK_SEEK_KEYS.some(seek => seek === key);
         const titleArt = key === TITLE_ART_KEY;
+        const subtitleLanguage = key === SUBTITLE_LANGUAGE_KEY;
+        const subtitleMode = key === SUBTITLE_MODE_KEY;
+        const showForced = key === SHOW_FORCED_KEY;
+        if (key === NEXT_UP_KEY && (def.persistence !== "remote" || schema.type !== "integer" || schema.nullable === true || schema.minimum !== 0 || schema.maximum !== 120 || def.default_value !== 30)) continue;
         if (key === AUTO_NEXT_KEY && (def.persistence !== "remote" || schema.type !== "boolean" || schema.nullable === true || def.default_value !== true || def.introduced_in !== 1 || JSON.stringify(def.allowed_scopes) !== JSON.stringify(["profile", "profile_device"]) || JSON.stringify(def.resolution_order) !== JSON.stringify(["profile_device", "profile", "default"]))) continue;
         if (titleArt && (def.persistence !== "remote" || schema.type !== "boolean" || (schema.nullable !== undefined && schema.nullable !== false) || def.default_value !== true || def.introduced_in !== 16 || def.recommended_control !== "switch")) continue;
-        if (seek && (def.persistence !== "remote" || schema.type !== "enum" || schema.nullable === true || def.default_value !== (key === SEEK_BACK_KEY ? 10 : 30) || def.unit !== "seconds" || def.recommended_control !== "select" || def.introduced_in !== 9)) continue;
+        if (seek && (def.persistence !== "remote" || schema.type !== "enum" || schema.nullable === true || def.default_value !== (key === SEEK_BACK_KEY || key === AUDIOBOOK_SEEK_KEYS[0] ? 10 : 30) || def.unit !== "seconds" || def.recommended_control !== "select" || def.introduced_in !== 9)) continue;
         if ((key === QUALITY_KEY || key === BITRATE_KEY) && def.persistence !== "remote") continue;
         if (key === AUDIO_KEY && (schema.nullable !== true || schema.type !== "language_tag")) continue;
+        if (subtitleLanguage && (schema.nullable !== true || schema.type !== "language_tag" || def.default_value !== null || def.recommended_control !== "select" || def.unset_label !== "None" || typeof def.suggested_options !== "string")) continue;
+        if (subtitleMode && (schema.type !== "enum" || schema.nullable === true || def.default_value !== "auto" || def.recommended_control !== "select")) continue;
+        if (showForced && (schema.type !== "boolean" || schema.nullable === true || def.default_value !== true || def.recommended_control !== "switch")) continue;
         if (key === HIDDEN_KEY && (schema.nullable !== true || schema.type !== "object" || schema.schema_ref !== "library-id-list.json")) continue;
         if (key === QUALITY_KEY && (schema.type !== "enum" || schema.nullable === true || def.default_value !== "auto" || def.recommended_control !== "select")) continue;
         if (key === BITRATE_KEY && (schema.type !== "integer" || schema.nullable !== true || schema.minimum !== 100 || schema.maximum !== 200000 || def.default_value !== null || def.unit !== "kbps" || def.recommended_control !== "select")) continue;
@@ -112,13 +132,24 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
         if (titleArt && (scopes.length !== 2 || !scopes.includes("profile") || !scopes.includes("profile_device") || JSON.stringify(def.resolution_order) !== JSON.stringify(["profile", "profile_device", "default"]))) continue;
         if (seek && (scopes.length !== 1 || scopes[0] !== "profile" || JSON.stringify(def.resolution_order) !== JSON.stringify(["profile", "default"]))) continue;
         let options: SettingDefinition["options"] = [];
-        if (key === AUDIO_KEY && typeof def.suggested_options === "string") {
-            const set = object(sets[def.suggested_options], "audio_options");
-            options = array(set.options, "audio_options.options").map(raw => {
-                const option = object(raw, "audio_option");
-                const value = string(option, "value", "audio_option");
-                decodeSettingValue(AUDIO_KEY, value);
-                return { value, label: value, introducedIn: integer(option, "introduced_in", "audio_option"), deprecated: false };
+        if ((key === AUDIO_KEY || key === METADATA_KEY || subtitleLanguage) && typeof def.suggested_options === "string") {
+            const set = object(sets[def.suggested_options], "language_options");
+            options = array(set.options, "language_options.options").map(raw => {
+                const option = object(raw, "language_option");
+                const value = string(option, "value", "language_option");
+                decodeSettingValue(key, value);
+                return { value, label: value, introducedIn: integer(option, "introduced_in", "language_option"), deprecated: false };
+            });
+        }
+        if (subtitleMode) {
+            const members = array(schema.values, "subtitle_mode_options").map(raw => object(raw, "subtitle_mode_option"));
+            const values = ["auto", "always", "off"];
+            if (members.length !== values.length || !values.every(value => members.filter(option => option.value === value).length === 1)) continue;
+            options = members.map(option => {
+                const value = string(option, "value", "subtitle_mode_option");
+                const label = string(option, "label", "subtitle_mode_option");
+                if (label.trim() === "") throw new WireError("subtitle_mode_option.label", "a nonblank label");
+                return { value, label, introducedIn: option.introduced_in === undefined ? 1 : integer(option, "introduced_in", "subtitle_mode_option"), deprecated: option.deprecated === true };
             });
         }
         if (key === QUALITY_KEY) {
@@ -140,7 +171,7 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
             if (definitions.some(def => def.key === key)) throw new WireError("setting_definition.key", "each seek key once");
         }
         // Only the two seek keys and title art have approved advisory-platform adoption.
-        definitions.push({ key, introducedIn: integer(def, "introduced_in", "setting_definition"), profile: scopes.includes("profile") && (seek || titleArt || platforms === undefined || platforms.includes("tizen")), options });
+        definitions.push({ key, introducedIn: integer(def, "introduced_in", "setting_definition"), profile: scopes.includes("profile") && (extra || seek || titleArt || subtitleLanguage || subtitleMode || showForced || platforms === undefined || platforms.includes("tizen")), device: scopes.includes("profile_device"), client: scopes.includes("profile_client"), options });
     }
     return { apiVersion: integer(obj, "api_version", "settings_contract"), revision: integer(obj, "revision", "settings_contract"), definitions };
 }
@@ -148,9 +179,9 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
 export function profileSettings(contract: SettingsContract, capability: SettingsCapabilities): readonly SettingDefinition[] {
     if (capability.apiVersion !== 1 || capability.state !== "available" || !capability.allowed || !capability.scopes.includes("profile") || contract.apiVersion !== 1) return [];
     const revision = Math.min(contract.revision, capability.manifestRevision);
-    const definitions = contract.definitions.filter(def => def.profile && def.introducedIn <= revision).map(def => ({ ...def, options: def.options.filter(option => option.introducedIn <= revision) }));
-    const pair = revision >= 9 && SEEK_KEYS.every(key => definitions.some(def => def.key === key && def.options.length === SEEK_SECONDS.length && def.options.every(option => !option.deprecated)));
-    return definitions.filter(def => (pair || (def.key !== SEEK_BACK_KEY && def.key !== SEEK_FORWARD_KEY)) && (def.key !== TITLE_ART_KEY || capability.scopes.includes("profile_device")));
+    const definitions = contract.definitions.filter(def => def.profile && def.introducedIn <= revision).map(def => ({ ...def, device: def.device === true && capability.scopes.includes("profile_device"), options: def.options.filter(option => option.introducedIn <= revision) }));
+    const missing = [SEEK_KEYS, AUDIOBOOK_SEEK_KEYS].filter(keys => revision < 9 || !keys.every(key => definitions.some(def => def.key === key && def.options.length === SEEK_SECONDS.length && def.options.every(option => !option.deprecated)))).flat();
+    return definitions.filter(def => !missing.some(key => key === def.key) && (def.key !== TITLE_ART_KEY || capability.scopes.includes("profile_device")));
 }
 
 /** Keep opaque library IDs as strings everywhere except this validated JSON-integer boundary. */
@@ -161,6 +192,18 @@ export function numericLibraryId(id: string): number {
 }
 
 export function decodeSettingValue(key: SettingsKey, value: unknown): SettingValue {
+    if (key === APPEARANCE_KEY) {
+        decodeAppearance({ profile_id: "validate", effective_value: JSON.stringify(value) }, "validate");
+        return object(value, "appearance") as { readonly [member: string]: Json };
+    }
+    if (key === ADVISORY_KEY || key === CREDITS_SKIP_KEY) {
+        if (typeof value !== "boolean") throw new WireError(key, "a boolean");
+        return value;
+    }
+    if (key === INTRO_SKIP_KEY) {
+        if (value !== "never" && value !== "ask" && value !== "always") throw new WireError(key, "never, ask or always");
+        return value;
+    }
     if (key === PRIMARY_MENU_KEY) return decodePrimaryMenu(value);
     if (key === CARD_PRESENTATION_KEY) {
         const document = object(value, "card_presentation.value");
@@ -177,12 +220,28 @@ export function decodeSettingValue(key: SettingsKey, value: unknown): SettingVal
         if (value !== null && typeof value !== "boolean") throw new WireError("card_overlays_enabled.value", "a JSON boolean or null");
         return value;
     }
+    if (key === NEXT_UP_KEY) {
+        if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 120) throw new WireError(key, "an integer from 0 to 120");
+        return value;
+    }
     if (key === AUTO_NEXT_KEY) {
         if (typeof value !== "boolean") throw new WireError("auto_play_next.value", "a JSON boolean");
         return value;
     }
+    if (key === SHOW_FORCED_KEY) {
+        if (typeof value !== "boolean") throw new WireError("show_forced_subtitles.value", "a JSON boolean");
+        return value;
+    }
+    if (key === SUBTITLE_MODE_KEY) {
+        if (value !== "auto" && value !== "always" && value !== "off") throw new WireError("subtitle_mode.value", "auto, always or off");
+        return value;
+    }
     if (key === TITLE_ART_KEY) {
         if (typeof value !== "boolean") throw new WireError("title_art.value", "a JSON boolean");
+        return value;
+    }
+    if (key === SPOILER_IMAGE_KEY || key === SPOILER_OVERVIEW_KEY) {
+        if (typeof value !== "boolean") throw new WireError("episode_spoiler.value", "a JSON boolean");
         return value;
     }
     if (key === SEEK_BACK_KEY || key === SEEK_FORWARD_KEY || key === AUDIOBOOK_SEEK_KEYS[0] || key === AUDIOBOOK_SEEK_KEYS[1]) {
@@ -206,7 +265,7 @@ export function decodeSettingValue(key: SettingsKey, value: unknown): SettingVal
     }
     // Match the server's canonical tag grammar, including unregistered and private-use tags.
     const tag = /^(?:[a-z]{2,3}(?:-[a-z]{3}){0,3}(?:-[a-z]{4})?(?:-(?:[a-z]{2}|\d{3}))?(?:-(?:[a-z0-9]{5,8}|\d[a-z0-9]{3}))*(?:-[0-9a-wy-z](?:-[a-z0-9]{2,8})+)*(?:-x(?:-[a-z0-9]{1,8})+)?|x(?:-[a-z0-9]{1,8})+)$/i;
-    if (typeof value !== "string" || !tag.test(value) || duplicateSubtags(value)) throw new WireError("audio_language.value", "a canonical BCP 47 tag or null");
+    if (typeof value !== "string" || !tag.test(value) || duplicateSubtags(value)) throw new WireError(key === SUBTITLE_LANGUAGE_KEY ? "subtitle_language.value" : "audio_language.value", "a canonical BCP 47 tag or null");
     return value;
 }
 

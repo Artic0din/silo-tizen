@@ -1,5 +1,8 @@
 /* Native player, 1920x1080, Chromium 108. */
 
+.audio-player .audio-controls { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; max-height: 740px; overflow-y: auto; padding: 12px; white-space: normal; }
+.audio-controls .browse-button { flex-shrink: 0; margin: 0; }
+
 .player-captions {
     position: absolute;
     left: 8%;

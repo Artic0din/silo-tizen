@@ -87,6 +87,8 @@ Focus is always restored by zone id plus item key, never by list position.
 - `FocusHost` keeps a per-view "visit" snapshot: remembered item per zone, last zone, vertical scroll and each shelf's horizontal scroll.
   `show` saves it for the view being left and applies it when the view is entered again.
   Library views key their visit by library, type and mode (`visitKey`).
+  Details routes supply a distinct `View.visitKey` per presentation, retained through loading and repainting and when returning from children.
+  Two presentations of the same title therefore retain independent focus and scroll.
 - `holdVisit()` saves the visit before chrome is hidden for Settings or playback, because hiding chrome can resize and clamp the viewport.
 - `focusDefault()` is for deliberate entry into content (for example leaving the nav bar).
   For `library:<id>` views it prefers the last non-chrome zone of the saved visit; every other view goes straight to `view.focus`.
@@ -123,7 +125,6 @@ They intercept it first, in an earlier phase of the DOM event path.
 | 3 | Card actions (`cardActions.ts`) | `document`, capture | Registered when its menu opens. Handles remote keys and Tab, then `stopImmediatePropagation`. |
 | 4 | `Skyline.onKey` | container, capture | Menus, dwell panels, Down into a panel, Back inside the shell. |
 | 4 | Settings (`settings.ts`) | container, capture | Left to the categories and the credits scroll. |
-| 5 | Synopsis dialog (`browseDetails.ts`) | its own element | `stopPropagation`, so the page's bubble listeners never see the key. |
 | 6 | `FocusHost.onKey`, `ScreenHost.onKey`, player `onKey` | `document`, bubble | Ordinary movement. `FocusHost` returns at once if `event.defaultPrevented`. |
 | 7 | App `onBack` (`src/app.ts`) | `window`, bubble | Opens the Exit dialog on an unhandled Back. |
 
@@ -135,7 +136,7 @@ When you add a modal:
 - Trap focus inside it.
 - Restore the previous element on close, as `exitDialog.ts` does with `previous`.
 - Make the page behind it `inert` and `aria-hidden`, or give the host a zones list that only contains the modal (as the Sign Out confirmation does).
-- Skip browse re-renders while it is open (`render` in `browse.ts` returns early when `synopsis.active` or `cardActions.active`).
+- Skip browse re-renders while it is open (`render` in `browse.ts` returns early when `cardActions.active`).
 
 ## Back Handling
 
@@ -186,9 +187,32 @@ Other layers:
 
 ## Never Fetch on Focus
 
-Search filter pills are the sole exception: focus applies their filter immediately, matching Apple TV's segmented picker, and cancels superseded reads.
+Search filter pills apply their filter immediately, matching Apple TV's segmented picker, and cancel superseded reads.
+Series season pills activate after 70 ms of resting focus, matching `TVSeriesDetailView.swift:780–793` at `7baff3ef657757cc0a69202e86dd4bd5c7fcb585` (paths below are under `iosApp/iosApp/tvOS/Screens/Detail/`).
+Already loaded seasons select without a read or neighbour warming.
+For a missing season, the dwell permits one bounded episode-page read; leaving cancels the wait and any pill-owned read, and revisiting a cancelled or failed read never retries automatically.
+Select remains immediate; Retry is the explicit recovery action.
+The pill nodes stay mounted during episode updates so repainting cannot cancel their focus or request.
+The selected pill centers on initial display and selection, clamped to the row ends, following `TVSeriesDetailView.swift:653–674`.
+The signed same-state comparison on 5 November 2026 at `93a39b3` confirmed the pill window; the later inset and hero corrections still need signed comparison.
+The current season keeps its current episode on focus, while a different season starts at E01 and retains pill focus until Down.
+Episode-card focus uses loaded episode summaries and never starts a detail read.
+Uncached playback and version/audio/subtitle activation resolve the selected episode's extra details explicitly.
+Crossing into a loaded season in the Series rail only selects its cached page; it starts no reads.
+Initial row loading warms the neighbouring episode window; focus activation, Select and selected-season Retry do not.
+The narrow rail exception is focus resting for 70 ms on an outer loaded edge with a missing neighbour: it requests that one season once per edge, without stacking pending reads or chaining further reads.
+An empty response consumes that edge's automatic read; a season-pill activation can load beyond it.
+If a successful page is later evicted by the bounded cache, reaching its edge or resting on its season pill can load that page again.
+Leaving the card before the dwell ends cancels the request before it starts.
+This preserves continuous navigation without loading every season up front.
+At Apple source revision `7baff3ef`, `TVItemDetailView.swift:462–466,927–1001` warms neighbours when the selected season changes; `TVEpisodeRail.swift:303–314,450–454` reports focus at the loaded window's first or last card.
+Samsung bounds selection reads more strictly to avoid rate-limited request bursts while retaining the signed comparison's loaded-season behavior.
+Apple's failed-edge revisit retries (`TVItemDetailView.swift:297–300`, `TVSeriesDetailView.swift:589–592`); Tizen instead requires the explicit "Retry more episodes" action to protect the rate-limited server.
+Neither ordinary loaded-card movement nor revisiting a failed edge retries a read.
+Translation polls publish the selected season without restarting neighbour reads or clearing a failed edge, following `ItemDetailViewModel.swift:1752–1773` at the same Apple source revision.
+Featured cards are another exception. In the server's auto mode, the marquee starts a description translation only after that card has held the preview for 1500 ms, matching Apple TV's featured-card dwell. Moving on before then starts nothing. Details translation starts with the page. Focusing another episode does not.
 
-Moving focus never starts a request, activates a route or writes data.
+Outside the named filter, season-pill, outer-edge and featured-card exceptions, moving focus never starts a request, activates a route or writes data.
 Fetching belongs to explicit activation (Enter), to a view loading, or to a one-off prefetch.
 
 - Card focus calls `context.preview`, which only redraws the marquee from data already in memory (`Skyline.preview`).
@@ -252,7 +276,7 @@ Don't:
 - Don't move focus programmatically except when the focused item disappears.
   Moving focus in answer to a remote key, including Back to the navigation bar, is the host's job, not a programmatic move.
 - Don't restore focus by position or index.
-- Don't fetch, write or navigate from `focus` handlers.
+- Don't fetch, write or navigate from `focus` handlers outside the narrow read exceptions above.
 - Don't attach a second `keydown` handler that also moves focus in an owned zone.
 - Don't let browse render over an active modal.
 - Don't infer TV behaviour from desktop Chromium.

@@ -9,7 +9,7 @@ test("audiobook opt-in requires an accessible library and stays with its profile
     const library = { id: "3", name: "Audio", type: "audiobooks" as const, sortOrder: 1 };
     assert.equal(navigationRoots(null, [library], false).some(root => root.key === "audiobooks"), false);
     assert.equal(navigationRoots(null, [], false, true).some(root => root.key === "audiobooks"), false);
-    assert.equal(navigationRoots(null, [library], false, true).find(root => root.key === "audiobooks")?.title, "Audiobooks (Beta)");
+    assert.equal(navigationRoots(null, [library], false, true).find(root => root.key === "audiobooks")?.title, "Audiobooks");
     const storage = new MemoryPublicStorage();
     const owner = new AudiobookPreference(storage, "owner");
     owner.set(true);
@@ -37,6 +37,12 @@ test("Apple resume grace and end margin", () => {
     assert.equal(audiobookResume(30, 220), undefined);
     assert.equal(audiobookResume(31, 220), 31);
     assert.equal(audiobookResume(215, 220), undefined);
+});
+test("multipart duration requires the final chapter endpoint, never its start", () => {
+    for (const chapters of [
+        [{ start_seconds: 0 }, { start_seconds: 60 }],
+        [{ start_seconds: 0, end_seconds: 60 }, { start_seconds: 60 }],
+    ]) assert.throws(() => decodeAudiobook({ ...detail, versions: [{ file_id: "1", chapters }, { file_id: "2", duration: 100 }] }), /duration/);
 });
 test("unknown durations use chapter edges and malformed external times fail", () => {
     assert.equal(decodeAudiobook({ ...detail, versions: [{ file_id: "a", chapters: [{ index: 0, start_seconds: 0, end_seconds: 90 }] }] }).duration, 90);

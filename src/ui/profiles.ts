@@ -10,8 +10,9 @@ import type { ProfileLaunch } from "../session/profileLaunch.ts";
 import { type AuthorityChange, type LogoutResult, SessionError } from "../session/session.ts";
 import { pinProblem, pinScreen } from "./pinScreen.ts";
 import { actions, button, type Control, el, type Note, type Screen, ScreenHost } from "./screen.ts";
+import { navigationIcon } from "./navigationIcon.ts";
 import { logoutCollectedAccount } from "./signIn.ts";
-import * as text from "./signInText.ts";
+import { PASSWORD_CHANGE_REQUIRED_MESSAGE } from "./signInText.ts";
 import { MarqueeBackdrop } from "./marqueeBackdrop.ts";
 import { profilePickerScreen } from "./profilePicker.ts";
 import { createProfileFlow, type ProfileCreateFlow } from "./profileCreate.ts";
@@ -198,7 +199,9 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
 
     const listFailed = (error: unknown, focus?: string): void => {
         if (error instanceof ApiError && error.problemId === "password_change_required") {
-            passwordChange();
+            // Apple TV does not hand this off (`handsOffToPasswordChange` is false). The empty
+            // picker shows the refusal, and focus starts on Change account.
+            passwordResetRequired();
             return;
         }
         if (error instanceof SessionError && error.reason !== "unavailable") {
@@ -299,16 +302,34 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         message("expired", "Signed out", lines, [button("signin", "Sign in again", signOut)]);
     };
 
-    /** The account can do nothing here until its password changes, which ends this session anyway. */
-    const passwordChange = (): void => {
+    /**
+     * A temporary password. The session stays. Try Again reloads profiles; Change account and
+     * Sign out are the picker's footer (`ProfileSelectionView` on tvOS). Focus is Change account,
+     * including after a retry that is still refused.
+     */
+    const passwordResetRequired = (): void => {
         begin();
-        current = undefined;
-        leaving = true;
-        const logout = logoutCollectedAccount(server);
-        const again = button("signin", "Sign in again", () => {
-            void logout.then(leave, () => leave(undefined));
-        });
-        message("password", "Choose a new password", text.passwordChange(session.http.base.baseUrl), [again]);
+        const retry = button("retry", "Try Again", () => showList());
+        const change = button("change-account", "Change account", options.onChangeServer);
+        const out = signOutButton();
+        change.element.prepend(navigationIcon("switch-server"));
+        out.element.prepend(navigationIcon("signout"));
+        const retryRow = actions([retry]);
+        const footer = el("div", "profile-footer");
+        footer.append(change.element, out.element);
+        const detail = el("p", "signin-text signin-error", PASSWORD_CHANGE_REQUIRED_MESSAGE);
+        detail.setAttribute("role", "alert");
+        show({
+            name: "profiles-error",
+            content: [el("h1", "signin-title", "Not allowed"), detail, retryRow, footer],
+            controls: [
+                { ...retry, row: 0 },
+                { ...change, row: 1, landing: true },
+                { ...out, row: 1 },
+            ],
+            focus: "change-account",
+            back: undefined,
+        }, "change-account");
     };
 
     /** The server refused the profile's PIN proof: ask for the PIN again if the profile still has one. */
@@ -388,7 +409,8 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
     return {
         signOut,
         switchProfile() {
-            if (!destroyed && host === undefined) {
+            if (!destroyed && (host === undefined || session.activeProfile === undefined)) {
+                if (session.activeProfile === undefined) current = undefined;
                 showList(current?.id);
             }
         },

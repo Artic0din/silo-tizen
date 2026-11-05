@@ -9,7 +9,7 @@ export function navigationRoots(_menu: PrimaryMenu | null, libraries: readonly U
     for (const key of ["movies", "series", "music", "audiobooks"] as const) {
         if (key === "audiobooks" && !showAudiobooks) continue;
         if (libraries.some(library => library.type === key || ((key === "movies" || key === "series") && library.type === "mixed"))) {
-            roots.push({ key, title: { movies: "Movies", series: "Series", music: "Music", audiobooks: "Audiobooks (Beta)" }[key] });
+            roots.push({ key, title: { movies: "Movies", series: "Series", music: "Music", audiobooks: "Audiobooks" }[key] });
         }
     }
     return [...roots, { key: "for_you", title: "For You" }, { key: "calendar", title: "Calendar" }];

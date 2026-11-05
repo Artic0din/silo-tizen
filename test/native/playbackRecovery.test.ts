@@ -8,8 +8,82 @@ import { fixture, problem, type RecordedRequest } from "./support/fakeSilo.ts";
 import { FakeAVPlay } from "./support/fakeAVPlay.ts";
 import { FakePlayback } from "./support/fakePlayback.ts";
 import { connected, type Harness, signIn } from "./support/harness.ts";
+import { decodeAudiobook } from "../../src/contracts/v2/audiobooks.ts";
+import { FakeSettings } from "./support/fakeSettings.ts";
 
 const MOVIE: PlayRequest = { contentId: "movie-1", fileId: "42", title: "Movie", startSeconds: 12.5 };
+
+test("audiobook manual reconnect retry preserves the latest listening position", async () => {
+    const r = await rig();
+    new FakeSettings(r.h.fake);
+    const book = decodeAudiobook({ content_id: MOVIE.contentId, type: "audiobook", title: "Book", versions: [{ file_id: "42", duration: 1000 }] });
+    const id = await play(r, { ...MOVIE, audiobook: book });
+    r.avplay.positionMs = 500000;
+    r.avplay.listener?.oncurrentplaytime(500000);
+    r.h.fake.script(`/playback/${id}/replan`, ...Array.from({ length: 12 }, () => ({ status: 503 })));
+    r.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
+    for (const delay of [1000, 2000, 4000, 8000, ...Array<number>(8).fill(15000)]) await r.h.clock.advance(delay);
+    assert.equal(last(r.views).phase, "error");
+    r.controller.retryCompletion();
+    await r.h.clock.advance(15000);
+    assert.equal(starts(r.h), 1, "manual retry recovers the existing session");
+    assert.equal(replans(r.h).at(-1)?.position_seconds, 500);
+    r.controller.destroy();
+});
+
+test("audiobook Stop Listening during reconnect drains progress before returning to browse", async () => {
+    const r = await rig();
+    new FakeSettings(r.h.fake);
+    const book = decodeAudiobook({ content_id: MOVIE.contentId, type: "audiobook", title: "Book", versions: [{ file_id: "42", duration: 1000 }] });
+    await play(r, { ...MOVIE, audiobook: book });
+    r.h.fake.script("/sync/progress", ...Array.from({ length: 2 }, () => ({ status: 200, body: { items: [{ media_item_id: MOVIE.contentId, status: "success" }] } })));
+    const held = r.h.fake.hold("/sync/progress", true);
+    r.avplay.positionMs = 500000;
+    r.avplay.listener?.oncurrentplaytime(500000);
+    await r.h.clock.advance(10000);
+    r.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
+    r.controller.back();
+    await r.h.clock.advance(0);
+    assert.deepEqual(r.exits, []);
+    held.release();
+    await r.h.clock.advance(0);
+    assert.deepEqual(r.exits, ["back"]);
+    const writes = r.h.fake.requests.filter(request => request.path === "/sync/progress");
+    assert.equal(writes.length, 2);
+    assert.deepEqual(writes.at(-1)?.body?.items, [{ media_item_id: MOVIE.contentId, position_ms: 500000, duration_ms: 1000000, force_overwrite: true }]);
+    assert.equal(starts(r.h), 1);
+    r.controller.destroy();
+});
+
+for (const stale of [false, true]) test(`audiobook replacement drains old durable progress with ${stale ? "a retired" : "a missing"} predecessor`, async () => {
+    const r = await rig();
+    new FakeSettings(r.h.fake);
+    const book = decodeAudiobook({ content_id: MOVIE.contentId, type: "audiobook", title: "Book", versions: [{ file_id: "42", duration: 1000 }] });
+    const old = await play(r, { ...MOVIE, audiobook: book });
+    r.h.fake.script("/sync/progress", ...Array.from({ length: 5 }, () => ({ status: 200, body: { items: [{ media_item_id: MOVIE.contentId, status: "success" }] } })));
+    const held = r.h.fake.hold("/sync/progress", true);
+    r.avplay.positionMs = 500000;
+    r.avplay.listener?.oncurrentplaytime(500000);
+    await r.h.clock.advance(10000);
+    r.h.fake.script(`/playback/${old}/replan`, stale ? problem(409, "stale_playback_plan", "Stale plan") : { status: 404 });
+    r.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
+    await r.h.clock.advance(1000);
+    await r.h.clock.advance(2000);
+    assert.equal(starts(r.h), 1, "replacement cannot overtake the old forced write");
+    held.release();
+    await r.h.clock.advance(0);
+    assert.equal(starts(r.h), 2);
+    await resumePlan(r);
+    r.avplay.positionMs = 600000;
+    r.avplay.listener?.oncurrentplaytime(600000);
+    r.controller.back();
+    await r.h.clock.advance(0);
+    assert.deepEqual(r.exits, ["back"]);
+    const writes = r.h.fake.requests.filter(request => request.path === "/sync/progress");
+    assert.equal(writes.length, 2, "retired session cleanup cannot add an older forced write");
+    assert.deepEqual(writes.map(request => (request.body?.items as { position_ms: number }[])[0]?.position_ms), [500000, 600000]);
+    r.controller.destroy();
+});
 
 interface Rig {
     readonly h: Harness;

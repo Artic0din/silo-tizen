@@ -18,11 +18,13 @@ export function mountAudioScreen(root: HTMLElement, controls: PlayerControls, bo
     let chapters = false;
     let sleep = 0;
     let sleepExpired = false;
+    let pausingForSleep = false;
     let cancelSleep: (() => void) | undefined;
     const pauseForSleep = (): void => {
-        if (!sleepExpired || (view.phase !== "playing" && view.phase !== "paused")) return;
+        if (pausingForSleep || !sleepExpired || (view.phase !== "playing" && view.phase !== "paused")) return;
         if (view.phase === "paused") { sleepExpired = false; sleep = 0; return; }
-        controls.setPaused(true);
+        pausingForSleep = true;
+        try { controls.setPaused(true); } finally { pausingForSleep = false; }
     };
     const render = (): void => {
         const focus = host.focused();
@@ -54,7 +56,7 @@ export function mountAudioScreen(root: HTMLElement, controls: PlayerControls, bo
             content.push(el("p", "browse-text", view.state === "failed" ? "Could not save progress and stop playback." : "Saving progress"));
             if (view.state === "failed" && view.retryable) buttons.push(actionButton("retry", "Retry", () => controls.retryCompletion()));
         } else content.push(el("p", "browse-text", "Loading"));
-        content.push(zoneNode("browse-actions", buttons));
+        content.push(zoneNode("browse-actions browse-panel-list audio-controls", buttons));
         host.show({ name: "audio-player", content, zones: [{ id: "transport", layout: "column", items: buttons }], focus: { zone: "transport", key: "pause" }, back: () => controls.back() }, focus);
     };
     const unsubscribe = controls.subscribe(next => { view = next; pauseForSleep(); render(); });

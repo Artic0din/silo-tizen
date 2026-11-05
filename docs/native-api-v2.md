@@ -121,7 +121,6 @@ It is set to `false` for these calls:
 
 - PIN verification (`src/session/profiles.ts`)
 - personal-list and watched mutations (`src/ui/detailsState.ts`)
-- rating writes (`src/ui/ratingState.ts`)
 - shuffle creation (`src/ui/browse.ts`)
 - request create, cancel and follow (`src/ui/browse.ts`)
 - series subtitle preference saves (`src/player/controller.ts`)
@@ -226,6 +225,19 @@ Remembering a PIN proof is refused when protected storage is not persistent.
 
 ### Catalog, browse and detail
 
+Details sends explicit audio and subtitle choices through `PUT /audio-prefs/{key}` and `PUT /subtitle-prefs/{key}`, and Auto through the corresponding `DELETE`.
+The key is a nonempty series ID or the item's own opaque content ID.
+The audio signature preserves title, embedded title, layout, language, codec, channels and default independently.
+Writes never replay after refresh; queued choices serialize, uncertain results require explicit readback before retry, and playback remains blocked until confirmation and effective catalog readback settle.
+Route teardown fences completions; retained playback returns reread effective state without resending writes.
+Version selection remains visit-only.
+Subtitle signatures preserve source, language, codec, label, forced and hearing-impaired flags.
+External subtitle paths use the catalog `file_name`, matching Apple; embedded tracks send an empty path.
+Explicit Off writes index `-1`, empty language/path and mode `off`.
+Ordinary picks omit `show_forced_subtitles` so they do not pin an inherited profile setting.
+Fresh effective subtitle signatures seed Details using Apple's language/label scoring; explicit Auto remains Auto for the retained visit.
+This is source work only, pending independent review and native Apple/Samsung parity.
+
 All of these are Bearer plus Profile.
 The server applies library access and content limits, so the client does not filter.
 Defined in `src/api/operations.ts` unless noted.
@@ -251,6 +263,9 @@ Defined in `src/api/operations.ts` unless noted.
 | catalog filters | `GET /catalog/filters?...` (`src/api/discoveryOperations.ts`) | safe |
 | search capabilities | `GET /catalog/search/capabilities` (`src/api/discoveryOperations.ts`) | safe |
 | Search people | `GET /catalog/people?q&media_scope&limit=20` (`src/api/detailOperations.ts`), gated by allowed/available `people_media_scope` | safe |
+| searchCatalogBoxSets | `GET /catalog/box-sets?q&limit=5` (`src/api/boxSetOperations.ts`), All and Movies only, gated by `box_sets: true` | safe |
+| getCatalogBoxSet | `GET /catalog/box-sets/{id}?library_id&image_size=medium` (`src/api/boxSetOperations.ts`) | safe |
+| getCatalogItemBoxSet | `GET /catalog/items/{id}/box-set?image_size=medium` (`src/api/boxSetOperations.ts`), movie pages only, gated by `box_sets: true`. `box_set` absent means no row. Library browse does not group box sets | safe |
 | queryCatalogItems | `POST /catalog/query?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
 | queryCatalogLetters | `POST /catalog/letters` (`src/api/discoveryOperations.ts`) | safe |
 
@@ -284,21 +299,6 @@ All are Bearer plus Profile.
 Gating: `decodePersonalCapability` is true only when `state === "available"`, `allowed` and `membership_supported` are all true (`src/contracts/v2/details.ts`).
 Mutations are sent once, with refresh replay off, and repeat only when the person presses again (comment in `detailOperations.ts`).
 The list screens decode the same capability with a second decoder in `src/ui/personalLists.ts`, which requires a `revision` string.
-
-### Ratings
-
-Defined in `src/ui/ratingState.ts` as `ratingOperations`.
-All are Bearer plus Profile.
-
-| Operation | Method and path | Retry |
-| --- | --- | --- |
-| read | `GET /ratings/{id}` | safe |
-| set | `PUT /ratings/{id}` with body `{ "rating": 1..5 }` | never |
-| clear | `DELETE /ratings/{id}` | never |
-
-A 404 on read means unrated.
-Writes send once with refresh replay off, then read back to confirm; an explicit Retry reads first (`docs/features/ratings.md`).
-A star value outside 1 to 5 throws `RangeError` before any request.
 
 ### Recommendations
 

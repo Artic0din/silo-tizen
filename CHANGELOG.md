@@ -7,10 +7,66 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - Added profile-gated beta audiobook libraries, grouped browsing, chapters, resume, audio seeking and sleep timers.
+- Added audiobook Favorite and Finished toggles, the General top-menu switch, and profile skip intervals; kept listening position and visible focus through recovery and navigation.
+- Hid unwatched episode stills and descriptions from Playback when the server supports the profile spoiler settings.
+- Show Trailers & More on movie and series Details for local extras and YouTube listings, using Apple's card size and the 76px gap to the next heading. Local extras still play from the start. YouTube listings stay on their card because this TV cannot play them.
+- Added description translation on Details and the featured marquee, matching Apple TV's Translate Description action, Translating… status and Translated by AI label.
 - Added Change Account with several saved accounts per server and account management.
+
+### Removed
+
+- Removed the Settings Hidden Libraries editor and duplicate Manage Servers navigation; existing hidden libraries can still be restored.
+- Removed Details Read synopsis, its expanded view, #66's personal star rating control, and Season details to match the controls reachable on Apple TV.
 
 ### Fixed
 
+- Refreshed episode spoiler protection after Settings changes and preserved saved switches during overlapping requests and failures.
+
+- Aligned Details supporting-section headings when moving Up and Down, restored visible Movie Cast to the page top, and removed duplicated space below the Details table.
+- Opened fresh Details presentations at the hero and preserved each earlier presentation's focus and scroll when the same title appeared again in the route stack, including entry from Search.
+- Episode cards opened their series on the selected episode, while remote Play resumed directly and Continue Watching offered Play or Resume in Card actions.
+- Kept cancelled season reads quiet, retained failed Retry focus and revisit state, restored the selected season when reopening a series, and removed unresolved hero bars and the incorrect loaded-predecessor rail offset.
+- Kept season heroes and Play labels on the latest selection, showed loaded episode summaries immediately, restored Series on Play with its overview, and limited season recovery to one requested read.
+- Selected seasons on resting pill focus without rereading cached episodes, bounded missing-season reads during remote sweeps, and centered the selected season pill like Apple TV.
+- Search Select on an episode or season opens that series' Details. Enter on a result no longer starts playback or writes watch history.
+- Restored VIDEO skip intervals and corrected Settings pane margins, Sign Out, subtitle appearance cards, picker indicators and server credits after the full Apple TV comparison.
+- Matched Settings rail icons, row spacing, pane headers, subtitle appearance order and picker hints; pinned the rail and preserved the pane behind modals.
+- Stopped featured descriptions from starting an automatic translation after focus moved to another card.
+- Corrected subtitle profile edits under device overrides, preserved focus after dismissed launch saves, and reset sign-out confirmation to Cancel on each opening.
+- Matched Remove Server to Apple TV's confirmation and returned Cancel and Back to the first account.
+- Corrected Details More dots and compact action rows, added capability-gated Shuffle Series using existing shuffle playback, and made unfocused Play adapt to the backdrop like the round actions.
+
+- Preserved Settings row fixtures across contract refreshes, offered automatic-skip undo after successful seeking, and refreshed catalog metadata for changes already saved on another device.
+
+- Restored supported subtitle rows, centred Settings pickers and privacy handoff, and aligned pane order; deferred the Show Next Up editor until its playback reader lands.
+
+- Added supported Apple TV settings for poster size, advisory age, profile timing, episode playback, metadata and subtitle appearance, and kept profile subtitle edits independent of narrower overrides.
+
+- Corrected Playback Settings to edit this TV's supported overrides and restore profile inheritance without changing profile defaults (Apple/Samsung native parity pending).
+- Aligned supported Settings rows with Apple TV's resolution choices, bitrate presets, value columns, profile selection and sign-out navigation.
+- Added the Subtitles profile language, behavior and forced-subtitles rows, the profile account line, and Apple's sign-out confirmation.
+- Kept loaded-season episode focus free of reads, limited outer-edge loading to one debounced season request, required Retry for failed neighbours, and preserved the window during translation polls.
+- Kept Series episodes in Apple's continuous loaded-season window, clamped entry and remote focus at the final episode group, restored resume bars and edge peeks, and corrected the row's leading inset; the later corrections await signed comparison.
+- Made application sign-in tests wait for approval and the storage notice before continuing to profiles.
+- Matched Details More popovers and Start Over controls to Apple TV, and selected series playback from the current season's next-up suggestion.
+- Stopped a device-code poll from going out when its wait ended as the screen hid. A poll already sent still finishes, and coming back polls at once.
+- Kept Search's navigation column when a square People portrait animates on focus.
+- Restored Cast focus clearance and corrected Details episode spacing, picker selection, Related badges and action glyphs against Apple TV measurements.
+- Corrected Details caption gaps, resting Cast spacing, series colours and genres, and intrinsic Versions sizing.
+- Activated Series seasons on resting focus, preserved complete episode scroll steps, and corrected Details spacing, hero contrast, Versions and SDH subtitle presentation.
+- Corrected the Home title-art regression test to preserve Details' bottom-aligned logo slot, with separate Home, Series and Movie geometry checks.
+- Corrected Details season entry, cast scrolling, rail spacing, hero text and playback picker sizing, labels and selection checks against Apple TV.
+- Kept season selection on its pill, restored the Details hero on Up, and aligned title art, episode spacing, recommendations and playback popovers with Apple TV.
+- Kept Episode and Season playback controls visible when their titles and synopses wrap.
+- Kept long Movie playback controls visible, placed Season headers before episodes, refreshed shared preferences from uncached episodes, and resolved Auto subtitle previews using the selected audio language.
+- Preserved unresolved episode track choices across repeated Series refreshes until readback confirms them, without replaying uncertain saves.
+- Restored painted Details text and season labels, Play entry focus, selected-season navigation, facts tables, compact track readouts and anchored track pickers.
+- Hid unavailable or empty Related rails after loading, removing their extra error and Retry focus stop.
+- Kept Details artwork inside Home's shared top-right frame, displayed content-rating badges, and focused the current episode when opening a Series without overriding remote input.
+- Preserved Calendar's explicit season entry focus when its episode rail finished loading.
+- Opened Series Details on the current season and episode, positioned its episode rail, respected thumbnail sizing, and centred Cast & Crew when navigating down.
+- Refreshed episode preferences when returning to Series Details and kept ordinary Play from overriding effective audio defaults.
+- Remembered Details audio and subtitle choices, including Off and Auto, with confirmation before playback and recovery after uncertain saves; native Apple/Samsung parity remains pending.
 - Kept Home rows when a return to Home joined a row-cap read that the previous visit had cancelled.
 - Preserved saved logins when entering another server and kept overflowing Accounts actions visible on screen.
 - Placed Accounts below the Server heading, matched its section labels and chevrons to Apple TV, and reused the saved account's session when restoring through server entry.
@@ -18,6 +74,7 @@ All notable changes to this project are documented in this file.
 - Blocked account navigation during removal, guarded legacy sign-ins and released account chooser focus before session recovery.
 
 - Matched Accounts pane rows and Change Account layout, and returned Back from account management to Settings.
+- Restored saved-server pane focus, Back from Add server, and pending-removal focus on Samsung TV.
 - Preserved the selected account when retiring another session and kept guarded session-only sign-ins usable until restart.
 - Kept Change Account reachable when a saved server is offline, prevented removed accounts from being restored by late refreshes, and scrolled account lists to keep remote focus visible.
 - Prevented failed replacement sign-ins from restoring old credentials and kept saved-sign-in removal scoped to the selected account.
@@ -77,6 +134,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Updated the Series hero and playback target as episode focus moved, added episode air dates and runtimes, restored Apple's fixed detail frames, and resolved local extras whose embedded file ID was absent.
+
+- Updated Movie and Series detail heroes and playback readouts, added Series track selectors and local extras, and aligned episode captions with Apple TV.
 - Showed Watchlist, Favorites and History as continuous scrolling grids with Apple TV layouts and empty states.
 
 - Showed the title count, All/Movies/Series filters and paged filmography beneath the Person hero, with one Back returning to the originating credit.

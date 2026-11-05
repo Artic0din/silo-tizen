@@ -1,4 +1,4 @@
-import { object, string, optionalString, WireError } from "./wire.ts";
+import { boolean, object, string, optionalString, WireError } from "./wire.ts";
 
 export const SHOW_AUDIOBOOKS_KEY = "nav.show_audiobooks";
 export const AUDIOBOOK_SEEK_KEYS = ["player.audiobook_skip_back_seconds", "player.audiobook_skip_forward_seconds"] as const;
@@ -7,6 +7,7 @@ export interface AudioChapter { readonly title: string; readonly start: number }
 export interface Audiobook {
     readonly id: string; readonly title: string; readonly overview: string; readonly poster: string | undefined;
     readonly position: number; readonly duration: number; readonly parts: readonly AudioPart[]; readonly chapters: readonly AudioChapter[];
+    readonly finished?: boolean;
 }
 function time(value: unknown, path: string): number {
     if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new WireError(path, "nonnegative finite seconds");
@@ -29,7 +30,9 @@ export function decodeAudiobook(value: unknown): Audiobook {
             const c = object(value, "chapter");
             return { title: optionalString(c, "title", "chapter"), start: time(c.start_seconds, "chapter.start"), end: c.end_seconds === undefined ? undefined : time(c.end_seconds, "chapter.end") };
         });
-        const duration = v.duration === undefined || v.duration === 0 ? Math.max(0, ...local.map(c => c.end ?? c.start)) : time(v.duration, "version.duration");
+        const lastChapter = local.reduce<(typeof local)[number] | undefined>((last, chapter) => last === undefined || chapter.start >= last.start ? chapter : last, undefined);
+        const endpoint = lastChapter?.end;
+        const duration = v.duration === undefined || v.duration === 0 ? endpoint !== undefined && endpoint > (lastChapter?.start ?? 0) ? endpoint : 0 : time(v.duration, "version.duration");
         const part = { fileId: string(v, "file_id", "version"), offset, duration };
         for (const c of local) chapters.push({ title: c.title || `Chapter ${chapters.length + 1}`, start: offset + c.start });
         offset += duration;
@@ -39,7 +42,7 @@ export function decodeAudiobook(value: unknown): Audiobook {
     if (parts.length > 1 && parts.some(part => part.duration === 0)) throw new WireError("audiobook.parts.duration", "known part durations or chapter edges for a stitched timeline");
     const user = raw.user_data === undefined ? undefined : object(raw.user_data, "user_data");
     return { id: string(raw, "content_id", "audiobook"), title: string(raw, "title", "audiobook"), overview: optionalString(raw, "overview", "audiobook") ?? "", poster: optionalString(raw, "poster_url", "audiobook"),
-        position: time(user?.position_seconds ?? 0, "user_data.position_seconds"),
+        position: time(user?.position_seconds ?? 0, "user_data.position_seconds"), finished: user?.played === undefined ? false : boolean(user, "played", "user_data"),
         duration: Math.max(offset, time(extension?.total_duration_seconds ?? 0, "audiobook.duration")), parts, chapters: chapters.sort((a, b) => a.start - b.start) };
 }
 export function audiobookResume(position: number, duration: number): number | undefined {

@@ -9,8 +9,8 @@ import type { Person } from "../contracts/v2/details.ts";
 import type { DetailsState } from "./detailsState.ts";
 import { SessionError } from "../session/session.ts";
 import type { FocusTarget, View } from "./browseFocus.ts";
-import { itemView, seasonView, type Synopsis } from "./browseDetails.ts";
-import type { PlayRequest, SeriesContext } from "./browseModel.ts";
+import { itemView, seasonView } from "./browseDetails.ts";
+import { browseCardDestination, type EpisodeSelection, type PlayRequest, type SeriesContext } from "./browseModel.ts";
 import type { CalendarState } from "./calendarState.ts";
 import { calendarView, type CalendarHandlers } from "./calendarView.ts";
 import { actionButton, homeView, lines, pagedGrid, type SearchResults, searchView, statusView, type ViewContext, zoneNode } from "./browseViews.ts";
@@ -22,6 +22,9 @@ import type { MediaScope } from "../contracts/v2/discovery.ts";
 import { personFilmographyView } from "./personFilmography.ts";
 import type { RecommendationLocator, RecommendationRow } from "../contracts/v2/recommendations.ts";
 import { globalSearchView, type SearchSupplement } from "./globalSearch.ts";
+import { boxSetView } from "./boxSetView.ts";
+import type { BoxSetRowState } from "./boxSetRow.ts";
+import { boxSetNextMovie, type CatalogBoxSetDetail } from "../contracts/v2/boxSets.ts";
 import { recommendationsView } from "./recommendationsView.ts";
 
 /** Cards per catalog page: four grid rows. Only the shown page is kept. */
@@ -43,12 +46,13 @@ export type RouteData =
     | { readonly kind: "personal"; readonly source: PersonalSource; readonly anchor?: string; filter: PersonalFilter; capability: PersonalListCapability | undefined; pages: Pages; pendingIndex: number | undefined; error?: ErrorState | undefined; elsewhere?: boolean }
     | { readonly kind: "home"; data: { libraries: UserLibrary[]; sections: HomeSection[] } | undefined }
     | { readonly kind: "homeSection"; readonly id: string; readonly title: string; readonly continuing: boolean; pages: Pages; pendingIndex: number | undefined }
-    | { readonly kind: "resume"; readonly id: string; readonly title: string; readonly episode?: true; readonly startOver?: boolean }
+    | { readonly kind: "resume"; readonly id: string; readonly title: string; readonly episode?: true; readonly startOver?: boolean; readonly selection?: EpisodeSelection }
     | { readonly kind: "library"; readonly library: UserLibrary; pages: Pages; discovery?: DiscoveryState }
     | { readonly kind: "libraryResults"; readonly library: UserLibrary; readonly title: string; readonly source: LibrarySource; pages: Pages; descending: boolean }
     /** `resultsFor`: the query the shown page answers, which typing can move ahead of. */
-    | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope; filter?: "movie" | "series" | undefined; peopleSupported?: boolean; supplement?: SearchSupplement }
-    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState } | undefined }
+    | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope; filter?: "movie" | "series" | undefined; peopleSupported?: boolean; boxSetsSupported?: boolean; supplement?: SearchSupplement }
+    | { readonly kind: "boxSet"; readonly id: string; readonly libraryId: string; readonly title: string; data: CatalogBoxSetDetail | undefined }
+    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState; boxSet?: BoxSetRowState } | undefined }
     | { readonly kind: "person"; readonly id: string; readonly title: string; data: { person: Person } | undefined; metadataLoading?: boolean; metadataFailure?: string | undefined; availabilityLoading?: boolean; availableFilters?: MediaScope[]; filter: MediaScope; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string; readonly episodeId?: string; data: { episodes: Episode[]; detail: ItemDetail | undefined; details?: DetailsState } | undefined };
 
@@ -87,6 +91,8 @@ export function hasData(current: Route): boolean {
             return current.pages.page !== undefined;
         case "search":
             return current.pages?.page !== undefined;
+        case "boxSet":
+            return current.data !== undefined;
         default:
             return current.data !== undefined;
     }
@@ -104,7 +110,6 @@ export interface RouteHandlers {
     readonly personalFilter: (route: Extract<Route, { kind: "personal" }>, filter: PersonalFilter) => void;
     readonly morePersonal: (route: Extract<Route, { kind: "personal" }>) => void;
     readonly signIn: (() => void) | undefined;
-    readonly synopsis: Synopsis;
     readonly context: ViewContext;
     readonly focusDefault: () => void;
     /** A read is in flight. */
@@ -185,13 +190,22 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
                 const episodeId = current.seriesContext?.episodeId;
                 const view = itemView(current.data.details?.detail ?? current.data.detail, current.data.seasons, {
                     ...context, open: destination => context.open(destination.kind === "season" && episodeId !== undefined ? { ...destination, episodeId } : destination),
-                }, handlers.play, pop, handlers.synopsis, current.data.details);
+                }, handlers.play, pop, current.data.details, current.data.boxSet);
                 return withNote(view, current.failure);
+            }
+            break;
+        case "boxSet":
+            if (current.data !== undefined) {
+                const detail = current.data;
+                return boxSetView(detail, context, () => {
+                    const next = boxSetNextMovie(detail);
+                    if (next !== undefined) handlers.push(newRoute({ kind: "resume", id: next.id, title: next.title }));
+                }, pop);
             }
             break;
         case "season":
             if (current.data !== undefined) {
-                return withNote(seasonView(`season:${current.seriesId}:${current.seasonNumber}`, current.title, current.data.episodes, context, pop, handlers.play, handlers.synopsis, current.data.details?.detail ?? current.data.detail, current.data.details), current.failure);
+                return withNote(seasonView(`season:${current.seriesId}:${current.seasonNumber}`, current.title, current.data.episodes, context, pop, handlers.play, current.data.details?.detail ?? current.data.detail, current.data.details), current.failure);
             }
     }
     // Other routes keep the slow note. Home returned above: an empty page labelled "Loading home".
@@ -232,9 +246,12 @@ function grid(current: Route, pages: Pages, page: CatalogPage, handlers: RouteHa
     );
 }
 
-/** Search posters are 220pt (`SearchView` `cardWidth`) and carry overlay data, as `TVCatalogGrid` does. */
+/**
+ * Search posters are 220pt (`SearchView` `cardWidth`) and carry overlay data, as `TVCatalogGrid` does.
+ * Select opens the card's detail route. It does not use the shared episode play shortcut.
+ */
 function searchCards(context: ViewContext): ViewContext {
-    return { ...context, overlays: context.cardOverlays?.(), posterWidth: 220 * (context.posterScale?.() ?? 1) };
+    return { ...context, overlays: context.cardOverlays?.(), posterWidth: 220 * (context.posterScale?.() ?? 1), cardDestination: browseCardDestination };
 }
 
 function searchResults(current: Extract<Route, { kind: "search" }>, handlers: RouteHandlers): SearchResults {
@@ -330,6 +347,7 @@ export function failureText(error: unknown, current: Route): string | undefined 
     }
     if (error.status === 404) {
         if (current.kind === "calendar") return "Could not load Calendar. Try again.";
+        if (current.kind === "boxSet") return "This box set isn't available. Box sets may be turned off for this library, or too few of its movies are here.";
         return current.kind === "library"
             ? "This library is no longer available."
             : current.kind === "season"

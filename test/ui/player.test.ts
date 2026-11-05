@@ -133,6 +133,38 @@ test("audio transport uses audiobook intervals, chapters and cancellable sleep t
     } finally { await page.close(); }
 });
 
+test("audio sleep pause rejection cannot recursively republish a pause", async () => {
+    const { page, logs } = await open();
+    try {
+        await page.evaluate(() => { window.player.audio(); window.player.rejectSleepPause(); });
+        await show(page, playing(NO_TRACKS));
+        await page.locator('[data-focus="sleep:15"]').click();
+        await page.clock.runFor(15 * 60000);
+        assert.equal((await commands(page)).filter(command => command === "setPaused true").length, 1);
+        assert.deepEqual(logs, []);
+        await show(page, playing(NO_TRACKS));
+        assert.equal((await commands(page)).filter(command => command === "setPaused true").length, 2);
+    } finally { await page.close(); }
+});
+
+test("every audio transport and chapter control stays visible on remote Down", async () => {
+    const { page } = await open();
+    try {
+        await page.addStyleTag({ content: readFileSync(new URL("../../src/ui/browse.css", import.meta.url), "utf8") });
+        await page.evaluate(() => window.player.audio());
+        await show(page, playing(NO_TRACKS));
+        await page.locator('[data-focus="chapters"]').click();
+        await page.locator('[data-focus="stop"]').focus();
+        for (let i = 0; i < 11; i++) {
+            await page.clock.runFor(300);
+            const box = await page.evaluate(() => document.activeElement!.getBoundingClientRect().toJSON());
+            assert.ok(box.left >= 0 && box.right <= 1920 && box.top >= 0 && box.bottom <= 1080, JSON.stringify(box));
+            await remote(page, DOWN);
+        }
+        assert.equal(await focused(page), "chapter:1");
+    } finally { await page.close(); }
+});
+
 test("autoplay countdown and Cancel are remote-operable without losing manual Play next", async () => {
     const { page } = await open();
     const view: PlaybackView = { phase: "completion", title: "Playback ended", state: "ready", retryable: false, next: { contentId: "next", fileId: "43", title: "Next episode", startSeconds: 0, episode: true }, countdown: 10 };

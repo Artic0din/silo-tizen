@@ -1,6 +1,7 @@
 import type { FakeSilo, Reply } from "./fakeSilo.ts";
 import { fixture, problem } from "./fakeSilo.ts";
-import { AUDIO_KEY, QUALITY_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SETTINGS_KEYS, type SettingsKey, type SettingValue } from "../../../src/contracts/v2/settings.ts";
+import { AUDIOBOOK_SEEK_KEYS } from "../../../src/contracts/v2/audiobooks.ts";
+import { AUDIO_KEY, QUALITY_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SETTINGS_KEYS, SHOW_FORCED_KEY, SPOILER_IMAGE_KEY, SPOILER_OVERVIEW_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, type SettingsKey, type SettingValue } from "../../../src/contracts/v2/settings.ts";
 const TITLE = "ui.title_art" as SettingsKey;
 
 export class FakeSettings {
@@ -16,6 +17,11 @@ export class FakeSettings {
     supportsAtomicShortcuts = true;
     cardClientFamily: string | undefined;
     constrained = false;
+    devicePlayback = true;
+    /** Adds the profile subtitle definitions Apple TV edits. The vendored fixture omits them. */
+    profileSubtitles = false;
+    remainingRows = false;
+    audiobooks = false;
     /** `GET /settings/overlay-config`; undefined answers 404. */
     overlayConfig: { enabled: boolean; defaults?: string } | undefined = { enabled: true };
     constructor(fake: FakeSilo) {
@@ -40,14 +46,48 @@ export class FakeSettings {
         const url = new URL(path, "https://fake.invalid");
         const pathname = url.pathname;
         if (pathname === "/settings/contract/capabilities") return { status: 200, body: { api_version: 1, revision: "opaque-24", manifest_revision: this.revision, state: "available", allowed: this.allowed, scopes: ["profile", "profile_client", "profile_device"], supports_batched_effective: this.supportsBatchedEffective, supports_atomic_shortcuts: this.supportsAtomicShortcuts, client_families: this.clientFamilies } };
-        if (pathname === "/settings/contract") return { status: 200, body: fixture("settings_contract_ok") };
+        if (pathname === "/settings/contract") {
+            const contract = fixture("settings_contract_ok");
+            if (this.audiobooks && Array.isArray(contract.definitions)) {
+                const video = contract.definitions.filter(def => typeof def === "object" && def !== null && "key" in def && [SEEK_BACK_KEY, SEEK_FORWARD_KEY].includes(String(def.key)));
+                contract.definitions = [...contract.definitions, ...video.map((def, index) => ({ ...def, key: AUDIOBOOK_SEEK_KEYS[index] }))];
+            }
+            if (this.remainingRows && Array.isArray(contract.definitions)) {
+                const extra = fixture("settings_rows_216");
+                if (Array.isArray(extra.definitions)) {
+                    const keys = extra.definitions.map(def => def.key);
+                    contract.definitions = [...contract.definitions.filter(def => !keys.includes(def.key)), ...extra.definitions];
+                }
+                if (typeof contract.option_sets === "object" && contract.option_sets !== null) Object.assign(contract.option_sets, extra.option_sets);
+            }
+            if (!this.devicePlayback && Array.isArray(contract.definitions)) contract.definitions = contract.definitions.map(def => [AUDIO_KEY, QUALITY_KEY, "playback.max_bitrate_kbps"].includes(String(def.key)) ? { ...def, allowed_scopes: ["profile"] } : def);
+            if (this.profileSubtitles && Array.isArray(contract.definitions)) {
+                const sets = contract.option_sets;
+                if (typeof sets === "object" && sets !== null) Object.assign(sets, { playback_subtitle_languages: { type: "language_tag", options: [{ value: "en", introduced_in: 1 }, { value: "fr", introduced_in: 1 }] } });
+                const scopes = ["profile", "profile_device", "profile_library", "profile_series"];
+                const order = ["profile_series", "profile_library", "profile_device", "profile", "default"];
+                contract.definitions = [...contract.definitions, {
+                    key: SUBTITLE_LANGUAGE_KEY, introduced_in: 1, persistence: "remote", allowed_scopes: scopes, resolution_order: order,
+                    value_schema: { type: "language_tag", nullable: true }, default_value: null, recommended_control: "select", suggested_options: "playback_subtitle_languages", unset_label: "None",
+                }, {
+                    key: SUBTITLE_MODE_KEY, introduced_in: 1, persistence: "remote", allowed_scopes: scopes, resolution_order: order,
+                    value_schema: { type: "enum", nullable: false, values: [{ value: "auto", label: "Auto" }, { value: "always", label: "Always on" }, { value: "off", label: "Off" }] },
+                    default_value: "auto", recommended_control: "select",
+                }, {
+                    key: SHOW_FORCED_KEY, introduced_in: 1, persistence: "remote", allowed_scopes: scopes, resolution_order: order,
+                    value_schema: { type: "boolean", nullable: false }, default_value: true, recommended_control: "switch",
+                }];
+            }
+            return { status: 200, body: contract };
+        }
         if (pathname === "/settings/overlay-config") return this.overlayConfig === undefined ? problem(404, "not_found", "Not found") : { status: 200, body: { quick_actions_enabled: false, quick_actions_default: "both", ...this.overlayConfig } };
         if (!pathname.startsWith("/settings/values")) return undefined;
         if (profile === undefined) return problem(422, "validation_failed", "Profile required");
         const scope = url.searchParams.get("scope") ?? "profile";
         const profileRows = this.profile(profile);
         const deviceRows = this.device(profile, device ?? "");
-        const rows = scope === "profile_device" ? deviceRows : profileRows;
+        const familyRows = this.device(profile, "client:tv");
+        const rows = scope === "profile_device" ? deviceRows : scope === "profile_client" ? familyRows : profileRows;
         const rowRevision = (key: string, rowScope = scope): number => this.rowRevisions.get(JSON.stringify([profile, rowScope, rowScope === "profile_device" ? device : undefined, key])) ?? 7;
         if (pathname === "/settings/values" || pathname === "/settings/values/effective") {
             const effective = pathname.endsWith("/effective");
@@ -61,15 +101,19 @@ export class FakeSettings {
                     return { key, value: source === "profile" ? profileRows.get(typed) : source === "profile_device" ? deviceRows.get(typed) : this.titleDefault, source, definition_revision: 16,
                         ...(source === "default" ? {} : { scope: source, profile_id: profile, ...(source === "profile_device" ? { device_id: device } : {}), source_context: { profile_id: profile, ...(source === "profile_device" ? { device_id: device } : {}) } }) };
                 }
-                const override = this.overrides.has(typed);
-                const value = override ? this.overrides.get(typed) : rows.has(typed) ? rows.get(typed) : key === "ui.card_presentation" ? { poster_size: "standard", caption: "title_metadata" } : typed === QUALITY_KEY ? "auto" : typed === SEEK_BACK_KEY ? 10 : typed === SEEK_FORWARD_KEY ? 30 : null;
+                if (typed === "ui.card_presentation" && familyRows.has(typed) && !deviceRows.has(typed)) return { key, value: familyRows.get(typed), source: "profile_client", definition_revision: this.revision };
+                const deviceOverride = typed !== SEEK_BACK_KEY && typed !== SEEK_FORWARD_KEY && deviceRows.has(typed);
+                const override = this.overrides.has(typed) || deviceOverride;
+                const defaults = fixture("settings_rows_216").definitions;
+                const fallback = typed === SPOILER_IMAGE_KEY || typed === SPOILER_OVERVIEW_KEY ? false : Array.isArray(defaults) ? defaults.find(def => def.key === key)?.default_value : undefined;
+                const value = this.overrides.has(typed) ? this.overrides.get(typed) : deviceOverride ? deviceRows.get(typed) : profileRows.has(typed) ? profileRows.get(typed) : key === "ui.card_presentation" ? { poster_size: "standard", caption: "title_metadata" } : typed === QUALITY_KEY ? "auto" : typed === SEEK_BACK_KEY || typed === AUDIOBOOK_SEEK_KEYS[0] ? 10 : typed === SEEK_FORWARD_KEY || typed === AUDIOBOOK_SEEK_KEYS[1] ? 30 : typed === SUBTITLE_MODE_KEY ? "auto" : typed === SHOW_FORCED_KEY ? true : fallback ?? null;
                 return { key, value, source: override ? "profile_device" : rows.has(typed) ? "profile" : "default", definition_revision: this.revision, ...(this.constrained && typed === AUDIO_KEY ? { constrained: true, requested_value: rows.get(typed) ?? null, permitted_values: [null, "en"] } : {}) };
             });
             return { status: 200, body: { items, revision: this.revision } };
         }
         const key = pathname.slice("/settings/values/".length) as SettingsKey;
-        if (!SETTINGS_KEYS.some(known => known === key) && key !== TITLE) return problem(422, "validation_failed", "Unknown setting");
-        if (scope !== "profile" && !(key === TITLE && scope === "profile_device" && device)) return problem(422, "validation_failed", "Invalid scope");
+        if (!SETTINGS_KEYS.some(known => known === key) && key !== TITLE && key !== SPOILER_IMAGE_KEY && key !== SPOILER_OVERVIEW_KEY && key !== SUBTITLE_LANGUAGE_KEY && key !== SUBTITLE_MODE_KEY && key !== SHOW_FORCED_KEY) return problem(422, "validation_failed", "Unknown setting");
+        if (scope !== "profile" && !(key === "ui.card_presentation" && scope === "profile_client") && !([TITLE, "playback.subtitle_appearance", "ui.card_presentation", AUDIO_KEY, QUALITY_KEY, "playback.max_bitrate_kbps", "playback.auto_play_next", "playback.next_up_prompt_seconds", "playback.intro_skip_mode", "playback.auto_skip_credits"].includes(key) && scope === "profile_device" && device)) return problem(422, "validation_failed", "Invalid scope");
         if (method === "DELETE") {
             if (!rows.delete(key)) return problem(404, "not_found", "Unset");
             return { status: 204 };

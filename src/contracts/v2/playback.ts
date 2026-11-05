@@ -480,6 +480,9 @@ export type StopBody = {
 // (resolveV3AudioIndex in internal/api/handlers/playback_v3.go), so position n names track n.
 
 export interface AudioTrackInfo {
+    readonly rawTitle?: string | undefined;
+    readonly embeddedTitle?: string | undefined;
+    readonly layout?: string | undefined;
     readonly isDefault: boolean;
     readonly language: string | undefined;
     readonly codec: string | undefined;
@@ -495,6 +498,9 @@ export interface FileVersionTracks {
 function decodeAudioTrack(value: unknown, path: string): AudioTrackInfo {
     const obj = object(value, path);
     return {
+        rawTitle: optionalString(obj, "title", path),
+        embeddedTitle: optionalString(obj, "embedded_title", path),
+        layout: optionalString(obj, "layout", path),
         isDefault: boolean(obj, "default", path),
         language: optionalString(obj, "language", path),
         codec: optionalString(obj, "codec", path),

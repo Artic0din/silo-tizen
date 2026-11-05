@@ -31,16 +31,22 @@ export function decodeDetailExtras(value: unknown): DetailExtras {
         return { id: optionalString(credit, "person_id", path), name: string(credit, "name", path), role: string(credit, key === "cast" ? "character" : "job", path), photoUrl: optionalString(credit, "photo_url", path) };
     });
     const facts: { label: string; value: string }[] = [];
-    for (const [key, label] of [["studios", "Studios"], ["countries", "Countries"]]) {
+    for (const [key, label] of [["studios", "Studio"], ["networks", "Network"], ["countries", "Country"]]) {
         if (key === undefined || label === undefined) continue;
         const values = entries(obj[key], `item_detail.${key}`).map((value) => {
             if (typeof value !== "string") throw new WireError(`item_detail.${key}`, "strings");
             return value;
         });
-        if (values.length > 0) facts.push({ label, value: values.join(", ") });
+        if (values.length > 0) facts.push({ label, value: values.slice(0, 3).join(", ") });
     }
-    const language = optionalString(obj, "original_language", "item_detail");
-    if (language) facts.push({ label: "Original language", value: language });
+    for (const [key, label] of [["air_date", "Aired"], ["release_date", "Released"], ["first_air_date", "First Aired"], ["last_air_date", "Last Aired"]] as const) {
+        const raw = optionalString(obj, key, "item_detail");
+        if (raw === undefined) continue;
+        const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+        if (match === null) continue;
+        const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12);
+        facts.push({ label, value: new Intl.DateTimeFormat(undefined, { month: "long", day: "numeric", year: "numeric" }).format(date) });
+    }
     return {
         logoUrl: optionalString(obj, "logo_url", "item_detail"), cast: credits("cast"), crew: credits("crew"), facts,
         ratings: entries(obj.ratings, "item_detail.ratings").map((value, index) => {

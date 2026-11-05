@@ -1,9 +1,29 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { UserLibrary } from "../../src/contracts/v2/catalog.ts";
-import { browseQuery, DEFAULT_FILTER, SORT_KEYS, toggled, withSort, reset, BrowsePrefs } from "../../src/ui/libraryBrowse.ts";
+import { browseQuery, DEFAULT_FILTER, directionLabel, effectiveOrder, SORT_KEYS, toggled, withSort, reset, BrowsePrefs } from "../../src/ui/libraryBrowse.ts";
+import { discoveryState } from "../../src/ui/libraryDiscovery.ts";
 
 const library: UserLibrary = { id: "12", name: "Movies", type: "movies", sortOrder: 0 };
+
+test("a fresh library opens on Recommended even when Browse has a saved sort", () => {
+    // TVLibraryTypeTabView.swift:6-18 and TVMainTabView.swift:994-997 at 7baff3ef: cold start is Recommended.
+    // CatalogFilterState.swift:102-136 and CatalogSortKey.swift:65-96: Browse's untouched sort is Title, A–Z.
+    // BrowsePrefsStore.swift:19-23,44-52: that sort is remembered only for Browse, and the mode itself is not stored.
+    const fresh = discoveryState();
+    assert.equal(fresh.mode, "Recommended");
+    assert.deepEqual(fresh.filter, DEFAULT_FILTER);
+    assert.equal(effectiveOrder(fresh.filter), "asc");
+    assert.equal(directionLabel(fresh.filter.sort, "asc"), "A–Z");
+    const values = new Map<string, string>();
+    const prefs = new BrowsePrefs({ getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value); }, removeItem: key => { values.delete(key); } }, "server-profile");
+    assert.equal(prefs.preserve(library), true);
+    prefs.save(library, withSort(DEFAULT_FILTER, "year"));
+    const again = discoveryState();
+    assert.equal(again.mode, "Recommended");
+    assert.deepEqual(again.filter, DEFAULT_FILTER);
+    assert.equal(prefs.saved(library)?.sort, "year");
+});
 
 test("Browse uses Apple's seven video sorts and flips only the selected key", () => {
     assert.deepEqual(SORT_KEYS.map(item => [item.key, item.order]), [["title", "asc"], ["added_at", "desc"], ["release_date", "desc"], ["year", "desc"], ["rating_imdb", "desc"], ["runtime", "desc"], ["resolution", "desc"]]);

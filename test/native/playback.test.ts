@@ -17,6 +17,7 @@ import { decodeAudiobook, AUDIOBOOK_SEEK_KEYS } from "../../src/contracts/v2/aud
 
 test("audiobook uses local session samples and whole-book durable progress", async () => {
     const r = await rig();
+    new FakeSettings(r.h.fake).audiobooks = true;
     r.h.fake.script(operations.effectiveSettings(AUDIOBOOK_SEEK_KEYS).path, { status: 200, body: { revision: 24, items: AUDIOBOOK_SEEK_KEYS.map((key, i) => ({ key, value: i === 0 ? 15 : 45, source: "profile", definition_revision: 9 })) } });
     const book = decodeAudiobook({ content_id: MOVIE.contentId, type: "audiobook", title: "Book", versions: [{ file_id: "41", duration: 100 }, { file_id: "42", duration: 100 }] });
     r.h.fake.script("/sync/progress", ...Array.from({ length: 4 }, () => ({ status: 200, body: { items: [{ media_item_id: MOVIE.contentId, status: "success" }] } })));
@@ -40,6 +41,75 @@ test("audiobook uses local session samples and whole-book durable progress", asy
 import { connected, type Harness, signIn } from "./support/harness.ts";
 
 const MOVIE: PlayRequest = { contentId: "movie-1", fileId: "42", title: "Movie", startSeconds: 12.5 };
+
+test("audiobook settings negotiate unbatched effective reads before playback", async () => {
+    const r = await rig();
+    const settings = new FakeSettings(r.h.fake);
+    settings.audiobooks = true;
+    settings.supportsBatchedEffective = false;
+    settings.profile().set(AUDIOBOOK_SEEK_KEYS[0], 15);
+    settings.profile().set(AUDIOBOOK_SEEK_KEYS[1], 45);
+    const book = decodeAudiobook({ content_id: MOVIE.contentId, type: "audiobook", title: "Book", versions: [{ file_id: "42", duration: 1000 }] });
+    await playMovie(r, { ...MOVIE, audiobook: book });
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.deepEqual(view.seekIntervals, { backward: 15, forward: 45 });
+    assert.ok(r.h.fake.requests.filter(request => request.path.startsWith("/settings/values/effective?")).every(request => new URL(request.path, "https://fake.invalid").searchParams.getAll("keys").length === 1));
+    r.controller.destroy();
+});
+
+test("Back during audiobook cross-part finalization drains old progress before exit", async () => {
+    const r = await rig();
+    new FakeSettings(r.h.fake);
+    r.h.fake.script("/sync/progress", ...Array.from({ length: 5 }, () => ({ status: 200, body: { items: [{ media_item_id: MOVIE.contentId, status: "success" }] } })));
+    const book = decodeAudiobook({ content_id: MOVIE.contentId, type: "audiobook", title: "Book", versions: [{ file_id: "42", duration: 100 }, { file_id: "43", duration: 100 }] });
+    await playMovie(r, { ...MOVIE, audiobook: book, startSeconds: 20 });
+    const held = r.h.fake.hold("/sync/progress", true);
+    await r.h.clock.advance(10000);
+    r.controller.seekToSeconds(150);
+    r.controller.back();
+    await r.h.clock.advance(0);
+    assert.deepEqual(r.exits, [], "Back waits for old forced writes");
+    held.release();
+    await r.h.clock.advance(0);
+    assert.deepEqual(r.exits, ["back"]);
+    assert.equal(bodies(r.h, "/start").length, 1, "exit suppresses the pending next part");
+    r.controller.destroy();
+});
+
+test("cancelled audiobook Start Over cleans late session without overwriting resume", async () => {
+    const r = await rig();
+    new FakeSettings(r.h.fake);
+    const book = decodeAudiobook({ content_id: MOVIE.contentId, type: "audiobook", title: "Book", user_data: { position_seconds: 500 }, versions: [{ file_id: "42", duration: 1000 }] });
+    const held = r.h.fake.hold("/playback/start", true);
+    r.controller.play({ ...MOVIE, audiobook: book, startSeconds: 0 });
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, "/start").length, 1);
+    r.controller.back();
+    held.release();
+    await r.h.clock.advance(0);
+    assert.equal(r.h.fake.requests.filter(request => request.path === "/sync/progress").length, 0);
+    assert.equal(playbackRequests(r.h).filter(request => request.method === "DELETE").length, 1);
+    r.controller.destroy();
+});
+
+for (const stopping of [false, true]) test(`late audiobook progress failure preserves ${stopping ? "completion" : "reconnect"} presentation`, async () => {
+    const r = await rig();
+    new FakeSettings(r.h.fake);
+    r.h.fake.script("/sync/progress", problem(503, "dependency_unavailable", "Unavailable"), { status: 200, body: { items: [{ media_item_id: MOVIE.contentId, status: "success" }] } });
+    const book = decodeAudiobook({ content_id: MOVIE.contentId, type: "audiobook", title: "Book", versions: [{ file_id: "42", duration: 1000 }] });
+    await playMovie(r, { ...MOVIE, audiobook: book });
+    const held = r.h.fake.hold("/sync/progress", true);
+    await r.h.clock.advance(10000);
+    if (stopping) r.controller.back();
+    else r.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
+    const marker = r.views.length;
+    held.release();
+    await r.h.clock.advance(0);
+    assert.ok(r.views.slice(marker).every(view => view.phase !== "playing" && view.phase !== "paused"));
+    assert.equal(last(r.views).phase, stopping ? "closed" : "loading");
+    r.controller.destroy();
+});
 
 test("audiobook completion advances parts through the same controller and authority cancels samples", async () => {
     const r = await rig();
@@ -353,6 +423,90 @@ async function playMovie(r: Rig, request: PlayRequest = MOVIE): Promise<string> 
     assert.ok(id !== undefined);
     return id;
 }
+
+test("automatic skip undo starts after a six-second reanchor preparation", async () => {
+    const r = await rig();
+    const settings = new FakeSettings(r.h.fake);
+    settings.remainingRows = true;
+    settings.profile().set("playback.intro_skip_mode", "always");
+    r.h.fake.scripted.set("/markers/files/42", [{ status: 200, body: { file_id: "42", marker_segments: [
+        { kind: "intro", start_seconds: 20, end_seconds: 60 },
+    ] } }]);
+    r.server.next.push({ timeline: { can_seek_anywhere: false } });
+    await playMovie(r);
+    r.avplay.tick(20000);
+    await r.h.clock.advance(0);
+    assert.equal(last(r.views).phase, "loading");
+    await r.h.clock.advance(6000);
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    let view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.undoSkipSeconds, 20);
+    await r.h.clock.advance(4999);
+    r.avplay.tick(61000);
+    view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.undoSkipSeconds, 20);
+    await r.h.clock.advance(1);
+    r.avplay.tick(62000);
+    view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.undoSkipSeconds, undefined);
+    r.controller.destroy();
+});
+
+test("a failed automatic skip seek offers no undo", async () => {
+    const r = await rig();
+    const settings = new FakeSettings(r.h.fake);
+    settings.remainingRows = true;
+    settings.profile().set("playback.intro_skip_mode", "always");
+    r.h.fake.scripted.set("/markers/files/42", [{ status: 200, body: { file_id: "42", marker_segments: [
+        { kind: "intro", start_seconds: 20, end_seconds: 60 },
+    ] } }]);
+    await playMovie(r);
+    r.avplay.tick(20000);
+    r.avplay.finishSeek("UnknownError");
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.undoSkipSeconds, undefined);
+    r.controller.destroy();
+});
+
+test("intro and credits settings control markers and automatic skips can be undone", async () => {
+    for (const mode of ["never", "ask", "always"] as const) {
+        const r = await rig();
+        const settings = new FakeSettings(r.h.fake);
+        settings.remainingRows = true;
+        settings.profile().set("playback.intro_skip_mode", mode);
+        settings.profile().set("playback.auto_skip_credits", true);
+        r.h.fake.scripted.set("/markers/files/42", [{ status: 200, body: { file_id: "42", marker_segments: [
+            { kind: "intro", start_seconds: 20, end_seconds: 60 },
+            { kind: "credits", start_seconds: 90, end_seconds: 100 },
+        ] } }]);
+        await playMovie(r);
+        r.avplay.tick(20000);
+        let view = last(r.views);
+        assert.ok(view.phase === "playing");
+        if (mode === "always") {
+            assert.equal(r.avplay.calls.at(-1), "seekTo 60000");
+            r.avplay.finishSeek();
+            view = last(r.views);
+            assert.ok(view.phase === "playing");
+            assert.equal(view.undoSkipSeconds, 20);
+            r.controller.seekToSeconds(20);
+            r.avplay.finishSeek();
+            r.avplay.tick(21000);
+            assert.equal(r.avplay.positionMs, 21000);
+        } else assert.equal(view.skipMarker?.kind, mode === "ask" ? "intro" : undefined);
+        r.avplay.tick(90000);
+        assert.equal(r.avplay.calls.at(-1), "seekTo 100000");
+        r.avplay.finishSeek();
+        r.controller.destroy();
+    }
+});
 
 test("effective file markers follow source time and cannot replace an in-flight manual seek", async () => {
     const r = await rig();

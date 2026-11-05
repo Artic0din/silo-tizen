@@ -55,7 +55,8 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             assert.equal(await menu(tv).count(), 0, "modal Back precedes Skyline capture");
             assert.equal(await tv.focused(), "movie:m0001");
             await tv.page.keyboard.press("Enter");
-            await tv.eventually(async () => continuing ? await tv.page.evaluate(() => window.browseHarness.plays.length === 1) : await tv.page.locator('.browse').getAttribute("data-view") === "item:movie:m0001", "one short activation");
+            await tv.eventually(async () => await tv.page.locator('.browse').getAttribute("data-view") === "item:movie:m0001", "short Select opens Details on either row");
+            assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays), []);
             assert.deepEqual(tv.console, []);
         } finally { await tv.page.context().close(); }
     });
@@ -244,8 +245,9 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) for (const out
             await origin(tv).click();
             await tv.page.locator('.browse[data-view="item:movie:m0001"]').waitFor();
             await tv.page.locator('[data-focus="more"]').click();
-            await tv.page.getByRole("button", { name: "Mark watched", exact: true }).click();
-            await tv.page.getByRole("button", { name: "Mark unwatched", exact: true }).waitFor();
+            await tv.page.getByRole("button", { name: "Mark as Watched", exact: true }).click();
+            await tv.page.locator('[data-focus="more"]').click();
+            await tv.page.getByRole("button", { name: "Mark as Unwatched", exact: true }).waitFor();
             await tv.remote(10009);
             await tv.page.getByRole("button", { name: "Add to watchlist", exact: true }).click();
             await tv.page.getByRole("button", { name: "Remove from watchlist", exact: true }).waitFor();
@@ -346,6 +348,7 @@ for (const surface of ["library-shelf", "library-grid", "collection", "search", 
             await tv.page.locator('.browse .browse-grid .browse-card').first().waitFor();
         } else {
             await tv.page.locator(`[data-section="recently_added"] [data-focus="${surface === "season" || surface === "episode" ? "series:s1" : "movie:m0001"}"]`).click();
+            if (surface === "season" || surface === "episode") await tv.eventually(async () => await tv.focused() === "next-episode", "Series Play entry focus settles before targeting a chip or card");
             if (surface === "person-preview") {
                 await tv.page.locator('[data-focus="person:7"]').first().click();
                 await tv.page.locator('.browse[data-view="person:7"] .browse-grid .browse-card').first().waitFor();

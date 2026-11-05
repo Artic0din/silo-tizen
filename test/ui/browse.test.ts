@@ -515,13 +515,15 @@ browseTest("Related shelf omits the watched badge Apple leaves off the similar c
     assert.match(await mercy.innerText(), /Mercy/);
 });
 
-for (const coldStart of [false, true]) {
-browseTest(`Search retains the filter column through default People and ragged grid entry${coldStart ? " from the field on a cold visit" : ""}`, async tv => {
+for (const visit of ["warm", "cold", "rounded square"] as const) {
+const coldStart = visit !== "warm";
+browseTest(`Search retains the filter column through default People and ragged grid entry${coldStart ? " from the field on a cold visit" : ""}${visit === "rounded square" ? " with fractional portrait bounds" : ""}`, async tv => {
     await tv.page.locator('[data-focus="search"]').click();
     await tv.page.fill("#browse-search", "Movie 000"); await tv.remote(IME_DONE);
     await tv.page.locator('.browse-grid [data-focus="movie:m0002"]').waitFor();
     await tv.page.locator('[data-focus="person:edge-0"]').waitFor({ state: "attached" });
     await tv.page.locator('[data-focus="movie:951"]').waitFor({ state: "attached" });
+    await tv.eventually(async () => await tv.page.locator('.browse').evaluate(node => (node as HTMLElement).style.getPropertyValue("--poster-scale")) === "0.86", "compact Search poster geometry");
     if (coldStart) {
         assert.equal(await tv.focused(), "query");
         await press(tv, "ArrowDown");
@@ -529,6 +531,13 @@ browseTest(`Search retains the filter column through default People and ragged g
     assert.equal(await tv.focused(), "search-filter:all");
     await press(tv, "ArrowDown");
     assert.equal(await tv.focused(), "person:edge-0", "People owns its default entry");
+    if (visit === "rounded square") await tv.page.locator('[data-focus="person:edge-0"] .browse-art').evaluate(art => {
+        const bounds = art.getBoundingClientRect.bind(art);
+        art.getBoundingClientRect = () => {
+            const box = bounds();
+            return new DOMRect(box.x, box.y, box.height + 0.00003, box.height);
+        };
+    });
     await press(tv, "ArrowDown");
     assert.equal(await tv.focused(), "movie:m0002", "default People entry keeps All's horizontal navigation axis");
     await press(tv, "ArrowDown", "ArrowDown");
@@ -568,19 +577,23 @@ for (const reduced of [false, true]) {
         for (let step = 0; step < 11; step++) await press(tv, "ArrowRight");
         await tv.jump(250);
         assert.equal(await tv.focused(), "movie:960");
-        const visible = (): Promise<boolean> => tv.page.locator('[data-focus="movie:960"]').evaluate(card => {
-            const row = card.closest('.browse-row')!.getBoundingClientRect();
+        // Resolve and measure together: a catalog repaint can detach a locator's resolved rail.
+        const sample = () => tv.page.evaluate(() => {
+            const card = document.querySelector('[data-focus="movie:960"]')!;
+            const rail = card.closest('.browse-row')!;
+            const row = rail.getBoundingClientRect();
             const viewport = document.querySelector('.browse')!.getBoundingClientRect();
             const rect = card.getBoundingClientRect();
-            return rect.left >= row.left && rect.right <= row.right && rect.top >= viewport.top && rect.bottom <= viewport.bottom - 64;
+            return { scroll: rail.scrollLeft, visible: rect.width > 0 && rect.left >= row.left && rect.right <= row.right && rect.top >= viewport.top && rect.bottom <= viewport.bottom - 64 };
         });
+        const visible = async (): Promise<boolean> => (await sample()).visible;
         await tv.eventually(visible, "later request revealed before People");
         // Visibility can precede the scroll animation's final frame.
         let scroll = 0;
         await tv.eventually(async () => {
             await tv.jump(250);
             // Verify and snapshot the live rail in the same browser evaluation.
-            scroll = await tv.page.evaluate(() => document.querySelector<HTMLElement>('.search-request-rail')?.scrollLeft ?? 0);
+            scroll = (await sample()).scroll;
             return scroll > 0;
         }, "later request horizontal reveal settled before snapshot");
         assert.ok(scroll > 0);
@@ -588,7 +601,7 @@ for (const reduced of [false, true]) {
         people.release();
         await tv.page.locator('[data-focus="person:edge-0"]').waitFor({ state: "attached" });
         assert.equal(await tv.focused(), "movie:960");
-        assert.equal(await tv.page.evaluate(() => document.querySelector<HTMLElement>('.search-request-rail')?.scrollLeft), scroll, "rail insertion preserves horizontal scroll");
+        assert.equal((await sample()).scroll, scroll, "rail insertion preserves horizontal scroll");
         await tv.jump(250);
         await tv.eventually(visible, "same-identity repaint reveals vertically displaced request");
         assert.equal(tv.fake.requests.length, reads);

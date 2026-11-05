@@ -147,19 +147,18 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
         return statusView(`${current.kind}:failed`, "Something went wrong", [current.failure], [actionButton("retry", "Try again", () => handlers.retry(current)), escape], back, "error");
     }
     switch (current.kind) {
-        case "home":
-            if (current.data !== undefined) {
-                const view = homeView(current.data.libraries, current.data.sections, context, {
-                    expand: section => handlers.push(newRoute({ kind: "homeSection", id: section.id, title: section.title, continuing: section.sectionType === "continue_watching", pages: newPages(), pendingIndex: undefined })),
-                    search: () => handlers.push(newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })),
-                    library: (library) => handlers.push(newRoute({ kind: "library", library, pages: newPages() })),
-                    chooseProfile: handlers.chooseProfile,
-                });
-                if (current.failure === undefined && !handlers.busy) return view;
-                const retry = current.failure === undefined ? [] : [actionButton("retry", "Try again", () => handlers.retry(current))];
-                return { ...view, content: [...view.content, ...lines([current.failure ?? "Refreshing titles."], current.failure === undefined ? "info" : "error"), zoneNode("browse-actions", retry)], zones: [...view.zones, { id: "status", layout: "row", items: retry }] };
-            }
-            break;
+        case "home": {
+            if (current.data === undefined) return homeLoadingView();
+            const view = homeView(current.data.libraries, current.data.sections, context, {
+                expand: section => handlers.push(newRoute({ kind: "homeSection", id: section.id, title: section.title, continuing: section.sectionType === "continue_watching", pages: newPages(), pendingIndex: undefined })),
+                search: () => handlers.push(newRoute({ kind: "search", query: "", pages: undefined, resultsFor: "" })),
+                library: (library) => handlers.push(newRoute({ kind: "library", library, pages: newPages() })),
+                chooseProfile: handlers.chooseProfile,
+            });
+            if (current.failure === undefined && !handlers.busy) return view;
+            const retry = current.failure === undefined ? [] : [actionButton("retry", "Try again", () => handlers.retry(current))];
+            return { ...view, content: [...view.content, ...lines([current.failure ?? "Refreshing titles."], current.failure === undefined ? "info" : "error"), zoneNode("browse-actions", retry)], zones: [...view.zones, { id: "status", layout: "row", items: retry }] };
+        }
         case "homeSection":
             if (current.pages.page !== undefined) {
                 const contents = grid(current, current.pages, current.pages.page, { ...handlers, context: { ...context, continueWatching: current.continuing } });
@@ -198,7 +197,24 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
                 return withNote(seasonView(`season:${current.seriesId}:${current.seasonNumber}`, current.title, current.data.episodes, context, pop, handlers.play, handlers.synopsis, current.data.details?.detail ?? current.data.detail, current.data.details), current.failure);
             }
     }
-    return statusView(`${current.kind}:loading`, "Loading", current.slow ? ["Still waiting for the server."] : [], [escape], back);
+    // Other routes keep the slow note. Home returned above: an empty page labelled "Loading home".
+    const waiting = current.slow ? ["Still waiting for the server."] : [];
+    return statusView(`${current.kind}:loading`, "Loading", waiting, [escape], back);
+}
+
+/** Apple tvOS HomeView while sections are empty and loading: a clear page, accessibility label "Loading home". */
+function homeLoadingView(): View {
+    const page = el("div", "home-loading");
+    page.tabIndex = 0;
+    page.setAttribute("aria-label", "Loading home");
+    page.setAttribute("data-focus", "loading");
+    return {
+        name: "home:loading",
+        content: [page],
+        zones: [{ id: "loading", layout: "row", items: [{ key: "loading", element: page }] }],
+        focus: { zone: "loading", key: "loading" },
+        back: undefined,
+    };
 }
 
 function grid(current: Route, pages: Pages, page: CatalogPage, handlers: RouteHandlers): ReturnType<typeof pagedGrid> {

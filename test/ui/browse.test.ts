@@ -576,16 +576,19 @@ for (const reduced of [false, true]) {
         });
         await tv.eventually(visible, "later request revealed before People");
         // Visibility can precede the scroll animation's final frame.
+        let scroll = 0;
         await tv.eventually(async () => {
             await tv.jump(250);
-            return tv.page.locator('.search-request-rail').evaluate(row => row.scrollLeft > 0);
+            // Verify and snapshot the live rail in the same browser evaluation.
+            scroll = await tv.page.evaluate(() => document.querySelector<HTMLElement>('.search-request-rail')?.scrollLeft ?? 0);
+            return scroll > 0;
         }, "later request horizontal reveal settled before snapshot");
-        const scroll = await tv.page.locator('.search-request-rail').evaluate(row => row.scrollLeft);
+        assert.ok(scroll > 0);
         const reads = tv.fake.requests.length;
         people.release();
         await tv.page.locator('[data-focus="person:edge-0"]').waitFor({ state: "attached" });
         assert.equal(await tv.focused(), "movie:960");
-        assert.equal(await tv.page.locator('.search-request-rail').evaluate(row => row.scrollLeft), scroll, "rail insertion preserves horizontal scroll");
+        assert.equal(await tv.page.evaluate(() => document.querySelector<HTMLElement>('.search-request-rail')?.scrollLeft), scroll, "rail insertion preserves horizontal scroll");
         await tv.jump(250);
         await tv.eventually(visible, "same-identity repaint reveals vertically displaced request");
         assert.equal(tv.fake.requests.length, reads);

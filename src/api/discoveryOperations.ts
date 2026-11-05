@@ -1,4 +1,4 @@
-import { decodeCollectionItemsPage, decodeHomeSections } from "../contracts/v2/catalog.ts";
+import { decodeCollectionItemsPage, decodeHomeSections, decodePersonalListPage } from "../contracts/v2/catalog.ts";
 import {
     type CatalogFiltersRequest, type CatalogLettersRequest, type CatalogQueryRequest,
     decodeCatalogFilters, decodeCatalogLetters, decodeCatalogQueryPage,
@@ -22,6 +22,10 @@ function params(values: { readonly [key: string]: string | number | boolean | un
 
 /** All operations are profile_scoped; callers send through session.call with profileScoped. */
 export const discoveryOperations = {
+    listPersonalItems: (source: "watchlist" | "favorites", page: CollectionPageRequest) => {
+        bounded(page.limit, 1, 200);
+        return read(`/${source}${params({ limit: page.limit, cursor: page.cursor, image_size: "small" })}`, decodePersonalListPage);
+    },
     listLibrarySections: (libraryId: string, artwork: Readonly<Record<string, string>> = {}) =>
         read(`/library/${encodeURIComponent(libraryId)}/sections${params({ image_size: "small", ...artwork })}`, decodeHomeSections),
     getLibrarySectionItems: (libraryId: string, sectionId: string) =>

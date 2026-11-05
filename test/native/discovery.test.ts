@@ -23,6 +23,27 @@ test("collection items accept the server's paginated collection without totals",
     assert.throws(() => decode({ items: [], total: "bad", page: { has_more: false } }), WireError);
 });
 
+test("personal-list API operations own opaque continuations and wire validation", () => {
+    const card = { content_id: "movie:tied", type: "movie", title: "Tied" };
+    for (const source of ["watchlist", "favorites"] as const) {
+        const spec = api.listPersonalItems(source, { limit: 24, cursor: "opaque+/=" });
+        assert.equal(spec.method, "GET");
+        assert.equal(spec.path, `/${source}?limit=24&cursor=opaque%2B%2F%3D&image_size=small`);
+        assert.equal(spec.retry, "safe");
+        const page = spec.decode({ items: [card], page: { has_more: true, next_cursor: "next+/=" } });
+        assert.equal(page.nextCursor, "next+/=");
+        assert.deepEqual(page.items.map(item => item.id), ["movie:tied"]);
+        assert.equal(page.totalExact, false);
+        for (const invalid of [
+            { items: {}, page: { has_more: false } },
+            { items: [card] },
+            { items: [card], page: { has_more: true, next_cursor: "" } },
+            { items: [card], page: { has_more: true } },
+        ]) assert.throws(() => spec.decode(invalid), WireError);
+        for (const limit of [0, 201, 1.5, NaN]) assert.throws(() => api.listPersonalItems(source, { limit }), RangeError);
+    }
+});
+
 test("discovery factories encode opaque paths and only contract-supported parameters", () => {
     assert.equal(api.listLibrarySections("lib/a ?").path, "/library/lib%2Fa%20%3F/sections?image_size=small");
     assert.equal(api.getLibrarySectionItems("a/b", "recent ?").path, "/library/a%2Fb/sections/recent%20%3F/items?image_size=small");

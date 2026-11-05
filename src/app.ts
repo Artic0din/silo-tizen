@@ -8,6 +8,9 @@ import { avatarReference } from "./ui/profilePicker.ts";
 import { mountProfiles, type ProfileHandoff, type ProfileScreens } from "./ui/profiles.ts";
 import { actions, button, el, ScreenHost } from "./ui/screen.ts";
 import { mountSignIn, type SignInScreens } from "./ui/signIn.ts";
+import { mountAccounts, type AccountsScreen } from "./ui/accounts.ts";
+import { AccountDirectory, AccountVault, type SavedAccount } from "./session/accounts.ts";
+import { openSecretStore } from "./session/secretStore.ts";
 
 export interface AppOptions {
     readonly core: SessionCoreDeps;
@@ -25,6 +28,22 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
     let profile: ProfileHandoff | undefined;
     let exitDialog: ExitDialog | undefined;
     let destroyed = false;
+    let activeServer: ConnectedServer | undefined;
+    let accounts: AccountsScreen | undefined;
+    let connected: ConnectedServer | undefined;
+    let startup: ScreenHost | undefined;
+    const transient = new Map<string, string>();
+    let activeCore: SessionCoreDeps = { ...options.core, transientAccounts: {
+        secrets: openSecretStore(undefined),
+        storage: { getItem: key => transient.get(key) ?? null, setItem: (key, value) => { transient.set(key, value); }, removeItem: key => { transient.delete(key); } },
+    } };
+    const liveAccounts = new Map<string, ConnectedServer>();
+    const liveKey = (baseUrl: string, accountId: string): string => JSON.stringify([baseUrl, accountId]);
+    activeCore = { ...activeCore, reuseAccount: (baseUrl, accountId) => liveAccounts.get(liveKey(baseUrl, accountId)), beforeAccountSignOut: async (baseUrl, accountId) => {
+        const key = liveKey(baseUrl, accountId);
+        await liveAccounts.get(key)?.session.retire();
+        liveAccounts.delete(key);
+    } };
 
     const closeExit = (): void => {
         exitDialog?.destroy();
@@ -32,6 +51,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
     };
 
     const stopContent = (): void => {
+        accounts?.destroy(); accounts = undefined;
         profile?.signal.removeEventListener("abort", stopContent);
         profile = undefined;
         closeExit();
@@ -41,40 +61,81 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
         browse = undefined;
     };
 
-    const showSignIn = (notice?: LogoutResult, chooseServer = false): void => {
+    const showSignIn = (notice?: LogoutResult, chooseServer = false, account?: SavedAccount, address?: string, pickerRequested = false): void => {
         stopContent();
+        if (connected?.session.activeProfile) connected.session.setProfile(undefined, "profile_cleared");
         profiles?.destroy();
         profiles = undefined;
+        const live = account ? liveAccounts.get(liveKey(account.baseUrl, account.accountId)) : undefined;
+        if (live?.session.signedIn && account) {
+            try { live.accounts.directory.select(account.id); }
+            catch {
+                startup = new ScreenHost(root);
+                const controls = [button("retry", "Retry", () => { startup?.destroy(); startup = undefined; showSignIn(notice, chooseServer, account, address, pickerRequested); }), button("accounts", "Back to profiles", () => { startup?.destroy(); startup = undefined; showProfiles(live, true); })];
+                startup.show({ name: "account-selection-error", content: [el("h1", "signin-title", "Could not save the account selection"), actions(controls)], controls, focus: "retry", back: undefined });
+                return;
+            }
+            showProfiles(live, pickerRequested); return;
+        }
         signIn = mountSignIn(root, {
-            core: options.core,
-            ...(chooseServer ? { chooseServer: true } : {}),
-            onSignedIn: (server) => {
-                // Sign-in releases its root before handing over; its old destroy would clear the successor.
-                signIn = undefined;
-                profiles = mountProfiles(root, {
-                    server,
-                    onChangeServer: () => switchServer(server),
-                    launch: server.profileLaunch,
-                    onSelected: (active) => showBrowse(server, active),
-                    onSignedOut: (result) => {
-                        profiles = undefined;
-                        showSignIn(result);
-                    },
-                });
+            core: { ...activeCore, ...(account ? { localAccountId: account.id } : {}), ...(address || account?.needsSignIn ? { addAccount: true } : {}),
+                beforeAccountSignIn: async (baseUrl, accountId) => { await liveAccounts.get(liveKey(baseUrl, accountId))?.session.retire(); },
             },
+            ...(address || account ? { address: address ?? account!.baseUrl } : {}),
+            ...(account ? { username: account.username } : {}),
+            onChangeAccount: () => showAccounts(),
+            ...(pickerRequested ? { onCancel: () => showAccounts() } : {}),
+            ...(chooseServer ? { chooseServer: true } : {}),
+            onSignedIn: server => showProfiles(server, pickerRequested),
             ...(notice === undefined ? {} : { signedOut: notice }),
         });
     };
 
-    const switchServer = (server: ConnectedServer): void => {
+    function showProfiles(server: ConnectedServer, pickerRequested = false): void {
+        connected = server;
+        if (server.session.account) liveAccounts.set(liveKey(server.server.http.base.baseUrl, server.session.account.id), server);
+        signIn = undefined;
+        profiles = mountProfiles(root, {
+            pickerRequested, server, launch: server.profileLaunch,
+            onChangeServer: () => showAccounts(),
+            onSelected: active => showBrowse(server, active),
+            onSignedOut: result => {
+                profiles = undefined;
+                const account = result?.server === "not_signed_in" ? server.accounts.directory.list().find(row => row.id === server.accounts.localAccountId) : undefined;
+                showSignIn(account ? undefined : result, false, account);
+            },
+        });
+    }
+
+    const switchServer = (server: ConnectedServer, back: () => void): void => {
+        accounts = mountAccounts(root, activeCore, server, (account, address) => {
+            accounts = undefined;
+            showSignIn(undefined, account === undefined && address === undefined, account, address, true);
+        }, () => {
+            accounts = undefined;
+            back();
+        });
+    };
+
+    const showAccounts = (manage = false): void => {
         stopContent();
-        profiles?.destroy();
-        profiles = undefined;
-        server.session.setProfile(undefined, "profile_cleared");
-        showSignIn(undefined, true);
+        profiles?.destroy(); profiles = undefined;
+        if (connected?.session.activeProfile) connected.session.setProfile(undefined, "profile_cleared");
+        signIn?.destroy(); signIn = undefined;
+        accounts?.destroy();
+        accounts = mountAccounts(root, activeCore, connected, (account, address) => {
+            accounts = undefined;
+            showSignIn(undefined, account === undefined && address === undefined, account, address, true);
+        }, () => {
+            accounts = undefined;
+            if (connected?.session.signedIn) showProfiles(connected, true);
+            else showSignIn(undefined, true);
+        }, manage);
     };
 
     const showBrowse = (server: ConnectedServer, active: ProfileHandoff): void => {
+        activeServer = server;
+        server.profileLaunch.recordActive();
         stopContent();
         if (destroyed || active.signal.aborted) {
             return;
@@ -87,12 +148,19 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
             server,
             profileName: active.profile.name,
             ...(avatar === undefined ? {} : { profileAvatarUrl: avatar }),
-            ...(options.core.publicStorage === undefined ? {} : { publicStorage: options.core.publicStorage }),
+            ...(activeCore.publicStorage === undefined ? {} : { publicStorage: activeCore.publicStorage }),
             onSignOut: () => {
                 stopContent();
                 profiles?.signOut();
             },
-            onSwitchServer: () => switchServer(server),
+            onSwitchServer: back => switchServer(server, back),
+            onAccounts: back => {
+                accounts = mountAccounts(root, activeCore, server, (account, address) => {
+                    accounts = undefined;
+                    showSignIn(undefined, account === undefined && address === undefined, account, address, true);
+                }, () => { accounts = undefined; if (active.signal.aborted) showAccounts(); else back(); }, true,
+                () => { active.signal.removeEventListener("abort", stopContent); profiles?.destroy(); profiles = undefined; });
+            },
             onChooseProfile: () => {
                 stopContent();
                 profiles?.switchProfile();
@@ -121,6 +189,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
         }
         event.preventDefault();
         exitDialog = mountExitDialog(root, () => {
+            activeServer?.profileLaunch.recordAway();
             player?.destroy();
             player = undefined;
             options.exit();
@@ -128,23 +197,64 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
         }, () => { exitDialog = undefined; });
     };
 
+    const onVisibility = (): void => {
+        if (activeServer === undefined || activeServer.session.activeProfile === undefined) return;
+        if (document.hidden) { activeServer.profileLaunch.recordAway(); return; }
+        const expired = activeServer.profileLaunch.requiresSelection();
+        if (expired) {
+            activeServer.profileLaunch.requireSelection();
+            stopContent();
+            activeServer.session.setProfile(undefined, "profile_cleared");
+            profiles?.switchProfile();
+        } else activeServer.profileLaunch.recordActive();
+    };
+    const onPageHide = (): void => { activeServer?.profileLaunch.recordAway(); destroy(); };
     const destroy = (): void => {
         if (destroyed) {
             return;
         }
         destroyed = true;
         window.removeEventListener("keydown", onBack);
-        window.removeEventListener("pagehide", destroy);
+        window.removeEventListener("pagehide", onPageHide);
+        document.removeEventListener("visibilitychange", onVisibility);
         stopContent();
         profiles?.destroy();
         profiles = undefined;
         signIn?.destroy();
         signIn = undefined;
+        accounts?.destroy(); accounts = undefined;
+        startup?.destroy(); startup = undefined;
     };
 
     window.addEventListener("keydown", onBack);
-    window.addEventListener("pagehide", destroy);
-    showSignIn();
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisibility);
+    const migrate = async (): Promise<void> => {
+        startup?.destroy(); startup = undefined;
+        try {
+            const directory = new AccountDirectory(options.core.publicStorage, options.core.randomBytes);
+            const selected = directory.list().find(row => row.id === directory.selected);
+            const address = selected?.baseUrl ?? options.core.publicStorage?.getItem("silo.native.server");
+            if (address) {
+                const result = await new AccountVault(openSecretStore(options.core.keyManager), options.core.publicStorage, address, options.core.randomBytes).load();
+                if (result.status === "unavailable") throw new Error("Saved accounts unavailable");
+            }
+            if (destroyed) return;
+            const account = directory.list().find(row => row.id === directory.selected);
+            if ((!account || account.needsSignIn) && directory.list().some(row => !row.needsSignIn)) showAccounts();
+            else showSignIn(undefined, false, account);
+        } catch {
+            if (destroyed) return;
+            startup = new ScreenHost(root);
+            const controls = [button("retry", "Retry", () => { void migrate(); }), button("continue", "Continue without saved accounts", () => {
+                startup?.destroy(); startup = undefined;
+                activeCore = { ...activeCore, publicStorage: undefined, keyManager: undefined };
+                showSignIn();
+            })];
+            startup.show({ name: "accounts-storage-error", content: [el("h1", "signin-title", "Saved accounts unavailable"), el("p", "signin-text", "Your saved sign-ins have been kept. Retry, or sign in for this session."), actions(controls)], controls, focus: "retry", back: undefined });
+        }
+    };
+    void migrate();
     return { destroy };
 }
 

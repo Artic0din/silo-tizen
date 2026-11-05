@@ -16,6 +16,8 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, 
         for (const item of previous.view.zones[1]?.items ?? []) {
             if (item.key === currentEpisode) item.element.setAttribute("aria-current", "true"); else item.element.removeAttribute("aria-current");
         }
+        const row = previous.view.zones[1]?.items[0]?.element.closest<HTMLElement>(".details-episodes");
+        if (row !== null && row !== undefined && state.entryEpisode !== undefined) row.dataset.scrollEntry = state.entryEpisode;
         return previous.view;
     }
     const seasons = state.seasons.map(season => {

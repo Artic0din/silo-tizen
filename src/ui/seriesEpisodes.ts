@@ -50,7 +50,19 @@ export class SeriesEpisodes {
     }
 
     select(season: number): void {
-        if (!this.active || !this.seasons.some(item => item.seasonNumber === season) || (season === this.seasonNumber && (this.episodes !== undefined || this.controller !== undefined))) return;
+        if (!this.active || !this.seasons.some(item => item.seasonNumber === season)) return;
+        if (season === this.seasonNumber && this.episodes !== undefined) {
+            this.focusSelectedEpisode = true;
+            this.entryEpisode = this.episodes[0]?.id;
+            this.changed();
+            return;
+        }
+        if (season === this.seasonNumber && this.controller !== undefined) {
+            this.focusSelectedEpisode = true;
+            this.entryEpisode = undefined;
+            this.changed();
+            return;
+        }
         this.seasonNumber = season;
         this.focusSelectedEpisode = true;
         this.entryEpisode = undefined;
@@ -84,7 +96,7 @@ export class SeriesEpisodes {
             if (!current()) return;
             this.controller = undefined;
             this.episodes = episodes;
-            if (!episodes.some(episode => episode.id === this.entryEpisode)) this.entryEpisode = (episodes.find(episode => episode.inProgress) ?? episodes.find(episode => !episode.played) ?? episodes[0])?.id;
+            if (!episodes.some(episode => episode.id === this.entryEpisode)) this.entryEpisode = (this.focusSelectedEpisode ? episodes[0] : episodes.find(episode => episode.inProgress) ?? episodes.find(episode => !episode.played) ?? episodes[0])?.id;
             this.loaded = true;
             this.changed();
         }, () => {

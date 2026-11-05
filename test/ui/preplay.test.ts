@@ -164,7 +164,7 @@ preplay("a confirmed series preference refresh clears other episodes' stale trac
     await tv.eventually(async () => await tv.page.locator('[data-focus="next-episode"]').getAttribute('aria-disabled') === 'false', 'Auto saved');
     await tv.page.locator('[data-focus="episode:s1e12"]').focus();
     await tv.page.getByRole('button', { name: /Play S1:E2|Resume S1:E2/ }).waitFor();
-    assert.equal(await tv.page.locator('[data-track-summary="subtitles"] span').textContent(), 'Auto');
+    assert.equal(await tv.page.locator('[data-track-summary="subtitles"] span').textContent(), 'Auto · None');
     await tv.page.locator('[data-focus="version"]').click();
     assert.equal(await tv.page.locator('[data-focus="version:42"]').getAttribute('aria-checked'), 'true');
 });

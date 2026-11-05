@@ -1656,7 +1656,9 @@ tvTest("hidden, the code is not polled; back on screen it polls at once and code
         await tv.jump(15 * MINUTE);
         await tv.eventually(async () => tv.fake.devices.size === renewal, `renewal ${renewal}`);
     }
+    const beforeHidePoll = polls(tv);
     await tv.jump(5 * MINUTE);
+    await tv.eventually(async () => polls(tv) > beforeHidePoll, "poll triggered before hiding reaches the fake server");
     await setHidden(tv, true);
     const before = polls(tv);
     await tv.jump(20 * MINUTE);

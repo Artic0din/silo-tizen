@@ -7,7 +7,7 @@ const ICONS: Readonly<Record<string, string>> = {
     play: "M8 4 21 12 8 20Z",
     resume: "M8 4 21 12 8 20Z",
     "next-episode": "M8 4 21 12 8 20Z",
-    version: "M6 3H21V18H6ZM3 7V21H17",
+    version: "M2 7 12 2 22 7 12 12ZM2 12 12 17 22 12M2 17 12 22 22 17",
     audio: "M3 9H7L13 4V20L7 15H3ZM17 8Q23 12 17 16",
     subtitles: "M3 5H21V19H3ZM6 11H10M6 14H11M14 11H18M14 14H18",
     watchlist: "M6 3H18V22L12 18 6 22Z",
@@ -75,11 +75,15 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
     const popover = ["audio", "subtitles", "version"].includes(name);
     if (popover) {
         panel.classList.add("details-track-popover");
+        for (const item of items) {
+            const title = item.element.firstChild;
+            if (title?.nodeType === Node.TEXT_NODE) title.replaceWith(el("span", "details-option-title", title.textContent ?? ""));
+        }
         const anchor = document.querySelector<HTMLElement>(`.details-editorial [data-focus="${name}"]`)?.getBoundingClientRect();
         if (anchor !== undefined) {
             const screenInset = 48;
             const anchorGap = 14;
-            panel.style.left = `${Math.max(screenInset, Math.min(anchor.left, 1920 - screenInset - 660))}px`;
+            panel.style.left = `${Math.max(screenInset, Math.min(anchor.left, 1920 - screenInset - 560))}px`;
             panel.style.top = `${anchor.bottom + 14}px`;
             panel.style.boxSizing = "border-box";
             panel.style.maxHeight = `${1080 - screenInset * 2}px`;
@@ -97,6 +101,10 @@ export function detailPanel(view: View, state: DetailsState, title: string, item
         if (auto !== undefined) auto.element.append(el("small", "details-option-subtext", name === "audio" ? "Use your Playback audio preference" : name === "subtitles" ? "Use your subtitle preferences" : "Best match for this device"));
     }
     const scrim = el("div", "skyline-dropdown-scrim");
+    if (popover) {
+        const trigger = underlying.flatMap(node => Array.from(node.querySelectorAll<HTMLElement>(`[data-focus="${name}"]`)))[0];
+        trigger?.setAttribute("aria-expanded", "true");
+    }
     scrim.addEventListener("click", () => state.closePanel());
     for (const node of underlying) { node.inert = true; node.setAttribute("aria-hidden", "true"); }
     const selected = popover ? items[0] : items.find(item => item.element.getAttribute("aria-checked") === "true") ?? items[0];

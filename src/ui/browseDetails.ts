@@ -96,7 +96,7 @@ function metaLine(detail: ItemDetail, state?: DetailsState): string {
     }
     const count = state?.series?.seasons.filter(season => !season.isSpecials).length;
     if (detail.type === "series" && count) parts.push(`${count} Season${count === 1 ? "" : "s"}`);
-    return parts.join(" · ");
+    return parts.join("\u2002·\u2002");
 }
 
 function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonly FocusItem[], state?: DetailsState, summary?: string): HTMLElement[] {
@@ -128,7 +128,7 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     const episode = state?.series?.episodes?.find(episode => episode.id === state.focusedEpisodeId);
     const playback = state?.nextEpisodeState;
     const selectedFile = playback?.detail.versions.find(file => file.fileId === playChoices(playback.detail, playback.selectedFileId)?.fromStart.fileId);
-    const meta = episode === undefined ? metaLine(detail, state) : [episodeAirDate(episode.airDate), episodeRuntime(selectedFile?.durationSeconds ? Math.round(selectedFile.durationSeconds / 60) : episode.runtimeMinutes), episode.seasonNumber === 0 ? "Specials" : `Season ${episode.seasonNumber}`, `Episode ${episode.episodeNumber}`].filter(Boolean).join(" · ");
+    const meta = episode === undefined ? metaLine(detail, state) : [episodeAirDate(episode.airDate), episodeRuntime(selectedFile?.durationSeconds ? Math.round(selectedFile.durationSeconds / 60) : episode.runtimeMinutes), episode.seasonNumber === 0 ? "Specials" : `Season ${episode.seasonNumber}`, `Episode ${episode.episodeNumber}`].filter(Boolean).join("\u2002·\u2002");
     const ratings = (episode === undefined ? detail.extra?.ratings : playback?.detail.extra?.ratings ?? episode.ratings)?.map(rating => `${rating.name} ${rating.display}`).join(" · ");
     const ratingChip = detail.contentRating?.trim();
     if (meta || ratings || ratingChip) {
@@ -139,9 +139,9 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
                 const logo = el("img", "skyline-rating-logo"); logo.src = TMDB_LOGO_PATH; logo.alt = "TMDB";
                 badge.append(logo);
             } else badge.append(el("span", "", rating.name));
-            badge.append(" ", el("span", "details-rating-score", rating.display)); facts.append(" · ", badge);
+            badge.append(" ", el("span", "details-rating-score", rating.display)); facts.append("\u2002·\u2002", badge);
         }
-        if (detail.genres.length) facts.append(" · ", el("span", "details-genres", detail.genres.slice(0, 3).join(", ")));
+        if (detail.genres.length) facts.append("\u2002·\u2002", el("span", "details-genres", detail.genres.slice(0, 3).join(", ")));
         if (ratingChip) facts.prepend(el("span", "details-rating-badge", ratingChip));
         nodes.push(facts);
     }
@@ -255,18 +255,29 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     const effectiveAudio = explicitAudio >= 0 ? explicitAudio : file?.effectiveAudioTrackIndex ?? audio.findIndex(track => track.isDefault);
     const resolvedAudioTrack = audio[effectiveAudio] ?? audio[0];
     const subtitle = tracks?.subtitleIntent();
-    const subtitleLabel = (track: SubtitleSignature): string => [...new Set([languageName(track.language) ?? "Unknown language", track.label, track.codec?.toUpperCase(), track.forced ? "Forced" : undefined, track.hearingImpaired ? "SDH" : undefined].filter(Boolean))].join(" · ");
+    const subtitleLabel = (track: SubtitleSignature): string => {
+        const codec = /subrip|srt/i.test(track.codec ?? '') ? 'SRT' : track.codec?.toUpperCase();
+        const label = track.label && ![track.codec?.toUpperCase(), codec].includes(track.label.toUpperCase()) ? track.label : undefined;
+        const name = [languageName(track.language) ?? "Unknown language", label, track.forced ? "Forced" : undefined, track.hearingImpaired ? "SDH" : undefined].filter(Boolean).join(' · ');
+        return codec ? `${name} · ${codec}` : name;
+    };
     const selectedSubtitleLabel = subtitle?.kind === "track" ? subtitleLabel(subtitle.signature) : subtitle?.kind === "off" ? "Off" : "Auto";
     const autoSubtitle = file?.effectiveSubtitle === undefined ? undefined : initialSubtitle({ kind: "auto" }, (file.subtitles ?? []).map((track, index) => ({ ...track, trackId: String(index), combinedIndex: index, delivery: "unknown" as const })), { ...file.effectiveSubtitle, audioLanguage: resolvedAudioTrack?.language });
     const autoSubtitleTrack = autoSubtitle === undefined ? undefined : file?.subtitles?.[Number(autoSubtitle)];
-    const subtitleSummary = selectedSubtitleLabel !== "Auto" ? selectedSubtitleLabel : file?.effectiveSubtitle === undefined ? "Auto" : `Auto · ${autoSubtitleTrack === undefined ? "None" : subtitleLabel(autoSubtitleTrack)}`;
-    const audioLabel = (index: number): string => {
+    const subtitleSummary = selectedSubtitleLabel !== "Auto" ? selectedSubtitleLabel : `Auto · ${autoSubtitleTrack === undefined ? "None" : subtitleLabel(autoSubtitleTrack)}`;
+    const audioDetails = (index: number): string => {
         const track = audio[index];
-        const layout = track?.layout?.replace(/\(.*\)/, '').trim() || (track?.channels === 6 ? '5.1' : track?.channels === 8 ? '7.1' : track?.channels === 2 ? '2.0' : track?.channels === 1 ? '1.0' : track?.channels?.toString());
+        const rawLayout = track?.layout?.replace(/\(.*\)/, '').trim();
+        const layout = /stereo/i.test(rawLayout ?? '') ? 'Stereo' : /mono/i.test(rawLayout ?? '') ? 'Mono' : rawLayout || (track?.channels === 6 ? '5.1' : track?.channels === 8 ? '7.1' : track?.channels === 2 ? 'Stereo' : track?.channels === 1 ? 'Mono' : track?.channels === undefined ? undefined : `${track.channels}ch`);
+        return [track?.codec?.toUpperCase(), layout].filter(Boolean).join(' · ');
+    };
+    const audioTitle = (index: number): string => {
+        const track = audio[index];
         const embedded = track?.embeddedTitle?.trim();
         const meaningful = embedded && !/^(?:ATSC|AC-?3|E-?AC-?3|AAC|DTS|FLAC|PCM|OPUS|MP3|VORBIS)(?:\b|$)/i.test(embedded) ? embedded : undefined;
-        return [meaningful ?? languageName(track?.language) ?? `Track ${index + 1}`, track?.codec?.toUpperCase(), layout].filter(Boolean).join(" · ");
+        return meaningful ?? languageName(track?.language) ?? `Track ${index + 1}`;
     };
+    const audioLabel = (index: number): string => [languageName(audio[index]?.language), audioDetails(index)].filter(Boolean).join(' · ') || audioTitle(index);
     const seriesSelectors = detail.type === "series";
     if ((playbackChoices !== undefined || seriesSelectors) && state !== undefined) {
         const ordinal = audio.findIndex((_track, index) => selectedAudio === `file:${file?.fileId}:audio:${index}`);
@@ -393,11 +404,11 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     const view: View = { name: `item:${detail.id}`, content, zones, focus: first === undefined ? undefined : { zone: actions[0] === undefined ? "seasons" : "actions", key: first.key }, back };
     if (state?.panel === "audio") {
         const options = [undefined, ...audio.map((_track, index) => index)].map(ordinal => {
-            const item = actionButton(`audio:${ordinal ?? "auto"}`, ordinal === undefined ? "Auto" : audioLabel(ordinal), () => { if (tracks !== undefined) state.noteEpisodePreference(tracks.detail.id); tracks?.selectAudio(ordinal); if (tracks !== state) state.closePanel(); });
+            const item = actionButton(`audio:${ordinal ?? "auto"}`, ordinal === undefined ? "Auto" : audioTitle(ordinal), () => { if (tracks !== undefined) state.noteEpisodePreference(tracks.detail.id); tracks?.selectAudio(ordinal); if (tracks !== state) state.closePanel(); });
             item.element.setAttribute("role", "radio");
-            item.element.setAttribute("aria-checked", String(ordinal === undefined ? selectedAudio === undefined : selectedAudio === `file:${file?.fileId}:audio:${ordinal}`));
+            item.element.setAttribute("aria-checked", String(ordinal === undefined ? selectedAudio === undefined : ordinal === (effectiveAudio >= 0 ? effectiveAudio : 0)));
             if (ordinal !== undefined) {
-                const flags = [audio[ordinal]?.isDefault ? "Default" : undefined, ordinal === file?.effectiveAudioTrackIndex ? "Preferred" : undefined].filter(Boolean).join(" · ");
+                const flags = [audioDetails(ordinal), audio[ordinal]?.isDefault ? "Default" : undefined, ordinal === file?.effectiveAudioTrackIndex ? "Preferred" : undefined].filter(Boolean).join(" · ");
                 if (flags) item.element.append(el("small", "details-option-subtext", flags));
             }
             return item;
@@ -406,7 +417,8 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     }
     if (state?.panel === "version") {
         const options = [undefined, ...playbackDetail.versions].map((version, index) => {
-            const item = actionButton(`version:${version?.fileId ?? "auto"}`, version?.label || (version === undefined ? "Auto" : `Version ${index}`), () => { tracks?.select(version?.fileId); state.closePanel(); });
+            const label = version?.label?.replace(/\bh264\b/gi, 'H.264').replace(/\bh265\b/gi, 'HEVC').replace(/\b(aac|eac3|ac3|hevc|av1|dts)\b/gi, codec => codec.toUpperCase());
+            const item = actionButton(`version:${version?.fileId ?? "auto"}`, label || (version === undefined ? "Auto" : `Version ${index}`), () => { tracks?.select(version?.fileId); state.closePanel(); });
             if (version?.detailLabel) item.element.append(el("small", "details-option-subtext", version.detailLabel));
             item.element.setAttribute("role", "radio");
             item.element.setAttribute("aria-checked", String(version?.fileId === tracks?.selectedFileId));
@@ -415,10 +427,24 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         return detailPanel(view, state, "Version", options);
     }
     if (state?.panel === "subtitles") {
-        const choices = [undefined, "off" as const, ...(file?.subtitles ?? []).map((_track, index) => index)];
+        const ordered = (file?.subtitles ?? []).map((track, index) => ({ track, index })).sort((a, b) => {
+            const language = (track: SubtitleSignature): string => languageName(track.language) ?? '\uffff';
+            const preferred = file?.effectiveSubtitle?.language;
+            const preference = (track: SubtitleSignature): number => preferred !== undefined && language(track) === (languageName(preferred) ?? preferred) ? 0 : 1;
+            const rank = (track: SubtitleSignature): number => ['srt|subrip', 'ass', 'ssa', 'vtt|webvtt', 'mov_text|movtext|tx3g', 'sup|pgs|hdmv', 'dvd|vobsub|dvb'].findIndex(pattern => new RegExp(pattern, 'i').test(track.codec ?? ''));
+            const format = (track: SubtitleSignature): number => rank(track) < 0 ? 7 : rank(track);
+            const variant = (track: SubtitleSignature): number => track.hearingImpaired ? 2 : track.forced ? 1 : 0;
+            return preference(a.track) - preference(b.track) || language(a.track).localeCompare(language(b.track)) || format(a.track) - format(b.track) || variant(a.track) - variant(b.track) || a.index - b.index;
+        });
+        const choices = [undefined, "off" as const, ...ordered.map(item => item.index)];
         const options = choices.map(choice => {
             const track = typeof choice === "number" ? file?.subtitles?.[choice] : undefined;
-            const item = actionButton(`subtitle:${choice ?? "auto"}`, track === undefined ? choice === "off" ? "Off" : "Auto" : subtitleLabel(track), () => { if (tracks !== undefined) state.noteEpisodePreference(tracks.detail.id); tracks?.selectSubtitle(choice); if (tracks !== state) state.closePanel(); });
+            const item = actionButton(`subtitle:${choice ?? "auto"}`, track === undefined ? choice === "off" ? "Off" : "Auto" : languageName(track.language) ?? track.label ?? `Track ${Number(choice) + 1}`, () => { if (tracks !== undefined) state.noteEpisodePreference(tracks.detail.id); tracks?.selectSubtitle(choice); if (tracks !== state) state.closePanel(); });
+            if (track !== undefined) {
+                const codec = /subrip|srt/i.test(track.codec ?? '') ? 'SRT' : track.codec?.toUpperCase();
+                const label = track.label && ![track.codec?.toUpperCase(), codec, languageName(track.language)?.toUpperCase()].includes(track.label.toUpperCase()) ? track.label : undefined;
+                item.element.append(el('small', 'details-option-subtext', [label, codec, track.forced ? 'Forced' : undefined, track.hearingImpaired ? 'SDH' : undefined, track.source === 'external' ? 'External' : undefined].filter(Boolean).join(' · ')));
+            }
             item.element.setAttribute("role", "radio");
             item.element.setAttribute("aria-checked", String(track === undefined ? subtitle?.kind === (choice === "off" ? "off" : "auto") : subtitle?.kind === "track" && matchesSubtitle(track, subtitle.signature)));
             if (choice === "off") item.element.append(el("small", "details-option-subtext", "Start without subtitles"));

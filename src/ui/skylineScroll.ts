@@ -65,10 +65,9 @@ export class SkylineScroll {
         }
         const cast = element.closest<HTMLElement>(".details-people");
         if (cast !== null) {
-            const rail = cast.getBoundingClientRect();
+            // tvOS centers the supporting section's leading anchor, not the full portrait rail.
             const header = cast.previousElementSibling?.getBoundingClientRect();
-            const centre = ((header?.top ?? rail.top) + rail.bottom) / 2;
-            this.move(viewport, 0, Math.max(0, viewport.scrollTop + centre - (bounds.top + bounds.bottom) / 2));
+            this.move(viewport, 0, Math.max(0, viewport.scrollTop + (header?.top ?? rect.top) - bounds.top - bounds.height / 2));
             return;
         }
         // Apple's Requests band is view-aligned: the focused row's top sits on the band's top.

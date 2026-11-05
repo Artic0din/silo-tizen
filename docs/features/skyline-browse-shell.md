@@ -413,9 +413,12 @@ Auto subtitle previews resolve using the explicit audio track or the file's effe
 Shared episode preference changes invalidate retained Series and Season owners by series identity, including when the edited episode was not cached.
 Ordinary Series entry focuses Play and retains the series overview, matching Apple `bbd1e47`.
 The current episode is positioned at the rail's leading slot without taking focus.
-Selecting a season retargets Play and enters that season's episode rail; Up returns to the selected season pill.
+Selecting a season retains pill focus and retargets Play to its first episode; Down enters that episode and Up returns to the selected season pill.
+Reselecting the current season resets to its first episode using the loaded page, while other seasons load their page before retargeting.
 The page tint sits behind the entire browse surface so headings, pills and captions remain painted.
 Track selectors use anchored popovers with Auto entry focus, preference subtext and selection checkmarks.
+The 560px track popovers use 76px rows; Audio checks both Auto and its effective track, and subtitle rows group by language and format without changing selection identity.
+The cast section's leading anchor is centered on focus, following tvOS at `bef81e8`.
 Remote YouTube trailers remain omitted because this client has no verified YouTube application handoff or direct stream resolver; local playable extras remain available.
 Calendar's explicit season context retains its season-chip entry focus instead.
 Cast and crew share a rail of at most 24 people, combining roles for the same server person ID.

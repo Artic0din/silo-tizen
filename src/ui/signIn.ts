@@ -18,8 +18,12 @@ import { actionRow, chip, errorText, field, headline, keyboardCard, lead, marque
 import { MarqueeBackdrop } from "./marqueeBackdrop.ts";
 import { type Control, el, type Note, type Screen, ScreenHost } from "./screen.ts";
 import * as text from "./signInText.ts";
+import { AccountDirectory } from "../session/accounts.ts";
 
 export interface SignInOptions {
+    readonly address?: string;
+    readonly username?: string;
+    readonly onChangeAccount?: () => void;
     /** Explicit server switching preserves saved sign-ins and starts at server entry. */
     readonly chooseServer?: boolean;
     readonly core: SessionCoreDeps;
@@ -122,7 +126,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         return wordmark;
     }, backdrop.element);
     root.classList.add("signin", "signin-auth");
-    let address = readServer(core) ?? "";
+    let address = options.address ?? readServer(core) ?? "";
     // The Apple TV app's Advanced options; reset once a server answers, whose address then says both.
     let scheme: AdvancedScheme = "auto";
     let port = "";
@@ -240,6 +244,10 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             copy.push(options);
         }
         const row = [connect];
+        if (options.onChangeAccount) {
+            const canReturn = new AccountDirectory(options.core.publicStorage, options.core.randomBytes).list().some(account => !account.needsSignIn);
+            row.push(marqueeButton("change-account", canReturn ? "Back to profiles" : "Change account", "plain", changeServer));
+        }
         if (offerForget) {
             row.push(marqueeButton("forget", "Remove saved sign-in", "plain", () => void forget()));
         }
@@ -531,6 +539,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     };
 
     const changeServer = (): void => {
+        if (options.onChangeAccount) { destroy(); options.onChangeAccount(); return; }
         leaveSignIn();
         showEntry([], false, "connect");
     };
@@ -723,6 +732,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     const openCredentials = (current: Active): void => {
         current.credentials = true;
         current.code = undefined;
+        if (current.username === "") current.username = options.username ?? "";
         showCredentials(current, "username");
     };
 
@@ -771,6 +781,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
                 submit: () => submitPassword(current),
                 phone: phoneRoute ? () => returnToCode(current) : undefined,
                 change: changeServer,
+                changeLabel: options.onChangeAccount ? "Change account" : "Change server",
                 back: current.submitting ? () => undefined : phoneRoute ? () => returnToCode(current) : changeServer,
             }),
             focus,

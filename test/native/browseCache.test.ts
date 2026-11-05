@@ -15,6 +15,23 @@ function storage() {
     return { values, getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); }, removeItem: (key: string) => { values.delete(key); } };
 }
 const scope = ["server", "account", "profile"] as const;
+test("retiring A after B caches content preserves B's snapshot and fences A's held read", async () => {
+    const h = await connected(); await signIn(h);
+    const store = h.storage;
+    const aScope = [h.core.server.serverId, h.core.session.account!.id, "profile"];
+    const a = new BrowseCache(store, aScope, h.core.session.authoritySignal);
+    await a.read(spec, async request => request.decode({ title: "A private" }));
+    let finish = (): void => {};
+    const held = a.read(spec, async request => { await new Promise<void>(resolve => { finish = resolve; }); return request.decode({ title: "A late" }); });
+    const bScope = [h.core.server.serverId, "B", "profile"];
+    const b = new BrowseCache(store, bScope, new AbortController().signal);
+    assert.equal(b.peek(spec), undefined);
+    await assert.rejects(b.read(spec, offline));
+    await b.read(spec, async request => request.decode({ title: "B private" }));
+    await h.core.session.logout(); finish(); await held;
+    assert.deepEqual(new BrowseCache(store, bScope, new AbortController().signal).peek(spec), { title: "B private" });
+    assert.deepEqual(await b.read(spec, offline), { title: "B private" });
+});
 test("Details reads touch LRU order and retain relative artwork in memory", async () => {
     const cache = new BrowseCache(undefined, scope, new AbortController().signal);
     const item = (id: number): RequestSpec<unknown> => ({ ...spec, path: `/catalog/items/${id}` });

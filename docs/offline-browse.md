@@ -10,7 +10,9 @@ Snapshots are used only after account and profile authority is established; they
 
 The scope contains the server ID, account ID and profile ID, never the server address or credentials.
 Authority loss clears memory and snapshots and fences pending responses.
-Account removal also clears snapshots when no Browse screen is mounted.
+Account removal also clears that account's snapshots when no Browse screen is mounted, including when discovery fails offline.
+Signing out or forgetting one saved account preserves another account's active cache and snapshot.
+The cache authority listener is attached before restore and the saved-session reuse shortcut, and to the separate session used to revoke a saved account.
 Changing any scope component closes the previous cache owner.
 Optional storage failures leave the memory cache usable.
 Persistent snapshots strip URL and credential fields recursively.
@@ -40,6 +42,10 @@ This identifies source, not an installed Apple build.
 - `iosApp/iosApp/Networking/ResponseCache.swift:7-12`: decoded responses, stale while revalidating, no TTL or LRU at this owner.
 - `iosApp/iosApp/Networking/ResponseSnapshotStore.swift:15-25`: Home, recommendations, libraries and first browse pages persisted, 32 snapshots per scope; Details are not persisted here.
 - `iosApp/iosApp/Networking/ResponseCache.swift:193-200`: server/account/profile snapshot scope.
+- `iosApp/iosApp/Screens/Auth/AccountSessions.swift:30-60`: account switching cancels requests and clears memory while keeping account-scoped snapshots; this shared path is reachable on tvOS.
+- `iosApp/iosApp/Screens/Auth/AuthService.swift:1064-1067,851-876`: account-change reset clears response memory and the tvOS Details owner.
+- `iosApp/iosApp/tvOS/Caching/ItemDetailCache.swift:122-128`: clear visited Details at identity boundaries.
+- `iosApp/iosApp/Networking/AccountLocalData.swift:95-106`: removing an account purges its own snapshots.
 - `iosApp/iosApp/Screens/Home/HomeViewModel.swift:83-110`: hydrate cached sections and keep painted sections on refresh failure.
 - `iosApp/iosApp/Screens/Home/HomeView.swift:53-107`: reachable tvOS feed, Retry/Manage Servers on a cold failure; `:177-185` belongs to the non-tvOS branch.
 - `iosApp/iosApp/Screens/Recommendations/RecommendationsViewModel.swift:16-51`: hydrate recommendations and retain them on failure.

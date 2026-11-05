@@ -9,13 +9,27 @@ const MAX_BYTES = 1024 * 1024;
 const owners = new WeakMap<AbortSignal, BrowseCache>();
 const live = new Set<BrowseCache>();
 
-export function clearBrowseCache(storage: PublicStorage | undefined): void {
-    for (const cache of live) cache.close();
-    removeSnapshots(storage);
+export function clearBrowseCache(storage: PublicStorage | undefined, account?: readonly string[]): void {
+    for (const cache of live) {
+        if (cache.belongsTo(storage, account)) cache.close();
+    }
+    removeSnapshots(storage, account);
 }
 
-function removeSnapshots(storage: PublicStorage | undefined): void {
-    try { storage?.removeItem(STORAGE_KEY); } catch { /* Optional snapshots cannot block sign-out. */ }
+function removeSnapshots(storage: PublicStorage | undefined, account?: readonly string[]): void {
+    try {
+        const raw = storage?.getItem(STORAGE_KEY);
+        if (account && raw) {
+            const saved: unknown = JSON.parse(raw);
+            if (typeof saved === "object" && saved !== null && "scope" in saved && typeof saved.scope === "string" && !matchesAccount(saved.scope, account)) return;
+        }
+        storage?.removeItem(STORAGE_KEY);
+    } catch { try { storage?.removeItem(STORAGE_KEY); } catch { /* Optional snapshots cannot block sign-out. */ } }
+}
+
+function matchesAccount(identity: string, account: readonly string[]): boolean {
+    const scope: unknown = JSON.parse(identity);
+    return Array.isArray(scope) && account.every((value, index) => scope[index] === value);
 }
 
 function cacheKey(spec: RequestSpec<unknown>): string | undefined {
@@ -78,6 +92,10 @@ export class BrowseCache {
         if (signal.aborted) close(); else signal.addEventListener("abort", close, { once: true });
     }
     private readonly persist: () => void;
+
+    belongsTo(storage: PublicStorage | undefined, account?: readonly string[]): boolean {
+        return this.storage === storage && (account === undefined || matchesAccount(this.identity, account));
+    }
 
     close(): void { this.closed = true; this.entries.clear(); this.unreachable.clear(); live.delete(this); }
 

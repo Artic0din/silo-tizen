@@ -2591,10 +2591,13 @@ browseTest("Home lists visible video libraries and supported rows, and every row
 
     await press(tv, "ArrowRight");
     assert.equal(await tv.focused(), "episode:s1e12");
-    await press(tv, "ArrowDown", "ArrowRight", "ArrowRight");
-    assert.equal(await tv.focused(), "movie:m0001", "Recently Added: series first, then movies");
+    const added = await cardIds(tv, '[data-section="recently_added"] .browse-card');
+    assert.deepEqual(added.slice(0, 3), ["series:s1", "series:s2", "movie:m0001"], "Recently Added: series first, then movies");
+    await press(tv, "ArrowDown");
+    // The old assertion pressed Right twice and expected movie:m0001, which encoded Down landing on the first card.
+    assert.equal(await tv.focused(), "movie:m0001", "Down from the second Continue Watching still keeps that column");
     await press(tv, "ArrowUp");
-    assert.equal(await tv.focused(), "episode:s1e12", "back to the card last focused in the row above");
+    assert.equal(await tv.focused(), "episode:s1e12", "Up along the same column returns to the still above");
     await press(tv, "ArrowUp", "ArrowRight");
     assert.equal(await tv.focused(), "movies");
     await press(tv, "ArrowUp");

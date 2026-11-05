@@ -1469,6 +1469,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         options.onChooseProfile();
     };
 
+    const detailVisits = new WeakMap<Route, string>();
+    let detailVisitSequence = 0;
     const render = (focus?: FocusTarget): void => {
         activeSection?.stop();
         if (activeBrowse !== undefined) stopFeed(activeBrowse);
@@ -1540,7 +1542,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         } else {
             host.holdVisit();
             shell.hide();
-            host.show(view, focus);
+            if (current.kind === "item") {
+                let visitKey = detailVisits.get(current);
+                if (visitKey === undefined) {
+                    visitKey = `details-visit:${++detailVisitSequence}`;
+                    detailVisits.set(current, visitKey);
+                }
+                host.show({ ...view, visitKey: `${visitKey}:${view.name}` }, focus);
+            } else host.show(view, focus);
         }
     };
 

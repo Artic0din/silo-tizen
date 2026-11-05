@@ -39,6 +39,138 @@ async function settledEpisodePrefetch(tv: Tv): Promise<void> {
     }, "opening episode prefetches settled");
 }
 
+for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} reveals supporting headings in both directions`, async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    catalog.videos = [{ site_key: 'trailer-key', site: 'YouTube', kind: 'trailer', name: 'Trailer' }];
+    const body = catalog.route('GET', `/catalog/items/${encodeURIComponent(media)}`, 'p-owner')?.body as Record<string, unknown>;
+    await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(media)}?**`, route => route.fulfill({ json: {
+        ...body, content_rating: 'PG', overview: 'A remote observatory receives a message that changes the lives of everyone on the night shift. '.repeat(3),
+        studios: ['Studio'], countries: ['AU'], release_date: '2020-01-01',
+        ...(media.startsWith('series') ? { networks: ['Network'], first_air_date: '2020-01-01', last_air_date: '2021-01-01' } : { networks: ['Network'] }),
+    } }));
+    await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
+    await tv.page.locator('.details-extras [data-focus]').first().waitFor();
+    await tv.page.locator('[data-detail-section="related"] [data-focus]').first().waitFor();
+    await tv.page.evaluate(() => document.fonts.ready);
+    await tv.jump(500);
+    if (media.startsWith('movie')) {
+        const stack = await readLive(tv, () => {
+            const nodes = ['.browse-meta', '.browse-overview', '.details-director', '.details-playback-summary', '.browse-actions'].map(selector => document.querySelector(`.details-editorial ${selector}`));
+            return nodes.some(node => !node?.isConnected) ? null : nodes.map(node => node!.getBoundingClientRect().top);
+        }, null, value => value.length === 5, 'movie hero stack');
+        assert.ok(stack.every((value, index) => Math.abs(value - [291, 334, 450, 492, 556][index]!) <= 3), JSON.stringify(stack));
+    }
+    const sample = (selector: string) => readLive(tv, selector => {
+        const section = document.querySelector<HTMLElement>(selector);
+        const page = document.querySelector<HTMLElement>('.browse');
+        const header = section?.matches('.details-facts') ? section.firstElementChild : section?.previousElementSibling;
+        if (!section?.isConnected || !page || !header) return null;
+        return { heading: header.getBoundingClientRect().top, scroll: page.scrollTop, maximum: page.scrollHeight - page.clientHeight, height: page.scrollHeight, bottom: section.getBoundingClientRect().bottom, focused: section.contains(document.activeElement) };
+    }, selector, value => value.focused, 'live supporting heading');
+    const check = async (selector: string, target: number, key: number) => {
+        await tv.remote(key); await tv.jump(500);
+        const value = await sample(selector);
+        assert.ok(Math.abs(value.heading - target) <= 3, `${selector}: ${JSON.stringify(value)} target ${target}`);
+    };
+    const series = media.startsWith('series');
+    if (series) {
+        await tv.remote(40); await tv.remote(40);
+        assert.equal(await tv.page.locator('.browse').evaluate(node => node.scrollTop), 0);
+    }
+    await check('.details-people', series ? 367 : 546, 40);
+    await check('.details-extras', 501, 40);
+    await check('[data-detail-section="related"]', series ? 547 : 321, 40);
+    await tv.remote(40); await tv.jump(500);
+    const end = await sample('.details-facts');
+    assert.equal(end.scroll, end.maximum);
+    assert.ok(Math.abs(end.bottom - 940) <= 1, '140px total bottom padding');
+    // Fake facts differ from the captured title: residuals +4.61 Movie / +5.41 Series.
+    assert.ok(Math.abs(end.heading - (series ? 457.41 : 528.61)) <= 3, JSON.stringify(end));
+    console.log(`${media} Details heading ${end.heading}, residual ${end.heading - (series ? 452 : 524)}, page height ${end.height}`);
+    await check('[data-detail-section="related"]', series ? 111 : 321, 38);
+    await check('.details-extras', 111, 38);
+    await check('.details-people', series ? 367 : 690, 38);
+    if (!series) assert.equal((await sample('.details-people')).scroll, 0);
+    const reads = tv.fake.requests.length;
+    await tv.remote(39); await tv.jump(500);
+    assert.equal(tv.fake.requests.length, reads, 'horizontal focus does not fetch');
+    await tv.remote(38); await tv.jump(500);
+    if (series) { await tv.remote(38); await tv.remote(38); await tv.jump(500); }
+    assert.equal(await readLive(tv, () => {
+        const page = document.querySelector<HTMLElement>('.browse');
+        return page === null ? null : page.scrollTop;
+    }, null, value => value === 0, 'hero returns to scroll zero'), 0);
+});
+
+
+detailTest('nested presentations of one title preserve the ancestor visit', async tv => {
+    await tv.page.route('**/api/v2/recommendations/similar/**', route => route.fulfill({ json: { items: ['movie:m0001', 'movie:m0002'].map(content_id => ({ content_id, type: 'movie', title: content_id })) } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    const related = () => tv.page.locator('[data-detail-section="related"] [data-focus]').first();
+    await related().waitFor();
+    await tv.jump(500);
+    await tv.remote(40);
+    await tv.remote(40);
+    await tv.jump(500);
+    const before = await readLive(tv, () => {
+        const page = document.querySelector<HTMLElement>('.browse');
+        return page === null ? null : { scroll: page.scrollTop, key: document.activeElement?.getAttribute('data-focus') };
+    }, null, value => value.scroll > 0 && value.key === 'movie:m0002', 'ancestor Related focus');
+    await tv.page.keyboard.press('Enter');
+    await related().waitFor();
+    await related().click();
+    await tv.page.locator('.details-play').waitFor();
+    await tv.jump(500);
+    assert.equal(await tv.focused(), 'resume');
+    assert.equal(await tv.page.locator('.browse').evaluate(node => node.scrollTop), 0);
+    await tv.remote(40);
+    await tv.jump(500);
+    await tv.remote(10009);
+    await tv.remote(10009);
+    const restored = await readLive(tv, () => {
+        const page = document.querySelector<HTMLElement>('.browse');
+        return page === null ? null : { scroll: page.scrollTop, key: document.activeElement?.getAttribute('data-focus') };
+    }, null, value => value.scroll === before.scroll && value.key === before.key, 'ancestor visit restored');
+    assert.deepEqual(restored, before);
+});
+
+for (const id of ['movie:m0001', 'series:s1']) detailTest(`${id} reopening starts at the hero instead of a remembered supporting section`, async tv => {
+    const open = async () => {
+        await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).first().click();
+        await tv.page.locator('.details-people').waitFor();
+        await tv.page.locator('[data-detail-section="related"] [data-focus]').first().waitFor();
+        await tv.eventually(async () => await tv.page.locator('[data-focus="watchlist"]').count() === 1, 'personal actions loaded');
+        await tv.page.evaluate(() => document.fonts.ready);
+        await tv.page.waitForLoadState('networkidle');
+        await tv.jump(500);
+    };
+    await open();
+    for (let step = 0; step < (id.startsWith('series') ? 3 : 1); step++) await tv.remote(40);
+    await tv.remote(39);
+    await tv.jump(500);
+    const measure = () => tv.page.evaluate(() => {
+        const page = document.querySelector<HTMLElement>('.browse')!;
+        return { scroll: page.scrollTop, hero: page.querySelector('.details-hero')!.getBoundingClientRect().top };
+    });
+    let seen = Number.NaN;
+    const before = await readLive(tv, () => {
+        const page = document.querySelector<HTMLElement>('.browse');
+        const hero = page?.querySelector('.details-hero');
+        if (page === null || !page.isConnected || hero === null || hero === undefined) return null;
+        return { scroll: page.scrollTop, hero: hero.getBoundingClientRect().top };
+    }, null, value => {
+        const settled = value.scroll > 0 && value.scroll === seen;
+        seen = value.scroll;
+        return settled;
+    }, 'settled non-zero scroll');
+    assert.ok(before.scroll > 0);
+    await tv.remote(10009);
+    await open();
+    assert.equal(await tv.focused(), id.startsWith('movie') ? 'resume' : 'next-episode');
+    assert.equal((await measure()).scroll, 0);
+    assert.equal((await measure()).hero, 0);
+});
+
 for (const id of ['movie:m0001', 'series:s1']) detailTest(`${id} Details omits controls absent from tvOS and keeps focus at the last section`, async tv => {
     await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).first().click();
     await tv.page.locator('[data-focus="watchlist"]').waitFor();
@@ -1236,10 +1368,10 @@ detailTest('Series remote navigation scrolls down to Cast and back to episodes',
             restingTop: rect.top + (rect.height - card.offsetHeight) / 2,
             inside: portrait.top - 2 >= bounds.top && portrait.bottom + 2 <= bounds.bottom,
         };
-    }, null, value => Math.abs(value.headingTop - 546) < 2 && Math.abs(value.restingTop - 615) < 3 && value.inside, "cast heading and portrait settle");
-    assert.ok(Math.abs(resting.headingTop - 546) < 2, "cast heading settles at the measured Apple anchor");
-    // The running Apple build measured 615; TVDetailCastRail includes 12px vertical padding.
-    assert.ok(Math.abs(resting.restingTop - 615) < 3, `resting cast circle top ${resting.restingTop}`);
+    }, null, value => Math.abs(value.headingTop - 367) <= 3 && Math.abs(value.restingTop - 436) <= 3 && value.inside, "cast heading and portrait settle");
+    assert.ok(Math.abs(resting.headingTop - 367) <= 3, "cast heading settles at the measured Apple anchor");
+    // The image starts 69px below the centered heading, independently of focus padding.
+    assert.ok(Math.abs(resting.restingTop - 436) <= 3, `resting cast circle top ${resting.restingTop}`);
     assert.ok(resting.inside, "scaled portrait and focus ring stay inside the row paint area");
     await tv.remote(38);
     assert.match(await tv.focused() ?? '', /^episode:/);

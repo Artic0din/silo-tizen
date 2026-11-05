@@ -226,6 +226,14 @@ export async function openTv(
     return tv;
 }
 
+/** Call before starting a deadline or intermediate animation under test. */
+export async function pauseTvClock(tv: Tv): Promise<void> {
+    // pauseAt advances existing timers; leave room for the protocol round trip
+    // before starting the timed action, then fastForward keeps the clock paused.
+    const protocolMarginMs = 1000;
+    await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now()) + protocolMarginMs);
+}
+
 /** The titles whose item detail was read, in request order. */
 export function detailReads(tv: Tv): string[] {
     return tv.fake.requests.filter(request => request.path.startsWith("/catalog/items/")).map(request => decodeURIComponent(request.path.slice("/catalog/items/".length).split("?")[0] ?? ""));

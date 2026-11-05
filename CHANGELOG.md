@@ -18,6 +18,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Matched Settings rail icons, row spacing, pane headers, subtitle appearance order and picker hints; pinned the rail and preserved the pane behind modals.
+- Stopped featured descriptions from starting an automatic translation after focus moved to another card.
 - Corrected subtitle profile edits under device overrides, preserved focus after dismissed launch saves, and reset sign-out confirmation to Cancel on each opening.
 - Matched Remove Server to Apple TV's confirmation and returned Cancel and Back to the first account.
 - Corrected Details More dots and compact action rows, added capability-gated Shuffle Series using existing shuffle playback, and made unfocused Play adapt to the backdrop like the round actions.

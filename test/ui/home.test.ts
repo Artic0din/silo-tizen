@@ -14,7 +14,7 @@ import { type SettingsKey, HIDDEN_KEY, TITLE_ART_KEY } from "../../src/contracts
 const CARD_OVERLAYS_KEY = "ui.card_overlays" as SettingsKey;
 const CARD_OVERLAYS_ENABLED_KEY = "ui.card_overlays_enabled" as SettingsKey;
 const CARD_PRESENTATION_KEY = "ui.card_presentation" as SettingsKey;
-import { detailReads, homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { detailReads, homeDetailsRead, launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -1289,6 +1289,7 @@ journey("Home Explore all appends unique cards and restores origin focus and scr
 });
 
 journey("section append finishes revealing the focused card when its response interrupts scrolling", async tv => {
+    await pauseTvClock(tv);
     await tv.page.emulateMedia({ reducedMotion: "no-preference" });
     await tv.page.locator('[data-focus="expand:recent/12"]').click();
     await tv.page.locator(".section-catalog-grid .browse-card").first().waitFor();

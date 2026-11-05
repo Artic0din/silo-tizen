@@ -536,6 +536,7 @@ detailTest('measured Apple movie typography and version popover geometry', async
 detailTest('Details rail clearances and white focus styling follow the measured Apple layout', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     await tv.page.locator('[data-detail-section="related"] .browse-art').first().waitFor();
+    await tv.page.locator('.details-facts .browse-section-title').waitFor();
     const metrics = await tv.page.evaluate(() => {
         const related = document.querySelector('[data-detail-section="related"]')!;
         const previous = related.previousElementSibling!.previousElementSibling!;
@@ -571,7 +572,11 @@ detailTest('Related posters omit status overlays enabled in profile settings', a
 detailTest('Series episode captions leave the measured 79px heading clearance', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('.details-episodes .browse-card-subtitle').first().waitFor();
-    const gap = await tv.page.locator('.details-series-rail').evaluate(rail => rail.nextElementSibling!.getBoundingClientRect().top - rail.querySelector('.browse-card-subtitle')!.getBoundingClientRect().bottom);
+    await tv.page.locator('.details-series-rail + *').waitFor();
+    const gap = await tv.page.evaluate(() => {
+        const rail = document.querySelector('.details-series-rail')!;
+        return rail.nextElementSibling!.getBoundingClientRect().top - rail.querySelector('.browse-card-subtitle')!.getBoundingClientRect().bottom;
+    });
     assert.ok(Math.abs(gap - 79) < 3, `episode caption clearance ${gap}`);
 });
 
@@ -603,7 +608,12 @@ detailTest('Down into an alternate season starts at its first episode and retarg
     await tv.remote(40);
     assert.equal(await tv.focused(), 'episode:s1e21');
     await tv.page.getByRole('button', { name: /Play S2:E1|Resume S2:E1/ }).waitFor();
-    await tv.eventually(async () => Math.abs(await tv.page.locator('[data-focus="episode:s1e21"] .browse-art').evaluate(node => node.getBoundingClientRect().x) - 109) < 2, 'episode artwork settles at x109');
+    // The 360px frame starts at 111; the final 1.05 focus scale paints 9px left of it.
+    await tv.eventually(() => tv.page.evaluate(() => {
+        const card = document.querySelector('[data-focus="episode:s1e21"]');
+        const art = card?.querySelector('.browse-art')?.getBoundingClientRect();
+        return card !== null && card === document.activeElement && art !== undefined && Math.abs(card.getBoundingClientRect().x - 111) < 1 && Math.abs(art.x - 102) < 2 && Math.abs(art.width - 378) < 1;
+    }), 'episode artwork and focus scale settle at x102');
 });
 
 detailTest('Selecting the already loaded season resets entry to E01 without another episode read', async tv => {

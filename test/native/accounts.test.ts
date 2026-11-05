@@ -7,6 +7,26 @@ import { keyManagerStore, memoryStore } from "../../src/session/secretStore.ts";
 import { connected, signIn } from "./support/harness.ts";
 import { connect, forgetStoredCredential, signOutSavedAccount } from "../../src/session/core.ts";
 import { MemoryPublicStorage } from "./support/keyManager.ts";
+import { FakeSilo } from "./support/fakeSilo.ts";
+
+test("entering another server discards the previous account identity and preserves its login", async () => {
+    const h = await connected(); await signIn(h);
+    const id = h.core.accounts.localAccountId!;
+    const other = new FakeSilo(h.clock, "other-server", "https://other.example.test");
+    const deps = { fetch: other.fetch, publicStorage: h.storage, keyManager: h.keyManager,
+        randomBytes: (bytes: Uint8Array) => { bytes.fill(7); }, deviceName: "Test TV", devicePlatform: "tizen", clock: h.clock,
+        localAccountId: id };
+    const next = await connect(other.origin, deps);
+    if (next.status !== "connected") throw Error("fixture missing");
+    assert.equal(next.restore, "signed_out");
+    await signIn({ ...h, fake: other, core: next });
+    assert.equal(h.core.accounts.directory.list().find(row => row.id === id)?.needsSignIn, false);
+    assert.notEqual(next.accounts.localAccountId, id);
+    const restarted = await connect(h.fake.origin, { ...deps, fetch: h.fake.fetch });
+    if (restarted.status !== "connected") throw Error("fixture missing");
+    assert.equal(restarted.restore, "signed_in");
+    assert.equal(restarted.accounts.localAccountId, id);
+});
 
 test("unreadable retained legacy storage keeps the account's sign-out guard", async () => {
     const h = await connected(); await signIn(h);

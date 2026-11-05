@@ -186,7 +186,11 @@ Other layers:
 
 ## Never Fetch on Focus
 
-Search filter pills are the sole exception: focus applies their filter immediately, matching Apple TV's segmented picker, and cancels superseded reads.
+Search filter pills apply their filter immediately, matching Apple TV's segmented picker, and cancel superseded reads.
+Series season pills are another read-on-focus exception: after 70 ms of resting focus, a different season activates and loads its episodes, matching `TVSeriesDetailView.scheduleModeActivation`.
+Leaving a pill cancels its pending activation; selecting it remains immediate.
+The current season keeps its current episode on focus, while a different season starts at E01 and retains pill focus until Down.
+Episode-card focus still uses prefetched data and never starts a detail read.
 
 Moving focus never starts a request, activates a route or writes data.
 Fetching belongs to explicit activation (Enter), to a view loading, or to a one-off prefetch.

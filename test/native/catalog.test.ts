@@ -15,6 +15,18 @@ import {
     type ItemDetail,
 } from "../../src/contracts/v2/catalog.ts";
 import { WireError } from "../../src/contracts/v2/wire.ts";
+
+test("episode rows retain air date, overview and episode ratings", () => {
+    const episodes = decodeEpisodes({ items: [{ content_id: "episode:1", season_number: 1, episode_number: 2, title: "Pilot", runtime: 52, air_date: "2026-02-18", overview: "An arrival", ratings: [{ name: "IMDb", display: "8.1" }] }] });
+    assert.equal(episodes[0]?.airDate, "2026-02-18");
+    assert.equal(episodes[0]?.overview, "An arrival");
+    assert.deepEqual(episodes[0]?.ratings, [{ name: "IMDb", display: "8.1" }]);
+});
+
+test("local extras retain authoritative watch targets and numeric file IDs", () => {
+    const detail = decodeItemDetail({ ...fixture("get_catalog_item_ok"), extras: [{ content_id: "extra:1", file_id: 71, kind: "trailer", title: "Trailer", duration_seconds: 90, still_url: "/extra.jpg" }] });
+    assert.deepEqual(detail.extras, [{ contentId: "extra:1", fileId: "71", kind: "trailer", title: "Trailer", durationSeconds: 90, stillUrl: "/extra.jpg" }]);
+});
 import { artworkUrl, clockTime, destinationOf, playChoices, resumeSeconds, visibleLibraries } from "../../src/ui/browseModel.ts";
 import { moveWithin } from "../../src/ui/browseFocus.ts";
 import { fixture } from "./support/fakeSilo.ts";
@@ -70,11 +82,11 @@ test("browse fixtures decode with the production decoders", () => {
     const detail = decodeItemDetail(fixture("get_catalog_item_ok"));
     assert.equal(detail.type, "movie");
     assert.equal(detail.tagline, "A Los Angeles crime saga");
-    assert.deepEqual(detail.versions, [{ fileId: "120", durationSeconds: 0, audio: [], label: "2160p" }]);
+    assert.deepEqual(detail.versions, [{ detailLabel: "0 MB", fileId: "120", effectiveAudioTrackIndex: 1, durationSeconds: 0, audio: [], label: "2160p" }]);
     assert.deepEqual(detail.watch, { played: true, positionSeconds: undefined, lastFileId: "120" });
 
     assert.deepEqual(decodeSeasons(fixture("list_series_seasons_ok")), [
-        { isSpecials: false, id: "series:severance-S01", seasonNumber: 1, title: "Season 1", episodeCount: 9, posterUrl: "https://images.example/season.webp" },
+        { userData: { played: false, watchedCount: 1, inProgressCount: 0 }, isSpecials: false, id: "series:severance-S01", seasonNumber: 1, title: "Season 1", episodeCount: 9, posterUrl: "https://images.example/season.webp" },
     ]);
     assert.equal(decodeSeasons(fixture("list_series_seasons_without_artwork"))[0]?.posterUrl, undefined);
 

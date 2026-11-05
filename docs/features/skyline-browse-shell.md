@@ -11,15 +11,36 @@ Browse retains the capability-gated Genres, A–Z and Recently Added mode contro
 
 Movie and episode Details place Play/Resume, Start Over when available, Version, Audio, Subtitles, Watchlist and More in one row.
 A passive line shows the selected version, audio and subtitle intent.
+Movie and Series share the existing sampled hero backdrop and title typography used by Requests details.
+Series next-episode Version, Audio and Subtitles controls reuse the episode Details preference owner; both Resume and Start Over carry its selections.
+Auto audio stays server-resolved until a viewer explicitly picks a track.
+Local extras appear in Trailers & More, start at zero through the existing player, and restore their card on Back.
+If the embedded extra omits its file ID, Select resolves its existing catalog versions endpoint before playback; failure keeps Retry on that card and Back cancels the lookup.
+Remote YouTube launching is not implemented because no supported Samsung YouTube handoff has been verified.
 More retains watched/favorite actions, the full-synopsis dialog and the movie/series rating dialog.
 Each dialog owns focus, hides the underlying page from accessibility, and restores its initiating control on Back.
 The inline synopsis clamps to three lines with ellipsis; the full text remains available in More.
 Cast portraits remain 200 px circles, with 60 px gaps and centered two-line names.
 
 Series Details use season chips and an inline landscape episode rail.
+Initial selection follows Apple's resume priority: an explicit season, a season with progress, a partially watched season, then an unplayed numbered season before Specials.
+Episode-row entry uses the in-progress episode, first unwatched episode, or first episode, and remembers the last focused episode on re-entry.
+The rail anchors the current card to the leading slot and applies the profile's poster-size scale to Apple's 360×200 base stills.
+Watched episodes carry a check disc over the still, and moving Down to Cast & Crew centres that section in the viewport.
+These values follow Apple main at `ffa6e5188c70664090a6dc9beb8c7cbbc3ce43e7`; observed 310×174 thumbnails and centered episode placement do not match that revision's Series Swift and remain a native comparison question.
 The accepted initial season loads independently; subsequent season reads require explicit selection and replace obsolete reads.
 Re-selecting a loading chip keeps the same request and Calendar episode context.
 Moving focus makes no request.
+Accepting a season queues its episode catalog details with at most four reads in flight, deduplicated against the next-up read and this visit's cache.
+Each accepted episode detail starts its existing playback/preference owner before focus reaches it.
+All cached episodes share a series-wide playback gate while any series preference save is pending or unconfirmed.
+A confirmed save refreshes accepted episode details in the same bounded queue, clears other episodes' stale track intents, and retains their selected versions.
+Interrupted prefetches resume on return; watched mutations cancel older cache generations before refreshing them.
+Focus changes the hero synopsis, metadata, ratings and playback selection target by selecting that cached owner.
+The show's title, logo, artwork and starring credit stay fixed.
+While a detail is pending or failed, the loaded episode row still supplies its synopsis, air date and runtime; playback selectors wait for validated detail and an explicit Retry can repeat a failed read.
+More > Show Series Info restores the overview without a read.
+Rail Select carries confirmed version/audio/subtitle selections through the existing fresh catalog and progress resolution route.
 Ordinary episode Details/Back retains the selected season, loaded rail and focused episode.
 The existing season-information destination remains available in More.
 Episode Select on the rail, season list and ordinary media cards prepares playback directly.
@@ -30,6 +51,48 @@ Default direct activation uses automatic audio and subtitle selection without bo
 Hold Select or right-click an episode to choose Episode information for its full synopsis and visit-only version/audio/subtitle controls.
 Calendar retains its existing series-context navigation rather than becoming a playback command.
 Playback return restores the originating card or action, selected season and visit scroll; the discarded resolution route cannot replay.
+
+### Apple source reference and outstanding comparison
+
+Reference: silo-apple `9723df007baa8e933f5615cc14b13e99a6ee1ea1` (current main fetched 5 November 2026).
+This is a source reference, not identification of an installed Apple build.
+Paths below are relative to `iosApp/iosApp/`.
+
+| Element | Apple source and exact value | Tizen candidate |
+| --- | --- | --- |
+| Hero | `tvOS/Screens/Detail/TVDetailHero.swift:10`: inset 100, height 690, top 116, editorial width 1080 | Shared backdrop and fixed 690-point frame; Large Series lifts the hero and top inset by 32 |
+| Title | `tvOS/Screens/Detail/TVDetailHero.swift:505`: 92-point compressed primary, 40-point secondary | Requests shared title treatment; colon-separated fallback; guarded logo loading retained |
+| Summary | `tvOS/Screens/Detail/TVDetailHero.swift:763`: gap 8; slots 313/364/338; height 44 | Three passive slots above actions |
+| Series baseline | `tvOS/Screens/Detail/TVSeriesDetailView.swift:405`: editorial 435, metadata 36, synopsis 112, credit 28, action spacing 4 | Primary editorial clipped at 351; 80-point disclosure bottom-locked inside 435; actions at y=557 |
+| Controls | `tvOS/Screens/Detail/TVDetailActions.swift:354`: minimum circle width 76 and height 76; `TVMovieDetailView.swift:176`: primary width 340 | Existing dialogs and personal/rating ownership retained; next-episode controls now use the same selection owner |
+| Credits | `tvOS/Screens/Detail/TVDetailHero.swift:741`: first two directors for movies; first three cast names otherwise | Same text and limits |
+| Cast | `tvOS/Screens/Detail/TVDetailCastRail.swift:15`: 200-point circles | Existing circular cards, role deduplication and focus unchanged |
+| Extras | `tvOS/Screens/Detail/TVTrailersRail.swift:23`: gap 48; `:75`: 470×264 cards, radius 18 | Local extras decoded from server watch targets; same card geometry |
+| Episode caption | `Components/EpisodeCardCaption.swift:90`: zero-padded season/episode code, middle dot, title | Same title, localized air date and h/m runtime; watched badge |
+
+Remote navigation retains one FocusHost owner: Left/Right within action, season, episode, cast, extras and related rows; Up/Down through nonempty rows; Back closes the active dialog before popping the page.
+Seasons require explicit activation, including Specials; focus movement does not read data.
+The existing route status owner retains initial loading, error, Retry and Back; season loading/error/empty states stay in SeriesEpisodes.
+Missing metadata keeps a text title and usable controls; missing or failed artwork falls back to the shared tint surface.
+Version labels retain the server edition, resolution and codec fields.
+
+Native acceptance remains required before merge.
+Compare identical Movie and Series items, profile, selected file and tracks, card-size setting and 1920×1080 viewport on both clients.
+Capture entry with Play focused; each selector open; subtitle Off selected; More then rating and full synopsis; Cast focused; Trailers & More focused; related focused; and Back restoration.
+For Series additionally capture Season 1 selected, the first episode focused, the second episode focused, another season explicitly selected, Specials selected, and Back from Episode information.
+Apple's Movie hero uses an unreserved editorial stack inside `heroComposition.clipped()` (`TVDetailHero.swift:149-166,263-270`); title and synopsis retain their vertical size (`:493,501`, `TVHeroSynopsis.swift:24`).
+It has no grow-the-hero or shrink-the-title rule.
+The Tizen Movie frame now follows that fixed clipping contract, including overflow for pathological text; Series separately clips its primary editorial region and preserves disclosure/actions.
+This is a source-derived result, not an observation of the same pathological item on an installed Apple build.
+Native comparison must establish the exact visible truncation before merge.
+
+Apple does not filter local extras by file ID (`Screens/Detail/TrailerRail.swift:94-98`); tvOS launches their content ID from the beginning (`TVItemDetailView.swift:259-265`).
+The Tizen fallback resolves `/catalog/items/{content_id}/versions` on Select when the embedded file ID is absent, then uses the existing player and its authoritative inventory.
+Apple shows YouTube entries when its app is installed, and also in the tvOS simulator (`TVTrailersRail.swift:259-291`), then opens `youtube://www.youtube.com/watch?v=…` (`Screens/Detail/TrailerRail.swift:126`).
+Samsung's [Application API](https://developer.samsung.com/smarttv/develop/api-references/tizen-web-device-api-references/application-api.html) provides generic application-control dispatch; it does not establish that Apple's URL scheme or a particular YouTube video handoff works on Samsung.
+Tizen continues to omit remote cards until that receiving-app contract is verified; local extras are functional independently.
+Episode air dates, overview, ratings and runtime exist in the server's episode response (`silo-server 6aa6791ea072186ed0536bac41174486f96e7536`, `internal/apiv2/catalog_items.go:557-568`).
+Apple caption commit `b63e1be0bd90c26c7af11f592def93b5cb56796f` is included in the pinned Apple main above.
 
 ## Preplay audio, subtitles and resume
 
@@ -56,8 +119,7 @@ Play from start sends `start_position:0` without a resume read, even when the se
 Subtitle Auto separately reads effective subtitle preferences before adopting the initial playable plan.
 Home Continue Watching keeps its existing direct-resolution journey.
 
-Audio choices last only in the current Details visit and playback attempt; no per-content audio preference PUT or DELETE is sent.
-This differs from Apple's persisted per-title/series audio override, which is deferred.
+Details remembers an explicit audio choice with `PUT /audio-prefs/{key}` and clears it with `DELETE` for Auto. Playback waits until that write is confirmed.
 Subtitles offers Auto, Off and the selected version's catalog subtitle tracks.
 Auto resolves the watch answer's effective mode, language, saved signature and forced setting against the actual first plan's subtitle inventory and selected audio language.
 Explicit Off bypasses forced/default selection.
@@ -67,8 +129,7 @@ The initial start still omits both subtitle selector fields.
 Missing or ambiguous explicit tracks, failed Auto preparation and refused initial replans show an error and retire the session; they do not silently play a different subtitle choice.
 The existing cached-resume fallback remains usable with explicit subtitle Off when the watch endpoint is unreachable.
 Subtitle choices persist within the Details visit and attempt, with explicit tracks reset when file or inventory changes; Off survives a version change.
-No Details selection writes per-content or series subtitle preferences.
-This differs from Apple's persisted overrides; downloaded tracks remain available through the authoritative in-player menu.
+Details also remembers an explicit subtitle choice, including Off, with `PUT /subtitle-prefs/{key}` and clears it with `DELETE` for Auto. The external path is the catalog file name; an external sidecar with no stream index stays on the visit only. Playback waits until that write is confirmed. Downloaded tracks remain available through the authoritative in-player menu.
 No subtitle renderer, AVPlay transport or capability declaration changed.
 The server's returned effective file, tracks, warnings and source/player timeline remain authoritative.
 The controller retains protocol 3, saved quality/cap settings, capability gates and bounded identical-body start resends with the same attempt identity.
@@ -343,9 +404,27 @@ The synopsis dialog exposes the complete detail overview with remote scrolling a
 Optional Details responses retain the active synopsis and its focus; closing shows the latest data, and route or profile teardown removes the dialog.
 
 Pushed Details pages show optional title artwork, server-ordered ratings, facts and credits from the pinned v2 contract.
+Details shares Home's 1228.8×756 top-right artwork frame and fade masks, with an image contained in that frame rather than fixed to the viewport.
+Its page wash follows tvOS `TVDetailPageSurface`: sampled base at 0.42 opacity, shared accent and shadow gradients, and no top menu scrim.
+The content-rating badge follows tvOS `TVDetailHero`; runtime, credits and VERSION / AUDIO / SUBTITLES remain in the editorial column.
+Movie, Episode and Season heroes retain a minimum 690px height and grow for wrapped editorial content so playback controls remain visible.
+Season heroes precede the episode list, including the separate page wash.
+Auto subtitle previews resolve using the explicit audio track or the file's effective audio language.
+Shared episode preference changes invalidate retained Series and Season owners by series identity, including when the edited episode was not cached.
+Ordinary Series entry focuses Play and retains the series overview, matching Apple `bbd1e47`.
+The current episode is positioned at the rail's leading slot without taking focus.
+Selecting a season retains pill focus and retargets Play to its first episode; Down enters that episode and Up returns to the selected season pill.
+Reselecting the current season resets to its first episode using the loaded page, while other seasons load their page before retargeting.
+The page tint sits behind the entire browse surface so headings, pills and captions remain painted.
+Track selectors use anchored popovers with Auto entry focus, preference subtext and selection checkmarks.
+The 560px track popovers use 76px rows; Audio checks both Auto and its effective track, and subtitle rows group by language and format without changing selection identity.
+The cast section's leading anchor is centered on focus, following tvOS at `bef81e8`.
+Remote YouTube trailers remain omitted because this client has no verified YouTube application handoff or direct stream resolver; local playable extras remain available.
+Calendar's explicit season context retains its season-chip entry focus instead.
 Cast and crew share a rail of at most 24 people, combining roles for the same server person ID.
 Credits without a person ID remain readable without an invented person route.
-Person pages show the biography and the first 24 accessible movie and series credits; related titles use a separate bounded rail with loading, empty and retry states.
+Person pages show the biography and the first 24 accessible movie and series credits.
+Related titles use a bounded rail with loading placeholders and omit the heading, cards and focus zone on failure or an empty result, matching Apple TV.
 These bounded rails do not implement Apple's complete paged person browser.
 The earlier Details slice used [silo-apple at 148d5d7](https://github.com/Silo-Server/silo-apple/tree/148d5d70f8b8ce982a827fead2b16f8de40f0f57), subject to the binding Skyline guide.
 

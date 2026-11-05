@@ -246,7 +246,8 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 accounts(() => {
                     if (torn) return;
                     container.hidden = false; host.listen();
-                    render({ zone: "settings-rows", key: "accounts" });
+                    category = "general"; returnRow = "hidden";
+                    render({ zone: "settings-categories", key: "general" });
                 });
             });
             rows.push(item); body.append(item.element);

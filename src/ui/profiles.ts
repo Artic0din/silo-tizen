@@ -364,11 +364,6 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
     };
 
     const launch = (): void => load(list => {
-        if (list.length === 1 && !list[0]!.hasPin) {
-            const profile = list[0]!;
-            if (server.profiles.select(profile).status === "selected") handOff(profile);
-            return;
-        }
         if (options.pickerRequested) { picker(list); return; }
         const token = view;
         const controller = new AbortController();

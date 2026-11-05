@@ -23,6 +23,7 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
     const directory = current?.accounts.directory ?? new AccountDirectory(core.publicStorage, core.randomBytes);
     let selected = current?.server.http.base.baseUrl ?? directory.list()[0]?.baseUrl;
     let destroyed = false;
+    let removalPending = false;
     const destroy = (): void => { destroyed = true; host.destroy(); backdrop.destroy(); container.remove(); };
     const go = (account: SavedAccount | undefined, address?: string): void => { destroy(); open(account, address); };
     const showError = (message: string): void => {
@@ -33,6 +34,8 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
         const cancel = actionButton("cancel", "Cancel", render);
         const accept = actionButton("confirm", removeServer ? "Remove Server" : "Sign Out", () => {
             void (async () => {
+                removalPending = true;
+                panel.setAttribute("aria-busy", "true");
                 accept.element.setAttribute("disabled", "");
                 for (const row of targets) {
                     if (row.id === current?.accounts.localAccountId) onCurrentSignOut?.();
@@ -40,8 +43,9 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
                     if (cleared === "failed") throw new Error("Could not remove the saved sign-in. Try again.");
                     directory.remove(row.id);
                 }
+                removalPending = false;
                 if (!destroyed) render();
-            })().catch((error: unknown) => { if (!destroyed) showError(error instanceof Error ? error.message : "Could not sign out"); });
+            })().catch((error: unknown) => { removalPending = false; if (!destroyed) showError(error instanceof Error ? error.message : "Could not sign out"); });
         });
         const panel = el("div", "accounts-dialog");
         panel.setAttribute("role", "dialog"); panel.setAttribute("aria-modal", "true");
@@ -56,6 +60,7 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
         host.show({ name: "accounts-confirm", content: [panel], zones: [{ id: "dialog", layout: "row", items: [cancel, accept] }], focus: { zone: "dialog", key: "cancel" }, back: render });
     };
     function render(railFocus = false): void {
+        if (removalPending) return;
         const rows = directory.list();
         if (manage) {
             const panel = el("div", "accounts-settings");
@@ -72,7 +77,7 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
                 item.element.append(el("span", "accounts-row-title", title));
                 if (value) item.element.append(el("span", "accounts-row-value", value));
                 if (destructive) item.element.classList.add("accounts-destructive");
-                else { const arrow = el("span", "accounts-chevron", "›"); arrow.setAttribute("aria-hidden", "true"); item.element.append(arrow); }
+                else { const arrow = el("span", "accounts-chevron"); arrow.append(navigationIcon("chevron-right")); item.element.append(arrow); }
                 return item;
             };
             for (const address of [...new Set(rows.map(row => row.baseUrl))]) {

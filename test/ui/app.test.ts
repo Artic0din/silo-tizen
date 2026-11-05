@@ -48,6 +48,45 @@ async function signIn(tv: Tv): Promise<void> {
     await homeDetailsRead(tv);
 }
 
+appTest("pending account removal blocks Cancel and Back until it settles", async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => {
+        const storage = window.appHarness.storage;
+        const saved = JSON.parse(storage.getItem("silo.native.accounts.v1")!);
+        saved.accounts.push({ ...saved.accounts[0], id: "inactive", accountId: "inactive", username: "Inactive" });
+        storage.setItem("silo.native.accounts.v1", JSON.stringify(saved));
+    });
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="settings"]').click();
+    await tv.page.locator('[data-focus="server"]').click();
+    await tv.page.getByRole("button", { name: "Accounts", exact: true }).click();
+    await tv.page.locator('[data-focus="inactive"]').click();
+    const hold = tv.fake.hold("/system/info");
+    await tv.page.locator('[data-focus="confirm"]').click();
+    await tv.page.locator('[data-focus="cancel"]').click();
+    await tv.remote(10009);
+    assert.equal(await tv.page.locator('[data-view="accounts-confirm"]').count(), 1);
+    hold.release();
+    await tv.page.locator('[data-view="accounts-settings"]').waitFor();
+});
+
+appTest("session expiry releases Change Account remote ownership", async tv => {
+    await signIn(tv);
+    tv.fake.revokeAllSessions();
+    const hold = tv.fake.hold("/auth/refresh");
+    await tv.page.locator('[data-focus="movies"]').click();
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    hold.release();
+    await tv.page.locator('[data-screen="expired"]').waitFor({ timeout: 5000 });
+    assert.equal(await tv.page.locator('.accounts-screen').count(), 0);
+    assert.equal(await tv.focused(), "signin");
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await tv.screen() !== "expired", "Enter activates recovery");
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    assert.equal(await tv.page.locator('.accounts-screen').count(), 0);
+});
+
 appTest("offline saved server offers Back to profiles while a saved account can open profiles", async tv => {
     await signIn(tv);
     const devices = tv.fake.devices.size;

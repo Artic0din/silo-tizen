@@ -127,13 +127,13 @@ export class AccountVault extends CredentialVault {
             const row = this.directory.add(this.address, credential.serverId, credential.accountId, credential.username);
             const existing = await this.accountVault(row.id).load();
             if (existing.status === "unavailable" || existing.status === "corrupt") return existing;
+            if (row.needsSignIn) return { status: "none" };
             if (existing.status === "found") {
                 this.directory.select(row.id);
                 this.activeId = row.id;
                 this.chooseOnSave = false;
                 return existing;
             }
-            if (row.needsSignIn) return { status: "none" };
             const saved = await this.accountVault(row.id).save(credential);
             if (saved !== "saved") return { status: "unavailable" };
             this.directory.select(row.id);

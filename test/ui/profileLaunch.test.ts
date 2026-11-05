@@ -20,6 +20,22 @@ async function selectKid(tv: Tv): Promise<void> {
     await tv.page.locator('[data-focus="unlock"]').click();
 }
 
+test("one unprotected profile asks until Remember, including reload", async () => {
+    const browser = await launchBrowser();
+    const tv = await openTv(browser, { app: "application" });
+    tv.fake.profiles = { ...tv.fake.profiles, items: (tv.fake.profiles.items as { id: string }[]).filter(p => p.id === "p-owner") };
+    tv.fake.catalog = new FakeDetails();
+    try {
+        await picker(tv);
+        await tv.page.locator('[data-focus="profile:p-owner"]').click();
+        await tv.page.locator('[data-focus="ask-every-launch"]').click();
+        await tv.page.locator('[data-view="home"]').waitFor();
+        await tv.page.evaluate(() => { window.appHarness.destroy(); window.appHarness.mount(); });
+        await tv.page.locator('[data-screen="profiles"]').waitFor();
+        assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+    } finally { await tv.page.context().close(); await browser.close(); }
+});
+
 test("Change account from the composed picker preserves saved credentials and retires its screen", async () => {
     const browser = await launchBrowser();
     const tv = await openTv(browser, { app: "application" });
@@ -72,19 +88,26 @@ test("Settings Accounts uses pane rows and Back returns to Settings", async () =
             const remove = document.querySelector('.accounts-settings [data-focus^="remove:"]')!;
             return { header: getComputedStyle(document.querySelector('.accounts-settings h1')!).fontSize,
                 icon: document.querySelector('.accounts-settings-header [aria-hidden="true"]') !== null,
-                height: row.getBoundingClientRect().height, chevron: row.querySelector('.accounts-chevron')?.textContent,
+                x: row.getBoundingClientRect().x, y: row.getBoundingClientRect().y,
+                addGap: document.querySelector('[data-focus="add-server"]')!.getBoundingClientRect().y - remove.getBoundingClientRect().y,
+                footnote: getComputedStyle(document.querySelector('.accounts-settings > p')!).fontSize,
+                height: row.getBoundingClientRect().height, chevron: row.querySelector('.accounts-chevron svg') !== null,
                 red: getComputedStyle(remove).color, destructiveChevron: remove.querySelector('.accounts-chevron') !== null };
         });
         assert.equal(pane.header, "42px");
         assert.equal(pane.icon, true);
         assert.equal(pane.height, 66);
-        assert.equal(pane.chevron, "›");
+        assert.equal(pane.chevron, true);
+        assert.equal(pane.x, 186);
+        assert.equal(pane.y, 290);
+        assert.equal(pane.addGap, 92);
+        assert.equal(pane.footnote, "20px");
         assert.equal(pane.red, "rgb(176, 0, 32)");
         assert.equal(pane.destructiveChevron, false);
         await tv.remote(10009);
         await tv.page.locator('[data-view="settings"]').waitFor();
-        assert.equal(await tv.focused(), "accounts");
-        await tv.remote(10009); await tv.remote(10009);
+        assert.equal(await tv.focused(), "general");
+        await tv.remote(10009);
         await tv.page.locator('[data-focus="profiles"]').click();
         await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
         await tv.page.locator('.account-card').first().click();

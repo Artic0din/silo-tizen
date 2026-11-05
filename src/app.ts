@@ -50,6 +50,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
     };
 
     const stopContent = (): void => {
+        accounts?.destroy(); accounts = undefined;
         profile?.signal.removeEventListener("abort", stopContent);
         profile = undefined;
         closeExit();
@@ -154,7 +155,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
                     accounts = undefined;
                     showSignIn(undefined, account === undefined && address === undefined, account, address, true);
                 }, () => { accounts = undefined; if (active.signal.aborted) showAccounts(); else back(); }, true,
-                () => { profiles?.destroy(); profiles = undefined; });
+                () => { active.signal.removeEventListener("abort", stopContent); profiles?.destroy(); profiles = undefined; });
             },
             onChooseProfile: () => {
                 stopContent();

@@ -536,6 +536,7 @@ detailTest('measured Apple movie typography and version popover geometry', async
 detailTest('Details rail clearances and white focus styling follow the measured Apple layout', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     await tv.page.locator('[data-detail-section="related"] .browse-art').first().waitFor();
+    await tv.page.locator('.details-facts .browse-section-title').waitFor();
     const metrics = await tv.page.evaluate(() => {
         const related = document.querySelector('[data-detail-section="related"]')!;
         const previous = related.previousElementSibling!.previousElementSibling!;
@@ -571,7 +572,11 @@ detailTest('Related posters omit status overlays enabled in profile settings', a
 detailTest('Series episode captions leave the measured 79px heading clearance', async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('.details-episodes .browse-card-subtitle').first().waitFor();
-    const gap = await tv.page.locator('.details-series-rail').evaluate(rail => rail.nextElementSibling!.getBoundingClientRect().top - rail.querySelector('.browse-card-subtitle')!.getBoundingClientRect().bottom);
+    await tv.page.locator('.details-series-rail + *').waitFor();
+    const gap = await tv.page.evaluate(() => {
+        const rail = document.querySelector('.details-series-rail')!;
+        return rail.nextElementSibling!.getBoundingClientRect().top - rail.querySelector('.browse-card-subtitle')!.getBoundingClientRect().bottom;
+    });
     assert.ok(Math.abs(gap - 79) < 3, `episode caption clearance ${gap}`);
 });
 

@@ -39,6 +39,8 @@ export interface ViewContext {
     readonly resume?: (id: string, title: string) => void;
     readonly playEpisode?: (id: string, title: string, startOver?: boolean, selection?: EpisodeSelection) => void;
     readonly quickActions?: (card: Pick<Card, "id" | "title" | "type">) => void;
+    /** Search supplies Apple's card route. Other grids keep `destinationOf`. */
+    readonly cardDestination?: (card: Card) => Destination | undefined;
 }
 
 /** Only catalog media receives hold/right-click actions; navigation tiles keep their clicks. */
@@ -120,7 +122,7 @@ export function thumbnailProgress(fraction: number): HTMLElement {
 
 /** Undefined for media this client does not browse. */
 export function cardItem(card: Card, context: ViewContext): FocusItem | undefined {
-    const destination = destinationOf(card);
+    const destination = (context.cardDestination ?? destinationOf)(card);
     if (destination === undefined) {
         return undefined;
     }

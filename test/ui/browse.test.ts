@@ -467,6 +467,8 @@ for (const reduced of [false, true]) {
             return rect.left >= row.left && rect.right <= row.right && rect.top >= viewport.top && rect.bottom <= viewport.bottom - 64;
         });
         await tv.eventually(visible, "later request revealed before People");
+        // Visibility can precede the scroll animation's final frame.
+        await tv.jump(250);
         const scroll = await tv.page.locator('.search-request-rail').evaluate(row => row.scrollLeft);
         const reads = tv.fake.requests.length;
         people.release();

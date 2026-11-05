@@ -17,6 +17,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Episode cards opened their series on the selected episode, while remote Play resumed directly and Continue Watching offered Play or Resume in Card actions.
 - Search Select on an episode or season opens that series' Details. Enter on a result no longer starts playback or writes watch history.
 - Restored VIDEO skip intervals and corrected Settings pane margins, Sign Out, subtitle appearance cards, picker indicators and server credits after the full Apple TV comparison.
 

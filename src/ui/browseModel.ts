@@ -65,11 +65,11 @@ function seriesCardTitle(card: Card): string {
 }
 
 /**
- * Search Select follows Apple `Route.itemDetail(browseItem:)`.
+ * Browse Select follows Apple `Route.itemDetail(browseItem:)`.
  * An episode opens its series on that episode. A season opens the series
  * on that season. Movies and series open themselves.
  */
-export function searchCardDestination(card: Card): Destination | undefined {
+export function browseCardDestination(card: Card): Destination | undefined {
     const seriesId = parentSeriesId(card);
     // Unknown media stays omitted. An episode number on a season still names the parent series.
     if (card.type !== "unknown" && seriesId !== undefined && (card.type === "episode" || card.episodeNumber !== undefined)) {

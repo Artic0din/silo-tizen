@@ -164,7 +164,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const current = top();
         if ((current?.kind === "item" || current?.kind === "season") && current.data?.details?.episodePreferencesBlocked) return;
         if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title, episode: true, startOver: startOver === true, ...(selection === undefined ? {} : { selection }) }));
-    }, quickActions: card => {
+    }, quickActions: (card, play) => {
         const current = top();
         if (current === undefined || torn || playing || cardActions.active) return;
         shuffleGeneration++;
@@ -176,7 +176,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         cancelSlow();
         if (current.kind === "homeSection" || current.kind === "person" || current.kind === "personal") current.pendingIndex = undefined;
         menuOrigin = { route: current, focus: host.focused() };
-        cardActions.open(card);
+        cardActions.open(card, play);
     } };
     const input = el("input", "browse-input");
     input.id = "browse-search";
@@ -1126,7 +1126,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     details.start();
                     if (details.related !== undefined) details.loadRelated();
                     const season = data.contextSeason;
-                    if (current.focus === undefined && season !== undefined && data.seasons.some(item => item.seasonNumber === season)) return { zone: "seasons", key: `season:${season}` };
+                    if (current.seriesContext?.episodeId === undefined && current.focus === undefined && season !== undefined && data.seasons.some(item => item.seasonNumber === season)) return { zone: "seasons", key: `season:${season}` };
                 }, quiet);
                 return;
             case "season":

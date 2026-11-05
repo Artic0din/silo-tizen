@@ -407,7 +407,8 @@ calendarTest("Calendar complete remote journey retains every event and restores 
     const episodeScroll = await position(); assert.ok((episodeScroll.top ?? 0) > 0);
     if (process.env.CALENDAR_CAPTURE) { await tv.page.clock.runFor(260); await tv.page.screenshot({ path: `${process.env.CALENDAR_CAPTURE}/after-calendar.png` }); }
     await tv.page.keyboard.press("Enter");
-    await tv.eventually(async () => await tv.focused() === "season:2", "Calendar focuses the relevant series season");
+    await tv.eventually(async () => await tv.focused() === "next-episode", "episode context focuses Apple's primary action");
+    await tv.page.locator('[data-focus="season:2"]').focus();
     await tv.page.keyboard.press("Enter");
     await tv.page.locator('.details-episodes [data-focus="episode:s1e22"]').waitFor();
     await tv.remote(40);
@@ -666,7 +667,8 @@ calendarTest("Calendar premiere, episode context fallback, badges and distinct e
     });
     await activate(tv, "filter:trending"); await ready(tv, 3);
     await tv.page.locator('.calendar-event[data-content-id="episode:s1e22"]').first().focus(); await tv.page.keyboard.press("Enter");
-    await tv.eventually(async () => await tv.focused() === "season:2", "missing season number resolved through existing item detail");
+    await tv.eventually(async () => await tv.focused() === "next-episode", "resolved episode context focuses Apple's primary action");
+    await tv.page.locator('[data-focus="season:2"]').focus();
     await tv.page.keyboard.press("Enter");
     await tv.page.locator('.details-episodes [data-focus="episode:s1e22"]').waitFor();
     await tv.remote(40);

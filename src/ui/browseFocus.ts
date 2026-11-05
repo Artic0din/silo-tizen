@@ -31,6 +31,7 @@ export interface FocusItem {
     readonly key: string;
     readonly element: HTMLElement;
     readonly quickAction?: () => void;
+    readonly play?: () => void;
 }
 
 export interface Zone {
@@ -535,6 +536,11 @@ export class FocusHost {
             // Focus was lost (a pointer click, or the focused node was replaced): bring it back.
             event.preventDefault();
             this.focusFirst([this.memoryTarget(), view.focus]);
+            return;
+        }
+        if ((key === "play" || key === "play_pause") && found.item.play !== undefined) {
+            event.preventDefault();
+            if (!event.repeat) found.item.play();
             return;
         }
         if (key !== "up" && key !== "down" && key !== "left" && key !== "right") {

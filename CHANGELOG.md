@@ -16,6 +16,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept cancelled season reads quiet, retained failed Retry focus and revisit state, restored the selected season when reopening a series, and matched pending hero readouts and loaded-predecessor rail clearance.
 - Kept season heroes and Play labels on the latest selection, showed loaded episode summaries immediately, restored Series on Play with its overview, and limited season recovery to one requested read.
 - Selected seasons on resting pill focus without rereading cached episodes, bounded missing-season reads during remote sweeps, and centered the selected season pill like Apple TV.
 - Stopped featured descriptions from starting an automatic translation after focus moved to another card.

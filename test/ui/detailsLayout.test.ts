@@ -29,6 +29,29 @@ function liveScroll(_arg: null): number | null {
     return row.scrollLeft;
 }
 
+detailTest("reopening a series card keeps its season and returns to series text on Play", async tv => {
+    const card = tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first();
+    await card.click();
+    const overview = await tv.page.locator('.browse-overview').textContent();
+    await tv.page.locator('[data-focus="season:2"]').focus(); await tv.jump(500);
+    await tv.page.keyboard.press('Escape');
+    await card.click();
+    await tv.page.locator('[data-focus="season:2"][aria-pressed="true"]').waitFor();
+    assert.equal(await tv.focused(), 'next-episode');
+    assert.equal(await tv.page.locator('.browse-overview').textContent(), overview);
+});
+
+detailTest("failed episode Retry retains focus and unresolved hero readout labels", async tv => {
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/2/episodes?**', route => route.fulfill({ status: 422, json: { code: 'validation_failed', detail: 'Unavailable' } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="season:2"]').focus(); await tv.jump(500);
+    const retry = tv.page.locator('[data-focus="retry-episodes"]');
+    await retry.waitFor(); await retry.focus(); await tv.page.keyboard.press('Enter');
+    await retry.waitFor(); await tv.jump(500);
+    assert.equal(await tv.focused(), 'retry-episodes');
+    assert.equal(await tv.page.locator('.details-playback-summary strong').allTextContents().then(labels => labels.join('/')), 'VERSION/AUDIO/SUBTITLES');
+});
+
 detailTest("season focus centers the selected pill and Down uses its E01 without Select", async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
     const seasons = catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body as { items: Record<string, unknown>[] };
@@ -84,6 +107,8 @@ detailTest("short final season uses the continuous row end clamp and loaded pred
         const r = node.getBoundingClientRect(); return r.left >= 0 && r.right <= 1920;
     }).map(node => node.getAttribute('data-focus')));
     assert.deepEqual(visible, ['episode:short3:9', 'episode:short3:10', 'episode:short4:1', 'episode:short4:2', 'episode:short4:3']);
+    const frame = await readLive(tv, liveRail, null, value => value !== null && Math.abs(value.cards[8]!.x - 150) < 1, 'loaded predecessor group clearance');
+    assert.ok(frame && Math.abs(frame.cards.at(-1)!.right - 1858) < 1);
     assert.equal(await tv.page.locator('[data-focus="season:3"]').evaluate(node => node.getBoundingClientRect().x), 100);
 }, 'compact');
 
@@ -384,10 +409,13 @@ detailTest("episode boundary failure requires explicit Retry while loaded-season
         await card(3, 12).focus(); await card(3, 13).focus(); await tv.jump(100);
     }
     assert.equal(reads.length, 4, "failed boundary revisits never retry");
+    await retry.focus(); await tv.page.keyboard.press("Enter"); await tv.jump(100);
+    await tv.eventually(async () => reads.length === 5, "failed explicit neighbour Retry");
+    assert.equal(await tv.focused(), "retry-neighbors");
     failBoundary = false;
     await retry.focus(); await tv.page.keyboard.press("Enter");
     await card(4, 13).waitFor();
-    assert.deepEqual(reads.slice(3), [4, 4], "explicit Retry reads only the failed season");
+    assert.deepEqual(reads.slice(3), [4, 4, 4], "explicit Retry reads only the failed season");
     assert.equal(await retry.count(), 0);
     assert.notEqual(await tv.focused(), "retry-neighbors", "the removed Retry control cannot retain focus");
 });
@@ -493,14 +521,14 @@ detailTest("Final season E05 clamps with one successor while start and interior 
     const end = await readLive(tv, liveRail, null, value => {
         const last = value.cards[14];
         const next = value.cards[15];
-        return last !== undefined && next !== undefined && Math.abs(last.frameX - 1158) < 1 && Math.abs(last.x - 1151) < 2 && Math.abs(next.right - 1817) < 1 && value.scroll === 3846;
+        return last !== undefined && next !== undefined && Math.abs(last.frameX - 1198) < 1 && Math.abs(last.x - 1191) < 2 && Math.abs(next.right - 1857) < 1 && value.scroll === 3846;
     }, "E05 focus lift settled");
-    // The row-local leading slot is now Swift's 100px, 7px left of its old
-    // 107px slot. Keep painted focus bounds separate from the unscaled frame.
+    // A loaded predecessor adds one 40px gap to the measured terminal group.
+    // Keep painted focus bounds separate from the unscaled frame.
     // Integer scrollLeft rounds the 3845.6px terminal offset to 3846px.
-    assert.ok(Math.abs(end.cards[14]!.frameX - 1158) < 1, JSON.stringify(end));
-    assert.ok(Math.abs(end.cards[14]!.x - 1151) < 2, JSON.stringify(end));
-    assert.ok(Math.abs(end.cards[15]!.right - 1817) < 1, JSON.stringify(end));
+    assert.ok(Math.abs(end.cards[14]!.frameX - 1198) < 1, JSON.stringify(end));
+    assert.ok(Math.abs(end.cards[14]!.x - 1191) < 2, JSON.stringify(end));
+    assert.ok(Math.abs(end.cards[15]!.right - 1857) < 1, JSON.stringify(end));
     assert.equal(end.scroll, 3846);
     const reads = tv.fake.requests.length;
     await card('s13e5').focus(); await tv.jump(500);
@@ -536,7 +564,7 @@ detailTest("Apple loaded-season window rebases E05 and retains remote focus acro
         const node = document.querySelector('[data-focus="episode:s14e5"]');
         if (node === null || !node.isConnected) return null;
         return node.getBoundingClientRect().x;
-    }, null, value => value === 111, "E05 frame x"), 111);
+    }, null, value => value === 151, "E05 frame x with loaded predecessor"), 151);
     await tv.page.locator('[data-focus="episode:s14e5"]').focus();
     await tv.jump(1500);
     const reads = tv.fake.requests.length;
@@ -798,15 +826,15 @@ detailTest('Down into an alternate season starts at its first episode and retarg
     await tv.remote(40);
     assert.equal(await tv.focused(), 'episode:s1e21');
     await tv.page.getByRole('button', { name: /Play S2:E1|Resume S2:E1/ }).waitFor();
-    // The 360px frame starts at 111; the final 1.05 focus scale paints 9px left of it.
+    // The loaded predecessor adds 40px to the 111px frame; focus paints 9px left.
     const settled = await readLive(tv, () => {
         const card = document.querySelector('[data-focus="episode:s1e21"]');
         const art = card?.querySelector(".browse-art")?.getBoundingClientRect();
         if (card === null || art === undefined || !card.isConnected || card !== document.activeElement) return null;
         const box = card.getBoundingClientRect();
         return { x: box.x, artX: art.x, artWidth: art.width };
-    }, null, value => Math.abs(value.x - 111) < 1 && Math.abs(value.artX - 102) < 2 && Math.abs(value.artWidth - 378) < 1, "episode artwork and focus scale settle at x102");
-    assert.ok(Math.abs(settled.x - 111) < 1 && Math.abs(settled.artX - 102) < 2 && Math.abs(settled.artWidth - 378) < 1, JSON.stringify(settled));
+    }, null, value => Math.abs(value.x - 151) < 1 && Math.abs(value.artX - 142) < 2 && Math.abs(value.artWidth - 378) < 1, "episode artwork and predecessor clearance settle at x142");
+    assert.ok(Math.abs(settled.x - 151) < 1 && Math.abs(settled.artX - 142) < 2 && Math.abs(settled.artWidth - 378) < 1, JSON.stringify(settled));
 });
 
 detailTest('Selecting the already loaded season resets entry to E01 without another episode read', async tv => {

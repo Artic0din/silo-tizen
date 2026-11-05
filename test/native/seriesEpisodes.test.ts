@@ -61,6 +61,64 @@ async function episodeRailHarness(failedSeason?: number, emptySeason?: number, h
     return { ...h, state, settle, reads, held };
 }
 
+test("superseded automatic season is read-free on revisit without a neighbour error", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(); t.after(() => h.state.stop());
+    const held = h.fake.hold(operations.listSeasonEpisodes("series:s1", 4).path, true);
+    h.state.focusSeason(4); t.mock.timers.tick(70); await h.settle();
+    h.state.focusSeason(3);
+    assert.equal(h.state.failed, false, "supersession must not publish a selected-row error during dwell");
+    t.mock.timers.tick(70); await h.settle();
+    held.release(); await h.settle();
+    assert.equal(h.state.boundaryFailed, false);
+    const reads = h.reads();
+    h.state.focusSeason(4); t.mock.timers.tick(70); await h.settle();
+    assert.deepEqual(h.reads(), reads);
+});
+
+test("failed Retry survives cached selection and visit restoration without warming", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(); t.after(() => h.state.stop());
+    const path = operations.listSeasonEpisodes("series:s1", 4).path;
+    h.fake.scripted.delete(path);
+    h.fake.script(path, problem(422, "validation_failed", "Unavailable"), problem(422, "validation_failed", "Unavailable"));
+    h.state.focusSeason(4); t.mock.timers.tick(70); await h.settle();
+    h.state.retry(); await h.settle();
+    assert.equal(h.state.failed, true);
+    h.state.focusSeason(3); t.mock.timers.tick(70); await h.settle();
+    const reads = h.reads();
+    h.state.focusSeason(4); t.mock.timers.tick(70); await h.settle();
+    assert.deepEqual(h.reads(), reads, "failed Retry must remain remembered");
+    const restored = new SeriesEpisodes(h.core.session, "series:s1", h.state.seasons, () => undefined, 4);
+    restored.restore(h.state); h.state.stop(); restored.start(); await h.settle();
+    assert.deepEqual(h.reads(), reads, "return must not warm adjacent seasons");
+    assert.equal(restored.failed, true); restored.stop();
+});
+
+test("an invalidated series refreshes restored episode pages", async t => {
+    const h = await episodeRailHarness(); t.after(() => h.state.stop());
+    const restored = new SeriesEpisodes(h.core.session, "series:s1", h.state.seasons, () => undefined, 2);
+    restored.restore(h.state, true); h.state.stop();
+    const before = h.reads().length;
+    restored.start(); await h.settle();
+    assert.equal(h.reads().length, before + 1, "stale routes refresh the selected page even when cached");
+    restored.stop();
+});
+
+test("failed retained refresh never becomes an unrecoverable missing-page error", async t => {
+    const h = await episodeRailHarness(); t.after(() => h.state.stop());
+    const restored = new SeriesEpisodes(h.core.session, "series:s1", h.state.seasons, () => undefined, 2);
+    restored.restore(h.state, true); h.state.stop();
+    const path = operations.listSeasonEpisodes("series:s1", 2).path;
+    h.fake.scripted.delete(path);
+    h.fake.script(path, problem(422, "validation_failed", "Unavailable"));
+    restored.start(); await h.settle();
+    assert.equal(restored.failed, true);
+    restored.select(1);
+    assert.equal(restored.boundaryFailed, false);
+    restored.stop();
+});
+
 test("selecting an in-flight neighbour exposes selected-season failure without duplicate reads", async t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const h = await episodeRailHarness(3, undefined, 3); t.after(() => h.state.stop());
@@ -116,7 +174,7 @@ for (const outcome of ["failed", "cancelled"] as const) test(`rail boundaries ca
     held?.release(); await h.settle();
     h.state.focus("rail:3:13"); t.mock.timers.tick(70); await h.settle();
     assert.equal(h.reads().length, 4, "rail entry cannot bypass pill failure or cancellation recovery");
-    assert.equal(h.state.boundaryFailed, true);
+    assert.equal(h.state.boundaryFailed, outcome === "failed", "cancellation is not a neighbour failure");
 });
 
 for (const outcome of ["success", "empty", "failure"] as const) test(`missing season pill ${outcome} consumes one read without warming or revisit retries`, async t => {
@@ -181,12 +239,21 @@ test("a missing season paints its summary with one season read and zero item rea
 test("rate-limited season sweep and Retry never invoke transport retries", async t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const h = await episodeRailHarness(); t.after(() => h.state.stop());
-    for (const number of [4, 5, 6, 7]) h.fake.script(operations.listSeasonEpisodes("series:s1", number).path, problem(503, "unavailable", "Unavailable"), problem(503, "unavailable", "Unavailable"));
+    for (const number of [4, 5, 6, 7]) {
+        const path = operations.listSeasonEpisodes("series:s1", number).path;
+        h.fake.scripted.delete(path);
+        h.fake.script(path, problem(503, "unavailable", "Unavailable"), problem(503, "unavailable", "Unavailable"));
+    }
     for (const number of [4, 5, 6, 7]) {
         h.state.focusSeason(number); t.mock.timers.tick(150); await h.settle();
         await h.clock.advance(2000); await h.settle();
     }
     h.state.retry(); await h.settle(); await h.clock.advance(2000); await h.settle();
+    assert.equal(h.state.failed, true);
+    for (const number of [4, 5, 6, 7, 4, 5, 6, 7]) {
+        h.state.focusSeason(number); t.mock.timers.tick(70); await h.settle();
+        assert.equal(h.state.failed, true);
+    }
     assert.deepEqual(h.reads(), [2, 1, 3, 4, 5, 6, 7, 7].map(number => operations.listSeasonEpisodes("series:s1", number).path));
 });
 

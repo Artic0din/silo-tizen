@@ -14,6 +14,8 @@ export class SeriesEpisodes {
     episodes: readonly Episode[] | undefined;
     railEpisodes: readonly Episode[] | undefined;
     private readonly failedNeighbors = new Set<number>();
+    private readonly cancelledSeasons = new Set<number>();
+    get interrupted(): boolean { return this.episodes === undefined && this.seasonNumber !== undefined && this.cancelledSeasons.has(this.seasonNumber); }
     get boundaryFailed(): boolean { return [...this.failedNeighbors].some(number => number !== this.seasonNumber || !this.failed); }
     private readonly pages = new Map<number, readonly Episode[]>();
     private neighbors: AbortController | undefined;
@@ -54,14 +56,18 @@ export class SeriesEpisodes {
 
     start(): void {
         this.active = true;
-        if (!this.loaded && this.controller === undefined && !this.failed) this.load(true, false, true);
+        if (!this.loaded && this.controller === undefined && !this.failed && !this.interrupted) this.load(true, false, true);
     }
 
-    restore(previous: SeriesEpisodes | undefined): void {
+    restore(previous: SeriesEpisodes | undefined, refresh = false): void {
         if (previous !== undefined && previous.seasonNumber === this.seasonNumber) {
             this.episodes = previous.episodes;
             this.railEpisodes = previous.railEpisodes;
             for (const [number, page] of previous.pages) this.pages.set(number, page);
+            for (const number of previous.failedNeighbors) this.failedNeighbors.add(number);
+            for (const number of previous.cancelledSeasons) this.cancelledSeasons.add(number);
+            this.loaded = !refresh && previous.loaded;
+            this.failed = previous.failed;
         }
     }
 
@@ -92,12 +98,12 @@ export class SeriesEpisodes {
         clearTimeout(this.seasonDwell);
         this.seasonDwell = undefined;
         if (this.automaticRead) {
-            if (this.seasonNumber !== undefined) this.failedNeighbors.add(this.seasonNumber);
+            if (this.seasonNumber !== undefined) this.cancelledSeasons.add(this.seasonNumber);
             this.controller?.abort();
             this.controller = undefined;
             this.automaticRead = false;
-            this.failed = this.episodes === undefined;
-            queueMicrotask(() => { if (this.active && this.failed && this.controller === undefined) this.changed("neighbor"); });
+            this.failed = false;
+            queueMicrotask(() => { if (this.active && this.interrupted && this.controller === undefined) this.changed("neighbor"); });
         }
     }
 
@@ -131,9 +137,9 @@ export class SeriesEpisodes {
             this.entryEpisode = this.episodes[0]?.id;
             this.updateWindow();
             this.changed("load");
-        } else if (this.failedNeighbors.has(season)) {
+        } else if (this.failedNeighbors.has(season) || this.cancelledSeasons.has(season)) {
             this.railEpisodes = [];
-            this.failed = true;
+            this.failed = this.failedNeighbors.has(season);
             this.changed("load");
         } else if (this.pendingNeighbors.has(season)) {
             this.railEpisodes = [];
@@ -177,8 +183,7 @@ export class SeriesEpisodes {
     retryNeighbors(): void {
         if (!this.active) return;
         for (const number of this.failedNeighbors) {
-            this.failedNeighbors.delete(number);
-            void this.readNeighbor(number);
+            void this.readNeighbor(number, true);
         }
         this.changed("neighbor");
     }
@@ -190,7 +195,8 @@ export class SeriesEpisodes {
         this.blur();
         if (!automatic) {
             this.requestedBoundaries.clear();
-            this.failedNeighbors.clear();
+            this.failedNeighbors.delete(season);
+            this.cancelledSeasons.delete(season);
         }
         this.controller?.abort();
         this.neighbors?.abort();
@@ -200,13 +206,14 @@ export class SeriesEpisodes {
         this.controller = controller;
         if (!retain) { this.episodes = undefined; this.railEpisodes = undefined; }
         this.loaded = false;
-        this.failed = false;
+        this.failed = retain && this.failed;
         this.changed("load");
         const current = (): boolean => this.active && this.controller === controller && !controller.signal.aborted;
         this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, season), retry: "never", profileScoped: true, signal: controller.signal }).then(episodes => {
             if (!current()) return;
             this.controller = undefined;
             this.automaticRead = false;
+            this.failed = false;
             this.episodes = episodes;
             this.pages.set(season, episodes);
             this.updateWindow();
@@ -216,7 +223,7 @@ export class SeriesEpisodes {
             if (warm) this.warmNeighbors();
         }, () => {
             if (!current()) return;
-            if (this.automaticRead) this.failedNeighbors.add(season);
+            if (!this.pages.has(season)) this.failedNeighbors.add(season);
             this.controller = undefined;
             this.automaticRead = false;
             this.failed = true;
@@ -250,7 +257,7 @@ export class SeriesEpisodes {
         let neighbor = order.indexOf(episode.seasonNumber) + direction;
         while (neighbor >= 0 && neighbor < order.length && this.pages.has(order[neighbor]!)) neighbor += direction;
         const number = order[neighbor];
-        if (number === undefined || this.failedNeighbors.has(number) || this.pendingNeighbors.has(number)) return;
+        if (number === undefined || this.failedNeighbors.has(number) || this.cancelledSeasons.has(number) || this.pendingNeighbors.has(number)) return;
         this.boundaryDwell = setTimeout(() => {
             this.boundaryDwell = undefined;
             // Restored focus after an empty page must not walk through further seasons.
@@ -296,14 +303,15 @@ export class SeriesEpisodes {
         void run();
     }
 
-    private async readNeighbor(number: number): Promise<readonly Episode[] | undefined> {
-        if (!this.active || this.pages.has(number) || this.pendingNeighbors.has(number) || this.failedNeighbors.has(number)) return;
+    private async readNeighbor(number: number, retry = false): Promise<readonly Episode[] | undefined> {
+        if (!this.active || this.pages.has(number) || this.pendingNeighbors.has(number) || (!retry && this.failedNeighbors.has(number))) return;
         this.neighbors ??= new AbortController();
         const controller = this.neighbors;
         this.pendingNeighbors.add(number);
         try {
             const page = await this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, number), retry: "never", profileScoped: true, signal: controller.signal });
             if (!this.active || controller.signal.aborted) return;
+            this.failedNeighbors.delete(number);
             this.pages.set(number, page);
             if (this.seasonNumber === number && this.episodes === undefined) {
                 this.failed = false;

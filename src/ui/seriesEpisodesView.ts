@@ -42,13 +42,15 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, 
         return item;
     });
     const row = zoneNode("browse-row details-episodes", episodes);
+    row.dataset.loadedPredecessor = String((state.railEpisodes?.[0]?.seasonNumber ?? state.seasonNumber) !== state.seasonNumber);
     if (state.entryEpisode !== undefined) row.dataset.scrollEntry = state.entryEpisode;
     const section = el("section", "home-section details-series-rail");
     section.setAttribute("aria-label", "Episodes");
-    if (state.failed) {
-        const retry = actionButton("retry-episodes", "Retry episodes", () => state.retry());
+    if (state.failed || state.interrupted) {
+        const retry = previous?.view.zones[1]?.items.find(item => item.key === "retry-episodes") ?? actionButton("retry-episodes", "Retry episodes", () => state.retry());
         episodes.push(retry);
-        section.append(...lines(["Could not load episodes."], "error"), zoneNode("browse-actions", [retry]));
+        if (state.failed) section.append(...lines(["Could not load episodes."], "error"));
+        section.append(zoneNode("browse-actions", [retry]));
     } else if (state.episodes === undefined) section.append(...lines(["Loading episodes…"]));
     else if (state.loading) section.append(...lines(["Refreshing episodes…"]));
     else if (episodes.length === 0) section.append(...lines(["This season has no episodes yet."]));

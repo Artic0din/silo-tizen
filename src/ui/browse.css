@@ -1002,9 +1002,17 @@
 .details-genres { margin-left: 0; }
 /* TVDetailLayout.horizontalInset = 100; the surrounding section starts at 88. */
 .details-season-chips { padding: 4px calc(100px - 88px); }
+/* Swift's scrollClipDisabled paints past the mode viewport's trailing inset. */
+.details-season-chips { margin-right: -88px; padding-right: 100px; }
 /* Paint to the screen edges while retaining the logical scroll viewport.
    TVDetailLayout's 100px leading inset belongs to this rail, not Cast or Related. */
 .details-series-rail .details-episodes { --episode-paint-end: 88px; margin-left: -88px; margin-right: -88px; padding: 12px calc(100px + 360px * var(--poster-scale, 1) * .025 + 2px); }
+/* Running Apple: a loaded predecessor reserves one 40px card gap before the
+   terminal group (109/1817 becomes 149/1857 at Compact size). */
+.details-series-rail .details-episodes[data-loaded-predecessor="true"] { padding-left: calc(100px + 360px * var(--poster-scale, 1) * .025 + 2px + 40px); }
+.details-playback-summary span:empty { align-self: center; width: 128px; height: 16px; border-radius: 4px; background: rgba(255,255,255,.1); }
+.details-playback-summary [data-track-summary="audio"] span:empty { width: 166px; }
+.details-playback-summary [data-track-summary="subtitles"] span:empty { width: 77px; }
 .details-episodes .skyline-progress { bottom: 0; left: 0; right: 0; height: 5px; background: rgba(0,0,0,.6); }
 .browse:has(.details-hero) > .browse-row:has(+ .browse-section-title) { margin-bottom: 35px; }
 /* TVTrailersRail rail padding 12 plus body section spacing 64 is the 76px caption-to-heading gap. */

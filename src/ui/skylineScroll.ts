@@ -27,7 +27,8 @@ export class SkylineScroll {
         const contentWidth = cards.length * width + (cards.length - 1) * spacing;
         // Extra right-edge paint must not move the stepped terminal boundary.
         const paintEnd = parseFloat(style.getPropertyValue("--episode-paint-end")) || 0;
-        const viewport = row.clientWidth - paintEnd - inset + width * .025 + 2;
+        const groupClearance = row.dataset.loadedPredecessor === "true" ? spacing : 0;
+        const viewport = row.clientWidth - paintEnd - inset + groupClearance + width * .025 + 2;
         const maximum = episodeRailOffset(cards.length - 1, cards.length, width, spacing, viewport);
         row.style.paddingRight = `${Math.max(0, row.clientWidth + maximum - inset - contentWidth - spacing)}px`;
         return maximum;

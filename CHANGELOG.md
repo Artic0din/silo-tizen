@@ -10,11 +10,19 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Matched Accounts pane rows and Change Account layout, and returned Back from account management to Settings.
 - Restored saved-server pane focus, Back from Add server, and pending-removal focus on Samsung TV.
 - Preserved the selected account when retiring another session and kept guarded session-only sign-ins usable until restart.
 - Kept Change Account reachable when a saved server is offline, prevented removed accounts from being restored by late refreshes, and scrolled account lists to keep remote focus visible.
 - Prevented failed replacement sign-ins from restoring old credentials and kept saved-sign-in removal scoped to the selected account.
 - Prevented replaced account sessions from overwriting a new sign-in and required fresh PIN proof after committing an account switch.
+- Showed Home rows as soon as they arrived, without waiting on library tabs or an uncapped sections read, and stopped the Home page from saying the server was still waiting. While those rows are still out, Home is an empty page labelled "Loading home" and the library tabs fill in on their own.
+- Stopped a delayed Home libraries read from putting a library back after it was hidden in Settings.
+- Kept remote navigation when those library tabs arrived on another page, and read them again after the app returned if that read had failed.
+- Kept a profile's Movies and Series tabs when a libraries read failed after returning to that profile. A switch to another profile still drops the previous profile's libraries.
+- Moved the Home logo slot up to Apple's marquee stack and landed Down from a landscape card on the poster nearest that card.
+- Kept the column when moving down between Home rows, and fitted hero title art in Apple's 200px logo slot.
+- Down from the top bar lands on the leftmost card instead of the card remembered in the row.
 - Matched Apple TV library shelf order and the Recommended, Collections and Browse section menu, keeping Collections in its own destination.
 - Restored each page's hero after returning from the profile menu and painted the avatar's white focus ring above its image.
 - Renamed the profile menu's Switch Server row to Change Account, after Settings and before Sign Out.

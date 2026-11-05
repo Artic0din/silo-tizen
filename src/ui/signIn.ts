@@ -18,6 +18,7 @@ import { actionRow, chip, errorText, field, headline, keyboardCard, lead, marque
 import { MarqueeBackdrop } from "./marqueeBackdrop.ts";
 import { type Control, el, type Note, type Screen, ScreenHost } from "./screen.ts";
 import * as text from "./signInText.ts";
+import { AccountDirectory } from "../session/accounts.ts";
 
 export interface SignInOptions {
     readonly address?: string;
@@ -246,7 +247,8 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         const row = [connect];
         if (options.onCancel) row.push(marqueeButton("back", "Back", "plain", () => { destroy(); options.onCancel?.(); }));
         else if (options.onChangeAccount) {
-            row.push(marqueeButton("change-account", "Change account", "plain", changeServer));
+            const canReturn = new AccountDirectory(options.core.publicStorage, options.core.randomBytes).list().some(account => !account.needsSignIn);
+            row.push(marqueeButton("change-account", canReturn ? "Back to profiles" : "Change account", "plain", changeServer));
         }
         if (offerForget) {
             row.push(marqueeButton("forget", "Remove saved sign-in", "plain", () => void forget()));

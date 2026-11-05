@@ -48,7 +48,7 @@ async function signIn(tv: Tv): Promise<void> {
     await homeDetailsRead(tv);
 }
 
-appTest("offline saved server offers Change account and restores a reachable saved account", async tv => {
+appTest("offline saved server offers Back to profiles while a saved account can open profiles", async tv => {
     await signIn(tv);
     const devices = tv.fake.devices.size;
     await tv.page.evaluate(() => {
@@ -60,7 +60,7 @@ appTest("offline saved server offers Change account and restores a reachable sav
         window.appHarness.mount();
     });
     await tv.page.locator('[data-screen="entry"]').waitFor();
-    const change = tv.page.getByRole("button", { name: "Change account", exact: true });
+    const change = tv.page.getByRole("button", { name: "Back to profiles", exact: true });
     assert.equal(await change.count(), 1);
     await change.click();
     await tv.page.locator('.accounts-rail button').filter({ hasText: "silo.example.test" }).click();
@@ -116,6 +116,18 @@ appTest("unreadable account storage shows recovery and preserves the saved bytes
     await tv.page.getByRole("button", { name: "Continue without saved accounts", exact: true }).click();
     await tv.page.locator('[data-screen="entry"]').waitFor();
     await tv.page.evaluate(() => { window.appHarness.storage.failGet = false; });
+});
+
+appTest("failed live account selection returns to profiles without another directory write", async tv => {
+    await signIn(tv);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.page.evaluate(() => { window.appHarness.storage.failSet = true; });
+    await tv.page.locator('.account-card').first().click();
+    await tv.page.locator('[data-screen="account-selection-error"]').waitFor();
+    assert.equal(await tv.page.getByRole("button", { name: "Back to profiles", exact: true }).count(), 1);
+    await tv.page.getByRole("button", { name: "Back to profiles", exact: true }).click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
 });
 
 appTest("a profile-count cache write failure still opens Switch Profile", async tv => {
@@ -353,12 +365,29 @@ for (const origin of ["home", "movies"] as const) appTest(`Change Account return
         return { rail: [rail.width, rail.height], card: [card.width, card.height], headline: getComputedStyle(document.querySelector('.accounts-title')!).fontSize };
     });
     assert.deepEqual(geometry.rail, [520, 88]);
+    const layout = await tv.page.evaluate(() => {
+        const pane = document.querySelector('.accounts-pane')!;
+        const rail = document.querySelector('.accounts-rail button')!;
+        const add = document.querySelector('.accounts-rail [data-focus="add-server"]')!;
+        const tile = document.querySelector('.accounts-pane [data-focus="add-account"] .account-initial')!;
+        return { x: pane.getBoundingClientRect().x + 12, y: rail.getBoundingClientRect().y,
+            plus: add.querySelector('[aria-hidden="true"]')?.textContent,
+            fill: getComputedStyle(add).backgroundColor, gradient: getComputedStyle(tile).backgroundImage,
+            scrim: document.querySelector('.accounts-scrim') !== null };
+    });
+    assert.equal(layout.x, 650);
+    assert.ok(Math.abs(layout.y - 364) < 1, JSON.stringify(layout));
+    assert.equal(layout.plus, "+");
+    assert.equal(layout.fill, "rgba(0, 0, 0, 0)");
+    assert.match(layout.gradient, /234, 166, 92/);
+    assert.equal(layout.scrim, true);
     assert.equal(geometry.headline, "88px");
     // Focus grows the 760 by 128 card by Apple's 1.03 scale.
     assert.ok(Math.abs(geometry.card[0]! - 760 * 1.03) < .1);
     assert.ok(Math.abs(geometry.card[1]! - 128 * 1.03) < .1);
     assert.equal(await tv.page.getByRole('button', { name: 'Add', exact: true }).count(), 0, "tvOS has direct add-account and add-server actions");
     await tv.remote(10009);
+    assert.equal(await tv.page.locator('.accounts-rail button:focus').evaluate(node => getComputedStyle(node).backgroundColor), "rgb(237, 237, 237)");
     await tv.remote(10009);
     assert.equal(await tv.focused(), origin);
     assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "false");

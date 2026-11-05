@@ -69,7 +69,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
             try { live.accounts.directory.select(account.id); }
             catch {
                 startup = new ScreenHost(root);
-                const controls = [button("retry", "Retry", () => { startup?.destroy(); startup = undefined; showSignIn(notice, chooseServer, account, address, pickerRequested); }), button("accounts", "Change account", () => { startup?.destroy(); startup = undefined; showAccounts(); })];
+                const controls = [button("retry", "Retry", () => { startup?.destroy(); startup = undefined; showSignIn(notice, chooseServer, account, address, pickerRequested); }), button("accounts", "Back to profiles", () => { startup?.destroy(); startup = undefined; showProfiles(live, true); })];
                 startup.show({ name: "account-selection-error", content: [el("h1", "signin-title", "Could not save the account selection"), actions(controls)], controls, focus: "retry", back: undefined });
                 return;
             }
@@ -150,7 +150,13 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
                 profiles?.signOut();
             },
             onSwitchServer: back => switchServer(server, back),
-            onAccounts: () => showAccounts(true),
+            onAccounts: back => {
+                accounts = mountAccounts(root, activeCore, server, (account, address) => {
+                    accounts = undefined;
+                    showSignIn(undefined, account === undefined && address === undefined, account, address, true);
+                }, () => { accounts = undefined; if (active.signal.aborted) showAccounts(); else back(); }, true,
+                () => { profiles?.destroy(); profiles = undefined; });
+            },
             onChooseProfile: () => {
                 stopContent();
                 profiles?.switchProfile();

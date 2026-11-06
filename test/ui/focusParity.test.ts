@@ -581,7 +581,15 @@ test("a removed library card falls back to a visible title", async () => {
         await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "playback handoff");
         catalog.removed.add("movie:m0005");
         await tv.page.evaluate(() => window.browseHarness.resume());
-        await tv.page.locator('[data-focus="play"]').waitFor();
+        // Resume rereads the title. Once that read sees the removal, Play is gone and the
+        // not-found page is what stays on screen; waiting only for Play misses that page.
+        await tv.eventually(async () => {
+            const view = await tv.page.evaluate(() => {
+                const browse = document.querySelector(".browse");
+                return browse instanceof HTMLElement && !browse.hidden ? browse.getAttribute("data-view") : null;
+            });
+            return view === "item:failed";
+        }, "resumed details");
         const reads = tv.fake.requests.filter(request => request.path.startsWith("/library/12/sections")).length;
         const held = tv.fake.hold("/library/12/sections", true);
         await tv.remote(BACK);

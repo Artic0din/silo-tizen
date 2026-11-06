@@ -43,6 +43,53 @@ async function signIn(tv: Tv, remember = false): Promise<void> {
     await homeDetailsRead(tv);
 }
 
+appTest("unvisited offline For You uses Apple's centred error", async tv => {
+    await signIn(tv);
+    tv.offline = true;
+    await tv.page.locator('[data-focus="for_you"]').click();
+    await tv.jump(35000);
+    await tv.page.locator('[data-view="for_you"] .details-failure').waitFor();
+    await tv.page.getByRole("button", { name: "Try Again", exact: true }).waitFor();
+});
+
+appTest("cold saved session rejected by the server returns to sign-in", async tv => {
+    await signIn(tv, true);
+    tv.fake.revokeAllSessions();
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.jump(35000);
+    await tv.page.locator('[data-screen="code"], [data-screen="expired"]').waitFor();
+    assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+});
+
+appTest("first-time unreachable address retains the connect error", async tv => {
+    tv.offline = true;
+    await tv.page.fill("#signin-address", "https://first-time.invalid");
+    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
+    await tv.jump(35000);
+    await tv.page.getByText("Could not reach a Silo server at that address.", { exact: true }).waitFor();
+    assert.equal(tv.fake.devices.size, 0);
+});
+
+for (const cached of [true, false]) appTest(`cold offline saved session opens Home (snapshot ${cached})`, async tv => {
+    await signIn(tv, true);
+    await tv.page.locator('[data-view="home"]').waitFor();
+    if (!cached) await tv.page.evaluate(() => window.appHarness.storage.removeItem("silo.browseSnapshots.v1"));
+    const codes = tv.fake.devices.size;
+    tv.offline = true;
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.jump(35000);
+    if (cached) await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+    else {
+        await tv.page.locator('[data-view="home:failed"]').waitFor();
+        await tv.page.getByRole("button", { name: "Try Again", exact: true }).waitFor();
+        await tv.page.getByRole("button", { name: "Manage Servers", exact: true }).waitFor();
+    }
+    assert.equal(tv.fake.devices.size, codes);
+    tv.offline = false;
+    await tv.jump(50000);
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+});
+
 async function approveSignIn(tv: Tv, code: string): Promise<void> {
     tv.fake.approve(code);
     await tv.jump(5000);

@@ -19,6 +19,27 @@ const BACK = 10009;
 const IME_DONE = 65376;
 const PAGE_SIZE = 24;
 
+for (const outage of ["all", "supporting"] as const) browseTest(`offline Details retains supporting content and recovers: ${outage}`, async tv => {
+    const card = tv.page.locator('.browse-card[data-focus="movie:m0002"]').first();
+    await card.click();
+    await showing(tv, "item:movie:m0002");
+    await tv.page.locator('[data-detail-section="related"] .browse-card').first().waitFor();
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.remote(BACK);
+    const blocked = outage === "all" ? "**/api/v2/**" : "**/api/v2/recommendations/similar/**";
+    await tv.page.route(blocked, route => route.abort("connectionrefused"));
+    await card.click();
+    await showing(tv, "item:movie:m0002");
+    await tv.jump(35000);
+    assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Could not load|Retry personal|Retry title|Retry related/);
+    assert.ok(await tv.page.locator('[data-detail-section="related"] .browse-card').count() > 0);
+    assert.equal(await tv.page.locator('[data-focus="watchlist"]').count(), 1);
+    await tv.page.unroute(blocked);
+    const reads = tv.fake.requests.filter(request => request.path.startsWith("/recommendations/similar/")).length;
+    await tv.jump(35000);
+    await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith("/recommendations/similar/")).length > reads, "automatic supporting recovery");
+}, { catalog: new FakeDetails() });
+
 browseTest("collection detail matches measured Apple layout and truncates long captions", async (tv, catalog) => {
     await tv.page.route("**/api/v2/shuffles/capabilities", route => route.fulfill({ json: { allowed: true, state: "available", scope_kinds: ["library_collection"] } }));
     await tv.page.locator('[data-focus="movies"]').click();
@@ -1034,6 +1055,21 @@ browseTest("Box set Play stays on the first screen with and without a backdrop",
     await playOnScreen(false);
 }, { catalog: new BoxSetCatalog() });
 
+browseTest("cached movie revisits retain their box-set row after revalidation", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "potter"); await tv.remote(IME_DONE);
+    await tv.page.locator('[data-focus="box-set:12:1241"]').click();
+    await showing(tv, "boxSet:12:1241");
+    await press(tv, "ArrowDown", "Enter");
+    await showing(tv, "item:movie:m0001");
+    await tv.page.locator(".box-set-row .box-set-current-label").waitFor();
+    await tv.remote(BACK); await showing(tv, "boxSet:12:1241");
+    await tv.page.locator('.box-set-grid [data-focus="movie:m0001"]').click();
+    await showing(tv, "item:movie:m0001");
+    await tv.page.locator(".box-set-row .box-set-current-label").waitFor();
+    assert.equal(await tv.page.locator(".box-set-current-label").textContent(), "This film");
+}, { catalog: new BoxSetCatalog() });
+
 browseTest("Back restarts a movie box-set read that opening a cast member cancelled", async tv => {
     await tv.page.locator('[data-focus="search"]').click();
     await tv.page.fill("#browse-search", "potter"); await tv.remote(IME_DONE);
@@ -1659,8 +1695,10 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
     assert.equal((await tv.page.evaluate(() => window.browseHarness.plays))[0]?.fileId, "43");
     assert.equal((await tv.page.evaluate(() => window.browseHarness.plays))[0]?.startSeconds, 0);
     const personal = tv.fake.hold("/capabilities/personal-lists");
+    const personalReads = tv.fake.requests.filter(request => request.path === "/capabilities/personal-lists").length;
     await tv.page.evaluate(() => window.browseHarness.resume());
-    await shows(tv, "Loading personal actions.");
+    await tv.eventually(async () => tv.fake.requests.filter(request => request.path === "/capabilities/personal-lists").length > personalReads, "personal refresh started");
+    assert.equal(await tv.page.locator('[data-focus="watchlist"]').count(), 1, "cached personal actions remain visible while refreshing");
     personal.release();
     await tv.page.locator('[data-focus="watchlist"]').waitFor();
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "refreshed related titles");
@@ -1992,6 +2030,7 @@ browseTest("optional Details reads load independently and omit empty Related res
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
     await tv.eventually(async () => tv.fake.requests.filter((request) => request.path === "/capabilities/personal-lists").length === 3, "unsupported capability");
+    await tv.eventually(async () => await tv.page.locator('[data-focus="watchlist"], [data-focus="favorites"]').count() === 0, "unsupported capability applied");
     assert.equal(await tv.page.locator('[data-focus="watchlist"], [data-focus="favorites"]').count(), 0);
 }, { catalog: new FakeDetails() });
 
@@ -2177,7 +2216,7 @@ browseTest("Details rejects insecure artwork and retains its text title when log
     await showing(tv, "item:movie:m0001");
     await tv.jump(240);
     assert.equal(await tv.page.locator(".browse h1").textContent(), "Readable title");
-    assert.equal(await tv.page.locator('.details-backdrop img, .details-logo').count(), 0);
+    assert.equal(await tv.page.locator('.details-hero .skyline-backdrop, .details-logo').count(), 0);
     assert.equal(await tv.page.locator('img[src^="http:"]').count(), 0);
     assert.equal(await tv.focused(), "play");
 }, { catalog: new FakeCatalog() });
@@ -3132,6 +3171,7 @@ browseTest("Continue Watching uses section type rather than its opaque identity"
 });
 
 browseTest("a populated Home changes route without copying every descendant's computed styles", async (tv, catalog) => {
+    await pauseTvClock(tv);
     const household = catalog.households.get("p-owner");
     assert.ok(household !== undefined);
     household.sections = Array.from({ length: 6 }, (_, row) => ({
@@ -3141,7 +3181,7 @@ browseTest("a populated Home changes route without copying every descendant's co
     }));
     await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
     await showing(tv, "home");
-    await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
+    await tv.eventually(async () => await tv.page.locator('[data-view="home"] [data-section^="shelf-"] .browse-card:not(.skyline-explore)').count() === 120, "populated replacement Home shelves");
     const response = tv.fake.hold("/library/12/sections", true);
     const reads = await tv.page.evaluate(() => {
         let calls = 0;
@@ -3404,6 +3444,7 @@ browseTest("series open seasons, episode Select plays directly, and playback ret
     await press(tv, "ArrowDown", "Enter");
     await showing(tv, "item:series:s1");
     await shows(tv, "Harbor Lights");
+    await tv.page.locator('[data-focus="season:2"]').waitFor();
     await tv.eventually(async () => await tv.focused() === "next-episode", "Play receives initial Series focus");
     await press(tv, "ArrowDown", "ArrowRight");
     assert.equal(await tv.focused(), "season:2");
@@ -3755,6 +3796,7 @@ browseTest("Back from a result reloads a query edited before its debounce could 
 }, { catalog: videoOnlyCatalog() });
 
 browseTest("loading, slow, offline, removed, empty and missing-artwork states all leave a way forward", async (tv, catalog) => {
+    await tv.page.evaluate(() => window.browseHarness.clearResponseCache());
     await tv.eventually(async () => (await tv.page.locator(".browse-art-missing").count()) >= 2, "placeholders");
     const missing = await tv.page.evaluate(() => Array.from(document.querySelectorAll(".browse-art-missing")).map((node) => node.parentElement?.getAttribute("data-focus")));
     assert.ok(missing.indexOf("movie:m0002") !== -1 && missing.indexOf("movie:m0003") !== -1, "no artwork and failed artwork both show the title");

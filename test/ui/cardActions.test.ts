@@ -24,12 +24,133 @@ async function start(tv: Tv, catalog = new FakeDetails()): Promise<FakeDetails> 
 }
 const origin = (tv: Tv, continuing = false) => tv.page.locator(`[data-section="${continuing ? "continue_watching" : "recently_added"}"] [data-focus="movie:m0001"]`);
 const menu = (tv: Tv) => tv.page.getByRole("dialog", { name: "Card actions" });
+test("card menu reuses visited Details personal actions offline", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const catalog = await start(tv);
+        await origin(tv).click();
+        await tv.page.locator('[data-focus="watchlist"]').waitFor();
+        await tv.remote(10009);
+        await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+        await hold(tv);
+        await tv.jump(35000);
+        await menu(tv).getByRole("button", { name: "Add to watchlist", exact: true }).waitFor({ timeout: 1500 });
+        await menu(tv).getByRole("button", { name: "Add favorite", exact: true }).waitFor();
+        await menu(tv).getByRole("button", { name: "Mark watched", exact: true }).waitFor();
+        assert.deepEqual(catalog.mutations, []);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
 async function hold(tv: Tv, continuing = false): Promise<void> {
     await origin(tv, continuing).focus();
     await tv.down(13);
     await tv.jump(650);
     await tv.up(13);
 }
+test("a card-menu write invalidates visited personal display fallback", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await origin(tv).click();
+        await tv.page.locator('[data-focus="watchlist"]').waitFor();
+        await tv.remote(10009);
+        await hold(tv);
+        await menu(tv).getByRole("button", { name: "Mark watched", exact: true }).click();
+        await menu(tv).getByRole("button", { name: "Mark unwatched", exact: true }).waitFor();
+        await tv.remote(10009);
+        await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+        await hold(tv);
+        await tv.jump(35000);
+        await menu(tv).getByRole("button", { name: "Try again", exact: true }).waitFor({ timeout: 1500 });
+        assert.equal(await menu(tv).locator('[data-focus="watched"]').count(), 0);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+for (const source of ["menu", "Details"]) for (const status of [403, 404]) test(`card menu refuses cached Details after ${source} HTTP ${status}`, async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await origin(tv).click();
+        await tv.page.locator('[data-focus="watchlist"]').waitFor();
+        await tv.remote(10009);
+        await tv.page.route("**/api/v2/catalog/items/movie%3Am0001?**", route => route.fulfill({ status, json: problem(status, "permission_denied", "Item refused") }));
+        if (source === "menu") {
+            await hold(tv);
+            await menu(tv).getByRole("button", { name: "Try again", exact: true }).waitFor();
+            assert.equal(await menu(tv).locator('[data-focus="watchlist"]').count(), 0);
+            assert.match(await menu(tv).innerText(), /Could not load card actions/);
+        } else {
+            await origin(tv).click();
+            await tv.page.locator('[data-focus="retry"]').waitFor();
+        }
+        await tv.remote(10009);
+        await tv.page.unroute("**/api/v2/catalog/items/movie%3Am0001?**");
+        await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+        await hold(tv);
+        await tv.jump(35000);
+        await menu(tv).getByRole("button", { name: "Try again", exact: true }).waitFor({ timeout: 1500 });
+        assert.equal(await menu(tv).locator('[data-focus="watchlist"]').count(), 0, "a refused cached owner cannot return offline");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+for (const status of [403, 404]) test(`card menu refusal evicts cached Details playback after HTTP ${status}`, async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        const devices = tv.fake.devices.size;
+        const deviceReads = () => tv.fake.requests.filter(request => request.path.startsWith("/auth/device")).length;
+        const beforeDevices = deviceReads();
+        await origin(tv).click();
+        await tv.page.locator('[data-view="item:movie:m0001"] [data-focus="play"]').waitFor();
+        await tv.remote(10009);
+        await tv.page.route("**/api/v2/catalog/items/movie%3Am0001?**", route => route.fulfill({ status, json: problem(status, status === 403 ? "permission_denied" : "not_found", "Item refused") }));
+        await hold(tv);
+        await menu(tv).getByRole("button", { name: "Try again", exact: true }).waitFor();
+        assert.equal(await menu(tv).locator('[data-focus="play"]').count(), 0);
+        await tv.remote(10009);
+        await tv.page.unroute("**/api/v2/catalog/items/movie%3Am0001?**");
+        await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+        await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+        await tv.page.locator('[data-section="recently_added"] .browse-card').first().waitFor();
+        await origin(tv).click();
+        await tv.jump(35000);
+        const failed = tv.page.locator('[data-view="item:failed"]');
+        await failed.locator(".search-state-title", { hasText: "Something went wrong" }).waitFor();
+        assert.match(await failed.locator(".search-state-description").innerText(), /Could not reach the server/);
+        assert.equal(await failed.locator('[data-focus="play"], [data-focus="resume"]').count(), 0, "a refused catalog response cannot paint playback");
+        assert.equal(await tv.page.getByRole("button", { name: "Try Again", exact: true }).count(), 1);
+        assert.equal(await tv.page.locator(".details-editorial").count(), 0);
+        assert.equal(await tv.page.evaluate(() => window.browseHarness.loginPhase), "signed_in");
+        assert.equal(tv.fake.devices.size, devices, "a refusal must not create a device code");
+        assert.equal(deviceReads(), beforeDevices);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+test("a card menu network failure keeps cached Details and the signed-in session", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        const devices = tv.fake.devices.size;
+        const deviceReads = () => tv.fake.requests.filter(request => request.path.startsWith("/auth/device")).length;
+        const beforeDevices = deviceReads();
+        await origin(tv).click();
+        await tv.page.locator('[data-view="item:movie:m0001"] [data-focus="play"]').waitFor();
+        await tv.page.locator('[data-focus="watchlist"]').waitFor();
+        await tv.remote(10009);
+        await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+        await hold(tv);
+        await menu(tv).getByRole("button", { name: "Add to watchlist", exact: true }).waitFor({ timeout: 1500 });
+        await tv.remote(10009);
+        await origin(tv).click();
+        await tv.jump(35000);
+        await tv.page.locator('[data-view="item:movie:m0001"] [data-focus="play"]').waitFor();
+        assert.equal(await tv.page.locator('[data-view="item:movie:m0001"] [data-focus="play"]').count(), 1, "a transport failure must not evict cached playback");
+        assert.equal(await tv.page.evaluate(() => window.browseHarness.loginPhase), "signed_in");
+        assert.equal(tv.fake.devices.size, devices);
+        assert.equal(deviceReads(), beforeDevices);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
 for (const reducedMotion of ["no-preference", "reduce"] as const) {
     for (const continuing of [false, true]) test(`card actions ${reducedMotion}: real Enter hold suppresses ${continuing ? "Continue playback" : "Details"} and release`, async () => {
         const tv = await openTv(browser, { app: "browse" });
@@ -166,17 +287,24 @@ test("card actions initial loading, bad identity and Retry keep Close reachable 
     } finally { await tv.page.context().close(); }
 });
 
-for (const answer of ["unsupported", "unknown", "malformed", "membership-mismatch"] as const) test(`card actions ${answer} never invents mutation values`, async () => {
+for (const answer of ["unsupported", "unknown", "malformed", "membership-mismatch", "offline-personal"] as const) test(`card actions ${answer} never invents mutation values`, async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         const catalog = await start(tv);
         if (answer === "unsupported") catalog.capability = false;
         if (answer === "malformed") tv.fake.script("/capabilities/personal-lists", { status: 200, body: {} });
+        if (answer === "offline-personal") {
+            for (let attempt = 0; attempt < 2; attempt++) {
+                tv.fake.script("/capabilities/personal-lists", { status: 503, body: {} });
+                tv.fake.dropNextAnswer("/capabilities/personal-lists");
+            }
+        }
         if (answer === "membership-mismatch") tv.fake.script("/favorites/movie%3Am0001/membership", { status: 200, body: { item_id: "movie:wrong", is_member: false } });
         if (answer === "unknown") tv.fake.script("/catalog/items/movie%3Am0001?image_size=large", { status: 200, body: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", user_state: undefined, user_data: undefined } });
         await hold(tv);
         if (answer === "unsupported") await menu(tv).getByText("List actions are unavailable for this title.").waitFor();
-        if (answer === "malformed" || answer === "membership-mismatch") {
+        if (answer === "offline-personal") await tv.jump(1000);
+        if (answer === "malformed" || answer === "membership-mismatch" || answer === "offline-personal") {
             await menu(tv).getByRole("button", { name: "Retry personal actions", exact: true }).waitFor();
             assert.equal(await menu(tv).getByRole("button", { name: "Add favorite", exact: true }).count(), 0);
             await menu(tv).getByRole("button", { name: "Retry personal actions", exact: true }).click();
@@ -453,6 +581,8 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await tv.page.emulateMedia({ reducedMotion });
             const catalog = await start(tv);
             await origin(tv).click();
+            await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
+            await tv.page.getByText("Loading personal actions.", { exact: true }).waitFor({ state: "hidden" });
             const watchlist = tv.page.locator('.browse [data-focus="watchlist"]').first();
             await watchlist.waitFor({ timeout: 1500 });
             const first = tv.fake.hold("/watchlist/movie%3Am0001", true);

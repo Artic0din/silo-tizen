@@ -200,7 +200,7 @@ The selected pill centers on initial display and selection, clamped to the row e
 The signed same-state comparison on 5 November 2026 at `93a39b3` confirmed the pill window; the later inset and hero corrections still need signed comparison.
 The current season keeps its current episode on focus, while a different season starts at E01 and retains pill focus until Down.
 Episode-card focus paints the loaded summary immediately, then reads missing full detail after 120 ms on the same episode, matching `TVItemDetailView.swift:805-858` at Apple source `df891d2e`.
-This is an explicit exception to the general no-focus-fetch rule, pending the owner's parity decision.
+This is an explicit exception to the general no-focus-fetch rule, approved for Apple TV parity.
 Cached episodes need no read; leaving before the dwell cancels it.
 The existing queue runs at most four detail reads, drops superseded queued focus reads, and keeps failures for explicit Retry rather than retrying on focus.
 Uncached playback and version/audio/subtitle activation resolve the selected episode's extra details explicitly.

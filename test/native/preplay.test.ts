@@ -69,6 +69,27 @@ test("episode playback owners evict old settled details and retain the selected 
     state.stop();
 });
 
+test("cached Series recovery revalidates its loaded episode owners", async () => {
+    const r = await rig(); r.state.stop();
+    const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
+    const seasons = decodeSeasons(r.catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body);
+    const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
+    state.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes());
+    state.start(); await settle();
+    const id = 'episode:s1e12';
+    state.focusEpisode(id);
+    state.loadNextEpisode();
+    await settle();
+    const previous = state.cachedEpisode(id);
+    assert.ok(previous);
+    state.offline = true;
+    state.acceptDetail(detail);
+    await settle();
+    assert.ok(state.cachedEpisode(id));
+    assert.notEqual(state.cachedEpisode(id), previous, 'fresh recovery replaces stale episode metadata and preferences');
+    state.stop();
+});
+
 for (const dismiss of [false, true]) test(`a deferred episode picker cannot replace a newer ${dismiss ? "dismissal" : "menu"}`, async () => {
     const r = await rig(); r.state.stop();
     const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);

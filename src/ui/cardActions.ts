@@ -1,4 +1,5 @@
 import { operations } from "../api/operations.ts";
+import { ApiError } from "../api/errors.ts";
 import type { Card } from "../contracts/v2/catalog.ts";
 import type { NativeSession } from "../session/session.ts";
 import { personalControls } from "./browseDetails.ts";
@@ -25,14 +26,16 @@ export class CardActions {
     private readonly closed: () => void;
     private readonly pendingElsewhere: () => boolean;
     private readonly information: ((card: Pick<Card, "id" | "title" | "type">) => void) | undefined;
+    private readonly cachedDetails: Pick<Map<string, DetailsState>, "get" | "delete"> | undefined;
 
-    constructor(container: HTMLElement, session: NativeSession, changed: (state: DetailsState) => void, closed: () => void, pendingElsewhere: () => boolean, information?: (card: Pick<Card, "id" | "title" | "type">) => void) {
+    constructor(container: HTMLElement, session: NativeSession, changed: (state: DetailsState) => void, closed: () => void, pendingElsewhere: () => boolean, information?: (card: Pick<Card, "id" | "title" | "type">) => void, cachedDetails?: Pick<Map<string, DetailsState>, "get" | "delete">) {
         this.container = container;
         this.session = session;
         this.changed = changed;
         this.closed = closed;
         this.pendingElsewhere = pendingElsewhere;
         this.information = information;
+        this.cachedDetails = cachedDetails;
     }
 
     get active(): boolean { return this.panel !== undefined; }
@@ -57,14 +60,25 @@ export class CardActions {
         this.controller = controller;
         this.failed = false;
         const retained = this.retained.get(card.id);
+        const cached = this.cachedDetails?.get(card.id);
         this.render();
-        this.session.call({ ...operations.getCatalogItem(card.id), profileScoped: true, signal: controller.signal }).then(detail => {
+        this.session.call({ ...operations.getCatalogItem(card.id), profileScoped: true, signal: controller.signal }).catch((error: unknown) => {
+            if (controller.signal.aborted || this.controller !== controller) throw error;
+            if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+                this.cachedDetails?.delete(card.id);
+                this.state?.stop();
+                this.state = undefined;
+            }
+            if (error instanceof ApiError && ["network", "timeout"].includes(error.failure.kind) && cached !== undefined) return cached.detail;
+            throw error;
+        }).then(detail => {
             if (controller.signal.aborted || this.controller !== controller) return;
             if (detail.id !== card.id || detail.type !== card.type) throw new Error("Card identity changed");
             const state = new DetailsState(detail, this.session, () => {
                 this.changed(state);
                 if (this.state === state) this.render();
             }, async () => this.changed(state), this.pendingElsewhere);
+            state.restore(cached);
             for (const [kind, change] of retained?.changes ?? []) state.changes.set(kind, change);
             this.state = state;
             state.start("personal");

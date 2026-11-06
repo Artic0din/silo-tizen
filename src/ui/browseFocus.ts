@@ -243,6 +243,12 @@ export class FocusHost {
         if (element !== undefined) this.scroll.reveal(element, this.container);
     }
 
+    scrollToTop(): void {
+        // Commit the fallback viewport before optional repaints remember its position.
+        this.scroll.stop();
+        this.viewport().scrollTop = 0;
+    }
+
     private viewport(): HTMLElement {
         return this.container.querySelector<HTMLElement>(".skyline-content") ?? this.container;
     }

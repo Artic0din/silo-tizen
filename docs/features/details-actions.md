@@ -80,9 +80,9 @@ Tizen keeps 16 recent settled playback owners per route, excluding owners protec
 Evicted episodes reload on a later dwell.
 Apple's `ResponseCache.swift:6-12,24-34` at `df891d2e` deliberately has no TTL or LRU and clears item data on memory warnings.
 Tizen uses a small route-local window because its cached entries also own preference state and authority listeners; there is no Apple numeric capacity to copy.
-This conflicts with AGENTS.md's general no-focus-fetch rule and requires an owner decision before landing.
+AGENTS.md names this episode-detail dwell as an approved no-focus-fetch exception for Apple TV parity; see [TV focus](../tv-focus.md).
 Full version duration drives the hero runtime, while the card retains the episode-list runtime (`TVDetailHero.swift:721-734`, `SelectedMediaRuntime.swift:4-28` at that SHA).
-This change has fake-server and desktop Chromium proof only; same-state Apple/Samsung comparison remains pending on the other Mac.
+This change has fake-server and desktop Chromium proof; same-state Apple/Samsung comparison and signed simulator journeys remain pending on the other Mac.
 Selected-season failures stay with their failed season rather than appearing below a loaded neighbour.
 Connectivity returning alone does not retry the row: `TVSeriesDetailView.swift:734-737,805` calls `retryHierarchy` only from Retry buttons, and `TVItemDetailView.swift:308` forwards that action to `retrySeriesHierarchy`.
 Explicit Retry reads the failed season once.

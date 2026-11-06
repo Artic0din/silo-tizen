@@ -33,6 +33,9 @@ journey("an explicit Home access refusal removes hydrated cached rows", async tv
 });
 
 journey("Home retains cached rows after remount offline and refreshes on recovery", async tv => {
+    // Round trips otherwise advance the page clock, so the 15s poll can start a request
+    // that the following jump then expires. Pausing leaves that request's timeout alone.
+    await pauseTvClock(tv);
     const before = await homeTitles(tv);
     let rejected = 0;
     assert.ok(before.length > 0);
@@ -45,7 +48,7 @@ journey("Home retains cached rows after remount offline and refreshes on recover
     await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.cacheOffline()), "cached transport failure");
     assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Can't reach server|showing cached content/);
     await tv.page.unroute("**/api/v2/**");
-    await tv.jump(50000);
+    await tv.jump(15000);
     await tv.eventually(() => tv.page.evaluate(() => !window.browseHarness.cacheOffline()), "recovered Home");
 });
 

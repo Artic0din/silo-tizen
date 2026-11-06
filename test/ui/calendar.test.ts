@@ -710,8 +710,13 @@ calendarTest("cached Calendar series recovery preserves the user's season and fo
     await tv.remote(10009);
     await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
     await tv.page.locator('.calendar-event[data-content-id="season:s1:2"]').click();
-    await tv.page.locator('[data-focus="season:1"]').click();
-    await tv.page.locator('[data-focus="season:1"]').focus();
+    await tv.page.locator('[data-focus="season:1"]').waitFor();
+    // Arrow keys record that the viewer left Play. A click focuses the season without that record,
+    // so the later recovery paint claims next-episode.
+    await tv.remote(40);
+    await tv.eventually(async () => (await tv.focused())?.startsWith("season:") === true, "season row");
+    for (let step = 0; step < 4 && await tv.focused() !== "season:1"; step++) await tv.remote(37);
+    await tv.remote(13);
     await tv.jump(35000);
     assert.equal(await tv.page.locator('[data-focus="season:1"]').getAttribute("aria-pressed"), "true");
     assert.equal(await tv.focused(), "season:1");

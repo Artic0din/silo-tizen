@@ -67,8 +67,13 @@ test("unwatched episode stills blur and descriptions drop while series text stay
         assert.equal(await tv.page.locator(".browse-overview").count(), 0);
         assert.equal(await tv.page.locator('[data-focus="synopsis"]').count(), 0);
         assert.equal(await tv.page.getByText("A synthetic episode for the browse tests.", { exact: true }).count(), 0);
-        assert.equal(await tv.page.locator(".details-hero .episode-spoiler-blur .skyline-backdrop").evaluate(node => getComputedStyle(node).filter), "blur(24px)");
-        const blur = await tv.page.locator(".details-hero .episode-spoiler-blur .skyline-backdrop").evaluate(node => ({ width: node.getBoundingClientRect().width, frame: node.parentElement!.getBoundingClientRect().width, margin: getComputedStyle(node).marginLeft }));
+        const blur = await readLive(tv, () => {
+            const node = document.querySelector(".details-hero .episode-spoiler-blur .skyline-backdrop");
+            const frame = node?.parentElement;
+            if (!(node instanceof HTMLElement) || !(frame instanceof HTMLElement) || !node.isConnected) return null;
+            return { filter: getComputedStyle(node).filter, width: node.getBoundingClientRect().width, frame: frame.getBoundingClientRect().width, margin: getComputedStyle(node).marginLeft };
+        }, undefined, value => value.filter === "blur(24px)" && value.width === value.frame + 48 && value.margin === "-24px", "spoiler hero blur");
+        assert.equal(blur.filter, "blur(24px)");
         assert.equal(blur.width, blur.frame + 48);
         assert.equal(blur.margin, "-24px");
         assert.deepEqual(tv.console, []);

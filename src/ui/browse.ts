@@ -2018,9 +2018,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         showVisibleRequestList(route, origin, revision);
         try {
             const updated: unknown = await session.call({ ...requestOperations.cancel(record.id), profileScoped: true, replayAfterRefresh: false });
+            const listed = visibleRequestList(route);
+            const focus = listFocusAfter(listed, record.id, origin);
             if (typeof updated === "object" && updated !== null && "id" in updated && "outcome" in updated) paintRequestRecord(updated as MediaRequest);
-            const focus = listFocusAfter(route, record.id, origin);
-            await settleVisibleRequests(route, focus, revision);
+            // Apple's hub applies the cancel result in place and does not reload (RequestsHubViewModel.applyRequestUpdate). A reload here can put the pending row back.
+            const kind = listed.requests.source.kind;
+            if (kind === "hub" || kind === "mine") showRequestList(listed, focus, revision);
+            else await settleVisibleRequests(route, focus, revision);
         } catch (error) {
             if (torn) return;
             if (writeMayHaveApplied(error)) {

@@ -1741,11 +1741,12 @@ test("a list cancel that settles after Requests was reopened refreshes the visib
         const fake = new FakeRequests();
         fake.created = true;
         const pending = { ...fake.record };
+        const other = { ...pending, id: "request-two", tmdb_id: 950, title: "Other" };
         await start(tv, fake);
         await openRequests(tv);
         await button(tv, "request-one").waitFor();
-        // FakeSilo applies cancel immediately; keep the visible row pending until settlement rereads.
-        tv.fake.script("/requests/mine?limit=50", ...Array.from({ length: 8 }, () => minePage([pending])), minePage([]));
+        // Later list answers still name the pending row. The cancel result has to win on the page that is open.
+        tv.fake.script("/requests/mine?limit=50", ...Array.from({ length: 8 }, () => minePage([pending, other])));
         const held = tv.fake.hold("/requests/request-one/cancel", true);
         await holdCard(tv, "request-one");
         await button(tv, "cancel-request").click();
@@ -1759,8 +1760,9 @@ test("a list cancel that settles after Requests was reopened refreshes the visib
         assert.equal(await button(tv, "request-one").getAttribute("data-request-actions"), null, "menus stay closed while the session-owned cancel runs");
         assert.equal(await button(tv, "request-one").getAttribute("data-busy"), "true");
         held.release();
-        await tv.eventually(async () => await button(tv, "request-one").count() === 0, "visible hub drops the cancelled card after settlement");
-        await button(tv, "movie:949").waitFor();
+        await tv.eventually(async () => await button(tv, "request-one").count() === 0 && await button(tv, "request-two").getAttribute("data-request-actions") === "cancel", "the open hub keeps the cancel result and unlocks the other row");
+        await tv.jump(200);
+        assert.equal(await button(tv, "request-one").count(), 0, "a later list answer cannot put the cancelled card back");
         assert.equal(tv.fake.paths().filter(path => path === "POST /requests/request-one/cancel").length, 1);
     } finally { await tv.page.context().close(); }
 });

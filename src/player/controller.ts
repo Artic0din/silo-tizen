@@ -1435,6 +1435,7 @@ export class PlaybackController implements PlayerControls {
         attempt.subtitleOverride = undefined;
         attempt.subtitleRestore = undefined;
         attempt.reporting = false;
+        attempt.queuedSubtitle = attempt.pendingSubtitle ?? attempt.queuedSubtitle;
         attempt.pendingSubtitle = undefined;
         attempt.recoverySpec = undefined;
         attempt.recoveryRetryAt = 0;

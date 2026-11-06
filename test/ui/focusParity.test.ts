@@ -643,7 +643,7 @@ test("settings, audio, calendar, filmography, personal and card actions keep vis
         assert.equal(await visibleFocus(tv), true, "audio overflow keeps the focused track visible");
         await tv.remote(BACK);
         assert.equal(await tv.focused(), "audio");
-        await tv.page.locator('[data-focus="person:7"]').first().click();
+        await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
         const personCard = tv.page.locator(".browse-grid .browse-card").first();
         await personCard.waitFor();
         const personId = await personCard.getAttribute("data-focus");
@@ -653,7 +653,7 @@ test("settings, audio, calendar, filmography, personal and card actions keep vis
         assert.equal(await tv.focused(), personId);
         assert.equal(await visibleFocus(tv), true, "Person return keeps its card visible");
         await tv.remote(BACK);
-        assert.equal(await tv.focused(), "person:7");
+        assert.match(await tv.focused() ?? "", /^credit:7:/);
         await tv.remote(BACK);
         await showing(tv, "home");
         await tv.page.locator('[data-focus="for_you"]').focus(); await tv.remote(40);

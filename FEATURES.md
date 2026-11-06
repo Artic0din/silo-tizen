@@ -91,7 +91,7 @@ File pointers are repository-relative.
 |---|:---:|:---:|:---:|---|
 | Movie and series details (artwork, facts, ratings, cast and crew, versions) | ✅ | ✅ | ✅ | Layout parity open (#92). Android: `TvItemDetailScreen` |
 | Series → seasons → episodes | ✅ | ✅ | ✅ | Tizen uses season chips and an inline episode rail; episode Select plays directly. Card actions retains explicit Episode information; season information remains in More |
-| Series Play follows next-up or the focused episode | ✅ | ✅ | ✅ | Tizen preloads the accepted season's episode details, switches the hero and selection target without a focus read, and refreshes progress at activation. Apple: `TVSeriesDetailView`. Android: `TvItemDetailScreen` |
+| Series Play follows next-up or the focused episode | ✅ | ✅ | ✅ | Tizen loads the playback episode on season acceptance and missing focused episode details after a 120 ms dwell, reuses retained owners, and refreshes progress at activation. The focus-read rule exception remains pending. Apple: `TVSeriesDetailView`. Android: `TvItemDetailScreen` |
 | Related titles | 🟡 | ✅ | ✅ | Series page shows "Could not load related titles" (#90). Apple: `TVSimilarRail` |
 | Person page (bio, age, photo, filmography preview) | ✅ | ✅ | ✅ | Layout parity open (#102). Android: `TvPersonDetailScreen` |
 | Full filmography (All, Movies, Series) | ✅ | ✅ | ✅ | Server-filtered, paged. Android: filter chips on `TvPersonDetailScreen`. Apple: `TVPersonDetailContent` with `PersonFilterBar`, paged |
@@ -126,7 +126,7 @@ File pointers are repository-relative.
 
 | Feature | Tizen | Apple TV | Android TV | Notes |
 |---|:---:|:---:|:---:|---|
-| Requests hub, discover rows, search, detail, My Requests, cancel | ✅ | ✅ | ✅ | Shown only when the server enables it. Bugs: focus (#74), status text (#75), artwork (#76). Layout parity open (#98). Tizen: a top-bar tab (`src/ui/navigation.ts`). Apple: in the profile menu (`TVMainTabView`). Android: `TvRequestsPage`, in the profile menu |
+| Requests hub, discover rows, search, detail, My Requests, cancel, remove a failed request | ✅ | ✅ | ✅ | Shown only when the server enables it. Remove Request needs `remove_failed_supported` and a failed request with nothing delivered. Bugs: focus (#74), status text (#75), artwork (#76). Layout parity open (#98). Tizen: a top-bar tab (`src/ui/navigation.ts`). Apple: in the profile menu (`TVMainTabView`). Android: `TvRequestsPage`, in the profile menu |
 | Follow / unfollow a requested title | ✅ | ✅ | ✅ | Android: "Notify me when available" when the server reports `follow_supported`. Apple: "Notify Me" in `RequestDetailView`, gated on `followSupported` |
 | Request administration | ➖ | ➖ | ➖ | Stays in web admin |
 

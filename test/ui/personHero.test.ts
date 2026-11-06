@@ -24,7 +24,7 @@ async function signIn(tv: Tv, catalog = new FakeDetails()): Promise<FakeDetails>
     await tv.page.evaluate(() => window.browseHarness.mount());
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').focus();
     await tv.page.keyboard.press("Enter");
-    await tv.page.locator('[data-focus="person:7"]').first().waitFor();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().waitFor();
     return catalog;
 }
 
@@ -34,7 +34,7 @@ async function person(tv: Tv, body: Record<string, unknown>): Promise<void> {
         contentType: "application/json",
         body: JSON.stringify({ id: "7", name: "River Vale", bio: "A synthetic performer whose work spans film and television.", birth_date: "1980-04-12", birthplace: "Melbourne", photo_url: "/art/river.svg", ...body }),
     }));
-    await tv.page.locator('[data-focus="person:7"]').first().focus();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().focus();
     await tv.page.keyboard.press("Enter");
     await tv.page.locator('.browse[data-view="person:7"] .person-portrait').waitFor();
     await tv.eventually(async () => await tv.page.getByText("Loading metadata", { exact: true }).count() === 0, "person metadata ready");
@@ -105,7 +105,7 @@ test("invalid and missing dates stay visible without inventing an age", async ()
             status: 200, contentType: "application/json",
             body: JSON.stringify({ id: "7", name: "River Vale", birth_date: "2000-02-29", photo_url: "/art/river.svg" }),
         }));
-        await tv.page.locator('[data-focus="person:7"]').first().focus();
+        await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().focus();
         await tv.page.keyboard.press("Enter");
         await tv.page.getByText("Born Feb 29, 2000", { exact: true }).waitFor();
         await tv.page.getByText("22 years old", { exact: true }).waitFor();
@@ -117,9 +117,9 @@ test("a portrait without a photo shows initials and does not request an image", 
     const tv = await openTv(browser, { app: "browse" });
     try {
         // Defer the preceding lazy image so the boundary cannot depend on viewport prefetch.
-        await tv.page.addStyleTag({ content: '[data-view^="item:"] [data-focus="person:7"] img { display: none; }' });
+        await tv.page.addStyleTag({ content: '[data-view^="item:"] .details-people [data-focus^="credit:7:"] img { display: none; }' });
         await signIn(tv);
-        await tv.page.locator('[data-focus="person:7"] img').first().evaluate(image => {
+        await tv.page.locator('.details-people [data-focus^="credit:7:"] img').first().evaluate(image => {
             const photo = image as HTMLImageElement;
             photo.loading = "eager";
             return photo.decode();

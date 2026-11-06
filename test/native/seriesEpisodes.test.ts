@@ -119,6 +119,52 @@ test("failed Retry survives cached selection and visit restoration without warmi
     assert.equal(restored.failed, true); restored.stop();
 });
 
+for (const season of [2, 3]) test(`explicit season ${season} Select supersedes Calendar entry through revalidation`, async t => {
+    const h = await episodeRailHarness(); t.after(() => h.state.stop());
+    h.state.entryEpisode = "rail:2:1";
+    h.state.select(season);
+    await h.settle();
+    assert.equal(h.state.selectionChanged, true);
+    assert.equal(h.state.entryEpisode, `rail:${season}:0`);
+    const refreshed = new SeriesEpisodes(h.core.session, "series:s1", h.state.seasons, () => undefined, season, `rail:${season}:1`);
+    t.after(() => refreshed.stop());
+    refreshed.restore(h.state, true);
+    h.state.stop();
+    refreshed.start(); await h.settle();
+    assert.equal(refreshed.entryEpisode, `rail:${season}:0`);
+    assert.equal(refreshed.selectionOwnsHero, true);
+});
+
+test("revalidation retries a selected season that failed during an outage", async t => {
+    const h = await episodeRailHarness(); t.after(() => h.state.stop());
+    h.fake.dropNextAnswer(operations.listSeasonEpisodes("series:s1", 4).path);
+    h.state.select(4); await h.settle();
+    assert.equal(h.state.failed, true);
+    const refreshed = new SeriesEpisodes(h.core.session, "series:s1", h.state.seasons, () => undefined, 4);
+    t.after(() => refreshed.stop());
+    refreshed.restore(h.state, true); h.state.stop();
+    refreshed.start(); await h.settle();
+    assert.equal(refreshed.failed, false);
+    assert.equal(refreshed.episodes?.[0]?.id, "rail:4:0");
+});
+
+test("another season's transport failure cannot clear a remembered HTTP refusal", async t => {
+    const h = await episodeRailHarness(1); t.after(() => h.state.stop());
+    h.fake.dropNextAnswer(operations.listSeasonEpisodes("series:s1", 4).path);
+    h.state.select(4); await h.settle();
+    assert.equal(h.state.failed, true);
+    h.state.select(3); await h.settle();
+    h.state.select(1, true); await h.settle();
+    assert.equal(h.state.failed, true);
+    const reads = h.reads();
+    const refreshed = new SeriesEpisodes(h.core.session, "series:s1", h.state.seasons, () => undefined, 1);
+    t.after(() => refreshed.stop());
+    refreshed.restore(h.state, true); h.state.stop();
+    refreshed.start(); await h.settle();
+    assert.equal(refreshed.failed, true);
+    assert.deepEqual(h.reads(), reads, "revalidation cannot retry the remembered refusal");
+});
+
 test("an invalidated series refreshes restored episode pages", async t => {
     const h = await episodeRailHarness(); t.after(() => h.state.stop());
     const restored = new SeriesEpisodes(h.core.session, "series:s1", h.state.seasons, () => undefined, 2);
@@ -361,6 +407,7 @@ test("focus crosses loaded seasons without episode reads or chained prefetch", a
         h.state.focus(id); t.mock.timers.tick(100); await h.settle();
     }
     assert.deepEqual(h.reads(), before, "all cached-season crossings and interior moves send zero reads");
+    assert.equal(h.state.selectionChanged, true, "cached recovery preserves a season selected through the continuous rail");
 });
 
 test("an unloaded outer boundary debounces one immediate neighbour read and never stacks requests", async t => {

@@ -3,10 +3,15 @@ import { problem, type Reply } from "./fakeSilo.ts";
 
 export class FakeRequests extends FakeDetails {
     enabled = true;
+    /** Apple remove_failed_supported. False omits the flag, as an older server does. */
+    removeFailed = true;
     following = false;
     requestedByOther = false;
     created = false;
     cancelled = false;
+    /** When set, DELETE is a lost answer: the server does not remove the row. */
+    loseRemove = false;
+    readonly removedIds = new Set<string>();
     requestsEmpty = false;
     requestFailure: Reply | undefined;
     readonly record = { id: "request-one", media_type: "movie", tmdb_id: 949, title: "Heat", overview: "A detective pursues a professional thief.", requested_by_profile_id: "p-owner", state: "pending", status: "pending", outcome: "active" };
@@ -17,14 +22,21 @@ export class FakeRequests extends FakeDetails {
     override route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): Reply | undefined {
         const url = new URL(path, "https://fake.invalid"), p = url.pathname;
         if (!p.startsWith("/requests")) return super.route(method, path, profileId, body);
-        if (p === "/requests/status") return { status: 200, body: { requests_enabled: this.enabled, allowed: true, state: this.enabled ? "available" : "disabled", follow_supported: true } };
+        if (p === "/requests/status") return { status: 200, body: { requests_enabled: this.enabled, allowed: true, state: this.enabled ? "available" : "disabled", follow_supported: true, ...(this.removeFailed ? { remove_failed_supported: true } : {}) } };
         if (!this.enabled) return problem(409, "capability_disabled", "Requests disabled");
         if (this.requestFailure !== undefined) return this.requestFailure;
         if (p === "/requests" && method === "POST") { this.created = true; this.cancelled = false; return { status: 201, body: this.record }; }
         if (p.endsWith("/cancel")) { this.created = false; this.cancelled = true; return { status: 200, body: { ...this.record, state: "cancelled", outcome: "cancelled" } }; }
+        if (method === "DELETE" && /^\/requests\/[^/]+$/.test(p)) {
+            if (!this.loseRemove) this.removedIds.add(decodeURIComponent(p.slice("/requests/".length)));
+            return { status: 204 };
+        }
         if (p.startsWith("/requests/follows/")) { this.following = method === "PUT"; return { status: method === "PUT" ? 200 : 204, ...(method === "PUT" ? { body: this.title().request } : {}) }; }
         if (p.startsWith("/requests/detail/")) return { status: 200, body: this.title() };
-        if (p === "/requests/mine") return { status: 200, body: { items: this.created || this.cancelled ? [{ ...this.record, ...(this.cancelled ? { state: "cancelled", outcome: "cancelled" } : {}) }] : [], page: { has_more: false } } };
+        if (p === "/requests/mine") {
+            const mine = this.created || this.cancelled ? [{ ...this.record, ...(this.cancelled ? { state: "cancelled", outcome: "cancelled" } : {}) }] : [];
+            return { status: 200, body: { items: mine.filter(item => !this.removedIds.has(item.id)), page: { has_more: false } } };
+        }
         if (p === `/requests/${this.record.id}`) return { status: 200, body: { ...this.record, ...(this.cancelled ? { state: "cancelled", outcome: "cancelled" } : {}) } };
         const page = { page: Number(url.searchParams.get("page") ?? 1), total_pages: 2, total_results: 2, results: this.requestsEmpty ? [] : [this.title()] };
         if (p === "/requests/search") return { status: 200, body: page };

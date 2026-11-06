@@ -927,6 +927,11 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         return !transport.contains(document.activeElement);
     };
 
+    const restoreSearchLanguage = (): void => {
+        const code = view.phase === "playing" || view.phase === "paused" ? view.tracks.subtitleTools?.search.language : undefined;
+        if (code !== undefined && code !== "") menuRestoreFocus = `subtitle-language:${code}`;
+    };
+
     const restoreSubtitlePicker = (): void => {
         if (subtitlePane.kind !== "picker") return;
         const origin = subtitlePane.origin;
@@ -943,7 +948,11 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                 return;
             }
             const phase = view.phase === "playing" || view.phase === "paused" ? view.tracks.subtitleTools?.search.phase : undefined;
-            if (phase !== undefined && phase !== "closed") { controls.subtitleTool({ kind: "search-back" }); return; }
+            if (phase !== undefined && phase !== "closed") {
+                if (phase !== "languages") restoreSearchLanguage();
+                controls.subtitleTool({ kind: "search-back" });
+                return;
+            }
             closeMenu();
             reveal();
             return;
@@ -1019,6 +1028,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             } else if (id?.startsWith("subtitle-language:")) {
                 controls.subtitleTool({ kind: "search-language", code: id.slice("subtitle-language:".length) });
             } else if (id === "subtitle-search-back" || id === "subtitle-search-cancel") {
+                const phase = view.phase === "playing" || view.phase === "paused" ? view.tracks.subtitleTools?.search.phase : undefined;
+                if (phase !== undefined && phase !== "languages" && phase !== "closed") restoreSearchLanguage();
                 controls.subtitleTool({ kind: "search-back" });
             } else if (id === "subtitle-search-retry") {
                 controls.subtitleTool({ kind: "search-retry" });

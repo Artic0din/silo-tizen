@@ -65,10 +65,29 @@ export class SubtitleDisplay {
             const support = subtitleControlSupport(contract, capability);
             effectiveSupported = support.styling || support.delay || support.deviceScope;
             const device = support.deviceScope ? await this.call(operations.deviceAppearance(this.profileId, this.session.http.deviceId)) : false;
-            const [appearance, delay] = await Promise.all([
+            const [appearance, readDelay] = await Promise.all([
                 support.styling ? this.call(subtitleOperations.subtitleAppearance(this.profileId)) : this.appearance,
                 support.delay ? this.call(subtitleOperations.subtitleSync()) : this.delayMs,
             ]);
+            let delay = readDelay;
+            // Older builds saved Delay on this device without turning the appearance override on.
+            // That row hides the profile offset. Apple clears it once the profile can store the offset.
+            if (!device && support.syncAtProfile && support.delay) {
+                try {
+                    const leftover = await this.call(operations.deviceTiming(this.profileId, this.session.http.deviceId));
+                    if (leftover) {
+                        try {
+                            await this.call(operations.delete(SYNC_KEY, "profile_device"));
+                            delay = await this.call(subtitleOperations.subtitleSync());
+                        } catch (error) {
+                            if (this.abort.signal.aborted || (error instanceof ApiError && error.aborted)) return;
+                            this.message = "This TV still has its own subtitle delay.";
+                        }
+                    }
+                } catch (error) {
+                    if (this.abort.signal.aborted || (error instanceof ApiError && error.aborted)) return;
+                }
+            }
             if (this.abort.signal.aborted) return;
             this.appearance = appearance;
             this.delayMs = delay;

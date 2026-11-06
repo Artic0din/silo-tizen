@@ -1687,6 +1687,30 @@ test("an empty audio list does not trap remote movement between Info and Subtitl
     }
 });
 
+test("backing out of subtitle results restores the chosen language", async () => {
+    const { page } = await open();
+    const search = {
+        offered: true, unavailableReason: "", phase: "results" as const,
+        suggested: [{ code: "ja", label: "Japanese" }],
+        other: [{ code: "en", label: "English" }],
+        language: "ja", status: "", message: "", warnings: [], canRetry: false,
+        results: [{ key: "opensubtitles:1", id: "1", provider: "opensubtitles", language: "ja", releaseName: "Example", format: "srt", score: 80, downloads: 1, hearingImpaired: false }],
+        downloadingKey: undefined,
+    };
+    const tracks: TrackView = { ...TRACKS, subtitleTools: { search, overlay: false } };
+    try {
+        await show(page, playing(tracks));
+        await openPanel(page);
+        for (let index = 0; index < 4; index++) await remote(page, RIGHT);
+        await remote(page, BACK);
+        assert.deepEqual(await commands(page), ['subtitleTool {"kind":"search-back"}']);
+        await show(page, playing({ ...tracks, subtitleTools: { search: { ...search, phase: "languages", results: [] }, overlay: false } }));
+        assert.equal(await focused(page), "subtitle-language:ja");
+        assert.equal(await page.locator('[data-focus="subtitle-language:ja"]').getAttribute("aria-pressed"), "true");
+        assert.equal(await page.locator('[data-focus="subtitle-language:en"]').getAttribute("aria-pressed"), "false");
+    } finally { await page.close(); }
+});
+
 test("subtitle search remains remote reachable without existing subtitle tracks", async () => {
     const { page } = await open();
     const tracks: TrackView = { ...TRACKS, subtitles: [], subtitleTools: {

@@ -91,7 +91,7 @@ export function fillSubtitleTools(list: HTMLElement, tracks: TrackView, pane: Su
             if (search.canRetry) list.append(choice("subtitle-search-retry", "Try Again", false));
         } else if (search.phase === "languages") {
             if (!search.offered && search.unavailableReason !== "") list.append(el("p", "player-menu-note", search.unavailableReason));
-            for (const item of [...search.suggested, ...search.other]) list.append(choice(`subtitle-language:${item.code}`, item.label, false, item.hint));
+            for (const item of [...search.suggested, ...search.other]) list.append(choice(`subtitle-language:${item.code}`, item.label, item.code === search.language, item.hint));
         } else {
             for (const warning of search.warnings) list.append(el("p", "player-menu-note", warning));
             if (search.message !== "") list.append(el("p", "player-menu-note", search.message));

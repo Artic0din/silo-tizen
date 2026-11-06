@@ -324,3 +324,41 @@ test("delay and appearance write the advertised scope and a failed write is reco
     assert.equal((deviceWrite?.body?.value as { position?: string }).position, "top");
     display.destroy();
 });
+
+test("a leftover device delay is removed when this TV does not keep its own appearance", async () => {
+    const h = await signed();
+    const deviceId = h.core.session.http.deviceId;
+    const deviceRow = (key: string, isSet: boolean) => ({ status: 200, body: { revision: 24, items: [{ key, scope: "profile_device", profile_id: "p-owner", device_id: deviceId, is_set: isSet }] } });
+    h.fake.script("/settings/contract/capabilities", { status: 200, body: capability(24) });
+    h.fake.script("/settings/contract", { status: 200, body: contract(24, [appearanceDef, syncDef]) });
+    h.fake.script(`/settings/values?scope=profile_device&keys=${APPEARANCE}`, deviceRow(APPEARANCE, false));
+    h.fake.script(`/settings/values?scope=profile_device&keys=${SYNC}`, deviceRow(SYNC, true));
+    h.fake.script(`/settings/values/${SYNC}?scope=profile_device`, { status: 204 });
+    h.fake.script("/settings/subtitle-appearance/effective", { status: 200, body: { profile_id: "p-owner", effective_value: JSON.stringify(DEFAULT_APPEARANCE) } });
+    h.fake.script(`/settings/values/effective?keys=${SYNC}`, { status: 200, body: { items: [{ key: SYNC, value: 800 }] } });
+    h.fake.script(`/settings/values/effective?keys=${SYNC}`, { status: 200, body: { items: [{ key: SYNC, value: 250 }] } });
+    const display = new SubtitleDisplay(h.core.session, "p-owner", () => undefined, () => undefined);
+    await display.load();
+    assert.equal(h.fake.requests.filter(request => request.method === "DELETE" && request.path === `/settings/values/${SYNC}?scope=profile_device`).length, 1);
+    assert.equal(display.view?.delayMs, 250);
+    assert.equal(display.view?.message, "");
+    display.destroy();
+});
+
+test("a leftover device delay that cannot be removed says this TV still has its own", async () => {
+    const h = await signed();
+    const deviceId = h.core.session.http.deviceId;
+    const deviceRow = (key: string, isSet: boolean) => ({ status: 200, body: { revision: 24, items: [{ key, scope: "profile_device", profile_id: "p-owner", device_id: deviceId, is_set: isSet }] } });
+    h.fake.script("/settings/contract/capabilities", { status: 200, body: capability(24) });
+    h.fake.script("/settings/contract", { status: 200, body: contract(24, [appearanceDef, syncDef]) });
+    h.fake.script(`/settings/values?scope=profile_device&keys=${APPEARANCE}`, deviceRow(APPEARANCE, false));
+    h.fake.script(`/settings/values?scope=profile_device&keys=${SYNC}`, deviceRow(SYNC, true));
+    h.fake.script(`/settings/values/${SYNC}?scope=profile_device`, problem(503, "unavailable", "Unavailable"));
+    h.fake.script("/settings/subtitle-appearance/effective", { status: 200, body: { profile_id: "p-owner", effective_value: JSON.stringify(DEFAULT_APPEARANCE) } });
+    h.fake.script(`/settings/values/effective?keys=${SYNC}`, { status: 200, body: { items: [{ key: SYNC, value: 800 }] } });
+    const display = new SubtitleDisplay(h.core.session, "p-owner", () => undefined, () => undefined);
+    await display.load();
+    assert.equal(display.view?.delayMs, 800);
+    assert.match(display.view?.message ?? "", /this TV still has its own/i);
+    display.destroy();
+});

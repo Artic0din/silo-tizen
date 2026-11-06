@@ -1372,7 +1372,9 @@ test("a seek during Up Next discovery does not leave the manual panel loading", 
     const hold = r.h.fake.hold("/watch/" + encodeURIComponent(EPISODE.contentId));
     r.controller.showUpNext();
     await r.h.clock.advance(0);
-    assert.equal(last(r.views).upNext?.loading, true);
+    const loading = last(r.views);
+    assert.ok(loading.phase === "playing" || loading.phase === "paused");
+    assert.equal(loading.upNext?.loading, true);
     r.controller.seekToSeconds(40);
     hold.release();
     await r.h.clock.advance(0);

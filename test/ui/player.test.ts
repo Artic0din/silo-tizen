@@ -183,7 +183,7 @@ test("Show Up Next is in the transport and its panel names the next episode", as
         await show(page, { ...view, episodes: true, upNext: { next: undefined, deck: [], countdown: undefined, status: "Up Next", loading: true } });
         assert.equal(await page.locator(".player-next-up .player-title").innerText(), "Finding the next episode");
         assert.equal(await page.getByText("Loading Up Next").count(), 0);
-        await show(page, { ...view, episodes: true, upNext: { next: { contentId: "episode:s1e13", fileId: "43", title: "Harbor Lights chapter 1.3" }, deck: [], countdown: undefined, status: "Up Next" } });
+        await show(page, { ...view, episodes: true, upNext: { next: { contentId: "episode:s1e13", fileId: "43", title: "Harbor Lights chapter 1.3", startSeconds: 0 }, deck: [], countdown: undefined, status: "Up Next" } });
         assert.equal(await page.locator(".player-next-up .player-title").innerText(), "Harbor Lights chapter 1.3");
         assert.equal(await page.getByText("Nothing to watch next").count(), 0);
         assert.equal(await page.getByText("Loading Up Next").count(), 0);

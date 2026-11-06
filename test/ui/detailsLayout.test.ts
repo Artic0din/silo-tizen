@@ -25,6 +25,44 @@ detailTest("cached series Play retains its episode label offline", async tv => {
     await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === before + 1, "cached episode reaches the ordinary playback handoff");
 });
 
+function ratingChipFrame(): { media: string; text: string; font: boolean; lineHeight: string; rowTop: number; rowBottom: number; rowHeight: number; chipTop: number; chipBottom: number; chipHeight: number; textTop: number; textBottom: number; heroRowTop: number; belowTop: number; logoReady: boolean; titleHeight: number; stack: number[] } | null {
+    const row = document.querySelector(".details-editorial .browse-meta");
+    const chip = row?.querySelector(".details-rating-badge:not([data-advisory-age])");
+    const hero = row?.closest(".details-hero");
+    const title = hero?.querySelector(".browse-title");
+    const logo = title?.querySelector(".details-logo");
+    if (!(row instanceof HTMLElement) || !(chip instanceof HTMLElement) || !(hero instanceof HTMLElement) || !(title instanceof HTMLElement) || !row.isConnected || !chip.isConnected || !title.isConnected) return null;
+    const rowBox = row.getBoundingClientRect();
+    const chipBox = chip.getBoundingClientRect();
+    const range = document.createRange();
+    range.selectNodeContents(chip);
+    const textBox = range.getBoundingClientRect();
+    const heroTop = hero.getBoundingClientRect().top;
+    const below = row.nextElementSibling;
+    return {
+        media: hero.dataset.mediaType ?? "",
+        text: chip.textContent ?? "",
+        font: document.fonts.check("700 18px Inter"),
+        lineHeight: getComputedStyle(chip).lineHeight,
+        rowTop: rowBox.top,
+        rowBottom: rowBox.bottom,
+        rowHeight: rowBox.height,
+        chipTop: chipBox.top,
+        chipBottom: chipBox.bottom,
+        chipHeight: chipBox.height,
+        textTop: textBox.top,
+        textBottom: textBox.bottom,
+        heroRowTop: rowBox.top - heroTop,
+        belowTop: below instanceof HTMLElement ? below.getBoundingClientRect().top - heroTop : Number.NaN,
+        logoReady: logo instanceof HTMLImageElement && logo.isConnected && logo.complete && logo.naturalWidth > 0,
+        titleHeight: title.getBoundingClientRect().height,
+        stack: [".browse-meta", ".browse-overview", ".details-director", ".details-playback-summary", ".browse-actions"].map(selector => {
+            const node = document.querySelector(`.details-editorial ${selector}`);
+            return node instanceof HTMLElement ? node.getBoundingClientRect().top - heroTop : Number.NaN;
+        }),
+    };
+}
+
 function liveRail(_arg: null): { left: number; width: number; scroll: number; padding: string; cards: { x: number; frameX: number; right: number; width: number }[] } | null {
     const row = document.querySelector(".details-episodes");
     if (!(row instanceof HTMLElement) || !row.isConnected) return null;
@@ -137,7 +175,7 @@ detailTest("focused episode hero loads full versions after Apple's dwell and reu
     await tv.jump(119);
     assert.equal(reads(), before, 'no request before 120ms');
     await tv.jump(1);
-    await tv.eventually(async () => (await tv.page.locator('.details-editorial .browse-meta').textContent() ?? '').split('·').map(value => value.trim()).includes('24m'), 'full episode duration');
+    await tv.eventually(async () => (await tv.page.locator('.details-editorial .details-fact').allTextContents()).includes('24m'), 'full episode duration');
     assert.deepEqual(await tv.page.locator('.details-playback-summary strong').allTextContents(), ['VERSION', 'AUDIO', 'SUBTITLES']);
     assert.deepEqual(await tv.page.locator('.details-playback-summary span').allTextContents(), ['Auto · 1080p', 'Auto · Unknown', 'Auto · None']);
     assert.equal(reads(), before + 1, 'one detail read for the settled episode');
@@ -161,7 +199,7 @@ detailTest("focused episode hero loads full versions after Apple's dwell and reu
     await tv.page.locator('[data-focus="episode:s1e21"][aria-current="true"]').waitFor();
     await tv.page.locator('[data-focus="episode:s1e21"]').focus();
     await tv.jump(120);
-    await tv.eventually(async () => (await tv.page.locator('.details-editorial .browse-meta').textContent() ?? '').split('·').map(value => value.trim()).includes('24m'), 'neighbour full duration');
+    await tv.eventually(async () => (await tv.page.locator('.details-editorial .details-fact').allTextContents()).includes('24m'), 'neighbour full duration');
     assert.deepEqual(await tv.page.locator('.details-playback-summary strong').allTextContents(), ['VERSION', 'AUDIO', 'SUBTITLES']);
     assert.deepEqual(await tv.page.locator('.details-playback-summary span').allTextContents(), ['Auto · 1080p', 'Auto · Unknown', 'Auto · None']);
     assert.equal(reads(), before + 2, 'one detail read for each settled episode across seasons');
@@ -1499,11 +1537,17 @@ detailTest('Genres have spacing on unrated Movies and stay omitted in the Series
         await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(id)}?**`, route => route.fulfill({ json: { ...body, ratings: [], genres: ['Drama', 'Thriller', 'Mystery'] } }));
         await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).first().click();
         await tv.page.locator('.details-genres').waitFor();
-        assert.equal(await tv.page.locator('.details-genres').textContent(), id === 'series:s1' ? 'Drama, Thriller' : 'Drama, Thriller, Mystery');
+        assert.equal(await tv.page.locator('.details-genres').textContent(), 'Drama, Thriller');
         if (id === 'series:s1') await tv.page.locator('[data-focus="episode:s1e11"]').focus();
         const text = await tv.page.locator('.details-editorial .browse-meta').textContent() ?? '';
         assert.equal(text.split('Drama').length - 1, id === 'series:s1' ? 0 : 1);
-        if (id !== 'series:s1') assert.match(text, /\sDrama, Thriller/);
+        // A details repaint detaches the genres node between locator resolution and evaluate.
+        // The replacement row is already painted with the divider; read that live node.
+        if (id !== 'series:s1') assert.equal(await readLive(tv, () => {
+            const node = document.querySelector('.details-genres');
+            if (!(node instanceof HTMLElement) || !node.isConnected) return null;
+            return getComputedStyle(node, '::before').content;
+        }, null, value => value === '"·"', 'genre divider on the settled metadata row'), '"·"');
         await tv.remote(10009);
     }
 });
@@ -1730,6 +1774,101 @@ detailTest('Details samples the artwork tint and presents the rating badge, runt
     assert.match(await tv.page.locator('.details-editorial .browse-meta').textContent() ?? '', /1h 30m/);
     assert.equal(await tv.page.locator('.details-director').textContent(), 'Directed by River Vale');
     assert.deepEqual(await tv.page.locator('.details-playback-summary strong').allTextContents(), ['VERSION', 'AUDIO', 'SUBTITLES']);
+});
+
+detailTest('the metadata row leads with outlined rating and advisory chips, then text facts', async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    new FakeSettings(tv.fake).profile().set('catalog.show_advisory_age', true);
+    const body = catalog.route('GET', '/catalog/items/movie%3Am0001', 'p-owner')?.body as Record<string, unknown>;
+    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001?**', route => route.fulfill({ json: {
+        ...body, content_rating: 'PG', advisory_age: 13, advisory_source: 'commonsense',
+        genres: ['Drama', 'Thriller', 'Mystery'],
+        ratings: [{ name: 'TMDB', source: 'tmdb', score: 68, display: '6.8' }],
+    } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    const row = await readLive(tv, () => {
+        const node = document.querySelector('.details-editorial .browse-meta');
+        const chip = node?.querySelector('[data-advisory-age]');
+        const rating = node?.querySelector('.details-rating-badge:not([data-advisory-age])');
+        if (!(node instanceof HTMLElement) || !(chip instanceof HTMLElement) || !(rating instanceof HTMLElement) || !node.isConnected) return null;
+        const style = getComputedStyle(chip);
+        const fact = node.querySelector('.details-fact:nth-of-type(n)');
+        const secondFact = [...node.querySelectorAll('.details-fact')][1];
+        const divider = secondFact === undefined ? '' : getComputedStyle(secondFact, '::before').content;
+        return {
+            order: [...node.children].map(child => child.classList.contains('details-external-rating') ? 'TMDB' : child.textContent).join('|'),
+            rows: document.querySelectorAll('.details-editorial .browse-meta').length,
+            gap: getComputedStyle(node).columnGap,
+            size: style.fontSize,
+            weight: style.fontWeight,
+            radius: style.borderTopLeftRadius,
+            border: style.borderTopWidth,
+            padTop: style.paddingTop,
+            padLeft: style.paddingLeft,
+            ink: style.color,
+            stroke: style.borderTopColor,
+            divider,
+            dividerSize: secondFact === undefined ? '' : getComputedStyle(secondFact, '::before').fontSize,
+            factColor: fact instanceof HTMLElement ? getComputedStyle(fact).color : '',
+            factWeight: fact instanceof HTMLElement ? getComputedStyle(fact).fontWeight : '',
+            genres: node.querySelector('.details-genres')?.textContent ?? '',
+        };
+    }, null, value => value.order.startsWith('PG|Common Sense 13+|1991|1h 30m|TMDB|Drama, Thriller') && value.gap === '14px' && value.size === '18px' && value.rows === 1, 'outlined advisory chip in the one metadata row');
+    assert.equal(row.order, 'PG|Common Sense 13+|1991|1h 30m|TMDB|Drama, Thriller');
+    assert.equal(row.rows, 1);
+    assert.equal(row.gap, '14px');
+    assert.equal(row.size, '18px');
+    assert.equal(row.weight, '700');
+    assert.equal(row.radius, '5px');
+    // Swift's stroke is 1.5. Chromium's used width for that specified border is 1px.
+    assert.equal(row.border, '1px');
+    assert.equal(row.padTop, '4px');
+    assert.equal(row.padLeft, '10px');
+    assert.equal(row.ink, 'rgb(255, 255, 255)');
+    assert.equal(row.stroke, 'rgba(255, 255, 255, 0.78)');
+    assert.equal(row.divider, '"·"');
+    assert.equal(row.dividerSize, '22px');
+    assert.equal(row.factColor, 'rgba(255, 255, 255, 0.88)');
+    assert.equal(row.factWeight, '500');
+    assert.equal(row.genres, 'Drama, Thriller');
+});
+
+detailTest('rating chips fit inside the clipped metadata row on movie, episode and series', async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    for (const id of ['movie:m0001', 'series:s1', 'episode:s1e11']) {
+        const body = catalog.route('GET', `/catalog/items/${encodeURIComponent(id)}`, 'p-owner')?.body as Record<string, unknown>;
+        await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(id)}?**`, route => route.fulfill({ json: { ...body, content_rating: 'PG-13' } }));
+    }
+    const open = async (id: string): Promise<void> => {
+        await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).first().click();
+        await tv.page.locator('.details-rating-badge').waitFor();
+        await tv.page.evaluate(() => document.fonts.ready);
+    };
+    const frames = [];
+    await open('movie:m0001');
+    // The movie title is 110px of text until its logo decodes, then the 160px slot.
+    // That swap moves this row from 240 to 290. Apple shows the same text fallback
+    // and does not reserve the slot, so the read waits for the decoded logo.
+    frames.push(await readLive(tv, ratingChipFrame, null, value => value.media === 'movie' && value.text === 'PG-13' && value.font && Math.abs(value.rowHeight - 33) < 0.5 && value.logoReady && Math.abs(value.titleHeight - 160) < 0.5, 'movie settled rating chip'));
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="home"]').waitFor();
+    await open('series:s1');
+    frames.push(await readLive(tv, ratingChipFrame, null, value => value.media === 'series' && value.text === 'PG-13' && value.font && Math.abs(value.rowHeight - 36) < 0.5, 'series settled rating chip'));
+    await tv.page.locator('[data-focus="episode:s1e11"]').click({ button: 'right' });
+    await tv.page.locator('[data-focus="episode-information"]').click();
+    await tv.page.locator('[data-view="item:episode:s1e11"]').waitFor();
+    await tv.page.evaluate(() => document.fonts.ready);
+    frames.push(await readLive(tv, ratingChipFrame, null, value => value.media === 'episode' && value.text === 'PG-13' && value.font && Math.abs(value.rowHeight - 33) < 0.5, 'episode settled rating chip'));
+    const clipped = frames.filter(frame => frame.chipTop < frame.rowTop - 0.01 || frame.chipBottom > frame.rowBottom + 0.01 || frame.textTop < frame.rowTop - 0.01 || frame.textBottom > frame.rowBottom + 0.01);
+    assert.deepEqual(clipped, []);
+    // SF Pro 18pt line height is 21.19921875. Chromium serializes the used value as 21.1992px.
+    for (const frame of frames) assert.ok(Math.abs(parseFloat(frame.lineHeight) - 21.19921875) < 0.001, frame.lineHeight);
+    // The row and the item under it stay put. Measured before the line-height change.
+    assert.deepEqual(frames.map(frame => ({ media: frame.media, heroRowTop: frame.heroRowTop, belowTop: frame.belowTop })), [
+        { media: 'movie', heroRowTop: 290, belowTop: 333 },
+        { media: 'series', heroRowTop: 240, belowTop: 286 },
+        { media: 'episode', heroRowTop: 293, belowTop: 336 },
+    ]);
 });
 
 detailTest('Series thumbnail dimensions follow the Apple poster-size scale', async tv => {
@@ -2113,7 +2252,10 @@ for (const check of ['cast', 'caption', 'season', 'description', 'menu', 'metada
         assert.equal(await tv.page.locator('.details-more-popover').evaluate(node => getComputedStyle(node).backgroundColor), 'rgba(0, 0, 0, 0.45)');
     } else if (check === 'sparse metadata') {
         await tv.page.locator('[data-focus="episode:s1e11"]').focus();
-        await tv.eventually(async () => (await tv.page.locator('.details-editorial .browse-meta').textContent()) === 'Season 1\u2002·\u2002Episode 1', 'sparse episode identifiers');
+        await tv.eventually(async () => {
+            const tokens = await tv.page.locator('.details-editorial .details-source').allTextContents();
+            return tokens.join('|') === 'Season 1|Episode 1';
+        }, 'sparse episode identifiers');
     } else {
         await tv.page.locator('[data-focus="episode:s1e11"]').focus();
         await tv.eventually(async () => (await tv.page.locator('.details-editorial .browse-meta').textContent())?.includes('Season 1') === true, 'episode hero');

@@ -10,10 +10,14 @@
 .accounts-rail button { width: 520px; font-size: 25px; }
 .accounts-rail button { height: 88px; box-sizing: border-box; padding-block: 15px; }
 .accounts-pane > button { width: 760px; min-height: 128px; border-radius: 30px; padding: 24px; font-size: 34px; }
-.accounts-screen button:focus { color: #000; background: #ededed; outline: none; }
+/* TVChangeAccountRailRowStyle and TVAccountCardStyle disable the system focus effect.
+   A focused rail row is #EDEDED with no stroke. A focused card is the same fill, grown 3%,
+   with a black shadow (radius 24, y 12; CSS blur is twice that radius) and no resting hairline. */
+.accounts-screen button:focus { color: #000; background: #ededed; outline: none; border-color: transparent; box-shadow: none; }
 .accounts-pane > button:focus { transform: scale(1.03); }
 .account-card { display: flex; align-items: center; gap: 22px; }
 .accounts-pane > button.account-card { height: 128px; border: 0; box-shadow: inset 0 0 0 1px #ffffff24; }
+.accounts-pane > button.account-card:focus { box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45); }
 .accounts-server-mark { width: 56px; height: 56px; object-fit: contain; margin-right: 18px; vertical-align: middle; }
 .account-initial { width: 80px; height: 80px; display: grid; place-items: center; border-radius: 20px; background: linear-gradient(to bottom right, #eaa65c, #a8521d, #5e290d); color: #fff6ea; flex-shrink: 0; }
 .account-name { font-size: 34px; font-weight: 700; flex: 1; overflow: hidden; }
@@ -21,10 +25,14 @@
 .account-badge { font-size: 18px; font-weight: 600; letter-spacing: .8px; border: 1px solid #ffffff24; border-radius: 18px; padding: 7px 16px; color: #ededed; background: #000d; white-space: nowrap; }
 .accounts-dialog { margin: 160px auto; width: 1000px; padding: 48px; background: #15171c; border-radius: 30px; }
 .accounts-dialog button { margin: 12px; min-width: 240px; }
-.accounts-screen .accounts-scrim { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to top, #0008, transparent 35%), linear-gradient(to right, #000c, #0009 30%, #0003 58%, #0002 80%, #0005); }
+/* TVSettingsPaneRowStyle on the dialog's Cancel: clear border, #EDEDED platter, scale 1.012, black shadow. */
+.accounts-dialog button:focus { border-color: transparent; box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5); transform: scale(1.012); }
+/* MarqueeScrim .leading: horizontal darkening, then the bottom band on top. */
+.accounts-screen .accounts-scrim { position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(to top, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0) 35%), linear-gradient(to right, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.55) 30%, rgba(0, 0, 0, 0.2) 58%, rgba(0, 0, 0, 0.1) 80%, rgba(0, 0, 0, 0.3) 100%); }
 .accounts-screen > .signin-text { line-height: 39.2px; }
 .accounts-rail button { background: transparent; border-color: transparent; }
-.accounts-rail button[aria-selected="true"]:not(:focus) { background: #ffffff12; }
+/* TVChangeAccountRailRowStyle: an unfocused selected server is siloChromeSelectedFill, white at 0.14. */
+.accounts-rail button[aria-selected="true"]:not(:focus) { background: rgba(255, 255, 255, 0.14); }
 .accounts-rail [data-focus="add-server"] { margin-top: 8px; }
 .accounts-plus { display: inline-grid; place-items: center; font-size: 28px; }
 .accounts-management { padding: 128px 168px; }
@@ -35,6 +43,8 @@
 .accounts-settings h1 { margin: 0 0 5px; font-size: 42px; }
 .accounts-settings-header p { margin: 0; font-size: 20px; color: var(--silo-secondary); }
 .accounts-settings button { display: flex; align-items: center; gap: 16px; font-size: 26px; min-height: 66px; height: 66px; padding: 17px 24px; border-radius: 14px; }
+/* TVSettingsPaneRowStyle: focused rows drop the hairline. The platter scales 1.012 under a black shadow. */
+.accounts-settings button:focus { border-color: transparent; box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5); transform: scale(1.012); }
 .accounts-row-title { flex: 1; }
 .accounts-row-value { font-size: 24px; opacity: .68; }
 .accounts-chevron { display: flex; opacity: .55; }

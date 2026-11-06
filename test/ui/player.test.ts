@@ -138,7 +138,7 @@ test("measured Apple playback geometry", async () => {
     } finally { await page.close(); }
 });
 
-test("transport focus re-arms five seconds then hides and hidden Up does nothing", async () => {
+test("transport focus re-arms five seconds then hides and hidden Up reveals the scrubber", async () => {
     const { page } = await open();
     try {
         await show(page, playing(TRACKS));
@@ -150,7 +150,8 @@ test("transport focus re-arms five seconds then hides and hidden Up does nothing
         await page.clock.runFor(100);
         assert.equal(await page.locator(".player-overlay-hidden").count(), 1);
         await remote(page, UP);
-        assert.equal(await page.locator(".player-overlay-hidden").count(), 1);
+        assert.equal(await page.locator(".player-overlay-hidden").count(), 0);
+        assert.equal(await focused(page), "position");
     } finally { await page.close(); }
 });
 
@@ -161,7 +162,14 @@ test("hidden Down opens Info and hidden Right returns to scrubber", async () => 
         await page.clock.runFor(5000);
         await remote(page, DOWN);
         assert.equal(await page.locator(".player-hud").isVisible(), true);
+        assert.equal(await page.locator(".player-overlay .player-title").isVisible(), false);
+        assert.equal(await page.locator(".player-bar").isVisible(), false);
+        assert.equal(await page.locator(".player-transport").isVisible(), false);
         await remote(page, BACK);
+        assert.equal(await page.locator(".player-overlay .player-title").isVisible(), true);
+        assert.equal(await page.locator(".player-bar").isVisible(), true);
+        assert.equal(await page.locator(".player-transport").isVisible(), true);
+        assert.equal(await focused(page), "position");
         await page.clock.runFor(5000);
         await remote(page, RIGHT);
         assert.equal(await focused(page), "position");
@@ -211,6 +219,22 @@ test("episode footer shows series, title and episode tag without an empty status
         assert.equal(await page.locator(".player-title").first().textContent(), "Going Green");
         assert.equal(await page.locator(".player-episode").textContent(), "S1 · E25");
         assert.equal(await page.locator(".player-status").isVisible(), false);
+        const tops = async (): Promise<{ series: number; title: number; episode: number; episodeX: number }> => page.evaluate(() => {
+            const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+            return { series: box(".player-series").y, title: box(".player-overlay .player-title").y, episode: box(".player-episode").y, episodeX: box(".player-episode").x };
+        });
+        const playingTops = await tops();
+        assert.ok(Math.abs(playingTops.series - 711) < 0.5, `series y ${playingTops.series}`);
+        assert.ok(Math.abs(playingTops.title - 737) < 0.5, `title y ${playingTops.title}`);
+        assert.ok(Math.abs(playingTops.episode - 747) < 0.5, `episode y ${playingTops.episode}`);
+        assert.equal(await page.locator(".player-series").evaluate((node) => node.getBoundingClientRect().x), 160);
+        await show(page, { ...playing(TRACKS), phase: "paused", title: "Going Green", seriesTitle: "The Series", seasonNumber: 1, episodeNumber: 25 });
+        assert.equal(await page.locator(".player-status").isVisible(), false);
+        assert.deepEqual(await tops(), playingTops);
+        await show(page, { ...playing(TRACKS), buffering: true, title: "Going Green", seriesTitle: "The Series", seasonNumber: 1, episodeNumber: 25 });
+        assert.equal(await page.locator(".player-spinner").isVisible(), true);
+        assert.equal(await page.locator(".player-status").isVisible(), false);
+        assert.deepEqual(await tops(), playingTops);
     } finally { await page.close(); }
 });
 
@@ -736,6 +760,37 @@ for (const ending of ["back", "loading", "destroy"] as const) test(`a committed 
     } finally { await page.close(); }
 });
 
+test("one Right in scrub mode steps the profile forward interval once", async () => {
+    const { page } = await open();
+    try {
+        // 8:41. tvOS and the contract default the forward interval to 30, and one click steps once.
+        await show(page, { ...playing(TRACKS), positionSeconds: 521, seekIntervals: { backward: 10, forward: 30 } });
+        await remote(page, ENTER);
+        await remote(page, RIGHT);
+        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), "551");
+        await remote(page, BACK);
+        await show(page, { ...playing(TRACKS), positionSeconds: 521, seekIntervals: { backward: 10, forward: 60 } });
+        await remote(page, ENTER);
+        await remote(page, RIGHT);
+        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), "581");
+    } finally { await page.close(); }
+});
+
+test("skip digits match the 25pt semibold symbol", async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), seekIntervals: { backward: 30, forward: 30 } });
+        await page.evaluate(() => document.fonts.ready);
+        // SF Symbol goforward.30 at 25pt semibold has 9.25px of digit ink. The old mark used font-size 7 in this 25px icon.
+        const height = await page.locator("[data-focus='forward'] text").evaluate((node) => {
+            if (!(node instanceof SVGGraphicsElement) || node.ownerSVGElement === null) return 0;
+            const fontSize = Number(node.getAttribute("font-size"));
+            return fontSize * node.ownerSVGElement.getBoundingClientRect().height / node.ownerSVGElement.viewBox.baseVal.height;
+        });
+        assert.ok(Math.abs(height - 9.25) < 0.15, `digit height ${height}`);
+    } finally { await page.close(); }
+});
+
 test("the scrubber steps, scrubs and seeks like the Apple TV remote", async () => {
     const { page, logs } = await open();
     try {
@@ -907,8 +962,11 @@ async function capture(page: Page, name: string): Promise<void> {
 test("loading, playing and paused are readable; the remote cancels a seek preview and goes back with focus kept", async () => {
     const { page, logs } = await open();
     try {
-        assert.equal(await text(page, ".player-status"), "Loading");
-        assert.equal(await text(page, ".player-overlay .player-title"), "The Movie");
+        assert.equal(await page.locator(".player-spinner").isVisible(), true);
+        assert.equal(await page.locator(".player-spinner").getAttribute("aria-label"), "Loading");
+        assert.equal(await page.locator(".player-overlay .player-title").isVisible(), false);
+        assert.equal(await page.locator(".player-bar").isVisible(), false);
+        assert.equal(await page.locator(".player-status").isVisible(), false);
         assert.equal(await focused(page), "player");
 
         await show(page, { phase: "playing", title: "The Movie", positionSeconds: 754, durationSeconds: 7200, buffering: false, seekIntervals: { backward: 10, forward: 10 }, tracks: NO_TRACKS });
@@ -925,7 +983,7 @@ test("loading, playing and paused are readable; the remote cancels a seek previe
         await remote(page, RIGHT);
         assert.equal(await page.locator(".player-overlay").getAttribute("class"), "player-overlay", "a key brings the overlay back");
         await show(page, { phase: "paused", title: "The Movie", positionSeconds: 759, durationSeconds: undefined, buffering: false, seekIntervals: { backward: 10, forward: 10 }, tracks: NO_TRACKS });
-        assert.equal(await text(page, ".player-status"), "Paused");
+        assert.equal(await page.locator(".player-status").isVisible(), false);
         assert.equal(await text(page, ".player-time"), "12:39");
         await capture(page, "player-paused");
         await remote(page, BACK);
@@ -1057,20 +1115,6 @@ test("the open panel is Apple's 1100 by 380 tabbed HUD and the clock is elapsed 
     try {
         const quality = { choices: [{ id: "auto", label: "Auto" }, { id: "1080p-medium", label: "1080p Medium (6 Mbps)" }], selectedId: "auto" };
         await show(page, playing({ ...TRACKS, quality }));
-        // Old Down opened the panel.
-        await openPanel(page);
-        const panel = await page.locator(".player-menu").evaluate((node) => {
-            const style = getComputedStyle(node);
-            const box = node.getBoundingClientRect();
-            return { width: box.width, height: box.height, radius: style.borderTopLeftRadius, border: style.borderTopColor, shadow: style.boxShadow };
-        });
-        assert.equal(panel.width, 1100);
-        assert.equal(panel.height, 380);
-        assert.equal(panel.radius, "28px");
-        assert.equal(panel.border, "rgba(255, 255, 255, 0.14)");
-        assert.match(panel.shadow, /rgba\(0, 0, 0, 0\.5\)/);
-        // Old tabs were Audio, Subtitles, Video. Info leads, and Video follows Subtitles.
-        assert.deepEqual(await page.locator(".player-tab:not([hidden])").allTextContents(), ["Info", "Audio", "Subtitles", "Video"]);
         const elapsed = page.locator(".player-time-elapsed");
         const remaining = page.locator(".player-time-remaining");
         assert.equal(await elapsed.innerText(), "12:34");
@@ -1085,6 +1129,24 @@ test("the open panel is Apple's 1100 by 380 tabbed HUD and the clock is elapsed 
         assert.equal(puck.width, 30);
         assert.equal(puck.height, 30);
         assert.equal(puck.color, "rgb(255, 255, 255)");
+        // Old Down opened the panel.
+        await openPanel(page);
+        const panel = await page.locator(".player-menu").evaluate((node) => {
+            const style = getComputedStyle(node);
+            const box = node.getBoundingClientRect();
+            return { width: box.width, height: box.height, radius: style.borderTopLeftRadius, border: style.borderTopColor, shadow: style.boxShadow };
+        });
+        assert.equal(panel.width, 1100);
+        assert.equal(panel.height, 380);
+        assert.equal(panel.radius, "28px");
+        assert.equal(panel.border, "rgba(255, 255, 255, 0.14)");
+        assert.match(panel.shadow, /rgba\(0, 0, 0, 0\.5\)/);
+        // Old tabs were Audio, Subtitles, Video. Info leads, and Video follows Subtitles.
+        assert.deepEqual(await page.locator(".player-tab:not([hidden])").allTextContents(), ["Info", "Audio", "Subtitles", "Video"]);
+        assert.equal(await page.locator(".player-overlay .player-title").isVisible(), false);
+        assert.equal(await page.locator(".player-bar").isVisible(), false);
+        assert.equal(await page.locator(".player-time").isVisible(), false);
+        assert.equal(await page.locator(".player-transport").isVisible(), false);
     } finally {
         await page.close();
     }
@@ -1350,7 +1412,8 @@ test("a screen mounted while hidden suspends its loading attempt and restores wh
     const { page, logs } = await open(true);
     try {
         assert.deepEqual(await commands(page), ["suspend"]);
-        assert.equal(await text(page, ".player-status"), "Loading");
+        assert.equal(await page.locator(".player-spinner").isVisible(), true);
+        assert.equal(await page.locator(".player-status").isVisible(), false);
         assert.equal(await page.locator(".player-error").isVisible(), false);
         await page.evaluate(() => {
             Object.defineProperty(document, "hidden", { configurable: true, value: false });

@@ -16,7 +16,7 @@ import { cachedBranding, storeBranding } from "./brandingCache.ts";
 import { codeScreen, type CodeScreen } from "./codeScreen.ts";
 import { credentialsScreen, type CredentialsScreen } from "./credentialsScreen.ts";
 import { actionRow, chip, errorText, field, headline, keyboardCard, lead, marqueeButton, marqueeScreen, noteChips, setServerMark, setupNeededCard, textInput } from "./marquee.ts";
-import { MarqueeBackdrop } from "./marqueeBackdrop.ts";
+import { MarqueeBackdrop, marqueeScene } from "./marqueeBackdrop.ts";
 import { type Control, el, type Note, type Screen, ScreenHost } from "./screen.ts";
 import * as text from "./signInText.ts";
 import { AccountDirectory } from "../session/accounts.ts";
@@ -156,10 +156,15 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         root.classList.remove("signin", "signin-auth");
     };
 
-    /** MarqueeScene: the generic light until a server answers, then the server's, with its accent. */
+    /** MarqueeScene: choosing a server is generic; a confirmed server is the account stage. */
     const show = (screen: Screen, focus?: string): void => {
         const choosing = SERVER_SCREENS.has(screen.name);
-        backdrop.setStage(choosing ? 0 : 1);
+        if (choosing) marqueeScene.showGeneric();
+        else {
+            marqueeScene.showServer();
+            marqueeScene.focus = "account";
+        }
+        backdrop.setStage(marqueeScene.stage);
         backdrop.setAccent(choosing ? undefined : active?.accent);
         host.show(screen, focus);
         fitCodeActions(root);

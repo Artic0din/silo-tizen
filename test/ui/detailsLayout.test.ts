@@ -25,11 +25,13 @@ detailTest("cached series Play retains its episode label offline", async tv => {
     await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === before + 1, "cached episode reaches the ordinary playback handoff");
 });
 
-function ratingChipFrame(): { media: string; text: string; font: boolean; lineHeight: string; rowTop: number; rowBottom: number; rowHeight: number; chipTop: number; chipBottom: number; chipHeight: number; textTop: number; textBottom: number; heroRowTop: number; belowTop: number; stack: number[] } | null {
+function ratingChipFrame(): { media: string; text: string; font: boolean; lineHeight: string; rowTop: number; rowBottom: number; rowHeight: number; chipTop: number; chipBottom: number; chipHeight: number; textTop: number; textBottom: number; heroRowTop: number; belowTop: number; logoReady: boolean; titleHeight: number; stack: number[] } | null {
     const row = document.querySelector(".details-editorial .browse-meta");
     const chip = row?.querySelector(".details-rating-badge:not([data-advisory-age])");
     const hero = row?.closest(".details-hero");
-    if (!(row instanceof HTMLElement) || !(chip instanceof HTMLElement) || !(hero instanceof HTMLElement) || !row.isConnected || !chip.isConnected) return null;
+    const title = hero?.querySelector(".browse-title");
+    const logo = title?.querySelector(".details-logo");
+    if (!(row instanceof HTMLElement) || !(chip instanceof HTMLElement) || !(hero instanceof HTMLElement) || !(title instanceof HTMLElement) || !row.isConnected || !chip.isConnected || !title.isConnected) return null;
     const rowBox = row.getBoundingClientRect();
     const chipBox = chip.getBoundingClientRect();
     const range = document.createRange();
@@ -52,6 +54,8 @@ function ratingChipFrame(): { media: string; text: string; font: boolean; lineHe
         textBottom: textBox.bottom,
         heroRowTop: rowBox.top - heroTop,
         belowTop: below instanceof HTMLElement ? below.getBoundingClientRect().top - heroTop : Number.NaN,
+        logoReady: logo instanceof HTMLImageElement && logo.isConnected && logo.complete && logo.naturalWidth > 0,
+        titleHeight: title.getBoundingClientRect().height,
         stack: [".browse-meta", ".browse-overview", ".details-director", ".details-playback-summary", ".browse-actions"].map(selector => {
             const node = document.querySelector(`.details-editorial ${selector}`);
             return node instanceof HTMLElement ? node.getBoundingClientRect().top - heroTop : Number.NaN;
@@ -1842,7 +1846,10 @@ detailTest('rating chips fit inside the clipped metadata row on movie, episode a
     };
     const frames = [];
     await open('movie:m0001');
-    frames.push(await readLive(tv, ratingChipFrame, null, value => value.media === 'movie' && value.text === 'PG-13' && value.font && Math.abs(value.rowHeight - 33) < 0.5, 'movie settled rating chip'));
+    // The movie title is 110px of text until its logo decodes, then the 160px slot.
+    // That swap moves this row from 240 to 290. Apple shows the same text fallback
+    // and does not reserve the slot, so the read waits for the decoded logo.
+    frames.push(await readLive(tv, ratingChipFrame, null, value => value.media === 'movie' && value.text === 'PG-13' && value.font && Math.abs(value.rowHeight - 33) < 0.5 && value.logoReady && Math.abs(value.titleHeight - 160) < 0.5, 'movie settled rating chip'));
     await tv.remote(10009);
     await tv.page.locator('[data-view="home"]').waitFor();
     await open('series:s1');

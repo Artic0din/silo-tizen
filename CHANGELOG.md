@@ -24,6 +24,8 @@ All notable changes to this project are documented in this file.
 - Kept a held Select on Remove Request from dismissing the confirmation when focus moves to Keep request.
 - Shared one Requests mutation gate between list and detail Cancel so navigating between them cannot post a second cancellation.
 - Kept a cancelled Requests card off the hub when an ordinary route load that started before Cancel finished still answered with the pending row.
+- Showed the full runtime and version, audio and subtitle details for each focused episode after focus settled.
+- Cancelled episode detail dwell on leaving a card, preserved explicit selector requests, and released older settled episode playback owners.
 - Kept explicit season selections on the first episode through cached Calendar revalidation and restored shuffle and advisory preferences after offline Details recovery.
 - Revalidated the saved server identity after an offline start before sending restored sign-in credentials, preventing credentials from reaching a replacement deployment.
 - Recovered offline season episode controls automatically, preserved episode refusals across cached revisits, and reused visited Details for offline card actions.

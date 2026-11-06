@@ -849,6 +849,29 @@ test("failure replans are bounded; then playback ends with an error and a stop",
     assert.deepEqual(r.exits, ["error:playback_failed"]);
 });
 
+test("route recovery that runs out of attempts offers Retry for a fresh start at the same position", async () => {
+    const r = await rig();
+    r.controller.play(MOVIE);
+    await r.h.clock.advance(0);
+    for (let failure = 0; failure < 4; failure++) {
+        r.avplay.finishPrepare("UnknownError");
+        await r.h.clock.advance(0);
+    }
+    const view = last(r.views);
+    assert.equal(view.phase, "error");
+    assert.deepEqual(view.phase === "error" ? view.error : undefined, { kind: "playback_failed" });
+    assert.equal(view.phase === "error" && view.retryable, true);
+    r.controller.retryCompletion();
+    await r.h.clock.advance(0);
+    const starts = bodies(r.h, "/start");
+    assert.equal(starts.length, 2);
+    assert.equal(starts[1]?.file_id, MOVIE.fileId);
+    assert.equal(starts[1]?.start_position, MOVIE.startSeconds);
+    assert.notEqual(starts[0]?.playback_attempt_id, starts[1]?.playback_attempt_id);
+    assert.equal(last(r.views).phase, "loading");
+    r.controller.destroy();
+});
+
 test("a terminal replan decision ends playback with the server's reason", async () => {
     const r = await rig();
     r.controller.play(MOVIE);
@@ -876,6 +899,77 @@ test("a network failure before the first frame is not a failed route: no replan,
     const view = last(r.views);
     assert.deepEqual(view.phase === "error" ? view.error : undefined, { kind: "network" });
     assert.equal(ops(r.h)[ops(r.h).length - 1], "DELETE /playback/S1");
+});
+
+test("a retryable first start offers Retry and replays that request at the same position", async () => {
+    const terminal = await rig();
+    terminal.server.next.push({ terminal: "temporarily_unavailable", retryable: true });
+    terminal.controller.play(MOVIE);
+    await terminal.h.clock.advance(0);
+    const terminalError = last(terminal.views);
+    assert.equal(terminalError.phase, "error");
+    assert.equal(terminalError.phase === "error" && terminalError.retryable, true);
+    assert.deepEqual(terminalError.phase === "error" ? terminalError.error : undefined, {
+        kind: "terminal",
+        reason: "temporarily_unavailable",
+        message: "Cannot play: temporarily_unavailable",
+        retryable: true,
+    });
+    terminal.controller.retryCompletion();
+    terminal.controller.retryCompletion();
+    await terminal.h.clock.advance(0);
+    const terminalStarts = bodies(terminal.h, "/start");
+    assert.equal(terminalStarts.length, 2);
+    assert.equal(terminalStarts[1]?.file_id, MOVIE.fileId);
+    assert.equal(terminalStarts[1]?.start_position, MOVIE.startSeconds);
+    assert.notEqual(terminalStarts[0]?.playback_attempt_id, terminalStarts[1]?.playback_attempt_id);
+    assert.equal(last(terminal.views).phase, "loading");
+    terminal.controller.destroy();
+
+    const server = await rig();
+    server.h.fake.script("/playback/start", problem(400, "validation_failed", "Rejected"));
+    server.controller.play(MOVIE);
+    await server.h.clock.advance(0);
+    const serverError = last(server.views);
+    assert.equal(serverError.phase === "error" && serverError.error.kind, "server");
+    assert.equal(serverError.phase === "error" && serverError.retryable, true);
+    server.controller.retryCompletion();
+    await server.h.clock.advance(0);
+    const serverStarts = bodies(server.h, "/start");
+    assert.equal(serverStarts.length, 2);
+    assert.equal(serverStarts[1]?.file_id, MOVIE.fileId);
+    assert.equal(serverStarts[1]?.start_position, MOVIE.startSeconds);
+    assert.equal(last(server.views).phase, "loading");
+    server.controller.destroy();
+
+    const network = await rig();
+    network.server.next.push({ timeline: { source_start_seconds: 1200, player_start_seconds: 1200, timeline_offset_seconds: 0 } });
+    network.controller.play({ ...MOVIE, startSeconds: undefined });
+    await network.h.clock.advance(0);
+    assert.equal("start_position" in (bodies(network.h, "/start")[0] ?? {}), false);
+    network.avplay.finishPrepare("InvalidAccessError");
+    await network.h.clock.advance(0);
+    const networkError = last(network.views);
+    assert.deepEqual(networkError.phase === "error" ? networkError.error : undefined, { kind: "network" });
+    assert.equal(networkError.phase === "error" && networkError.retryable, true);
+    network.controller.retryCompletion();
+    await network.h.clock.advance(0);
+    const networkStarts = bodies(network.h, "/start");
+    assert.equal(networkStarts.length, 2);
+    assert.equal(networkStarts[1]?.file_id, MOVIE.fileId);
+    assert.equal(networkStarts[1]?.start_position, 1200);
+    network.controller.destroy();
+
+    const refused = await rig();
+    refused.server.next.push({ terminal: "source_unreadable", retryable: false });
+    refused.controller.play(MOVIE);
+    await refused.h.clock.advance(0);
+    const refusedError = last(refused.views);
+    assert.equal(refusedError.phase === "error" && refusedError.retryable === true, false);
+    refused.controller.retryCompletion();
+    await refused.h.clock.advance(0);
+    assert.equal(bodies(refused.h, "/start").length, 1);
+    refused.controller.destroy();
 });
 
 test("progress is sequenced source time every 10 s; stop waits for the sample in flight and goes last", async () => {
@@ -1144,6 +1238,35 @@ async function episodeRig(): Promise<Rig & { catalog: FakeCatalog }> {
     r.server.items.set("episode:s1e13", ["43"]);
     return { ...r, catalog };
 }
+
+test("Retry after Play next preserves the position reached before exhausted recovery", async () => {
+    const r = await episodeRig();
+    await playMovie(r, EPISODE);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).state, "ready");
+    r.controller.playNext();
+    await r.h.clock.advance(0);
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    r.avplay.tick(120000);
+    r.server.next.push(...Array.from({ length: 3 }, () => ({ timeline: { source_start_seconds: 120, player_start_seconds: 120, timeline_offset_seconds: 0 } })));
+    r.avplay.listener?.onerror("PLAYER_ERROR_NOT_SUPPORTED_FORMAT");
+    await r.h.clock.advance(0);
+    for (let failure = 0; failure < 3; failure++) {
+        r.avplay.finishPrepare("UnknownError");
+        await r.h.clock.advance(0);
+    }
+    const view = last(r.views);
+    assert.ok(view.phase === "error" && view.error.kind === "playback_failed" && view.retryable);
+    r.controller.retryCompletion();
+    await r.h.clock.advance(0);
+    const starts = bodies(r.h, "/start");
+    assert.equal(starts.length, 3);
+    assert.equal(starts[2]?.file_id, "43");
+    assert.equal(starts[2]?.start_position, 120);
+    r.controller.destroy();
+});
 
 function completion(r: Rig): Extract<PlaybackView, { phase: "completion" }> {
     const view = last(r.views);

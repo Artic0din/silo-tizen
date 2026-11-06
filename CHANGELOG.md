@@ -20,6 +20,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Kept a running skip hold when the earlier seek landed on the same plan.
+- Added Retry for retryable playback startup failures and exhausted route recovery.
 - Matched the measured player layout, showed episode context, hid idle controls from every transport focus, and held seek times until playback caught up.
 
 - Preserved repeated skip taps while seeking and disabled track-list scroll animation with reduced motion.

@@ -1392,6 +1392,76 @@ test("a delayed prompt cannot appear after seeking out of its window, and an ope
     r.controller.destroy();
 });
 
+test("Show Up Next opens the manual panel on the next episode without a countdown far from the end", async () => {
+    const r = await autoplayRig(false);
+    await playMovie(r, EPISODE);
+    const before = last(r.views);
+    assert.ok(before.phase === "playing");
+    assert.equal(before.episodes, true);
+    assert.equal("upNext" in before, false);
+    r.controller.showUpNext();
+    await r.h.clock.advance(0);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.upNext?.loading, undefined);
+    assert.equal(view.upNext?.failed, undefined);
+    assert.equal(view.upNext?.status, "Up Next");
+    assert.equal(view.upNext?.countdown, undefined);
+    assert.equal(view.upNext?.next?.contentId, "episode:s1e13");
+    assert.equal(view.upNext?.next?.title, "Harbor Lights chapter 1.3");
+    r.controller.playNext();
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, "/start").length, 2);
+    r.controller.destroy();
+});
+
+test("a seek during Up Next discovery does not leave the manual panel loading", async () => {
+    const r = await autoplayRig(false);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    const hold = r.h.fake.hold("/watch/" + encodeURIComponent(EPISODE.contentId));
+    r.controller.showUpNext();
+    await r.h.clock.advance(0);
+    const loading = last(r.views);
+    assert.ok(loading.phase === "playing" || loading.phase === "paused");
+    assert.equal(loading.upNext?.loading, true);
+    r.controller.seekToSeconds(40);
+    hold.release();
+    await r.h.clock.advance(0);
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    const done = last(r.views);
+    assert.ok(done.phase === "playing" || done.phase === "paused");
+    assert.equal(done.upNext?.loading, undefined);
+    assert.equal(done.upNext?.next?.contentId, "episode:s1e13");
+    assert.notEqual(done.upNext?.status, "Nothing to watch next");
+    r.controller.destroy();
+});
+
+test("a failed On Deck read is not cached as nothing and a later read recovers", async () => {
+    const r = await autoplayRig(false);
+    r.catalog.fileIds.set("movie:m0001", "42");
+    r.server.items.set("movie:m0001", ["42"]);
+    await playMovie(r, { ...MOVIE, contentId: "movie:m0001", fileId: "42", title: "Movie 0001" });
+    r.h.fake.script("/home/sections?image_size=small", problem(500, "internal_error", "Unavailable"));
+    r.controller.showUpNext();
+    await r.h.clock.advance(0);
+    const failed = last(r.views);
+    assert.ok(failed.phase === "playing");
+    assert.equal(failed.upNext?.loading, undefined);
+    assert.equal(failed.upNext?.failed, true);
+    assert.equal(failed.upNext?.next, undefined);
+    assert.notEqual(failed.upNext?.status, "Nothing to watch next");
+    r.controller.showUpNext();
+    await r.h.clock.advance(0);
+    const recovered = last(r.views);
+    assert.ok(recovered.phase === "playing");
+    assert.equal(recovered.upNext?.failed, undefined);
+    assert.equal(recovered.upNext?.next?.contentId, "episode:s1e12");
+    r.controller.destroy();
+});
+
 test("prompt discovery discarded during a local seek retries after the seek settles", async () => {
     const r = await autoplayRig(false);
     await playMovie(r, EPISODE);

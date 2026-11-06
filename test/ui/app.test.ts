@@ -980,8 +980,9 @@ appTest("EOF during a refused subtitle change still offers manual continuation",
     assert.ok(id !== undefined);
     playback.next.push({ terminal: "adaptation_unavailable" });
     const response = tv.fake.hold(`/playback/${id}/replan`);
-    // Stats and Video sit between Info and Audio in the expanded HUD.
+    // Down focuses Play/Pause. Show Up Next sits before Options on an episode, so three Rights reach Options. Enter opens Info. Stats and Video sit between Info and Audio in the expanded HUD.
     await tv.remote(40);
+    await tv.remote(39);
     await tv.remote(39);
     await tv.remote(39);
     await tv.remote(13);

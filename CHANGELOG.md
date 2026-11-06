@@ -29,6 +29,8 @@ All notable changes to this project are documented in this file.
 
 - Preserved saved subtitle appearance when editing from Off, restored inherited values after clearing TV overrides, and hid unsupported native subtitle controls.
 - Showed the effective autoplay setting after saving.
+- Kept a running skip hold when the earlier seek landed on the same plan.
+- Added the Show Up Next episodes icon. A seek during discovery finishes the open panel, and a failed On Deck read can be tried again in that playback.
 - Retried Up Next discovery after seeks, preserved fresh autoplay settings at EOF, and kept captions inside the video preview.
 
 - Updated composed EOF checks for Apple TV's Play Now, On Deck and tail replay behavior, and isolated focus checks from background reads.
@@ -43,6 +45,8 @@ All notable changes to this project are documented in this file.
 - Reported an HLS subtitle alignment failure instead of showing a track that the native player could not select.
 - Allowed pause during subtitle reports, queued choices needing a new stream, and replanned subtitle tracks that the native stream could not identify.
 - Cleared sidecar captions when selecting embedded subtitles and restored the last confirmed subtitle after a queued choice was refused.
+- Matched the measured player layout, showed episode context, hid idle controls from every transport focus, and held seek times until playback caught up.
+
 - Preserved repeated skip taps while seeking and disabled track-list scroll animation with reduced motion.
 
 - Followed playback after an external resume during scrubbing and preserved newer Play/Pause choices while a scrub seek landed.

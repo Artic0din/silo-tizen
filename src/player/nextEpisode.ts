@@ -21,7 +21,7 @@ function episode(detail: WatchDetail): { series: string; season: number; number:
 }
 
 /** Fresh authorized data only. A failed read is never mistaken for an exhausted season. */
-export async function nextEpisode(read: Read, contentId: string, effectiveFileId: string): Promise<PlayRequest | undefined> {
+export async function nextEpisode(read: Read, contentId: string, effectiveFileId: string, seriesTitle?: string): Promise<PlayRequest | undefined> {
     const current = await read(operations.watchDetail(contentId));
     if (current.id !== contentId) invalid();
     const context = episode(current);
@@ -49,7 +49,7 @@ export async function nextEpisode(read: Read, contentId: string, effectiveFileId
             const version = allowed.find(version => version.fileId === detail.watch?.lastFileId) ?? allowed[0];
             if (version === undefined) continue;
             const resume = detail.watch?.played === false ? resumeSeconds(detail.watch.positionSeconds, version.durationSeconds || undefined) : undefined;
-            return { contentId: detail.id, fileId: version.fileId, title: detail.title, startSeconds: resume ?? 0, episode: true };
+            return { contentId: detail.id, fileId: version.fileId, title: detail.title, startSeconds: resume ?? 0, episode: true, ...(seriesTitle === undefined ? {} : { seriesTitle }), seasonNumber: detail.seasonNumber, episodeNumber: detail.episodeNumber };
         }
     }
     return undefined;
@@ -63,21 +63,22 @@ export async function onDeckPlay(read: Read, contentId: string): Promise<PlayReq
     return (await onDeckPlays(read, contentId))[0];
 }
 
+/** Existing callers treat a failed read as no offer. The episodes panel does not. */
 export async function onDeckPlays(read: Read, contentId: string, publish?: (items: readonly PlayRequest[]) => void): Promise<PlayRequest[]> {
+    try {
+        return await readOnDeck(read, contentId, publish);
+    } catch {
+        return [];
+    }
+}
+
+/** Throws when the current title or the On Deck rows cannot be read. An empty row resolves to []. */
+export async function readOnDeck(read: Read, contentId: string, publish?: (items: readonly PlayRequest[]) => void): Promise<PlayRequest[]> {
     let seriesId: string | undefined;
-    try {
-        const current = await read(operations.watchDetail(contentId));
-        if (current.id !== contentId) return [];
-        seriesId = current.seriesId;
-    } catch {
-        return [];
-    }
-    let sections;
-    try {
-        sections = await read(operations.listHomeSections());
-    } catch {
-        return [];
-    }
+    const current = await read(operations.watchDetail(contentId));
+    if (current.id !== contentId) return [];
+    seriesId = current.seriesId;
+    const sections = await read(operations.listHomeSections());
     const result: PlayRequest[] = [];
     const seen = new Set<string>();
     for (const section of sections) {

@@ -57,6 +57,7 @@ const controls: PlayerControls = {
     retrySettings: () => commands.push("retrySettings"),
     retryCompletion: () => commands.push("retryCompletion"),
     playNext: request => commands.push(request === undefined ? "playNext" : `playNext ${request.contentId} ${request.fileId}`),
+    showUpNext: () => commands.push("showUpNext"),
     cancelAutoplay: () => commands.push("cancelAutoplay"),
     keepWatching: () => commands.push("keepWatching"),
     saveSeriesSubtitle: () => commands.push("saveSeriesSubtitle"),

@@ -16,7 +16,7 @@ import { el } from "../ui/screen.ts";
 import { artworkUrl } from "../ui/browseModel.ts";
 import type { AVPlay } from "./avplay.ts";
 import { type PlaybackError, type PlaybackExits, PlaybackController, type PlaybackView, type PlayerControls, type PlayRequest, type TrackView } from "./controller.ts";
-import { closeIcon, optionsIcon, pauseIcon, playIcon, skipIcon } from "./playerIcons.ts";
+import { closeIcon, episodesIcon, optionsIcon, pauseIcon, playIcon, skipIcon } from "./playerIcons.ts";
 import { mountSeekThumbnail } from "./seekThumbnailView.ts";
 import { mountSubtitles } from "./subtitleView.ts";
 
@@ -244,6 +244,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const elapsed = el("span", "player-time-elapsed");
     const remaining = el("span", "player-time-remaining");
     time.append(elapsed, remaining);
+    const episodesButton = el("button", "player-button");
+    episodesButton.hidden = true;
     const tracksButton = el("button", "player-button player-tracks-button");
     tracksButton.type = "button";
     tracksButton.tabIndex = -1;
@@ -266,16 +268,17 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const backward = el("button", "player-button");
     const pause = el("button", "player-button player-button-primary");
     const forward = el("button", "player-button");
-    const transportButtons = [backward, pause, forward, tracksButton, closeButton];
+    const transportButtons = [backward, pause, forward, episodesButton, tracksButton, closeButton];
     for (const [index, button] of transportButtons.entries()) {
         button.type = "button";
         button.tabIndex = -1;
-        button.setAttribute("data-focus", ["backward", "pause", "forward", "tracks", "close"][index] ?? "");
+        button.setAttribute("data-focus", ["backward", "pause", "forward", "up-next", "tracks", "close"][index] ?? "");
         if (button !== tracksButton && button !== closeButton) button.appendChild(el("span", "player-glyph"));
         button.firstElementChild?.setAttribute("aria-hidden", "true");
     }
+    episodesButton.addEventListener("click", () => controls.showUpNext());
     primaryGroup.append(backward, pause, forward);
-    secondaryGroup.append(tracksButton, closeButton);
+    secondaryGroup.append(episodesButton, tracksButton, closeButton);
     transport.append(primaryGroup, secondaryGroup);
     backward.addEventListener("click", () => stepSkip("backward"));
     forward.addEventListener("click", () => stepSkip("forward"));
@@ -542,12 +545,14 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                 }
             }
             if (view.phase !== "completion") {
-                next.hidden = candidate === undefined;
+                const loading = prompt?.loading === true;
+                const failed = prompt?.failed === true;
+                next.hidden = loading || failed || candidate === undefined;
                 next.textContent = "Play Now";
                 retry.hidden = true;
                 cancelAutoplay.hidden = true;
-                failureTitle.textContent = candidate?.title ?? "Almost finished";
-                failureText.textContent = seconds === undefined ? "" : `Playing in ${seconds}s`;
+                failureTitle.textContent = loading ? "Finding the next episode" : candidate?.title ?? "Almost finished";
+                failureText.textContent = loading ? "" : failed ? "Couldn't load the next episode. Pick something from On Deck, or go back." : candidate === undefined ? "No next episode is available." : seconds === undefined ? "" : `Playing in ${seconds}s`;
                 if (!failure.contains(document.activeElement)) (next.hidden ? keep : next).focus();
                 return;
             }
@@ -587,6 +592,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             elapsed.textContent = "";
             remaining.hidden = true;
             remaining.textContent = "";
+            episodesButton.hidden = true;
             tracksButton.hidden = true;
             fill.style.width = "0";
             puck.style.left = "0";
@@ -595,7 +601,9 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             const forwardSeconds = view.seekIntervals.forward;
             setIcon(backward, backwardSeconds === 1 ? "Back 1 second" : `Back ${backwardSeconds} seconds`, skipIcon("backward", backwardSeconds));
             setIcon(forward, forwardSeconds === 1 ? "Forward 1 second" : `Forward ${forwardSeconds} seconds`, skipIcon("forward", forwardSeconds));
+            episodesButton.hidden = view.episodes !== true;
             tracksButton.hidden = false;
+            if (!episodesButton.hidden) setIcon(episodesButton, "Show Up Next", episodesIcon());
             setIcon(tracksButton, "Info and options", optionsIcon());
             setIcon(closeButton, "Close player", closeIcon());
             setIcon(pause, view.phase === "paused" ? "Play" : "Pause", view.phase === "paused" ? playIcon() : pauseIcon());
@@ -988,14 +996,15 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             if (!event.repeat) armHold(key);
             return;
         }
-        const at = transportButtons.findIndex(button => button === document.activeElement);
+        const visibleTransport = transportButtons.filter(button => !button.hidden);
+        const at = visibleTransport.findIndex(button => button === document.activeElement);
         if (document.activeElement === skip && (key === "down" || key === "back")) {
             pause.focus();
             render();
             return;
         }
         if (at >= 0 && (key === "left" || key === "right")) {
-            transportButtons[Math.max(0, Math.min(transportButtons.length - 1, at + (key === "left" ? -1 : 1)))]?.focus();
+            visibleTransport[Math.max(0, Math.min(visibleTransport.length - 1, at + (key === "left" ? -1 : 1)))]?.focus();
             render();
             return;
         }
@@ -1011,7 +1020,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             return;
         }
         if (key === "enter" && at >= 0) {
-            transportButtons[at]?.click();
+            visibleTransport[at]?.click();
             return;
         }
         if (key === "down") {

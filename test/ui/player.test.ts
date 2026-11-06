@@ -168,6 +168,28 @@ test("hidden Down opens Info and hidden Right returns to scrubber", async () => 
     } finally { await page.close(); }
 });
 
+test("Show Up Next is in the transport and its panel names the next episode", async () => {
+    const { page } = await open();
+    try {
+        const view = playing(TRACKS);
+        await show(page, { ...view, episodes: true });
+        await remote(page, DOWN);
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "up-next");
+        assert.equal(await page.getByRole("button", { name: "Show Up Next" }).count(), 1);
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["showUpNext"]);
+        await show(page, { ...view, episodes: true, upNext: { next: undefined, deck: [], countdown: undefined, status: "Up Next", loading: true } });
+        assert.equal(await page.locator(".player-next-up .player-title").innerText(), "Finding the next episode");
+        assert.equal(await page.getByText("Loading Up Next").count(), 0);
+        await show(page, { ...view, episodes: true, upNext: { next: { contentId: "episode:s1e13", fileId: "43", title: "Harbor Lights chapter 1.3" }, deck: [], countdown: undefined, status: "Up Next" } });
+        assert.equal(await page.locator(".player-next-up .player-title").innerText(), "Harbor Lights chapter 1.3");
+        assert.equal(await page.getByText("Nothing to watch next").count(), 0);
+        assert.equal(await page.getByText("Loading Up Next").count(), 0);
+    } finally { await page.close(); }
+});
+
 test("hiding Close focus makes Select enter the scrubber instead of closing playback", async () => {
     const { page } = await open();
     try {

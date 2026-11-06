@@ -63,21 +63,22 @@ export async function onDeckPlay(read: Read, contentId: string): Promise<PlayReq
     return (await onDeckPlays(read, contentId))[0];
 }
 
+/** Existing callers treat a failed read as no offer. The episodes panel does not. */
 export async function onDeckPlays(read: Read, contentId: string, publish?: (items: readonly PlayRequest[]) => void): Promise<PlayRequest[]> {
+    try {
+        return await readOnDeck(read, contentId, publish);
+    } catch {
+        return [];
+    }
+}
+
+/** Throws when the current title or the On Deck rows cannot be read. An empty row resolves to []. */
+export async function readOnDeck(read: Read, contentId: string, publish?: (items: readonly PlayRequest[]) => void): Promise<PlayRequest[]> {
     let seriesId: string | undefined;
-    try {
-        const current = await read(operations.watchDetail(contentId));
-        if (current.id !== contentId) return [];
-        seriesId = current.seriesId;
-    } catch {
-        return [];
-    }
-    let sections;
-    try {
-        sections = await read(operations.listHomeSections());
-    } catch {
-        return [];
-    }
+    const current = await read(operations.watchDetail(contentId));
+    if (current.id !== contentId) return [];
+    seriesId = current.seriesId;
+    const sections = await read(operations.listHomeSections());
     const result: PlayRequest[] = [];
     const seen = new Set<string>();
     for (const section of sections) {

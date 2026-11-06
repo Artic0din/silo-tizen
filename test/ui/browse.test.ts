@@ -1420,6 +1420,15 @@ browseTest("Movies opens on the server shelf without sort chips, and a saved Bro
     await selectLibraryMode(tv, "Browse");
     await tv.page.locator('.catalog-grid .browse-card').first().waitFor();
     assert.equal(await tv.page.locator('.browse-controls [data-focus="sort"]').textContent(), "Sort · TitleA–Z");
+    await tv.page.locator('.browse-controls [data-focus="sort"]').focus();
+    const focusedSort = await readLive(tv, () => {
+        const button = document.querySelector('.browse-controls [data-focus="sort"]');
+        const detail = button?.querySelector('.browse-control-detail');
+        if (!(button instanceof HTMLElement) || !(detail instanceof HTMLElement) || document.activeElement !== button) return null;
+        return { background: getComputedStyle(button).backgroundColor, detail: getComputedStyle(detail).color };
+    }, null, value => value.background === "rgb(237, 237, 237)" && value.detail === "rgba(237, 237, 237, 0.6)", "focused Sort direction matches the pill");
+    assert.equal(focusedSort.background, "rgb(237, 237, 237)");
+    assert.equal(focusedSort.detail, "rgba(237, 237, 237, 0.6)");
     assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).at(-1)?.body?.sort, "title");
     assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).at(-1)?.body?.order, "asc");
     await tv.page.locator('.browse-controls [data-focus="sort"]').click();

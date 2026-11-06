@@ -1097,11 +1097,14 @@
 /* Swift's scrollClipDisabled paints past the mode viewport's trailing inset. */
 .details-season-chips { margin-right: -88px; padding-right: 100px; }
 /* Paint to the screen edges while retaining the logical scroll viewport.
-   The row starts at x=0 so the anchored predecessor can sit in the lookbehind.
-   TVEpisodeRail masks that lookbehind to the rail frame, which begins at
-   TVDetailLayout.horizontalInset (100). The focused still stays at
-   100 + cardWidth * 0.025 + 2. */
-.details-series-rail .details-episodes { --episode-paint-end: 88px; margin-left: -88px; margin-right: -88px; padding: 12px calc(100px + 360px * var(--poster-scale, 1) * .025 + 2px); clip-path: inset(0 0 0 100px); }
+   The row starts at x=0 so the predecessor can sit in the lookbehind.
+   TVEpisodeRail's lookbehind is one card step (width + spacing) and its
+   leading padding adds the hover inset. The mask at horizontalInset 100
+   cancels the card width, so one spacing stays in the visible slot.
+   The focused card's layout left is 100 + spacing + width * 0.025 + 2.
+   At rest the previous card ends at 100 + width * 0.025 + 2, a sliver past the mask. */
+.details-series-rail { --episode-spacing: 40px; }
+.details-series-rail .details-episodes { --episode-paint-end: 88px; margin-left: -88px; margin-right: -88px; padding: 12px calc(100px + var(--episode-spacing) + 360px * var(--poster-scale, 1) * .025 + 2px); clip-path: inset(0 0 0 100px); }
 .details-playback-summary span:empty { align-self: center; width: 128px; height: 16px; border-radius: 4px; background: rgba(255,255,255,.1); }
 .details-playback-summary [data-track-summary="audio"] span:empty { width: 166px; }
 .details-playback-summary [data-track-summary="subtitles"] span:empty { width: 77px; }
@@ -1127,12 +1130,14 @@
 /* The episode row already contributes 12px of bottom padding. */
 .browse:has(.details-hero) > .details-series-rail { margin-bottom: calc(79px - 12px); }
 .browse:has(.details-hero) .details-facts { margin-top: 34px; }
-/* TVDetailCastRail pads vertically by 12. The page already insets 88, so 12 more
-   starts the first portrait at horizontalInset 100. The row still ends at the screen. */
-.browse:has(.details-hero) > .details-people { padding-top: 12px; padding-right: 100px; padding-left: 12px; }
+/* TVDetailCastRail pads vertically by 12 and uses scrollClipDisabled. The page
+   insets 88, so padding that reaches horizontalInset 100 keeps the first
+   portrait there. The scrollport itself starts at the screen edge: the
+   terminal step places a 200px portrait at x=60, and a clip at 88 would cut it. */
+.browse:has(.details-hero) > .details-people { margin-left: -88px; padding-top: 12px; padding-right: 100px; padding-left: 100px; }
 .browse:has(.details-hero) > .browse-row[data-detail-section="related"] { margin-right: -88px; padding-left: 12px; padding-right: 0; }
 .browse:has(.details-hero) > .details-people .details-person:last-child { margin-right: 0; }
-.browse .details-series-rail .browse-card { margin-right: 40px; }
+.browse .details-series-rail .browse-card { margin-right: var(--episode-spacing); }
 .browse .details-series-rail .browse-card .browse-card-title { padding: 0; font-size: 20px; font-weight: 600; line-height: 28px; margin-top: 18px; }
 .browse .details-series-rail .browse-card .browse-card-subtitle { padding: 0; line-height: 24px; }
 .details-facts-table { position: relative; margin-left: 12px; }
@@ -1236,8 +1241,9 @@
 .browse .browse-controls .browse-button:focus { background: #ededed; color: #000; border-color: transparent; transform: scale(1.04); }
 .browse-icon { display: inline-block; width: 24px; height: 24px; margin-right: 10px; flex-shrink: 0; }
 .browse-icon svg { display: block; width: 100%; height: 100%; }
+/* TVBrowseControlRow keeps sortDirection in siloSecondaryText (#99EDEDED).
+   The focused pill fill is siloOnSurface (#EDEDED), so that direction disappears. */
 .browse-control-detail { margin-left: 10px; color: rgba(237,237,237,.6); }
-.browse .browse-controls .browse-button:focus .browse-control-detail { color: rgba(0,0,0,.6); }
 .browse-control-count { margin-left: 10px; padding: 2px 8px; border-radius: 14px; background: rgba(0,0,0,.25); font-family: var(--silo-font); font-size: 18px; font-weight: 700; }
 .library-browse .catalog-grid { margin: 0 0 0 80px; }
 .library-browse { font-weight: 400; }

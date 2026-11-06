@@ -2590,7 +2590,10 @@ for (const departure of ["mode", "settings", "route"] as const) browseTest(`a pe
         await tv.page.locator('[data-focus="profiles"]').click();
         await tv.page.locator('[data-focus="settings"]').click();
         await tv.page.locator('.browse.library-browse').waitFor({ state: "hidden" });
-        await tv.remote(BACK); await tv.page.locator('.browse.library-browse').waitFor({ state: "visible" });
+        await tv.remote(BACK);
+        await tv.page.locator('[data-view="home"]').waitFor();
+        assert.equal(await tv.focused(), "home", "Settings Back selects Home");
+        await tv.page.locator('[data-focus="movies"]').click();
     } else {
         await tv.page.locator('[data-focus="home"]').click();
         await tv.page.locator('[data-focus="movies"]').click();

@@ -71,6 +71,8 @@
     flex-direction: column;
     justify-content: flex-end;
     gap: 12px;
+    /* Same-state Apple measurement at 1920x1080 takes precedence over source insets. */
+    padding: 0 160px 107px;
 }
 
 .player-overlay-hidden {
@@ -104,6 +106,11 @@
     text-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
 }
 
+.player-footer { position: relative; }
+.player-series { margin: 0 0 2px; font-size: 20px; font-weight: 500; color: rgba(255, 255, 255, 0.65); }
+.player-title-row { display: flex; align-items: baseline; gap: 10px; }
+.player-episode { font-size: 20px; color: rgba(255, 255, 255, 0.6); }
+
 .player-status {
     min-height: 36px;
     margin: 0 0 16px;
@@ -114,7 +121,7 @@
 .player-bar {
     position: relative;
     height: 56px;
-    margin: 0;
+    margin: 0 0 12px;
     background: transparent;
 }
 
@@ -166,7 +173,7 @@
     background: rgba(255, 255, 255, 0.35);
 }
 
-.player-bar-preview .player-bar-track {
+.player-bar.player-bar-preview .player-bar-track {
     height: 12px;
     margin-top: -6px;
     background: rgba(255, 255, 255, 0.48);
@@ -286,7 +293,7 @@
 .player-time {
     display: flex;
     justify-content: space-between;
-    margin: 0;
+    margin: 0 0 13px;
     font-size: 28px;
     font-weight: 600;
     color: #ffffff;
@@ -328,7 +335,8 @@
 /* Apple TVPlayerInfoHUD: tab pills above a 1100x380 glass panel. */
 .player-hud {
     position: absolute;
-    top: 32px;
+    /* Measured panel y=155; source top padding does not include the runtime safe area. */
+    top: 93px;
     right: 0;
     left: 0;
     z-index: 2;

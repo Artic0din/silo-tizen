@@ -19,6 +19,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Matched the measured player layout, showed episode context, hid idle controls from every transport focus, and held seek times until playback caught up.
+
 - Preserved repeated skip taps while seeking and disabled track-list scroll animation with reduced motion.
 
 - Followed playback after an external resume during scrubbing and preserved newer Play/Pause choices while a scrub seek landed.

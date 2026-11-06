@@ -415,6 +415,26 @@ test("skip taps accumulate while the previous seek callback is pending", async (
     } finally { await page.close(); }
 });
 
+for (const landing of ["same-plan", "replacement-plan"] as const) test(`a scrub opened during a skip survives only a ${landing} landing`, async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), previewKey: "same-plan" });
+        await press(page, RIGHT);
+        await page.clock.fastForward(200);
+        await show(page, { ...playing(TRACKS), previewKey: undefined });
+        await press(page, ENTER);
+        await show(page, { ...playing(TRACKS), phase: "paused", previewKey: undefined, resumePending: false });
+        await press(page, RIGHT);
+        await press(page, RIGHT);
+        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), "774");
+        await show(page, { ...playing(TRACKS), phase: "paused", positionSeconds: 764, previewKey: landing, resumePending: false });
+        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), landing === "same-plan" ? "774" : "764");
+        assert.equal(await page.locator(".player-bar-preview").count(), landing === "same-plan" ? 1 : 0);
+        await press(page, ENTER);
+        assert.deepEqual(await commands(page), ["seekToSeconds 764", "setPaused true", ...(landing === "same-plan" ? ["seekToSeconds 774", "setPaused false"] : [])]);
+    } finally { await page.close(); }
+});
+
 test("reduced motion disables scrolling animation in the active track pane", async () => {
     const { page } = await open();
     try {

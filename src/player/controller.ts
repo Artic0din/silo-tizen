@@ -31,6 +31,7 @@ import { SeekThumbnails, type ThumbnailSheetLoader } from "./seekThumbnails.ts";
 import { AUTO_NEXT_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS, profileSettings } from "../contracts/v2/settings.ts";
 import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
 import { markerAt, type SkipMarker } from "../contracts/v2/markers.ts";
+import { episodeDetailPresentation, type EpisodeSpoilerSettings } from "../ui/episodeSpoilers.ts";
 import { nextEpisode, onDeckPlays, readOnDeck } from "./nextEpisode.ts";
 import { NEXT_UP_KEY } from "../contracts/v2/settings.ts";
 import { INTRO_SKIP_KEY, CREDITS_SKIP_KEY } from "../contracts/v2/settingsRows.ts";
@@ -57,6 +58,8 @@ export interface PlayRequest {
     readonly episodeNumber?: number | undefined;
     readonly shuffleId?: string;
     readonly episode?: true;
+    /** Watch progress for the Up Next synopsis. Absent means the episode has not started. */
+    readonly watch?: { readonly played: boolean; readonly isInProgress?: boolean; readonly positionSeconds?: number };
     readonly audioTrackId?: string;
     readonly subtitle?: SubtitleIntent;
     readonly allowAlternateVersions?: false;
@@ -217,6 +220,8 @@ export interface PlaybackDeps {
     /** `webapis.productinfo.getRealModel()` and the package version, for the server's device-quirk match. */
     readonly device: { readonly model: string; readonly appVersion: string };
     readonly exits: PlaybackExits;
+    /** The profile spoiler owner. Absent reads as both switches off. */
+    readonly spoilers?: () => EpisodeSpoilerSettings;
 }
 
 const PROGRESS_INTERVAL_MS = 10000;
@@ -249,6 +254,8 @@ interface Attempt {
     promptPending: boolean;
     promptLookedUp: boolean;
     prompt: { next: PlayRequest | undefined; deck: readonly PlayRequest[]; fromDeck: boolean; loading?: boolean; failed?: boolean } | undefined;
+    /** AVPlay refused the picture rectangle, usually during an outstanding seek. */
+    rectPending: boolean;
     /** Discovery shared by the episodes icon and the pre-end prompt. A seek does not cancel it. */
     offer: {
         started: boolean;
@@ -429,6 +436,7 @@ export class PlaybackController implements PlayerControls {
             autoNextSupported: false,
             promptSeconds: 30, promptSupported: false, promptDismissed: false, promptPending: false, promptLookedUp: false, prompt: undefined,
             offer: { started: false, manual: false, episodeLoading: false, deckLoading: false, episodeSettled: false, episodeFailed: false, episode: undefined, deckSettled: false, deckFailed: false, deck: [], presentationFor: undefined },
+            rectPending: false,
             transportCommandCount: 0,
             autoNext: false, settingsEpoch: 0,
             ai: undefined, search: undefined, display: undefined, aiBlockedFiles: new Set(), pendingAIResult: undefined, pendingDownloadId: undefined,
@@ -1856,11 +1864,18 @@ export class PlaybackController implements PlayerControls {
     }
 
     private closeTransport(): void {
+        const attempt = this.attempt;
+        // A playing scrub pauses the stream and queues Play. The seek callback
+        // drops that intent once this transport is gone, so keep it for the replacement.
+        if (attempt?.pauseAfterSeek !== undefined) {
+            attempt.paused = attempt.pauseAfterSeek;
+            attempt.pauseAfterSeek = undefined;
+        }
         this.transport++;
-        if (this.attempt !== undefined) {
-            this.attempt.suspended = false;
-            this.attempt.suspendedReady = false;
-            this.attempt.deferredOpen = false;
+        if (attempt !== undefined) {
+            attempt.suspended = false;
+            attempt.suspendedReady = false;
+            attempt.deferredOpen = false;
         }
         this.startupDue = undefined;
         this.cancelStartup?.();
@@ -2026,13 +2041,22 @@ export class PlaybackController implements PlayerControls {
         this.publishOffer(attempt);
     }
 
+    /** The screen may pass a synopsis copy. Play the offer it came from. */
+    private liveNext(attempt: Attempt, selected: PlayRequest | undefined): PlayRequest | undefined {
+        const prompt = attempt.prompt;
+        if (prompt === undefined) return undefined;
+        if (selected === undefined) return prompt.next;
+        if (selected === prompt.next || prompt.deck.includes(selected)) return selected;
+        if (prompt.next !== undefined && prompt.next.contentId === selected.contentId && prompt.next.fileId === selected.fileId) return prompt.next;
+        return prompt.deck.find(item => item.contentId === selected.contentId && item.fileId === selected.fileId);
+    }
+
     playNext(selected?: PlayRequest): void {
         const view = this.current;
         const attempt = this.active();
         if ((view.phase === "playing" || view.phase === "paused") && attempt?.prompt !== undefined) {
-            const request = selected ?? attempt.prompt.next;
-            if (request === undefined || (request !== attempt.prompt.next && !attempt.prompt.deck.includes(request))) return;
-            attempt.sourceSeconds = attempt.plan?.durationSeconds ?? attempt.sourceSeconds;
+            const request = this.liveNext(attempt, selected);
+            if (request === undefined) return;
             this.beginCompletion(attempt);
             this.nextStart = request;
             return;
@@ -2058,7 +2082,7 @@ export class PlaybackController implements PlayerControls {
             attempt.promptDismissed = true;
             attempt.offer.manual = false;
             attempt.prompt = undefined;
-            try { this.deps.avplay.setDisplayRect(0, 0, SCREEN.width, SCREEN.height); } catch { /* Transport recovery owns platform failures. */ }
+            this.paintRect(attempt);
             this.showPlayback(attempt);
         }
         this.cancelAutoplayTimer?.();
@@ -2096,7 +2120,7 @@ export class PlaybackController implements PlayerControls {
         const { attempt, abort } = completion;
         const current = (): boolean => this.completion === completion && this.attempt === attempt && !abort.signal.aborted && !attempt.signal.aborted && attempt.signal === this.deps.session.authoritySignal;
         const show = (state: "finalizing" | "resolving" | "ready" | "failed", next?: PlayRequest, retryable = false, title = "Playback ended", deck?: readonly PlayRequest[]): void => {
-            if (current()) this.show({ phase: "completion", title, state, next, retryable, ...(deck === undefined ? {} : { deck }) });
+            if (current()) this.show({ phase: "completion", title, state, next: this.shownNext(next), retryable, ...(deck === undefined ? {} : { deck: deck.map(item => this.shownNext(item) ?? item) }) });
         };
         show("finalizing");
         try {
@@ -2890,7 +2914,7 @@ export class PlaybackController implements PlayerControls {
             buffering: attempt.buffering,
             ...(this.episodesVisible(attempt) ? { episodes: true as const } : {}),
             ...(attempt.prompt === undefined ? {} : { upNext: {
-                next: attempt.prompt.next, deck: attempt.prompt.deck,
+                next: this.shownNext(attempt.prompt.next), deck: attempt.prompt.deck.map(item => this.shownNext(item) ?? item),
                 countdown: this.promptCountdown(attempt, plan),
                 status: attempt.prompt.loading === true || attempt.prompt.next !== undefined ? "Up Next" : "More To Watch",
                 ...(attempt.prompt.loading === true ? { loading: true as const } : {}),
@@ -2945,7 +2969,7 @@ export class PlaybackController implements PlayerControls {
         if (!this.inPromptWindow(attempt)) {
             attempt.promptDismissed = false;
             if (!attempt.offer.manual) this.clearPrompt(attempt);
-            else try { this.setDisplayRect(attempt); } catch { /* A PLAYING seek refuses the rectangle until it settles. */ }
+            else this.paintRect(attempt);
             return;
         }
         if (attempt.promptDismissed || attempt.hidden || attempt.busy) return;
@@ -3062,7 +3086,7 @@ export class PlaybackController implements PlayerControls {
             return;
         }
         attempt.prompt = { next: displayed, deck: offer.deckFailed ? [] : offer.deck, fromDeck, ...(loading ? { loading: true } : {}), ...(failed ? { failed: true } : {}) };
-        try { this.setDisplayRect(attempt); } catch { /* A PLAYING seek refuses the rectangle until it settles. */ }
+        this.paintRect(attempt);
         this.showPlayback(attempt);
         if (displayed !== undefined && !fromDeck && attempt.offer.presentationFor !== displayed.contentId) {
             attempt.offer.presentationFor = displayed.contentId;
@@ -3076,9 +3100,19 @@ export class PlaybackController implements PlayerControls {
     }
 
     private clearPrompt(attempt: Attempt): void {
-        if (attempt.offer.manual || attempt.prompt === undefined) return;
+        if (attempt.offer.manual) return;
+        if (attempt.prompt === undefined && !attempt.rectPending) return;
         attempt.prompt = undefined;
-        try { this.deps.avplay.setDisplayRect(0, 0, SCREEN.width, SCREEN.height); } catch { /* Recovery owns platform failures. */ }
+        this.paintRect(attempt);
+    }
+
+    private paintRect(attempt: Attempt): void {
+        try {
+            this.setDisplayRect(attempt);
+            attempt.rectPending = false;
+        } catch {
+            attempt.rectPending = true;
+        }
     }
 
     private setDisplayRect(attempt: Attempt): void {
@@ -3089,8 +3123,19 @@ export class PlaybackController implements PlayerControls {
 
     private loadPresentation(request: PlayRequest, signal: AbortSignal, accept: (request: PlayRequest) => void): void {
         void this.deps.session.call({ ...operations.getCatalogItem(request.contentId), profileScoped: true, signal }).then(detail => {
-            if (!signal.aborted && detail.id === request.contentId) accept({ ...request, overview: detail.overview, backdropUrl: detail.backdropUrl });
+            if (!signal.aborted && detail.id === request.contentId) {
+                const watch = playbackWatch(detail.watch);
+                accept({ ...request, overview: detail.overview, backdropUrl: detail.backdropUrl, ...(watch === undefined ? {} : { watch }) });
+            }
         }, () => undefined);
+    }
+
+    /** Apple TV hides an unstarted episode synopsis when the profile asks (`PlayerView.swift` metadata). */
+    private shownNext(request: PlayRequest | undefined): PlayRequest | undefined {
+        if (request?.episode !== true) return request;
+        const settings = this.deps.spoilers?.() ?? { hidesImages: false, hidesOverviews: false };
+        const overview = episodeDetailPresentation({ type: "episode", overview: request.overview, watch: request.watch, played: request.watch?.played }, settings).overview;
+        return overview === request.overview ? request : { ...request, overview };
     }
 
     private show(view: PlaybackView): void {
@@ -3298,6 +3343,15 @@ function renditionSlots(plan: PlaybackPlan): Record<string, string> {
         if (rendition !== undefined) slots[row.trackId] = `${rendition.groupId}\n${rendition.name}\n${rendition.index}`;
     }
     return slots;
+}
+
+function playbackWatch(watch: { readonly played: boolean; readonly isInProgress?: boolean; readonly positionSeconds?: number | undefined } | undefined): PlayRequest["watch"] {
+    if (watch === undefined) return undefined;
+    return {
+        played: watch.played,
+        ...(watch.isInProgress === undefined ? {} : { isInProgress: watch.isInProgress }),
+        ...(watch.positionSeconds === undefined ? {} : { positionSeconds: watch.positionSeconds }),
+    };
 }
 
 /** The session itself is gone or the request was abandoned: not a track change the viewer can retry. */

@@ -14,6 +14,15 @@ function invalid(): never {
     throw new ApiError({ kind: "invalid_response", path: "next_episode.identity" });
 }
 
+function presentationWatch(watch: { readonly played: boolean; readonly isInProgress?: boolean; readonly positionSeconds?: number | undefined } | undefined): PlayRequest["watch"] {
+    if (watch === undefined) return undefined;
+    return {
+        played: watch.played,
+        ...(watch.isInProgress === undefined ? {} : { isInProgress: watch.isInProgress }),
+        ...(watch.positionSeconds === undefined ? {} : { positionSeconds: watch.positionSeconds }),
+    };
+}
+
 function episode(detail: WatchDetail): { series: string; season: number; number: number } {
     const { seriesId, seasonNumber, episodeNumber } = detail;
     if (detail.type !== "episode" || !seriesId || seasonNumber === undefined || seasonNumber < 0 || episodeNumber === undefined || episodeNumber < 1) invalid();
@@ -49,7 +58,8 @@ export async function nextEpisode(read: Read, contentId: string, effectiveFileId
             const version = allowed.find(version => version.fileId === detail.watch?.lastFileId) ?? allowed[0];
             if (version === undefined) continue;
             const resume = detail.watch?.played === false ? resumeSeconds(detail.watch.positionSeconds, version.durationSeconds || undefined) : undefined;
-            return { contentId: detail.id, fileId: version.fileId, title: detail.title, startSeconds: resume ?? 0, episode: true, ...(seriesTitle === undefined ? {} : { seriesTitle }), seasonNumber: detail.seasonNumber, episodeNumber: detail.episodeNumber };
+            const watch = presentationWatch(detail.watch);
+            return { contentId: detail.id, fileId: version.fileId, title: detail.title, startSeconds: resume ?? 0, episode: true, ...(seriesTitle === undefined ? {} : { seriesTitle }), seasonNumber: detail.seasonNumber, episodeNumber: detail.episodeNumber, ...(watch === undefined ? {} : { watch }) };
         }
     }
     return undefined;
@@ -95,6 +105,7 @@ export async function readOnDeck(read: Read, contentId: string, publish?: (items
                 const file = detail.versions.find((version) => version.fileId === detail.watch?.lastFileId) ?? detail.versions[0];
                 if (file === undefined) continue;
                 const start = resumeSeconds(detail.watch?.positionSeconds, file.durationSeconds > 0 ? file.durationSeconds : undefined);
+                const watch = presentationWatch(detail.watch);
                 result.push({
                     contentId: detail.id,
                     fileId: file.fileId,
@@ -103,6 +114,7 @@ export async function readOnDeck(read: Read, contentId: string, publish?: (items
                     backdropUrl: card.backdropUrl,
                     startSeconds: start ?? 0,
                     ...(detail.type === "episode" ? { episode: true as const } : {}),
+                    ...(watch === undefined ? {} : { watch }),
                 });
                 publish?.(result.slice());
             } catch {

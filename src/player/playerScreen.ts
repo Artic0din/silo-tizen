@@ -11,6 +11,7 @@ import type { Clock } from "../api/clock.ts";
 import { systemClock } from "../api/clock.ts";
 import type { ConnectedServer } from "../session/core.ts";
 import type { RandomBytes } from "../session/deviceIdentity.ts";
+import type { EpisodeSpoilerSettings } from "../ui/episodeSpoilers.ts";
 import { remoteKey } from "../ui/keys.ts";
 import { el } from "../ui/screen.ts";
 import { artworkUrl } from "../ui/browseModel.ts";
@@ -1309,6 +1310,7 @@ export function startPlayback(
     request: PlayRequest,
     exits: PlaybackExits,
     platform: PlayerPlatform,
+    spoilers?: () => EpisodeSpoilerSettings,
 ): PlayerScreen {
     const clock = platform.clock ?? systemClock;
     let screen: PlayerScreen | undefined;
@@ -1336,6 +1338,7 @@ export function startPlayback(
                 exits.onError(error);
             },
         },
+        ...(spoilers === undefined ? {} : { spoilers }),
     });
     screen = mountPlayerScreen(root, controller, clock, server.server.http.base.baseUrl);
     controller.play(request);

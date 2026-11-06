@@ -19,6 +19,57 @@ import { connected, type Harness, signIn } from "./support/harness.ts";
 
 const MOVIE: PlayRequest = { contentId: "movie-1", fileId: "42", title: "Movie", startSeconds: 12.5 };
 
+test("HUD chapters read the effective watch file, expose failures and retry without restarting playback", async () => {
+    const r = await rig();
+    r.h.fake.script("/watch/movie-1?file_id=42", problem(404, "not_found", "Unavailable"));
+    await playMovie(r);
+    let view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.hud?.chapterState, "failed", JSON.stringify(r.h.fake.requests.filter(request => request.path.includes("watch"))));
+    r.h.fake.script("/watch/movie-1?file_id=42", { status: 200, body: { versions: [{ file_id: "42", chapters: [{ index: 0, title: "First", start_seconds: 0, end_seconds: 90 }] }] } });
+    r.controller.retryChapters();
+    await r.h.clock.advance(0);
+    view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.deepEqual(view.hud?.chapters, [{ title: "First", seconds: 0 }]);
+    assert.equal(sessionIds(r.server).length, 1);
+    r.controller.destroy();
+});
+
+test("live autoplay reflects the effective device override after a profile write", async () => {
+    const r = await autoplayRig(true);
+    await playMovie(r);
+    r.h.fake.script("/settings/values/effective?keys=playback.auto_play_next", { status: 200, body: { revision: 24, items: [{ key: "playback.auto_play_next", value: true, source: "profile_device", definition_revision: 24 }] } });
+    r.controller.toggleAutoNext();
+    await r.h.clock.advance(0);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.hud?.autoNext, true);
+    assert.match(view.hud?.message ?? "", /device|TV|override/i);
+    r.controller.destroy();
+});
+
+test("live autoplay saves once while pending and retains the old value on refusal", async () => {
+    const r = await autoplayRig(false);
+    await playMovie(r);
+    r.h.fake.script("/settings/values/playback.auto_play_next?scope=profile", problem(403, "forbidden", "Unavailable"));
+    const hold = r.h.fake.hold("/settings/values/playback.auto_play_next?scope=profile");
+    r.controller.toggleAutoNext();
+    r.controller.toggleAutoNext();
+    await r.h.clock.advance(0);
+    let view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.hud?.busy, true);
+    assert.equal(r.h.fake.requests.filter(request => request.method === "PUT" && request.path.includes("playback.auto_play_next")).length, 1);
+    hold.release();
+    await r.h.clock.advance(0);
+    view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.hud?.autoNext, false);
+    assert.match(view.hud?.message ?? "", /Could not save/);
+    r.controller.destroy();
+});
+
 test("a completed Shuffle item advances the same server session before offering its next pick", async () => {
     const r = await rig();
     r.h.fake.script("/shuffles/sh1/advance", { status: 200, body: { id: "sh1", current: { content_id: MOVIE.contentId }, next: { content_id: MOVIE.contentId } } });
@@ -1666,7 +1717,7 @@ test("episode EOF orders held progress, final STOP, fresh watch and exactly one 
     r.controller.playNext();
     assert.equal(completion(r).state, "finalizing");
     assert.equal(bodies(r.h, "/start").length, 1);
-    assert.equal(r.h.fake.requests.filter(q => q.path.startsWith("/watch/")).length, 0);
+assert.equal(r.h.fake.requests.filter(q => q.path.startsWith("/watch/") && !q.path.includes("?")).length, 0);
     progress.release();
     await r.h.clock.advance(0);
     const body = only(bodies(r.h, `/playback/${id}`));
@@ -1707,7 +1758,7 @@ test("a lost EOF STOP answer retries the identical body and identity before reso
     r.avplay.listener?.onstreamcompleted();
     await r.h.clock.advance(0);
     assert.equal(completion(r).state, "finalizing");
-    assert.equal(r.h.fake.requests.filter(q => q.path.startsWith("/watch/")).length, 0);
+assert.equal(r.h.fake.requests.filter(q => q.path.startsWith("/watch/") && !q.path.includes("?")).length, 0);
     await r.h.clock.advance(1000);
     const stops = bodies(r.h, `/playback/${id}`);
     assert.equal(stops.length, 2);
@@ -1775,7 +1826,7 @@ test("Back during held EOF STOP never resurrects continuation but still retires 
     listener?.onstreamcompleted();
     await r.h.clock.advance(0);
     assert.deepEqual(r.exits, ["back"]);
-    assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/")), false);
+assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/") && !q.path.includes("?")), false);
     assert.equal(bodies(r.h, `/playback/${id}`).length, 1);
     assert.ok(r.server.session(id).receipt !== undefined);
     r.controller.destroy();
@@ -1812,7 +1863,7 @@ test("an expired pending progress answer at EOF offers Back without an impossibl
     assert.equal(completion(r).next, undefined);
     r.controller.playNext();
     assert.equal(r.h.fake.requests.filter(request => request.method === "DELETE").length, 0);
-    assert.equal(r.h.fake.requests.some(request => request.path.startsWith("/watch/")), false);
+assert.equal(r.h.fake.requests.some(request => request.path.startsWith("/watch/") && !request.path.includes("?")), false);
     assert.equal(bodies(r.h, "/start").length, 1);
     r.controller.back();
     assert.deepEqual(r.exits, ["back"]);
@@ -1833,7 +1884,7 @@ test("a missing session during EOF STOP offers Back without a retry that can nev
     await r.h.clock.advance(0);
     assert.equal(bodies(r.h, `/playback/${id}`).length, 1);
     assert.equal(bodies(r.h, "/start").length, 1);
-    assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/")), false);
+assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/") && !q.path.includes("?")), false);
     r.controller.back();
     assert.deepEqual(r.exits, ["back"]);
     r.controller.destroy();
@@ -1920,7 +1971,7 @@ test("STOP authorization, installation, administrator and malformed receipt refu
         assert.equal(completion(r).state, "failed");
         r.controller.playNext();
         assert.equal(bodies(r.h, "/start").length, 1);
-        assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/")), false);
+assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/") && !q.path.includes("?")), false);
         r.controller.destroy();
     }
 });
@@ -1991,7 +2042,7 @@ test("authority loss while STOP awaits retry prevents old-scope resends and next
         r.controller.playNext();
         assert.equal(bodies(r.h, `/playback/${id}`).length, 1);
         assert.equal(bodies(r.h, "/start").length, 1);
-        assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/")), false);
+assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/") && !q.path.includes("?")), false);
         r.controller.destroy();
     }
 });
@@ -2008,7 +2059,7 @@ test("a pending progress administrator refusal wins over a later EOF", async () 
     assert.equal(completion(r).state, "failed");
     assert.equal(completion(r).retryable, false);
     assert.equal(bodies(r.h, `/playback/${id}`).length, 0);
-    assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/")), false);
+assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/") && !q.path.includes("?")), false);
     r.controller.destroy();
 });
 
@@ -2023,7 +2074,7 @@ test("revoked PIN proof during EOF finalization removes the old authority and ca
     assert.deepEqual(r.exits, ["end:authority_changed"]);
     assert.equal(r.h.core.session.activeProfile, undefined);
     assert.equal(bodies(r.h, `/playback/${id}`).length, 1);
-    assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/")), false);
+assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/") && !q.path.includes("?")), false);
     r.controller.playNext();
     assert.equal(bodies(r.h, "/start").length, 1);
     r.controller.destroy();

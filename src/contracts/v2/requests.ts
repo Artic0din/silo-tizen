@@ -1,6 +1,6 @@
 import { boolean, integer, nonEmptyString, object, optionalInstant, optionalString, string, WireError } from "./wire.ts";
 
-export interface RequestsCapability { readonly enabled: boolean; readonly follow: boolean }
+export interface RequestsCapability { readonly enabled: boolean; readonly follow: boolean; readonly removeFailed: boolean }
 export interface RequestState {
     readonly status?: string | undefined;
     readonly requestable: boolean; readonly following: boolean; readonly requestedByViewer: boolean;
@@ -48,9 +48,16 @@ function optionalStrings(o: Record<string, unknown>, key: string): readonly stri
         return value;
     });
 }
+/** Present boolean, or false when the server omits it. A non-boolean is a contract break. */
+function optionalFlag(o: Record<string, unknown>, key: string): boolean {
+    if (o[key] === undefined) return false;
+    return boolean(o, key, "requests");
+}
 export function decodeRequestsCapability(value: unknown): RequestsCapability {
     const o = object(value, "requests.status");
-    return { enabled: boolean(o, "requests_enabled", "requests") && boolean(o, "allowed", "requests") && string(o, "state", "requests") === "available", follow: boolean(o, "follow_supported", "requests") };
+    const enabled = boolean(o, "requests_enabled", "requests") && boolean(o, "allowed", "requests") && string(o, "state", "requests") === "available";
+    // Apple RequestsFeatureStore: remove follows isAvailable, and an omitted flag is unsupported.
+    return { enabled, follow: boolean(o, "follow_supported", "requests"), removeFailed: enabled && optionalFlag(o, "remove_failed_supported") };
 }
 export function decodeRequestState(value: unknown): RequestState {
     const o = object(value, "request");

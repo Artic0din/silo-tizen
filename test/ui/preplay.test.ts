@@ -296,7 +296,7 @@ preplay("direct episode activation refreshes cached-zero progress and returns to
     await prepare(tv);
     assert.equal(starts(tv).length, 1);
     assert.equal(starts(tv)[0]?.body?.file_id, "42");
-    assert.equal(tv.fake.requests.filter(request => request.path === watch).length, 2);
+    assert.equal(tv.fake.requests.filter(request => request.path === watch).length, 3);
     assert.equal(starts(tv)[0]?.body?.start_position, 420);
     assert.equal(starts(tv)[0]?.body?.audio_track_id, undefined);
     assert.equal(starts(tv)[0]?.body?.subtitle_track_id, undefined);
@@ -333,7 +333,7 @@ preplay("series primary action resumes its actual numbered episode directly", as
     await prepare(tv);
     assert.equal(starts(tv).length, 1);
     assert.equal(starts(tv)[0]?.body?.file_id, "42");
-    assert.equal(tv.fake.requests.filter(request => request.path === "/watch/episode%3As1e11?file_id=42").length, 2);
+    assert.equal(tv.fake.requests.filter(request => request.path === "/watch/episode%3As1e11?file_id=42").length, 3);
     assert.equal(starts(tv)[0]?.body?.start_position, 630);
 });
 
@@ -351,7 +351,7 @@ for (const activation of ["rail", "primary", "start-over"] as const) preplay(`di
     tv.fake.script(path, ...(activation === "start-over" ? [preference] : [reply, preference]));
     await tv.page.locator(activation === "rail" ? '.details-episodes [data-focus="episode:s1e12"]' : activation === "primary" ? '[data-focus="next-episode"]' : '[data-focus="start-over-episode"]').click();
     await prepare(tv);
-    assert.equal(tv.fake.requests.filter(request => request.path === path).length, activation === "start-over" ? 1 : 2, "Auto reads effective preferences in addition to resume preparation");
+    assert.equal(tv.fake.requests.filter(request => request.path === path).length, activation === "start-over" ? 2 : 3, "Auto reads effective preferences and chapters in addition to resume preparation");
     const replan = tv.fake.requests.find(request => request.path.endsWith("/replan"));
     assert.deepEqual(replan?.body?.selected_tracks, { audio: { id: "file:42:audio:2", index: 2 }, subtitle: { id: "file:42:subtitle:3" } });
 });
@@ -407,7 +407,7 @@ preplay("series Start Over skips fresh resume and retains automatic selectors", 
     await prepare(tv);
     assert.equal(starts(tv).length, 1);
     assert.equal(starts(tv)[0]?.body?.start_position, 0);
-    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/watch/")).length, before + 1, "Start Over reads subtitle preferences but does not look up resume");
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/watch/")).length, before + 2, "Start Over reads subtitle preferences and chapters but does not look up resume");
 });
 
 for (const failure of ["identity", "files"] as const) {
@@ -437,7 +437,7 @@ preplay("direct activation accepts an opaque episode identity and its server-sel
     await prepare(tv);
     assert.equal(starts(tv).length, 1);
     assert.equal(starts(tv)[0]?.body?.file_id, "43");
-    assert.equal(tv.fake.requests.filter(request => request.path === "/watch/broadcast_7a?file_id=43").length, 2);
+    assert.equal(tv.fake.requests.filter(request => request.path === "/watch/broadcast_7a?file_id=43").length, 3);
     assert.equal(starts(tv)[0]?.body?.audio_track_id, undefined);
 });
 
@@ -657,6 +657,7 @@ preplay("bounded unavailable watch uses cached progress once and ignores a late 
 
 preplay("preplay explicit audio reaches the one production start", async (tv) => {
     const audio = tv.page.locator('[data-focus="audio"]');
+    await audio.waitFor();
     assert.equal(await audio.count(), 1, "Details exposes the audio trigger");
     await audio.click();
     await tv.page.getByRole("radio", { name: /Japanese/ }).click();

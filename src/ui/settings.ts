@@ -40,7 +40,7 @@ const BITRATE_CHOICES = [200000, 100000, 60000, 40000, 20000, 15000, 10000, 6000
 export interface SettingsActions { readonly profileName: string; readonly profileAvatarUrl?: string | undefined; readonly accountName?: string | undefined; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: (back: () => void) => void }
 export interface SettingsScreen { destroy(): void }
 
-export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions, accounts?: (back: () => void) => void, spoilers?: EpisodeSpoilerPreferences): SettingsScreen {
+export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean, titleArt?: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions, accounts?: (back: () => void) => void, spoilers?: EpisodeSpoilerPreferences): SettingsScreen {
     const container = el("section", "browse settings");
     container.setAttribute("aria-label", "Settings");
     root.appendChild(container);
@@ -99,7 +99,12 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         container.remove();
     };
     const stopAuthority = session.onAuthorityChange(destroy);
-    const exit = (): void => { const changed = state.hiddenChanged; destroy(); close(changed); };
+    const exit = (): void => {
+        const changed = state.hiddenChanged;
+        const titleArt = state.effective.get(TITLE_ART_KEY)?.value;
+        destroy();
+        close(changed, typeof titleArt === "boolean" ? titleArt : undefined);
+    };
     const rowFocus = (): FocusTarget => ({ zone: "settings-rows", key: returnRow });
     const back = (): void => {
         if (confirmingPlaybackReset) { if (state.busy) return; confirmingPlaybackReset = false; pendingPlaybackReset = []; render({ zone: "settings-rows", key: "reset-playback" }); }

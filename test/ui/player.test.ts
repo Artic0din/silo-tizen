@@ -43,6 +43,50 @@ const TRACKS: TrackView = {
 };
 const playing = (tracks: TrackView): Extract<PlaybackView, { phase: "playing" | "paused" }> => ({ phase: "playing", title: "The Movie", positionSeconds: 754, durationSeconds: 7200, buffering: false, seekIntervals: { backward: 10, forward: 10 }, tracks });
 
+test("chapters seek in source time, close options and retain a remote focus target", async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), hud: { chapters: [{ title: "Opening", seconds: 0 }, { title: "Second", seconds: 800 }], chapterState: "ready", stats: [["Engine", "AVPlay"]], speeds: [1, 2], aspects: ["Fit", "Stretch"], speed: 1, aspect: "Fit", autoNext: false, busy: false } });
+        await openPanel(page);
+        assert.deepEqual(await page.locator(".player-tab:not([hidden])").allTextContents(), ["Info", "Stats", "Video", "Audio", "Subtitles", "Chapters"]);
+        for (let n = 0; n < 5; n++) await remote(page, RIGHT);
+        assert.equal(await focused(page), "chapter:0");
+        await remote(page, DOWN);
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["seekToSeconds 800"]);
+        assert.equal(await page.locator(".player-hud").isVisible(), false);
+        assert.equal(await focused(page), "position");
+    } finally { await page.close(); }
+});
+
+test("Video actions and Stats are remote reachable and updates preserve the selected control", async () => {
+    const { page } = await open();
+    try {
+        const hud = { chapters: [], chapterState: "ready" as const, overview: "An overview.", stats: [["Engine", "AVPlay"]] as const, speeds: [1, 2], aspects: ["Fit", "Stretch"] as const, speed: 1, aspect: "Fit" as const, autoNext: false, busy: false };
+        await show(page, { ...playing(TRACKS), hud });
+        await openPanel(page);
+        assert.match(await text(page, ".player-menu-info"), /An overview/);
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "stat:Engine");
+        assert.match(await text(page, ".player-menu-stats"), /Engine: AVPlay/);
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "speed:1");
+        await remote(page, DOWN);
+        await remote(page, ENTER);
+        await show(page, { ...playing(TRACKS), hud: { ...hud, speed: 2 } });
+        assert.equal(await focused(page), "speed:2");
+        await remote(page, DOWN);
+        await remote(page, DOWN);
+        await remote(page, ENTER);
+        await remote(page, DOWN);
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["setVideo speed 2", "setVideo aspect Stretch", "toggleAutoNext"]);
+        await show(page, { ...playing(TRACKS), hud: { ...hud, busy: true } });
+        await remote(page, ENTER);
+        assert.equal((await commands(page)).length, 3);
+    } finally { await page.close(); }
+});
+
 let browser: Browser;
 let script: string;
 before(async () => {
@@ -103,7 +147,7 @@ async function openPanel(page: Page): Promise<void> {
 /** Audio is the tab after Info, which is where the panel used to open. */
 async function openAudio(page: Page): Promise<void> {
     await openPanel(page);
-    await remote(page, RIGHT);
+    for (let index = 0; index < 3; index++) await remote(page, RIGHT);
 }
 
 const remote = (page: Page, keyCode: number): Promise<void> => page.evaluate((code) => {
@@ -214,6 +258,16 @@ test("Up Next captures remote input, preserves focus and exposes Keep Watching a
     } finally { await page.close(); }
 });
 
+test("Subtitles stays hidden without tracks or actionable sources like Apple TV", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing({ ...NO_TRACKS, seriesSubtitle: { busy: false, message: "" } }));
+        await openAudio(page);
+        await remote(page, RIGHT);
+        assert.equal(await page.getByRole("button", { name: "Keep subtitles off for this series", exact: true }).isVisible(), false);
+    } finally { await page.close(); }
+});
+
 test("Up Next captions stay inside the video preview and restore their full size", async () => {
     const { page } = await open();
     try {
@@ -283,8 +337,7 @@ test("series subtitle save stays focused while its write is pending", async () =
     try {
         await show(page, playing({ ...TRACKS, seriesSubtitle: { busy: false, message: "" } }));
         // Old path was Down then Right, from an Audio panel. Info is the first tab now.
-        await openPanel(page);
-        await remote(page, RIGHT);
+        await openAudio(page);
         await remote(page, RIGHT);
         for (let index = 0; index < TRACKS.subtitles.length + 1; index++) await remote(page, DOWN);
         assert.equal(await focused(page), "series-subtitles");
@@ -301,8 +354,7 @@ test("AI language, quota and result actions stay remote-reachable without stoppi
     try {
         await show(page, playing({ ...TRACKS, ai, aiTranslate: true }));
         // Old path was Down then Right, from an Audio panel. Info is the first tab now.
-        await openPanel(page);
-        await remote(page, RIGHT);
+        await openAudio(page);
         await remote(page, RIGHT);
         for (let index = 0; index < TRACKS.subtitles.length + 1; index++) await remote(page, DOWN);
         assert.equal(await focused(page), "ai-translate");
@@ -688,7 +740,7 @@ test("the scrubber steps, scrubs and seeks like the Apple TV remote", async () =
         assert.equal(await page.getByRole("button", { name: "Info and options", exact: true }).count(), 1);
         await press(page, ENTER);
         assert.equal(await menuShown(page), true);
-        assert.deepEqual(await page.locator(".player-tab:not([hidden])").allTextContents(), ["Info", "Audio", "Subtitles"]);
+        assert.deepEqual(await page.locator(".player-tab:not([hidden])").allTextContents(), ["Info", "Stats", "Video", "Audio", "Subtitles"]);
         assert.match(await page.locator(".player-menu-info").innerText(), /The Movie/);
         assert.match(await page.locator(".player-menu-info").innerText(), /\b2h\b/);
         assert.match(await page.locator(".player-menu-info").innerText(), /Off/);
@@ -910,7 +962,7 @@ test("the open panel is Apple's 1100 by 380 tabbed HUD and the clock is elapsed 
         assert.equal(panel.border, "rgba(255, 255, 255, 0.14)");
         assert.match(panel.shadow, /rgba\(0, 0, 0, 0\.5\)/);
         // Old tabs were Audio, Subtitles, Video. Info leads, and Video follows Subtitles.
-        assert.deepEqual(await page.locator(".player-tab:not([hidden])").allTextContents(), ["Info", "Audio", "Subtitles", "Video"]);
+        assert.deepEqual(await page.locator(".player-tab:not([hidden])").allTextContents(), ["Info", "Stats", "Video", "Audio", "Subtitles"]);
         const elapsed = page.locator(".player-time-elapsed");
         const remaining = page.locator(".player-time-remaining");
         assert.equal(await elapsed.innerText(), "12:34");
@@ -988,11 +1040,10 @@ test("the remote crosses Audio while its choices are loading", async () => {
     const { page } = await open();
     try {
         await show(page, playing({ ...TRACKS, audio: { state: "loading" } }));
-        await openPanel(page);
-        await remote(page, RIGHT);
+        await openAudio(page);
         assert.equal(await focused(page), "subtitles-off");
         await remote(page, LEFT);
-        assert.equal(await focused(page), "info");
+        assert.equal(await focused(page), "video-empty");
     } finally { await page.close(); }
 });
 
@@ -1021,7 +1072,7 @@ test("the menu says what is happening: loading, a failed list with Retry, a chan
         await show(page, playing({ ...TRACKS, audio: { state: "failed" } }));
         // Old heading was "Audio".
         assert.equal(await lines(page, ".player-menu-audio"), "TRACKS\nCouldn't load audio tracks.\nRetry");
-        await remote(page, RIGHT);
+        for (let index = 0; index < 3; index++) await remote(page, RIGHT);
         assert.equal(await focused(page), "audio-retry");
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), ["retryTrackInfo"]);
@@ -1047,8 +1098,7 @@ test("long track lists scroll within the panel and keep the focused choice and s
         const subtitles = Array.from({ length: 12 }, (_, n) => ({ id: `file:42:subtitle:${n}`, label: `Subtitle ${n + 1}` }));
         await show(page, playing({ ...TRACKS, subtitles, change: { state: "failed" } }));
         // Old path was Down then Right, from an Audio panel. Info is the first tab now.
-        await openPanel(page);
-        await remote(page, RIGHT);
+        await openAudio(page);
         await remote(page, RIGHT);
         for (let i = 0; i < subtitles.length; i += 1) {
             await remote(page, DOWN);
@@ -1090,8 +1140,7 @@ test("an update keeps focus on the same track; leaving playback closes the menu"
     try {
         await show(page, playing(TRACKS));
         // Old path was Down then Right, from an Audio panel. Info is the first tab now.
-        await openPanel(page);
-        await remote(page, RIGHT);
+        await openAudio(page);
         await remote(page, RIGHT);
         await remote(page, DOWN);
         await remote(page, DOWN);
@@ -1188,12 +1237,11 @@ test("quality is server-gated, remote reachable and reports pending/refused stat
     try {
         await show(page, playing(TRACKS));
         // Old path was Down, Right, Right from an Audio panel. Info is the first tab now.
-        await openAudio(page);
+        await openPanel(page);
         await remote(page, RIGHT);
         await remote(page, RIGHT);
-        assert.equal(await focused(page), "subtitles-off", "no quality stop when only Auto exists");
+        assert.equal(await focused(page), "video-empty", "Video remains available when quality has no choice");
         await show(page, playing({ ...TRACKS, quality }));
-        await remote(page, RIGHT);
         assert.equal(await focused(page), "quality:auto");
         await remote(page, DOWN);
         assert.equal(await focused(page), "quality:future-rung");
@@ -1209,7 +1257,7 @@ test("quality is server-gated, remote reachable and reports pending/refused stat
         await capture(page, "player-quality-after");
         await show(page, playing({ ...TRACKS, quality: { choices: [], selectedId: undefined } }));
         // Old focus was the first audio row. Info is the first usable pane when Video disappears.
-        assert.equal(await focused(page), "info", "disappearing quality hands focus to a usable list");
+        assert.equal(await focused(page), "video-empty", "disappearing quality hands focus to the Video empty state");
         await remote(page, BACK);
         // Old focus was "player". Closing the panel returns to the scrubber.
         assert.equal(await focused(page), "position");
@@ -1224,9 +1272,7 @@ test("long server quality lists scroll within the menu with focus and status kep
     const quality = { choices: [{ id: "auto", label: "Auto" }, ...Array.from({ length: 16 }, (_, index) => ({ id: `rung-${index}`, label: `Server quality ${index + 1} with a longer label` }))], selectedId: "auto" };
     try {
         await show(page, playing({ ...TRACKS, quality }));
-        // Old path was Down, Right, Right from an Audio panel. Video is the tab after Subtitles.
         await openPanel(page);
-        await remote(page, RIGHT);
         await remote(page, RIGHT);
         await remote(page, RIGHT);
         for (let index = 0; index < 16; index++) await remote(page, DOWN);
@@ -1258,8 +1304,8 @@ test("long server quality lists scroll within the menu with focus and status kep
         await show(page, playing({ ...TRACKS, quality, change: { state: "changing", kind: "quality" } }));
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), [], "busy choices remain focusable but cannot send a second intent");
-        await remote(page, LEFT);
-        assert.equal(await focused(page), "subtitles-off");
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "file:42:audio:0");
         await page.locator('[data-focus="quality:rung-1"]').dispatchEvent("click");
         assert.deepEqual(await commands(page), []);
         await show(page, { phase: "loading", title: "The Movie" });
@@ -1278,20 +1324,43 @@ test("an empty audio list does not trap remote movement between Info and Subtitl
         await openPanel(page);
         assert.equal(await focused(page), "info");
         await remote(page, RIGHT);
-        assert.equal(await focused(page), "audio-empty");
-        assert.match(await text(page, ".player-menu-audio"), /No audio tracks listed/);
+        assert.equal(await focused(page), "stat:Engine");
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "video-empty");
+        assert.equal(await page.locator(".player-tab:not([hidden])").allTextContents().then(names => names.includes("Audio")), false);
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), []);
         await remote(page, RIGHT);
         assert.equal(await focused(page), "subtitles-off");
         await remote(page, LEFT);
-        assert.equal(await focused(page), "audio-empty");
+        assert.equal(await focused(page), "video-empty");
+        await remote(page, LEFT);
+        assert.equal(await focused(page), "stat:Engine");
         await remote(page, LEFT);
         assert.equal(await focused(page), "info");
         assert.deepEqual(logs, []);
     } finally {
         await page.close();
     }
+});
+
+test("subtitle search remains remote reachable without existing subtitle tracks", async () => {
+    const { page } = await open();
+    const tracks: TrackView = { ...TRACKS, subtitles: [], subtitleTools: {
+        search: { offered: true, unavailableReason: "", phase: "closed", suggested: [], other: [], language: undefined, status: "", message: "", warnings: [], canRetry: false, results: [], downloadingKey: undefined },
+        overlay: false,
+    } };
+    try {
+        await show(page, playing(tracks));
+        await openPanel(page);
+        assert.equal(await page.getByRole("tab", { name: "Subtitles", exact: true }).isVisible(), true);
+        for (let index = 0; index < 4; index++) await remote(page, RIGHT);
+        assert.equal(await focused(page), "subtitles-off");
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "subtitle-search");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ['subtitleTool {"kind":"search-open"}']);
+    } finally { await page.close(); }
 });
 
 test("closing a background subtitle picker preserves the live audio focus", async () => {
@@ -1304,6 +1373,8 @@ test("closing a background subtitle picker preserves the live audio focus", asyn
     try {
         await show(page, playing(tracks));
         await openPanel(page);
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
         await remote(page, RIGHT);
         await remote(page, RIGHT);
         await page.locator('[data-focus="subtitle-size"]').focus();
@@ -1327,6 +1398,8 @@ for (const origin of ["tracks", "appearance"] as const) for (const field of ["fo
         try {
             await show(page, playing(tracks));
             await openPanel(page);
+            await remote(page, RIGHT);
+            await remote(page, RIGHT);
             await remote(page, RIGHT);
             await remote(page, RIGHT);
             if (origin === "appearance") {
@@ -1364,6 +1437,8 @@ test("subtitle search and the delay, size, position and appearance rows are remo
     try {
         await show(page, playing(tracks));
         await openPanel(page);
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
         await remote(page, RIGHT);
         await remote(page, RIGHT);
         assert.match(await text(page, ".player-menu-subtitles"), /Search Subtitles/);

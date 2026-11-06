@@ -28,6 +28,9 @@ root.appendChild(sibling);
 const commands: string[] = [];
 let listener: ((view: PlaybackView) => void) | undefined;
 const controls: PlayerControls = {
+    setVideo: (kind, value) => commands.push(`setVideo ${kind} ${value}`),
+    toggleAutoNext: () => commands.push("toggleAutoNext"),
+    retryChapters: () => commands.push("retryChapters"),
     subscribe(next) {
         listener = next;
         next({ phase: "loading", title: "The Movie" });

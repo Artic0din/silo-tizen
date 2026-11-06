@@ -1,5 +1,5 @@
 import { type Route, type RouteHandlers, type Pages, newRoute, newPages } from "./browseRoutes.ts";
-import { actionButton, homeView, statusView } from "./browseViews.ts";
+import { actionButton, homeView, statusView, searchState, FAILURE_ICON, zoneNode } from "./browseViews.ts";
 import { SectionCatalog } from "./sectionCatalog.ts";
 import type { View } from "./browseFocus.ts";
 import { destinationOf } from "./browseModel.ts";
@@ -18,6 +18,13 @@ export function recommendationsView(current: RecommendationRoute, handlers: Rout
     if (rows === undefined || rows.length === 0) {
         const failed = current.failure !== undefined;
         const loading = rows === undefined && !failed;
+        if (failed) {
+            const retry = actionButton("retry", "Try Again", () => handlers.retry(current));
+            const page = searchState("Something went wrong", current.failure ?? "", "details-failure", FAILURE_ICON);
+            page.setAttribute("role", "alert");
+            page.appendChild(zoneNode("browse-actions", [retry]));
+            return { name: "for_you", content: [page], zones: [{ id: "status", layout: "row", items: [retry] }], focus: { zone: "status", key: "retry" }, back: handlers.pop };
+        }
         const controls = failed ? [actionButton("retry", "Try again", () => handlers.retry(current))] : [actionButton("home", "Home", handlers.pop)];
         return statusView("for_you", failed ? "Something went wrong" : loading ? "Loading recommendations" : "No recommendations yet", failed ? [current.failure ?? ""] : loading ? [] : ["Watch or rate a few titles to build your personalised recommendations."], controls, handlers.pop, failed ? "error" : "info");
     }

@@ -37,6 +37,16 @@ There is no shown Requests tab to select; reopening the profile menu entry start
 Unknown discovery row types are skipped.
 Media detail uses server requestability, status and follow decisions.
 Request detail shows the server state and offers cancellation for the active profile's pending request.
+Holding Select on a card in Your requests, or on the legacy My Requests grid, opens that record's menu.
+Cancel Request is offered when the request is pending and no list action is running or held.
+Remove Request is offered when status reports `remove_failed_supported` and the request failed with no target already completed.
+The confirmation is titled "Remove this request?" and says the failed request will be deleted and can be requested again later.
+Keep request and Back send nothing and return to the card.
+Remove request sends one `DELETE /requests/{id}` for the active profile.
+A 204, and a 404 `not_found`, drop the row at once, show "Request removed" for three seconds, and focus the card that slides into the vacated place, or the first discover title when the row is gone.
+A 409 `conflict` re-reads and says the request changed since the list loaded, so it was not removed.
+A lost answer holds the row, does not send the removal again, and says to reopen My Requests; the next list read that succeeds settles the hold.
+The hub leaves a removed id out of every later answer, so a stale re-read cannot put the row back.
 The primary action is one focusable pill that morphs in place, so focus stays on it through a write and the read that settles it.
 Request shows a small spinner and Requesting… in the secondary pill style, and presses are ignored until the read answers.
 Cancel disappears while it runs, and focus rests on the status pill beside it.
@@ -105,7 +115,7 @@ The Apple Requests detail source deliberately uses split title text rather than 
 No live backend mutations were used for candidate proof.
 
 All operations pass through the native adapter and `session.call` with active profile authority.
-Create, cancel, follow and unfollow never replay after a transport failure or session refresh.
+Create, cancel, remove, follow and unfollow never replay after a transport failure or session refresh.
 A failed write follows Apple's `RequestMutationFailure`: a server answer is definite, shows its message beside the action and allows another try.
 Anything else may have landed, so the action is held and read back automatically; the message appears only if that read also fails, and Refresh is then the way to read again.
 Back remains available during work; writes retain their session ownership and a profile change tears down the UI and fences late answers.
@@ -117,6 +127,7 @@ Search runs on Search or keyboard Done; editing cancels obsolete reads immediate
 
 - Native OpenAPI: `contracts/api/v2/openapi.json` at [`cc8514943289045e7b9f7ac8d36d4968bfe93926`](https://github.com/Silo-Server/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/contracts/api/v2/openapi.json), the revision pinned by `src/contracts/v2/SOURCE`.
 - Apple [`TVRequestsPage`](https://github.com/Silo-Server/silo-apple/blob/1a7cceeaf3b2bfc4f889c00487d19b2c6f843940/iosApp/iosApp/tvOS/Screens/Requests/TVRequestsPage.swift) supplies the hub/mine and return-focus reference.
+- Apple [`df891d2e47eb90994cecdfb5f7dafa29039c9da2`](https://github.com/Silo-Server/silo-apple/commit/df891d2e47eb90994cecdfb5f7dafa29039c9da2) supplies Remove Request, its confirmation, the failure copy, and where focus lands after a card leaves. The tvOS card offers Cancel Request only while the request is pending and no list action is running.
 - Apple [`RequestsFeatureStore`](https://github.com/Silo-Server/silo-apple/blob/1a7cceeaf3b2bfc4f889c00487d19b2c6f843940/iosApp/iosApp/Networking/RequestsFeatureStore.swift) supplies the capability re-probe and transient-failure reference.
 - Apple [`RequestImageURL`](https://github.com/Silo-Server/silo-apple/blob/1a7cceeaf3b2bfc4f889c00487d19b2c6f843940/iosApp/iosApp/Screens/Requests/Core/RequestImageURL.swift) and [`RequestMediaCard`](https://github.com/Silo-Server/silo-apple/blob/1a7cceeaf3b2bfc4f889c00487d19b2c6f843940/iosApp/iosApp/Screens/Requests/Components/RequestMediaCard.swift) define direct TMDB poster resolution and request-specific poster cards.
 

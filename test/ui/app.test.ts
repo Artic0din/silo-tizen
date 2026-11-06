@@ -43,6 +43,172 @@ async function signIn(tv: Tv, remember = false): Promise<void> {
     await homeDetailsRead(tv);
 }
 
+appTest("unvisited offline For You uses Apple's centred error", async tv => {
+    await signIn(tv);
+    tv.offline = true;
+    await tv.page.locator('[data-focus="for_you"]').click();
+    await tv.jump(35000);
+    await tv.page.locator('[data-view="for_you"] .details-failure').waitFor();
+    await tv.page.getByRole("button", { name: "Try Again", exact: true }).waitFor();
+});
+
+appTest("cold saved session rejected by the server returns to sign-in", async tv => {
+    await signIn(tv, true);
+    tv.fake.revokeAllSessions();
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.jump(35000);
+    await tv.page.locator('[data-screen="code"], [data-screen="expired"]').waitFor();
+    assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+});
+
+appTest("cold saved profile paints cached Home before discovery answers", async tv => {
+    await signIn(tv, true);
+    const hold = tv.fake.hold("/system/info");
+    const codes = tv.fake.devices.size;
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor({ timeout: 5000 });
+    assert.equal(tv.fake.devices.size, codes);
+    hold.release();
+});
+
+appTest("cold reconciliation refreshes remembered profile artwork without remounting Home", async tv => {
+    await signIn(tv, true);
+    const hold = tv.fake.hold("/system/info");
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor({ timeout: 5000 });
+    assert.equal(await tv.page.locator('[data-focus="profiles"] img').count(), 0, "offline handoff has no avatar URL yet");
+    hold.release();
+    await tv.eventually(async () => await tv.page.locator('[data-focus="profiles"] img').count() === 1, "reconcile paints the server avatar");
+    assert.equal(await tv.page.locator('[data-view="home"] .browse-card').count() > 0, true, "Home stays painted");
+    const source = await tv.page.locator('[data-focus="profiles"] img').getAttribute("src") ?? "";
+    assert.match(source, /\/avatars\/presets\/fox\.png/);
+});
+
+appTest("cold reconciliation removes a deleted profile from Home", async tv => {
+    await signIn(tv, true);
+    const hold = tv.fake.hold("/system/info");
+    tv.fake.profiles = { ...tv.fake.profiles, items: [] };
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor({ timeout: 5000 });
+    hold.release();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+});
+
+appTest("cold reconciliation removes Home when the deployment changes", async tv => {
+    await signIn(tv, true);
+    const hold = tv.fake.hold("/system/identity");
+    tv.fake.script("/system/identity", { status: 200, body: { server_id: "a9e16029-3344-4104-a222-d06456005128" } });
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor({ timeout: 5000 });
+    hold.release();
+    await tv.page.locator('[data-screen="expired"], [data-screen="code"]').waitFor();
+    assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+});
+
+appTest("cold reconciliation removes Home when the remembered PIN proof is revoked", async tv => {
+    await tv.page.fill("#signin-address", "silo.example.test");
+    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    const code = [...tv.fake.devices.keys()].pop();
+    assert.ok(code !== undefined);
+    await approveSignIn(tv, code);
+    await tv.page.locator('[data-focus="profile:p-kid"]').click();
+    await tv.page.locator('#profile-pin').fill('2468');
+    await tv.remote(65376);
+    await tv.page.locator('[data-focus="unlock"]').click();
+    await tv.page.locator('[data-focus="remember"]').click();
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+    const hold = tv.fake.hold("/system/info");
+    tv.fake.changePin("p-kid", "1357");
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor({ timeout: 5000 });
+    hold.release();
+    await tv.page.locator('[data-screen="pin"]').waitFor();
+    assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+});
+
+appTest("offline reconciliation retains the session and checks a removed profile on recovery", async tv => {
+    await signIn(tv, true);
+    const codes = tv.fake.devices.size;
+    tv.offline = true;
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor({ timeout: 5000 });
+    await tv.jump(35000);
+    assert.equal(await tv.page.locator('[data-view="home"] .browse-card').count() > 0, true);
+    assert.equal(tv.fake.devices.size, codes);
+    tv.fake.profiles = { ...tv.fake.profiles, items: [] };
+    tv.offline = false;
+    await tv.jump(50000);
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+});
+
+appTest("temporary discovery server errors retain the remembered profile", async tv => {
+    await signIn(tv, true);
+    // Two consecutive 503s exhaust NativeHttp's safe retry so reconcile must treat the failure as transient.
+    tv.fake.script("/system/info", { status: 503, body: {} }, { status: 503, body: {} });
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+    await tv.eventually(async () => tv.fake.paths().filter(path => path === "GET /system/info").length >= 2, "discovery retries exhausted");
+    await tv.jump(35000);
+    assert.equal(await tv.page.locator('[data-view="home"] .browse-card').count() > 0, true);
+    tv.fake.scripted.delete("/system/info");
+    await tv.jump(50000);
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+});
+
+appTest("permanent discovery rejection removes Home even after the access token expires", async tv => {
+    await signIn(tv, true);
+    await tv.jump(3600000);
+    const hold = tv.fake.hold("/system/info");
+    tv.fake.script("/system/info", { status: 404, body: {} });
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+    hold.release();
+    await tv.page.locator('[data-screen="profiles-error"]').waitFor();
+    assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+});
+
+appTest("cold offline launch without a remembered profile does not invent a profile", async tv => {
+    await signIn(tv);
+    tv.offline = true;
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.jump(35000);
+    await tv.page.getByText("Profiles didn't load", { exact: true }).waitFor();
+    assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+    assert.equal(await tv.page.locator('[data-focus^="profile:"]').count(), 0);
+});
+
+appTest("first-time unreachable address retains the connect error", async tv => {
+    tv.offline = true;
+    await tv.page.fill("#signin-address", "https://first-time.invalid");
+    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
+    await tv.jump(35000);
+    await tv.page.getByText("Could not reach a Silo server at that address.", { exact: true }).waitFor();
+    assert.equal(tv.fake.devices.size, 0);
+});
+
+for (const cached of [true, false]) appTest(`cold offline saved session opens Home (snapshot ${cached})`, async tv => {
+    await signIn(tv, true);
+    await tv.page.locator('[data-view="home"]').waitFor();
+    if (!cached) await tv.page.evaluate(() => window.appHarness.storage.removeItem("silo.browseSnapshots.v1"));
+    const codes = tv.fake.devices.size;
+    tv.offline = true;
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.jump(35000);
+    if (cached) await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+    else {
+        await tv.page.locator('[data-view="home:failed"]').waitFor();
+        await tv.page.getByRole("button", { name: "Try Again", exact: true }).waitFor();
+        await tv.page.getByRole("button", { name: "Manage Servers", exact: true }).waitFor();
+    }
+    assert.equal(tv.fake.devices.size, codes);
+    tv.offline = false;
+    await tv.jump(50000);
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+});
+
 async function approveSignIn(tv: Tv, code: string): Promise<void> {
     tv.fake.approve(code);
     await tv.jump(5000);
@@ -814,13 +980,13 @@ appTest("EOF during a refused subtitle change still offers manual continuation",
     assert.ok(id !== undefined);
     playback.next.push({ terminal: "adaptation_unavailable" });
     const response = tv.fake.hold(`/playback/${id}/replan`);
-    // Old Down opened the panel. Down focuses Play/Pause; Options opens Info, then Subtitles is two tabs right.
+    // Stats and Video sit between Info and Audio in the expanded HUD.
     await tv.remote(40);
     await tv.remote(39);
     await tv.remote(39);
     await tv.remote(13);
-    await tv.remote(39);
-    await tv.remote(39);
+    for (let tab = 0; tab < 4; tab++) await tv.remote(39);
+    assert.equal(await tv.page.getByRole("tab", { name: "Subtitles", exact: true }).getAttribute("aria-selected"), "true");
     await tv.page.locator('.player-menu [data-focus="file:42:subtitle:0"]').click();
     await tv.page.evaluate(() => window.appHarness.avplay.listener?.onstreamcompleted());
     assert.equal(tv.fake.requests.filter(r => r.method === "DELETE").length, 0);
@@ -1056,7 +1222,7 @@ appTest("the composed remote seeks and changes audio through the real playback o
     await tv.page.keyboard.press("ArrowRight");
     await tv.page.keyboard.press("ArrowRight");
     await tv.page.keyboard.press("Enter");
-    await tv.page.keyboard.press("ArrowRight");
+    for (let index = 0; index < 3; index++) await tv.page.keyboard.press("ArrowRight");
     const id = [...playback.sessions.keys()][0];
     assert.ok(id !== undefined);
     const hold = tv.fake.hold(`/playback/${id}/replan`);

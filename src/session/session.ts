@@ -40,7 +40,7 @@ export type RefreshOutcome =
     | { readonly status: "refreshed" }
     | { readonly status: "session_ended" }
     /** Server or network unavailable; tokens kept, try again after the delay. */
-    | { readonly status: "unavailable"; readonly retryAfterSeconds: number | undefined }
+    | { readonly status: "unavailable"; readonly retryAfterSeconds: number | undefined; readonly transportFailure?: "network" | "timeout" }
     | { readonly status: "aborted" }
     | { readonly status: "signed_out" };
 
@@ -67,6 +67,9 @@ export type AuthorizedSpec<T> = Omit<RequestSpec<T>, "bearer" | "profile"> & {
     /** Resend once after a 401 and a successful refresh. False for non-retryable checks (PIN). */
     readonly replayAfterRefresh?: boolean;
 };
+
+/** Refresh failed before dispatch (or after an explicit 401 refusal). */
+export class SessionRefreshError extends ApiError {}
 
 export class SessionError extends Error {
     readonly reason: "signed_out" | "session_ended" | "unavailable";
@@ -265,6 +268,7 @@ export class NativeSession {
                 throw abortedError();
             }
         };
+        await this.http.verifyConnection(signal);
         const credential = await this.freshCredential(ensureCurrent);
         ensureCurrent();
         return credential.accessToken;
@@ -316,6 +320,11 @@ export class NativeSession {
         }
         const revoking = revokeIssuedTokens(this.http, credential);
         return { storage: await clearing, server: await revoking };
+    }
+
+    /** Discard a replaced deployment's authority without sending it a revocation. */
+    async deploymentChanged(): Promise<void> {
+        await this.endAccount("session_expired");
     }
 
     /** Releases an obsolete owner without clearing the replacement login's vault. */
@@ -378,7 +387,7 @@ export class NativeSession {
                 await this.endAccount("session_expired");
                 return { status: "session_ended" };
             }
-            return { status: "unavailable", retryAfterSeconds: error.retryAfterSeconds };
+            return { status: "unavailable", retryAfterSeconds: error.retryAfterSeconds, ...(error.failure.kind === "network" || error.failure.kind === "timeout" ? { transportFailure: error.failure.kind } : {}) };
         }
     }
 
@@ -427,6 +436,7 @@ function throwUnlessRefreshed(outcome: RefreshOutcome): void {
         case "refreshed":
             return;
         case "unavailable":
+            if (outcome.transportFailure !== undefined) throw new SessionRefreshError({ kind: outcome.transportFailure });
             throw new SessionError("unavailable", outcome.retryAfterSeconds);
         case "session_ended":
             throw new SessionError("session_ended");

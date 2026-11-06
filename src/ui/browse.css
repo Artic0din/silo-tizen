@@ -1092,6 +1092,24 @@
 .details-external-rating img { width: auto; height: 16.8px; }
 .details-rating-score { font-weight: 700; color: #fff; }
 .details-genres { margin-left: 0; }
+/* TVDetailHero factsRow: chips, then text facts, ratings and one source token. */
+.details-editorial .browse-meta:not(.box-set-facts) { display: flex; align-items: center; column-gap: 14px; overflow: hidden; white-space: nowrap; }
+.details-hero:not([data-media-type="series"]) .details-editorial .browse-meta:not(.box-set-facts) { height: 33px; }
+.details-editorial .browse-meta:not(.box-set-facts) > .details-rating-badge { margin-right: 0; }
+.details-editorial .browse-meta:not(.box-set-facts) > :not(.details-rating-badge) + :not(.details-rating-badge)::before { content: "·"; margin-right: 14px; font-size: 22px; font-weight: 600; color: rgba(255, 255, 255, 0.45); }
+.details-editorial .details-fact,
+.details-editorial .details-external-rating,
+.details-editorial .details-rating-badge { flex-shrink: 0; }
+/* ratingBadge is 18pt bold with 4pt vertical padding (TVDetailHero.swift).
+   SF Pro's line height at 18pt is 21.19921875. The metadata line-height is 29px,
+   which makes this chip 39px and lets the 33px movie/episode row and the 36px
+   series row clip its stroke. */
+.details-editorial .details-rating-badge { line-height: 21.19921875px; }
+.details-editorial .details-fact { font-size: 24px; font-weight: 500; color: rgba(255, 255, 255, 0.88); }
+.details-editorial .details-genres,
+.details-editorial .details-source { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 24px; font-weight: 500; color: rgba(255, 255, 255, 0.9); }
+.details-editorial .details-external-rating span:not(.details-rating-score) { font-size: 21px; font-weight: 600; opacity: 0.72; }
+.details-editorial .details-rating-score { font-size: 24px; font-variant-numeric: tabular-nums; }
 /* TVDetailLayout.horizontalInset = 100; the surrounding section starts at 88. */
 .details-season-chips { padding: 4px calc(100px - 88px); }
 /* Swift's scrollClipDisabled paints past the mode viewport's trailing inset. */

@@ -78,12 +78,15 @@ export class NativeHttp {
     private readonly device: DeviceHeaders;
     private readonly fetch: FetchLike;
     private readonly clock: Clock;
+    private readonly connectionCheck: (() => Promise<void>) | undefined;
 
-    constructor(base: ServerBase, device: DeviceHeaders, fetch: FetchLike, clock: Clock) {
+    constructor(base: ServerBase, device: DeviceHeaders, fetch: FetchLike, clock: Clock,
+        connectionCheck?: () => Promise<void>) {
         this.base = base;
         this.device = device;
         this.fetch = fetch;
         this.clock = clock;
+        this.connectionCheck = connectionCheck;
     }
 
     async send<T>(spec: RequestSpec<T>): Promise<T> {
@@ -98,6 +101,17 @@ export class NativeHttp {
                 await sleep(this.clock, delayMs, spec.signal ?? neverAborts(), abortedError);
             }
         }
+    }
+
+    async verifyConnection(signal?: AbortSignal): Promise<void> {
+        if (signal?.aborted) throw abortedError();
+        if (this.connectionCheck === undefined) return;
+        const checking = this.connectionCheck();
+        await new Promise<void>((resolve, reject) => {
+            const cancel = (): void => reject(abortedError());
+            signal?.addEventListener("abort", cancel, { once: true });
+            checking.then(resolve, reject).finally(() => signal?.removeEventListener("abort", cancel));
+        });
     }
 
     private mayRetry(spec: RequestSpec<unknown>, error: ApiError, attempt: number): boolean {
@@ -132,6 +146,13 @@ export class NativeHttp {
         }, spec.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 
         try {
+            if (this.connectionCheck !== undefined) {
+                try { await this.verifyConnection(controller.signal); }
+                catch (error) {
+                    if (timedOut) throw new ApiError({ kind: "timeout" });
+                    throw error;
+                }
+            }
             let response: Response;
             try {
                 response = await this.fetch(this.base.apiRoot + spec.path, {

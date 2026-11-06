@@ -18,5 +18,7 @@ export const requestOperations = {
         return { method: "POST", path: "/requests", retry: "never", body: { media_type: title.mediaType, tmdb_id: title.tmdbId, title: title.title }, decode: decodeMediaRequest };
     },
     cancel: (id: string): RequestSpec<unknown> => ({ method: "POST", path: `/requests/${encodeURIComponent(id)}/cancel`, retry: "never", body: {}, decode: decodeMediaRequest }),
+    /** DELETE /requests/{id}: 204 and no body. non_retryable, same as create and cancel. */
+    remove: (id: string): RequestSpec<undefined> => ({ method: "DELETE", path: `/requests/${encodeURIComponent(id)}`, retry: "never", decode: () => undefined }),
     follow: (title: RequestTitle, following: boolean): RequestSpec<unknown> => ({ method: following ? "PUT" : "DELETE", path: `/requests/follows/${media(title)}`, retry: "never", decode: following ? decodeRequestState : () => undefined }),
 };

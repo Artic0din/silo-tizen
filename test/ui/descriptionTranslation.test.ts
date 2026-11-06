@@ -97,6 +97,13 @@ test("Details offers Translate Description and shows the translating and transla
         await tv.jump(1000);
         await tv.page.getByText("Translated by AI", { exact: true }).waitFor();
         assert.match(await tv.page.locator(".details-editorial .browse-overview").textContent() ?? "", /Translated overview/);
+        await tv.remote(10009);
+        await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+        await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+        await tv.jump(35000);
+        assert.match(await tv.page.locator(".details-editorial .browse-overview").textContent() ?? "", /Translated overview/);
+        assert.equal(await tv.page.getByText("Translated by AI", { exact: true }).count(), 1);
+        assert.equal(translation.posts().length, 1, "an offline revisit retains the completed readback without another write");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
@@ -122,6 +129,29 @@ test("automatic Details translation starts with the page and a failed run offers
         await tv.page.locator('[data-focus="translate-description"]').waitFor();
         assert.equal(translation.posts().length, 1, "opening More does not translate again");
         assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("fresh metadata starts automatic translation on a cached Details owner", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    const catalog = new FakeDetails(); tv.fake.catalog = catalog;
+    const pending: string[] = [];
+    const translation = install(tv.fake, catalog, "auto", pending);
+    try {
+        await signIn(tv);
+        await tv.page.evaluate(() => window.browseHarness.mount());
+        const card = tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first();
+        await card.click();
+        await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
+        await tv.remote(10009);
+        pending.push("movie:m0001");
+        const held = tv.fake.hold("/catalog/items/movie%3Am0001", true);
+        await card.click();
+        await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
+        await tv.jump(0);
+        assert.equal(translation.posts().length, 0);
+        held.release();
+        await tv.eventually(() => Promise.resolve(translation.posts().length === 1), "fresh cached-owner translation target");
     } finally { await tv.page.context().close(); }
 });
 
@@ -200,15 +230,20 @@ test("leaving a featured card before the dwell starts nothing", async () => {
     tv.fake.catalog = catalog;
     const translation = install(tv.fake, catalog, "auto", ["movie:m0004"]);
     try {
+        await pauseTvClock(tv);
+        const held = tv.fake.hold("/capabilities/metadata-ai");
         await signIn(tv);
         await tv.page.evaluate(() => window.browseHarness.mount());
         await tv.page.locator('[data-view="home"] .skyline-marquee h1').waitFor();
-        await tv.eventually(() => Promise.resolve(tv.fake.requests.some((request) => request.path.startsWith("/capabilities/metadata-ai"))), "metadata AI capability");
-        await tv.page.keyboard.press("ArrowDown");
+        const capability = tv.page.waitForResponse(response => response.url().includes("/capabilities/metadata-ai"));
+        held.release();
+        await (await capability).finished();
+        await tv.jump(0);
+        await tv.remote(40);
         assert.notEqual(await tv.focused(), "movie:m0004");
         // The marquee keeps the previous card for its 150 ms rest. That rest has to land,
         // and cancel the featured dwell, before a longer jump can be mistaken for the card holding.
-        await tv.jump(200);
+        await tv.jump(150);
         assert.notEqual(await tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) h1").innerText(), "Movie 0004");
         assert.equal(translation.posts().length, 0);
         await tv.jump(2000);

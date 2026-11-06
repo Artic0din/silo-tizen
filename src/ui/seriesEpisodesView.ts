@@ -9,7 +9,7 @@ import { episodeAirDate, episodeRuntime } from "./episodeCaption.ts";
 interface EpisodeView { content: HTMLElement[]; zones: Zone[] }
 const visits = new WeakMap<SeriesEpisodes, { context: ViewContext; episodes: readonly Episode[] | undefined; season: number | undefined; loading: boolean; failed: boolean; boundaryFailed: boolean; hidesImages: boolean; view: EpisodeView }>();
 
-export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, focusEpisode?: (id: string) => void, currentEpisode?: string): { content: HTMLElement[]; zones: Zone[] } {
+export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, focusEpisode?: (id: string) => void, currentEpisode?: string, blurEpisode?: (id: string) => void): { content: HTMLElement[]; zones: Zone[] } {
     const previous = visits.get(state);
     const hidesImages = context.spoilers?.().hidesImages === true;
     // A hero repaint must not detach the episode receiving a pointer press or held Select.
@@ -40,29 +40,34 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, 
         const item = episodeCard(episode, context);
         if (episode.id === currentEpisode) item.element.setAttribute("aria-current", "true");
         item.element.addEventListener("focus", () => { state.entryEpisode = episode.id; delete row.dataset.scrollEntry; state.focus(episode.id); focusEpisode?.(episode.id); });
-        item.element.addEventListener("blur", () => state.blur());
+        item.element.addEventListener("blur", () => { state.blur(); blurEpisode?.(episode.id); });
         return item;
     });
     const row = zoneNode("browse-row details-episodes", episodes);
     if (state.entryEpisode !== undefined) row.dataset.scrollEntry = state.entryEpisode;
     const section = el("section", "home-section details-series-rail");
     section.setAttribute("aria-label", "Episodes");
+    const zones: Zone[] = [{ id: "seasons", layout: "row", items: seasons, get entry() { return `season:${state.seasonNumber}`; } }, { id: "episodes", layout: "row", items: episodes, get entry() { return state.entryEpisode; } }];
+    section.appendChild(row);
     if (state.failed || state.interrupted) {
-        const retry = previous?.view.zones[1]?.items.find(item => item.key === "retry-episodes") ?? actionButton("retry-episodes", "Retry episodes", () => state.retry());
-        episodes.push(retry);
-        if (state.failed) section.append(...lines(["Could not load episodes."], "error"));
-        section.append(zoneNode("browse-actions", [retry]));
+        const retry = actionButton("retry-episodes", "Retry", () => state.retry());
+        if (state.failed) {
+            const notice = el("div", episodes.length > 0 ? "details-episode-error" : "details-episode-error details-episode-error-empty");
+            notice.setAttribute("role", "alert");
+            notice.append(el("span", "", "Couldn't load episodes."), retry.element);
+            section.appendChild(notice);
+        } else section.append(zoneNode("browse-actions", [retry]));
+        zones.push({ id: "episode-retry", layout: "row", items: [retry] });
     } else if (state.episodes === undefined) section.append(...lines(["Loading episodes…"]));
     else if (state.loading) section.append(...lines(["Refreshing episodes…"]));
     else if (episodes.length === 0) section.append(...lines(["This season has no episodes yet."]));
-    section.appendChild(row);
     if (state.boundaryFailed) {
         const retry = actionButton("retry-neighbors", "Retry more episodes", () => state.retryNeighbors());
         episodes.push(retry);
         section.append(...lines(["Could not load more episodes."], "error"), zoneNode("browse-actions", [retry]));
     }
     content.push(section);
-    const view: EpisodeView = { content, zones: [{ id: "seasons", layout: "row", items: seasons, get entry() { return `season:${state.seasonNumber}`; } }, { id: "episodes", layout: "row", items: episodes, get entry() { return state.entryEpisode; } }] };
+    const view: EpisodeView = { content, zones };
     visits.set(state, { context, episodes: state.railEpisodes, season: state.seasonNumber, loading: state.loading, failed: state.failed, boundaryFailed: state.boundaryFailed, hidesImages, view });
     return view;
 }

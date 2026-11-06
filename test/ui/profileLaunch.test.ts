@@ -150,6 +150,43 @@ test("Accounts Back stays usable after signing out the active account", async ()
     } finally { await tv.page.context().close(); await browser.close(); }
 });
 
+test("Switch Profile during an outage shows retry and keeps the remembered profile's cached Home", async () => {
+    const browser = await launchBrowser();
+    const tv = await openTv(browser, { app: "application" });
+    tv.fake.catalog = new FakeDetails();
+    try {
+        await picker(tv);
+        await selectKid(tv);
+        await tv.page.locator('[data-screen="remember-profile"]').waitFor();
+        await tv.page.keyboard.press("Enter");
+        await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+        const snapshot = await tv.page.evaluate(() => window.appHarness.storage.getItem("silo.browseSnapshots.v1"));
+        assert.match(snapshot ?? "", /\/home\/sections/);
+        const devices = tv.fake.devices.size;
+        const revoked = tv.fake.revokedSessions.size;
+        const secrets = await tv.page.evaluate(() => window.appHarness.keyManager.items.size);
+        const accounts = await tv.page.evaluate(() => window.appHarness.storage.getItem("silo.native.accounts.v1"));
+        tv.offline = true;
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.locator('[data-focus="switch-profile"]').click();
+        await tv.page.locator('[data-screen="profiles-error"]').waitFor({ timeout: 5000 });
+        assert.equal(await tv.page.locator('[data-view="home"]').count(), 0, "Switch Profile must not restore the remembered profile");
+        assert.equal(await tv.focused(), "retry");
+        await tv.page.getByText("Could not reach the server. Check the TV's internet connection, then try again.", { exact: true }).waitFor();
+        assert.equal(await tv.page.evaluate(() => window.appHarness.storage.getItem("silo.browseSnapshots.v1")), snapshot);
+        assert.equal(await tv.page.evaluate(() => window.appHarness.storage.getItem("silo.native.accounts.v1")), accounts);
+        assert.equal(await tv.page.evaluate(() => window.appHarness.keyManager.items.size), secrets);
+        assert.equal(tv.fake.devices.size, devices, "a network failure must not start a device code");
+        assert.equal(tv.fake.revokedSessions.size, revoked, "a network failure must not sign out");
+        await tv.remote(10009);
+        await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+        assert.equal(await tv.page.evaluate(() => window.appHarness.storage.getItem("silo.browseSnapshots.v1")), snapshot);
+        assert.equal(tv.fake.devices.size, devices);
+        assert.equal(tv.fake.revokedSessions.size, revoked);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); await browser.close(); }
+});
+
 test("temporary creation from a remembered profile preserves its launch choice and picker badge", async () => {
     const browser = await launchBrowser();
     const tv = await openTv(browser, { app: "application" });

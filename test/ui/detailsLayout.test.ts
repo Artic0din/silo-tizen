@@ -1537,7 +1537,13 @@ detailTest('Genres have spacing on unrated Movies and stay omitted in the Series
         if (id === 'series:s1') await tv.page.locator('[data-focus="episode:s1e11"]').focus();
         const text = await tv.page.locator('.details-editorial .browse-meta').textContent() ?? '';
         assert.equal(text.split('Drama').length - 1, id === 'series:s1' ? 0 : 1);
-        if (id !== 'series:s1') assert.equal(await tv.page.locator('.details-genres').evaluate(node => getComputedStyle(node, '::before').content), '"·"');
+        // A details repaint detaches the genres node between locator resolution and evaluate.
+        // The replacement row is already painted with the divider; read that live node.
+        if (id !== 'series:s1') assert.equal(await readLive(tv, () => {
+            const node = document.querySelector('.details-genres');
+            if (!(node instanceof HTMLElement) || !node.isConnected) return null;
+            return getComputedStyle(node, '::before').content;
+        }, null, value => value === '"·"', 'genre divider on the settled metadata row'), '"·"');
         await tv.remote(10009);
     }
 });

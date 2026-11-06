@@ -20,7 +20,8 @@ All notable changes to this project are documented in this file.
 
 - Kept duplicate Cast credits focused after trailer refreshes reordered them and resumed interrupted trailer discovery after returning from playback or watched-state navigation.
 - Added Find Trailers to movie and series Details and matched cast entries and overflow, episode captions and metadata order, season pills, synopsis brightness, and More menu glass styling to Apple TV.
-- Added Find Trailers to movie and series Details and matched cast overflow, episode captions and metadata order, season pills, synopsis brightness, and More menu translucency to Apple TV.
+- Showed the full runtime and version, audio and subtitle details for each focused episode after focus settled.
+- Cancelled episode detail dwell on leaving a card, preserved explicit selector requests, and released older settled episode playback owners.
 - Kept explicit season selections on the first episode through cached Calendar revalidation and restored shuffle and advisory preferences after offline Details recovery.
 - Revalidated the saved server identity after an offline start before sending restored sign-in credentials, preventing credentials from reaching a replacement deployment.
 - Recovered offline season episode controls automatically, preserved episode refusals across cached revisits, and reused visited Details for offline card actions.

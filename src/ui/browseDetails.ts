@@ -227,7 +227,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         const audioTrackId = cached?.audioTrackId(true);
         context.playEpisode?.(id, title, startOver, cached === undefined ? undefined : { ...(cached.selectedFileId === undefined ? {} : { fileId: cached.selectedFileId }), ...(audioTrackId === undefined ? {} : { audioTrackId }), subtitle: cached.subtitleIntent() });
     } };
-    const series = state?.series === undefined ? undefined : seriesEpisodesView(state.series, seriesContext, id => state.focusEpisode(id), next);
+    const series = state?.series === undefined ? undefined : seriesEpisodesView(state.series, seriesContext, id => state.focusEpisode(id), next, id => state.blurEpisode(id));
     const seasonItems = series?.zones[0]?.items ?? (detail.type === "series" ? seasons.map((season) => seasonItem(detail.id, detail.title, season, context)) : []);
     const overview = episodeDetailPresentation(detail, context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false }, state?.values.get("watched")).overview;
     const file = playbackDetail.versions.find(file => file.fileId === playbackChoices?.fromStart.fileId);
@@ -302,7 +302,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     const ordinal = audio.findIndex((_track, index) => selectedAudio === `file:${file?.fileId}:audio:${index}`);
     const resolvedAudio = audio[effectiveAudio] === undefined ? audio.length ? audioLabel(0) : "Unknown" : audioLabel(effectiveAudio);
     const versionLabel = file?.label?.match(/\b(?:\d{3,4}p|4K|8K)\b/i)?.[0] ?? file?.label ?? "Auto";
-    // Season summaries lack versions; omit unavailable values without fetching on loaded-season moves.
+    // Keep the summary absent until the focused episode's full versions arrive.
     const summary = playbackChoices === undefined ? undefined : `Version: ${tracks?.selectedFileId === undefined && versionLabel !== "Auto" ? "Auto · " : ""}${versionLabel} | Audio: ${ordinal === -1 ? "Auto · " : ""}${resolvedAudio} | Subtitles: ${subtitleSummary}`;
     const content = [...detailHeader(detail, context, actions.map(detailAction), state, summary), ...lines(notes), ...personal?.notes ?? []];
     if (tracks?.preparingPlay) {

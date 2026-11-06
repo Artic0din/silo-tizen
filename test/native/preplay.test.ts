@@ -14,6 +14,61 @@ import { fixture, problem } from "./support/fakeSilo.ts";
 const ID = "movie:m0001";
 const WATCH = "/watch/movie%3Am0001?file_id=42";
 
+for (const explicit of [false, "before", "after"] as const) test(`episode dwell cancellation preserves explicit work: ${explicit}`, async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const r = await rig(); r.state.stop();
+    const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
+    const seasons = decodeSeasons(r.catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body);
+    const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
+    state.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes());
+    state.start(); await settle();
+    const row = state.series.episodes?.[0], title = r.catalog.titles.get('episode:s1e11');
+    assert.ok(row && title);
+    const ids = Array.from({ length: 6 }, (_, i) => `episode:cancel-${i}`);
+    const held = ids.map(id => { r.catalog.titles.set(id, { ...title, id }); return r.h.fake.hold(`/catalog/items/${encodeURIComponent(id)}?image_size=large`, true); });
+    state.series.replace(state.series.seasonNumber!, ids.map(id => ({ ...row, id })));
+    state.warmSeriesEpisodes(); await settle();
+    for (const id of ids.slice(1, 4)) { state.focusEpisode(id); state.loadNextEpisode(); await settle(); }
+    const id = ids[4]!;
+    state.focusEpisode(id);
+    if (explicit === "before") state.showPanel('audio');
+    t.mock.timers.tick(explicit ? 120 : 119); await settle();
+    if (explicit === "after") state.showPanel('audio');
+    // Blurring to a hero control leaves the selected episode in the hero.
+    state.blurEpisode(id);
+    t.mock.timers.tick(200); await settle();
+    held[0]!.release(); await settle();
+    assert.equal(r.h.fake.requests.filter(request => request.path.includes(encodeURIComponent(id))).length, explicit ? 1 : 0);
+    held[4]!.release(); await settle();
+    if (explicit) assert.equal(state.panel, 'audio', 'the explicit selector completes after blur');
+    state.stop(); held.forEach(request => request.release()); await settle();
+});
+
+test("episode playback owners evict old settled details and retain the selected owner", async () => {
+    const r = await rig(); r.state.stop();
+    const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
+    const seasons = decodeSeasons(r.catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body);
+    const state = new DetailsState(detail, r.h.core.session, () => undefined, async () => undefined);
+    state.series = new SeriesEpisodes(r.h.core.session, detail.id, seasons, () => state.warmSeriesEpisodes());
+    state.start(); await settle();
+    const row = state.series.episodes?.[0], title = r.catalog.titles.get('episode:s1e11');
+    assert.ok(row && title);
+    const ids = Array.from({ length: 24 }, (_, i) => `episode:retain-${i}`);
+    ids.forEach(id => r.catalog.titles.set(id, { ...title, id }));
+    state.series.replace(state.series.seasonNumber!, ids.map(id => ({ ...row, id })));
+    state.focusEpisode(ids[0]!); state.loadNextEpisode(); await settle();
+    const retryOwner = state.cachedEpisode(ids[0]!);
+    assert.ok(retryOwner);
+    retryOwner.failedPlay = playChoices(retryOwner.detail)?.fromStart;
+    assert.ok(retryOwner.failedPlay);
+    for (const id of ids.slice(1)) { state.focusEpisode(id); state.loadNextEpisode(); await settle(); }
+    assert.equal(state.cachedEpisode(ids[1]!), undefined, 'old settled owners are released');
+    assert.equal(state.cachedEpisode(ids[0]!), retryOwner, 'unfinished playback retry stays available');
+    assert.equal(ids.filter(id => state.cachedEpisode(id)).length, 16);
+    assert.equal(state.nextEpisode?.id, ids.at(-1));
+    state.stop();
+});
+
 test("cached Series recovery revalidates its loaded episode owners", async () => {
     const r = await rig(); r.state.stop();
     const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
@@ -101,7 +156,8 @@ test("returning to retained Series completes its interrupted playback episode re
     state.stop();
 });
 
-test("season acceptance hydrates only its playback episode and cancels late work", async () => {
+test("episode focus dwell bounds concurrent reads, drops superseded queued work and cancels late work", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
     const r = await rig(); r.state.stop();
     const detail = decodeItemDetail(r.catalog.route('GET', '/catalog/items/series%3As1', 'p-owner')?.body);
     const seasons = decodeSeasons(r.catalog.route('GET', '/catalog/series/series%3As1/seasons', 'p-owner')?.body);
@@ -116,14 +172,23 @@ test("season acceptance hydrates only its playback episode and cancels late work
     state.warmSeriesEpisodes(); await settle();
     const reads = (): number => r.h.fake.requests.filter(request => request.path.startsWith('/catalog/items/episode%3Abatch-')).length;
     assert.equal(reads(), 1);
-    state.focusEpisode(ids[5] ?? '');
-    assert.equal(reads(), 1, 'focus starts no read');
+    state.focusedEpisodeId = ids[1];
+    state.focusEpisode(ids[1] ?? '');
+    t.mock.timers.tick(119); await settle();
+    assert.equal(reads(), 1, 'focus starts no read before the Apple dwell');
+    t.mock.timers.tick(1); await settle();
+    assert.equal(reads(), 2);
+    for (const id of ids.slice(2)) {
+        state.focusEpisode(id); t.mock.timers.tick(120); await settle();
+    }
+    assert.equal(reads(), 4, 'at most four detail reads run concurrently');
     held[0]?.release(); await settle();
-    assert.equal(reads(), 1, 'completion does not drain a per-card queue');
+    assert.equal(reads(), 5, 'only the latest queued focused episode starts');
+    assert.equal(r.h.fake.requests.filter(request => request.path.includes('episode%3Abatch-4')).length, 0, 'superseded queued focus never reads');
     state.stop();
     for (const request of held) request.release();
     await settle();
-    assert.equal(reads(), 1, 'cancellation does not launch another card read');
+    assert.equal(reads(), 5, 'cancellation does not launch another card read');
     assert.equal(state.cachedEpisode(ids[5] ?? ''), undefined);
 });
 

@@ -696,10 +696,10 @@ browseTest("Search people, a 25-title grid and requests follow the measured colu
     assert.equal(await tv.focused(), "movie:m0003", "the second person lands on the third poster");
     await tv.page.locator('.browse-grid [data-focus="movie:m0025"]').focus();
     await press(tv, "ArrowDown");
-    assert.equal(await tv.focused(), "movie:949", "the last card is column 0 and lines up with the first request");
+    assert.equal(await tv.focused(), "movie:949", "focusing the last card itself still meets the first request");
     await tv.page.locator('[data-focus="movie:960"]').focus();
     await press(tv, "ArrowUp");
-    assert.equal(await tv.focused(), "movie:960", "Up from the right end of Requests stays put");
+    assert.equal(await tv.focused(), "movie:m0025", "Up from the right end enters the last grid card");
 }, { catalog: new SearchEdgeCatalog(25), beforeConnect: tv => {
     new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" });
 } });
@@ -795,7 +795,8 @@ for (const reduced of [false, true]) {
         await tv.eventually(async () => Math.abs(await tv.page.locator('.search-request-rail').evaluate(row => row.scrollLeft) - 1179) < 2, "native request end");
         assert.equal(await paints('[data-focus="movie:960"] .browse-art'), true);
         await press(tv, "ArrowUp");
-        assert.equal(await tv.focused(), "person:edge-5", "Up returns to the person that lines up with the scrolled request");
+        assert.equal(await tv.focused(), "movie:960", "Up from the right end stays when People is the row above");
+        await tv.page.locator('[data-focus="person:edge-5"]').focus();
         for (let step = 0; step < 14; step++) await press(tv, "ArrowRight");
         assert.equal(await tv.focused(), "person:edge-19");
         await tv.eventually(async () => Math.abs(await tv.page.locator('.search-people-rail').evaluate(row => row.scrollLeft) - 3696) < 2, "native People end");
@@ -3975,3 +3976,99 @@ browseTest("an authority change removes only browse, aborts its reads, and the n
     assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.chooseProfileCalls), [false], "browse was gone before onChooseProfile ran");
     assert.equal(await tv.page.locator(".browse").count(), 0);
 }, { profile: "p-owner" });
+
+browseTest("Down the third Search column keeps that column onto request 3", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie"); await tv.remote(IME_DONE);
+    await tv.page.locator('.browse-grid [data-focus="movie:m0025"]').waitFor();
+    await tv.page.locator('[data-focus="movie:951"]').waitFor({ state: "attached" });
+    await tv.page.locator('.browse-grid .browse-card').nth(2).focus();
+    await press(tv, "ArrowDown", "ArrowDown", "ArrowDown", "ArrowDown");
+    assert.equal(await tv.focused(), "movie:m0025", "the short last row catches Down from the third column");
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "movie:951", "the column continues to request 3");
+    const left = await tv.page.locator('[data-focus="movie:951"]').evaluate(node => node.getBoundingClientRect().left);
+    assert.ok(Math.abs(left - 680.4) < 1, `request 3 stays near x 680, got ${left}`);
+}, { catalog: new SearchEdgeCatalog(25), beforeConnect: tv => {
+    new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" });
+} });
+
+browseTest("Up from the scrolled end of Requests returns to the last grid card", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie"); await tv.remote(IME_DONE);
+    await tv.page.locator('.browse-grid [data-focus="movie:m0025"]').waitFor();
+    await tv.page.locator('[data-focus="movie:960"]').waitFor({ state: "attached" });
+    await tv.page.locator('[data-focus="movie:949"]').focus();
+    for (let step = 0; step < 11; step++) await press(tv, "ArrowRight");
+    await tv.jump(300);
+    assert.equal(await tv.focused(), "movie:960");
+    await press(tv, "ArrowUp");
+    assert.equal(await tv.focused(), "movie:m0025", "the last grid row catches Up from the right end");
+}, { catalog: new SearchEdgeCatalog(25), beforeConnect: tv => {
+    new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" });
+} });
+
+browseTest("Up from the right end of Requests stays when bad has people and no grid", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "bad"); await tv.remote(IME_DONE);
+    await tv.page.locator('[data-focus="person:edge-0"]').waitFor({ state: "attached" });
+    await tv.page.locator('[data-focus="movie:960"]').waitFor({ state: "attached" });
+    assert.equal(await tv.page.locator(".browse-grid .browse-card").count(), 0, "bad has no title grid");
+    await tv.page.locator('[data-focus="movie:949"]').focus();
+    for (let step = 0; step < 11; step++) await press(tv, "ArrowRight");
+    await tv.jump(300);
+    assert.equal(await tv.focused(), "movie:960");
+    await press(tv, "ArrowUp");
+    assert.equal(await tv.focused(), "movie:960", "People does not take Up from the right end");
+}, { catalog: new SearchEdgeCatalog(), beforeConnect: tv => {
+    new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" });
+} });
+
+class PrimSearchCatalog extends SearchCatalog {
+    constructor() {
+        super(0);
+        this.add({ id: "series:p1", type: "series", title: "Prim Alpha", libraryId: "13", year: 2001 });
+        this.add({ id: "series:p2", type: "series", title: "Prim Beta", libraryId: "13", year: 2002 });
+        this.add({ id: "series:p3", type: "series", title: "Prim Delta", libraryId: "13", year: 2003 });
+        this.add({ id: "series:p4", type: "series", title: "Prim Gamma", libraryId: "13", year: 2004 });
+    }
+
+    override route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): Reply | undefined {
+        const url = new URL(path, "https://fake.invalid");
+        if (url.pathname === "/catalog/people") return { status: 200, body: { items: [] } };
+        if (url.pathname === "/requests/search") return { status: 200, body: { page: 1, total_pages: 1, total_results: 5, results: [
+            { ...this.title(), tmdb_id: 1, title: "Other" },
+            { ...this.title(), tmdb_id: 2, title: "Prim" },
+            { ...this.title(), tmdb_id: 3, title: "Becky Prim" },
+            { ...this.title(), tmdb_id: 4, title: "PRIM/GATE" },
+            { ...this.title(), tmdb_id: 5, title: "Dr. Prim" },
+        ] } };
+        return super.route(method, path, profileId, body);
+    }
+}
+
+browseTest("Series pill Down lands on the card under the pill", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Prim"); await tv.remote(IME_DONE);
+    await tv.page.locator('.browse-grid [data-focus="series:p4"]').waitFor();
+    await tv.page.locator('[data-focus="search-filter:series"]').focus();
+    await tv.page.locator('.browse-grid [data-focus="series:p4"]').waitFor();
+    assert.equal(await tv.page.locator(".search-people-rail .browse-card").count(), 0, "series results have no People row");
+    assert.equal(await tv.page.locator(".browse-grid .browse-card").count(), 4);
+    assert.equal(await tv.focused(), "search-filter:series");
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "series:p4", "Series Down lands on the fourth card");
+    const left = await tv.page.locator('[data-focus="series:p4"]').evaluate(node => node.getBoundingClientRect().left);
+    assert.ok(Math.abs(left - 989) < 1, `the fourth series card stays near x 989, got ${left}`);
+    await tv.page.locator('[data-focus="series:p2"]').focus();
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "movie:2", "the second series card meets Prim");
+    // The third card's nearest lined-up request is Becky Prim. Apple lands on Dr. Prim, which sits past PRIM/GATE, so no one column rule can move the third card there and still leave the fourth on PRIM/GATE.
+    await tv.page.locator('[data-focus="series:p4"]').focus();
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "movie:4", "the fourth series card meets PRIM/GATE");
+    const gate = await tv.page.locator('[data-focus="movie:4"]').evaluate(node => node.getBoundingClientRect().left);
+    assert.ok(Math.abs(gate - 901.6) < 1, `PRIM/GATE stays near x 902, got ${gate}`);
+}, { catalog: new PrimSearchCatalog(), beforeConnect: tv => {
+    new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" });
+} });

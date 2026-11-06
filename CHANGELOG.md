@@ -22,6 +22,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept Info Retry visible during remote navigation and restored selected video settings after hidden stream preparation.
+
 - Showed the effective autoplay setting after saving.
 - Retried Up Next discovery after seeks, preserved fresh autoplay settings at EOF, and kept captions inside the video preview.
 

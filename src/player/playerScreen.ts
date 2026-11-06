@@ -839,7 +839,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         const at = all.findIndex((button) => button === document.activeElement);
         if (key === "up" || key === "down") {
             const pane = lists[column];
-            if (tabNames[column] === "Info" && pane !== undefined && pane.scrollHeight > pane.clientHeight) {
+            if (focusedId() === "info" && tabNames[column] === "Info" && pane !== undefined && pane.scrollHeight > pane.clientHeight) {
                 const end = pane.scrollHeight - pane.clientHeight;
                 if (key === "down" && pane.scrollTop < end - 1 || key === "up" && pane.scrollTop > 1) {
                     pane.scrollTop = Math.max(0, Math.min(end, pane.scrollTop + (key === "down" ? 1 : -1) * pane.clientHeight * 0.8));

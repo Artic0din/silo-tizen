@@ -19,6 +19,32 @@ import { connected, type Harness, signIn } from "./support/harness.ts";
 
 const MOVIE: PlayRequest = { contentId: "movie-1", fileId: "42", title: "Movie", startSeconds: 12.5 };
 
+test("READY foreground restore reapplies the selected speed and aspect", async () => {
+    const r = await rig();
+    const applied: string[] = [];
+    Object.assign(r.avplay, {
+        setSpeed: (value: number) => applied.push(`speed ${value}`),
+        setDisplayMethod: (value: string) => applied.push(value),
+    });
+    await playMovie(r);
+    r.controller.setVideo("speed", "2");
+    r.controller.setVideo("aspect", "Stretch");
+    r.avplay.listener?.onerror("PLAYER_ERROR_NOT_SUPPORTED_FORMAT");
+    await r.h.clock.advance(0);
+    r.controller.suspend();
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    if (r.avplay.calls.at(-1)?.startsWith("seekTo")) {
+        r.avplay.finishSeek();
+        await r.h.clock.advance(0);
+    }
+    applied.length = 0;
+    r.controller.restore();
+    await r.h.clock.advance(0);
+    assert.deepEqual(applied, ["speed 2", "PLAYER_DISPLAY_MODE_FULL_SCREEN"]);
+    r.controller.destroy();
+});
+
 test("HUD chapters read the effective watch file, expose failures and retry without restarting playback", async () => {
     const r = await rig();
     r.h.fake.script("/watch/movie-1?file_id=42", problem(404, "not_found", "Unavailable"));

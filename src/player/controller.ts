@@ -2515,6 +2515,7 @@ export class PlaybackController implements PlayerControls {
             attempt.suspendedReady = false;
             try {
                 this.deps.avplay.play();
+                if (attempt.plan !== undefined) attempt.hud.restore(this.deps.avplay, attempt.plan);
                 if (attempt.paused) {
                     this.deps.avplay.pause();
                 }

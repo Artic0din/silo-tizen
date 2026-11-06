@@ -393,6 +393,23 @@ test("profile subtitle editors read and compare profile values while narrower ov
     } finally { await tv.page.context().close(); }
 });
 
+test("Paired Silo Profile shows the profile this TV reopens and opens the profile picker", async () => {
+    const { tv } = await setup();
+    try {
+        await openSettings(tv);
+        assert.equal(await tv.page.locator(".settings-section-header").first().textContent(), "TV USER");
+        assert.equal(await tv.page.locator('[data-focus="paired-profile"] .settings-row-value').textContent(), "Not paired");
+        await tv.page.getByText("This TV user context is not set to keep separate app preferences. Silo uses the profile pairing available to the current app context, and you can change it here at any time. Ask Every Time is on, so Silo will still show Who's Watching at launch.", { exact: true }).waitFor();
+        await tv.page.locator('[data-focus="remember-profile"]').click();
+        await tv.page.getByRole("radio", { name: "Automatic", exact: true }).click();
+        await tv.eventually(async () => await tv.page.locator('[data-focus="paired-profile"] .settings-row-value').textContent() === "Laura", "remembered profile name");
+        assert.equal(await tv.page.getByText(/Ask Every Time is on/).count(), 0);
+        await tv.page.locator('[data-focus="paired-profile"]').click();
+        assert.equal(await tv.page.evaluate(() => window.browseHarness.chooseProfileCalls.length), 1);
+        assert.equal(await tv.page.locator(".settings").count(), 0);
+    } finally { await tv.page.context().close(); }
+});
+
 test("Subtitles, the profile account line and sign-out confirmation follow Apple TV", async () => {
     const { tv, settings } = await setup();
     settings.profileSubtitles = true;

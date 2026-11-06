@@ -15,6 +15,7 @@ import { navigationAvatar } from "./navigationAvatar.ts";
 import { navigationIcon } from "./navigationIcon.ts";
 import { decodeAppearance, DEFAULT_APPEARANCE } from "../contracts/v2/subtitles.ts";
 import { applySubtitleAppearance } from "../player/subtitleView.ts";
+import { pairedProfileDescription, pairedProfileLabel } from "./pairedProfile.ts";
 
 type Category = "general" | "playback" | "subtitles" | "server";
 const CATEGORY_LABELS = { general: "General", playback: "Playback", subtitles: "Subtitles", server: "Server" } as const;
@@ -514,6 +515,12 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             body.append(el("h3", "settings-section-header", "ABOUT"), info("App Version", APP_VERSION), policy.element, item.element);
             rows.push(policy);
             rows.push(item);
+        }
+        if (category === "general" && launch !== undefined && actions?.switchProfile !== undefined) {
+            const item = actionButton("paired-profile", "Paired Silo Profile", () => { destroy(); actions.switchProfile(); });
+            item.element.append(el("span", "settings-row-value", pairedProfileLabel(launch.rememberedProfileId, session.activeProfile?.id, actions.profileName)), el("span", "settings-chevron", "›"));
+            rows.push(item);
+            body.append(el("h3", "settings-section-header", "TV USER"), item.element, el("p", "settings-value", pairedProfileDescription(launch.behavior === "askEveryLaunch")));
         }
         if (category === "general" && launch !== undefined) {
             const item = actionButton("remember-profile", "Profile Selection", () => { choosingLaunch = true; render(); });

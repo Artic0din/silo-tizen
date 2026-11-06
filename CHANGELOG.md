@@ -21,6 +21,7 @@ All notable changes to this project are documented in this file.
 
 - Matched the library Browse grid to Apple TV: the mode pills are gone, and Up from Sort returns to the top bar. Episode rows now crop the previous card at the 100px inset, the focused still lifts by 5%, and Cast, trailer and related rows start at that inset and paint to the screen edge.
 - Kept Play focused when a movie's Details opened, even if the first focus claim did not stick, and kept that claim from leaving a card-actions dialog or ignoring a Play button that appears after the page opens.
+- Kept a debounced skip when an earlier scrub seek landed on the same plan.
 - Kept a running skip hold when the earlier seek landed on the same plan.
 - Added Retry for retryable playback startup failures and exhausted route recovery.
 - Matched the measured player layout, showed episode context, hid idle controls from every transport focus, and held seek times until playback caught up.

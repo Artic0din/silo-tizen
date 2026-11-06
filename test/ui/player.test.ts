@@ -579,6 +579,20 @@ for (const landing of ["same-plan", "replacement-plan"] as const) test(`a scrub 
     } finally { await page.close(); }
 });
 
+for (const landing of ["same-plan", "replacement-plan"] as const) test(`a debounced skip survives only a ${landing} landing`, async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), positionSeconds: 22.5, previewKey: "same-plan" });
+        await show(page, { ...playing(TRACKS), positionSeconds: 22.5, previewKey: undefined });
+        await press(page, RIGHT);
+        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), "32.5");
+        await show(page, { ...playing(TRACKS), positionSeconds: 22.5, previewKey: landing });
+        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), landing === "same-plan" ? "32.5" : "22.5");
+        await page.clock.fastForward(200);
+        assert.deepEqual(await commands(page), landing === "same-plan" ? ["seekToSeconds 32.5"] : []);
+    } finally { await page.close(); }
+});
+
 test("reduced motion disables scrolling animation in the active track pane", async () => {
     const { page } = await open();
     try {

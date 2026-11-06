@@ -18,6 +18,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Applied queued subtitle choices after a replacement stream finished preparing while hidden.
+
 - Restored sidecar captions and queued choices after refused subtitle reports, aligned subtitles after suspended preparation, and honoured published HLS rendition order.
 - Reported an HLS subtitle alignment failure instead of showing a track that the native player could not select.
 - Allowed pause during subtitle reports, queued choices needing a new stream, and replanned subtitle tracks that the native stream could not identify.

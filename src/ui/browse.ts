@@ -34,7 +34,7 @@ import { Skyline } from "./skyline.ts";
 import { decodeImageCapabilities, type ImageCapabilities, homeArtworkQuery } from "../contracts/v2/images.ts";
 import { FocusHost, type FocusTarget } from "./browseFocus.ts";
 import { type Destination, type PlayRequest, destinationOf, playChoices, visibleLibraries } from "./browseModel.ts";
-import { errorState, unconfirmedWriteMessage, writeFailureMessage, writeMayHaveApplied, failureText, hasData, newPages, newRoute, PAGE_SIZE, type Pages, type Route, routeView } from "./browseRoutes.ts";
+import { errorState, unconfirmedWriteMessage, writeFailureMessage, writeMayHaveApplied, failureText, hasData, newPages, newRoute, PAGE_SIZE, SEARCH_PAGE_SIZE, type Pages, type Route, routeView } from "./browseRoutes.ts";
 import { homeRows, type ViewContext } from "./browseViews.ts";
 import { HomeEnrichment } from "./homeEnrichment.ts";
 import { el } from "./screen.ts";
@@ -1541,7 +1541,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (signal.aborted || top() !== current || current.query !== query) throw new DOMException("Aborted", "AbortError");
             if (current.supplement?.people === undefined) searchPeople(current, current.filter ?? type);
             if (current.supplement?.boxSetsPending !== false) searchBoxSets(current);
-            return read(operations.listCatalogItems({ q: query.trim(), type: current.filter ?? type, limit: PAGE_SIZE, cursor: pages.cursors[index] }), signal);
+            return read(operations.listCatalogItems({ q: query.trim(), type: current.filter ?? type, limit: SEARCH_PAGE_SIZE, cursor: pages.cursors[index] }), signal);
         }, (page) => {
             pages.page = page;
             pages.index = index;

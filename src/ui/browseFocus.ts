@@ -454,7 +454,9 @@ export class FocusHost {
                     const rect = from.element.getBoundingClientRect();
                     this.navigationX = rect.left + rect.width / 2;
                 }
-                const nearest = spatial ? nearestItem(edgeItems, from.element, this.navigationX) : undefined;
+                const searchLanding = searchVerticalLanding(zones[zoneIndex], zone, from.element, edgeItems, this.navigationX);
+                if (searchLanding === "stay") return true;
+                const nearest = searchLanding ?? (spatial ? nearestItem(edgeItems, from.element, this.navigationX) : undefined);
                 this.focusItem(zone, zone.items.find(item => item.key === zone.entry) ?? nearest ?? zone.items.find((item) => item.key === remembered) ?? zone.items[0]);
                 return true;
             }
@@ -589,8 +591,20 @@ export class FocusHost {
         // first card is a default-focus landing (CalendarView prefers the first
         // item on every shelf), so the next Down must measure that card rather
         // than the day button the axis still holds.
+        // Search People is the same kind of landing. TVDetailCastRail uses
+        // tvDefaultFocus on the first person, so a filter pill's column must not
+        // survive into the next row. A short title row keeps the column that
+        // entered it: the next Down still measures that column, not the card
+        // the row snapped to.
+        const previousItem = this.navigationItem;
+        const previousZone = this.lastZone;
+        const axis = this.navigationX;
         const calendarChrome = this.view?.name === "calendar" && (zone.id === "filters" || zone.id === "days" || zone.id === "status" || zone.id === "empty" || this.lastZone === "filters" || this.lastZone === "days" || this.lastZone === "status" || this.lastZone === "empty");
-        if (zone.id === "nav" || this.lastZone === "nav" || calendarChrome) this.navigationX = undefined;
+        if (zone.id === "nav" || this.lastZone === "nav" || calendarChrome || zone.id === "search-people") this.navigationX = undefined;
+        if (this.view?.name === "search" && zone.id === "grid") {
+            const ragged = previousZone === "grid" && previousItem !== undefined && axis !== undefined && !framesMeet(previousItem.element, item.element);
+            if (!ragged) this.navigationX = undefined;
+        }
         this.memory.set(zone.id, item.key);
         this.lastZone = zone.id;
         // Opening the cascade must not replace the content return target.
@@ -720,6 +734,77 @@ function landscapeArt(element: HTMLElement): boolean {
     const box = art instanceof HTMLElement ? art : element;
     // Focus transforms can round a square's viewport width above its height.
     return box.offsetWidth > box.offsetHeight;
+}
+
+/**
+ * People into the title grid take the first column whose left edge is at or past the
+ * focused centre. A filter pill into that grid takes the card whose frame meets the pill.
+ * Each title row is a full-width focus section, so a move into the row still lands when
+ * no card meets. Requests move only onto a card that lines up. People takes a request
+ * only when the first person meets it; otherwise the move stays.
+ * A short title row keeps the column that entered it, so the next move uses that column.
+ * Box sets keep the ordinary nearest-centre move.
+ */
+function searchVerticalLanding(source: Zone | undefined, destination: Zone, from: HTMLElement, edgeItems: readonly FocusItem[], axisX?: number): FocusItem | "stay" | undefined {
+    if (source === undefined) return undefined;
+    if (source.id === "search-people" && destination.id === "grid") {
+        // A person past the last column still enters that column. The measured rows have a column at or past the centre.
+        return columnAtOrPastCenter(edgeItems, from) ?? nearestItem(edgeItems, from);
+    }
+    if (source.id === "search-filters" && destination.id === "grid") {
+        return overlappingNearest(edgeItems, from.getBoundingClientRect()) ?? nearestItem(edgeItems, from);
+    }
+    const intoRequests = destination.id === "search-requests" && (source.id === "search-people" || source.id === "grid");
+    const outOfRequests = source.id === "search-requests" && (destination.id === "grid" || destination.id === "search-people");
+    if (!intoRequests && !outOfRequests) return undefined;
+    const origin = source.id === "grid" ? columnRect(from, axisX) : from.getBoundingClientRect();
+    if (destination.id === "search-people") {
+        const first = edgeItems[0];
+        return first !== undefined && framesMeetRect(origin, first.element.getBoundingClientRect()) ? first : "stay";
+    }
+    const meet = overlappingNearest(edgeItems, origin);
+    if (meet !== undefined) return meet;
+    // TVCatalogGrid gives every row a full-width focus section, so the row catches the move.
+    if (destination.id === "grid") return nearestItem(edgeItems, from, axisX) ?? "stay";
+    return "stay";
+}
+
+function columnRect(element: HTMLElement, axisX: number | undefined): DOMRect {
+    const rect = element.getBoundingClientRect();
+    if (axisX === undefined) return rect;
+    const dx = axisX - (rect.left + rect.width / 2);
+    if (Math.abs(dx) < 0.5) return rect;
+    return new DOMRect(rect.x + dx, rect.y, rect.width, rect.height);
+}
+
+function framesMeet(origin: HTMLElement, target: HTMLElement): boolean {
+    return framesMeetRect(origin.getBoundingClientRect(), target.getBoundingClientRect());
+}
+
+function framesMeetRect(origin: DOMRect, target: DOMRect): boolean {
+    return origin.left < target.right && target.left < origin.right;
+}
+
+function columnAtOrPastCenter(items: readonly FocusItem[], from: HTMLElement): FocusItem | undefined {
+    const box = from.getBoundingClientRect();
+    const center = box.left + box.width / 2;
+    return items.find(item => item.element.getBoundingClientRect().left >= center - 0.5);
+}
+
+function overlappingNearest(items: readonly FocusItem[], origin: DOMRect): FocusItem | undefined {
+    const center = origin.left + origin.width / 2;
+    let best: FocusItem | undefined;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const item of items) {
+        const target = item.element.getBoundingClientRect();
+        if (origin.left >= target.right || target.left >= origin.right) continue;
+        const distance = Math.abs(target.left + target.width / 2 - center);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            best = item;
+        }
+    }
+    return best;
 }
 
 function nearestItem(items: readonly FocusItem[], from: HTMLElement, navigationX?: number): FocusItem | undefined {

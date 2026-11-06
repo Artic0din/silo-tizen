@@ -7,13 +7,13 @@ import type { TextSearchScope } from "../api/operations.ts";
 import type { CatalogPage, Episode, HomeSection, ItemDetail, Season, UserLibrary } from "../contracts/v2/catalog.ts";
 import type { Person } from "../contracts/v2/details.ts";
 import type { DetailsState } from "./detailsState.ts";
-import { SessionError } from "../session/session.ts";
+import { SessionError, SessionRefreshError } from "../session/session.ts";
 import type { FocusTarget, View } from "./browseFocus.ts";
 import { itemView, seasonView } from "./browseDetails.ts";
 import { browseCardDestination, type EpisodeSelection, type PlayRequest, type SeriesContext } from "./browseModel.ts";
 import type { CalendarState } from "./calendarState.ts";
 import { calendarView, type CalendarHandlers } from "./calendarView.ts";
-import { actionButton, homeView, lines, pagedGrid, type SearchResults, searchView, statusView, type ViewContext, zoneNode } from "./browseViews.ts";
+import { actionButton, FAILURE_ICON, homeView, lines, pagedGrid, type SearchResults, searchState, searchView, statusView, type ViewContext, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
 import { discoveryState, type BrowseChange, type DiscoveryState, type LibraryMode, type LibrarySource } from "./libraryDiscovery.ts";
 import { discoveryView, resultsView } from "./libraryDiscoveryViews.ts";
@@ -51,7 +51,7 @@ export type RouteData =
     /** `resultsFor`: the query the shown page answers, which typing can move ahead of. */
     | { readonly kind: "search"; query: string; pages: Pages | undefined; resultsFor: string; searchType?: TextSearchScope; filter?: "movie" | "series" | undefined; peopleSupported?: boolean; boxSetsSupported?: boolean; supplement?: SearchSupplement }
     | { readonly kind: "boxSet"; readonly id: string; readonly libraryId: string; readonly title: string; data: CatalogBoxSetDetail | undefined }
-    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState; boxSet?: BoxSetRowState } | undefined }
+    | { readonly kind: "item"; readonly id: string; readonly title: string; readonly seriesContext?: SeriesContext; error?: ErrorState; data: { detail: ItemDetail; seasons: Season[]; details?: DetailsState; boxSet?: BoxSetRowState } | undefined }
     | { readonly kind: "person"; readonly id: string; readonly title: string; data: { person: Person } | undefined; metadataLoading?: boolean; metadataFailure?: string | undefined; availabilityLoading?: boolean; availableFilters?: MediaScope[]; filter: MediaScope; pages: Pages; pendingIndex: number | undefined }
     | { readonly kind: "season"; readonly seriesId: string; readonly seasonNumber: number; readonly title: string; readonly id?: string; readonly episodeId?: string; data: { episodes: Episode[]; detail: ItemDetail | undefined; details?: DetailsState } | undefined };
 
@@ -122,6 +122,7 @@ export interface RouteHandlers {
     readonly pop: () => void;
     readonly play: (request: PlayRequest) => void;
     readonly chooseProfile: () => void;
+    readonly manageServers?: (() => void) | undefined;
     readonly retry: (route: Route) => void;
     readonly turn: (route: Route, pages: Pages, step: -1 | 1) => void;
     readonly mode: (route: Extract<Route, { kind: "library" }>, mode: LibraryMode) => void;
@@ -148,6 +149,14 @@ export function routeView(current: Route, handlers: RouteHandlers): View {
         return globalSearchView(searchView(handlers.searchHead, handlers.input, searchResults(current, handlers), pop), current, handlers);
     }
     if (current.failure !== undefined && !hasData(current)) {
+        if (current.kind === "home" || current.kind === "item" && current.error?.headline === "Something went wrong") {
+            const retry = actionButton("retry", "Try Again", () => handlers.retry(current));
+            const controls = [retry, ...(current.kind === "home" && handlers.manageServers ? [actionButton("manage-servers", "Manage Servers", handlers.manageServers)] : [])];
+            const page = searchState("Something went wrong", current.failure, "details-failure", FAILURE_ICON);
+            page.setAttribute("role", "alert");
+            page.appendChild(zoneNode("browse-actions", controls));
+            return { name: `${current.kind}:failed`, content: [page], zones: [{ id: "status", layout: "column", items: controls }], focus: { zone: "status", key: "retry" }, back };
+        }
         return statusView(`${current.kind}:failed`, "Something went wrong", [current.failure], [actionButton("retry", "Try again", () => handlers.retry(current)), escape], back, "error");
     }
     switch (current.kind) {
@@ -310,7 +319,7 @@ export function errorState(error: unknown): ErrorState {
 
 /** Apple RequestMutationFailure.isUncertain: only an answer from the server, or a refusal before sending, rules out a write having landed. */
 export function writeMayHaveApplied(error: unknown): boolean {
-    if (error instanceof SessionError) return false;
+    if (error instanceof SessionError || error instanceof SessionRefreshError) return false;
     return !(error instanceof ApiError) || (error.failure.kind !== "problem" && error.failure.kind !== "http");
 }
 

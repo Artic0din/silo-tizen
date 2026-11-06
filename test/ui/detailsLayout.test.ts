@@ -5,7 +5,25 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { problem } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, pauseTvClock, readLive, type Tv } from "./support/tv.ts";
+import { homeDetailsRead, launchBrowser, openTv, pauseTvClock, readLive, type Tv } from "./support/tv.ts";
+
+detailTest("cached series Play retains its episode label offline", async tv => {
+    const card = tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first();
+    await card.click();
+    const primary = tv.page.locator('[data-focus="next-episode"]');
+    await tv.eventually(async () => /^Play S/.test(await primary.innerText()), "episode ready");
+    const label = await primary.innerText();
+    await tv.remote(10009);
+    await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+    await card.click();
+    await tv.jump(35000);
+    assert.equal(await primary.innerText(), label);
+    assert.equal(await primary.getAttribute("aria-disabled"), "false");
+    const before = await tv.page.evaluate(() => window.browseHarness.plays.length);
+    await primary.click();
+    await tv.jump(35000);
+    await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === before + 1, "cached episode reaches the ordinary playback handoff");
+});
 
 function liveRail(_arg: null): { left: number; width: number; scroll: number; padding: string; cards: { x: number; frameX: number; right: number; width: number }[] } | null {
     const row = document.querySelector(".details-episodes");
@@ -22,6 +40,77 @@ function liveRail(_arg: null): { left: number; width: number; scroll: number; pa
         }),
     };
 }
+
+detailTest("season Details automatically recovers an offline next episode", async tv => {
+    await pauseTvClock(tv);
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="series:s1-S1"]').waitFor();
+    let failures = 0;
+    tv.page.on("requestfailed", request => { if (request.url().includes("/catalog/items/episode%3A")) failures++; });
+    await tv.page.route("**/api/v2/catalog/items/episode%3A*", route => route.abort("connectionrefused"));
+    await tv.page.locator('[data-focus="series:s1-S1"]').click();
+    const primary = tv.page.locator('[data-focus="next-episode"]');
+    await tv.eventually(async () => failures >= 1, "first episode transport failure");
+    await tv.jump(1000);
+    await tv.eventually(async () => failures >= 2, "episode transport retry exhausted");
+    await tv.jump(0);
+    await tv.eventually(async () => await primary.getAttribute("aria-disabled") === "true", "episode read failed offline");
+    let seasonFailures = 0;
+    tv.page.on("requestfailed", request => { if (request.url().includes("/seasons/1/episodes")) seasonFailures++; });
+    await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**", route => route.abort("connectionrefused"));
+    await tv.jump(15000);
+    await tv.eventually(async () => seasonFailures >= 1, "automatic recovery attempted while still offline");
+    await tv.jump(1000);
+    await tv.eventually(async () => seasonFailures >= 2, "automatic recovery exhausted transport retry");
+    await tv.jump(0);
+    const beforeRetry = failures;
+    await primary.dispatchEvent("click");
+    await tv.eventually(async () => failures > beforeRetry, "visible episode owner remains active after failed recovery");
+    await tv.jump(1000);
+    await tv.eventually(async () => failures >= beforeRetry + 2, "manual episode transport retry exhausted");
+    await tv.jump(0);
+    const catalog = tv.fake.catalog;
+    assert.ok(catalog instanceof FakeDetails);
+    catalog.mutationFailure = problem(422, "validation_failed", "Unavailable action");
+    await tv.page.locator('[data-focus="more"]').click();
+    const panel = tv.page.getByRole("dialog", { name: "More", exact: true });
+    await panel.locator('[data-focus="watched"]').click();
+    await tv.page.locator('[data-focus="more"]').click();
+    await panel.getByRole("button", { name: "Retry watched", exact: true }).waitFor();
+    await tv.remote(10009);
+    const mutations = [...catalog.mutations];
+    await tv.page.unroute("**/api/v2/catalog/items/episode%3A*");
+    await tv.page.unroute("**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**");
+    await tv.jump(15000);
+    await tv.eventually(async () => await primary.getAttribute("aria-disabled") === "false", "season next episode recovered automatically");
+    assert.match(await primary.innerText(), /Play S1:E1/);
+    await tv.page.locator('[data-focus="more"]').click();
+    await panel.getByRole("button", { name: "Retry watched", exact: true }).waitFor({ timeout: 1500 });
+    assert.deepEqual(catalog.mutations, mutations, "automatic recovery never resends the failed write");
+});
+
+detailTest("stale season return restarts its personal action owner", async tv => {
+    const catalog = tv.fake.catalog;
+    assert.ok(catalog instanceof FakeDetails);
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="series:s1-S1"]').click();
+    await tv.page.locator('[data-focus="episode:s1e12"]').click({ button: "right" });
+    await tv.page.locator('[data-focus="episode-information"]').click();
+    catalog.mutationFailure = problem(422, "validation_failed", "Unavailable action");
+    const panel = tv.page.getByRole("dialog", { name: "More", exact: true });
+    await tv.page.locator('[data-focus="more"]').click();
+    await panel.locator('[data-focus="watched"]').click();
+    await tv.page.locator('[data-focus="more"]').click();
+    await panel.getByRole("button", { name: "Retry watched", exact: true }).waitFor();
+    await tv.remote(10009);
+    await tv.remote(10009);
+    await tv.page.locator('.browse-episodes').waitFor();
+    await tv.eventually(async () => /^Play S/.test(await tv.page.locator('[data-focus="next-episode"]').innerText()), "stale season refreshed");
+    const before = catalog.mutations.length;
+    await tv.page.locator('[data-focus="more"]').click();
+    await panel.locator('[data-focus="watched"]').click();
+    await tv.eventually(async () => catalog.mutations.length > before, "returned season action dispatched");
+});
 
 function liveScroll(_arg: null): number | null {
     const row = document.querySelector(".details-episodes");
@@ -549,6 +638,14 @@ detailTest('Series hero uses the selected season suggestion instead of play_cont
     await tv.page.locator('[data-focus="more"]').click();
     await tv.page.getByRole('button', { name: 'Show Series Info', exact: true }).click();
     await tv.eventually(async () => (await tv.page.locator('[data-focus="next-episode"]').textContent())?.includes('S1:E2') === true, 'overview suggestion is independent of rail focus memory');
+    await tv.remote(10009);
+    await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.jump(35000);
+    assert.match(await tv.page.locator('[data-focus="next-episode"]').innerText(), /S1:E2/);
+    await tv.page.unroute("**/api/v2/**");
+    await tv.jump(50000);
+    assert.match(await tv.page.locator('[data-focus="next-episode"]').innerText(), /S1:E2/, "recovery retains the overview suggestion rather than rail focus memory");
 });
 
 detailTest('Series More keeps series and season watched writes separate and reconciles failure', async tv => {
@@ -1829,6 +1926,125 @@ detailTest("More owns accessible personal-action loading and failure announcemen
     assert.equal(await panel.getByRole("alert").count(), 1);
 });
 
+for (const kind of ["favorites", "watchlist"] as const) detailTest(`online Details preserves unresolved ${kind} through automatic recovery`, async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    if (kind === "favorites") await tv.page.locator('[data-focus="more"]').click();
+    const source = kind;
+    let failures = 0;
+    tv.page.on("requestfailed", request => { if (request.url().includes(`/${source}/movie%3Am0001/membership`)) failures++; });
+    await tv.page.route(`**/api/v2/${source}/movie%3Am0001/membership`, route => route.abort("connectionrefused"));
+    await tv.page.locator(`[data-focus="${kind}"]`).click();
+    await tv.eventually(async () => failures >= 1, "membership readback failed");
+    await tv.jump(1000);
+    await tv.eventually(async () => failures >= 2, "membership retry exhausted");
+    await tv.jump(0);
+    if (kind === "favorites") await tv.page.locator('[data-focus="more"]').click();
+    const retry = tv.page.getByRole("button", { name: `Retry ${kind}`, exact: true });
+    await retry.waitFor();
+    const reads = () => tv.fake.requests.filter(request => request.path.startsWith("/catalog/items/movie%3Am0001")).length;
+    const before = reads();
+    if (kind === "favorites") await tv.remote(10009);
+    await tv.jump(15000);
+    await tv.eventually(async () => reads() > before, "automatic recovery refreshed initially online Details");
+    await tv.jump(1000);
+    if (kind === "favorites") await tv.page.locator('[data-focus="more"]').click();
+    assert.equal(await retry.count(), 1, "unconfirmed write retains its Retry control");
+    await tv.page.unroute(`**/api/v2/${source}/movie%3Am0001/membership`);
+    await retry.click();
+    await tv.eventually(async () => !await retry.count(), "fresh membership reconciles the accepted write");
+});
+
+detailTest("cached Details recovery restores failed personal controls", async tv => {
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().waitFor();
+    await homeDetailsRead(tv);
+    const personal = tv.fake.hold("/capabilities/personal-lists", true);
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
+    await tv.remote(10009);
+    personal.release();
+    await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.jump(35000);
+    await tv.page.locator('[data-focus="more"]').waitFor();
+    await tv.page.unroute("**/api/v2/**");
+    await tv.jump(35000);
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    assert.equal(await tv.page.locator('[data-focus="watchlist"]').count(), 1);
+    assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Can't reach server/);
+});
+
+for (const id of ["movie:m0001", "series:s1"]) detailTest(`${id} retains full backdrop, logo and portrait URLs offline`, async tv => {
+    const catalog = tv.fake.catalog;
+    assert.ok(catalog instanceof FakeDetails);
+    const route = catalog.route.bind(catalog);
+    const url = (name: string): string => new URL(`/art/${name}.svg?signature=session`, tv.page.url()).href;
+    catalog.route = (method, path, profile, body) => {
+        const reply = route(method, path, profile, body);
+        if (new URL(path, "https://fake.invalid").pathname !== `/catalog/items/${encodeURIComponent(id)}` || reply?.status !== 200) return reply;
+        return { ...reply, body: { ...reply.body as Record<string, unknown>, backdrop_url: url("backdrop"), logo_url: url("logo"), cast: [{ person_id: "7", name: "River Vale", character: "Alex", order: 0, photo_url: url("portrait") }] } };
+    };
+    new FakeSettings(tv.fake);
+    const card = tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).first();
+    await card.click();
+    const logo = tv.page.locator('.details-logo');
+    await tv.page.locator('.details-editorial h1').waitFor();
+    await tv.page.locator('.details-hero .skyline-backdrop').waitFor();
+    assert.equal(await tv.page.locator('.details-hero .skyline-backdrop').getAttribute("src"), url("backdrop"));
+    await logo.waitFor();
+    await tv.remote(10009);
+    await tv.page.route("**/api/v2/**", request => request.abort("connectionrefused"));
+    await card.click();
+    await tv.jump(35000);
+    await logo.waitFor();
+    assert.equal(await tv.page.locator('.details-hero .skyline-backdrop').getAttribute("src"), url("backdrop"));
+    assert.equal(await logo.getAttribute("src"), url("logo"));
+    assert.equal(await tv.page.locator('.details-photo img, img.details-photo').first().getAttribute("src"), url("portrait"));
+});
+
+detailTest("unvisited offline Details uses the centred warning and remote Back", async tv => {
+    const card = tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first();
+    await card.waitFor();
+    await tv.page.route("**/api/v2/catalog/items/**", route => route.abort("connectionrefused"));
+    await card.click();
+    await tv.jump(35000);
+    const retry = tv.page.getByRole("button", { name: "Try Again", exact: true });
+    await retry.waitFor();
+    assert.equal(await tv.page.locator('.details-failure svg').count(), 1);
+    const box = await retry.boundingBox();
+    assert.ok(box && Math.abs(box.x + box.width / 2 - 960) < 2);
+    await tv.remote(10009);
+    await card.waitFor();
+});
+
+for (const reducedMotion of ["reduce", "no-preference"] as const) detailTest(`cached episode Retry is inline below the rail and recovery reveals the hero (${reducedMotion})`, async tv => {
+    await tv.page.emulateMedia({ reducedMotion });
+    const card = tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first();
+    await card.click();
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e11"]').waitFor();
+    await tv.remote(10009);
+    await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+    await card.click();
+    await tv.jump(35000);
+    const retry = tv.page.getByRole("button", { name: "Retry", exact: true });
+    await retry.waitFor();
+    const notice = tv.page.locator('.details-episode-error');
+    assert.equal(await notice.innerText(), "Couldn't load episodes.\nRetry");
+    assert.equal(await notice.evaluate(node => getComputedStyle(node).fontSize), "18px");
+    assert.ok((await notice.boundingBox())!.y > (await tv.page.locator('.details-episodes').boundingBox())!.y);
+    await tv.page.locator('[data-focus="season:1"]').focus();
+    await tv.remote(40);
+    assert.equal(await tv.focused(), "episode:s1e11");
+    await tv.remote(40);
+    assert.equal(await tv.focused(), "retry-episodes");
+    await tv.page.unroute("**/api/v2/**");
+    await retry.click();
+    await tv.eventually(async () => await retry.count() === 0, "retry row removed");
+    assert.equal(await tv.focused(), "next-episode");
+    await tv.jump(250);
+    assert.equal(await tv.page.locator('.browse').evaluate(node => node.scrollTop), 0);
+});
+
 detailTest("series current episode keeps its outline while season chips own focus", async tv => {
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     const current = tv.page.locator('.details-episodes [aria-current="true"]');
@@ -1855,6 +2071,7 @@ detailTest("series Details activates season chips on focus and restores its inli
     assert.equal(await tv.page.locator('[data-focus="season:1"].browse-card').count(), 0, "seasons are chips");
     await tv.page.locator('.details-episodes [data-focus="episode:s1e11"]').waitFor();
     const episodeReads = (): number => tv.fake.requests.filter(request => request.path.includes("/episodes")).length;
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e21"]').waitFor();
     const before = episodeReads();
     await tv.page.locator('[data-focus="season:1"]').focus();
     await tv.remote(39);

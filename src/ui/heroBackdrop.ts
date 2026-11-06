@@ -143,6 +143,8 @@ export function heroBackdrop(url: string, thumbhash: string | undefined, cache: 
     const wash = el("div", "skyline-tint-wash");
     const paint = (tints: Tints | undefined): void => { wash.style.background = washBackground(tints, detail); };
     paint(cache.get(url) ?? sampleThumbhash(thumbhash));
+    root.appendChild(wash);
+    if (url === "") return root;
     const frame = el("div", "skyline-art-frame");
     const image = el("img", "skyline-backdrop");
     image.alt = "";
@@ -166,7 +168,7 @@ export function heroBackdrop(url: string, thumbhash: string | undefined, cache: 
     image.addEventListener("error", () => { image.remove(); frame.remove(); root.querySelector(".skyline-top-scrim")?.remove(); });
     image.src = url;
     frame.appendChild(image);
-    root.append(wash, frame);
+    root.appendChild(frame);
     if (!detail) root.appendChild(el("div", "skyline-top-scrim"));
     return root;
 }

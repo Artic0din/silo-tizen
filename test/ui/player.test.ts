@@ -1294,6 +1294,41 @@ test("an empty audio list does not trap remote movement between Info and Subtitl
     }
 });
 
+for (const origin of ["tracks", "appearance"] as const) for (const field of ["fontSize", "position"] as const) for (const ending of ["select", "remote-back", "button-back"] as const) {
+    test(`subtitle ${origin} ${field} picker restores its originating row after ${ending}`, async () => {
+        const { page } = await open();
+        const tracks: TrackView = { ...TRACKS, subtitleTools: {
+            search: { offered: true, unavailableReason: "", phase: "closed", suggested: [], other: [], language: undefined, status: "", message: "", warnings: [], canRetry: false, results: [], downloadingKey: undefined },
+            display: { delay: true, styling: true, deviceScope: true, textOpacity: true, delayMs: 0, appearance: DEFAULT_APPEARANCE, deviceOverride: false, busy: false, message: "" },
+            overlay: true,
+        } };
+        try {
+            await show(page, playing(tracks));
+            await openPanel(page);
+            await remote(page, RIGHT);
+            await remote(page, RIGHT);
+            if (origin === "appearance") {
+                await page.locator('[data-focus="subtitle-appearance"]').focus();
+                await remote(page, ENTER);
+            }
+            const trigger = origin === "appearance" ? `subtitle-appearance:${field}` : field === "fontSize" ? "subtitle-size" : "subtitle-position";
+            await page.locator(`[data-focus="${trigger}"]`).focus();
+            await remote(page, ENTER);
+            assert.equal(await focused(page), field === "fontSize" ? "subtitle-picker:large" : "subtitle-picker:bottom");
+            if (ending === "select") await remote(page, ENTER);
+            else if (ending === "remote-back") await remote(page, BACK);
+            else await page.locator('[data-focus="subtitle-picker-back"]').click();
+            assert.equal(await focused(page), trigger);
+            assert.equal(await page.locator('[data-focus="subtitle-appearance-back"]').count(), origin === "appearance" ? 1 : 0);
+            assert.equal((await commands(page)).length, ending === "select" ? 1 : 0);
+            if (origin === "appearance") {
+                await remote(page, BACK);
+                assert.equal(await focused(page), "subtitle-appearance");
+            }
+        } finally { await page.close(); }
+    });
+}
+
 test("subtitle search and the delay, size, position and appearance rows are remote-operable", async () => {
     const { page, logs } = await open();
     const tracks: TrackView = {
@@ -1322,6 +1357,7 @@ test("subtitle search and the delay, size, position and appearance rows are remo
         assert.equal(await focused(page), "subtitle-picker:100");
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), ['subtitleTool {"kind":"delay","milliseconds":100}']);
+        assert.equal(await focused(page), "subtitle-delay");
         assert.deepEqual(logs, []);
     } finally {
         await page.close();

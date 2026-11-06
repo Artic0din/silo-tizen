@@ -21,6 +21,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Returned subtitle pickers to their originating pane and restored focus to the edited row after selection or Back.
+
 - Kept unavailable subtitle display capabilities quiet while reporting failures to load advertised preferences.
 
 - Preserved saved subtitle appearance when editing from Off, restored inherited values after clearing TV overrides, and hid unsupported native subtitle controls.

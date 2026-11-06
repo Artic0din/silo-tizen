@@ -6,7 +6,7 @@ import { appearanceSummary, BACKGROUND_COLORS, delayLabel, delayOptions, FONT_CO
 export type SubtitlePane =
     | { readonly kind: "tracks" }
     | { readonly kind: "appearance" }
-    | { readonly kind: "picker"; readonly title: string; readonly field: string; readonly selected: string; readonly options: readonly { readonly id: string; readonly label: string }[] };
+    | { readonly kind: "picker"; readonly title: string; readonly field: string; readonly selected: string; readonly options: readonly { readonly id: string; readonly label: string }[]; readonly origin: { readonly pane: "tracks" | "appearance"; readonly focusId: string } };
 
 function choice(id: string, label: string, current: boolean, detail?: string): HTMLButtonElement {
     const button = el("button", "player-choice");
@@ -25,7 +25,7 @@ function named(table: readonly (readonly [string, string])[], id: string): strin
     return table.find(row => row[0] === id)?.[1] ?? id;
 }
 
-export function pickerFor(tracks: TrackView, field: string): SubtitlePane | undefined {
+export function pickerFor(tracks: TrackView, field: string): Omit<Extract<SubtitlePane, { kind: "picker" }>, "origin"> | undefined {
     const display = tracks.subtitleTools?.display;
     if (display === undefined) return undefined;
     const appearance = display.appearance;

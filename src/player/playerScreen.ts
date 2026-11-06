@@ -406,6 +406,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     let drawn: string | undefined;
     let aiLanguages = false;
     let subtitlePane: SubtitlePane = { kind: "tracks" };
+    let menuRestoreFocus: string | undefined;
 
     const buttons = (index: number): HTMLElement[] => Array.from(lists[index]?.querySelectorAll<HTMLElement>("[data-focus]") ?? []);
     const focusedId = (): string | null => (menu.contains(document.activeElement) ? (document.activeElement?.getAttribute("data-focus") ?? null) : null);
@@ -463,7 +464,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         const key = JSON.stringify([tracks, aiLanguages, subtitlePane, identity]);
         if (key !== drawn) {
             drawn = key;
-            const keep = focusedId();
+            const keep = menuRestoreFocus ?? focusedId();
+            menuRestoreFocus = undefined;
             const hasQuality = (tracks.quality?.choices.length ?? 0) > 1;
             for (const [index, list] of lists.entries()) {
                 list.textContent = "";
@@ -498,6 +500,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const closeMenu = (): void => {
         aiLanguages = false;
         subtitlePane = { kind: "tracks" };
+        menuRestoreFocus = undefined;
         const phase = view.phase === "playing" || view.phase === "paused" ? view.tracks.subtitleTools?.search.phase : undefined;
         if (phase !== undefined && phase !== "closed") controls.subtitleTool({ kind: "search-close" });
         menuOpen = false;
@@ -841,10 +844,21 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         return !transport.contains(document.activeElement);
     };
 
+    const restoreSubtitlePicker = (): void => {
+        if (subtitlePane.kind !== "picker") return;
+        const origin = subtitlePane.origin;
+        subtitlePane = { kind: origin.pane };
+        menuRestoreFocus = origin.focusId;
+    };
+
     const menuKey = (key: string): void => {
         if (key === "back") {
             if (aiLanguages) { aiLanguages = false; return; }
-            if (subtitlePane.kind !== "tracks") { subtitlePane = subtitlePane.kind === "picker" && subtitlePane.field !== "delay" && subtitlePane.field !== "fontSize" && subtitlePane.field !== "position" ? { kind: "appearance" } : { kind: "tracks" }; return; }
+            if (subtitlePane.kind !== "tracks") {
+                if (subtitlePane.kind === "picker") restoreSubtitlePicker();
+                else { subtitlePane = { kind: "tracks" }; menuRestoreFocus = "subtitle-appearance"; }
+                return;
+            }
             const phase = view.phase === "playing" || view.phase === "paused" ? view.tracks.subtitleTools?.search.phase : undefined;
             if (phase !== undefined && phase !== "closed") { controls.subtitleTool({ kind: "search-back" }); return; }
             closeMenu();
@@ -897,19 +911,20 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             } else if (id === "subtitle-delay" || id === "subtitle-size" || id === "subtitle-position") {
                 const field = id === "subtitle-delay" ? "delay" : id === "subtitle-size" ? "fontSize" : "position";
                 const next = view.phase === "playing" || view.phase === "paused" ? pickerFor(view.tracks, field) : undefined;
-                if (next !== undefined) subtitlePane = next;
+                if (next !== undefined) subtitlePane = { ...next, origin: { pane: "tracks", focusId: id } };
             } else if (id === "subtitle-appearance") {
                 subtitlePane = { kind: "appearance" };
             } else if (id === "subtitle-appearance-back" || id === "subtitle-picker-back") {
-                subtitlePane = id === "subtitle-picker-back" && subtitlePane.kind === "picker" && subtitlePane.field !== "delay" && subtitlePane.field !== "fontSize" && subtitlePane.field !== "position" ? { kind: "appearance" } : { kind: "tracks" };
+                if (id === "subtitle-picker-back") restoreSubtitlePicker();
+                else { subtitlePane = { kind: "tracks" }; menuRestoreFocus = "subtitle-appearance"; }
             } else if (id?.startsWith("subtitle-appearance:")) {
                 const field = id.slice("subtitle-appearance:".length);
                 const next = view.phase === "playing" || view.phase === "paused" ? pickerFor(view.tracks, field) : undefined;
-                if (next !== undefined) subtitlePane = next;
+                if (next !== undefined) subtitlePane = { ...next, origin: { pane: "appearance", focusId: id } };
             } else if (id?.startsWith("subtitle-picker:") && subtitlePane.kind === "picker") {
                 const action = pickerAction(subtitlePane.field, id.slice("subtitle-picker:".length));
                 if (action !== undefined) controls.subtitleTool(action);
-                subtitlePane = subtitlePane.field === "delay" || subtitlePane.field === "fontSize" || subtitlePane.field === "position" ? { kind: "tracks" } : { kind: "appearance" };
+                restoreSubtitlePicker();
             } else if (id === "subtitle-device") {
                 const enabled = view.phase === "playing" || view.phase === "paused" ? view.tracks.subtitleTools?.display?.deviceOverride === true : false;
                 controls.subtitleTool({ kind: "device", enabled: !enabled });

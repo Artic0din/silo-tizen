@@ -99,7 +99,8 @@ export function browsePage(route: LibraryRoute, state: DiscoveryState, handlers:
         return item;
     });
     const content: HTMLElement[] = [zoneNode("browse-controls", controls)];
-    const zones: Zone[] = [{ id: "controls", layout: "row", down: "grid", items: controls }];
+    // TVLibraryGridView's control row onMoveUp is the top bar, not a pill row.
+    const zones: Zone[] = [{ id: "controls", layout: "row", down: "grid", up: "nav", items: controls }];
     const page = route.pages.page;
     if (page !== undefined && page.items.length > 0) {
         const { preview, ...context } = handlers.context;

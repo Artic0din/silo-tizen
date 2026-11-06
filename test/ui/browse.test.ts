@@ -2020,7 +2020,7 @@ browseTest("optional Details reads load independently and omit empty Related res
     await showing(tv, "item:movie:m0001");
     await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
     assert.equal(await tv.page.locator('[data-detail-section="related"]').count(), 0);
-    await tv.page.locator('[data-focus="person:7"]').focus();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').focus();
     await press(tv, "Enter");
     await showing(tv, "person:7");
     await shows(tv, "No available titles for this filter.");
@@ -2072,7 +2072,7 @@ browseTest("personal reads retry explicitly and omitted Related recovers on a ne
     await showing(tv, "item:movie:m0001");
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "related new visit");
     const person = tv.fake.hold("/catalog/people/7", true);
-    await tv.page.locator('[data-focus="person:7"]').focus();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').focus();
     await press(tv, "Enter");
     await showing(tv, "person:7");
     await shows(tv, "Loading metadata");
@@ -2128,7 +2128,7 @@ for (const kind of ["favorites", "watchlist"]) {
         if (kind === "favorites") await detailsMore(tv);
         await tv.eventually(async () => catalog.mutations.length === 1, "personal mutation committed");
         if (kind === "favorites") await tv.remote(BACK);
-        await tv.page.locator('[data-focus="person:7"]').first().focus();
+        await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().focus();
         await press(tv, "Enter");
         await showing(tv, "person:7");
         await tv.remote(BACK);

@@ -71,3 +71,15 @@ test('a failed POST is never retried and distinguishes rate limits from transpor
         await clock.advance(120000); assert.equal(calls, 1);
     }
 });
+
+test('interrupted start resumes without another POST', async () => {
+    const clock = new ManualClock(); let posts = 0; let reads = 0;
+    const detail = baseline();
+    const run = new TrailerFetch(async () => { posts++; return { status: 'queued', nextAllowedAt: undefined }; }, async () => { reads++; return detail; }, () => {}, () => {}, clock);
+    run.start(detail); await flush();
+    run.stop();
+    run.start(detail); await flush();
+    await clock.advance(3000);
+    assert.equal(posts, 1);
+    assert.equal(reads >= 1, true);
+});

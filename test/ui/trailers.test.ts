@@ -57,14 +57,52 @@ trailerTest("singleton cast focus stays put when a duplicate credit appears", as
     assert.equal(await tv.page.locator(".details-people [data-focus]").count(), 2);
 });
 
+trailerTest("discovered trailers survive a late watched season readback", async (tv, catalog) => {
+    const body = catalog.route("GET", "/catalog/items/series%3As1", "p-owner")?.body as Record<string, unknown>;
+    let found = false;
+    let holdEpisodes = false;
+    let releaseEpisodes: (() => void) | undefined;
+    let heldEpisodes = false;
+    await tv.page.route("**/api/v2/catalog/items/series%3As1/trailers/refresh", route => route.fulfill({ status: 202, json: { status: "queued" } }));
+    await tv.page.route("**/api/v2/catalog/items/series%3As1?**", route => route.fulfill({
+        json: { ...body, user_data: { played: catalog.watched }, videos: found ? [YOUTUBE] : [] },
+    }));
+    await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons/*/episodes?**", async route => {
+        if (holdEpisodes) {
+            heldEpisodes = true;
+            await new Promise<void>(resolve => { releaseEpisodes = resolve; });
+        }
+        return route.fallback();
+    });
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.locator('[data-focus="find-trailers"]').click();
+    await tv.page.locator(".details-trailer-status").waitFor();
+    holdEpisodes = true;
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.locator('[data-focus="watched"]').click();
+    await tv.eventually(async () => heldEpisodes, "watched readback awaits season episodes");
+    found = true;
+    await tv.jump(3000);
+    await tv.eventually(async () => await tv.page.locator('[data-focus="remote:YouTube:abc_def-1"]').count() === 1, "discovery publishes while watched readback is held");
+    holdEpisodes = false;
+    releaseEpisodes?.();
+    await tv.jump(0);
+    assert.equal(await tv.page.locator('[data-focus="remote:YouTube:abc_def-1"]').count(), 1, "late watched assignment must not wipe discovered trailers");
+});
+
 for (const path of ['playback', 'watched then navigate']) trailerTest(`interrupted trailer discovery survives ${path} owner replacement`, async (tv, catalog) => {
     const body = catalog.route('GET', '/catalog/items/movie%3Am0001', 'p-owner')?.body as Record<string, unknown>;
     let posts = 0; let found = false; let reads = 0;
     let holdWatchRead = path !== 'playback'; let heldWatchRead = false;
+    const watchWaiters: Array<() => void> = [];
     await tv.page.route('**/api/v2/catalog/items/movie%3Am0001/trailers/refresh', route => { posts++; return route.fulfill({ status: 202, json: { status: 'queued' } }); });
-    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001?**', route => {
+    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001?**', async route => {
         reads++;
-        if (holdWatchRead && catalog.watched) { heldWatchRead = true; return; }
+        if (holdWatchRead && catalog.watched) {
+            heldWatchRead = true;
+            await new Promise<void>(resolve => watchWaiters.push(resolve));
+        }
         return route.fulfill({ json: { ...body, user_data: { played: catalog.watched }, videos: found ? [YOUTUBE] : [] } });
     });
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
@@ -81,10 +119,11 @@ for (const path of ['playback', 'watched then navigate']) trailerTest(`interrupt
         await tv.page.locator('[data-focus="more"]').click();
         await tv.page.locator('[data-focus="watched"]').click();
         await tv.eventually(async () => heldWatchRead, 'watched write committed before its readback');
-        await tv.page.locator('.details-people button').first().click();
+        await tv.page.locator('.details-people [data-focus^="credit:"]').first().click();
         await tv.page.locator('[data-view^="person:"]').waitFor();
-        holdWatchRead = false;
         await tv.jump(150000);
+        holdWatchRead = false;
+        for (const release of watchWaiters.splice(0)) release();
         await tv.remote(10009);
     }
     await tv.eventually(async () => reads > before && await tv.page.locator('[data-focus="more"]').count() === 1, 'Details reloaded');

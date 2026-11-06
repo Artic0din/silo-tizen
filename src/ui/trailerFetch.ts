@@ -34,6 +34,11 @@ export class TrailerFetch {
 
     start(baseline: ItemDetail): void {
         if (this.fetching) return;
+        // A remount must not turn an interrupted observation into a second POST.
+        if (this.interrupted) {
+            this.resume();
+            return;
+        }
         this.baseline = baseline;
         this.interrupted = false;
         this.launch(true);
@@ -55,7 +60,9 @@ export class TrailerFetch {
     }
 
     restore(previous: TrailerFetch): void {
-        if (!previous.interrupted) return;
+        // Take over an interrupted run or one already resumed on the outgoing owner
+        // before loadRoute replaces it, so Back still continues observation.
+        if (!previous.interrupted && !previous.fetching) return;
         this.baseline = previous.baseline;
         this.interrupted = true;
         previous.stop(false);

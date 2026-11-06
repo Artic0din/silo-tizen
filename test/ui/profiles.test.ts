@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { fixture } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
 const IME_DONE = 65376;
@@ -67,6 +67,31 @@ tvTest("the profile picker uses source-sized circular avatars and centered accou
     assert.equal(await tv.page.getByText(/^Signed in as /).isVisible(), true);
     assert.equal(await tv.page.getByRole("button", { name: "Change account", exact: true }).isVisible(), true);
     assert.equal(await tv.page.getByRole("button", { name: "Add profile", exact: true }).isVisible(), true);
+});
+
+tvTest("profile rows stay still when focus moves on Who's watching", async tv => {
+    await tv.page.emulateMedia({ reducedMotion: "reduce" });
+    tv.fake.profiles = { ...tv.fake.profiles, items: Array.from({ length: 6 }, (_, index) => profile(`p-${index}`, `Profile ${index}`)) };
+    await picker(tv);
+    const rows = () => readLive(tv, () => {
+        const first = document.querySelector<HTMLElement>('[data-focus="profile:p-0"]');
+        const add = document.querySelector<HTMLElement>('[data-focus="add-profile"]');
+        if (first === null || add === null) return null;
+        return {
+            first: first.getBoundingClientRect().y,
+            add: add.getBoundingClientRect().y,
+            firstHeight: first.offsetHeight,
+            addHeight: add.offsetHeight,
+        };
+    }, undefined, value => value.first > 0 && value.add > value.first, "settled profile rows");
+    const before = await rows();
+    assert.equal(await tv.focused(), "profile:p-0");
+    await tv.page.keyboard.press("ArrowDown");
+    assert.equal(await tv.focused(), "add-profile");
+    const after = await rows();
+    assert.ok(Math.abs(after.first - before.first) < 0.5, `the first row moved ${after.first - before.first}`);
+    assert.ok(Math.abs(after.add - before.add) < 0.5, `the second row moved ${after.add - before.add}`);
+    assert.ok(Math.abs(after.firstHeight - after.addHeight) < 1, `focused tile ${after.addHeight}px, other tile ${after.firstHeight}px`);
 });
 
 let browser: Browser;

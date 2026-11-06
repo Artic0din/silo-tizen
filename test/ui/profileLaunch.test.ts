@@ -86,29 +86,43 @@ test("Settings Accounts uses pane rows and Back returns to Settings", async () =
         await tv.page.getByRole("button", { name: "Accounts", exact: true }).click();
         await tv.page.locator('[data-view="accounts-settings"]').waitFor();
         const pane = await tv.page.evaluate(() => {
-            const row = document.querySelector('.accounts-settings button')!;
-            const remove = document.querySelector('.accounts-settings [data-focus^="remove:"]')!;
+            const row = document.querySelector<HTMLElement>('.accounts-settings button')!;
+            const remove = document.querySelector<HTMLElement>('.accounts-settings [data-focus^="remove:"]')!;
+            // The focused row scales from its centre. Layout figures below divide that out.
+            const painted = row.getBoundingClientRect();
+            const scale = new DOMMatrix(getComputedStyle(row).transform).a || 1;
+            const unscaled = (node: Element) => {
+                const box = node.getBoundingClientRect();
+                const cx = painted.x + painted.width / 2;
+                const cy = painted.y + painted.height / 2;
+                return { x: cx + (box.x - cx) / scale, y: cy + (box.y - cy) / scale, width: box.width / scale, height: box.height / scale };
+            };
+            const layout = unscaled(row);
             return { header: getComputedStyle(document.querySelector('.accounts-settings h1')!).fontSize,
                 icon: document.querySelector('.accounts-settings-header [aria-hidden="true"]') !== null,
-                x: row.getBoundingClientRect().x, y: row.getBoundingClientRect().y,
+                x: layout.x, y: layout.y, scale,
                 addGap: document.querySelector('[data-focus="add-server"]')!.getBoundingClientRect().y - remove.getBoundingClientRect().y,
                 footnote: getComputedStyle(document.querySelector('.accounts-settings > p')!).fontSize,
-                height: row.getBoundingClientRect().height, chevron: row.querySelector('.accounts-chevron svg') !== null,
-                arrow: row.querySelector('.accounts-chevron path')!.getBoundingClientRect().toJSON(),
+                height: layout.height, chevron: row.querySelector('.accounts-chevron svg') !== null,
+                arrow: unscaled(row.querySelector('.accounts-chevron path')!),
                 section: getComputedStyle(document.querySelector('.accounts-settings h2')!).fontSize,
                 red: getComputedStyle(remove).color, destructiveChevron: remove.querySelector('.accounts-chevron') !== null };
         });
         assert.equal(pane.header, "42px");
         assert.equal(pane.icon, true);
-        assert.equal(pane.height, 66);
+        assert.equal(pane.scale, 1.012);
+        const near = (actual: number, expected: number, what: string): void => {
+            assert.ok(Math.abs(actual - expected) < 0.05, `${what}: ${actual}`);
+        };
+        near(pane.height, 66, "row height");
         assert.equal(pane.chevron, true);
-        assert.equal(pane.arrow.width, 7);
-        assert.equal(pane.arrow.height, 14);
+        near(pane.arrow.width, 7, "chevron width");
+        near(pane.arrow.height, 14, "chevron height");
         // The 1.8px stroke adds 0.9px on each edge: painted bounds are 9 by 16 at x1231.
-        assert.equal(pane.arrow.x, 1232);
+        near(pane.arrow.x, 1232, "chevron x");
         assert.equal(pane.section, "19px");
-        assert.equal(pane.x, 186);
-        assert.equal(pane.y, 290);
+        near(pane.x, 186, "row x");
+        near(pane.y, 290, "row y");
         assert.equal(pane.addGap, 92);
         assert.equal(pane.footnote, "20px");
         assert.equal(pane.red, "rgb(176, 0, 32)");

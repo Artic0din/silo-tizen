@@ -1018,8 +1018,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             } else if (id === "subtitle-search-back" || id === "subtitle-search-cancel") {
                 controls.subtitleTool({ kind: "search-back" });
             } else if (id === "subtitle-search-retry") {
-                const code = view.phase === "playing" || view.phase === "paused" ? view.tracks.subtitleTools?.search.language : undefined;
-                if (code !== undefined) controls.subtitleTool({ kind: "search-language", code });
+                controls.subtitleTool({ kind: "search-retry" });
             } else if (id?.startsWith("subtitle-result:")) {
                 controls.subtitleTool({ kind: "search-download", key: id.slice("subtitle-result:".length) });
             } else if (id === "subtitle-delay" || id === "subtitle-size" || id === "subtitle-position") {

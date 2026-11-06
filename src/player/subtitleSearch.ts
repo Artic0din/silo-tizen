@@ -110,6 +110,19 @@ export class SubtitleSearch {
         this.changed();
     }
 
+    async retry(): Promise<void> {
+        if (this.abort.signal.aborted || this.downloadingKey !== undefined) return;
+        if (this.language !== undefined) {
+            await this.pick(this.language);
+            return;
+        }
+        this.phase = "languages";
+        this.message = "";
+        this.canRetry = false;
+        this.changed();
+        await this.loadLanguages();
+    }
+
     close(): void {
         if (this.abort.signal.aborted || this.phase === "closed" || this.downloadingKey !== undefined) return;
         this.cancelSearch();
@@ -215,13 +228,36 @@ export class SubtitleSearch {
         return [...this.suggested, ...this.other].find(choice => choice.code === code)?.label ?? languageLabel(code);
     }
 
+    reportUnselected(): void {
+        if (this.abort.signal.aborted) return;
+        this.message = STORED;
+        this.changed();
+    }
+
     private async loadLanguages(): Promise<void> {
         const generation = ++this.catalogGeneration;
         let catalog: readonly { readonly code: string; readonly label?: string }[] = [];
         let preferred: string | undefined;
-        try { catalog = await this.call(operations.languages()); } catch { catalog = []; }
-        try { preferred = await this.call(operations.preferredLanguage()); } catch { preferred = undefined; }
+        let catalogFailed = false;
+        try { catalog = await this.call(operations.languages()); }
+        catch (error) {
+            if (this.abort.signal.aborted || (error instanceof ApiError && error.aborted)) return;
+            catalogFailed = true;
+        }
+        if (!catalogFailed) {
+            try { preferred = await this.call(operations.preferredLanguage()); } catch { preferred = undefined; }
+        }
         if (this.abort.signal.aborted || generation !== this.catalogGeneration || this.phase !== "languages") return;
+        if (catalogFailed) {
+            this.suggested = [];
+            this.other = [];
+            this.phase = "failed";
+            this.status = "";
+            this.message = "Couldn't load subtitle languages. Try again.";
+            this.canRetry = true;
+            this.changed();
+            return;
+        }
         const choices = languageChoices(catalog, preferred);
         this.suggested = choices.suggested;
         this.other = choices.other;

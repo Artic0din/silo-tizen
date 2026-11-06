@@ -1189,6 +1189,27 @@ function renditionPlan(subtitle: number, name: string, index: number) {
     };
 }
 
+test("a downloaded subtitle missing from the refreshed inventory is reported without AI", async () => {
+    const r = await rig();
+    await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    assert.equal(tracks(r).ai, undefined);
+    r.h.fake.script("/subtitles/providers/status", { status: 200, body: { schema_version: 1, enabled: true, providers: ["opensubtitles"], revision: "r", state: "available", allowed: true } });
+    r.h.fake.script("/settings/contract", { status: 200, body: { option_sets: { playback_subtitle_languages: { options: [{ value: "en", label: "English" }] } } } });
+    r.h.fake.script("/subtitles/search", { status: 200, body: { results: [{ id: "opaque-result", provider: "opensubtitles", language: "en", release_name: "Example.Release", format: "srt", score: 82, downloads: 12, hearing_impaired: true }], warnings: [] } });
+    r.h.fake.script("/subtitles/download", { status: 200, body: { subtitle: { id: "7", media_file_id: "42", provider: "opensubtitles", language: "en", format: "srt", release_name: "Example.Release", score: 82, hearing_impaired: true, created_at: "2026-01-02T03:04:05.678Z" } } });
+    r.controller.subtitleTool({ kind: "search-open" });
+    await settle(r);
+    r.controller.subtitleTool({ kind: "search-language", code: "en" });
+    await settle(r);
+    r.controller.subtitleTool({ kind: "search-download", key: "opensubtitles:opaque-result" });
+    await settle(r);
+    await playReplacement(r);
+    const shown = tracks(r);
+    assert.equal(shown.ai, undefined);
+    assert.match(shown.subtitleTools?.search.message ?? "", /saved but couldn't be turned on/i);
+    r.controller.destroy();
+});
+
 test("a native subtitle selected from an Off plan hides overlay-only tools", async () => {
     const r = await rig();
     r.server.next.push({ delivery: "original_http", clearSubtitle: true });

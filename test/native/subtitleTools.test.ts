@@ -108,6 +108,25 @@ test("search is offered until the server says providers are unavailable, then ca
     search.destroy();
 });
 
+test("a failed language catalog is an error with a retry, not an empty list", async () => {
+    const h = await signed();
+    const search = new SubtitleSearch(h.core.session, h.clock, FILE, () => false, () => undefined);
+    h.fake.script(PROVIDERS, { status: 200, body: available });
+    h.fake.script("/settings/contract", problem(500, "internal_error", "Unavailable"));
+    await search.refresh();
+    search.open();
+    await h.clock.advance(0);
+    assert.equal(search.view.phase, "failed");
+    assert.equal(search.view.canRetry, true);
+    assert.equal(search.view.suggested.length + search.view.other.length, 0);
+    assert.match(search.view.message, /language/i);
+    h.fake.script("/settings/contract", { status: 200, body: { option_sets: { playback_subtitle_languages: { options: [{ value: "en", label: "English" }, { value: "fr", label: "French" }] } } } });
+    await search.retry();
+    assert.equal(search.view.phase, "languages");
+    assert.deepEqual(search.view.other.map(choice => choice.code), ["en", "fr"]);
+    search.destroy();
+});
+
 test("a language search can be cancelled and a failure can be retried without a second download", async () => {
     const h = await signed();
     const search = new SubtitleSearch(h.core.session, h.clock, FILE, () => false, () => undefined);

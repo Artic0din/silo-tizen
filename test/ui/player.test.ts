@@ -793,6 +793,20 @@ for (const landing of ["same-plan", "replacement-plan"] as const) test(`a scrub 
     } finally { await page.close(); }
 });
 
+for (const landing of ["same-plan", "replacement-plan"] as const) test(`a debounced skip survives only a ${landing} landing`, async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), positionSeconds: 22.5, previewKey: "same-plan" });
+        await show(page, { ...playing(TRACKS), positionSeconds: 22.5, previewKey: undefined });
+        await press(page, RIGHT);
+        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), "32.5");
+        await show(page, { ...playing(TRACKS), positionSeconds: 22.5, previewKey: landing });
+        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), landing === "same-plan" ? "32.5" : "22.5");
+        await page.clock.fastForward(200);
+        assert.deepEqual(await commands(page), landing === "same-plan" ? ["seekToSeconds 32.5"] : []);
+    } finally { await page.close(); }
+});
+
 test("reduced motion disables scrolling animation in the active track pane", async () => {
     const { page } = await open();
     try {
@@ -1288,6 +1302,25 @@ test("the open panel is Apple's 1100 by 380 tabbed HUD and the clock is elapsed 
     } finally {
         await page.close();
     }
+});
+
+test("audio and quality stay disabled while a subtitle report is pending", async () => {
+    const { page } = await open();
+    try {
+        const tracks: TrackView = {
+            ...TRACKS,
+            reporting: true,
+            quality: { choices: [{ id: "auto", label: "Auto" }, { id: "1080p", label: "1080p" }], selectedId: "auto" },
+        };
+        await show(page, playing(tracks));
+        await openAudio(page);
+        assert.equal(await page.locator('[data-focus="file:42:audio:1"]').getAttribute("aria-disabled"), "true");
+        assert.equal(await page.locator('[data-focus="subtitles-off"]').getAttribute("aria-disabled"), "false");
+        assert.equal(await page.locator('[data-focus="quality:1080p"]').getAttribute("aria-disabled"), "true");
+        await remote(page, DOWN);
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), [], "a disabled audio row does not select");
+    } finally { await page.close(); }
 });
 
 test("Down opens audio and subtitles with focus on the current track; the menu keeps every key to itself", async () => {

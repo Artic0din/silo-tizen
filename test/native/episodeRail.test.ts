@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { episodeRailOffset, episodeWindow, retainEpisodePages } from "../../src/ui/episodeRail.ts";
+import { episodeRailOffset, episodeRailSlot, episodeWindow, retainEpisodePages } from "../../src/ui/episodeRail.ts";
 import type { Episode } from "../../src/contracts/v2/catalog.ts";
 
 test("Apple rail anchors selection and focus to whole steps, clamped at the terminal group", () => {
@@ -15,9 +15,13 @@ test("Apple rail anchors selection and focus to whole steps, clamped at the term
     assert.equal(episodeRailOffset(14, 24, 360, 40, 1813) - 1600, 4000);
     // A long season can pin E05; the measured final season has only six cards.
     assert.equal(episodeRailOffset(4, 14, 309.6, 40, 1813), 1398.4);
-    assert.equal(109 + 4 * 349.6 - 1398.4, 109);
+    // The mask cancels the lookbehind's card width and keeps one spacing.
+    // Compact layout left is 149.74; the previous card ends at 109.74.
+    const slot = episodeRailSlot(309.6, 40);
+    assert.ok(Math.abs(slot - 149.74) < .001);
+    assert.equal(slot + 4 * 349.6 - 1398.4, slot);
     assert.equal(episodeRailOffset(14, 16, 309.6, 40, 1820), 3845.6000000000004);
-    assert.ok(Math.abs(109 + 14 * 349.6 - episodeRailOffset(14, 16, 309.6, 40, 1820) - 1157.8) < .001);
+    assert.ok(Math.abs(slot + 14 * 349.6 - episodeRailOffset(14, 16, 309.6, 40, 1820) - 1198.54) < .001);
 });
 
 function page(season: number, count: number): Episode[] {

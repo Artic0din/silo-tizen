@@ -1,12 +1,23 @@
 import type { Episode, Season } from "../contracts/v2/catalog.ts";
 
-/** TVEpisodeRail.swift:400-414,458-468 at 7baff3ef657757cc0a69202e86dd4bd5c7fcb585. */
+/**
+ * Scroll offset for the anchored episode rail.
+ * TVEpisodeRail.swift:400-414,458-468 at abf4ac45aa0ded295dd1443b91457cdf42dffbf2.
+ * The visible slot is not this offset: leading padding is the lookbehind
+ * (card width + spacing) plus the hover inset, and the mask cancels only the
+ * card width. One spacing stays inside the 100px inset.
+ */
 export function episodeRailOffset(index: number, count: number, width: number, spacing: number, viewport: number): number {
     if (count === 0) return 0;
     const step = width + spacing;
     const content = count * width + (count - 1) * spacing;
     const maximum = Math.ceil(Math.max(0, content - viewport) / step) * step;
     return Math.min(Math.max(0, index) * step, maximum);
+}
+
+/** Layout left of the focused card: mask inset, one card spacing, and the hover inset. */
+export function episodeRailSlot(width: number, spacing: number, inset = 100): number {
+    return inset + spacing + width * 0.025 + 2;
 }
 
 export function orderedEpisodeSeasons(seasons: readonly Season[]): number[] {

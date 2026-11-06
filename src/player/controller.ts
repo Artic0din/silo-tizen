@@ -123,6 +123,8 @@ export interface TrackView {
     readonly selectedSubtitleId: string | undefined;
     readonly subtitleMode: string;
     readonly change: TrackChange;
+    /** A subtitle report is in flight. Subtitle choices can still queue; other track actions wait. */
+    readonly reporting?: boolean;
     readonly notices: readonly string[];
     readonly subtitleTools?: { readonly search: SubtitleSearchView; readonly display?: SubtitleDisplayView; readonly overlay: boolean };
 }
@@ -3175,6 +3177,7 @@ function trackView(attempt: Attempt, plan: PlaybackPlan): TrackView {
         selectedSubtitleId: shownSubtitle(attempt, plan),
         subtitleMode: shownSubtitle(attempt, plan) === undefined ? "off" : plan.subtitle.mode === "off" ? "render" : plan.subtitle.mode,
         change: attempt.change,
+        reporting: attempt.reporting,
         notices,
         ...(attempt.search === undefined ? {} : { subtitleTools: { search: attempt.search.view, ...(attempt.display?.view === undefined ? {} : { display: attempt.display.view }), overlay: subtitleOverlay(attempt, plan) } }),
     };

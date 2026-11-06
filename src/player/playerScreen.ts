@@ -343,7 +343,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     let timelineMoved = false;
     /** Playing when timeline scrub began, so a later Select resumes. */
     let resumeAfterTimeline = false;
-    let timelinePendingResume = false;
+    let readyPreviewKey: string | undefined;
     let holdPausedAtCommandCount: number | undefined;
     /** 0 when auto-seek is idle. Otherwise one of SEEK_RATES. */
     let autoRate = 0;
@@ -576,7 +576,6 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         stopSeekTimers();
         seekPreview = undefined;
         timeline = false;
-        timelinePendingResume = false;
         timelineMoved = false;
         resumeAfterTimeline = false;
         autoRate = 0;
@@ -635,7 +634,6 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         cancelDebounce = undefined;
         if (!timeline) {
             const pendingResume = view.resumePending === true;
-            timelinePendingResume = pendingResume;
             resumeAfterTimeline = view.phase === "playing" || pendingResume;
             if (pendingResume) {
                 const command = view.transportCommandCount ?? 0;
@@ -683,7 +681,6 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         cancelDebounce?.();
         cancelDebounce = undefined;
         resumeAfterTimeline = view.phase === "playing" || view.resumePending === true;
-        timelinePendingResume = view.resumePending === true;
         if (resumeAfterTimeline) controls.setPaused(true);
         timeline = true;
         timelineMoved = false;
@@ -959,13 +956,15 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             cancelScrub();
             reveal();
         }
-        // The same local seek can land paused under a newly opened scrub.
-        const heldLanding = timelinePendingResume && next.phase === "paused" && view.phase === "paused" && view.previewKey === undefined && next.previewKey !== undefined;
-        if (heldLanding) timelinePendingResume = false;
+        // A local seek hides the preview key while busy; its landing must not
+        // discard a newer scrub, but a replacement plan still invalidates it.
+        const heldLanding = timeline && next.phase === "paused" && view.phase === "paused" && view.previewKey === undefined && next.previewKey !== undefined && (readyPreviewKey === undefined || next.previewKey === readyPreviewKey);
         if (!heldLanding && (next.phase === "playing" || next.phase === "paused") && (view.phase === "playing" || view.phase === "paused") && next.previewKey !== view.previewKey) {
             cancelScrub();
         }
         view = next;
+        if (next.phase !== "playing" && next.phase !== "paused") readyPreviewKey = undefined;
+        else if (next.previewKey !== undefined) readyPreviewKey = next.previewKey;
         if (document.hidden && next.phase !== "closed" && next.phase !== "error") {
             onVisibility();
         }

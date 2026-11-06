@@ -19,6 +19,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept Play focused when a movie's Details opened, even if the first focus claim did not stick, and kept that claim from leaving a card-actions dialog or ignoring a Play button that appears after the page opens.
 - Kept a running skip hold when the earlier seek landed on the same plan.
 - Added Retry for retryable playback startup failures and exhausted route recovery.
 - Matched the measured player layout, showed episode context, hid idle controls from every transport focus, and held seek times until playback caught up.

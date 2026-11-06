@@ -94,6 +94,8 @@ export class FocusHost {
     private incoming: HTMLElement[] = [];
     private transitionTimer: number | undefined;
     private press: { item: FocusItem; started: number; timer: number | undefined; cancelled: boolean } | undefined;
+    /** One Play claim per Details visit. tvOS retries it; a failed claim used to leave body focused until the next key. */
+    private playClaim: { visit: string; attempts: number; waits: number; finished: boolean; timer: number | undefined; moved: boolean; awaitingPrimary: boolean } | undefined;
     private readonly detach = new MutationObserver(() => {
         if (this.press !== undefined && !this.press.item.element.isConnected) this.cancelPress();
     });
@@ -208,6 +210,7 @@ export class FocusHost {
         const offscreenShelf = restoring && item?.element.closest(".browse-row") != null && !this.intersects(item.element);
         const returnSnap = restoring && !offscreenShelf && item !== undefined && this.intersects(item.element) && this.insideRow(item.element);
         this.focusFirst(offscreenShelf ? [view.focus] : [focus, nearby === undefined ? kept : { zone: previous?.zone.id ?? "", key: nearby.key }, restoring ? this.memoryTarget() : undefined, view.focus]);
+        this.settlePrimaryFocus(view);
         const focused = this.focused();
         const sameIdentity = unchanged !== undefined && focused?.zone === unchanged.zone && focused.key === unchanged.key;
         if ((sameIdentity || returnSnap) && visit !== undefined) {
@@ -307,6 +310,7 @@ export class FocusHost {
         this.cancelPress();
         this.detach.disconnect();
         this.clearTransition();
+        this.cancelPlayClaim();
         this.scroll.stop();
         if (this.listening) {
             document.removeEventListener("keydown", this.onKey);
@@ -464,6 +468,117 @@ export class FocusHost {
             ?? zone.items.find(item => item.key === zone.restoreEntry);
     }
 
+    /** Play, Resume, or the series primary. Anything else is not the page's opening claim. */
+    private primaryTarget(view: View): { zone: Zone; item: FocusItem } | undefined {
+        const focus = view.focus;
+        if (focus === undefined || (focus.key !== "resume" && focus.key !== "play" && focus.key !== "next-episode")) return undefined;
+        const zone = view.zones.find(candidate => candidate.id === focus.zone && candidate.items.length > 0);
+        const item = zone?.items.find(candidate => candidate.key === focus.key);
+        return zone === undefined || item === undefined ? undefined : { zone, item };
+    }
+
+    private primaryReady(element: HTMLElement): boolean {
+        return element.isConnected && element.offsetWidth > 0 && element.offsetHeight > 0 && !element.matches(":disabled, [aria-disabled='true']");
+    }
+
+    private clearPlayClaimTimer(): void {
+        if (this.playClaim?.timer !== undefined) window.clearTimeout(this.playClaim.timer);
+        if (this.playClaim !== undefined) this.playClaim.timer = undefined;
+    }
+
+    private cancelPlayClaim(): void {
+        this.clearPlayClaimTimer();
+        this.playClaim = undefined;
+    }
+
+    /**
+     * One Play claim per Details visit (`TVDetailActionRow.resetInitialPlayFocus`,
+     * silo-apple eb82bb86). While `playTitle` is nil the claim stays unused
+     * (lines 504, 567-568, 571) and Watchlist is the live stand-in (lines 597-602).
+     * The first attempt then assigns Play without reading that focus (lines 635–643).
+     * A later attempt bails only when another action is focused and the page does
+     * not track navigation (lines 622–641). Series tracks a directional move
+     * instead (`TVSeriesDetailView.swift` lines 311–326 and 528–529) and cancels
+     * the claim (lines 555-559). A claim that does not stick leaves focus on body
+     * until the next key. Stop once the viewer has moved, or a dialog has taken focus.
+     */
+    private settlePrimaryFocus(view: View, fromTimer = false): void {
+        if (!view.name.startsWith("item:")) {
+            this.cancelPlayClaim();
+            return;
+        }
+        const visit = visitKey(view);
+        if (this.playClaim === undefined || this.playClaim.visit !== visit) {
+            this.cancelPlayClaim();
+            this.playClaim = { visit, attempts: 0, waits: 0, finished: false, timer: undefined, moved: false, awaitingPrimary: false };
+        }
+        const claim = this.playClaim;
+        if (claim.finished) return;
+        if (claim.moved || this.focusInOverlay()) {
+            claim.finished = true;
+            this.clearPlayClaimTimer();
+            return;
+        }
+        const primary = this.primaryTarget(view);
+        const active = this.locate(document.activeElement);
+        // The claim stays unused until Play exists. Its first assignment still
+        // takes the live stand-in. A control the viewer has moved to is
+        // claim.moved, handled above. This check is only for a claim that
+        // started while Play was already the opening target.
+        if (primary === undefined) {
+            claim.awaitingPrimary = true;
+            this.clearPlayClaimTimer();
+            return;
+        }
+        if (!claim.awaitingPrimary && active !== undefined && active.item.key !== primary.item.key) {
+            claim.finished = true;
+            this.clearPlayClaimTimer();
+            return;
+        }
+        const ready = this.primaryReady(primary.item.element);
+        if (!ready) {
+            if (fromTimer) claim.waits += 1;
+            if (claim.waits < 3) this.armPlayClaim(visit);
+            return;
+        }
+        claim.awaitingPrimary = false;
+        if (document.activeElement !== primary.item.element) this.focusItem(primary.zone, primary.item);
+        const held = document.activeElement === primary.item.element;
+        if (fromTimer && held) {
+            claim.finished = true;
+            this.clearPlayClaimTimer();
+            return;
+        }
+        if (fromTimer && !held) {
+            claim.attempts += 1;
+            if (claim.attempts >= 3) {
+                claim.finished = true;
+                this.clearPlayClaimTimer();
+                return;
+            }
+        }
+        this.armPlayClaim(visit);
+    }
+
+    /** Card actions and other menus focus controls that are not in the page's zones. */
+    private focusInOverlay(): boolean {
+        const active = document.activeElement;
+        if (!(active instanceof HTMLElement) || this.locate(active) !== undefined) return false;
+        return active.closest("[role='dialog'], [role='alertdialog'], .card-actions-scrim") !== null;
+    }
+
+    private armPlayClaim(visit: string): void {
+        const claim = this.playClaim;
+        if (claim === undefined || claim.visit !== visit || claim.finished || claim.timer !== undefined) return;
+        claim.timer = window.setTimeout(() => {
+            if (this.playClaim?.visit !== visit) return;
+            this.playClaim.timer = undefined;
+            const current = this.view;
+            if (current === undefined || visitKey(current) !== visit) return;
+            this.settlePrimaryFocus(current, true);
+        }, 50);
+    }
+
     private focusItem(zone: Zone | undefined, item: FocusItem | undefined): void {
         if (zone === undefined || item === undefined) {
             return;
@@ -551,6 +666,7 @@ export class FocusHost {
         if (view === undefined || key === undefined) {
             return;
         }
+        if ((key === "up" || key === "down" || key === "left" || key === "right") && this.playClaim !== undefined && !this.playClaim.finished) this.playClaim.moved = true;
         if (key === "back") {
             if (view.back !== undefined) {
                 if (view.back() !== false) event.preventDefault();

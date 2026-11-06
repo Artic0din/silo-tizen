@@ -21,6 +21,7 @@ import { languageName } from "./cardOverlays.ts";
 import { heroBackdrop, type Tints } from "./heroBackdrop.ts";
 import { episodeAirDate, episodeRuntime } from "./episodeCaption.ts";
 import { TMDB_LOGO_PATH } from "./acknowledgements.ts";
+import { spinner } from "./marquee.ts";
 
 const detailPalette = new Map<string, Tints>();
 
@@ -82,10 +83,10 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     const episode = state?.series?.episodes?.find(episode => episode.id === state.heroEpisodeId);
     const playback = state?.nextEpisodeState;
     const selectedFile = playback?.detail.versions.find(file => file.fileId === playChoices(playback.detail, playback.selectedFileId)?.fromStart.fileId);
-    const meta = episode === undefined ? metaLine(detail, state) : [episodeAirDate(episode.airDate), episodeRuntime(selectedFile?.durationSeconds ? Math.round(selectedFile.durationSeconds / 60) : episode.runtimeMinutes), episode.seasonNumber === 0 ? "Specials" : `Season ${episode.seasonNumber}`, `Episode ${episode.episodeNumber}`].filter(Boolean).join("\u2002·\u2002");
+    const meta = episode === undefined ? metaLine(detail, state) : [episodeAirDate(episode.airDate), episodeRuntime(selectedFile?.durationSeconds ? Math.round(selectedFile.durationSeconds / 60) : episode.runtimeMinutes)].filter(Boolean).join("\u2002·\u2002");
     const ratings = (episode === undefined ? detail.extra?.ratings : playback?.detail.extra?.ratings ?? episode.ratings)?.map(rating => `${rating.name} ${rating.display}`).join(" · ");
     const ratingChip = detail.contentRating?.trim();
-    if (meta || ratings || ratingChip) {
+    if (meta || ratings || ratingChip || episode !== undefined) {
         const facts = el("p", "browse-meta", meta);
         for (const rating of (episode === undefined ? detail.extra?.ratings : playback?.detail.extra?.ratings ?? episode.ratings) ?? []) {
             const badge = el("span", "details-external-rating");
@@ -93,7 +94,13 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
                 const logo = el("img", "skyline-rating-logo"); logo.src = TMDB_LOGO_PATH; logo.alt = "TMDB";
                 badge.append(logo);
             } else badge.append(el("span", "", rating.name));
-            badge.append(" ", el("span", "details-rating-score", rating.display)); facts.append("\u2002·\u2002", badge);
+            badge.append(" ", el("span", "details-rating-score", rating.display));
+            if (facts.hasChildNodes()) facts.append("\u2002·\u2002");
+            facts.append(badge);
+        }
+        if (episode !== undefined) {
+            if (facts.hasChildNodes()) facts.append("\u2002·\u2002");
+            facts.append(`${episode.seasonNumber === 0 ? "Specials" : `Season ${episode.seasonNumber}`}\u2002·\u2002Episode ${episode.episodeNumber}`);
         }
         if (episode === undefined && detail.genres.length) facts.append("\u2002·\u2002", el("span", "details-genres", detail.genres.slice(0, detail.type === "series" ? 2 : 3).join(", ")));
         if (ratingChip) facts.prepend(el("span", "details-rating-badge", ratingChip));
@@ -143,6 +150,15 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
         info.appendChild(editorial);
     } else info.append(...nodes);
     info.appendChild(zoneNode("browse-actions", actions));
+    if (state?.trailers.message !== undefined) {
+        const status = el("p", "details-trailer-status", state.trailers.message);
+        status.setAttribute("role", "status");
+        status.setAttribute("aria-busy", String(state.trailers.fetching));
+        const indicator = state.trailers.fetching ? spinner() : el("span", "", "ⓘ");
+        indicator.setAttribute("aria-hidden", "true");
+        status.prepend(indicator);
+        info.append(status);
+    }
     layout.appendChild(info);
     return [wash, layout];
 }
@@ -310,14 +326,25 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         { id: "actions", layout: "row", items: actions, restoreEntry: actions.find(action => ["resume", "play", "next-episode"].includes(action.key))?.key ?? "watchlist" },
         ...series?.zones ?? [{ id: "seasons", layout: "row" as const, items: seasonItems }],
     ];
-    const credits: Credit[] = [];
-    for (const credit of [...detail.extra?.cast ?? [], ...detail.extra?.crew ?? []]) {
-        const index = credits.findIndex((previous) => credit.id ? previous.id === credit.id : previous.id === undefined && previous.name === credit.name);
-        const previous = credits[index];
-        if (previous === undefined) credits.push(credit);
-    }
+    const credits = detail.extra?.cast ?? [];
     if (credits.length > 0) {
-        const people = credits.slice(0, 24).map((credit) => creditCard(credit, context));
+        const occurrences = new Map<string, number>();
+        const people = credits.slice(0, 24).map(credit => {
+            const item = creditCard(credit, context);
+            // Always key by identity/role/occurrence, including singleton credits.
+            // A conditional key format used to rename a focused card when another
+            // role for the same person appeared or disappeared, so FocusHost could
+            // not restore it after trailer discovery refreshed the detail. Apple's
+            // rail keys by index; Tizen keeps identity so a reorder of the same set
+            // can still restore focus.
+            const identity = `${credit.id ?? credit.name}\u001f${credit.role}`;
+            const occurrence = occurrences.get(identity) ?? 0;
+            occurrences.set(identity, occurrence + 1);
+            // encodeURIComponent keeps the key CSS-selectable and free of JSON quotes.
+            const key = `credit:${encodeURIComponent(credit.id ?? credit.name)}:${encodeURIComponent(credit.role)}:${occurrence}`;
+            item.element.dataset.focus = key;
+            return { ...item, key };
+        });
         content.push(el("h2", "browse-section-title", "Cast & Crew"), zoneNode("browse-row details-people", people));
         zones.push({ id: "people", layout: "row", items: people });
     }
@@ -461,6 +488,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
             items.unshift(shuffle);
             if (state.shuffleFailed) menuNotes.push(...lines(["Couldn't start the shuffle. Try again."], "error"));
         }
+        if (detail.type === "movie" || detail.type === "series") items.push(actionButton("find-trailers", "Find Trailers", () => { state.trailers.start(state.detail); state.closePanel(); }));
         if (state.descriptions?.offers() === true) items.push(actionButton("translate-description", TRANSLATE_DESCRIPTION_LABEL, () => { state.descriptions?.translate(); state.closePanel(); }));
         return detailPanel(view, state, "More", items.length ? items : [actionButton("close-more", "Close", () => state.closePanel())], menuNotes);
     }

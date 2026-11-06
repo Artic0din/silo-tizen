@@ -83,6 +83,7 @@ SELECTED=(
   query_catalog_items_ok
   query_catalog_letters_ok
   rate_limited
+  refresh_catalog_item_trailers_ok
   refresh_session_ok
   refresh_session_provider_unavailable
   refresh_session_revoked

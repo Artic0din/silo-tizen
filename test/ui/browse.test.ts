@@ -1082,7 +1082,7 @@ browseTest("Back restarts a movie box-set read that opening a cast member cancel
     await tv.eventually(async () => browseReads(tv, membership).length === 1, "movie box-set lookup");
     const itemReads = browseReads(tv, "/catalog/items/movie%3Am0001").length;
     const cancelled = tv.page.waitForEvent("requestfailed", request => new URL(request.url()).pathname === `/api/v2${membership}`);
-    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await cancelled;
     held.release();
     await showing(tv, "person:7");
@@ -1702,7 +1702,9 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
     personal.release();
     await tv.page.locator('[data-focus="watchlist"]').waitFor();
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "refreshed related titles");
-    await tv.page.locator('[data-focus="person:7"]').first().focus();
+    await tv.page.locator(".details-people [data-focus]").first().focus();
+    const castKey = await tv.focused();
+    assert.ok(castKey?.startsWith("credit:"));
     const reads = tv.fake.requests.length;
     await press(tv, "ArrowRight", "ArrowLeft");
     assert.equal(tv.fake.requests.length, reads, "focus performs no reads");
@@ -1712,7 +1714,7 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
     assert.equal(await tv.page.locator(".browse-card").count(), 24);
     await tv.remote(BACK);
     await showing(tv, "item:movie:m0001");
-    assert.equal(await tv.focused(), "person:7");
+    assert.equal(await tv.focused(), castKey);
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "the bounded related rail");
     assert.equal(await tv.page.getByRole("button", { name: /trailer/i }).count(), 0);
 }, { catalog: new FakeDetails() });
@@ -1939,9 +1941,9 @@ browseTest("Details portraits keep their circular geometry and retain the cast c
         const art = node.querySelector(".skyline-art-frame");
         return art !== null && getComputedStyle(node).overflow === "clip";
     }), true, "hero artwork cannot paint over later rails");
-    assert.equal(await tv.page.locator('[data-focus="person:7"]').count(), 1);
+    assert.equal(await tv.page.locator('.details-people [data-focus^="credit:7:"]').count(), 1);
     await shows(tv, "Alex");
-    assert.equal(await tv.page.locator('[data-focus="person:7"] .browse-card-subtitle').textContent(), 'Alex');
+    assert.equal(await tv.page.locator('.details-people [data-focus^="credit:7:"] .browse-card-subtitle').textContent(), 'Alex');
 }, { catalog: new FakeDetails() });
 
 browseTest("grouped Details facts remain reachable as one passive table with the remote", async (tv) => {
@@ -2018,7 +2020,7 @@ browseTest("optional Details reads load independently and omit empty Related res
     await showing(tv, "item:movie:m0001");
     await tv.page.getByText("Loading related titles.", { exact: true }).waitFor({ state: "hidden" });
     assert.equal(await tv.page.locator('[data-detail-section="related"]').count(), 0);
-    await tv.page.locator('[data-focus="person:7"]').focus();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').focus();
     await press(tv, "Enter");
     await showing(tv, "person:7");
     await shows(tv, "No available titles for this filter.");
@@ -2070,7 +2072,7 @@ browseTest("personal reads retry explicitly and omitted Related recovers on a ne
     await showing(tv, "item:movie:m0001");
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "related new visit");
     const person = tv.fake.hold("/catalog/people/7", true);
-    await tv.page.locator('[data-focus="person:7"]').focus();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').focus();
     await press(tv, "Enter");
     await showing(tv, "person:7");
     await shows(tv, "Loading metadata");
@@ -2126,7 +2128,7 @@ for (const kind of ["favorites", "watchlist"]) {
         if (kind === "favorites") await detailsMore(tv);
         await tv.eventually(async () => catalog.mutations.length === 1, "personal mutation committed");
         if (kind === "favorites") await tv.remote(BACK);
-        await tv.page.locator('[data-focus="person:7"]').first().focus();
+        await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().focus();
         await press(tv, "Enter");
         await showing(tv, "person:7");
         await tv.remote(BACK);

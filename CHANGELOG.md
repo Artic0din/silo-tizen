@@ -18,6 +18,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept duplicate Cast credits focused after trailer refreshes reordered them and resumed interrupted trailer discovery after returning from playback or watched-state navigation.
+- Added Find Trailers to movie and series Details and matched cast entries and overflow, episode captions and metadata order, season pills, synopsis brightness, and More menu glass styling to Apple TV.
 - Showed the full runtime and version, audio and subtitle details for each focused episode after focus settled.
 - Cancelled episode detail dwell on leaving a card, preserved explicit selector requests, and released older settled episode playback owners.
 - Kept explicit season selections on the first episode through cached Calendar revalidation and restored shuffle and advisory preferences after offline Details recovery.

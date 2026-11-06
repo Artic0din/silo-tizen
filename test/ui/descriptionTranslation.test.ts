@@ -230,15 +230,20 @@ test("leaving a featured card before the dwell starts nothing", async () => {
     tv.fake.catalog = catalog;
     const translation = install(tv.fake, catalog, "auto", ["movie:m0004"]);
     try {
+        await pauseTvClock(tv);
+        const held = tv.fake.hold("/capabilities/metadata-ai");
         await signIn(tv);
         await tv.page.evaluate(() => window.browseHarness.mount());
         await tv.page.locator('[data-view="home"] .skyline-marquee h1').waitFor();
-        await tv.eventually(() => Promise.resolve(tv.fake.requests.some((request) => request.path.startsWith("/capabilities/metadata-ai"))), "metadata AI capability");
-        await tv.page.keyboard.press("ArrowDown");
+        const capability = tv.page.waitForResponse(response => response.url().includes("/capabilities/metadata-ai"));
+        held.release();
+        await (await capability).finished();
+        await tv.jump(0);
+        await tv.remote(40);
         assert.notEqual(await tv.focused(), "movie:m0004");
         // The marquee keeps the previous card for its 150 ms rest. That rest has to land,
         // and cancel the featured dwell, before a longer jump can be mistaken for the card holding.
-        await tv.jump(200);
+        await tv.jump(150);
         assert.notEqual(await tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) h1").innerText(), "Movie 0004");
         assert.equal(translation.posts().length, 0);
         await tv.jump(2000);

@@ -420,35 +420,44 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         });
     }, undefined, !options.pickerRequested);
     const launch = (): void => {
-        if (!server.localRestore || options.pickerRequested || !options.launch?.remembered) { launchOnline(); return; }
+        if (!server.localRestore || options.pickerRequested || !options.launch?.remembered || options.launch.requiresSelection()) {
+            launchOnline();
+            return;
+        }
         const token = begin();
         const controller = new AbortController();
         pending = controller;
         void options.launch.restoreOffline(controller.signal).then(profile => {
             if (token !== view) return;
             if (!profile) { launchOnline(); return; }
+            // Offline paint is intentional (#266): temporary unreachability keeps the remembered
+            // route; identity/account/profile/PIN rejection clears it once reconcile can ask.
             handOff(profile);
             const generation = session.authorityGeneration;
             const signal = session.authoritySignal;
+            const stillOwns = (): boolean => !destroyed && generation === session.authorityGeneration && !signal.aborted;
+            const revoke = (): void => {
+                if (stillOwns()) session.setProfile(undefined, "profile_proof_revoked");
+            };
             const reconcile = (): void => { void session.http.verifyConnection(signal).then(() => server.profiles.list(signal)).then(async list => {
-                if (generation !== session.authorityGeneration) return;
+                if (!stillOwns()) return;
                 const fresh = list.find(row => row.id === profile.id);
                 if (!fresh || (fresh.hasPin && session.activeProfile?.token === undefined)) {
-                    session.setProfile(undefined, "profile_proof_revoked");
+                    revoke();
                     return;
                 }
                 await session.call({ ...operations.listUserLibraries(), profileScoped: true, signal });
-                if (generation !== session.authorityGeneration || signal.aborted) return;
+                if (!stillOwns()) return;
                 current = fresh;
                 onProfileUpdated?.(fresh);
             }).catch((error: unknown) => {
-                if (destroyed || generation !== session.authorityGeneration || signal.aborted) return;
+                if (!stillOwns()) return;
                 if ((error instanceof ApiError && error.transient) || (error instanceof SessionError && error.reason === "unavailable")) {
                     cancelReconcile = clock.schedule(reconcile, 15000);
                     return;
                 }
                 if (error instanceof ApiError && error.aborted) return;
-                session.setProfile(undefined, "profile_proof_revoked");
+                revoke();
             }); };
             signal.addEventListener("abort", () => cancelReconcile?.(), { once: true });
             reconcile();

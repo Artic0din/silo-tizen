@@ -146,10 +146,11 @@ appTest("offline reconciliation retains the session and checks a removed profile
 
 appTest("temporary discovery server errors retain the remembered profile", async tv => {
     await signIn(tv, true);
-    tv.fake.script("/system/info", { status: 503, body: {} });
+    // Two consecutive 503s exhaust NativeHttp's safe retry so reconcile must treat the failure as transient.
+    tv.fake.script("/system/info", { status: 503, body: {} }, { status: 503, body: {} });
     await tv.page.evaluate(() => window.appHarness.mount());
     await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
-    await tv.eventually(async () => tv.fake.paths().filter(path => path === "GET /system/info").length >= 2, "discovery response");
+    await tv.eventually(async () => tv.fake.paths().filter(path => path === "GET /system/info").length >= 2, "discovery retries exhausted");
     await tv.jump(35000);
     assert.equal(await tv.page.locator('[data-view="home"] .browse-card').count() > 0, true);
     tv.fake.scripted.delete("/system/info");

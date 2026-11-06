@@ -75,21 +75,31 @@ async function openServerSession(server: ServerConnection, deps: SessionCoreDeps
     if (offlineDiscovery) {
         let verified = false;
         let checking: Promise<void> | undefined;
-        const verify = async (): Promise<void> => {
-            if (verified) return;
-            const generation = session.authorityGeneration;
+        const requireMatchingDeployment = async (generation: number): Promise<DiscoveryResult> => {
             const fresh = await discoverServer(server.http.base.baseUrl, device, deps.fetch, clock, session.authoritySignal);
             if (generation !== session.authorityGeneration) throw new ApiError({ kind: "aborted" });
-            if (fresh.status !== "connected") {
-                throw new ApiError(fresh.status === "unreachable" || (fresh.status === "server_error" && fresh.transient) ? { kind: "network" } : { kind: "invalid_response", path: "/system/identity" });
-            }
+            if (fresh.status !== "connected") return fresh;
             if (fresh.server.serverId !== server.serverId) {
                 await session.deploymentChanged();
                 throw new ApiError({ kind: "aborted" });
             }
+            return fresh;
+        };
+        const verify = async (): Promise<void> => {
+            if (verified) return;
+            const generation = session.authorityGeneration;
+            const fresh = await requireMatchingDeployment(generation);
+            if (fresh.status !== "connected") {
+                throw new ApiError(fresh.status === "unreachable" || (fresh.status === "server_error" && fresh.transient) ? { kind: "network" } : { kind: "invalid_response", path: "/system/identity" });
+            }
             const setup = await fresh.server.http.send({ ...operations.setupStatus(), signal: session.authoritySignal });
             if (generation !== session.authorityGeneration) throw new ApiError({ kind: "aborted" });
             if (setup.needsSetup) throw new ApiError({ kind: "invalid_response", path: "/system/setup" });
+            // Identity can change between setup and the first credentialed call; reconfirm before releasing them.
+            const confirmed = await requireMatchingDeployment(generation);
+            if (confirmed.status !== "connected") {
+                throw new ApiError(confirmed.status === "unreachable" || (confirmed.status === "server_error" && confirmed.transient) ? { kind: "network" } : { kind: "invalid_response", path: "/system/identity" });
+            }
             verified = true;
         };
         const check = (): Promise<void> => {
@@ -116,7 +126,8 @@ async function openServerSession(server: ServerConnection, deps: SessionCoreDeps
     watchBrowseCache(session, deps.publicStorage, server.serverId, vault.directory.list().find(row => row.id === vault.localAccountId)?.accountId);
     const restore = await session.restore();
     if (offlineDiscovery && restore !== "signed_in") return { status: "unreachable" };
-    if (restore === "signed_in" && session.account) {
+    // Offline restoration must keep the deployment gate; a live online session has none.
+    if (!offlineDiscovery && restore === "signed_in" && session.account) {
         const cached = deps.reuseAccount?.(server.http.base.baseUrl, session.account.id);
         if (cached?.session.signedIn && cached.server.serverId === server.serverId) return { ...cached, restore: "signed_in" };
     }

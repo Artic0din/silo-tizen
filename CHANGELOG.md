@@ -23,6 +23,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Down from a Search person lands on the first title column at or past that person's centre, and a filter pill lands on the title card under it. A short title row keeps the column that entered it, so the next request is the one that lines up with that column. Up from Requests enters the last title row even when no card lines up, and stays put when the first person does not line up with the request. Search loads 60 titles per page, so 25 results have no pager.
 - Back from Settings now returns to Home, including when Settings was opened from another tab.
 - Down from the profile avatar enters Switch Profile, including before the menu's dwell finishes. After Back closes it, Down reaches the first Continue Watching card.
 - Matched the library Browse grid to Apple TV: the mode pills are gone, and Up from Sort returns to the top bar. Episode rows now crop the previous card at the 100px inset, the focused still lifts by 5%, and Cast, trailer and related rows start at that inset and paint to the screen edge.

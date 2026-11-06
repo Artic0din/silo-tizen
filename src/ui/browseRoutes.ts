@@ -29,6 +29,8 @@ import { recommendationsView } from "./recommendationsView.ts";
 
 /** Cards per catalog page: four grid rows. Only the shown page is kept. */
 export const PAGE_SIZE = 24;
+/** Apple's SearchViewModel.pageSize. A 25-result query is one page, with no pager. */
+export const SEARCH_PAGE_SIZE = 60;
 
 export interface Pages {
     page: CatalogPage | undefined;
@@ -240,7 +242,7 @@ function grid(current: Route, pages: Pages, page: CatalogPage, handlers: RouteHa
         {
             page,
             index: pages.index,
-            pageSize: current.kind === "libraryResults" && current.source.kind === "collection" ? 60 : PAGE_SIZE,
+            pageSize: current.kind === "search" ? SEARCH_PAGE_SIZE : current.kind === "libraryResults" && current.source.kind === "collection" ? 60 : PAGE_SIZE,
             loading: handlers.busy,
             previous: () => handlers.turn(current, pages, -1),
             next: () => handlers.turn(current, pages, 1),

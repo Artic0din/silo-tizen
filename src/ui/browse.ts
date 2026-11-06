@@ -2377,19 +2377,22 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (hiddenChanged) {
                     cache.invalidate();
                     visitedDetails.clear();
-                    // This read still has the hidden list from before Settings. Calendar
-                    // applies the new one; the old answer must not put those tabs back.
+                    // This read still has the hidden list from before Settings. A later
+                    // Calendar visit applies the new one; the old answer must not put
+                    // those tabs back. The visit itself waits: Back selects Home.
                     homeLibraries?.abort();
                     const calendar = stack.find(entry => entry.kind === "calendar");
                     home.stale = true;
                     roots.clear();
                     roots.set("home", home);
                     if (calendar !== undefined) { calendar.stale = true; calendarLibrariesStale = true; roots.set("calendar", calendar); }
-                    stack = calendar === undefined ? [home] : [home, calendar];
                 }
+                // TVSettingsView.exitSettingsToHome calls switchTab(.home). selectRoot
+                // then replaces whichever tab opened Settings, so the rail's Back
+                // lands on Home.
+                stack = [home];
                 host.listen();
-                const current = top();
-                if (current !== undefined) showRoute(current, tabFocus(current));
+                showRoute(home, { zone: "nav", key: "home" });
                 const spoilersAfterSettings = episodeSpoilers?.settings;
                 if (spoilersBeforeSettings?.hidesImages !== spoilersAfterSettings?.hidesImages || spoilersBeforeSettings?.hidesOverviews !== spoilersAfterSettings?.hidesOverviews) shell.repaint();
             }, server.profileLaunch, {

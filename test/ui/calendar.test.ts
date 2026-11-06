@@ -619,7 +619,7 @@ calendarTest("Calendar failed revalidation retains only the current window with 
     assert.equal(await tv.page.locator(".calendar-event").count(), 0, "no previous-window cache leaks into an empty week");
 });
 
-calendarTest("Calendar Settings library recovery reuses current route and coherent multi-library access", async (tv, catalog) => {
+calendarTest("Calendar library recovery survives Settings Back onto Home and a later Calendar visit", async (tv, catalog) => {
     const settings = new FakeSettings(tv.fake);
     settings.profile().set(HIDDEN_KEY, [15]);
     const routes = tv.fake.catalog; assert.ok(routes);
@@ -637,10 +637,11 @@ calendarTest("Calendar Settings library recovery reuses current route and cohere
     await tv.eventually(async () => JSON.stringify(settings.profile().get(HIDDEN_KEY)) === "[]", "library visibility restored");
     await tv.page.getByText("Saving…", { exact: true }).waitFor({ state: "hidden" });
     for (let step = 0; step < 3 && await tv.page.locator(".settings").count() > 0; step++) await tv.remote(10009);
-    await ready(tv, 33);
+    assert.equal(await tv.page.locator('.browse').getAttribute("data-view"), "home");
+    assert.equal(await tv.focused(), "home", "Settings Back selects Home");
+    await activate(tv, "calendar"); await ready(tv, 33);
     assert.equal(await tv.page.locator('[data-focus="filter:everything"]').getAttribute("aria-pressed"), "true");
     assert.equal(await tv.page.locator('.calendar-event[data-content-id="movie:archived"]').count(), 1, "restored library content is included");
-    assert.equal(await tv.focused(), "calendar", "selected tab retains focus while revalidating after Settings");
     assert.equal(await tv.page.locator('.browse-nav [data-focus="movies"]').count(), 1, "visibility recovery also updates existing Skyline scopes");
 });
 

@@ -40,9 +40,18 @@ export class SkylineScroll {
     /** Shelf already bottom-aligned. Horizontal moves inside it do not scroll again. */
     private pinnedShelf: HTMLElement | null = null;
 
-    restoreDetailsAnchor(element: HTMLElement, viewport: HTMLElement): boolean {
+    restoreDetailsAnchor(element: HTMLElement, viewport: HTMLElement, immediate = false): boolean {
         // TVDetailFocusScroll pins actions; TVSeriesDetailView pins the primary episode viewport.
         if (element.closest(".details-editorial, .details-season-chips, .details-episodes") === null) return false;
+        if (immediate) {
+            // Repaints must not restart a 200 ms move from an intermediate scrollTop.
+            const previous = this.frames.get(viewport);
+            if (previous !== undefined) cancelAnimationFrame(previous);
+            this.frames.delete(viewport);
+            viewport.scrollLeft = 0;
+            viewport.scrollTop = 0;
+            return true;
+        }
         this.move(viewport, 0, 0);
         return true;
     }

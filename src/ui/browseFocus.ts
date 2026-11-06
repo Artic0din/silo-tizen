@@ -223,7 +223,7 @@ export class FocusHost {
         }
         // Details anchors must win over a repaint's saved intermediate animation position.
         const element = this.locate(document.activeElement)?.item.element;
-        if (view.name.startsWith("item:") && element !== undefined) this.scroll.restoreDetailsAnchor(element, this.container);
+        if (view.name.startsWith("item:") && element !== undefined) this.scroll.restoreDetailsAnchor(element, this.container, true);
         if (animate) {
             this.incoming = Array.from(this.container.querySelectorAll<HTMLElement>(".skyline-content > :not(.skyline-pills), .skyline-marquee"));
             for (const node of this.incoming) node.classList.add(drift && !node.classList.contains("skyline-marquee") ? "skyline-content-drift" : "skyline-content-enter");

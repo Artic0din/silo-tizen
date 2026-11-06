@@ -1609,22 +1609,29 @@ detailTest("episode focus swaps cached hero and selectors without starting a rea
 
 let browser: Browser;
 
-for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} reopens at its hero without restoring the supporting viewport`, async tv => {
-    const open = () => tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
-    await open();
+detailTest('a Details repaint during the return to Play finishes at the hero anchor', async tv => {
+    const held = tv.fake.hold('/recommendations/similar/movie%3Am0001', true);
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.page.locator('.details-people').waitFor();
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
     await tv.page.evaluate(() => document.fonts.ready);
-    const rest = await tv.page.locator('.details-hero').evaluate(node => node.getBoundingClientRect().top);
-    await tv.page.locator('.details-people [data-focus]').first().waitFor();
-    for (let step = 0; step < (media.startsWith('series') ? 3 : 1); step++) await tv.remote(40);
-    await tv.eventually(() => tv.page.locator('.browse').evaluate(node => node.scrollTop > 0), 'supporting section scroll');
-    await tv.remote(10009);
-    await open();
-    await tv.page.locator('.details-hero').waitFor();
-    await tv.page.locator('.details-editorial :focus').waitFor();
-    await tv.eventually(() => tv.page.evaluate(() => {
-        const hero = document.querySelector('.browse > .details-hero');
-        return { top: hero?.getBoundingClientRect().top, action: document.activeElement?.closest('.details-editorial') !== null, scroll: document.querySelector('.browse')?.scrollTop };
-    }).then(value => value.top === rest && value.action && value.scroll === 0), 'fresh hero and action focus');
+    await pauseTvClock(tv);
+    await tv.remote(40);
+    await tv.jump(400);
+    assert.ok(await tv.page.locator('.browse').evaluate(node => node.scrollTop > 0));
+    await tv.remote(38);
+    await tv.jump(50);
+    held.release();
+    await tv.page.locator('[data-detail-section="related"] [data-focus]').first().waitFor();
+    // Immediate snap after the repaint; do not wait out a restarted 200 ms animation.
+    await tv.jump(16);
+    const result = await readLive(tv, () => {
+        const viewport = document.querySelector<HTMLElement>('.browse');
+        const hero = viewport?.querySelector('.details-hero');
+        if (viewport === null || hero === undefined || hero === null || !hero.isConnected) return null;
+        return { top: hero.getBoundingClientRect().top, scroll: viewport.scrollTop, primary: document.activeElement?.closest('.details-editorial') !== null };
+    }, null, value => value.top === 0 && value.scroll === 0 && value.primary, 'hero top after delayed related repaint');
+    assert.deepEqual(result, { top: 0, scroll: 0, primary: true });
 });
 
 for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} artwork stays inside Apple's shared top-right frame`, async tv => {

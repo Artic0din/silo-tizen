@@ -27,6 +27,9 @@ export interface PersonalChange {
 }
 
 const EPISODE_PREFETCH_CONCURRENCY = 4;
+const EPISODE_OWNER_CACHE_LIMIT = 16;
+// TVItemDetailView.swift:835-841 at df891d2e.
+const EPISODE_FOCUS_DWELL_MS = 120;
 
 export class DetailsState {
     showAdvisoryAge = false;
@@ -51,6 +54,9 @@ export class DetailsState {
     private readonly episodeRefusals = new Set<string>();
     private readonly episodeQueue: string[] = [];
     private episodeWorkers = 0;
+    private episodeFocusDwell: ReturnType<typeof setTimeout> | undefined;
+    private queuedFocusEpisode: string | undefined;
+    private episodeFocusOwner: string | undefined;
     private episodeEpoch = 0;
     private episodeController: AbortController | undefined;
     private pendingEpisodePanel: { id: string; panel: "audio" | "subtitles" | "version" } | undefined;
@@ -220,6 +226,7 @@ export class DetailsState {
     }
 
     stop(): void {
+        this.cancelEpisodeFocus();
         this.pendingEpisodePanel = undefined;
         this.shuffleStarting = false;
         for (const state of this.seasonStates.values()) state.stop();
@@ -512,6 +519,7 @@ export class DetailsState {
         }
         if (this.series?.railEpisodes !== undefined && this.focusedEpisodeId !== undefined && !this.series.railEpisodes.some(episode => episode.id === this.focusedEpisodeId)) this.focusedEpisodeId = undefined;
         const target = this.playbackTargetId;
+        if (this.queuedFocusEpisode !== undefined && this.queuedFocusEpisode !== target) this.cancelEpisodeFocus();
         if (target !== undefined && !this.series?.selectionOwnsHero && this.focusedEpisodeId === undefined) this.queueEpisode(target);
         this.syncEpisode();
         this.changed();
@@ -519,11 +527,43 @@ export class DetailsState {
     }
 
     focusEpisode(id: string): void {
-        if (this.focusedEpisodeId === id || !this.series?.railEpisodes?.some(episode => episode.id === id)) return;
+        if (!this.series?.railEpisodes?.some(episode => episode.id === id)) return;
+        if (this.focusedEpisodeId === id && (this.episodeFocusDwell !== undefined || this.episodeStates.has(id) || this.episodeReads.has(id) || this.episodeFailures.has(id))) return;
+        this.cancelEpisodeFocus();
         this.focusedEpisodeId = id;
-        // Focus only selects a preloaded owner. Reads belong to season acceptance and explicit Retry.
+        this.episodeFocusOwner = id;
+        const cached = this.episodeStates.get(id);
+        if (cached !== undefined) { this.episodeStates.delete(id); this.episodeStates.set(id, cached); }
+        if (!this.episodeStates.has(id) && !this.episodeFailures.has(id)) {
+            this.episodeFocusDwell = setTimeout(() => {
+                this.episodeFocusDwell = undefined;
+                if (this.episodeFocusOwner !== id || this.heroEpisodeId !== id) return;
+                this.queueEpisode(id, true);
+                this.syncEpisode();
+                this.changed();
+            }, EPISODE_FOCUS_DWELL_MS);
+        }
         this.syncEpisode();
         this.changed();
+    }
+
+    blurEpisode(id: string): void {
+        if (this.focusedEpisodeId !== id) return;
+        this.cancelEpisodeFocus();
+        this.syncEpisode();
+    }
+
+    private cancelEpisodeFocus(): void {
+        this.episodeFocusOwner = undefined;
+        clearTimeout(this.episodeFocusDwell);
+        this.episodeFocusDwell = undefined;
+        const id = this.queuedFocusEpisode;
+        const index = id === undefined ? -1 : this.episodeQueue.indexOf(id);
+        if (index >= 0 && id !== undefined) {
+            this.episodeQueue.splice(index, 1);
+            this.episodeReads.delete(id);
+        }
+        this.queuedFocusEpisode = undefined;
     }
 
     private async seasonWatchedChanged(detail: ItemDetail, signal: AbortSignal): Promise<void> {
@@ -563,6 +603,7 @@ export class DetailsState {
     }
 
     showSeriesOverview(): void {
+        this.cancelEpisodeFocus();
         this.focusedEpisodeId = undefined;
         if (this.series !== undefined) this.series.selectionOwnsHero = false;
         this.warmSeriesEpisodes(); this.closePanel();
@@ -596,8 +637,11 @@ export class DetailsState {
         this.nextEpisodeLoading = id !== undefined && this.episodeReads.has(id);
     }
 
-    private queueEpisode(id: string): void {
+    private queueEpisode(id: string, focusOnly = false): void {
+        // Explicit activation promotes a queued focus read; blur must not cancel it.
+        if (!focusOnly && this.queuedFocusEpisode === id) this.queuedFocusEpisode = undefined;
         if (this.controller === undefined || this.episodeStates.has(id) || this.episodeReads.has(id) || this.episodeFailures.has(id)) return;
+        if (focusOnly) this.queuedFocusEpisode = id;
         this.episodeReads.add(id);
         this.episodeController ??= new AbortController();
         this.episodeQueue.push(id);
@@ -641,13 +685,30 @@ export class DetailsState {
                     this.pendingEpisodePanel = undefined;
                     if (this.playbackTargetId === id && this.nextEpisode !== undefined) this.panel = pending.panel;
                 }
+                this.pruneEpisodeOwners();
                 this.changed();
                 this.drainEpisodes();
             });
         }
     }
 
+    private pruneEpisodeOwners(): void {
+        // Tizen retains live preference owners rather than Apple's decoded ResponseCache values.
+        // Keep a small revisit window, but never discard unfinished user work.
+        const owners = new Map([...this.previousEpisodeStates, ...this.episodeStates]);
+        for (const [id, state] of owners) {
+            if (this.episodeStates.size + this.previousEpisodeStates.size <= EPISODE_OWNER_CACHE_LIMIT) break;
+            if (id === this.playbackTargetId || id === this.pendingEpisodePanel?.id || this.episodeReads.has(id)
+                || state.busy || state.preparingPlay || state.failedPlay !== undefined || state.panel !== undefined
+                || state.audioPreference.pending || state.audioPreference.failed || state.subtitlePreference.pending || state.subtitlePreference.failed) continue;
+            state.stop();
+            this.episodeStates.delete(id);
+            this.previousEpisodeStates.delete(id);
+        }
+    }
+
     private invalidateEpisodes(): void {
+        this.cancelEpisodeFocus();
         this.episodeEpoch++;
         this.episodeController?.abort();
         this.episodeController = undefined;
@@ -683,6 +744,7 @@ export class DetailsState {
             for (const episodeId of ids) this.queueEpisode(episodeId);
             this.syncEpisode();
         }
+        this.pruneEpisodeOwners();
         this.changed(key);
     }
 

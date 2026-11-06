@@ -48,7 +48,9 @@ Rendered regression requires focused E05 near x1158 and E06's right edge near x1
 The existing Tizen leading slot is 7px right of Swift's 100px inset; this is disclosed rather than corrected with an episode-specific offset.
 No native comparison has run for this revision.
 Accepting a season queues its episode catalog details with at most four reads in flight, deduplicated against the next-up read and this visit's cache.
-Each accepted episode detail starts its existing playback/preference owner before focus reaches it.
+Season acceptance loads the playback episode; missing focused episode details load after a 120 ms dwell and then start the existing playback/preference owner.
+Leaving the card cancels pending focus work, while explicit selector and playback requests retain their queue ownership.
+The episode-detail dwell is an approved no-focus-fetch exception; see [TV focus](../tv-focus.md) and [Details actions](details-actions.md).
 All cached episodes share a series-wide playback gate while any series preference save is pending or unconfirmed.
 A confirmed save refreshes accepted episode details in the same bounded queue, clears other episodes' stale track intents, and retains their selected versions.
 Interrupted prefetches resume on return; watched mutations cancel older cache generations before refreshing them.

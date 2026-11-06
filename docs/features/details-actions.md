@@ -60,7 +60,7 @@ Later fixes keep the pill selection authoritative over stale episode callbacks, 
 The row reuses the continuous rail's terminal clamp (`TVEpisodeRail.swift:400-414`), including loaded predecessors for a short final season.
 Without a loaded neighbour it shows the available episodes; it does not fetch solely to fill empty space.
 Season focus and explicit Retry each make at most one season read, without transport retries or neighbour warming after selection.
-Episode item details are deferred to playback or opening a version/audio/subtitle control; episode focus itself reads nothing.
+Episode focus paints its summary immediately and reads missing full detail after Apple's 120ms dwell; playback and version/audio/subtitle activation can resolve it immediately.
 Apple uses cached season pages (`ItemDetailViewModel.swift:1143-1156`), guards stale selections (`SeriesSeasonSelection.swift:16-30`), paints episode summaries (`TVSeriesDetailView.swift:448-464,1046-1055`), and skips per-card personal refresh for tvOS Series (`ItemDetailViewModel.swift:1397-1406`).
 The shared abbreviated date formatter matches Apple's medium date style (`DetailDateFormatting.swift:77-82`), including English `Sep`.
 These follow-up fixes have fake-server and Chromium validation only; the signed comparison predates them.
@@ -71,8 +71,18 @@ Apple's measured retained-title reopen offset remains a known difference: Samsun
 The existing terminal clamp is unchanged.
 Season pills use Swift's 24px horizontal padding, 12px gap, medium unselected text and semibold selected text.
 Cached playback details supply hero readouts; summary-only episodes omit unavailable values instead of leaving permanent skeleton bars.
-Loaded-season moves still perform zero reads.
-Apple's `TVItemDetailView.swift:801-871` uses cached playback metadata and cancellable 120ms deferred hydration; Samsung defers unavailable details to the existing explicit playback/selectors path to preserve that zero-read constraint.
+Loaded-season moves perform no season-page reads.
+At Apple source `df891d2e`, `TVSeriesDetailView.swift:879-906` activates the focused episode and `TVItemDetailView.swift:805-858` reads playback metadata after 120ms.
+Samsung now uses the same dwell for missing catalog detail, reusing the existing version/track owners and four-worker queue.
+Leaving a card cancels its dwell and superseded queued focus reads; explicit requests survive cancellation, whether requested before or after the dwell.
+Retained episode owners do not reread on focus and failures require explicit Retry.
+Tizen keeps 16 recent settled playback owners per route, excluding owners protected by current playback selection, pending reads/panels or unfinished user work.
+Evicted episodes reload on a later dwell.
+Apple's `ResponseCache.swift:6-12,24-34` at `df891d2e` deliberately has no TTL or LRU and clears item data on memory warnings.
+Tizen uses a small route-local window because its cached entries also own preference state and authority listeners; there is no Apple numeric capacity to copy.
+AGENTS.md names this episode-detail dwell as an approved no-focus-fetch exception for Apple TV parity; see [TV focus](../tv-focus.md).
+Full version duration drives the hero runtime, while the card retains the episode-list runtime (`TVDetailHero.swift:721-734`, `SelectedMediaRuntime.swift:4-28` at that SHA).
+This change has fake-server and desktop Chromium proof; same-state Apple/Samsung comparison and signed simulator journeys remain pending on the other Mac.
 Selected-season failures stay with their failed season rather than appearing below a loaded neighbour.
 Connectivity returning alone does not retry the row: `TVSeriesDetailView.swift:734-737,805` calls `retryHierarchy` only from Retry buttons, and `TVItemDetailView.swift:308` forwards that action to `retrySeriesHierarchy`.
 Explicit Retry reads the failed season once.

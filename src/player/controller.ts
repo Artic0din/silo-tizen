@@ -1666,11 +1666,18 @@ export class PlaybackController implements PlayerControls {
     }
 
     private closeTransport(): void {
+        const attempt = this.attempt;
+        // A playing scrub pauses the stream and queues Play. The seek callback
+        // drops that intent once this transport is gone, so keep it for the replacement.
+        if (attempt?.pauseAfterSeek !== undefined) {
+            attempt.paused = attempt.pauseAfterSeek;
+            attempt.pauseAfterSeek = undefined;
+        }
         this.transport++;
-        if (this.attempt !== undefined) {
-            this.attempt.suspended = false;
-            this.attempt.suspendedReady = false;
-            this.attempt.deferredOpen = false;
+        if (attempt !== undefined) {
+            attempt.suspended = false;
+            attempt.suspendedReady = false;
+            attempt.deferredOpen = false;
         }
         this.startupDue = undefined;
         this.cancelStartup?.();

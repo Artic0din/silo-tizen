@@ -13,7 +13,7 @@ import { browseCache } from "../session/browseCache.ts";
 import type { CatalogPage } from "../contracts/v2/catalog.ts";
 import { requestOperations } from "../api/requestOperations.ts";
 import type { MediaRequest, MyRequests, RequestsCapability } from "../contracts/v2/requests.ts";
-import { WireError } from "../contracts/v2/wire.ts";
+import { WireError, type ProfileSummary } from "../contracts/v2/wire.ts";
 import { requestsState, type RequestsHandlers, type RequestsSource } from "./requests.ts";
 import { canCancel, canRemove, focusAfterRemoval, REMOVE_CONFLICT_MESSAGE, REMOVED_NOTICE, RequestActionGate, REQUEST_NOTICE_MS, UNCONFIRMED_CANCEL_MESSAGE, UNCONFIRMED_REMOVE_MESSAGE, visibleMineRequests } from "./requestRemoval.ts";
 import { RequestRecordMenu } from "./requestRecordMenu.ts";
@@ -60,6 +60,7 @@ import { stopFeed } from "./catalogFeed.ts";
 import type { BrowseChange, DiscoveryState } from "./libraryDiscovery.ts";
 import { shufflePick } from "../player/nextShuffle.ts";
 import type { ShuffleCapability } from "../contracts/v2/shuffle.ts";
+import { avatarReference } from "./profilePicker.ts";
 
 export type { PlayRequest } from "./browseModel.ts";
 
@@ -82,6 +83,8 @@ export interface BrowseOptions {
 export interface Browse {
     /** Shows browse again where it was, after the player closes, and refreshes what it shows. */
     resumeAfterPlayback(): void;
+    /** Updates the top-bar profile chrome without remounting painted content. */
+    updateProfile(profile: Pick<ProfileSummary, "name" | "avatarUrl" | "avatar">): void;
     /** Removes browse and its container; nothing else in `root` is touched. */
     destroy(): void;
 }
@@ -115,6 +118,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     if (session.activeProfile === undefined) {
         throw new Error("mountBrowse needs a selected profile");
     }
+    let profileName = options.profileName ?? "Profiles";
+    let profileAvatarUrl = options.profileAvatarUrl;
     const clock = options.clock ?? systemClock;
     const cache = browseCache(options.publicStorage, [server.server.serverId, session.account?.id ?? "", session.activeProfile.id], session.authoritySignal);
     // Route reads already discard through cache.read. Card menus, episode owners and
@@ -1796,7 +1801,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             midnight.setHours(24, 0, 0, 0);
             cancelCalendarDay = clock.schedule(() => render(host.focused()), midnight.getTime() - clock.now());
         }
-        shell.setAvatar(options.profileName ?? "Profiles", options.profileAvatarUrl, context.baseUrl);
+        shell.setAvatar(profileName, profileAvatarUrl, context.baseUrl);
         if (current.kind === "library") shell.setLibraryModes(availableModes(current.discovery?.data?.capabilities ?? current.discovery?.capabilities));
         const searchFilter = (route: Extract<Route, { kind: "search" }>, filter: "movie" | "series" | undefined): void => {
             if (top() !== route || route.filter === filter) return;
@@ -2344,7 +2349,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         if (hasData(route) && (route.focus === undefined || route.focus.zone === "nav")) host.focusDefault();
     }, {
         requests: () => { host.forgetVisit("requests:hub"); openRequests({ kind: "hub" }); },
-        name: options.profileName ?? "Profiles",
+        name: profileName,
         serverName: () => cachedBranding(options.publicStorage, context.baseUrl)?.serverName,
         settings: () => {
             const spoilersBeforeSettings = episodeSpoilers?.settings;
@@ -2387,8 +2392,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 const spoilersAfterSettings = episodeSpoilers?.settings;
                 if (spoilersBeforeSettings?.hidesImages !== spoilersAfterSettings?.hidesImages || spoilersBeforeSettings?.hidesOverviews !== spoilersAfterSettings?.hidesOverviews) shell.repaint();
             }, server.profileLaunch, {
-                profileName: options.profileName ?? "Profiles",
-                profileAvatarUrl: options.profileAvatarUrl,
+                profileName,
+                profileAvatarUrl,
                 accountName: session.account?.username,
                 switchProfile: chooseProfile,
                 serverName: cachedBranding(options.publicStorage, context.baseUrl)?.serverName,
@@ -2474,6 +2479,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (current !== undefined) {
                 showRoute(current, current.focus);
             }
+        },
+        updateProfile(profile) {
+            if (torn) return;
+            profileName = profile.name;
+            profileAvatarUrl = avatarReference(profile);
+            shell.setAvatar(profileName, profileAvatarUrl, context.baseUrl);
         },
         destroy: teardown,
     };

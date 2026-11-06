@@ -4,6 +4,7 @@
 
 import { type Clock, systemClock } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
+import { operations } from "../api/operations.ts";
 import type { ProfileSummary } from "../contracts/v2/wire.ts";
 import type { ConnectedServer } from "../session/core.ts";
 import type { ProfileLaunch } from "../session/profileLaunch.ts";
@@ -36,6 +37,8 @@ export interface ProfileOptions {
     readonly launch?: ProfileLaunch;
     /** A profile acts. The profile screens are gone; the caller owns the root until `signal` aborts. */
     readonly onSelected: (active: ProfileHandoff) => void;
+    /** Fresh profile metadata after a local cold-start paint; do not remount content. */
+    readonly onProfileUpdated?: (profile: ProfileSummary) => void;
     /** The account is signed out on this TV. The profile screens are gone; show sign-in, with the notice when given. */
     readonly onSignedOut: (notice: LogoutResult | undefined) => void;
 }
@@ -51,7 +54,7 @@ const TITLE = "Who's watching?";
 const PROOF_ENDED = "The PIN for this profile changed, or its unlock ended. Enter the PIN again.";
 
 export function mountProfiles(root: HTMLElement, options: ProfileOptions): ProfileScreens {
-    const { server, onSelected, onSignedOut } = options;
+    const { server, onSelected, onProfileUpdated, onSignedOut } = options;
     const clock = options.clock ?? systemClock;
     const session = server.session;
     let host: ScreenHost | undefined;
@@ -64,6 +67,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
     let leaving = false;
     let destroyed = false;
     let restoring = false;
+    let cancelReconcile: (() => void) | undefined;
 
     const show = (screen: Screen, focus?: string): void => {
         if (host === undefined) {
@@ -389,12 +393,13 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             return;
         }
         destroyed = true;
+        cancelReconcile?.();
         begin();
         unsubscribe();
         release();
     };
 
-    const launch = (): void => load(list => {
+    const launchOnline = (): void => load(list => {
         if (options.pickerRequested) { picker(list); return; }
         const token = view;
         const controller = new AbortController();
@@ -411,9 +416,53 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             restoring = false;
             pending = undefined;
             if (error instanceof SessionError && error.reason !== "unavailable") { expired(); return; }
-            message("profile-launch-error", "Remembered profile didn't open", ["Could not verify the remembered profile. Try again or choose who's watching."], [button("retry", "Retry", launch), button("back", "Choose profile", () => picker(list)), signOutButton()], () => picker(list), "error");
+            message("profile-launch-error", "Remembered profile didn't open", ["Could not verify the remembered profile. Try again or choose who's watching."], [button("retry", "Retry", launchOnline), button("back", "Choose profile", () => picker(list)), signOutButton()], () => picker(list), "error");
         });
     }, undefined, !options.pickerRequested);
+    const launch = (): void => {
+        if (!server.localRestore || options.pickerRequested || !options.launch?.remembered || options.launch.requiresSelection()) {
+            launchOnline();
+            return;
+        }
+        const token = begin();
+        const controller = new AbortController();
+        pending = controller;
+        void options.launch.restoreOffline(controller.signal).then(profile => {
+            if (token !== view) return;
+            if (!profile) { launchOnline(); return; }
+            // Offline paint is intentional (#266): temporary unreachability keeps the remembered
+            // route; identity/account/profile/PIN rejection clears it once reconcile can ask.
+            handOff(profile);
+            const generation = session.authorityGeneration;
+            const signal = session.authoritySignal;
+            const stillOwns = (): boolean => !destroyed && generation === session.authorityGeneration && !signal.aborted;
+            const revoke = (): void => {
+                if (stillOwns()) session.setProfile(undefined, "profile_proof_revoked");
+            };
+            const reconcile = (): void => { void session.http.verifyConnection(signal).then(() => server.profiles.list(signal)).then(async list => {
+                if (!stillOwns()) return;
+                const fresh = list.find(row => row.id === profile.id);
+                if (!fresh || (fresh.hasPin && session.activeProfile?.token === undefined)) {
+                    revoke();
+                    return;
+                }
+                await session.call({ ...operations.listUserLibraries(), profileScoped: true, signal });
+                if (!stillOwns()) return;
+                current = fresh;
+                onProfileUpdated?.(fresh);
+            }).catch((error: unknown) => {
+                if (!stillOwns()) return;
+                if ((error instanceof ApiError && error.transient) || (error instanceof SessionError && error.reason === "unavailable")) {
+                    cancelReconcile = clock.schedule(reconcile, 15000);
+                    return;
+                }
+                if (error instanceof ApiError && error.aborted) return;
+                revoke();
+            }); };
+            signal.addEventListener("abort", () => cancelReconcile?.(), { once: true });
+            reconcile();
+        }, () => { if (token === view) launchOnline(); });
+    };
     if (options.launch === undefined) showList();
     else launch();
     return {

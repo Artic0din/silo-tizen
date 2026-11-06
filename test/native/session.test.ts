@@ -1,6 +1,37 @@
 import assert from "node:assert/strict";
 import { connect } from "../../src/session/core.ts";
 
+test("saved account restores without waiting for discovery", async () => {
+    const h = await connected();
+    await signIn(h);
+    let fetched = false;
+    const result = await connect(h.fake.origin, {
+        fetch: () => { fetched = true; return new Promise<Response>(() => {}); }, allowOfflineRestore: true, publicStorage: h.storage,
+        keyManager: h.keyManager, randomBytes: bytes => bytes.fill(0xab),
+        deviceName: "TV", devicePlatform: "tizen", clock: h.clock,
+    });
+    assert.equal(fetched, false, "paint-first restore must not await discovery");
+    assert.equal(result.status, "connected");
+    if (result.status === "connected") assert.equal(result.localRestore, true);
+});
+
+test("offline restore keeps a deployment gate instead of reusing a live session", async () => {
+    const h = await connected();
+    await signIn(h);
+    const live = h.core;
+    const result = await connect(h.fake.origin, {
+        fetch: () => Promise.reject(new TypeError("offline")), allowOfflineRestore: true, publicStorage: h.storage,
+        keyManager: h.keyManager, randomBytes: bytes => bytes.fill(0xab),
+        deviceName: "TV", devicePlatform: "tizen", clock: h.clock,
+        reuseAccount: () => live,
+    });
+    assert.equal(result.status, "connected");
+    if (result.status === "connected") {
+        assert.equal(result.localRestore, true);
+        assert.notEqual(result.session, live.session);
+    }
+});
+
 test("setup transport failure restores a saved account without starting device login", async () => {
     const h = await connected();
     await signIn(h);

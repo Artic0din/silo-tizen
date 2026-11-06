@@ -473,6 +473,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 roots.delete("requests");
                 if (stack.some(route => route.kind === "requests")) {
                     loading?.abort(); loading = undefined;
+                    // Drop an open card menu without its onClose paint: the stack is about to become Home.
+                    if (requestMenu.active) requestMenu.destroy();
                     stack = [home];
                     showRoute(home, { zone: "nav", key: "home" });
                     return;
@@ -1954,14 +1956,26 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         showRequestList(target, target === origin ? focus : (target.focus ?? focus), revision);
         return target;
     };
+    /** Hub/mine reread, or detail reload when the visible page is a request detail. */
+    const settleVisibleRequests = async (origin: Extract<Route, { kind: "requests" }>, focus: FocusTarget, revision: number): Promise<void> => {
+        const target = showVisibleRequestList(origin, focus, revision);
+        const source = target.requests.source.kind;
+        if (source === "hub" || source === "mine") {
+            await rereadRequestList(target);
+            showVisibleRequestList(origin, focus, revision);
+            return;
+        }
+        if (top() !== target || torn) return;
+        // Detail-write completion reloads the visible detail after a list mutation.
+        target.requests.uncertain = true;
+        loadRoute(target, true);
+    };
     const finishRemoval = async (route: Extract<Route, { kind: "requests" }>, id: string, fallback: FocusTarget, revision: number): Promise<void> => {
+        // Neighbor focus must be taken from the pre-removal list (AGENTS.md restore by id).
+        const focus = listFocusAfter(route, id, fallback);
         dropRemovedRequest(id);
         publishRequestNotice(REMOVED_NOTICE);
-        const target = visibleRequestList(route);
-        const focus = listFocusAfter(target, id, fallback);
-        showRequestList(target, focus, revision);
-        await rereadRequestList(target);
-        showVisibleRequestList(route, listFocusAfter(target, id, focus), revision);
+        await settleVisibleRequests(route, focus, revision);
     };
     const runListRemove = async (route: Extract<Route, { kind: "requests" }>, record: MediaRequest, origin: FocusTarget): Promise<void> => {
         dismissRequestNotice();
@@ -1981,16 +1995,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (writeMayHaveApplied(error)) {
                 requestGate.hold(record.id);
                 requestGate.release(token);
-                const target = visibleRequestList(route);
-                if (!(error instanceof ApiError && error.aborted)) await rereadRequestList(target);
+                if (!(error instanceof ApiError && error.aborted)) await settleVisibleRequests(route, origin, revision);
                 if (requestGate.held.has(record.id)) requestGate.listMessage = UNCONFIRMED_REMOVE_MESSAGE;
                 showVisibleRequestList(route, origin, revision);
                 return;
             }
             const message = error instanceof ApiError && error.problemId === "conflict" ? REMOVE_CONFLICT_MESSAGE : writeFailureMessage(error);
             if (error instanceof ApiError && ["capability_disabled", "capability_not_configured", "capability_unsupported", "permission_denied"].includes(error.problemId ?? "")) void probeRequests();
-            const target = visibleRequestList(route);
-            await rereadRequestList(target);
+            await settleVisibleRequests(route, origin, revision);
             requestGate.listMessage = message;
             showVisibleRequestList(route, origin, revision);
         } finally {
@@ -2007,18 +2019,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         try {
             const updated: unknown = await session.call({ ...requestOperations.cancel(record.id), profileScoped: true, replayAfterRefresh: false });
             if (typeof updated === "object" && updated !== null && "id" in updated && "outcome" in updated) paintRequestRecord(updated as MediaRequest);
-            const target = visibleRequestList(route);
-            const focus = listFocusAfter(target, record.id, origin);
-            showRequestList(target, focus, revision);
-            await rereadRequestList(target);
-            showVisibleRequestList(route, listFocusAfter(target, record.id, focus), revision);
+            const focus = listFocusAfter(route, record.id, origin);
+            await settleVisibleRequests(route, focus, revision);
         } catch (error) {
             if (torn) return;
             if (writeMayHaveApplied(error)) {
                 requestGate.hold(record.id);
                 requestGate.release(token);
-                const target = visibleRequestList(route);
-                if (!(error instanceof ApiError && error.aborted)) await rereadRequestList(target);
+                if (!(error instanceof ApiError && error.aborted)) await settleVisibleRequests(route, origin, revision);
                 if (requestGate.held.has(record.id)) requestGate.listMessage = UNCONFIRMED_CANCEL_MESSAGE;
                 showVisibleRequestList(route, origin, revision);
                 return;
@@ -2075,7 +2083,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 title: record.title,
                 ...(cancel ? { cancel: () => { void runListCancel(current, record, origin); } } : {}),
                 ...(remove ? { remove: () => { void runListRemove(current, record, origin); } } : {}),
-                onClose: () => { if (!torn && top() === current) render(origin); },
+                onClose: () => {
+                    if (torn) return;
+                    // Capability loss may have replaced Requests with Home while the menu was open.
+                    if (top() === current) render(origin);
+                    else render(host.focused());
+                },
             });
         },
         write: action => {

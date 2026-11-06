@@ -1671,6 +1671,70 @@ test("a lost removal is not sent again until My Requests is read successfully", 
 });
 
 
+
+test("removing a middle request focuses its neighbor, not the first card", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests();
+        tv.fake.script("/requests/mine?limit=50",
+            minePage([failedItem("failed-a", "Alpha"), failedItem("failed-b", "Bravo"), failedItem("failed-c", "Charlie")]),
+            minePage([failedItem("failed-a", "Alpha"), failedItem("failed-c", "Charlie")]));
+        await start(tv, fake);
+        await openRequests(tv);
+        await button(tv, "failed-b").waitFor();
+        await holdCard(tv, "failed-b");
+        await button(tv, "remove-request").click();
+        await button(tv, "confirm-remove").click();
+        await tv.eventually(async () => await tv.focused() === "failed-c", "neighbor after a middle removal");
+        assert.equal(await button(tv, "failed-b").count(), 0);
+    } finally { await tv.page.context().close(); }
+});
+
+test("a list cancel that settles on an open request detail reloads that detail", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests();
+        fake.created = true;
+        const pending = { ...fake.record };
+        const cancelled = { ...fake.record, state: "cancelled", outcome: "cancelled" };
+        await start(tv, fake);
+        await openRequests(tv);
+        await button(tv, "request-one").waitFor();
+        // Keep the open detail pending until settlement reloads it.
+        tv.fake.script("/requests/request-one", { status: 200, body: pending }, { status: 200, body: cancelled });
+        const held = tv.fake.hold("/requests/request-one/cancel", true);
+        await holdCard(tv, "request-one");
+        await button(tv, "cancel-request").click();
+        await tv.eventually(async () => tv.fake.paths().includes("POST /requests/request-one/cancel"), "cancel held");
+        await button(tv, "request-one").click();
+        await view(tv, "request");
+        await button(tv, "cancel").waitFor();
+        held.release();
+        await tv.eventually(async () => await button(tv, "cancel").count() === 0, "detail drops Cancel after list cancel settles");
+    } finally { await tv.page.context().close(); }
+});
+
+test("capability loss while a request menu is open paints Home after dismiss", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests();
+        fake.created = true;
+        Object.assign(fake.record, { state: "failed", status: "approved", outcome: "failed", targets: [{ quality: "1080p", status: "failed" }] });
+        await start(tv, fake);
+        await openRequests(tv);
+        await button(tv, "request-one").waitFor();
+        await holdCard(tv, "request-one");
+        await button(tv, "remove-request").waitFor();
+        fake.enabled = false;
+        await tv.page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+        await tv.eventually(async () => await tv.page.locator('.browse[data-view="home"]').count() === 1, "capability loss returns to Home under the menu");
+        await tv.remote(10009);
+        await tv.page.locator('.browse[data-view="home"]').waitFor();
+        assert.equal(await button(tv, "requests").count(), 0);
+        assert.equal(await tv.page.locator(".card-actions-scrim").count(), 0);
+    } finally { await tv.page.context().close(); }
+});
+
 test("a list cancel that settles after Requests was reopened refreshes the visible hub", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

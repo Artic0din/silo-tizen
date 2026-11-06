@@ -16,7 +16,7 @@ import { el } from "../ui/screen.ts";
 import { artworkUrl } from "../ui/browseModel.ts";
 import type { AVPlay } from "./avplay.ts";
 import { type PlaybackError, type PlaybackExits, PlaybackController, type PlaybackView, type PlayerControls, type PlayRequest, type TrackView } from "./controller.ts";
-import { closeIcon, optionsIcon, pauseIcon, playIcon, skipIcon } from "./playerIcons.ts";
+import { closeIcon, episodesIcon, optionsIcon, pauseIcon, playIcon, skipIcon } from "./playerIcons.ts";
 import { mountSeekThumbnail } from "./seekThumbnailView.ts";
 import { mountSubtitles } from "./subtitleView.ts";
 import { fillHUDPane } from "./hudPanes.ts";
@@ -219,6 +219,12 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     });
     const thumbnail = mountSeekThumbnail(overlay, controls, clock);
     const title = el("h1", "player-title");
+    const footer = el("div", "player-footer");
+    const series = el("p", "player-series");
+    const titleRow = el("div", "player-title-row");
+    const episode = el("span", "player-episode");
+    titleRow.append(title, episode);
+    footer.append(series, titleRow);
     const status = el("p", "player-status");
     status.setAttribute("role", "status");
     const bar = el("div", "player-bar");
@@ -240,6 +246,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const elapsed = el("span", "player-time-elapsed");
     const remaining = el("span", "player-time-remaining");
     time.append(elapsed, remaining);
+    const episodesButton = el("button", "player-button");
+    episodesButton.hidden = true;
     const tracksButton = el("button", "player-button player-tracks-button");
     tracksButton.type = "button";
     tracksButton.tabIndex = -1;
@@ -262,21 +270,22 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const backward = el("button", "player-button");
     const pause = el("button", "player-button player-button-primary");
     const forward = el("button", "player-button");
-    const transportButtons = [backward, pause, forward, tracksButton, closeButton];
+    const transportButtons = [backward, pause, forward, episodesButton, tracksButton, closeButton];
     for (const [index, button] of transportButtons.entries()) {
         button.type = "button";
         button.tabIndex = -1;
-        button.setAttribute("data-focus", ["backward", "pause", "forward", "tracks", "close"][index] ?? "");
+        button.setAttribute("data-focus", ["backward", "pause", "forward", "up-next", "tracks", "close"][index] ?? "");
         if (button !== tracksButton && button !== closeButton) button.appendChild(el("span", "player-glyph"));
         button.firstElementChild?.setAttribute("aria-hidden", "true");
     }
+    episodesButton.addEventListener("click", () => controls.showUpNext());
     primaryGroup.append(backward, pause, forward);
-    secondaryGroup.append(tracksButton, closeButton);
+    secondaryGroup.append(episodesButton, tracksButton, closeButton);
     transport.append(primaryGroup, secondaryGroup);
     backward.addEventListener("click", () => stepSkip("backward"));
     forward.addEventListener("click", () => stepSkip("forward"));
     pause.addEventListener("click", () => { controls.togglePause(); reveal(); render(); });
-    overlay.appendChild(title);
+    overlay.appendChild(footer);
     overlay.appendChild(status);
     overlay.appendChild(bar);
     overlay.appendChild(time);
@@ -292,6 +301,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         tab.type = "button";
         tab.tabIndex = -1;
         tab.setAttribute("role", "tab");
+        tab.setAttribute("data-focus", `tab-${name.toLowerCase()}`);
         tab.setAttribute("aria-selected", "false");
         return tab;
     });
@@ -448,6 +458,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         const key = JSON.stringify([tracks, aiLanguages, identity]);
         if (key !== drawn) {
             drawn = key;
+            const heldTab = tabs.find(tab => tab === document.activeElement);
             const keep = focusedId();
             const hasQuality = (tracks.quality?.choices.length ?? 0) > 1;
             for (const [index, list] of lists.entries()) {
@@ -479,7 +490,9 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             const quotaText = tracks.ai?.available.transcribe !== true ? "" : quota === undefined ? "Transcription quota unavailable." : quota.limited ? `Transcription quota: ${Math.max(0, quota.remaining)} remaining (${quota.period}).${quota.remaining <= 0 ? " Quota exhausted." : ""}` : "Transcription quota: unlimited.";
             menuStatus.textContent = [changeText(tracks), tracks.seriesSubtitle?.message, quotaText, tracks.ai?.message, view.phase === "playing" || view.phase === "paused" ? view.hud?.message : undefined].filter(Boolean).join(" ");
             const same = keep === null ? undefined : buttons(column).find((button) => button.getAttribute("data-focus") === keep);
-            if (same !== undefined) {
+            if (heldTab !== undefined && lists[tabs.indexOf(heldTab)]?.style.display !== "none") {
+                heldTab.focus();
+            } else if (same !== undefined) {
                 same.focus();
             } else if (!focusList(column)) {
                 if (!focusList(0)) focusList(1);
@@ -566,12 +579,14 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                 }
             }
             if (view.phase !== "completion") {
-                next.hidden = candidate === undefined;
+                const loading = prompt?.loading === true;
+                const failed = prompt?.failed === true;
+                next.hidden = loading || failed || candidate === undefined;
                 next.textContent = "Play Now";
                 retry.hidden = true;
                 cancelAutoplay.hidden = true;
-                failureTitle.textContent = candidate?.title ?? "Almost finished";
-                failureText.textContent = seconds === undefined ? "" : `Playing in ${seconds}s`;
+                failureTitle.textContent = loading ? "Finding the next episode" : candidate?.title ?? "Almost finished";
+                failureText.textContent = loading ? "" : failed ? "Couldn't load the next episode. Pick something from On Deck, or go back." : candidate === undefined ? "No next episode is available." : seconds === undefined ? "" : `Playing in ${seconds}s`;
                 if (!failure.contains(document.activeElement)) (next.hidden ? keep : next).focus();
                 return;
             }
@@ -600,11 +615,18 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             return;
         }
         title.textContent = view.title;
+        const activeView = view.phase === "playing" || view.phase === "paused" ? view : undefined;
+        series.textContent = activeView?.seriesTitle ?? "";
+        series.hidden = !series.textContent;
+        episode.textContent = activeView?.seasonNumber !== undefined && activeView.episodeNumber !== undefined ? `S${activeView.seasonNumber} · E${activeView.episodeNumber}` : "";
+        episode.hidden = !episode.textContent;
         if (view.phase === "loading") {
             status.textContent = loadingText(view.detail);
+            status.hidden = false;
             elapsed.textContent = "";
             remaining.hidden = true;
             remaining.textContent = "";
+            episodesButton.hidden = true;
             tracksButton.hidden = true;
             fill.style.width = "0";
             puck.style.left = "0";
@@ -613,13 +635,16 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             const forwardSeconds = view.seekIntervals.forward;
             setIcon(backward, backwardSeconds === 1 ? "Back 1 second" : `Back ${backwardSeconds} seconds`, skipIcon("backward", backwardSeconds));
             setIcon(forward, forwardSeconds === 1 ? "Forward 1 second" : `Forward ${forwardSeconds} seconds`, skipIcon("forward", forwardSeconds));
+            episodesButton.hidden = view.episodes !== true;
             tracksButton.hidden = false;
+            if (!episodesButton.hidden) setIcon(episodesButton, "Show Up Next", episodesIcon());
             setIcon(tracksButton, "Info and options", optionsIcon());
             setIcon(closeButton, "Close player", closeIcon());
             setIcon(pause, view.phase === "paused" ? "Play" : "Pause", view.phase === "paused" ? playIcon() : pauseIcon());
             status.textContent = view.buffering ? "Buffering" : view.phase === "paused" ? "Paused" : "";
+            status.hidden = status.textContent === "";
             const duration = view.durationSeconds;
-            const position = seekPreview ?? view.positionSeconds;
+            const position = seekPreview ?? pendingSkipTarget ?? view.positionSeconds;
             elapsed.textContent = clockText(position);
             if (duration === undefined || duration <= 0) {
                 remaining.hidden = true;
@@ -639,9 +664,9 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             fill.style.width = `${fraction}%`;
             puck.style.left = `${fraction}%`;
         }
-        const resting = document.activeElement === overlay || document.activeElement === bar;
-        const hidden = view.phase === "playing" && !view.buffering && cancelHide === undefined && !menuOpen && seekPreview === undefined && resting;
+        const hidden = view.phase === "playing" && !view.buffering && cancelHide === undefined && !menuOpen && seekPreview === undefined;
         overlay.className = hidden ? "player-overlay player-overlay-hidden" : "player-overlay";
+        if (hidden && transport.contains(document.activeElement)) bar.focus();
         if (menuOpen && view.phase !== "loading") {
             drawMenu(view.tracks);
         } else if (view.phase === "loading") {
@@ -800,7 +825,10 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         const resume = resumeAfterTimeline;
         const target = seekPreview;
         cancelScrub();
-        if (moved && target !== undefined) controls.seekToSeconds(target);
+        if (moved && target !== undefined) {
+            pendingSkipTarget = target;
+            controls.seekToSeconds(target);
+        }
         if (resume) controls.setPaused(false);
         bar.focus();
         render();
@@ -812,7 +840,10 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         const target = seekPreview;
         seekPreview = undefined;
         thumbnail.clear();
-        if (target !== undefined) controls.seekToSeconds(target);
+        if (target !== undefined) {
+            pendingSkipTarget = target;
+            controls.seekToSeconds(target);
+        }
         bar.focus();
         render();
     };
@@ -837,6 +868,18 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }
         const all = buttons(column);
         const at = all.findIndex((button) => button === document.activeElement);
+        const atTab = tabs.findIndex(tab => tab === document.activeElement);
+        if (key === "up" && at <= 0) { tabs[column]?.focus(); return; }
+        if (atTab >= 0) {
+            if (key === "down" || key === "enter") focusList(column);
+            else if (key === "left" || key === "right") {
+                const direction = key === "left" ? -1 : 1;
+                for (let index = column + direction; index >= 0 && index < tabs.length; index += direction) {
+                    if (tabs[index]?.hidden === false) { showPane(index); tabs[index]?.focus(); break; }
+                }
+            }
+            return;
+        }
         if (key === "up" || key === "down") {
             const pane = lists[column];
             if (focusedId() === "info" && tabNames[column] === "Info" && pane !== undefined && pane.scrollHeight > pane.clientHeight) {
@@ -933,6 +976,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         if (!focusList(0)) {
             focusList(1);
         }
+        tabs[column]?.focus();
     };
 
     const onKey = (event: KeyboardEvent): void => {
@@ -975,6 +1019,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             return;
         }
         if (key === "play_pause" || key === "play" || key === "pause" || key === "stop" || key === "rewind" || key === "fast_forward") {
+            pendingSkipTarget = undefined;
             if (timeline || seekPreview !== undefined || autoRate !== 0) {
                 cancelScrub();
                 bar.focus();
@@ -995,19 +1040,25 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             render();
             return;
         }
+        if (hiddenPrompt) {
+            if (key === "up") return;
+            if (key === "down") { openMenu(); return; }
+            if (key === "left" || key === "right") bar.focus();
+        }
         reveal();
         if ((key === "left" || key === "right") && scrubberOwnsArrows()) {
             if (!event.repeat) armHold(key);
             return;
         }
-        const at = transportButtons.findIndex(button => button === document.activeElement);
+        const visibleTransport = transportButtons.filter(button => !button.hidden);
+        const at = visibleTransport.findIndex(button => button === document.activeElement);
         if (document.activeElement === skip && (key === "down" || key === "back")) {
             pause.focus();
             render();
             return;
         }
         if (at >= 0 && (key === "left" || key === "right")) {
-            transportButtons[Math.max(0, Math.min(transportButtons.length - 1, at + (key === "left" ? -1 : 1)))]?.focus();
+            visibleTransport[Math.max(0, Math.min(visibleTransport.length - 1, at + (key === "left" ? -1 : 1)))]?.focus();
             render();
             return;
         }
@@ -1023,7 +1074,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             return;
         }
         if (key === "enter" && at >= 0) {
-            transportButtons[at]?.click();
+            visibleTransport[at]?.click();
             return;
         }
         if (key === "down") {
@@ -1090,7 +1141,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }
         // A local seek hides the preview key while busy; its landing must not
         // discard a newer scrub, but a replacement plan still invalidates it.
-        const heldLanding = timeline && next.phase === "paused" && view.phase === "paused" && view.previewKey === undefined && next.previewKey !== undefined && (readyPreviewKey === undefined || next.previewKey === readyPreviewKey);
+        const active = view.phase === "playing" || view.phase === "paused" ? view : undefined;
+        const heldLanding = timeline && active !== undefined && next.phase === active.phase && active.previewKey === undefined && next.previewKey !== undefined && (readyPreviewKey === undefined || next.previewKey === readyPreviewKey);
         if (!heldLanding && (next.phase === "playing" || next.phase === "paused") && (view.phase === "playing" || view.phase === "paused") && next.previewKey !== view.previewKey) {
             cancelScrub();
         }

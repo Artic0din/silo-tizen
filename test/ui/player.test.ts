@@ -8,6 +8,7 @@ import { build } from "esbuild";
 import { type Browser, chromium, type Page } from "playwright";
 import type { PlaybackView, TrackView } from "../../src/player/controller.ts";
 import { DEFAULT_APPEARANCE } from "../../src/contracts/v2/subtitles.ts";
+import { readLive } from "./support/tv.ts";
 
 const ORIGIN = "https://tv.example.test";
 const CSS = ["theme.css", "player/player.css"].map((name) => readFileSync(new URL(`../../src/${name}`, import.meta.url), "utf8")).join("\n");
@@ -163,6 +164,7 @@ async function openPanel(page: Page): Promise<void> {
     await remote(page, RIGHT);
     await remote(page, RIGHT);
     await remote(page, ENTER);
+    await remote(page, DOWN);
 }
 
 /** Audio is the tab after Info, which is where the panel used to open. */
@@ -179,6 +181,165 @@ const remote = (page: Page, keyCode: number): Promise<void> => page.evaluate((co
 const show = (page: Page, view: PlaybackView): Promise<void> => page.evaluate((next) => window.player.show(next), view);
 const commands = (page: Page): Promise<string[]> => page.evaluate(() => window.player.commands.slice());
 const focused = (page: Page): Promise<string | null> => page.evaluate(() => document.activeElement?.getAttribute("data-focus") ?? null);
+
+test("measured Apple playback geometry", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await page.evaluate(() => document.fonts.ready);
+        await page.clock.runFor(200);
+        const geometry = await readLive({ page, eventually: async (check, what) => { assert.ok(await check(), what); } }, () => {
+            return [".player-bar-track", ".player-time-elapsed", ".player-time-remaining", ".player-transport"].map(selector => {
+                const r = document.querySelector(selector)!.getBoundingClientRect();
+                return { x: r.x, right: r.right, center: r.y + r.height / 2 };
+            });
+        }, undefined, () => true, "settled playback geometry");
+        assert.deepEqual(geometry, [
+            { x: 160, right: 1760, center: 820 },
+            { x: 160, right: geometry[1]!.right, center: 877 },
+            { x: geometry[2]!.x, right: 1760, center: 877 },
+            { x: 160, right: 1760, center: 940 },
+        ]);
+    } finally { await page.close(); }
+});
+
+test("transport focus re-arms five seconds then hides and hidden Up does nothing", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await remote(page, DOWN);
+        await page.clock.runFor(4900);
+        await remote(page, RIGHT);
+        await page.clock.runFor(4900);
+        assert.equal(await page.locator(".player-overlay-hidden").count(), 0);
+        await page.clock.runFor(100);
+        assert.equal(await page.locator(".player-overlay-hidden").count(), 1);
+        await remote(page, UP);
+        assert.equal(await page.locator(".player-overlay-hidden").count(), 1);
+    } finally { await page.close(); }
+});
+
+test("hidden Down opens Info and hidden Right returns to scrubber", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await page.clock.runFor(5000);
+        await remote(page, DOWN);
+        assert.equal(await page.locator(".player-hud").isVisible(), true);
+        await remote(page, BACK);
+        await page.clock.runFor(5000);
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "position");
+    } finally { await page.close(); }
+});
+
+test("Show Up Next is in the transport and its panel names the next episode", async () => {
+    const { page } = await open();
+    try {
+        const view = playing(TRACKS);
+        await show(page, { ...view, episodes: true });
+        await remote(page, DOWN);
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "up-next");
+        assert.equal(await page.getByRole("button", { name: "Show Up Next" }).count(), 1);
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["showUpNext"]);
+        await show(page, { ...view, episodes: true, upNext: { next: undefined, deck: [], countdown: undefined, status: "Up Next", loading: true } });
+        assert.equal(await page.locator(".player-next-up .player-title").innerText(), "Finding the next episode");
+        assert.equal(await page.getByText("Loading Up Next").count(), 0);
+        await show(page, { ...view, episodes: true, upNext: { next: { contentId: "episode:s1e13", fileId: "43", title: "Harbor Lights chapter 1.3", startSeconds: 0 }, deck: [], countdown: undefined, status: "Up Next" } });
+        assert.equal(await page.locator(".player-next-up .player-title").innerText(), "Harbor Lights chapter 1.3");
+        assert.equal(await page.getByText("Nothing to watch next").count(), 0);
+        assert.equal(await page.getByText("Loading Up Next").count(), 0);
+    } finally { await page.close(); }
+});
+
+test("hiding Close focus makes Select enter the scrubber instead of closing playback", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await remote(page, DOWN);
+        for (let i = 0; i < 3; i++) await remote(page, RIGHT);
+        assert.equal(await focused(page), "close");
+        await page.clock.runFor(5000);
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["setPaused true"]);
+        assert.equal(await focused(page), "position");
+    } finally { await page.close(); }
+});
+
+test("track updates preserve the focused HUD tab", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await page.clock.runFor(5000);
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "tab-info");
+        await show(page, playing({ ...TRACKS, notices: ["Updated"] }));
+        assert.equal(await focused(page), "tab-info");
+    } finally { await page.close(); }
+});
+
+test("timeline scrub opacity takes precedence over focus", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await remote(page, ENTER);
+        assert.equal(await page.locator(".player-bar-track").evaluate(node => getComputedStyle(node).backgroundColor), "rgba(255, 255, 255, 0.48)");
+    } finally { await page.close(); }
+});
+
+test("episode footer shows series, title and episode tag without an empty status row", async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), title: "Going Green", ...{ seriesTitle: "The Series", seasonNumber: 1, episodeNumber: 25 } });
+        assert.equal(await page.locator(".player-series").textContent(), "The Series");
+        assert.equal(await page.locator(".player-title").first().textContent(), "Going Green");
+        assert.equal(await page.locator(".player-episode").textContent(), "S1 · E25");
+        assert.equal(await page.locator(".player-status").isVisible(), false);
+    } finally { await page.close(); }
+});
+
+test("Info panel measured placement and Up Down Menu focus", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await page.clock.runFor(5000);
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "tab-info");
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "info");
+        await remote(page, UP);
+        assert.equal(await focused(page), "tab-info");
+        await page.clock.runFor(200);
+        const rect = await readLive({ page, eventually: async (check, what) => { assert.ok(await check(), what); } }, () => {
+            const r = document.querySelector(".player-menu")!.getBoundingClientRect();
+            return { y: r.y, width: r.width, height: r.height };
+        }, undefined, () => true, "settled Info panel");
+        assert.deepEqual(rect, { y: 155, width: 1100, height: 380 });
+        await remote(page, BACK);
+        assert.equal(await page.locator(".player-hud").isVisible(), false);
+        assert.equal(await focused(page), "position");
+    } finally { await page.close(); }
+});
+
+for (const commit of ["debounce", "select", "timeline"] as const) test(`pending ${commit} seek holds labels and accumulates another tap`, async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), previewKey: "plan" });
+        if (commit === "timeline") await remote(page, ENTER);
+        await remote(page, RIGHT);
+        if (commit === "debounce") await page.clock.runFor(200);
+        else await remote(page, ENTER);
+        await show(page, { ...playing(TRACKS), previewKey: undefined });
+        await page.clock.runFor(1000);
+        assert.equal(await page.locator(".player-time-elapsed").textContent(), "12:44");
+        assert.equal(await page.locator(".player-time-remaining").textContent(), "−1:47:16");
+        await remote(page, RIGHT);
+        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), "774");
+    } finally { await page.close(); }
+});
 
 test("autoplay countdown and Cancel are remote-operable without losing manual Play next", async () => {
     const { page } = await open();
@@ -339,7 +500,7 @@ test("captions paint above the overlay gradient but below its controls and the m
         const order = await stack();
         const at = (names: readonly string[], name: string): number => names.findIndex(className => className.split(" ").includes(name));
         // Old overlap was the transport row on the full-height overlay. The clock row is the control over the default caption now.
-        assert.ok(at(order, "player-time") !== -1 && at(order, "player-time") < at(order, "player-captions"), order.join(" > "));
+        assert.ok(at(order, "player-transport") !== -1 && at(order, "player-transport") < at(order, "player-captions"), order.join(" > "));
         assert.ok(at(order, "player-overlay") !== -1 && at(order, "player-captions") < at(order, "player-overlay"), order.join(" > "));
         // Old path was Down, which opened the panel. Options opens it now.
         await openPanel(page);
@@ -422,6 +583,9 @@ test("Skip counts down, activates with Enter or Play, and returns focus without 
         await show(page, { ...view, positionSeconds: 26.5 });
         assert.equal(await text(page, ".player-skip"), "Skip intro · 34 seconds");
         assert.equal(await focused(page), "skip");
+        // Hidden Down opens Info; Left reveals the transport before testing visible Down.
+        await remote(page, LEFT);
+        await remote(page, BACK);
         await remote(page, DOWN);
         assert.equal(await focused(page), "pause");
         await remote(page, UP);
@@ -556,6 +720,8 @@ for (const [code, command] of [[415, "setPaused false"], [19, "setPaused true"],
         await page.clock.fastForward(5000);
         await show(page, { ...playing(TRACKS), positionSeconds: 760 });
         assert.equal(await page.locator(".player-overlay").getAttribute("class"), "player-overlay player-overlay-hidden");
+        await remote(page, RIGHT);
+        await remote(page, BACK);
         // Old Up from the scrubber focused Pause. Down does that now.
         await remote(page, DOWN);
         await remote(page, code);
@@ -636,6 +802,26 @@ test("external playback resume drops a timeline preview and follows the playhead
         assert.deepEqual(await commands(page), ["setPaused true"]);
         await page.clock.fastForward(5000);
         assert.equal(await page.locator(".player-overlay-hidden").count(), 1);
+    } finally { await page.close(); }
+});
+
+for (const landing of ["same-plan", "replacement-plan"] as const) test(`a running hold survives only a ${landing} landing`, async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), previewKey: "same-plan" });
+        await press(page, RIGHT);
+        await page.clock.fastForward(200);
+        await show(page, { ...playing(TRACKS), previewKey: undefined });
+        await holdKey(page, RIGHT);
+        await page.clock.fastForward(400);
+        const held = await page.getByRole("slider").getAttribute("aria-valuenow");
+        assert.notEqual(held, "754");
+        await show(page, { ...playing(TRACKS), previewKey: landing });
+        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), landing === "same-plan" ? held : "754");
+        assert.equal(await page.locator(".player-bar-preview").count(), landing === "same-plan" ? 1 : 0);
+        await press(page, ENTER);
+        const committed = landing === "same-plan" ? ["seekToSeconds 764", `seekToSeconds ${held}`, "setPaused false"] : ["seekToSeconds 764", "setPaused true"];
+        assert.deepEqual(await commands(page), committed);
     } finally { await page.close(); }
 });
 
@@ -814,7 +1000,7 @@ test("seeking previews source time without commands until commit and Back cancel
         await remote(page, LEFT);
         await remote(page, BACK);
         assert.deepEqual(await commands(page), ["seekToSeconds 774"], "cancelling does not seek or leave playback");
-        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), "760");
+        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), "774", "cancelling a newer preview retains the seek already sent");
         await remote(page, BACK);
         assert.deepEqual(await commands(page), ["seekToSeconds 774", "back"]);
         assert.deepEqual(logs, []);
@@ -1045,7 +1231,9 @@ test("Down opens audio and subtitles with focus on the current track; the menu k
         await capture(page, "player-tracks-menu");
 
         await remote(page, UP);
-        assert.equal(await focused(page), "file:42:audio:0", "the top of a list holds focus");
+        assert.equal(await focused(page), "tab-audio", "Up at the top returns to the active tab");
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "file:42:audio:0");
         await remote(page, DOWN);
         assert.equal(await focused(page), "file:42:audio:1");
         await remote(page, ENTER);

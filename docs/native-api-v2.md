@@ -122,7 +122,7 @@ It is set to `false` for these calls:
 - PIN verification (`src/session/profiles.ts`)
 - personal-list and watched mutations (`src/ui/detailsState.ts`)
 - shuffle creation (`src/ui/browse.ts`)
-- request create, cancel and follow (`src/ui/browse.ts`)
+- request create, cancel, remove and follow (`src/ui/browse.ts`)
 - series subtitle preference saves (`src/player/controller.ts`)
 
 Settings and AI-subtitle calls resend only when the method is GET (`src/ui/settingsState.ts`, `src/player/subtitleAI.ts`).
@@ -378,12 +378,14 @@ Bearer plus Profile.
 | get one | `GET /requests/{id}` | safe |
 | create | `POST /requests` with `media_type`, `tmdb_id`, `title` | never |
 | cancel | `POST /requests/{id}/cancel` (empty object body) | never |
+| remove | `DELETE /requests/{id}` (204, no body) | never |
 | follow | `PUT /requests/follows/{type}/{tmdbId}` | never |
 | unfollow | `DELETE /requests/follows/{type}/{tmdbId}` | never |
 
 Gating: the Requests section is shown only when `status` decodes as `requests_enabled`, `allowed` and `state === "available"` (`decodeRequestsCapability`).
 A failed probe keeps the last confirmed capability (`src/ui/browse.ts`).
 `follow_supported` is also decoded.
+`remove_failed_supported` is optional. Absent means false. A non-boolean is rejected. Remove Request is offered only when requests are available and the flag is true.
 
 ### Shuffle
 

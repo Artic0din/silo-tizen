@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added Remove Request for a failed request of yours, including the confirmation, the notice, and focus on the card that takes its place.
 - Hid unwatched episode stills and descriptions from Playback when the server supports the profile spoiler settings.
 - Show Trailers & More on movie and series Details for local extras and YouTube listings, using Apple's card size and the 76px gap to the next heading. Local extras still play from the start. YouTube listings stay on their card because this TV cannot play them.
 - Added description translation on Details and the featured marquee, matching Apple TV's Translate Description action, Translating… status and Translated by AI label.
@@ -18,6 +19,14 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept a detail Cancel's hub card visible while the shared gate still owns it, even when a refresh already sees the server's cancelled state, and left hub cards alone so a failed quiet refresh keeps its earlier rows.
+- Kept the unconfirmed Cancel copy on the detail action only, so the hub list banner does not duplicate it.
+- Captured the neighbor before an uncertain list Cancel or Remove readback, so focus lands on that card when the row is already gone.
+- Settled an unconfirmed detail Cancel hold after a successful request readback, and kept cancel/remove focus on the captured neighbor when moved focus was the removed card.
+- Kept an unconfirmed detail Cancel in the shared Requests hold so the hub cannot offer Cancel Request again before a read settles it.
+- Kept a held Select on Remove Request from dismissing the confirmation when focus moves to Keep request.
+- Shared one Requests mutation gate between list and detail Cancel so navigating between them cannot post a second cancellation.
+- Kept a cancelled Requests card off the hub when an ordinary route load that started before Cancel finished still answered with the pending row.
 - Kept duplicate Cast credits focused after trailer refreshes reordered them and resumed interrupted trailer discovery after returning from playback or watched-state navigation.
 - Added Find Trailers to movie and series Details and matched cast entries and overflow, episode captions and metadata order, season pills, synopsis brightness, and More menu glass styling to Apple TV.
 - Showed the full runtime and version, audio and subtitle details for each focused episode after focus settled.

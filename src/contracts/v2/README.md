@@ -3,7 +3,9 @@
 `SOURCE` holds the exact `silo-server` commit these files come from.
 `fixtures/` holds the response bodies this client consumes, copied unchanged from
 `contracts/api/v2/fixtures/` at that commit, except `settings_contract_ok.json` and `settings_rows_216.json`,
-which contain the selected Settings manifest subsets consumed by this client.
+which contain the selected Settings manifest subsets consumed by this client, and `request_status_ok.json`.
+`request_status_ok.json` is copied unchanged from [`request_status_ok.json`](https://github.com/Silo-Server/silo-server/blob/6e8c68d036fd32c4ec7fe1d328f8286d4a164e60/contracts/api/v2/fixtures/request_status_ok.json) at `6e8c68d036fd32c4ec7fe1d328f8286d4a164e60`, which is newer than `SOURCE` and is the fixture that carries `remove_failed_supported`.
+The sync script keeps that file until `SOURCE` includes it and its name moves into `SELECTED`.
 That documented exception selects seven definitions unchanged from `contracts/settings/v1/manifest.json` at `SOURCE` (v1, revision 24): `ui.disabled_library_ids`, `playback.audio_language`, `playback.preferred_quality`, `playback.max_bitrate_kbps`, `player.video_skip_back_seconds`, `player.video_skip_forward_seconds` and `ui.title_art`, plus the unchanged `playback_audio_languages` option set.
 The source manifest SHA-256 is `95b716c8b34974e4b97ee96f5c644135c437e09f4a6f2285fb263e3351e6c6ea`.
 `scripts/sync-apiv2-fixtures.sh <server-ref>`, with `SILO_SERVER_REPO` set to a silo-server checkout, re-vendors the fixtures and both Settings subsets from `git show <commit>:<path>` and rewrites `SOURCE`; the Settings subsets are written in manifest order.
@@ -18,8 +20,10 @@ The profile-scoped POST is non-retryable and never replayed after refresh; compl
 Apple behavior is pinned separately to `b3d08d444b75dc078d3047730db72e0c4456e79b`; see [Details actions](../../../docs/features/details-actions.md).
 
 `requests.ts` consumes the Requests status, discovery rows, search, media detail, request detail and My Requests contracts at `SOURCE`.
-Create and cancel use POST; follow uses PUT and unfollow uses DELETE.
-All four writes use `retry: never` and `replayAfterRefresh: false`, including naturally idempotent follows, so an uncertain write requires an explicit read before another attempt.
+Create and cancel use POST; follow uses PUT; unfollow and removing a failed request use DELETE.
+`DELETE /requests/{id}` expects 204 and no body. It uses `retry: never` and `replayAfterRefresh: false`, the server's `non_retryable` class, because a replay of a removal that already landed answers 404.
+Create, cancel, follow and unfollow use the same retry class, including naturally idempotent follows, so an uncertain write requires an explicit read before another attempt.
+`remove_failed_supported` is optional on status. Missing means the server cannot remove a failed request. A non-boolean value is a contract break. The flag is ignored unless requests are available.
 See [Requests](../../../docs/features/requests.md) for capability and navigation behavior.
 
 `calendar.ts` consumes `getCalendar` from the pinned OpenAPI schema without converting events to catalog cards.

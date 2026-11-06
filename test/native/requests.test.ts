@@ -110,9 +110,11 @@ test("Requests contract consumes capability, ordered discovery, detail and curso
 });
 test("Requests writes have no automatic transport replay; paths and bodies match native API", () => {
     const title = decodeRequestTitle(new FakeRequests().title());
-    for (const spec of [operations.create(title), operations.cancel("opaque/id"), operations.follow(title, true), operations.follow(title, false)]) assert.equal(spec.retry, "never");
+    for (const spec of [operations.create(title), operations.cancel("opaque/id"), operations.remove("opaque/id"), operations.follow(title, true), operations.follow(title, false)]) assert.equal(spec.retry, "never");
     assert.deepEqual(operations.create(title).body, { media_type: "movie", tmdb_id: 949, title: "Heat" });
     assert.equal(operations.cancel("opaque/id").path, "/requests/opaque%2Fid/cancel");
+    assert.equal(operations.remove("a/b?c").method, "DELETE");
+    assert.equal(operations.remove("a/b?c").path, "/requests/a%2Fb%3Fc");
     assert.equal(operations.follow(title, true).method, "PUT");
     assert.equal(operations.follow(title, false).method, "DELETE");
     assert.equal(operations.mine("opaque/+").path, "/requests/mine?limit=24&cursor=opaque%2F%2B");

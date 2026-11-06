@@ -19,6 +19,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept a running skip hold when the earlier seek landed on the same plan.
 - Preserved newer subtitle choices when an unanswered report required connection recovery.
 
 - Applied queued subtitle choices after a replacement stream finished preparing while hidden.

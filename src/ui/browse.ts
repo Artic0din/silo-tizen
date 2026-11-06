@@ -15,8 +15,7 @@ import { requestOperations } from "../api/requestOperations.ts";
 import type { MediaRequest, MyRequests, RequestsCapability } from "../contracts/v2/requests.ts";
 import { WireError } from "../contracts/v2/wire.ts";
 import { requestsState, type RequestsHandlers, type RequestsSource } from "./requests.ts";
-import { canCancel, canRemove, focusAfterRemoval, REMOVE_CONFLICT_MESSAGE, REMOVED_NOTICE, RequestActionGate, REQUEST_NOTICE_MS, UNCONFIRMED_CANCEL_MESSAGE, UNCONFIRMED_REMOVE_MESSAGE } from "./requestRemoval.ts";
-import { orderRequests } from "./requestProgress.ts";
+import { canCancel, canRemove, focusAfterRemoval, REMOVE_CONFLICT_MESSAGE, REMOVED_NOTICE, RequestActionGate, REQUEST_NOTICE_MS, UNCONFIRMED_CANCEL_MESSAGE, UNCONFIRMED_REMOVE_MESSAGE, visibleMineRequests } from "./requestRemoval.ts";
 import { RequestRecordMenu } from "./requestRecordMenu.ts";
 import type { RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
@@ -1898,11 +1897,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const requestFocusSurvives = (route: Extract<Route, { kind: "requests" }>, target: FocusTarget | undefined): boolean => {
         if (target === undefined) return false;
         const data = route.requests.data;
+        const state = route.requests;
         if (data !== undefined && "sections" in data) {
-            if (orderRequests(data.mine.items).some(item => item.id === target.key)) return true;
+            if (visibleMineRequests(data.mine.items, state.actingId, state.heldIds ?? []).some(item => item.id === target.key)) return true;
             return data.sections.some(section => section.results.some(item => `${item.mediaType}:${item.tmdbId}` === target.key));
         }
-        if (data !== undefined && "items" in data && route.requests.source.kind === "mine") return data.items.some(item => item.id === target.key);
+        if (data !== undefined && "items" in data && route.requests.source.kind === "mine") {
+            return visibleMineRequests(data.items, state.actingId, state.heldIds ?? []).some(item => item.id === target.key);
+        }
         return true;
     };
     const showRequestList = (route: Extract<Route, { kind: "requests" }>, focus: FocusTarget, revision: number): void => {
@@ -2013,9 +2015,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (writeMayHaveApplied(error)) {
                 requestGate.hold(record.id);
                 requestGate.release(token);
-                if (!(error instanceof ApiError && error.aborted)) await settleVisibleRequests(route, origin, revision);
+                // Capture the neighbor before readback, as finishRemoval does: if the server already
+                // dropped the card, FocusHost cannot recover a replacement from the missing quick action.
+                const focus = listFocusAfter(visibleRequestList(route), record.id, origin);
+                if (!(error instanceof ApiError && error.aborted)) await settleVisibleRequests(route, focus, revision);
                 if (requestGate.held.has(record.id)) requestGate.listMessage = UNCONFIRMED_REMOVE_MESSAGE;
-                showVisibleRequestList(route, origin, revision);
+                showVisibleRequestList(route, focus, revision);
                 return;
             }
             const message = error instanceof ApiError && error.problemId === "conflict" ? REMOVE_CONFLICT_MESSAGE : writeFailureMessage(error);
@@ -2050,9 +2055,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (writeMayHaveApplied(error)) {
                 requestGate.hold(record.id);
                 requestGate.release(token);
-                if (!(error instanceof ApiError && error.aborted)) await settleVisibleRequests(route, origin, revision);
+                const focus = listFocusAfter(visibleRequestList(route), record.id, origin);
+                if (!(error instanceof ApiError && error.aborted)) await settleVisibleRequests(route, focus, revision);
                 if (requestGate.held.has(record.id)) requestGate.listMessage = UNCONFIRMED_CANCEL_MESSAGE;
-                showVisibleRequestList(route, origin, revision);
+                showVisibleRequestList(route, focus, revision);
                 return;
             }
             // Match detail-write refusals: RequestDetailViewModel refreshes capability and retires entry.

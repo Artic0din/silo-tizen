@@ -1793,6 +1793,26 @@ test("removing a middle request focuses its neighbor, not the first card", async
     } finally { await tv.page.context().close(); }
 });
 
+test("an unconfirmed middle removal focuses its neighbor after readback", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests();
+        tv.fake.script("/requests/mine?limit=50",
+            minePage([failedItem("failed-a", "Alpha"), failedItem("failed-b", "Bravo"), failedItem("failed-c", "Charlie")]),
+            minePage([failedItem("failed-a", "Alpha"), failedItem("failed-c", "Charlie")]));
+        await start(tv, fake);
+        await openRequests(tv);
+        await button(tv, "failed-b").waitFor();
+        // Server removes B, but the DELETE answer is lost; automatic readback returns A/C.
+        tv.fake.dropNextAnswer("/requests/failed-b");
+        await holdCard(tv, "failed-b");
+        await button(tv, "remove-request").click();
+        await button(tv, "confirm-remove").click();
+        await tv.eventually(async () => await button(tv, "failed-b").count() === 0, "readback dropped the middle card");
+        assert.equal(await tv.focused(), "failed-c", "captured neighbor after uncertain middle removal");
+    } finally { await tv.page.context().close(); }
+});
+
 test("a list cancel that settles on an open request detail reloads that detail", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

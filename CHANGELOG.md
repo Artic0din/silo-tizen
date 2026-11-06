@@ -21,6 +21,7 @@ All notable changes to this project are documented in this file.
 
 - Kept a detail Cancel's hub card visible while the shared gate still owns it, even when a refresh already sees the server's cancelled state, and left hub cards alone so a failed quiet refresh keeps its earlier rows.
 - Kept the unconfirmed Cancel copy on the detail action only, so the hub list banner does not duplicate it.
+- Captured the neighbor before an uncertain list Cancel or Remove readback, so focus lands on that card when the row is already gone.
 - Settled an unconfirmed detail Cancel hold after a successful request readback, and kept cancel/remove focus on the captured neighbor when moved focus was the removed card.
 - Kept an unconfirmed detail Cancel in the shared Requests hold so the hub cannot offer Cancel Request again before a read settles it.
 - Kept a held Select on Remove Request from dismissing the confirmation when focus moves to Keep request.

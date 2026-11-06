@@ -70,7 +70,35 @@ Series and season primary actions resolve the server's target episode on entry a
 Default direct activation uses automatic audio and subtitle selection without borrowing another episode's choices.
 Hold Select or right-click an episode to choose Episode information for its full synopsis and visit-only version/audio/subtitle controls.
 Calendar retains its existing series-context navigation rather than becoming a playback command.
-Playback return restores the originating card or action, selected season and visit scroll; the discarded resolution route cannot replay.
+Playback return restores the originating card or action and selected season; the discarded resolution route cannot replay.
+Returning to hero actions pins the page to the top, including after a repaint restores an intermediate scroll position.
+Opening a new Details route starts at its hero instead of reusing the previous presentation's focus and scroll.
+Back to the existing Series route still retains its selected season and episode.
+
+### Details scroll reference for issue 247
+
+The reference is silo-apple `7baff3ef657757cc0a69202e86dd4bd5c7fcb585`, under `iosApp/iosApp/tvOS/Screens/Detail/`.
+`TVDetailFocusScroll.swift:70-81` pins hero actions to `.top` and centers identified poster sections.
+`TVMovieDetailView.swift:102-130` identifies the hero, box-set and similar sections and defaults focus to Play.
+`TVSeriesDetailView.swift:140-176` pins its primary viewport to the top and clamps a supporting anchor's center to the scroll range.
+The first available Series supporting section supplies that anchor (`TVSeriesDetailView.swift:1113-1165`); later sections use native focus reveal.
+`TVTrailersRail.swift:28-63` has a heading, 14px heading gap, 12px rail padding and first-card default focus, with no vertical scroll position or explicit offset.
+`TVDetailFactsSection.swift:25-61` makes the complete table focusable, also with no explicit scroll anchor.
+Both pages use 140px page-bottom padding (`TVDetailHero.swift:18`, `TVMovieDetailView.swift:120`, `TVSeriesDetailView.swift:292`).
+
+The measured 5 November heading targets remain unverified: Details y524, series page-end Details about y400, and trailer heading/card y501/y570.
+They are native-focus outcomes rather than constants in these Swift files.
+The supplied differences require 110px more scroll for Details (`634 - 524`), about 110px at series page end (`510 - 400`), and 149px for trailers (`719 - 570`, `650 - 501`).
+Those are different deltas; this change adds no per-state offsets and does not claim those targets are fixed.
+Desktop fake-data probes are not the same state: a three-row movie table reached the scroll clamp at 1025px, putting its heading at `1639.40625 - 1025 = 614.40625`.
+A two-row series fixture put its heading at `2075.203125 - 1663 = 412.203125`; at its 1873px scroll limit that becomes 202.203125.
+These values cannot establish the supplied native measurements without the same data and running-app comparison.
+
+Main already uses Related Movies and Recommended Series.
+Its content-rating chip matches `TVDetailHero.swift:434-443`; external ratings are inline after the facts (`TVDetailHero.swift:406-425`).
+The pinned movie and Series metadata builders emit text facts (`TVDetailHero.swift:692-738`), despite the older quality-chip comment.
+The optional advisory-age chip (`TVDetailHero.swift:446-453`) still needs a same-state preference/data comparison; no badge is invented here.
+No simulator, signed package, live server or TV comparison was run for this change.
 
 ### Apple source reference and outstanding comparison
 

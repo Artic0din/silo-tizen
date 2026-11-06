@@ -217,6 +217,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     surface.type = "application/avplayer";
     surface.className = "player-video";
     surface.setAttribute("aria-hidden", "true");
+    const backdrop = el("div", "player-backdrop");
+    backdrop.hidden = true;
     const overlay = el("div", "player-overlay");
     overlay.setAttribute("data-focus", "player");
     overlay.tabIndex = -1;
@@ -362,7 +364,9 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     failure.appendChild(mark);
     failure.appendChild(failureText);
     failure.appendChild(actions);
-    section.append(surface, spinner, overlay, status, skip, failure, hud);
+    section.append(surface, backdrop, spinner, overlay, status, skip, failure, hud);
+    const covered = Array.from(root.children).flatMap((child) => child instanceof HTMLElement ? [{ element: child, display: child.style.display }] : []);
+    for (const item of covered) item.element.style.display = "none";
     root.appendChild(section);
 
     let view: PlaybackView = { phase: "closed" };
@@ -487,6 +491,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     };
 
     const render = (): void => {
+        backdrop.hidden = view.phase !== "loading";
         renderSubtitles(view);
         const active = view.phase === "playing" || view.phase === "paused";
         if (!active && (seekPreview !== undefined || timeline || autoRate !== 0)) cancelScrub();
@@ -1084,6 +1089,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             if (section.parentNode === root) {
                 root.removeChild(section);
             }
+            for (const item of covered) item.element.style.display = item.display;
         },
     };
 }

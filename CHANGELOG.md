@@ -19,6 +19,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept the page transparent over AVPlay. The black opening is a loading backdrop only, and a previous screen in the same root is not painted while the player is up.
 - Matched Apple TV playback opening, hidden Up, the title lines, and the panel: a spinner on black, Up reveals the scrubber, pause shows no status line, and the open panel hides the transport until Back.
 - Removed the extra focus outline on Accounts rows and Cancel. Change Account keeps the backdrop stage the previous screen left, warm after Who's watching and blue after sign-in, and an unfocused selected server is white at 14%.
 - Down from a Search person lands on the first title column at or past that person's centre, and a filter pill lands on the title card under it. A short title row keeps the column that entered it, so the next request is the one that lines up with that column. Up from Requests enters the last title row even when no card lines up, and stays put when the first person does not line up with the request. Search loads 60 titles per page, so 25 results have no pager.

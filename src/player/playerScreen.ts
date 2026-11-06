@@ -464,7 +464,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         const key = JSON.stringify([tracks, aiLanguages, subtitlePane, identity]);
         if (key !== drawn) {
             drawn = key;
-            const keep = menuRestoreFocus ?? focusedId();
+            const keep = focusedId();
+            const returnFocus = menuRestoreFocus;
             menuRestoreFocus = undefined;
             const hasQuality = (tracks.quality?.choices.length ?? 0) > 1;
             for (const [index, list] of lists.entries()) {
@@ -487,7 +488,9 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             const quota = tracks.ai?.quota;
             const quotaText = tracks.ai?.available.transcribe !== true ? "" : quota === undefined ? "Transcription quota unavailable." : quota.limited ? `Transcription quota: ${Math.max(0, quota.remaining)} remaining (${quota.period}).${quota.remaining <= 0 ? " Quota exhausted." : ""}` : "Transcription quota: unlimited.";
             menuStatus.textContent = [changeText(tracks), tracks.seriesSubtitle?.message, quotaText, tracks.ai?.message, tracks.subtitleTools?.search.status, tracks.subtitleTools?.search.message, tracks.subtitleTools?.display?.message].filter(Boolean).join(" ");
-            const same = keep === null ? undefined : buttons(column).find((button) => button.getAttribute("data-focus") === keep);
+            const choices = buttons(column);
+            const same = (returnFocus === undefined ? undefined : choices.find(button => button.getAttribute("data-focus") === returnFocus))
+                ?? (keep === null ? undefined : choices.find(button => button.getAttribute("data-focus") === keep));
             if (same !== undefined) {
                 same.focus();
             } else if (!focusList(column)) {

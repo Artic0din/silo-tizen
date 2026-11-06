@@ -1294,6 +1294,28 @@ test("an empty audio list does not trap remote movement between Info and Subtitl
     }
 });
 
+test("closing a background subtitle picker preserves the live audio focus", async () => {
+    const { page } = await open();
+    const tracks: TrackView = { ...TRACKS, subtitleTools: {
+        search: { offered: true, unavailableReason: "", phase: "closed", suggested: [], other: [], language: undefined, status: "", message: "", warnings: [], canRetry: false, results: [], downloadingKey: undefined },
+        display: { delay: true, styling: true, deviceScope: true, textOpacity: true, delayMs: 0, appearance: DEFAULT_APPEARANCE, deviceOverride: false, busy: false, message: "" },
+        overlay: true,
+    } };
+    try {
+        await show(page, playing(tracks));
+        await openPanel(page);
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
+        await page.locator('[data-focus="subtitle-size"]').focus();
+        await remote(page, ENTER);
+        await remote(page, LEFT);
+        await page.locator('[data-focus="file:42:audio:1"]').focus();
+        await remote(page, BACK);
+        assert.equal(await focused(page), "file:42:audio:1");
+        assert.deepEqual(await commands(page), []);
+    } finally { await page.close(); }
+});
+
 for (const origin of ["tracks", "appearance"] as const) for (const field of ["fontSize", "position"] as const) for (const ending of ["select", "remote-back", "button-back"] as const) {
     test(`subtitle ${origin} ${field} picker restores its originating row after ${ending}`, async () => {
         const { page } = await open();

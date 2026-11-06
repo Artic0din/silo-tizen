@@ -21,7 +21,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Returned subtitle pickers to their originating pane and restored focus to the edited row after selection or Back.
+- Returned subtitle pickers to their originating pane and row after selection or Back, while preserving focus in another active tab.
 
 - Kept unavailable subtitle display capabilities quiet while reporting failures to load advertised preferences.
 

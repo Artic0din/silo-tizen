@@ -1509,7 +1509,7 @@ for (const [id, activation, position] of [["movie:m0001", "MediaPlay", 321.5], [
         assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0);
         held.release();
         await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "one player handoff");
-        assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays[0]), { contentId: id, fileId: "chosen", title: id === "movie:m0001" ? "Movie 0001" : "Harbor Lights chapter 1.2", startSeconds: position === 1195 ? 0 : position, ...(id === "episode:s1e12" ? { episode: true, subtitle: { kind: "auto" } } : {}) });
+        assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays[0]), { contentId: id, fileId: "chosen", title: id === "movie:m0001" ? "Movie 0001" : "Harbor Lights chapter 1.2", startSeconds: position === 1195 ? 0 : position, ...(id === "episode:s1e12" ? { episode: true, seriesTitle: "Harbor Lights", seasonNumber: 1, episodeNumber: 2, subtitle: { kind: "auto" } } : {}) });
         await tv.page.keyboard.press("MediaPlayPause");
         await tv.jump(30000);
         assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 1);

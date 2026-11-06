@@ -47,6 +47,9 @@ import { audioRow, qualityMenuLabel, subtitleRow } from "./trackLabels.ts";
 export interface PlayRequest {
     readonly overview?: string | undefined;
     readonly backdropUrl?: string | undefined;
+    readonly seriesTitle?: string | undefined;
+    readonly seasonNumber?: number | undefined;
+    readonly episodeNumber?: number | undefined;
     readonly shuffleId?: string;
     readonly episode?: true;
     readonly audioTrackId?: string;
@@ -123,6 +126,9 @@ export type PlaybackView =
     | { readonly phase: "loading"; readonly title: string; readonly detail?: "reconnecting" | "restoring" }
     | {
           readonly phase: "playing" | "paused";
+          readonly seriesTitle?: string | undefined;
+          readonly seasonNumber?: number | undefined;
+          readonly episodeNumber?: number | undefined;
           readonly title: string;
           /** Source time. */
           readonly positionSeconds: number;
@@ -1943,7 +1949,7 @@ export class PlaybackController implements PlayerControls {
             const next = attempt.request.episode === true ? await nextEpisode(spec => {
                 if (!current()) throw abortedError();
                 return this.deps.session.call({ ...spec, profileScoped: true, signal: abort.signal });
-            }, attempt.request.contentId, fileId) : undefined;
+            }, attempt.request.contentId, fileId, attempt.request.seriesTitle) : undefined;
             if (next !== undefined) {
                 show("ready", next, false, "Playing Next");
                 this.loadPresentation(next, abort.signal, enriched => {
@@ -2688,6 +2694,9 @@ export class PlaybackController implements PlayerControls {
             phase: attempt.paused ? "paused" : "playing",
             title: attempt.request.title,
             positionSeconds: attempt.sourceSeconds,
+            seriesTitle: attempt.request.seriesTitle,
+            seasonNumber: attempt.request.seasonNumber,
+            episodeNumber: attempt.request.episodeNumber,
             durationSeconds: plan.durationSeconds,
             buffering: attempt.buffering,
             ...(attempt.prompt === undefined ? {} : { upNext: {
@@ -2743,7 +2752,7 @@ export class PlaybackController implements PlayerControls {
                 } catch { if (current()) attempt.autoNext = false; }
             }
             const fileId = attempt.plan?.effectiveMediaFileId;
-            const next = attempt.request.episode === true && fileId !== undefined ? await nextEpisode(read, attempt.request.contentId, fileId) : undefined;
+            const next = attempt.request.episode === true && fileId !== undefined ? await nextEpisode(read, attempt.request.contentId, fileId, attempt.request.seriesTitle) : undefined;
             if (!current()) return;
             if (next !== undefined) {
                 attempt.prompt = { next, deck: [], fromDeck: false };

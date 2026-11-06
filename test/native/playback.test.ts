@@ -1487,6 +1487,23 @@ test("Show Up Next opens the manual panel on the next episode without a countdow
     r.controller.destroy();
 });
 
+test("playback ticks do not repeat the Up Next catalog read", async () => {
+    const r = await autoplayRig(true);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing" && view.durationSeconds !== undefined);
+    const path = "/catalog/items/" + encodeURIComponent("episode:s1e13");
+    const reads = (): number => r.h.fake.requests.filter(request => request.path.split("?")[0] === path).length;
+    r.avplay.tick((view.durationSeconds - 20) * 1000);
+    await r.h.clock.advance(0);
+    const first = reads();
+    assert.equal(first, 1);
+    for (let tick = 0; tick < 5; tick++) r.avplay.tick((view.durationSeconds - 19 + tick) * 1000);
+    await r.h.clock.advance(0);
+    assert.equal(reads(), first);
+    r.controller.destroy();
+});
+
 test("a seek during Up Next discovery does not leave the manual panel loading", async () => {
     const r = await autoplayRig(false);
     await playMovie(r, EPISODE);

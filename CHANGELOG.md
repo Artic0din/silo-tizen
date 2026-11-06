@@ -18,6 +18,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserved newer subtitle choices when an unanswered report required connection recovery.
+
 - Applied queued subtitle choices after a replacement stream finished preparing while hidden.
 
 - Restored sidecar captions and queued choices after refused subtitle reports, aligned subtitles after suspended preparation, and honoured published HLS rendition order.

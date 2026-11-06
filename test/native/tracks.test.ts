@@ -1233,6 +1233,28 @@ test("published rendition order wins over incomplete language metadata", async (
     r.controller.destroy();
 });
 
+test("hidden replacement preparation replays the latest queued subtitle", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.server.next.push(renditionPlan(1, "English Signs", 1));
+    const id = await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    const held = r.h.fake.hold(`/playback/${id}/replan`);
+    r.server.next.push({ ...renditionPlan(5, "French", 2), url: () => "/api/v2/replacement" });
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    r.controller.selectSubtitle("file:42:subtitle:0");
+    held.release();
+    await settle(r);
+    r.controller.suspend();
+    r.avplay.finishPrepare();
+    await settle(r);
+    r.controller.restore();
+    await settle(r);
+    assert.equal(replans(r.h).length, 2);
+    assert.deepEqual(replans(r.h)[1]?.selected_tracks, { audio: { id: "file:42:audio:0", index: 0 }, subtitle: { id: "file:42:subtitle:0" } });
+    r.controller.destroy();
+});
+
 test("hidden preparation aligns the selected subtitle on restore", async () => {
     const r = await rig();
     frenchInventory(r);

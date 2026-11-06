@@ -546,7 +546,8 @@ test("cancel lost response is read back without replay and writes refuse refresh
         await button(tv, "request-one").click(); await button(tv, "cancel").waitFor();
         tv.fake.script("/requests/request-one", { status: 400, text: "bad" });
         tv.fake.dropNextAnswer("/requests/request-one/cancel"); await button(tv, "cancel").click();
-        await tv.page.getByText(UNCONFIRMED_CANCEL).waitFor();
+        // Apple shows the unconfirmed copy once the settling read has answered (still uncertain).
+        await tv.page.getByRole("alert").filter({ hasText: UNCONFIRMED_CANCEL }).waitFor();
         await tv.jump(2000);
         assert.equal(tv.fake.paths().filter(path => path === "POST /requests/request-one/cancel").length, 1);
         assert.equal(await button(tv, "cancel").count(), 0, "Apple hides an unconfirmed Cancel until a read settles it");
@@ -582,9 +583,11 @@ test("an unconfirmed detail cancel keeps the hub from offering Cancel Request ag
         tv.fake.script("/requests/discover", problem(500, "internal", "Unavailable"));
         tv.fake.dropNextAnswer("/requests/request-one/cancel");
         await button(tv, "cancel").click();
-        await tv.page.getByText(UNCONFIRMED_CANCEL).waitFor();
+        await tv.page.getByRole("alert").filter({ hasText: UNCONFIRMED_CANCEL }).waitFor();
         assert.equal(tv.fake.paths().filter(path => path === "POST /requests/request-one/cancel").length, 1);
         await tv.remote(10009);
+        await view(tv, "hub");
+        await tv.page.getByRole("status").filter({ hasText: UNCONFIRMED_CANCEL }).waitFor();
         await button(tv, "request-one").waitFor();
         assert.equal(await button(tv, "request-one").getAttribute("data-request-actions"), null, "held unconfirmed cancel blocks the hub menu");
         await holdCard(tv, "request-one");
@@ -608,7 +611,8 @@ test("a successful detail readback settles an unconfirmed cancel hold", async ()
         tv.fake.script("/requests/request-one", { status: 200, body: pending });
         tv.fake.dropNextAnswer("/requests/request-one/cancel");
         await button(tv, "cancel").click();
-        await tv.page.getByText(UNCONFIRMED_CANCEL).waitFor();
+        // A successful readback clears the hold before Apple would show the unconfirmed copy.
+        await tv.eventually(async () => tv.fake.paths().includes("POST /requests/request-one/cancel"), "cancel posted");
         await tv.eventually(async () => await button(tv, "cancel").count() === 1, "detail readback clears the shared hold");
         await button(tv, "cancel").click();
         await tv.eventually(async () => tv.fake.paths().filter(path => path === "POST /requests/request-one/cancel").length === 2, "a second Cancel can run after the hold settles");

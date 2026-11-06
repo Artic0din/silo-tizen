@@ -110,7 +110,8 @@ export function requestsView(state: RequestsState, h: RequestsHandlers, baseUrl:
     const source = state.source, data = state.data;
     const hub = source.kind === "hub";
     const detailPage = source.kind === "media" || source.kind === "request";
-    const bannerText = state.listMessage ?? state.notice;
+    // Detail keeps the unconfirmed copy beside the action; the list banner is for hub/mine only.
+    const bannerText = detailPage ? state.notice : (state.listMessage ?? state.notice);
     const withNotice = (view: View): View => {
         if (bannerText === undefined) return view;
         const banner = el("p", "requests-list-notice", bannerText);

@@ -5,7 +5,7 @@ import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakePlayback } from "../native/support/fakePlayback.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { SEEK_BACK_KEY, SEEK_FORWARD_KEY } from "../../src/contracts/v2/settings.ts";
-import { homeDetailsRead, launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { homeDetailsRead, launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -1099,6 +1099,214 @@ appTest("Home Continue uses the existing app player owner once and returns witho
     await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
     assert.equal(await tv.focused(), "movie:m0001");
     assert.equal(tv.fake.requests.filter(request => request.path === "/playback/start").length, 1);
+});
+
+/** Apple's tvOS `errorView`: top-pinned, no title, 40pt siloError mark, siloBody, primary buttons. */
+function readPlaybackFailure(): {
+    titleShown: boolean;
+    titleText: string;
+    message: string;
+    focused: string;
+    markTop: number;
+    playerTop: number;
+    markWidth: number;
+    markHeight: number;
+    markColor: string;
+    markCenter: number;
+    playerCenter: number;
+    copySize: string;
+    copyWeight: string;
+    copyColor: string;
+    copyAlign: string;
+    copyPad: string;
+    belowMark: number;
+    belowCopy: number;
+    direction: string;
+    gap: string;
+    retryHidden: boolean;
+    retryText: string;
+    backText: string;
+    retry: { minWidth: string; size: string; weight: string; line: string; background: string; color: string; radius: string; height: string; layoutWidth: number | null; layoutHeight: number | null; transform: string; ring: boolean };
+    back: { minWidth: string; size: string; weight: string; line: string; background: string; color: string; radius: string; height: string; layoutWidth: number | null; layoutHeight: number | null; transform: string; ring: boolean };
+    rowGap: number | null;
+    rowCenter: number;
+} | null {
+    const player = document.querySelector(".player");
+    const wall = document.querySelector(".player-error-wall");
+    if (!(player instanceof HTMLElement) || !(wall instanceof HTMLElement)) return null;
+    const title = wall.querySelector(".player-title");
+    const mark = wall.querySelector(".player-error-mark");
+    const copy = wall.querySelector(".player-error-text");
+    const actions = wall.querySelector(".player-error-actions");
+    const retry = wall.querySelector('[data-focus="settings-retry"]');
+    const back = wall.querySelector('[data-focus="back"]');
+    if (!(mark instanceof HTMLElement) || !(copy instanceof HTMLElement) || !(actions instanceof HTMLElement) || !(retry instanceof HTMLButtonElement) || !(back instanceof HTMLButtonElement)) return null;
+    if (!player.isConnected || !wall.isConnected || !mark.isConnected || !copy.isConnected) return null;
+    const button = (node: HTMLButtonElement) => {
+        const style = getComputedStyle(node);
+        return {
+            minWidth: style.minWidth,
+            size: style.fontSize,
+            weight: style.fontWeight,
+            line: style.lineHeight,
+            background: style.backgroundColor,
+            color: style.color,
+            radius: style.borderRadius,
+            height: style.height,
+            layoutWidth: node.hidden ? null : node.offsetWidth,
+            layoutHeight: node.hidden ? null : node.offsetHeight,
+            transform: style.transform,
+            ring: style.boxShadow.includes("rgb(255, 255, 255) 0px 0px 0px 2px"),
+        };
+    };
+    const playerBox = player.getBoundingClientRect();
+    const markBox = mark.getBoundingClientRect();
+    const copyBox = copy.getBoundingClientRect();
+    const actionBox = actions.getBoundingClientRect();
+    const copyStyle = getComputedStyle(copy);
+    const actionStyle = getComputedStyle(actions);
+    const markStyle = getComputedStyle(mark);
+    const first = retry.hidden ? back : retry;
+    const parent = first.offsetParent instanceof HTMLElement ? first.offsetParent.getBoundingClientRect() : actionBox;
+    return {
+        titleShown: title instanceof HTMLElement && title.getClientRects().length > 0,
+        titleText: title?.textContent ?? "",
+        message: copy.textContent ?? "",
+        focused: document.activeElement?.getAttribute("data-focus") ?? "",
+        markTop: markBox.top,
+        playerTop: playerBox.top,
+        markWidth: markBox.width,
+        markHeight: markBox.height,
+        markColor: markStyle.color,
+        markCenter: (markBox.left + markBox.right) / 2,
+        playerCenter: (playerBox.left + playerBox.right) / 2,
+        copySize: copyStyle.fontSize,
+        copyWeight: copyStyle.fontWeight,
+        copyColor: copyStyle.color,
+        copyAlign: copyStyle.textAlign,
+        copyPad: copyStyle.paddingLeft,
+        belowMark: copyBox.top - markBox.bottom,
+        belowCopy: actionBox.top - copyBox.bottom,
+        direction: actionStyle.flexDirection,
+        gap: actionStyle.gap,
+        retryHidden: retry.hidden === true,
+        retryText: retry.textContent ?? "",
+        backText: back.textContent ?? "",
+        retry: button(retry),
+        back: button(back),
+        rowGap: retry.hidden ? null : back.offsetLeft - (retry.offsetLeft + retry.offsetWidth),
+        rowCenter: parent.left + (first.offsetLeft + back.offsetLeft + back.offsetWidth) / 2,
+    };
+}
+
+const failureButton = {
+    minWidth: "140px",
+    size: "28px",
+    weight: "600",
+    line: "34px",
+    background: "rgba(237, 237, 237, 0.72)",
+    color: "rgb(0, 0, 0)",
+    radius: "31px",
+    height: "62px",
+    layoutWidth: 140,
+    layoutHeight: 62,
+    transform: "none",
+    ring: false,
+};
+
+const failureButtonFocus = {
+    ...failureButton,
+    background: "rgb(237, 237, 237)",
+    transform: "matrix(1.055, 0, 0, 1.055, 0, 0)",
+    ring: true,
+};
+
+/** "Go Back" at siloSubheadline exceeds the 140px minimum; "Retry" stays on it. */
+const failureBack = { ...failureButton, layoutWidth: 144 };
+const failureBackFocus = { ...failureButtonFocus, layoutWidth: 144 };
+
+async function showPlaybackFailure(tv: Tv, playback: FakePlayback, decision: { terminal: string; retryable?: boolean }): Promise<void> {
+    await signIn(tv);
+    playback.next.push(decision);
+    await tv.page.locator('.skyline-continue[data-focus="movie:m0001"]').focus();
+    await tv.remote(415);
+    await tv.page.locator(".player-error-wall").waitFor();
+    await tv.page.addStyleTag({ content: ".player-error-wall, .player-error-wall * { transition: none !important; }" });
+    await tv.jump(0);
+}
+
+appTest("a terminal playback failure matches Apple's top-pinned error view and its server sentence", async (tv, playback) => {
+    await showPlaybackFailure(tv, playback, { terminal: "source_unreadable" });
+    const wall = await readLive(tv, readPlaybackFailure, null, (value) => value.message.length > 0, "terminal failure wall settled");
+    assert.deepEqual(wall, {
+        titleShown: false,
+        titleText: "",
+        message: "Cannot play: source_unreadable",
+        focused: "back",
+        markTop: wall.playerTop,
+        playerTop: wall.playerTop,
+        markWidth: 40,
+        markHeight: 40,
+        markColor: "rgb(176, 0, 32)",
+        markCenter: wall.playerCenter,
+        playerCenter: wall.playerCenter,
+        copySize: "26px",
+        copyWeight: "400",
+        copyColor: "rgb(255, 255, 255)",
+        copyAlign: "center",
+        copyPad: "16px",
+        belowMark: 16,
+        belowCopy: 16,
+        direction: "row",
+        gap: "16px",
+        retryHidden: true,
+        retryText: "Retry",
+        backText: "Go Back",
+        retry: { ...failureButton, layoutWidth: null, layoutHeight: null },
+        back: failureBackFocus,
+        rowGap: null,
+        rowCenter: wall.playerCenter,
+    });
+});
+
+appTest("a retryable playback failure keeps Retry focused and Back leaves without another start", async (tv, playback) => {
+    await showPlaybackFailure(tv, playback, { terminal: "temporarily_unavailable", retryable: true });
+    const wall = await readLive(tv, readPlaybackFailure, null, (value) => value.message.length > 0 && value.focused === "settings-retry", "retryable failure wall settled");
+    assert.deepEqual(wall, {
+        titleShown: false,
+        titleText: "",
+        message: "Cannot play: temporarily_unavailable",
+        focused: "settings-retry",
+        markTop: wall.playerTop,
+        playerTop: wall.playerTop,
+        markWidth: 40,
+        markHeight: 40,
+        markColor: "rgb(176, 0, 32)",
+        markCenter: wall.playerCenter,
+        playerCenter: wall.playerCenter,
+        copySize: "26px",
+        copyWeight: "400",
+        copyColor: "rgb(255, 255, 255)",
+        copyAlign: "center",
+        copyPad: "16px",
+        belowMark: 16,
+        belowCopy: 16,
+        direction: "row",
+        gap: "16px",
+        retryHidden: false,
+        retryText: "Retry",
+        backText: "Go Back",
+        retry: failureButtonFocus,
+        back: failureBack,
+        rowGap: 16,
+        rowCenter: wall.playerCenter,
+    });
+    const starts = tv.fake.requests.filter((request) => request.path === "/playback/start").length;
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
+    assert.equal(await tv.focused(), "movie:m0001");
+    assert.equal(await tv.page.locator('[data-screen="player"]').count(), 0);
+    assert.equal(tv.fake.requests.filter((request) => request.path === "/playback/start").length, starts);
 });
 
 appTest("Home Continue keeps an unreadable playback source in the existing error owner without resending", async (tv, playback) => {

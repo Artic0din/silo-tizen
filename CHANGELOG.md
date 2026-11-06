@@ -20,6 +20,8 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Kept Play focused when a movie's Details opened, even if the first focus claim did not stick.
+- Added Retry for retryable playback startup failures and exhausted route recovery.
+
 - Kept the Details hero pinned when action focus survived a repaint during its return scroll.
 - Opened a remembered profile and cached Home promptly on cold start while checking the saved session in the background, then refreshed the top-bar profile artwork from the reconciled summary.
 - Kept a detail Cancel's hub card visible while the shared gate still owns it, even when a refresh already sees the server's cancelled state, and left hub cards alone so a failed quiet refresh keeps its earlier rows.

@@ -1609,6 +1609,24 @@ detailTest("episode focus swaps cached hero and selectors without starting a rea
 
 let browser: Browser;
 
+for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} reopens at its hero without restoring the supporting viewport`, async tv => {
+    const open = () => tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
+    await open();
+    await tv.page.evaluate(() => document.fonts.ready);
+    const rest = await tv.page.locator('.details-hero').evaluate(node => node.getBoundingClientRect().top);
+    await tv.page.locator('.details-people [data-focus]').first().waitFor();
+    for (let step = 0; step < (media.startsWith('series') ? 3 : 1); step++) await tv.remote(40);
+    await tv.eventually(() => tv.page.locator('.browse').evaluate(node => node.scrollTop > 0), 'supporting section scroll');
+    await tv.remote(10009);
+    await open();
+    await tv.page.locator('.details-hero').waitFor();
+    await tv.page.locator('.details-editorial :focus').waitFor();
+    await tv.eventually(() => tv.page.evaluate(() => {
+        const hero = document.querySelector('.browse > .details-hero');
+        return { top: hero?.getBoundingClientRect().top, action: document.activeElement?.closest('.details-editorial') !== null, scroll: document.querySelector('.browse')?.scrollTop };
+    }).then(value => value.top === rest && value.action && value.scroll === 0), 'fresh hero and action focus');
+});
+
 for (const media of ['movie:m0001', 'series:s1']) detailTest(`${media} artwork stays inside Apple's shared top-right frame`, async tv => {
     await tv.page.locator(`[data-section="recently_added"] [data-focus="${media}"]`).first().click();
     await tv.page.locator(".details-hero .skyline-backdrop").waitFor();

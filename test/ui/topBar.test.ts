@@ -68,7 +68,7 @@ class ProfileDestinationsCatalog extends FakeRequests {
     }
 }
 
-for (const root of ["home", "movies"] as const) for (const destination of ["History", "Requests", "Settings"] as const) test(`${destination} Back restores the selected ${root} tab and its hero`, async () => {
+for (const root of ["home", "movies"] as const) for (const destination of ["History", "Requests"] as const) test(`${destination} Back restores the selected ${root} tab and its hero`, async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         await start(tv, null, new ProfileDestinationsCatalog());
@@ -83,7 +83,7 @@ for (const root of ["home", "movies"] as const) for (const destination of ["Hist
         assert.ok(expected.image?.includes("/art/"), "origin has loaded backdrop artwork");
         await tv.page.locator('[data-focus="profiles"]').click();
         await tv.page.getByRole("menuitem", { name: destination, exact: true }).click();
-        await tv.page.locator(destination === "Settings" ? '[data-focus="playback"]' : destination === "History" ? '.browse[data-view="personal:history"] .browse-card' : '.requests-hub .browse-card').first().waitFor();
+        await tv.page.locator(destination === "History" ? '.browse[data-view="personal:history"] .browse-card' : '.requests-hub .browse-card').first().waitFor();
         if (destination === "History") {
             await tv.page.locator('.browse[data-view="personal:history"] .browse-card').last().focus();
             await tv.jump(500);
@@ -98,6 +98,56 @@ for (const root of ["home", "movies"] as const) for (const destination of ["Hist
         await tv.page.locator('[data-focus="profiles"]').click();
         await tv.remote(10009);
         assert.equal(await tv.focused(), "profiles", "Back from the menu itself still restores the avatar");
+    } finally { await tv.page.context().close(); }
+});
+
+for (const root of ["home", "movies"] as const) test(`Settings Back from ${root} selects the Home tab`, async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv, null, new ProfileDestinationsCatalog());
+        await tv.page.locator(`[data-focus="${root}"]`).click();
+        await tv.page.locator(`.browse[data-view="${root === "home" ? "home" : "library:12"}"] .browse-card`).first().waitFor();
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+        await tv.page.locator('[data-focus="general"]').waitFor();
+        assert.equal(await tv.focused(), "general");
+        await tv.remote(10009);
+        assert.equal(await tv.page.locator(".settings").count(), 0);
+        assert.equal(await tv.page.locator(".browse").getAttribute("data-view"), "home");
+        assert.equal(await tv.focused(), "home");
+        assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "false");
+    } finally { await tv.page.context().close(); }
+});
+
+test("Down from the avatar enters the open profile menu and leaves it for Continue Watching after Back", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await tv.page.locator('[data-focus="profiles"]').focus();
+        await tv.jump(250);
+        assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "true", "focus opens the profile menu");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "switch-profile", "Down enters Switch Profile while the menu is open");
+        await tv.remote(10009);
+        assert.equal(await tv.focused(), "profiles");
+        assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "false");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "movie:m0001", "after Back, Down reaches the first Continue Watching card");
+        assert.equal(await tv.page.evaluate(() => document.activeElement?.closest("[data-section]")?.getAttribute("data-section")), "continue_watching");
+        assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "false", "the menu stays closed");
+        assert.equal(await tv.page.locator(".skyline-selector:not(.skyline-flyout)").isVisible(), false);
+    } finally { await tv.page.context().close(); }
+});
+
+test("Down from the avatar before the dwell opens Switch Profile", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await tv.page.locator('[data-focus="profiles"]').focus();
+        assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "false", "the dwell has not opened the menu");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "switch-profile", "Down before the dwell still enters Switch Profile");
+        assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "true");
     } finally { await tv.page.context().close(); }
 });
 

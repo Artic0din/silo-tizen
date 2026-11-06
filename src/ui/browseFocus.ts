@@ -492,11 +492,15 @@ export class FocusHost {
     }
 
     /**
-     * TVDetailActionRow.resetInitialPlayFocus (silo-apple eb82bb86): one Play claim per
-     * Details visit, retried while the control can take focus. The claim stays pending
-     * until Play is on the page. A claim that does not stick leaves document focus on
-     * body until the next key. Stop once the viewer has moved, or a dialog outside
-     * this page has taken focus.
+     * One Play claim per Details visit (`TVDetailActionRow.resetInitialPlayFocus`,
+     * silo-apple eb82bb86). While `playTitle` is nil the claim stays unused
+     * (lines 504, 567-568, 571) and Watchlist is the live stand-in (lines 597-602).
+     * The first attempt then assigns Play without reading that focus (lines 635–643).
+     * A later attempt bails only when another action is focused and the page does
+     * not track navigation (lines 622–641). Series tracks a directional move
+     * instead (`TVSeriesDetailView.swift` lines 311–326 and 528–529) and cancels
+     * the claim (lines 555-559). A claim that does not stick leaves focus on body
+     * until the next key. Stop once the viewer has moved, or a dialog has taken focus.
      */
     private settlePrimaryFocus(view: View, fromTimer = false): void {
         if (!view.name.startsWith("item:")) {
@@ -517,8 +521,10 @@ export class FocusHost {
         }
         const primary = this.primaryTarget(view);
         const active = this.locate(document.activeElement);
-        // Apple leaves the one-shot claim unused while Play is still absent, then
-        // claims it when the control appears, unless the viewer has already moved.
+        // The claim stays unused until Play exists. Its first assignment still
+        // takes the live stand-in. A control the viewer has moved to is
+        // claim.moved, handled above. This check is only for a claim that
+        // started while Play was already the opening target.
         if (primary === undefined) {
             claim.awaitingPrimary = true;
             this.clearPlayClaimTimer();

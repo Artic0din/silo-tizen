@@ -141,7 +141,7 @@ async function hideSeriesPlayTarget(tv: Tv): Promise<void> {
     });
 }
 
-test("a primary action that appears after Details opens takes focus when the viewer has not moved", async () => {
+test("a late primary takes focus from the live control that held the opening focus", async () => {
     const tv = await openTv(browser, { app: "browse" });
     tv.fake.catalog = new FakeDetails();
     await hideSeriesPlayTarget(tv);
@@ -152,12 +152,23 @@ test("a primary action that appears after Details opens takes focus when the vie
         await tv.remote(ENTER);
         await tv.page.locator('[data-view="item:series:s1"] [data-focus="season:1"]').waitFor();
         await tv.eventually(async () => await tv.page.locator('[data-focus="next-episode"]').count() === 0, "series opened before its primary existed");
+        // Apple's entryAction stands Watchlist in while playTitle is nil, and
+        // resetInitialPlayFocus attempt 0 still assigns Play (eb82bb86, lines
+        // 597-602 and 635-643). The opening focus here is that live stand-in.
+        await tv.eventually(async () => {
+            const held = await owner(tv);
+            return held.body === false && held.play === false && held.key !== null;
+        }, "live control held focus before the primary existed");
         const before = await owner(tv);
         episodes.release();
         await tv.eventually(async () => await tv.page.locator('[data-focus="next-episode"]').count() === 1, "late primary rendered");
         await tv.eventually(async () => await tv.focused() === "next-episode", "late primary focused");
         const settled = await owner(tv);
+        assert.equal(before.body, false, `opening focus was lost: ${JSON.stringify(before)}`);
         assert.equal(before.play, false, `primary was already present: ${JSON.stringify(before)}`);
+        assert.ok(before.key, `no live control held focus: ${JSON.stringify(before)}`);
+        assert.notEqual(settled.key, before.key, `late primary left ${JSON.stringify(before)}`);
+        assert.equal(settled.key, "next-episode", JSON.stringify(settled));
         assert.equal(settled.play, true, JSON.stringify(settled));
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }

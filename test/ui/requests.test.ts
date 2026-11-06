@@ -1670,6 +1670,59 @@ test("a lost removal is not sent again until My Requests is read successfully", 
     } finally { await tv.page.context().close(); }
 });
 
+
+test("a list cancel that settles after Requests was reopened refreshes the visible hub", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests();
+        fake.created = true;
+        const pending = { ...fake.record };
+        await start(tv, fake);
+        await openRequests(tv);
+        await button(tv, "request-one").waitFor();
+        // FakeSilo applies cancel immediately; keep the visible row pending until settlement rereads.
+        tv.fake.script("/requests/mine?limit=50", ...Array.from({ length: 8 }, () => minePage([pending])), minePage([]));
+        const held = tv.fake.hold("/requests/request-one/cancel", true);
+        await holdCard(tv, "request-one");
+        await button(tv, "cancel-request").click();
+        await tv.eventually(async () => tv.fake.paths().includes("POST /requests/request-one/cancel"), "cancel held");
+        assert.equal(await button(tv, "request-one").getAttribute("data-busy"), "true");
+        await leaveRequests(tv);
+        await button(tv, "home").click();
+        await tv.page.locator('.browse[data-view="home"]').waitFor();
+        await openRequests(tv);
+        await button(tv, "request-one").waitFor();
+        assert.equal(await button(tv, "request-one").getAttribute("data-request-actions"), null, "menus stay closed while the session-owned cancel runs");
+        assert.equal(await button(tv, "request-one").getAttribute("data-busy"), "true");
+        held.release();
+        await tv.eventually(async () => await button(tv, "request-one").count() === 0, "visible hub drops the cancelled card after settlement");
+        await button(tv, "movie:949").waitFor();
+        assert.equal(tv.fake.paths().filter(path => path === "POST /requests/request-one/cancel").length, 1);
+    } finally { await tv.page.context().close(); }
+});
+
+test("a list cancel capability refusal rechecks permission and retires Requests", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests();
+        fake.created = true;
+        await start(tv, fake);
+        await openRequests(tv);
+        await button(tv, "request-one").waitFor();
+        const probes = tv.fake.requests.filter(request => request.path === "/requests/status").length;
+        const held = tv.fake.hold("/requests/request-one/cancel", true);
+        tv.fake.script("/requests/request-one/cancel", problem(409, "capability_disabled", "Disabled"));
+        await holdCard(tv, "request-one");
+        await button(tv, "cancel-request").click();
+        await tv.eventually(async () => tv.fake.paths().includes("POST /requests/request-one/cancel"), "cancel held");
+        fake.enabled = false;
+        held.release();
+        await tv.eventually(async () => tv.fake.requests.filter(request => request.path === "/requests/status").length === probes + 1, "list cancel refusal probes capability");
+        await tv.page.locator('.browse[data-view="home"]').waitFor();
+        assert.equal(await button(tv, "requests").count(), 0, "Requests entry retires after capability loss");
+    } finally { await tv.page.context().close(); }
+});
+
 test("another request cannot be cancelled or removed while one removal is in flight", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

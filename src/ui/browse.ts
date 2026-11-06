@@ -1944,20 +1944,31 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             else if (data !== undefined && "items" in data && route.requests.source.kind === "mine") route.requests.data = { ...data, items: data.items.map(item => item.id === updated.id ? updated : item) };
         }
     };
+    /** Apple's hub/mine actionRefresh: settle the Requests page that is on screen. */
+    const visibleRequestList = (origin: Extract<Route, { kind: "requests" }>): Extract<Route, { kind: "requests" }> => {
+        const visible = top();
+        return visible?.kind === "requests" ? visible : origin;
+    };
+    const showVisibleRequestList = (origin: Extract<Route, { kind: "requests" }>, focus: FocusTarget, revision: number): Extract<Route, { kind: "requests" }> => {
+        const target = visibleRequestList(origin);
+        showRequestList(target, target === origin ? focus : (target.focus ?? focus), revision);
+        return target;
+    };
     const finishRemoval = async (route: Extract<Route, { kind: "requests" }>, id: string, fallback: FocusTarget, revision: number): Promise<void> => {
-        const focus = listFocusAfter(route, id, fallback);
         dropRemovedRequest(id);
         publishRequestNotice(REMOVED_NOTICE);
-        showRequestList(route, focus, revision);
-        await rereadRequestList(route);
-        showRequestList(route, focus, revision);
+        const target = visibleRequestList(route);
+        const focus = listFocusAfter(target, id, fallback);
+        showRequestList(target, focus, revision);
+        await rereadRequestList(target);
+        showVisibleRequestList(route, listFocusAfter(target, id, focus), revision);
     };
     const runListRemove = async (route: Extract<Route, { kind: "requests" }>, record: MediaRequest, origin: FocusTarget): Promise<void> => {
         dismissRequestNotice();
         const token = requestGate.begin(record.id);
         if (token === undefined || torn) return;
         const revision = inputRevision;
-        showRequestList(route, origin, revision);
+        showVisibleRequestList(route, origin, revision);
         try {
             await session.call({ ...requestOperations.remove(record.id), profileScoped: true, replayAfterRefresh: false });
             await finishRemoval(route, record.id, origin, revision);
@@ -1970,18 +1981,21 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (writeMayHaveApplied(error)) {
                 requestGate.hold(record.id);
                 requestGate.release(token);
-                if (!(error instanceof ApiError && error.aborted)) await rereadRequestList(route);
+                const target = visibleRequestList(route);
+                if (!(error instanceof ApiError && error.aborted)) await rereadRequestList(target);
                 if (requestGate.held.has(record.id)) requestGate.listMessage = UNCONFIRMED_REMOVE_MESSAGE;
-                showRequestList(route, origin, revision);
+                showVisibleRequestList(route, origin, revision);
                 return;
             }
             const message = error instanceof ApiError && error.problemId === "conflict" ? REMOVE_CONFLICT_MESSAGE : writeFailureMessage(error);
-            await rereadRequestList(route);
+            if (error instanceof ApiError && ["capability_disabled", "capability_not_configured", "capability_unsupported", "permission_denied"].includes(error.problemId ?? "")) void probeRequests();
+            const target = visibleRequestList(route);
+            await rereadRequestList(target);
             requestGate.listMessage = message;
-            showRequestList(route, origin, revision);
+            showVisibleRequestList(route, origin, revision);
         } finally {
             requestGate.release(token);
-            if (!torn) showRequestList(route, route.focus ?? origin, revision);
+            if (!torn) showVisibleRequestList(route, route.focus ?? origin, revision);
         }
     };
     const runListCancel = async (route: Extract<Route, { kind: "requests" }>, record: MediaRequest, origin: FocusTarget): Promise<void> => {
@@ -1989,29 +2003,33 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         const token = requestGate.begin(record.id);
         if (token === undefined || torn) return;
         const revision = inputRevision;
-        showRequestList(route, origin, revision);
+        showVisibleRequestList(route, origin, revision);
         try {
             const updated: unknown = await session.call({ ...requestOperations.cancel(record.id), profileScoped: true, replayAfterRefresh: false });
-            const focus = listFocusAfter(route, record.id, origin);
             if (typeof updated === "object" && updated !== null && "id" in updated && "outcome" in updated) paintRequestRecord(updated as MediaRequest);
-            showRequestList(route, focus, revision);
-            await rereadRequestList(route);
-            showRequestList(route, focus, revision);
+            const target = visibleRequestList(route);
+            const focus = listFocusAfter(target, record.id, origin);
+            showRequestList(target, focus, revision);
+            await rereadRequestList(target);
+            showVisibleRequestList(route, listFocusAfter(target, record.id, focus), revision);
         } catch (error) {
             if (torn) return;
             if (writeMayHaveApplied(error)) {
                 requestGate.hold(record.id);
                 requestGate.release(token);
-                if (!(error instanceof ApiError && error.aborted)) await rereadRequestList(route);
+                const target = visibleRequestList(route);
+                if (!(error instanceof ApiError && error.aborted)) await rereadRequestList(target);
                 if (requestGate.held.has(record.id)) requestGate.listMessage = UNCONFIRMED_CANCEL_MESSAGE;
-                showRequestList(route, origin, revision);
+                showVisibleRequestList(route, origin, revision);
                 return;
             }
+            // Match detail-write refusals: RequestDetailViewModel refreshes capability and retires entry.
+            if (error instanceof ApiError && ["capability_disabled", "capability_not_configured", "capability_unsupported", "permission_denied"].includes(error.problemId ?? "")) void probeRequests();
             requestGate.listMessage = writeFailureMessage(error);
-            showRequestList(route, origin, revision);
+            showVisibleRequestList(route, origin, revision);
         } finally {
             requestGate.release(token);
-            if (!torn) showRequestList(route, route.focus ?? origin, revision);
+            if (!torn) showVisibleRequestList(route, route.focus ?? origin, revision);
         }
     };
     const openRequests = (source: RequestsSource): void => { if (requestsCapability.enabled) push(newRoute({ kind: "requests", requests: requestsState(source) })); };

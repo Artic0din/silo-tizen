@@ -149,6 +149,7 @@ test("15/45 previews select thumbnails by resulting source time, independently o
         await remote(r.page, 37);
         assert.match(await r.page.locator(".player-time").innerText(), /^20:10/);
         await r.page.locator(".player-thumbnail:not([hidden]) img").waitFor();
+        assert.equal(await r.page.locator(".player-thumbnail-time").innerText(), "20:10");
         assert.equal(await r.page.locator(".player-thumbnail img").evaluate(image => (image as HTMLElement).style.left), "-320px");
         await remote(r.page, 39);
         assert.match(await r.page.locator(".player-time").innerText(), /^20:55/);

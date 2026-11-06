@@ -61,6 +61,111 @@ appTest("cold saved session rejected by the server returns to sign-in", async tv
     assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
 });
 
+appTest("cold saved profile paints cached Home before discovery answers", async tv => {
+    await signIn(tv, true);
+    const hold = tv.fake.hold("/system/info");
+    const codes = tv.fake.devices.size;
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor({ timeout: 5000 });
+    assert.equal(tv.fake.devices.size, codes);
+    hold.release();
+});
+
+appTest("cold reconciliation removes a deleted profile from Home", async tv => {
+    await signIn(tv, true);
+    const hold = tv.fake.hold("/system/info");
+    tv.fake.profiles = { ...tv.fake.profiles, items: [] };
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor({ timeout: 5000 });
+    hold.release();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+});
+
+appTest("cold reconciliation removes Home when the deployment changes", async tv => {
+    await signIn(tv, true);
+    const hold = tv.fake.hold("/system/identity");
+    tv.fake.script("/system/identity", { status: 200, body: { server_id: "a9e16029-3344-4104-a222-d06456005128" } });
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor({ timeout: 5000 });
+    hold.release();
+    await tv.page.locator('[data-screen="expired"], [data-screen="code"]').waitFor();
+    assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+});
+
+appTest("cold reconciliation removes Home when the remembered PIN proof is revoked", async tv => {
+    await tv.page.fill("#signin-address", "silo.example.test");
+    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    const code = [...tv.fake.devices.keys()].pop();
+    assert.ok(code !== undefined);
+    await approveSignIn(tv, code);
+    await tv.page.locator('[data-focus="profile:p-kid"]').click();
+    await tv.page.locator('#profile-pin').fill('2468');
+    await tv.remote(65376);
+    await tv.page.locator('[data-focus="unlock"]').click();
+    await tv.page.locator('[data-focus="remember"]').click();
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+    const hold = tv.fake.hold("/system/info");
+    tv.fake.changePin("p-kid", "1357");
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor({ timeout: 5000 });
+    hold.release();
+    await tv.page.locator('[data-screen="pin"]').waitFor();
+    assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+});
+
+appTest("offline reconciliation retains the session and checks a removed profile on recovery", async tv => {
+    await signIn(tv, true);
+    const codes = tv.fake.devices.size;
+    tv.offline = true;
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor({ timeout: 5000 });
+    await tv.jump(35000);
+    assert.equal(await tv.page.locator('[data-view="home"] .browse-card').count() > 0, true);
+    assert.equal(tv.fake.devices.size, codes);
+    tv.fake.profiles = { ...tv.fake.profiles, items: [] };
+    tv.offline = false;
+    await tv.jump(50000);
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+});
+
+appTest("temporary discovery server errors retain the remembered profile", async tv => {
+    await signIn(tv, true);
+    tv.fake.script("/system/info", { status: 503, body: {} });
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+    await tv.eventually(async () => tv.fake.paths().filter(path => path === "GET /system/info").length >= 2, "discovery response");
+    await tv.jump(35000);
+    assert.equal(await tv.page.locator('[data-view="home"] .browse-card').count() > 0, true);
+    tv.fake.scripted.delete("/system/info");
+    await tv.jump(50000);
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+});
+
+appTest("permanent discovery rejection removes Home even after the access token expires", async tv => {
+    await signIn(tv, true);
+    await tv.jump(3600000);
+    const hold = tv.fake.hold("/system/info");
+    tv.fake.script("/system/info", { status: 404, body: {} });
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+    hold.release();
+    await tv.page.locator('[data-screen="profiles-error"]').waitFor();
+    assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+});
+
+appTest("cold offline launch without a remembered profile does not invent a profile", async tv => {
+    await signIn(tv);
+    tv.offline = true;
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.jump(35000);
+    await tv.page.getByText("Profiles didn't load", { exact: true }).waitFor();
+    assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+    assert.equal(await tv.page.locator('[data-focus^="profile:"]').count(), 0);
+});
+
 appTest("first-time unreachable address retains the connect error", async tv => {
     tv.offline = true;
     await tv.page.fill("#signin-address", "https://first-time.invalid");

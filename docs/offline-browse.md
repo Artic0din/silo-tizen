@@ -6,7 +6,10 @@ Every visit still requests fresh data; only transport failure or timeout uses a 
 HTTP errors, cancellation and writes never use this fallback.
 Existing navigation and actions stay available and use their normal server validation and error handling.
 This does not download media or enable offline playback.
-On a discovery transport failure, an existing saved account can restore its local session and remembered profile, including its protected PIN proof.
+On automatic cold start, an existing saved account restores its local session and remembered profile, including its protected PIN proof, before waiting for discovery.
+The app then checks the deployment, setup, account, profile list and profile-scoped access in the background.
+Temporary failures retain local authority and retry; an identity change or rejected account, profile or PIN proof removes protected content.
+When launch settings require profile selection, the app does not invent an offline profile list.
 This permits snapshot hydration without a reachable server.
 Before any recovered request or media credential is released, public discovery must confirm the saved deployment identity.
 Temporary discovery failures preserve the session and vault; a different deployment clears the old authority without sending its credentials or revocation there.
@@ -89,6 +92,7 @@ Apple's `tvOS/Caching/ItemDetailCache.swift:25-34,149-160` retains 20 visited vi
 A signed same-state Apple/Samsung comparison ran on 5 November 2026 and identified the Details corrections described above.
 Apple could not be taken offline; its offline expectations come from the pinned tvOS Swift source.
 These corrections were checked with desktop Chromium and native TypeScript tests only, without simulators, TVs, signed packages or a live server in this follow-up.
+A physical-TV cold-boot timing measurement and same-state native comparison for the paint-first change remain pending.
 A signed comparison of the corrected candidate remains pending, and Ryan retains merge authority.
 
 1. Build and sign the candidate WGT using the normal release procedure; record its source SHA, package hash, installed assets and actual capture dimensions.

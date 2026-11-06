@@ -1,6 +1,21 @@
 import assert from "node:assert/strict";
 import { connect } from "../../src/session/core.ts";
 
+test("saved account restores without waiting for discovery", async () => {
+    const h = await connected();
+    await signIn(h);
+    const result = await Promise.race([
+        connect(h.fake.origin, {
+            fetch: () => new Promise<Response>(() => {}), allowOfflineRestore: true, publicStorage: h.storage,
+            keyManager: h.keyManager, randomBytes: bytes => bytes.fill(0xab),
+            deviceName: "TV", devicePlatform: "tizen", clock: h.clock,
+        }),
+        new Promise<"waiting">(resolve => setTimeout(() => resolve("waiting"), 100)),
+    ]);
+    assert.notEqual(result, "waiting");
+    if (result !== "waiting") assert.equal(result.status, "connected");
+});
+
 test("setup transport failure restores a saved account without starting device login", async () => {
     const h = await connected();
     await signIn(h);

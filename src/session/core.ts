@@ -41,6 +41,7 @@ export interface SessionCoreDeps {
 
 export interface ConnectedServer {
     readonly status: "connected";
+    readonly localRestore?: boolean;
     readonly server: ServerConnection;
     readonly session: NativeSession;
     readonly profiles: Profiles;
@@ -65,8 +66,8 @@ export async function openDiscoveredServer(server: ServerConnection, deps: Sessi
 }
 
 function openServerSession(server: ServerConnection, deps: SessionCoreDeps, mode: "online"): Promise<ConnectedServer>;
-function openServerSession(server: ServerConnection, deps: SessionCoreDeps, mode: "offline"): Promise<ConnectedServer | { readonly status: "unreachable" }>;
-async function openServerSession(server: ServerConnection, deps: SessionCoreDeps, mode: "online" | "offline"): Promise<ConnectedServer | { readonly status: "unreachable" }> {
+function openServerSession(server: ServerConnection, deps: SessionCoreDeps, mode: "offline"): Promise<ConnectedServer | { readonly status: "unreachable"; readonly restore?: RestoreResult }>;
+async function openServerSession(server: ServerConnection, deps: SessionCoreDeps, mode: "online" | "offline"): Promise<ConnectedServer | { readonly status: "unreachable"; readonly restore?: RestoreResult }> {
     const clock = deps.clock ?? systemClock;
     const device = deviceHeaders(loadDeviceId(deps.publicStorage, deps.randomBytes), deps.deviceName, deps.devicePlatform);
     let session: NativeSession;
@@ -80,12 +81,15 @@ async function openServerSession(server: ServerConnection, deps: SessionCoreDeps
             const fresh = await discoverServer(server.http.base.baseUrl, device, deps.fetch, clock, session.authoritySignal);
             if (generation !== session.authorityGeneration) throw new ApiError({ kind: "aborted" });
             if (fresh.status !== "connected") {
-                throw new ApiError(fresh.status === "unreachable" ? { kind: "network" } : { kind: "invalid_response", path: "/system/identity" });
+                throw new ApiError(fresh.status === "unreachable" || (fresh.status === "server_error" && fresh.transient) ? { kind: "network" } : { kind: "invalid_response", path: "/system/identity" });
             }
             if (fresh.server.serverId !== server.serverId) {
                 await session.deploymentChanged();
                 throw new ApiError({ kind: "aborted" });
             }
+            const setup = await fresh.server.http.send({ ...operations.setupStatus(), signal: session.authoritySignal });
+            if (generation !== session.authorityGeneration) throw new ApiError({ kind: "aborted" });
+            if (setup.needsSetup) throw new ApiError({ kind: "invalid_response", path: "/system/setup" });
             verified = true;
         };
         const check = (): Promise<void> => {
@@ -103,7 +107,8 @@ async function openServerSession(server: ServerConnection, deps: SessionCoreDeps
     }
     if (offlineDiscovery) {
         const saved = await vault.load();
-        if (saved.status !== "found" || saved.credential.serverId !== server.serverId) return { status: "unreachable" };
+        if (saved.status !== "found") return { status: "unreachable", ...(saved.status === "corrupt" ? { restore: "storage_corrupt" as const } : saved.status === "unavailable" ? { restore: "storage_unavailable" as const } : {}) };
+        if (saved.credential.serverId !== server.serverId) return { status: "unreachable" };
     }
     session = new NativeSession(server, vault, clock, async accountId => {
         await deps.beforeAccountSignIn?.(server.http.base.baseUrl, accountId);
@@ -117,6 +122,7 @@ async function openServerSession(server: ServerConnection, deps: SessionCoreDeps
     }
     return {
         status: "connected",
+        ...(offlineDiscovery ? { localRestore: true } : {}),
         server,
         session,
         profiles: new Profiles(session, clock),
@@ -142,6 +148,16 @@ export async function connect(serverAddress: string, deps: SessionCoreDeps, sign
         } catch { /* Unreadable local identity cannot authorize an offline restore. */ }
         return;
     };
+    let localFailure: RestoreResult | undefined;
+    if (deps.allowOfflineRestore === true) {
+        const saved = savedServer();
+        if (saved !== undefined) {
+            const local = await openServerSession(saved, deps, "offline");
+            if (signal?.aborted) throw new ApiError({ kind: "aborted" });
+            if (local.status === "connected") return local;
+            localFailure = local.restore;
+        }
+    }
     const discovered = await discoverServer(serverAddress, device, deps.fetch, clock, signal);
     if (discovered.status === "unreachable") {
         const saved = savedServer();
@@ -164,7 +180,8 @@ export async function connect(serverAddress: string, deps: SessionCoreDeps, sign
     if (setup.needsSetup) {
         return { status: "needs_setup", server: discovered.server };
     }
-    return openDiscoveredServer(discovered.server, deps);
+    const opened = await openDiscoveredServer(discovered.server, deps);
+    return localFailure !== undefined && opened.restore === "signed_out" ? { ...opened, restore: localFailure } : opened;
 }
 
 /** Offline removal still clears local authority; reachable accounts also revoke their session. */

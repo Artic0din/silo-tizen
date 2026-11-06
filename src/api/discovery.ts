@@ -23,7 +23,7 @@ export type DiscoveryResult =
     | { readonly status: "not_silo_v2" }
     /** The request reached another origin than the one entered (redirect or misrouted proxy). */
     | { readonly status: "origin_mismatch" }
-    | { readonly status: "server_error" };
+    | { readonly status: "server_error"; readonly transient?: true };
 
 export async function discoverServer(
     input: string,
@@ -68,5 +68,5 @@ export function failedDiscovery(error: unknown): Exclude<DiscoveryResult, { read
     if (kind === "invalid_response" || status === 404 || status === 410) {
         return { status: "not_silo_v2" };
     }
-    return { status: "server_error" };
+    return error.transient ? { status: "server_error", transient: true } : { status: "server_error" };
 }

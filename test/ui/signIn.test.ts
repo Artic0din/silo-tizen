@@ -368,7 +368,8 @@ tvTest("Change server cancels a Back still opening the previous sign-in", async 
     assert.notEqual(base, undefined);
     await tv.page.evaluate((url) => window.harness.makeAccountLegacy(url as string), base);
     tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
-    await tv.page.evaluate(() => window.harness.mount());
+    await tv.page.evaluate(() => window.harness.mount(undefined, true));
+    await connectTo(tv);
     await tv.page.locator('[data-screen="needs-setup"]').waitFor();
     await tv.page.evaluate(() => {
         window.harness.saveHold = window.harness.keyManager?.holdSaves();
@@ -392,7 +393,8 @@ for (const path of ["/system/info", "/system/setup"]) tvTest(`explicit setup ret
     await connectTo(tv);
     await signIn(tv);
     tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
-    await tv.page.evaluate(() => window.harness.mount());
+    await tv.page.evaluate(() => window.harness.mount(undefined, true));
+    await connectTo(tv);
     await tv.page.locator('[data-screen="needs-setup"]').waitFor();
     const devices = tv.fake.devices.size;
     tv.fake.dropNextAnswer(path);
@@ -416,7 +418,8 @@ tvTest("Check again resumes a saved account when setup becomes ready", async tv 
     await connectTo(tv);
     await signIn(tv);
     tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
-    await tv.page.evaluate(() => window.harness.mount());
+    await tv.page.evaluate(() => window.harness.mount(undefined, true));
+    await connectTo(tv);
     await tv.page.locator('[data-screen="needs-setup"]').waitFor();
     const devices = tv.fake.devices.size;
     await tv.page.keyboard.press("Enter");

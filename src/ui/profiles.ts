@@ -4,6 +4,7 @@
 
 import { type Clock, systemClock } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
+import { operations } from "../api/operations.ts";
 import type { ProfileSummary } from "../contracts/v2/wire.ts";
 import type { ConnectedServer } from "../session/core.ts";
 import type { ProfileLaunch } from "../session/profileLaunch.ts";
@@ -64,6 +65,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
     let leaving = false;
     let destroyed = false;
     let restoring = false;
+    let cancelReconcile: (() => void) | undefined;
 
     const show = (screen: Screen, focus?: string): void => {
         if (host === undefined) {
@@ -389,12 +391,13 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             return;
         }
         destroyed = true;
+        cancelReconcile?.();
         begin();
         unsubscribe();
         release();
     };
 
-    const launch = (): void => load(list => {
+    const launchOnline = (): void => load(list => {
         if (options.pickerRequested) { picker(list); return; }
         const token = view;
         const controller = new AbortController();
@@ -411,9 +414,41 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             restoring = false;
             pending = undefined;
             if (error instanceof SessionError && error.reason !== "unavailable") { expired(); return; }
-            message("profile-launch-error", "Remembered profile didn't open", ["Could not verify the remembered profile. Try again or choose who's watching."], [button("retry", "Retry", launch), button("back", "Choose profile", () => picker(list)), signOutButton()], () => picker(list), "error");
+            message("profile-launch-error", "Remembered profile didn't open", ["Could not verify the remembered profile. Try again or choose who's watching."], [button("retry", "Retry", launchOnline), button("back", "Choose profile", () => picker(list)), signOutButton()], () => picker(list), "error");
         });
     }, undefined, !options.pickerRequested);
+    const launch = (): void => {
+        if (!server.localRestore || options.pickerRequested || !options.launch?.remembered) { launchOnline(); return; }
+        const token = begin();
+        const controller = new AbortController();
+        pending = controller;
+        void options.launch.restoreOffline(controller.signal).then(profile => {
+            if (token !== view) return;
+            if (!profile) { launchOnline(); return; }
+            handOff(profile);
+            const generation = session.authorityGeneration;
+            const signal = session.authoritySignal;
+            const reconcile = (): void => { void session.http.verifyConnection(signal).then(() => server.profiles.list(signal)).then(async list => {
+                if (generation !== session.authorityGeneration) return;
+                const fresh = list.find(row => row.id === profile.id);
+                if (!fresh || (fresh.hasPin && session.activeProfile?.token === undefined)) {
+                    session.setProfile(undefined, "profile_proof_revoked");
+                    return;
+                }
+                await session.call({ ...operations.listUserLibraries(), profileScoped: true, signal });
+            }).catch((error: unknown) => {
+                if (destroyed || generation !== session.authorityGeneration || signal.aborted) return;
+                if ((error instanceof ApiError && error.transient) || (error instanceof SessionError && error.reason === "unavailable")) {
+                    cancelReconcile = clock.schedule(reconcile, 15000);
+                    return;
+                }
+                if (error instanceof ApiError && error.aborted) return;
+                session.setProfile(undefined, "profile_proof_revoked");
+            }); };
+            signal.addEventListener("abort", () => cancelReconcile?.(), { once: true });
+            reconcile();
+        }, () => { if (token === view) launchOnline(); });
+    };
     if (options.launch === undefined) showList();
     else launch();
     return {

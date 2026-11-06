@@ -32,11 +32,11 @@ All notable changes to this project are documented in this file.
 - Preserved newer subtitle choices when an unanswered report required connection recovery.
 
 - Applied queued subtitle choices after a replacement stream finished preparing while hidden.
-
 - Restored sidecar captions and queued choices after refused subtitle reports, aligned subtitles after suspended preparation, and honoured published HLS rendition order.
 - Reported an HLS subtitle alignment failure instead of showing a track that the native player could not select.
 - Allowed pause during subtitle reports, queued choices needing a new stream, and replanned subtitle tracks that the native stream could not identify.
 - Cleared sidecar captions when selecting embedded subtitles and restored the last confirmed subtitle after a queued choice was refused.
+- Added Retry for retryable playback startup failures and exhausted route recovery.
 - Matched the measured player layout, showed episode context, hid idle controls from every transport focus, and held seek times until playback caught up.
 
 - Preserved repeated skip taps while seeking and disabled track-list scroll animation with reduced motion.

@@ -25,19 +25,86 @@ import { spinner } from "./marquee.ts";
 
 const detailPalette = new Map<string, Tints>();
 
-function metaLine(detail: ItemDetail, state?: DetailsState): string {
-    const parts: string[] = [];
-    if (detail.year !== undefined) {
-        parts.push(String(detail.year));
+/** OverlayData.advisoryAgeBadgeLabel at silo-apple e28300c6. */
+function advisoryAgeBadgeLabel(age: number | undefined, source: string | undefined): string | undefined {
+    if (age === undefined || age <= 0) return undefined;
+    const named = source?.toLowerCase() === "commonsense" ? "Common Sense" : source?.toLowerCase() === "mdblist" ? "MDBList" : undefined;
+    return [named, `${age}+`].filter(part => part !== undefined).join(" ");
+}
+
+function runtimeToken(minutes: number): string {
+    return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
+}
+
+/** TVHeroMetadata fact tokens. Series omits runtime; an episode uses its air date. */
+function factTokens(detail: ItemDetail, state: DetailsState | undefined, episode: Episode | undefined): string[] {
+    if (episode !== undefined) {
+        const playback = state?.nextEpisodeState;
+        const selectedFile = playback?.detail.versions.find(file => file.fileId === playChoices(playback.detail, playback.selectedFileId)?.fromStart.fileId);
+        const minutes = selectedFile?.durationSeconds ? Math.round(selectedFile.durationSeconds / 60) : episode.runtimeMinutes;
+        return [episodeAirDate(episode.airDate), episodeRuntime(minutes)].filter((token): token is string => token !== undefined);
     }
-    if (detail.runtimeMinutes !== undefined && detail.runtimeMinutes > 0) {
-        const file = detail.versions.find(file => file.fileId === playChoices(detail, state?.selectedFileId)?.fromStart.fileId);
+    const tokens: string[] = [];
+    if (detail.type === "episode") {
+        const aired = episodeAirDate(detail.airDate);
+        if (aired !== undefined) tokens.push(aired);
+    } else if (detail.year !== undefined && detail.year > 0) tokens.push(String(detail.year));
+    if (detail.type !== "series" && detail.runtimeMinutes !== undefined && detail.runtimeMinutes > 0) {
+        const file = detail.versions.find(version => version.fileId === playChoices(detail, state?.selectedFileId)?.fromStart.fileId);
         const minutes = file?.durationSeconds ? Math.round(file.durationSeconds / 60) : detail.runtimeMinutes;
-        parts.push(minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`);
+        tokens.push(runtimeToken(minutes));
     }
     const count = state?.series?.seasons.filter(season => !season.isSpecials).length;
-    if (detail.type === "series" && count) parts.push(`${count} Season${count === 1 ? "" : "s"}`);
-    return parts.join("\u2002·\u2002");
+    if (detail.type === "series" && count) tokens.push(`${count} Season${count === 1 ? "" : "s"}`);
+    return tokens;
+}
+
+/** Genres are one source token. A focused series episode splits season and episode. */
+function sourceTokens(detail: ItemDetail, episode: Episode | undefined): string[] {
+    if (episode !== undefined) return [episode.seasonNumber === 0 ? "Specials" : `Season ${episode.seasonNumber}`, `Episode ${episode.episodeNumber}`];
+    if (detail.type === "episode") {
+        const season = detail.seasonNumber === undefined ? undefined : detail.seasonNumber === 0 ? "Specials" : `Season ${detail.seasonNumber}`;
+        const number = detail.episodeNumber !== undefined && detail.episodeNumber > 0 ? `Episode ${detail.episodeNumber}` : undefined;
+        if (season !== undefined && number !== undefined) return [`${season} \u00B7 ${number}`];
+        return [season, number].filter((token): token is string => token !== undefined);
+    }
+    return detail.genres.length === 0 ? [] : [detail.genres.slice(0, 2).join(", ")];
+}
+
+function metadataRow(detail: ItemDetail, state: DetailsState | undefined, episode: Episode | undefined): HTMLElement | undefined {
+    const chips: { text: string; advisory: boolean }[] = [];
+    const ratingChip = detail.contentRating?.trim();
+    if (ratingChip) chips.push({ text: ratingChip, advisory: false });
+    if (state?.showAdvisoryAge) {
+        const advisory = advisoryAgeBadgeLabel(detail.advisoryAge, detail.advisorySource);
+        if (advisory !== undefined) chips.push({ text: advisory, advisory: true });
+    }
+    const facts = factTokens(detail, state, episode);
+    const ratings = (episode === undefined ? detail.extra?.ratings : state?.nextEpisodeState?.detail.extra?.ratings ?? episode.ratings) ?? [];
+    const sources = sourceTokens(detail, episode);
+    if (chips.length === 0 && facts.length === 0 && ratings.length === 0 && sources.length === 0) return undefined;
+    const row = el("p", "browse-meta");
+    for (const chip of chips) {
+        const badge = el("span", "details-rating-badge", chip.text);
+        if (chip.advisory) badge.dataset.advisoryAge = chip.text;
+        row.append(badge);
+    }
+    for (const fact of facts) row.append(el("span", "details-fact", fact));
+    for (const rating of ratings) {
+        const badge = el("span", "details-external-rating");
+        badge.setAttribute("aria-label", `${rating.name} ${rating.display}`);
+        if (rating.name.toUpperCase() === "TMDB") {
+            const logo = el("img", "skyline-rating-logo");
+            logo.src = TMDB_LOGO_PATH;
+            logo.alt = "TMDB";
+            badge.append(logo);
+        } else badge.append(el("span", "", rating.name));
+        badge.append(el("span", "details-rating-score", rating.display));
+        row.append(badge);
+    }
+    const namedGenres = episode === undefined && detail.type !== "episode";
+    for (const source of sources) row.append(el("span", namedGenres ? "details-genres" : "details-source", source));
+    return row;
 }
 
 function overviewText(overview: string, status: DescriptionTranslationStatus | undefined): HTMLElement {
@@ -79,33 +146,10 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
         image.src = logo;
     }
     nodes.push(title);
-    if (state?.showAdvisoryAge && detail.advisoryAge !== undefined) nodes.push(el("p", "browse-meta", `Advisory Age ${detail.advisoryAge}+`));
-    const episode = state?.series?.episodes?.find(episode => episode.id === state.heroEpisodeId);
+    const episode = state?.series?.episodes?.find(item => item.id === state.heroEpisodeId);
     const playback = state?.nextEpisodeState;
-    const selectedFile = playback?.detail.versions.find(file => file.fileId === playChoices(playback.detail, playback.selectedFileId)?.fromStart.fileId);
-    const meta = episode === undefined ? metaLine(detail, state) : [episodeAirDate(episode.airDate), episodeRuntime(selectedFile?.durationSeconds ? Math.round(selectedFile.durationSeconds / 60) : episode.runtimeMinutes)].filter(Boolean).join("\u2002·\u2002");
-    const ratings = (episode === undefined ? detail.extra?.ratings : playback?.detail.extra?.ratings ?? episode.ratings)?.map(rating => `${rating.name} ${rating.display}`).join(" · ");
-    const ratingChip = detail.contentRating?.trim();
-    if (meta || ratings || ratingChip || episode !== undefined) {
-        const facts = el("p", "browse-meta", meta);
-        for (const rating of (episode === undefined ? detail.extra?.ratings : playback?.detail.extra?.ratings ?? episode.ratings) ?? []) {
-            const badge = el("span", "details-external-rating");
-            if (rating.name.toUpperCase() === "TMDB") {
-                const logo = el("img", "skyline-rating-logo"); logo.src = TMDB_LOGO_PATH; logo.alt = "TMDB";
-                badge.append(logo);
-            } else badge.append(el("span", "", rating.name));
-            badge.append(" ", el("span", "details-rating-score", rating.display));
-            if (facts.hasChildNodes()) facts.append("\u2002·\u2002");
-            facts.append(badge);
-        }
-        if (episode !== undefined) {
-            if (facts.hasChildNodes()) facts.append("\u2002·\u2002");
-            facts.append(`${episode.seasonNumber === 0 ? "Specials" : `Season ${episode.seasonNumber}`}\u2002·\u2002Episode ${episode.episodeNumber}`);
-        }
-        if (episode === undefined && detail.genres.length) facts.append("\u2002·\u2002", el("span", "details-genres", detail.genres.slice(0, detail.type === "series" ? 2 : 3).join(", ")));
-        if (ratingChip) facts.prepend(el("span", "details-rating-badge", ratingChip));
-        nodes.push(facts);
-    }
+    const row = metadataRow(detail, state, episode);
+    if (row !== undefined) nodes.push(row);
     const presentation = episodeDetailPresentation(detail, context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false }, state?.values.get("watched"));
     const episodeOverview = episode === undefined ? undefined : episodeDetailPresentation({ type: "episode", overview: episode.overview || playback?.detail.overview, watch: { played: episode.played, isInProgress: episode.isInProgress, positionSeconds: episode.positionSeconds } }, context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false }).overview;
     const overview = episode === undefined ? presentation.overview : [playback?.detail.title ?? episode.title, episodeOverview].filter(Boolean).join(" · ");

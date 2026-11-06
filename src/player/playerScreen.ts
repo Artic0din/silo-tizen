@@ -82,25 +82,19 @@ function changeText(tracks: TrackView): string {
     }
 }
 
-/** Apple's `exclamationmark.triangle.fill` at 40pt, filled with `siloError` (#B00020). */
+/** Apple's `exclamationmark.triangle.fill` at 40pt in `siloError`. Same glyph as `FAILURE_ICON`. */
 function warningMark(): HTMLElement {
     const mark = el("span", "player-error-mark");
     mark.setAttribute("aria-hidden", "true");
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 40 40");
+    svg.setAttribute("viewBox", "0 0 48 48");
     const triangle = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    triangle.setAttribute("d", "M20 3.5 37 34.5H3Z");
-    const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-    bar.setAttribute("x", "18.25");
-    bar.setAttribute("y", "15");
-    bar.setAttribute("width", "3.5");
-    bar.setAttribute("height", "11");
-    bar.setAttribute("rx", "1");
-    const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    dot.setAttribute("cx", "20");
-    dot.setAttribute("cy", "30");
-    dot.setAttribute("r", "2");
-    svg.append(triangle, bar, dot);
+    triangle.setAttribute("class", "player-error-triangle");
+    triangle.setAttribute("d", "M20 5a4.6 4.6 0 0 1 8 0l19 33a4.6 4.6 0 0 1-4 7H5a4.6 4.6 0 0 1-4-7Z");
+    const bang = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    bang.setAttribute("class", "player-error-bang");
+    bang.setAttribute("d", "M24 16v12m0 7v1");
+    svg.append(triangle, bang);
     mark.append(svg);
     return mark;
 }
@@ -375,6 +369,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         next.hidden = true;
         cancelAutoplay.hidden = view.phase !== "completion" || view.countdown === undefined;
         failure.className = view.phase === "error" ? "player-error player-error-wall" : "player-error";
+        failureTitle.hidden = view.phase === "error";
         mark.hidden = view.phase !== "error";
         back.textContent = view.phase === "error" ? "Go Back" : "Back";
         if (view.phase === "completion") {
@@ -390,7 +385,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }
         if (view.phase === "error") {
             retry.hidden = view.error.kind !== "settings" && !view.retryable;
-            failureTitle.textContent = view.title;
+            failureTitle.textContent = "";
             failureText.textContent = errorText(view.error);
             if (document.activeElement !== back && document.activeElement !== retry) {
                 (retry.hidden ? back : retry).focus();

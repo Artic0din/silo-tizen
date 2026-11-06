@@ -44,6 +44,48 @@ const TRACKS: TrackView = {
 };
 const playing = (tracks: TrackView): Extract<PlaybackView, { phase: "playing" | "paused" }> => ({ phase: "playing", title: "The Movie", positionSeconds: 754, durationSeconds: 7200, buffering: false, seekIntervals: { backward: 10, forward: 10 }, tracks });
 
+test("Info Retry remains visible when Down is pressed on its focused action", async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), hud: { chapters: [], chapterState: "failed", overview: "Long overview. ".repeat(400), stats: [], speeds: [], aspects: [], speed: 1, aspect: "Fit", autoNext: false, busy: false } });
+        await openPanel(page);
+        const retry = page.locator('[data-focus="chapters-retry"]');
+        await retry.focus();
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await page.clock.runFor(200);
+        const before = await page.locator(".player-menu-info").evaluate(node => node.scrollTop);
+        await remote(page, DOWN);
+        assert.equal(await page.locator(".player-menu-info").evaluate(node => node.scrollTop), before);
+        const visible = await retry.evaluate(node => {
+            const r = node.getBoundingClientRect();
+            const p = node.closest(".player-menu-info")!.getBoundingClientRect();
+            return r.top >= p.top && r.bottom <= p.bottom;
+        });
+        assert.equal(visible, true);
+    } finally { await page.close(); }
+});
+
+test("Up scrolls a long Info overview before returning to its tab", async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), hud: { chapters: [], chapterState: "ready", overview: "Long overview. ".repeat(400), stats: [], speeds: [], aspects: [], speed: 1, aspect: "Fit", autoNext: false, busy: false } });
+        await openPanel(page);
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        assert.equal(await focused(page), "info");
+        const pane = page.locator(".player-menu-info");
+        const before = await pane.evaluate(node => {
+            node.scrollTop = node.scrollHeight;
+            return { scroll: node.scrollTop, overflow: node.scrollHeight > node.clientHeight };
+        });
+        assert.equal(before.overflow, true);
+        assert.ok(before.scroll > 1);
+        await remote(page, UP);
+        const after = await pane.evaluate(node => node.scrollTop);
+        assert.ok(after < before.scroll, `scroll stayed at ${before.scroll}`);
+        assert.equal(await focused(page), "info");
+    } finally { await page.close(); }
+});
+
 test("chapters seek in source time, close options and retain a remote focus target", async () => {
     const { page } = await open();
     try {

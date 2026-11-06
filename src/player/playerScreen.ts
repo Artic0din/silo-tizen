@@ -948,7 +948,9 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         const all = buttons(column);
         const at = all.findIndex((button) => button === document.activeElement);
         const atTab = tabs.findIndex(tab => tab === document.activeElement);
-        if (key === "up" && at <= 0) { tabs[column]?.focus(); return; }
+        const infoPane = lists[column];
+        const infoCanScrollUp = key === "up" && focusedId() === "info" && tabNames[column] === "Info" && infoPane !== undefined && infoPane.scrollTop > 1;
+        if (key === "up" && at <= 0 && !infoCanScrollUp) { tabs[column]?.focus(); return; }
         if (atTab >= 0) {
             if (key === "down" || key === "enter") focusList(column);
             else if (key === "left" || key === "right") {
@@ -961,7 +963,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }
         if (key === "up" || key === "down") {
             const pane = lists[column];
-            if (tabNames[column] === "Info" && pane !== undefined && pane.scrollHeight > pane.clientHeight) {
+            if (focusedId() === "info" && tabNames[column] === "Info" && pane !== undefined && pane.scrollHeight > pane.clientHeight) {
                 const end = pane.scrollHeight - pane.clientHeight;
                 if (key === "down" && pane.scrollTop < end - 1 || key === "up" && pane.scrollTop > 1) {
                     pane.scrollTop = Math.max(0, Math.min(end, pane.scrollTop + (key === "down" ? 1 : -1) * pane.clientHeight * 0.8));

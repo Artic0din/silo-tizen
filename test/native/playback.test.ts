@@ -19,6 +19,32 @@ import { connected, type Harness, signIn } from "./support/harness.ts";
 
 const MOVIE: PlayRequest = { contentId: "movie-1", fileId: "42", title: "Movie", startSeconds: 12.5 };
 
+test("READY foreground restore reapplies the selected speed and aspect", async () => {
+    const r = await rig();
+    const applied: string[] = [];
+    Object.assign(r.avplay, {
+        setSpeed: (value: number) => applied.push(`speed ${value}`),
+        setDisplayMethod: (value: string) => applied.push(value),
+    });
+    await playMovie(r);
+    r.controller.setVideo("speed", "2");
+    r.controller.setVideo("aspect", "Stretch");
+    r.avplay.listener?.onerror("PLAYER_ERROR_NOT_SUPPORTED_FORMAT");
+    await r.h.clock.advance(0);
+    r.controller.suspend();
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    if (r.avplay.calls.at(-1)?.startsWith("seekTo")) {
+        r.avplay.finishSeek();
+        await r.h.clock.advance(0);
+    }
+    applied.length = 0;
+    r.controller.restore();
+    await r.h.clock.advance(0);
+    assert.deepEqual(applied, ["speed 2", "PLAYER_DISPLAY_MODE_FULL_SCREEN"]);
+    r.controller.destroy();
+});
+
 test("HUD chapters read the effective watch file, expose failures and retry without restarting playback", async () => {
     const r = await rig();
     r.h.fake.script("/watch/movie-1?file_id=42", problem(404, "not_found", "Unavailable"));
@@ -67,6 +93,30 @@ test("live autoplay saves once while pending and retains the old value on refusa
     assert.ok(view.phase === "playing");
     assert.equal(view.hud?.autoNext, false);
     assert.match(view.hud?.message ?? "", /Could not save/);
+    r.controller.destroy();
+});
+
+test("a discovery settings read started before a save cannot overwrite Auto-play next", async () => {
+    const r = await autoplayRig(true);
+    r.settings.overrides.delete("playback.auto_play_next");
+    r.settings.profile().set("playback.auto_play_next", true);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing" && view.durationSeconds !== undefined);
+    const path = "/settings/values/effective?keys=playback.auto_play_next";
+    const hold = r.h.fake.hold(path);
+    r.avplay.tick((view.durationSeconds - 20) * 1000);
+    await r.h.clock.advance(0);
+    r.controller.toggleAutoNext();
+    await r.h.clock.advance(0);
+    const saved = last(r.views);
+    assert.ok(saved.phase === "playing");
+    assert.equal(saved.hud?.autoNext, false);
+    hold.release();
+    await r.h.clock.advance(0);
+    const later = last(r.views);
+    assert.ok(later.phase === "playing");
+    assert.equal(later.hud?.autoNext, false);
     r.controller.destroy();
 });
 
@@ -1535,6 +1585,23 @@ test("Show Up Next opens the manual panel on the next episode without a countdow
     r.controller.playNext();
     await r.h.clock.advance(0);
     assert.equal(bodies(r.h, "/start").length, 2);
+    r.controller.destroy();
+});
+
+test("playback ticks do not repeat the Up Next catalog read", async () => {
+    const r = await autoplayRig(true);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing" && view.durationSeconds !== undefined);
+    const path = "/catalog/items/" + encodeURIComponent("episode:s1e13");
+    const reads = (): number => r.h.fake.requests.filter(request => request.path.split("?")[0] === path).length;
+    r.avplay.tick((view.durationSeconds - 20) * 1000);
+    await r.h.clock.advance(0);
+    const first = reads();
+    assert.equal(first, 1);
+    for (let tick = 0; tick < 5; tick++) r.avplay.tick((view.durationSeconds - 19 + tick) * 1000);
+    await r.h.clock.advance(0);
+    assert.equal(reads(), first);
     r.controller.destroy();
 });
 

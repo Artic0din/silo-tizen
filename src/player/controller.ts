@@ -258,9 +258,13 @@ interface Attempt {
         deckSettled: boolean;
         deckFailed: boolean;
         deck: PlayRequest[];
+        /** Successor whose catalog presentation was requested. Ticks must not read it again. */
+        presentationFor: string | undefined;
     };
     transportCommandCount: number;
     autoNext: boolean;
+    /** Confirmed Auto-play saves advance this so an older settings read cannot overwrite them. */
+    settingsEpoch: number;
     introMode: "never" | "ask" | "always";
     skipCredits: boolean;
     skippedMarkers: Set<SkipMarker>;
@@ -419,9 +423,9 @@ export class PlaybackController implements PlayerControls {
             hud: new HUDState(),
             autoNextSupported: false,
             promptSeconds: 30, promptSupported: false, promptDismissed: false, promptPending: false, promptLookedUp: false, prompt: undefined,
-            offer: { started: false, manual: false, episodeLoading: false, deckLoading: false, episodeSettled: false, episodeFailed: false, episode: undefined, deckSettled: false, deckFailed: false, deck: [] },
+            offer: { started: false, manual: false, episodeLoading: false, deckLoading: false, episodeSettled: false, episodeFailed: false, episode: undefined, deckSettled: false, deckFailed: false, deck: [], presentationFor: undefined },
             transportCommandCount: 0,
-            autoNext: false,
+            autoNext: false, settingsEpoch: 0,
             ai: undefined, search: undefined, display: undefined, aiBlockedFiles: new Set(), pendingAIResult: undefined,
             introMode: "ask", skipCredits: false, skippedMarkers: new Set(), undoSkip: undefined, pendingSkipUndo: undefined,
             appearance: DEFAULT_APPEARANCE, subtitleSync: 0, cues: [], captionAbort: undefined, captionNotice: "", captionPreferenceNotice: "", captionKey: undefined, captionPreferencesRead: false, seriesSubtitle: request.episode ? { busy: false, message: "" } : undefined,
@@ -527,9 +531,11 @@ export class PlaybackController implements PlayerControls {
         attempt.hud.message = "Saving Auto-play next";
         this.showPlayback(attempt);
         const enabled = !attempt.autoNext;
+        const epoch = attempt.settingsEpoch;
         void this.deps.session.call({ ...operations.putSetting(AUTO_NEXT_KEY, enabled), profileScoped: true, signal: attempt.signal }).then(async () => {
             const values = await this.deps.session.call({ ...operations.effectiveSettings([AUTO_NEXT_KEY]), profileScoped: true, signal: attempt.signal });
-            if (!attempt.live || attempt.signal.aborted) return;
+            if (!attempt.live || attempt.signal.aborted || epoch !== attempt.settingsEpoch) return;
+            attempt.settingsEpoch = epoch + 1;
             attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
             attempt.hud.message = attempt.autoNext === enabled ? "" : "This TV's override keeps Auto-play next unchanged.";
         }).catch(() => {
@@ -1026,9 +1032,10 @@ export class PlaybackController implements PlayerControls {
             }
             if (definitions.some(def => def.key === AUTO_NEXT_KEY)) {
                 attempt.autoNextSupported = true;
+                const epoch = attempt.settingsEpoch;
                 try {
                     const values = await call(operations.effectiveSettings([AUTO_NEXT_KEY]));
-                    if (attempt.live) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
+                    if (attempt.live && epoch === attempt.settingsEpoch) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
                 } catch { /* Unavailable autoplay preferences leave Play next manual. */ }
             }
             if (!SEEK_KEYS.every(key => definitions.some(def => def.key === key))) return true;
@@ -2084,10 +2091,11 @@ export class PlaybackController implements PlayerControls {
                 return;
             }
             if (attempt.autoNextSupported) {
+                const epoch = attempt.settingsEpoch;
                 try {
                     const values = await this.deps.session.call({ ...operations.effectiveSettings([AUTO_NEXT_KEY]), profileScoped: true, signal: abort.signal });
-                    attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
-                } catch { if (current()) attempt.autoNext = false; }
+                    if (epoch === attempt.settingsEpoch) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
+                } catch { if (current() && epoch === attempt.settingsEpoch) attempt.autoNext = false; }
                 if (!current()) return;
             }
             if (attempt.request.shuffleId !== undefined) {
@@ -2637,6 +2645,7 @@ export class PlaybackController implements PlayerControls {
             attempt.suspendedReady = false;
             try {
                 this.deps.avplay.play();
+                if (attempt.plan !== undefined) attempt.hud.restore(this.deps.avplay, attempt.plan);
                 if (attempt.paused) {
                     this.deps.avplay.pause();
                 }
@@ -2958,10 +2967,11 @@ export class PlaybackController implements PlayerControls {
         if (part !== "deck") {
             try {
                 if (attempt.autoNextSupported) {
+                    const epoch = attempt.settingsEpoch;
                     try {
                         const values = await read(operations.effectiveSettings([AUTO_NEXT_KEY]));
-                        if (live()) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
-                    } catch { if (live()) attempt.autoNext = false; }
+                        if (live() && epoch === attempt.settingsEpoch) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
+                    } catch { if (live() && epoch === attempt.settingsEpoch) attempt.autoNext = false; }
                 }
                 if (attempt.request.episode === true) {
                     const fileId = attempt.plan?.effectiveMediaFileId;
@@ -3036,7 +3046,8 @@ export class PlaybackController implements PlayerControls {
         attempt.prompt = { next: displayed, deck: offer.deckFailed ? [] : offer.deck, fromDeck, ...(loading ? { loading: true } : {}), ...(failed ? { failed: true } : {}) };
         try { this.setDisplayRect(attempt); } catch { /* A PLAYING seek refuses the rectangle until it settles. */ }
         this.showPlayback(attempt);
-        if (displayed !== undefined && !fromDeck) {
+        if (displayed !== undefined && !fromDeck && attempt.offer.presentationFor !== displayed.contentId) {
+            attempt.offer.presentationFor = displayed.contentId;
             this.loadPresentation(displayed, attempt.signal, enriched => {
                 if (this.active() !== attempt || attempt.offer.episode?.contentId !== displayed.contentId || attempt.prompt?.next?.contentId !== displayed.contentId) return;
                 attempt.offer.episode = enriched;

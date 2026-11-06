@@ -156,7 +156,7 @@ export function playChoices(detail: ItemDetail, selectedFileId?: string): PlayCh
         contentId: detail.id,
         fileId: file.fileId,
         title: detail.title,
-        ...(detail.type === "episode" ? { episode: true as const } : {}),
+        ...(detail.type === "episode" ? { episode: true as const, seriesTitle: detail.seriesTitle, seasonNumber: detail.seasonNumber, episodeNumber: detail.episodeNumber } : {}),
         ...(selectedFileId === undefined ? {} : { allowAlternateVersions: false as const }),
     };
     const start = resumeSeconds(detail.watch?.positionSeconds, duration);

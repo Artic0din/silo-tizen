@@ -44,6 +44,9 @@ import { audioRow, qualityMenuLabel, subtitleRow } from "./trackLabels.ts";
 
 /** What browse hands over: one file of one catalog item. */
 export interface PlayRequest {
+    readonly seriesTitle?: string | undefined;
+    readonly seasonNumber?: number | undefined;
+    readonly episodeNumber?: number | undefined;
     readonly shuffleId?: string;
     readonly episode?: true;
     readonly audioTrackId?: string;
@@ -120,6 +123,9 @@ export type PlaybackView =
     | { readonly phase: "loading"; readonly title: string; readonly detail?: "reconnecting" | "restoring" }
     | {
           readonly phase: "playing" | "paused";
+          readonly seriesTitle?: string | undefined;
+          readonly seasonNumber?: number | undefined;
+          readonly episodeNumber?: number | undefined;
           readonly title: string;
           /** Source time. */
           readonly positionSeconds: number;
@@ -1879,7 +1885,7 @@ export class PlaybackController implements PlayerControls {
             const next = await nextEpisode(spec => {
                 if (!current()) throw abortedError();
                 return this.deps.session.call({ ...spec, profileScoped: true, signal: abort.signal });
-            }, attempt.request.contentId, fileId);
+            }, attempt.request.contentId, fileId, attempt.request.seriesTitle);
             if (next !== undefined) {
                 show("ready", next, false, "Playing Next");
                 if (current() && attempt.autoNext) this.startAutoplay(completion);
@@ -2610,6 +2616,9 @@ export class PlaybackController implements PlayerControls {
             phase: attempt.paused ? "paused" : "playing",
             title: attempt.request.title,
             positionSeconds: attempt.sourceSeconds,
+            seriesTitle: attempt.request.seriesTitle,
+            seasonNumber: attempt.request.seasonNumber,
+            episodeNumber: attempt.request.episodeNumber,
             durationSeconds: plan.durationSeconds,
             buffering: attempt.buffering,
             resumePending: attempt.paused && attempt.pauseAfterSeek === false,

@@ -27,6 +27,8 @@ All notable changes to this project are documented in this file.
 - Reported an HLS subtitle alignment failure instead of showing a track that the native player could not select.
 - Allowed pause during subtitle reports, queued choices needing a new stream, and replanned subtitle tracks that the native stream could not identify.
 - Cleared sidecar captions when selecting embedded subtitles and restored the last confirmed subtitle after a queued choice was refused.
+- Matched the measured player layout, showed episode context, hid idle controls from every transport focus, and held seek times until playback caught up.
+
 - Preserved repeated skip taps while seeking and disabled track-list scroll animation with reduced motion.
 
 - Followed playback after an external resume during scrubbing and preserved newer Play/Pause choices while a scrub seek landed.

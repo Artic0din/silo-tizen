@@ -21,7 +21,7 @@ function episode(detail: WatchDetail): { series: string; season: number; number:
 }
 
 /** Fresh authorized data only. A failed read is never mistaken for an exhausted season. */
-export async function nextEpisode(read: Read, contentId: string, effectiveFileId: string): Promise<PlayRequest | undefined> {
+export async function nextEpisode(read: Read, contentId: string, effectiveFileId: string, seriesTitle?: string): Promise<PlayRequest | undefined> {
     const current = await read(operations.watchDetail(contentId));
     if (current.id !== contentId) invalid();
     const context = episode(current);
@@ -49,7 +49,7 @@ export async function nextEpisode(read: Read, contentId: string, effectiveFileId
             const version = allowed.find(version => version.fileId === detail.watch?.lastFileId) ?? allowed[0];
             if (version === undefined) continue;
             const resume = detail.watch?.played === false ? resumeSeconds(detail.watch.positionSeconds, version.durationSeconds || undefined) : undefined;
-            return { contentId: detail.id, fileId: version.fileId, title: detail.title, startSeconds: resume ?? 0, episode: true };
+            return { contentId: detail.id, fileId: version.fileId, title: detail.title, startSeconds: resume ?? 0, episode: true, ...(seriesTitle === undefined ? {} : { seriesTitle }), seasonNumber: detail.seasonNumber, episodeNumber: detail.episodeNumber };
         }
     }
     return undefined;

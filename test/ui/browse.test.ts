@@ -1770,7 +1770,7 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
         await mkdir(process.env.DETAILS_CAPTURE_DIR, { recursive: true });
         await tv.page.screenshot({ path: `${process.env.DETAILS_CAPTURE_DIR}/details.png` });
     }
-    await shows(tv, "IMDb 8.1");
+    await tv.page.locator(".details-external-rating", { hasText: "IMDb" }).filter({ hasText: "8.1" }).waitFor();
     await tv.page.locator('[data-focus="version"]').click();
     await tv.page.locator('[data-focus="version:43"]').focus();
     await press(tv, "Enter");

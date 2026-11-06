@@ -25,6 +25,40 @@ detailTest("cached series Play retains its episode label offline", async tv => {
     await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === before + 1, "cached episode reaches the ordinary playback handoff");
 });
 
+function ratingChipFrame(): { media: string; text: string; font: boolean; lineHeight: string; rowTop: number; rowBottom: number; rowHeight: number; chipTop: number; chipBottom: number; chipHeight: number; textTop: number; textBottom: number; heroRowTop: number; belowTop: number; stack: number[] } | null {
+    const row = document.querySelector(".details-editorial .browse-meta");
+    const chip = row?.querySelector(".details-rating-badge:not([data-advisory-age])");
+    const hero = row?.closest(".details-hero");
+    if (!(row instanceof HTMLElement) || !(chip instanceof HTMLElement) || !(hero instanceof HTMLElement) || !row.isConnected || !chip.isConnected) return null;
+    const rowBox = row.getBoundingClientRect();
+    const chipBox = chip.getBoundingClientRect();
+    const range = document.createRange();
+    range.selectNodeContents(chip);
+    const textBox = range.getBoundingClientRect();
+    const heroTop = hero.getBoundingClientRect().top;
+    const below = row.nextElementSibling;
+    return {
+        media: hero.dataset.mediaType ?? "",
+        text: chip.textContent ?? "",
+        font: document.fonts.check("700 18px Inter"),
+        lineHeight: getComputedStyle(chip).lineHeight,
+        rowTop: rowBox.top,
+        rowBottom: rowBox.bottom,
+        rowHeight: rowBox.height,
+        chipTop: chipBox.top,
+        chipBottom: chipBox.bottom,
+        chipHeight: chipBox.height,
+        textTop: textBox.top,
+        textBottom: textBox.bottom,
+        heroRowTop: rowBox.top - heroTop,
+        belowTop: below instanceof HTMLElement ? below.getBoundingClientRect().top - heroTop : Number.NaN,
+        stack: [".browse-meta", ".browse-overview", ".details-director", ".details-playback-summary", ".browse-actions"].map(selector => {
+            const node = document.querySelector(`.details-editorial ${selector}`);
+            return node instanceof HTMLElement ? node.getBoundingClientRect().top - heroTop : Number.NaN;
+        }),
+    };
+}
+
 function liveRail(_arg: null): { left: number; width: number; scroll: number; padding: string; cards: { x: number; frameX: number; right: number; width: number }[] } | null {
     const row = document.querySelector(".details-episodes");
     if (!(row instanceof HTMLElement) || !row.isConnected) return null;
@@ -1787,6 +1821,41 @@ detailTest('the metadata row leads with outlined rating and advisory chips, then
     assert.equal(row.factColor, 'rgba(255, 255, 255, 0.88)');
     assert.equal(row.factWeight, '500');
     assert.equal(row.genres, 'Drama, Thriller');
+});
+
+detailTest('rating chips fit inside the clipped metadata row on movie, episode and series', async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    for (const id of ['movie:m0001', 'series:s1', 'episode:s1e11']) {
+        const body = catalog.route('GET', `/catalog/items/${encodeURIComponent(id)}`, 'p-owner')?.body as Record<string, unknown>;
+        await tv.page.route(`**/api/v2/catalog/items/${encodeURIComponent(id)}?**`, route => route.fulfill({ json: { ...body, content_rating: 'PG-13' } }));
+    }
+    const open = async (id: string): Promise<void> => {
+        await tv.page.locator(`[data-section="recently_added"] [data-focus="${id}"]`).first().click();
+        await tv.page.locator('.details-rating-badge').waitFor();
+        await tv.page.evaluate(() => document.fonts.ready);
+    };
+    const frames = [];
+    await open('movie:m0001');
+    frames.push(await readLive(tv, ratingChipFrame, null, value => value.media === 'movie' && value.text === 'PG-13' && value.font && Math.abs(value.rowHeight - 33) < 0.5, 'movie settled rating chip'));
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="home"]').waitFor();
+    await open('series:s1');
+    frames.push(await readLive(tv, ratingChipFrame, null, value => value.media === 'series' && value.text === 'PG-13' && value.font && Math.abs(value.rowHeight - 36) < 0.5, 'series settled rating chip'));
+    await tv.page.locator('[data-focus="episode:s1e11"]').click({ button: 'right' });
+    await tv.page.locator('[data-focus="episode-information"]').click();
+    await tv.page.locator('[data-view="item:episode:s1e11"]').waitFor();
+    await tv.page.evaluate(() => document.fonts.ready);
+    frames.push(await readLive(tv, ratingChipFrame, null, value => value.media === 'episode' && value.text === 'PG-13' && value.font && Math.abs(value.rowHeight - 33) < 0.5, 'episode settled rating chip'));
+    const clipped = frames.filter(frame => frame.chipTop < frame.rowTop - 0.01 || frame.chipBottom > frame.rowBottom + 0.01 || frame.textTop < frame.rowTop - 0.01 || frame.textBottom > frame.rowBottom + 0.01);
+    assert.deepEqual(clipped, []);
+    // SF Pro 18pt line height is 21.19921875. Chromium serializes the used value as 21.1992px.
+    for (const frame of frames) assert.ok(Math.abs(parseFloat(frame.lineHeight) - 21.19921875) < 0.001, frame.lineHeight);
+    // The row and the item under it stay put. Measured before the line-height change.
+    assert.deepEqual(frames.map(frame => ({ media: frame.media, heroRowTop: frame.heroRowTop, belowTop: frame.belowTop })), [
+        { media: 'movie', heroRowTop: 290, belowTop: 333 },
+        { media: 'series', heroRowTop: 240, belowTop: 286 },
+        { media: 'episode', heroRowTop: 293, belowTop: 336 },
+    ]);
 });
 
 detailTest('Series thumbnail dimensions follow the Apple poster-size scale', async tv => {

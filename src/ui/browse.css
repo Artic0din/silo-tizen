@@ -1100,6 +1100,11 @@
 .details-editorial .details-fact,
 .details-editorial .details-external-rating,
 .details-editorial .details-rating-badge { flex-shrink: 0; }
+/* ratingBadge is 18pt bold with 4pt vertical padding (TVDetailHero.swift).
+   SF Pro's line height at 18pt is 21.19921875. The metadata line-height is 29px,
+   which makes this chip 39px and lets the 33px movie/episode row and the 36px
+   series row clip its stroke. */
+.details-editorial .details-rating-badge { line-height: 21.19921875px; }
 .details-editorial .details-fact { font-size: 24px; font-weight: 500; color: rgba(255, 255, 255, 0.88); }
 .details-editorial .details-genres,
 .details-editorial .details-source { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 24px; font-weight: 500; color: rgba(255, 255, 255, 0.9); }

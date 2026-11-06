@@ -23,6 +23,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept Play focused when a movie's Details opened, even if the first focus claim did not stick, and kept that claim from leaving a card-actions dialog or ignoring a Play button that appears after the page opens.
 - Reloaded the subtitle language catalog when Try Again or Choose another language follows a catalog failure, instead of searching the previously chosen language.
 - Returned subtitle pickers to their originating pane and row after selection or Back, while preserving focus in another active tab.
 

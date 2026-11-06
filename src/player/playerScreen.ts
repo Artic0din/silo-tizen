@@ -1087,7 +1087,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }
         // A local seek hides the preview key while busy; its landing must not
         // discard a newer scrub, but a replacement plan still invalidates it.
-        const heldLanding = timeline && next.phase === view.phase && (next.phase === "playing" || next.phase === "paused") && view.previewKey === undefined && next.previewKey !== undefined && (readyPreviewKey === undefined || next.previewKey === readyPreviewKey);
+        const active = view.phase === "playing" || view.phase === "paused" ? view : undefined;
+        const heldLanding = timeline && active !== undefined && next.phase === active.phase && active.previewKey === undefined && next.previewKey !== undefined && (readyPreviewKey === undefined || next.previewKey === readyPreviewKey);
         if (!heldLanding && (next.phase === "playing" || next.phase === "paused") && (view.phase === "playing" || view.phase === "paused") && next.previewKey !== view.previewKey) {
             cancelScrub();
         }

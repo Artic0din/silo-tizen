@@ -368,7 +368,8 @@ tvTest("Change server cancels a Back still opening the previous sign-in", async 
     assert.notEqual(base, undefined);
     await tv.page.evaluate((url) => window.harness.makeAccountLegacy(url as string), base);
     tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
-    await tv.page.evaluate(() => window.harness.mount());
+    await tv.page.evaluate(() => window.harness.mount(undefined, true));
+    await connectTo(tv);
     await tv.page.locator('[data-screen="needs-setup"]').waitFor();
     await tv.page.evaluate(() => {
         window.harness.saveHold = window.harness.keyManager?.holdSaves();
@@ -388,11 +389,37 @@ tvTest("Change server cancels a Back still opening the previous sign-in", async 
     assert.equal(await handoffs(tv), before, "the abandoned Back does not hand off its saved account");
 });
 
+for (const path of ["/system/info", "/system/setup"]) tvTest(`explicit setup retry keeps a saved account on the setup screen after ${path} failure`, async tv => {
+    await connectTo(tv);
+    await signIn(tv);
+    tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    await tv.page.evaluate(() => window.harness.mount(undefined, true));
+    await connectTo(tv);
+    await tv.page.locator('[data-screen="needs-setup"]').waitFor();
+    const devices = tv.fake.devices.size;
+    tv.fake.dropNextAnswer(path);
+    tv.fake.dropNextAnswer(path);
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => {
+        if (await handoffs(tv) > 1 || await tv.page.getByText("Couldn't reach the server. Check it's running and try again.", { exact: true }).count() === 1) return true;
+        await tv.jump(1000);
+        return false;
+    }, "explicit setup retry completed");
+    assert.equal(await tv.screen(), "needs-setup");
+    assert.equal(await handoffs(tv), 1, "a failed explicit retry cannot hand off the cached account");
+    assert.equal(tv.fake.devices.size, devices);
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await handoffs(tv) === 2, "saved account resumes after a successful retry");
+    assert.equal(await tv.page.evaluate(() => window.harness.handoffs[1]?.restore), "signed_in");
+    assert.equal(tv.fake.devices.size, devices, "the network failure did not discard the saved vault");
+});
+
 tvTest("Check again resumes a saved account when setup becomes ready", async tv => {
     await connectTo(tv);
     await signIn(tv);
     tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
-    await tv.page.evaluate(() => window.harness.mount());
+    await tv.page.evaluate(() => window.harness.mount(undefined, true));
+    await connectTo(tv);
     await tv.page.locator('[data-screen="needs-setup"]').waitFor();
     const devices = tv.fake.devices.size;
     await tv.page.keyboard.press("Enter");

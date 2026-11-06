@@ -657,6 +657,7 @@ preplay("bounded unavailable watch uses cached progress once and ignores a late 
 
 preplay("preplay explicit audio reaches the one production start", async (tv) => {
     const audio = tv.page.locator('[data-focus="audio"]');
+    await audio.waitFor();
     assert.equal(await audio.count(), 1, "Details exposes the audio trigger");
     await audio.click();
     await tv.page.getByRole("radio", { name: /Japanese/ }).click();

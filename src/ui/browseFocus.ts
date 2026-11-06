@@ -221,6 +221,9 @@ export class FocusHost {
                 if (card.top < bounds.top + 12 || card.bottom > bounds.bottom - 32 || !this.insideRow(element)) this.scroll.reveal(element, this.container);
             }
         }
+        // Details anchors must win over a repaint's saved intermediate animation position.
+        const element = this.locate(document.activeElement)?.item.element;
+        if (view.name.startsWith("item:") && element !== undefined) this.scroll.restoreDetailsAnchor(element, this.container, true);
         if (animate) {
             this.incoming = Array.from(this.container.querySelectorAll<HTMLElement>(".skyline-content > :not(.skyline-pills), .skyline-marquee"));
             for (const node of this.incoming) node.classList.add(drift && !node.classList.contains("skyline-marquee") ? "skyline-content-drift" : "skyline-content-enter");
@@ -241,6 +244,12 @@ export class FocusHost {
     revealFocused(): void {
         const element = this.locate(document.activeElement)?.item.element;
         if (element !== undefined) this.scroll.reveal(element, this.container);
+    }
+
+    scrollToTop(): void {
+        // Commit the fallback viewport before optional repaints remember its position.
+        this.scroll.stop();
+        this.viewport().scrollTop = 0;
     }
 
     private viewport(): HTMLElement {

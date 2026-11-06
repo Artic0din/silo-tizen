@@ -9,6 +9,7 @@ All notable changes to this project are documented in this file.
 - Added player chapters, playback stats, richer title information, supported speed and aspect controls, and an in-player Auto-play next toggle.
 - Added Show Next Up to Playback Settings with five prompt timings and profile inheritance.
 - Showed Up Next before playback ended with Play Now, Keep Watching and an On Deck row, and refreshed autoplay at episode completion.
+- Added Remove Request for a failed request of yours, including the confirmation, the notice, and focus on the card that takes its place.
 - Hid unwatched episode stills and descriptions from Playback when the server supports the profile spoiler settings.
 - Show Trailers & More on movie and series Details for local extras and YouTube listings, using Apple's card size and the 76px gap to the next heading. Local extras still play from the start. YouTube listings stay on their card because this TV cannot play them.
 - Added description translation on Details and the featured marquee, matching Apple TV's Translate Description action, Translating… status and Translated by AI label.
@@ -42,9 +43,30 @@ All notable changes to this project are documented in this file.
 - Resumed committed scrubs after a server reanchor, kept Skip reachable with the remote, and let navigation cross Audio while its choices loaded.
 - Kept the latest Play/Pause choice when remote presses arrive during a seek.
 - Resumed playback after a timeline scrub once the seek finished, let the remote move through an empty audio list, and cropped seek previews to each thumbnail's own shape.
+- Kept the Details hero pinned when action focus survived a repaint during its return scroll.
+- Opened a remembered profile and cached Home promptly on cold start while checking the saved session in the background, then refreshed the top-bar profile artwork from the reconciled summary.
+- Kept a detail Cancel's hub card visible while the shared gate still owns it, even when a refresh already sees the server's cancelled state, and left hub cards alone so a failed quiet refresh keeps its earlier rows.
+- Kept the unconfirmed Cancel copy on the detail action only, so the hub list banner does not duplicate it.
+- Captured the neighbor before an uncertain list Cancel or Remove readback, so focus lands on that card when the row is already gone.
+- Settled an unconfirmed detail Cancel hold after a successful request readback, and kept cancel/remove focus on the captured neighbor when moved focus was the removed card.
+- Kept an unconfirmed detail Cancel in the shared Requests hold so the hub cannot offer Cancel Request again before a read settles it.
+- Kept a held Select on Remove Request from dismissing the confirmation when focus moves to Keep request.
+- Shared one Requests mutation gate between list and detail Cancel so navigating between them cannot post a second cancellation.
+- Kept a cancelled Requests card off the hub when an ordinary route load that started before Cancel finished still answered with the pending row.
+- Kept duplicate Cast credits focused after trailer refreshes reordered them and resumed interrupted trailer discovery after returning from playback or watched-state navigation.
+- Added Find Trailers to movie and series Details and matched cast entries and overflow, episode captions and metadata order, season pills, synopsis brightness, and More menu glass styling to Apple TV.
+- Showed the full runtime and version, audio and subtitle details for each focused episode after focus settled.
+- Cancelled episode detail dwell on leaving a card, preserved explicit selector requests, and released older settled episode playback owners.
+- Kept explicit season selections on the first episode through cached Calendar revalidation and restored shuffle and advisory preferences after offline Details recovery.
+- Revalidated the saved server identity after an offline start before sending restored sign-in credentials, preventing credentials from reaching a replacement deployment.
+- Recovered offline season episode controls automatically, preserved episode refusals across cached revisits, and reused visited Details for offline card actions.
+- Retained cached next-episode controls and remaining artwork during outages, restored personal-action retries in card menus, and kept unsent writes retryable when session refresh failed.
+- Restored saved sessions and remembered profiles during unreachable cold starts, retained cached Series Play offline, and matched uncached Home and For You errors to Apple TV.
+- Retained signed Details artwork in session memory, matched offline Details errors and episode Retry to Apple TV, and restored the hero when recovery removed Retry.
+- Cleared only the signed-out account's cached browse content, including offline saved-account removal.
+- Preserved cached Details artwork and supporting content offline, protected visited titles from Home enrichment eviction, and retained the selected season during recovery.
 - Restored the last available Details hero action on Up, falling back to Play or Watchlist when Start Over disappeared or a selector was disabled.
 - Refreshed episode spoiler protection after Settings changes and preserved saved switches during overlapping requests and failures.
-
 - Aligned Details supporting-section headings when moving Up and Down, restored visible Movie Cast to the page top, and removed duplicated space below the Details table.
 - Opened fresh Details presentations at the hero and preserved each earlier presentation's focus and scroll when the same title appeared again in the route stack, including entry from Search.
 - Episode cards opened their series on the selected episode, while remote Play resumed directly and Continue Watching offered Play or Resume in Card actions.
@@ -202,6 +224,8 @@ All notable changes to this project are documented in this file.
 - Removed redundant sign-in instructions and movie taglines from the native screens.
 
 ### Added
+
+- Kept cached Home, For You and Details content visible without an unreachable notice, matching Apple TV, with private per-profile snapshots and automatic recovery.
 
 - Showed Apple TV's "This server isn't ready" screen when a server still needs setup, with Check again and Change server.
 - Added a page linking the silo-apple and silo-android design specs that apply to a TV client, for reading before porting a feature.

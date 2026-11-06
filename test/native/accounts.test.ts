@@ -8,6 +8,44 @@ import { connected, signIn } from "./support/harness.ts";
 import { connect, forgetStoredCredential, signOutSavedAccount } from "../../src/session/core.ts";
 import { MemoryPublicStorage } from "./support/keyManager.ts";
 import { FakeSilo } from "./support/fakeSilo.ts";
+import { BrowseCache } from "../../src/session/browseCache.ts";
+import type { RequestSpec } from "../../src/api/http.ts";
+
+const homeCacheSpec: RequestSpec<unknown> = { method: "GET", path: "/home/sections", retry: "safe", decode: value => value };
+for (const offline of [false, true]) test(`saved-account sign-out clears only its browse data (offline=${offline})`, async () => {
+    const h = await connected(); await signIn(h);
+    const account = h.core.accounts.directory.list()[0]!;
+    const scope = [account.serverId, account.accountId, "profile"];
+    const own = new BrowseCache(h.storage, scope, new AbortController().signal);
+    await own.read(homeCacheSpec, async request => request.decode({ title: "Private A" }));
+    const deps = { fetch: offline ? async (): Promise<Response> => new Response(null, { status: 404 }) : h.fake.fetch,
+        publicStorage: h.storage, keyManager: h.keyManager, clock: h.clock,
+        randomBytes: (bytes: Uint8Array) => { bytes.fill(7); }, deviceName: "Test TV", devicePlatform: "tizen" };
+    assert.equal(await signOutSavedAccount(account, deps), "cleared");
+    assert.equal(own.peek(homeCacheSpec), undefined);
+    assert.equal(new BrowseCache(h.storage, scope, new AbortController().signal).peek(homeCacheSpec), undefined);
+});
+test("forgetting A preserves B's cached catalogue", async () => {
+    const h = await connected(); await signIn(h);
+    const account = h.core.accounts.directory.list()[0]!;
+    const bScope = [account.serverId, "other-account", "profile"];
+    const b = new BrowseCache(h.storage, bScope, new AbortController().signal);
+    await b.read(homeCacheSpec, async request => request.decode({ title: "B private" }));
+    await forgetStoredCredential(h.fake.origin, { publicStorage: h.storage, keyManager: h.keyManager, localAccountId: account.id });
+    assert.deepEqual(b.peek(homeCacheSpec), { title: "B private" });
+    assert.deepEqual(new BrowseCache(h.storage, bScope, new AbortController().signal).peek(homeCacheSpec), { title: "B private" });
+});
+for (const expiry of [false, true]) test(`connected authority clears its account's browse snapshots (expiry=${expiry})`, async () => {
+    const h = await connected(); await signIn(h);
+    const account = h.core.accounts.directory.list()[0]!;
+    const scope = [account.serverId, account.accountId, "profile"];
+    const cache = new BrowseCache(h.storage, scope, new AbortController().signal);
+    await cache.read(homeCacheSpec, async request => request.decode({ title: "Private" }));
+    if (expiry) { h.fake.revokeAllSessions(); await h.core.session.refresh(); }
+    else await h.core.session.logout();
+    assert.equal(cache.peek(homeCacheSpec), undefined);
+    assert.equal(new BrowseCache(h.storage, scope, new AbortController().signal).peek(homeCacheSpec), undefined);
+});
 
 test("entering another server discards the previous account identity and preserves its login", async () => {
     const h = await connected(); await signIn(h);

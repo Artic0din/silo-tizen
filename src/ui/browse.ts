@@ -1640,11 +1640,13 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         shuffleGeneration++;
         const current = top();
         const panel = (current?.kind === "item" || current?.kind === "season") ? current.data?.details?.panel : undefined;
+        // Capture before stopDetails clears fetching so Back reloads and restores observation.
+        const trailerFetchInFlight = current?.kind === "item" && current.data?.details?.trailers.fetching === true;
         stopDetails();
         if (current !== undefined) {
             current.focus = panel === undefined ? host.focused() : { zone: "actions", key: panel };
             if (current.kind === "homeSection" || current.kind === "person") current.pendingIndex = undefined;
-            if (current.kind === "boxSet") current.stale = true;
+            if (current.kind === "boxSet" || trailerFetchInFlight) current.stale = true;
         }
         loading?.abort();
         loading = undefined;

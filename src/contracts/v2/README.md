@@ -15,6 +15,10 @@ response enum values decode to `"unknown"`, so additive server changes keep work
 
 ## Operations used
 
+`trailers.ts` consumes `refreshCatalogItemTrailers` at `SOURCE`, including its unchanged `refresh_catalog_item_trailers_ok.json` fixture.
+The profile-scoped POST is non-retryable and never replayed after refresh; completion is observed through catalog item reads.
+Apple behavior is pinned separately to `b3d08d444b75dc078d3047730db72e0c4456e79b`; see [Details actions](../../../docs/features/details-actions.md).
+
 `requests.ts` consumes the Requests status, discovery rows, search, media detail, request detail and My Requests contracts at `SOURCE`.
 Create and cancel use POST; follow uses PUT; unfollow and removing a failed request use DELETE.
 `DELETE /requests/{id}` expects 204 and no body. It uses `retry: never` and `replayAfterRefresh: false`, the server's `non_retryable` class, because a replay of a removal that already landed answers 404.

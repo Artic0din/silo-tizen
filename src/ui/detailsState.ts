@@ -19,6 +19,7 @@ import { PreplayTrackPreference } from "./preplayTrackPreference.ts";
 import { subtitlePreferenceOperations, type SubtitlePreferencePick, type SubtitlePreference } from "../api/subtitlePreferenceOperations.ts";
 import { matchesSubtitle, preferredCatalogSubtitle } from "../player/preplaySubtitles.ts";
 import { DescriptionTranslations, type ItemDescriptionTranslation } from "./descriptionTranslation.ts";
+import { TrailerFetch } from "./trailerFetch.ts";
 
 export interface PersonalChange {
     readonly target: boolean;
@@ -32,6 +33,7 @@ const EPISODE_OWNER_CACHE_LIMIT = 16;
 const EPISODE_FOCUS_DWELL_MS = 120;
 
 export class DetailsState {
+    readonly trailers: TrailerFetch;
     showAdvisoryAge = false;
     readonly descriptions: ItemDescriptionTranslation | undefined;
     readonly audioPreference: PreplayAudioPreference;
@@ -105,6 +107,12 @@ export class DetailsState {
     constructor(detail: ItemDetail, session: NativeSession, changed: (returnKey?: string) => void, watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>, pendingElsewhere: () => boolean = () => false, translations?: DescriptionTranslations) {
         this.detail = detail;
         this.session = session;
+        this.trailers = new TrailerFetch(
+            signal => session.call({ ...detailOperations.refreshTrailers(detail.id), profileScoped: true, replayAfterRefresh: false, signal }),
+            signal => session.call({ ...operations.getCatalogItem(detail.id), profileScoped: true, signal }),
+            found => { this.detail = { ...found, played: this.detail.played, watch: this.detail.watch }; },
+            () => this.changed(),
+        );
         this.descriptions = translations?.open({
             detail: () => this.detail,
             season: () => {
@@ -185,7 +193,9 @@ export class DetailsState {
         if (["movie", "episode"].includes(this.detail.type)) this.subtitlePreference.start();
         this.full = mode === "full";
         if (this.full && this.episodePreferenceDirty) this.episodePreferenceChanged(this);
-        this.stopAuthority = this.session.onAuthorityChange(() => { this.stop(); this.changed(); });
+        // Clear trailer resume before stop() so a later trailers.stop() cannot mark it resumable.
+        this.stopAuthority = this.session.onAuthorityChange(() => { this.trailers.stop(false); this.stop(); this.changed(); });
+        if (mode === "full") this.trailers.resume();
         if (mode === "playback") return;
         this.nextEpisodeState?.start("playback");
         for (const state of this.episodeStates.values()) state.start("playback");
@@ -227,6 +237,10 @@ export class DetailsState {
 
     stop(): void {
         this.cancelEpisodeFocus();
+        for (const [kind, change] of this.changes) {
+            if (change.pending) this.changes.set(kind, { ...change, pending: false, failed: true });
+        }
+        this.trailers.stop();
         this.pendingEpisodePanel = undefined;
         this.shuffleStarting = false;
         for (const state of this.seasonStates.values()) state.stop();
@@ -302,6 +316,7 @@ export class DetailsState {
         this.nextEpisode = previous.nextEpisode?.id === this.detail.playContentId ? previous.nextEpisode : undefined;
         this.personalSupported = previous.personalSupported;
         for (const [key, value] of previous.values) if (key !== "watched") this.values.set(key, value);
+        if (this.detail.id === previous.detail.id) this.trailers.restore(previous.trailers);
         if (this.detail.versions.some(file => file.fileId === previous.failedPlay?.fileId)) this.failedPlay = previous.failedPlay;
         this.previousNextEpisodeState = previous.nextEpisodeState;
         this.focusedEpisodeId = previous.focusedEpisodeId;
@@ -575,7 +590,7 @@ export class DetailsState {
         if (series.id !== this.detail.id || series.played === undefined) throw new Error("Series watch state missing");
         if (signal.aborted) return;
         this.invalidateEpisodes();
-        this.detail = series;
+        this.detail = this.mergeDiscoveredTrailers(series);
         this.values.set("watched", series.played);
         this.aggregateWatched = undefined;
         if (this.series !== undefined) this.series.seasons = seasons;
@@ -848,7 +863,9 @@ export class DetailsState {
                 const unwatchedLanded = detail.type === "series" && !writeAccepted && requested === false && detail.played === false && this.values.get(kind) === true;
                 const rollups = unwatchedLanded ? await this.read(operations.listSeriesSeasons(this.detail.id), controller) : undefined;
                 if (!this.current(controller)) return detail.played;
-                this.detail = detail;
+                // Discovery may have published trailers while this watched readback was
+                // in flight; keep the richer extras/videos rather than wiping them.
+                this.detail = this.mergeDiscoveredTrailers(detail);
                 this.values.set(kind, detail.played);
                 if (detail.type === "series" && detail.played === requested && (detail.played === true || writeAccepted)) {
                     this.aggregateWatched = detail.played;
@@ -882,5 +899,12 @@ export class DetailsState {
         if (membership.id !== this.detail.id) throw new Error("Membership item mismatch");
         if (this.current(controller)) this.values.set(kind, membership.member);
         return membership.member;
+    }
+
+    /** Keep trailers discovery published while an older watched readback finishes. */
+    private mergeDiscoveredTrailers(detail: ItemDetail): ItemDetail {
+        const videos = detail.videos.length >= this.detail.videos.length ? detail.videos : this.detail.videos;
+        const extras = (detail.extras?.length ?? 0) >= (this.detail.extras?.length ?? 0) ? detail.extras : this.detail.extras;
+        return extras === undefined ? { ...detail, videos } : { ...detail, videos, extras };
     }
 }

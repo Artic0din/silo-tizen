@@ -14,7 +14,9 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
     open: (account: SavedAccount | undefined, address?: string) => void, back: () => void, manage = false, onCurrentSignOut?: () => void): AccountsScreen {
     const container = el("section", "accounts-screen");
     const backdrop = new MarqueeBackdrop(core.clock ?? systemClock);
-    backdrop.setStage(current ? 2 : 0);
+    // MarqueeScene.stage is 2 only for Who's watching. Change Account is an account screen:
+    // 1 once a server is confirmed, otherwise 0. Stage 2 would pool the warm light on the right.
+    backdrop.setStage(current ? 1 : 0);
     backdrop.setAccent(current ? cachedBranding(core.publicStorage, current.server.http.base.baseUrl)?.accentColor : undefined);
     const scrim = el("div", "accounts-scrim");
     container.append(backdrop.element);

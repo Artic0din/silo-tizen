@@ -3,7 +3,7 @@ import type { ConnectedServer, SessionCoreDeps } from "../session/core.ts";
 import { signOutSavedAccount } from "../session/core.ts";
 import { FocusHost, type FocusItem } from "./browseFocus.ts";
 import { actionButton } from "./browseViews.ts";
-import { MarqueeBackdrop } from "./marqueeBackdrop.ts";
+import { MarqueeBackdrop, marqueeScene } from "./marqueeBackdrop.ts";
 import { systemClock } from "../api/clock.ts";
 import { el } from "./screen.ts";
 import { cachedBranding } from "./brandingCache.ts";
@@ -14,7 +14,9 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
     open: (account: SavedAccount | undefined, address?: string) => void, back: () => void, manage = false, onCurrentSignOut?: () => void): AccountsScreen {
     const container = el("section", "accounts-screen");
     const backdrop = new MarqueeBackdrop(core.clock ?? systemClock);
-    backdrop.setStage(current ? 2 : 0);
+    // TVChangeAccountView does not write MarqueeScene. The stage stays wherever the previous
+    // screen left it: 2 after Who's watching, 1 after a sign-in screen, 0 before a server answers.
+    backdrop.setStage(marqueeScene.stage);
     backdrop.setAccent(current ? cachedBranding(core.publicStorage, current.server.http.base.baseUrl)?.accentColor : undefined);
     const scrim = el("div", "accounts-scrim");
     container.append(backdrop.element);

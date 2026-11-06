@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { requestOperations } from "../../src/api/requestOperations.ts";
 import { decodeMediaRequest, decodeRequestsCapability, decodeRequestTitle, type MediaRequest, type RequestsHub } from "../../src/contracts/v2/requests.ts";
-import { canCancel, canRemove, focusAfterRemoval, isRemovable, neighborKey, REMOVE_CONFLICT_MESSAGE, REMOVED_NOTICE, RequestActionGate, REQUEST_NOTICE_MS, UNCONFIRMED_CANCEL_MESSAGE, UNCONFIRMED_REMOVE_MESSAGE } from "../../src/ui/requestRemoval.ts";
+import { canCancel, canRemove, focusAfterRemoval, isRemovable, neighborKey, REMOVE_CONFLICT_MESSAGE, REMOVED_NOTICE, RequestActionGate, REQUEST_NOTICE_MS, UNCONFIRMED_CANCEL_MESSAGE, UNCONFIRMED_REMOVE_MESSAGE, visibleMineRequests } from "../../src/ui/requestRemoval.ts";
 import { FakeRequests } from "./support/fakeRequests.ts";
 import { fixture } from "./support/fakeSilo.ts";
 
@@ -69,6 +69,14 @@ test("removal copy and the neighbor that receives focus match Apple TV", () => {
     assert.deepEqual(focusAfterRemoval({ sections: [], mine: { items: [record({ id: "a" })], cursor: undefined } }, "a"), { zone: "page", key: "requests-page" });
     assert.deepEqual(focusAfterRemoval({ items: [record({ id: "a" }), record({ id: "b" })], cursor: undefined }, "a"), { zone: "mine", key: "b" });
     assert.deepEqual(focusAfterRemoval({ items: [record({ id: "a" })], cursor: undefined }, "a"), { zone: "actions", key: "refresh" });
+});
+
+test("an in-flight or held request stays on the hub after the server has already ended it", () => {
+    const pending = record({ id: "pending", state: "pending", status: "pending", outcome: "active" });
+    const cancelled = record({ id: "busy", state: "cancelled", status: "approved", outcome: "cancelled" });
+    assert.deepEqual(visibleMineRequests([pending, cancelled], undefined, []).map(item => item.id), ["pending"]);
+    assert.deepEqual(visibleMineRequests([pending, cancelled], "busy", []).map(item => item.id), ["pending", "busy"]);
+    assert.deepEqual(visibleMineRequests([pending, cancelled], undefined, ["busy"]).map(item => item.id), ["pending", "busy"]);
 });
 
 test("one list action runs at a time, and a later read settles only the holds it covers", () => {

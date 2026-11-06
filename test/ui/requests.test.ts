@@ -1828,8 +1828,11 @@ test("a detail cancel in flight blocks a second cancel from the hub menu", async
         await button(tv, "cancel").click();
         await tv.eventually(async () => tv.fake.paths().includes("POST /requests/request-one/cancel"), "detail cancel held");
         await tv.remote(10009);
+        await view(tv, "hub");
+        // The server may already have cancelled; the hub must still show the busy row while the gate owns it.
         await button(tv, "request-one").waitFor();
         assert.equal(await button(tv, "request-one").getAttribute("data-request-actions"), null, "hub menus stay closed while detail cancel owns the gate");
+        assert.equal(await button(tv, "request-one").getAttribute("data-busy"), "true");
         await holdCard(tv, "request-one");
         assert.equal(await button(tv, "cancel-request").count(), 0, "a second Cancel request is not offered");
         held.release();

@@ -39,6 +39,19 @@ export function canRemove(record: MediaRequest, removeFailedSupported: boolean, 
 }
 
 /**
+ * Hub/mine rows keep the request that cancel/remove still owns, even when a refresh
+ * already returns the server's ended state (unavailable) before the write settles.
+ */
+export function visibleMineRequests(records: readonly MediaRequest[], actingId: string | undefined, heldIds: readonly string[]): MediaRequest[] {
+    const ordered = orderRequests(records);
+    const keep = new Set<string>([...(actingId !== undefined ? [actingId] : []), ...heldIds]);
+    if (keep.size === 0) return ordered;
+    const seen = new Set(ordered.map(item => item.id));
+    const missing = records.filter(item => keep.has(item.id) && !seen.has(item.id));
+    return missing.length === 0 ? ordered : [...ordered, ...missing];
+}
+
+/**
  * The card that slides into a removed card's place, or the last card when the
  * removed one was last. Apple's focus engine lands on that neighbor.
  */

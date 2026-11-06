@@ -4,8 +4,8 @@ import type { ErrorState } from "./browseRoutes.ts";
 import { actionButton, artwork, FAILURE_ICON, lines, recoveryActions, searchState, zoneNode } from "./browseViews.ts";
 import { requestPosterUrl } from "./browseModel.ts";
 import { el } from "./screen.ts";
-import { orderRequests, requestProgress } from "./requestProgress.ts";
-import { canCancel, canRemove } from "./requestRemoval.ts";
+import { requestProgress } from "./requestProgress.ts";
+import { canCancel, canRemove, visibleMineRequests } from "./requestRemoval.ts";
 import { cullToRailBounds, requestActionSpinner, requestHero, requestPlusIcon, requestPosterBadge, requestsLoadingPage, requestStatusLabel, TRAY_ICON } from "./requestsScene.ts";
 
 export type RequestWrite = "create" | "cancel" | "follow" | "unfollow";
@@ -97,7 +97,7 @@ function errorPlaceholder(state: RequestsState, h: RequestsHandlers, name: strin
 /** Apple TVRequestsPage.placeholder: the whole hub while it has no rows to show. */
 function hubPlaceholder(state: RequestsState, h: RequestsHandlers): View | undefined {
     const data = state.data;
-    if (data !== undefined && "sections" in data && (orderRequests(data.mine.items).length > 0 || data.sections.some(section => section.results.some(browsable)))) return undefined;
+    if (data !== undefined && "sections" in data && (visibleMineRequests(data.mine.items, state.actingId, state.heldIds ?? []).length > 0 || data.sections.some(section => section.results.some(browsable)))) return undefined;
     const placeholder = (content: HTMLElement, zone: Zone): View => ({ name: "requests:hub", content: [zoneNode("skyline-content", [{ key: "", element: content }])], zones: [zone], focus: { zone: zone.id, key: zone.items[0]?.key ?? "" }, back: h.back });
     if (h.failure !== undefined) {
         const view = errorPlaceholder(state, h, "requests:hub");
@@ -175,7 +175,7 @@ export function requestsView(state: RequestsState, h: RequestsHandlers, baseUrl:
     if (!hub && h.busy && !(detailPage && data !== undefined)) content.push(...lines(["Loading requests…"], "info"));
     if (data !== undefined) {
         if ("sections" in data) {
-            const mine = orderRequests(data.mine.items);
+            const mine = visibleMineRequests(data.mine.items, state.actingId, state.heldIds ?? []);
             const titles = [...mine, ...data.sections.flatMap(section => section.results)];
             const identity = (title: RequestTitle | MediaRequest): string => "id" in title ? title.id : `${title.mediaType}:${title.tmdbId}`;
             const previous = state.preview;
@@ -193,8 +193,9 @@ export function requestsView(state: RequestsState, h: RequestsHandlers, baseUrl:
             if (data.results.length === 0) content.push(...lines(["No titles found."], "info"));
             add("pages", [...(data.page > 1 ? [actionButton("previous", "Previous page", () => h.next(data.page - 1))] : []), ...(data.nextPage <= data.totalPages ? [actionButton("next", "Next page", () => h.next(data.nextPage))] : [])]);
         } else if ("items" in data) {
-            add("mine", data.items.map(ownCard), true);
-            if (data.items.length === 0) content.push(...lines(["No requests yet."], "info"));
+            const mine = visibleMineRequests(data.items, state.actingId, state.heldIds ?? []);
+            add("mine", mine.map(ownCard), true);
+            if (mine.length === 0) content.push(...lines(["No requests yet."], "info"));
             if (data.cursor !== undefined) { const cursor = data.cursor; add("pages", [actionButton("next", "Next page", () => h.next(cursor))]); }
         } else if ("title" in data) {
             const metadata = "request" in data ? data : state.detail;

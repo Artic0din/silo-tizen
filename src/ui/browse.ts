@@ -2137,8 +2137,14 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             // Focus the person moved while the write was out stays where it is.
             const keepMovedFocus = (route: Route): void => { if (inputRevision !== writeRevision) route.focus = host.focused() ?? route.focus; };
             // A write belongs to session authority, not route lifetime. Leaving never replays it.
-            session.call({ ...spec, profileScoped: true, replayAfterRefresh: false }).then(() => {
-                requestWritePending = false; state.writing = false; releaseGate();
+            session.call({ ...spec, profileScoped: true, replayAfterRefresh: false }).then((updated) => {
+                requestWritePending = false; state.writing = false;
+                // Match list Cancel: tombstone the ended request so a hub refresh cannot restore it while busy settles.
+                if (cancelId !== undefined) {
+                    requestGate.drop(cancelId);
+                    if (typeof updated === "object" && updated !== null && "id" in updated && "outcome" in updated) paintRequestRecord(updated as MediaRequest);
+                }
+                releaseGate();
                 if (torn) return;
                 followTitle();
                 markRequestsStale();

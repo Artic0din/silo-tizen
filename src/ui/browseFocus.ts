@@ -95,7 +95,7 @@ export class FocusHost {
     private transitionTimer: number | undefined;
     private press: { item: FocusItem; started: number; timer: number | undefined; cancelled: boolean } | undefined;
     /** One Play claim per Details visit. tvOS retries it; a failed claim used to leave body focused until the next key. */
-    private playClaim: { visit: string; attempts: number; waits: number; finished: boolean; timer: number | undefined } | undefined;
+    private playClaim: { visit: string; attempts: number; waits: number; finished: boolean; timer: number | undefined; moved: boolean; awaitingPrimary: boolean } | undefined;
     private readonly detach = new MutationObserver(() => {
         if (this.press !== undefined && !this.press.item.element.isConnected) this.cancelPress();
     });
@@ -492,10 +492,11 @@ export class FocusHost {
     }
 
     /**
-     * TVDetailActionRow.resetInitialPlayFocus (silo-apple abf4ac45): one Play claim per
-     * Details visit, retried while the control can take focus. A claim that does not
-     * stick leaves document focus on body until the next key. Stop once the viewer
-     * has moved to another control, or the primary is not this page's opening target.
+     * TVDetailActionRow.resetInitialPlayFocus (silo-apple eb82bb86): one Play claim per
+     * Details visit, retried while the control can take focus. The claim stays pending
+     * until Play is on the page. A claim that does not stick leaves document focus on
+     * body until the next key. Stop once the viewer has moved, or a dialog outside
+     * this page has taken focus.
      */
     private settlePrimaryFocus(view: View, fromTimer = false): void {
         if (!view.name.startsWith("item:")) {
@@ -505,13 +506,25 @@ export class FocusHost {
         const visit = visitKey(view);
         if (this.playClaim === undefined || this.playClaim.visit !== visit) {
             this.cancelPlayClaim();
-            this.playClaim = { visit, attempts: 0, waits: 0, finished: false, timer: undefined };
+            this.playClaim = { visit, attempts: 0, waits: 0, finished: false, timer: undefined, moved: false, awaitingPrimary: false };
         }
         const claim = this.playClaim;
         if (claim.finished) return;
+        if (claim.moved || this.focusInOverlay()) {
+            claim.finished = true;
+            this.clearPlayClaimTimer();
+            return;
+        }
         const primary = this.primaryTarget(view);
         const active = this.locate(document.activeElement);
-        if (primary === undefined || (active !== undefined && active.item.key !== primary.item.key)) {
+        // Apple leaves the one-shot claim unused while Play is still absent, then
+        // claims it when the control appears, unless the viewer has already moved.
+        if (primary === undefined) {
+            claim.awaitingPrimary = true;
+            this.clearPlayClaimTimer();
+            return;
+        }
+        if (!claim.awaitingPrimary && active !== undefined && active.item.key !== primary.item.key) {
             claim.finished = true;
             this.clearPlayClaimTimer();
             return;
@@ -522,6 +535,7 @@ export class FocusHost {
             if (claim.waits < 3) this.armPlayClaim(visit);
             return;
         }
+        claim.awaitingPrimary = false;
         if (document.activeElement !== primary.item.element) this.focusItem(primary.zone, primary.item);
         const held = document.activeElement === primary.item.element;
         if (fromTimer && held) {
@@ -538,6 +552,13 @@ export class FocusHost {
             }
         }
         this.armPlayClaim(visit);
+    }
+
+    /** Card actions and other menus focus controls that are not in the page's zones. */
+    private focusInOverlay(): boolean {
+        const active = document.activeElement;
+        if (!(active instanceof HTMLElement) || this.locate(active) !== undefined) return false;
+        return active.closest("[role='dialog'], [role='alertdialog'], .card-actions-scrim") !== null;
     }
 
     private armPlayClaim(visit: string): void {
@@ -639,6 +660,7 @@ export class FocusHost {
         if (view === undefined || key === undefined) {
             return;
         }
+        if ((key === "up" || key === "down" || key === "left" || key === "right") && this.playClaim !== undefined && !this.playClaim.finished) this.playClaim.moved = true;
         if (key === "back") {
             if (view.back !== undefined) {
                 if (view.back() !== false) event.preventDefault();

@@ -19,7 +19,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Kept Play focused when a movie's Details opened, even if the first focus claim did not stick.
+- Kept Play focused when a movie's Details opened, even if the first focus claim did not stick, and kept that claim from leaving a card-actions dialog or ignoring a Play button that appears after the page opens.
 - Added Retry for retryable playback startup failures and exhausted route recovery.
 
 - Kept the Details hero pinned when action focus survived a repaint during its return scroll.

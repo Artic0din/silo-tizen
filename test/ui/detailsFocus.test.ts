@@ -103,6 +103,91 @@ test("opening a movie from Search leaves Play focused when the opening claim doe
     } finally { await tv.page.context().close(); }
 });
 
+test("a card-actions dialog keeps focus while the Play claim is still retrying", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    tv.fake.catalog = new FakeDetails();
+    try {
+        await signedIn(tv);
+        await searchFor(tv, "Movie 0001", "movie:m0001");
+        await pauseTvClock(tv);
+        await tv.remote(ENTER);
+        const primary = tv.page.locator(".details-play");
+        await primary.waitFor();
+        await tv.eventually(async () => await primary.getAttribute("aria-disabled") !== "true", "movie Play ready");
+        const related = tv.page.locator('[data-detail-section="related"] [data-focus]').first();
+        await related.waitFor();
+        await related.click({ button: "right" });
+        await tv.page.locator(".card-actions-panel").waitFor();
+        const dialog = await owner(tv);
+        await tv.jump(200);
+        const settled = await owner(tv);
+        assert.equal(dialog.body, false, `dialog never took focus: ${JSON.stringify(dialog)}`);
+        assert.equal(settled.key, dialog.key, `retry left ${JSON.stringify(settled)}`);
+        assert.equal(settled.play, false, `retry focused Play behind the dialog: ${JSON.stringify(settled)}`);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+async function hideSeriesPlayTarget(tv: Tv): Promise<void> {
+    const catalog = tv.fake.catalog;
+    if (!(catalog instanceof FakeDetails)) throw new Error("expected details catalog");
+    await tv.page.route("**/api/v2/catalog/items/series%3As1?**", route => {
+        const reply = catalog.route("GET", "/catalog/items/series%3As1", "p-owner");
+        const body = reply?.body;
+        if (typeof body !== "object" || body === null || Array.isArray(body)) throw new Error("series detail missing");
+        const detail: Record<string, unknown> = { ...body };
+        delete detail.play_content_id;
+        return route.fulfill({ json: detail });
+    });
+}
+
+test("a primary action that appears after Details opens takes focus when the viewer has not moved", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    tv.fake.catalog = new FakeDetails();
+    await hideSeriesPlayTarget(tv);
+    try {
+        await signedIn(tv);
+        await searchFor(tv, "Harbor Lights", "series:s1");
+        const episodes = tv.fake.hold("/catalog/series/series%3As1/seasons/1/episodes");
+        await tv.remote(ENTER);
+        await tv.page.locator('[data-view="item:series:s1"] [data-focus="season:1"]').waitFor();
+        await tv.eventually(async () => await tv.page.locator('[data-focus="next-episode"]').count() === 0, "series opened before its primary existed");
+        const before = await owner(tv);
+        episodes.release();
+        await tv.eventually(async () => await tv.page.locator('[data-focus="next-episode"]').count() === 1, "late primary rendered");
+        await tv.eventually(async () => await tv.focused() === "next-episode", "late primary focused");
+        const settled = await owner(tv);
+        assert.equal(before.play, false, `primary was already present: ${JSON.stringify(before)}`);
+        assert.equal(settled.play, true, JSON.stringify(settled));
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("a primary action that appears after the viewer moves leaves that control focused", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    tv.fake.catalog = new FakeDetails();
+    await hideSeriesPlayTarget(tv);
+    try {
+        await signedIn(tv);
+        await searchFor(tv, "Harbor Lights", "series:s1");
+        const episodes = tv.fake.hold("/catalog/series/series%3As1/seasons/1/episodes");
+        await tv.remote(ENTER);
+        await tv.page.locator('[data-view="item:series:s1"] [data-focus="season:1"]').waitFor();
+        await tv.eventually(async () => await tv.page.locator('[data-focus="next-episode"]').count() === 0, "series opened before its primary existed");
+        await tv.page.locator('[data-focus="season:1"]').focus();
+        await tv.remote(39);
+        const moved = await owner(tv);
+        episodes.release();
+        await tv.page.locator('[data-focus="next-episode"]').waitFor();
+        await tv.jump(200);
+        const settled = await owner(tv);
+        assert.notEqual(moved.key, "next-episode");
+        assert.equal(settled.key, moved.key, `late primary replaced ${JSON.stringify(moved)} with ${JSON.stringify(settled)}`);
+        assert.equal(settled.play, false);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 test("opening a series keeps its primary action when focus has moved", async () => {
     const tv = await openTv(browser, { app: "browse" });
     tv.fake.catalog = new FakeDetails();

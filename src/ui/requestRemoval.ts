@@ -117,13 +117,23 @@ export class RequestActionGate {
     /** A read that started after these holds now shows their result. A newer hold stays. */
     releaseHolds(through: number): void {
         for (const [id, serial] of this.held) if (serial <= through) this.held.delete(id);
-        if (this.held.size === 0 && (this.listMessage === UNCONFIRMED_REMOVE_MESSAGE || this.listMessage === UNCONFIRMED_CANCEL_MESSAGE)) this.listMessage = undefined;
+        this.clearListMessageIfIdle();
+    }
+
+    /** A successful detail read for this request settles its uncertain cancel/remove hold only. */
+    releaseHold(id: string): void {
+        this.held.delete(id);
+        this.clearListMessageIfIdle();
     }
 
     /** The server says the request is gone or cancelled. Later list answers leave it out. */
     drop(id: string): void {
         this.removed.add(id);
         this.epoch += 1;
+    }
+
+    private clearListMessageIfIdle(): void {
+        if (this.held.size === 0 && (this.listMessage === UNCONFIRMED_REMOVE_MESSAGE || this.listMessage === UNCONFIRMED_CANCEL_MESSAGE)) this.listMessage = undefined;
     }
 
     filter<T extends { readonly id: string }>(items: readonly T[]): T[] {

@@ -19,6 +19,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Settled an unconfirmed detail Cancel hold after a successful request readback, and kept cancel/remove focus on the captured neighbor when moved focus was the removed card.
 - Kept an unconfirmed detail Cancel in the shared Requests hold so the hub cannot offer Cancel Request again before a read settles it.
 - Kept a held Select on Remove Request from dismissing the confirmation when focus moves to Keep request.
 - Shared one Requests mutation gate between list and detail Cancel so navigating between them cannot post a second cancellation.

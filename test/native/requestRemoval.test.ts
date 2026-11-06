@@ -100,4 +100,13 @@ test("one list action runs at a time, and a later read settles only the holds it
     gate.drop("gone");
     assert.deepEqual(gate.filter([{ id: "gone" }, { id: "stay" }]).map(item => item.id), ["stay"]);
     assert.equal(gate.epoch, 1);
+    gate.hold("held-a");
+    gate.hold("held-b");
+    gate.listMessage = UNCONFIRMED_CANCEL_MESSAGE;
+    gate.releaseHold("held-a");
+    assert.deepEqual(gate.heldIds(), ["held-b"]);
+    assert.equal(gate.listMessage, UNCONFIRMED_CANCEL_MESSAGE);
+    gate.releaseHold("held-b");
+    assert.deepEqual(gate.heldIds(), []);
+    assert.equal(gate.listMessage, undefined);
 });

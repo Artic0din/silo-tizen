@@ -16,6 +16,7 @@ import type { MediaRequest, MyRequests, RequestsCapability } from "../contracts/
 import { WireError } from "../contracts/v2/wire.ts";
 import { requestsState, type RequestsHandlers, type RequestsSource } from "./requests.ts";
 import { canCancel, canRemove, focusAfterRemoval, REMOVE_CONFLICT_MESSAGE, REMOVED_NOTICE, RequestActionGate, REQUEST_NOTICE_MS, UNCONFIRMED_CANCEL_MESSAGE, UNCONFIRMED_REMOVE_MESSAGE } from "./requestRemoval.ts";
+import { orderRequests } from "./requestProgress.ts";
 import { RequestRecordMenu } from "./requestRecordMenu.ts";
 import type { RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
@@ -1104,6 +1105,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     if (data !== undefined && "sections" in data) data = { ...data, mine: { ...data.mine, items: requestGate.filter(data.mine.items) } };
                     else if (source.kind === "mine" && data !== undefined && "items" in data) data = result.startedEpoch === requestGate.epoch ? { ...data, items: requestGate.filter(data.items) } : state.data;
                     if ((source.kind === "hub" || source.kind === "mine") && result.startedEpoch === requestGate.epoch) requestGate.releaseHolds(result.coveredHolds);
+                    // A successful request detail read settles that row's uncertain cancel hold without clearing unrelated holds.
+                    if (source.kind === "request" && data !== undefined && "id" in data) requestGate.releaseHold(data.id);
                     state.data = data;
                     state.detail = result.detail;
                     state.detailFailed = result.detailFailed;
@@ -1890,11 +1893,24 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         clearRequestNotice = () => undefined;
         requestGate.notice = undefined;
     };
+    const requestFocusSurvives = (route: Extract<Route, { kind: "requests" }>, target: FocusTarget | undefined): boolean => {
+        if (target === undefined) return false;
+        const data = route.requests.data;
+        if (data !== undefined && "sections" in data) {
+            if (orderRequests(data.mine.items).some(item => item.id === target.key)) return true;
+            return data.sections.some(section => section.results.some(item => `${item.mediaType}:${item.tmdbId}` === target.key));
+        }
+        if (data !== undefined && "items" in data && route.requests.source.kind === "mine") return data.items.some(item => item.id === target.key);
+        return true;
+    };
     const showRequestList = (route: Extract<Route, { kind: "requests" }>, focus: FocusTarget, revision: number): void => {
         syncRequestActions(route);
-        route.focus = focus;
+        const moved = inputRevision !== revision ? host.focused() : undefined;
+        // Keep moved focus only when that target still exists after cancel/remove paint; otherwise use the captured neighbor.
+        const next = moved !== undefined && requestFocusSurvives(route, moved) ? moved : focus;
+        route.focus = next;
         if (top() !== route || requestMenu.active) return;
-        render(inputRevision === revision ? focus : host.focused());
+        render(next);
     };
     const listFocusAfter = (route: Extract<Route, { kind: "requests" }>, id: string, fallback: FocusTarget): FocusTarget => {
         const data = route.requests.data;

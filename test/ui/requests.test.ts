@@ -593,6 +593,53 @@ test("an unconfirmed detail cancel keeps the hub from offering Cancel Request ag
     } finally { await tv.page.context().close(); }
 });
 
+test("a successful detail readback settles an unconfirmed cancel hold", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests();
+        fake.created = true;
+        const pending = { ...fake.record };
+        await start(tv, fake);
+        await openRequests(tv);
+        await button(tv, "request-one").click();
+        await view(tv, "request");
+        await button(tv, "cancel").waitFor();
+        // Lost cancel never reached the server; readback still shows pending and must unlock Cancel again.
+        tv.fake.script("/requests/request-one", { status: 200, body: pending });
+        tv.fake.dropNextAnswer("/requests/request-one/cancel");
+        await button(tv, "cancel").click();
+        await tv.page.getByText(UNCONFIRMED_CANCEL).waitFor();
+        await tv.eventually(async () => await button(tv, "cancel").count() === 1, "detail readback clears the shared hold");
+        await button(tv, "cancel").click();
+        await tv.eventually(async () => tv.fake.paths().filter(path => path === "POST /requests/request-one/cancel").length === 2, "a second Cancel can run after the hold settles");
+    } finally { await tv.page.context().close(); }
+});
+
+test("list cancel keeps the captured neighbor when focus moves onto the removed card", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests();
+        fake.created = true;
+        const pending = { ...fake.record };
+        const mid = { ...pending, id: "request-two", tmdb_id: 950, title: "Mid" };
+        const last = { ...pending, id: "request-three", tmdb_id: 951, title: "Last" };
+        tv.fake.script("/requests/mine?limit=50", minePage([pending, mid, last]));
+        tv.fake.script("/requests/request-two/cancel", { status: 200, body: { ...mid, state: "cancelled", outcome: "cancelled" } });
+        await start(tv, fake);
+        await openRequests(tv);
+        await button(tv, "request-two").waitFor();
+        const held = tv.fake.hold("/requests/request-two/cancel", true);
+        await holdCard(tv, "request-two");
+        await button(tv, "cancel-request").click();
+        await tv.eventually(async () => tv.fake.paths().includes("POST /requests/request-two/cancel"), "cancel held");
+        await button(tv, "request-three").focus();
+        await button(tv, "request-two").focus();
+        held.release();
+        await tv.eventually(async () => await button(tv, "request-two").count() === 0, "cancelled middle card leaves");
+        assert.equal(await tv.focused(), "request-three", "captured neighbor wins when moved focus was the removed card");
+    } finally { await tv.page.context().close(); }
+});
+
 test("a held write fences profile changes", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

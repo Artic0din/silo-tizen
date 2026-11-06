@@ -21,6 +21,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept a running skip hold when the earlier seek landed on the same plan.
 - Added the Show Up Next episodes icon. A seek during discovery finishes the open panel, and a failed On Deck read can be tried again in that playback.
 - Retried Up Next discovery after seeks, preserved fresh autoplay settings at EOF, and kept captions inside the video preview.
 

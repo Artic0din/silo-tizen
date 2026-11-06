@@ -218,8 +218,8 @@ export function requestsView(state: RequestsState, h: RequestsHandlers, baseUrl:
                 if (data.request.requestable) actions.push(requestAction());
                 if (h.capability.follow && data.request.id !== undefined && !data.request.requestedByViewer) actions.push(actionButton("follow", data.request.following ? "Unfollow" : "Follow", () => h.write(data.request.following ? "unfollow" : "follow")));
             } else {
-                // Apple's canCancel hides Cancel while it runs and until a read settles an unconfirmed one.
-                if (data.profileId === h.profileId && data.outcome === "active" && data.status === "pending" && state.action !== "cancel") actions.push(actionButton("cancel", "Cancel request", () => h.write("cancel")));
+                // Apple's canCancel hides Cancel while it runs and until a read settles an unconfirmed one. A list cancel owns the same gate.
+                if (data.profileId === h.profileId && data.outcome === "active" && data.status === "pending" && state.action !== "cancel" && state.actingId === undefined) actions.push(actionButton("cancel", "Cancel request", () => h.write("cancel")));
             }
             const progress = requestProgress(data);
             // A request that ended no longer blocks a new one once the fresh title says so (RequestDetailViewModel.primaryAction).

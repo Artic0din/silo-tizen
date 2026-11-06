@@ -2048,7 +2048,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     };
     const openRequests = (source: RequestsSource): void => { if (requestsCapability.enabled) push(newRoute({ kind: "requests", requests: requestsState(source) })); };
     const requestsHandlers = (current: Extract<Route, { kind: "requests" }>): RequestsHandlers => ({
-        capability: requestsCapability, busy: loading !== undefined || requestWritePending, failure: current.failure,
+        // List cancel/remove and detail writes share one mutation lock so navigating between them cannot duplicate a POST.
+        capability: requestsCapability, busy: loading !== undefined || requestWritePending || requestGate.actingId !== undefined, failure: current.failure,
         profileId: session.activeProfile?.id ?? "", back: pop, signIn: options.onSignOut, open: openRequests,
         retry: () => {
             current.focus = host.focused();
@@ -2075,7 +2076,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             current.requests.data = undefined; current.focus = undefined; retry(current);
         },
         menu: record => {
-            if (top() !== current || torn || requestMenu.active || requestGate.actingId !== undefined) return;
+            if (top() !== current || torn || requestMenu.active || requestWritePending || requestGate.actingId !== undefined) return;
             const origin = { zone: host.focused()?.zone ?? "mine", key: record.id };
             const held = requestGate.heldIds();
             const cancel = canCancel(record, requestGate.actingId, held);
@@ -2099,13 +2100,17 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         },
         write: action => {
             const state = current.requests, data = state.data;
-            if (top() !== current || torn || requestWritePending || state.writing || state.uncertain || loading !== undefined || data === undefined || !requestsCapability.enabled) return;
+            if (top() !== current || torn || requestWritePending || requestGate.actingId !== undefined || state.writing || state.uncertain || loading !== undefined || data === undefined || !requestsCapability.enabled) return;
             const title = "request" in data ? data : state.detail;
             const spec = action === "cancel" && "id" in data ? requestOperations.cancel(data.id)
                 : title === undefined || action === "cancel" ? undefined : action === "create" ? requestOperations.create(title) : requestOperations.follow(title, action === "follow");
             if (spec === undefined) return;
+            // Claim the list gate for Cancel so a hub menu cannot start a second POST for the same request.
+            const gateToken = action === "cancel" && "id" in data ? requestGate.begin(data.id) : undefined;
+            if (action === "cancel" && "id" in data && gateToken === undefined) return;
             // The ended record is no longer the page's subject: a new request belongs to the title (RequestDetailViewModel.submitRequest reloads the title).
             const followTitle = (): void => { if (action === "create" && title !== undefined && state.source.kind === "request") state.source = { kind: "media", title }; };
+            const releaseGate = (): void => { if (gateToken !== undefined) requestGate.release(gateToken); };
             requestWritePending = true; state.writing = true; state.uncertain = true; state.action = action; state.unconfirmed = false; state.actionMessage = undefined; current.failure = undefined;
             render(host.focused());
             current.focus = host.focused();
@@ -2114,7 +2119,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const keepMovedFocus = (route: Route): void => { if (inputRevision !== writeRevision) route.focus = host.focused() ?? route.focus; };
             // A write belongs to session authority, not route lifetime. Leaving never replays it.
             session.call({ ...spec, profileScoped: true, replayAfterRefresh: false }).then(() => {
-                requestWritePending = false; state.writing = false;
+                requestWritePending = false; state.writing = false; releaseGate();
                 if (torn) return;
                 followTitle();
                 markRequestsStale();
@@ -2122,7 +2127,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (visible?.kind === "requests") { keepMovedFocus(visible); visible.requests.uncertain = true; loadRoute(visible, true); }
                 else render(host.focused());
             }, (error: unknown) => {
-                requestWritePending = false; state.writing = false;
+                requestWritePending = false; state.writing = false; releaseGate();
                 if (torn) return;
                 const unconfirmed = writeMayHaveApplied(error);
                 if (unconfirmed) followTitle();

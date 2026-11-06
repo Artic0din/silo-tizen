@@ -1708,9 +1708,34 @@ test("a list cancel that settles on an open request detail reloads that detail",
         await tv.eventually(async () => tv.fake.paths().includes("POST /requests/request-one/cancel"), "cancel held");
         await button(tv, "request-one").click();
         await view(tv, "request");
-        await button(tv, "cancel").waitFor();
+        assert.equal(await button(tv, "cancel").count(), 0, "detail Cancel stays hidden while list cancel owns the gate");
         held.release();
-        await tv.eventually(async () => await button(tv, "cancel").count() === 0, "detail drops Cancel after list cancel settles");
+        await tv.eventually(async () => await button(tv, "cancel").count() === 0 && tv.fake.paths().filter(path => path === "POST /requests/request-one/cancel").length === 1, "detail reloads cancelled without a second cancel POST");
+    } finally { await tv.page.context().close(); }
+});
+
+test("a detail cancel in flight blocks a second cancel from the hub menu", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests();
+        fake.created = true;
+        await start(tv, fake);
+        await openRequests(tv);
+        await button(tv, "request-one").waitFor();
+        await button(tv, "request-one").click();
+        await view(tv, "request");
+        await button(tv, "cancel").waitFor();
+        const held = tv.fake.hold("/requests/request-one/cancel", true);
+        await button(tv, "cancel").click();
+        await tv.eventually(async () => tv.fake.paths().includes("POST /requests/request-one/cancel"), "detail cancel held");
+        await tv.remote(10009);
+        await button(tv, "request-one").waitFor();
+        assert.equal(await button(tv, "request-one").getAttribute("data-request-actions"), null, "hub menus stay closed while detail cancel owns the gate");
+        await holdCard(tv, "request-one");
+        assert.equal(await button(tv, "cancel-request").count(), 0, "a second Cancel request is not offered");
+        held.release();
+        await tv.eventually(async () => await button(tv, "request-one").count() === 0, "list cancel result paints after detail cancel settles");
+        assert.equal(tv.fake.paths().filter(path => path === "POST /requests/request-one/cancel").length, 1);
     } finally { await tv.page.context().close(); }
 });
 

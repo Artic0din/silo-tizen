@@ -31,7 +31,8 @@
 .accounts-screen .accounts-scrim { position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(to top, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0) 35%), linear-gradient(to right, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.55) 30%, rgba(0, 0, 0, 0.2) 58%, rgba(0, 0, 0, 0.1) 80%, rgba(0, 0, 0, 0.3) 100%); }
 .accounts-screen > .signin-text { line-height: 39.2px; }
 .accounts-rail button { background: transparent; border-color: transparent; }
-.accounts-rail button[aria-selected="true"]:not(:focus) { background: #ffffff12; }
+/* TVChangeAccountRailRowStyle: an unfocused selected server is siloChromeSelectedFill, white at 0.14. */
+.accounts-rail button[aria-selected="true"]:not(:focus) { background: rgba(255, 255, 255, 0.14); }
 .accounts-rail [data-focus="add-server"] { margin-top: 8px; }
 .accounts-plus { display: inline-grid; place-items: center; font-size: 28px; }
 .accounts-management { padding: 128px 168px; }

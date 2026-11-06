@@ -23,7 +23,7 @@ Apple TV has no three-choice Add sheet: account and server actions are direct, a
 The Change Account view uses the reference's 88-point headline, 520 by 88 rail rows and 760 by 128 account cards at the 1920-wide design viewport.
 Inter substitutes for Apple's system font.
 Pane rows, the 520px rail, plain Add server, gradient account tiles, and marquee scrim were rechecked against `bef81e8652a89c23a1c3cf07e312e9444baa6c4c`.
-Focus outlines and the Change Account backdrop were rechecked at `e28300c61f044a9322f588203c8819d6f06e6197`: focused rows and Cancel use the platter with no hairline, and the backdrop is the account light (stage 1) under `MarqueeScrim.leading`.
+Focus outlines, the shared backdrop stage, and the selected server fill were rechecked at `e28300c61f044a9322f588203c8819d6f06e6197`: focused rows and Cancel use the platter with no hairline. Change Account does not set `MarqueeScene.stage`, so the light stays warm after Who's watching and blue after sign-in, under `MarqueeScrim.leading`. An unfocused selected server is `siloChromeSelectedFill`, white at 0.14.
 Who's watching row stillness (`abf4ac45aa0ded295dd1443b91457cdf42dffbf2`) already holds: moving focus does not move the other row.
 Offline recovery says "Back to profiles" while a saved account can open profiles, otherwise "Change account".
 Tizen has no downloads, so download deletion copy is omitted.

@@ -3,6 +3,7 @@ import type { SecretStore } from "./secretStore.ts";
 import type { PublicStorage, RandomBytes } from "./deviceIdentity.ts";
 import type { ProfileSummary } from "../contracts/v2/wire.ts";
 import { operations } from "../api/operations.ts";
+import { ApiError } from "../api/errors.ts";
 
 interface LaunchChoice {
     readonly remember: boolean;
@@ -10,6 +11,7 @@ interface LaunchChoice {
     readonly selectionRequired?: boolean;
     readonly profileId?: string;
     readonly proofAlias?: string;
+    readonly profile?: Pick<ProfileSummary, "name" | "isPrimary" | "isChild">;
 }
 export type LaunchBehavior = "automatic" | "askEveryLaunch" | "afterOneHour" | "afterTwelveHours";
 
@@ -57,8 +59,10 @@ export class ProfileLaunch {
             if (!value.remember) return { remember: false };
             if (!("profileId" in value) || typeof value.profileId !== "string") return undefined;
             const proofAlias = "proofAlias" in value && typeof value.proofAlias === "string" ? value.proofAlias : undefined;
+            const profile = "profile" in value ? value.profile : undefined;
+            const summary = typeof profile === "object" && profile !== null && "name" in profile && typeof profile.name === "string" && "isPrimary" in profile && typeof profile.isPrimary === "boolean" && "isChild" in profile && typeof profile.isChild === "boolean" ? { name: profile.name, isPrimary: profile.isPrimary, isChild: profile.isChild } : undefined;
             const behavior = "behavior" in value && (value.behavior === "automatic" || value.behavior === "askEveryLaunch" || value.behavior === "afterOneHour" || value.behavior === "afterTwelveHours") ? value.behavior : undefined;
-            return { remember: true, profileId: value.profileId, ...(behavior === undefined ? {} : { behavior }), ...("selectionRequired" in value && value.selectionRequired === true ? { selectionRequired: true } : {}), ...(proofAlias === undefined ? {} : { proofAlias }) };
+            return { remember: true, profileId: value.profileId, ...(behavior === undefined ? {} : { behavior }), ...("selectionRequired" in value && value.selectionRequired === true ? { selectionRequired: true } : {}), ...(proofAlias === undefined ? {} : { proofAlias }), ...(summary === undefined ? {} : { profile: summary }) };
         } catch { return undefined; }
     }
 
@@ -122,7 +126,7 @@ export class ProfileLaunch {
         if (old?.proofAlias !== undefined) void this.secrets.remove(old.proofAlias);
     }
 
-    async setRemember(remember: boolean, signal?: AbortSignal, behavior?: LaunchBehavior): Promise<void> {
+    async setRemember(remember: boolean, signal?: AbortSignal, profileOrBehavior?: ProfileSummary | LaunchBehavior): Promise<void> {
         const key = this.key();
         const active = this.session.activeProfile;
         if (key === undefined || active === undefined) throw new Error("Choose a profile first");
@@ -142,7 +146,10 @@ export class ProfileLaunch {
             }
             try {
                 if (signal?.aborted || generation !== this.session.authorityGeneration || key !== this.key()) throw new Error("Profile changed while saving");
-                this.persist(key, { remember: true, behavior: behavior ?? old?.behavior ?? "automatic", profileId: active.id, ...(proofAlias === undefined ? {} : { proofAlias }) });
+                const behavior = profileOrBehavior === "automatic" || profileOrBehavior === "askEveryLaunch" || profileOrBehavior === "afterOneHour" || profileOrBehavior === "afterTwelveHours" ? profileOrBehavior : undefined;
+                const profile = behavior === undefined && typeof profileOrBehavior === "object" && profileOrBehavior !== null ? profileOrBehavior : undefined;
+                const summary = profile !== undefined ? (profile.id === active.id ? { name: profile.name, isPrimary: profile.isPrimary, isChild: profile.isChild } : undefined) : old?.profile;
+                this.persist(key, { remember: true, behavior: behavior ?? old?.behavior ?? "automatic", profileId: active.id, ...(proofAlias === undefined ? {} : { proofAlias }), ...(summary === undefined ? {} : { profile: summary }) });
             } catch (error) {
                 if (proofAlias !== undefined) await this.secrets.remove(proofAlias);
                 throw error;
@@ -152,7 +159,13 @@ export class ProfileLaunch {
         this.recordActive();
     }
 
-    async restore(list: readonly ProfileSummary[], signal: AbortSignal): Promise<ProfileSummary | undefined> {
+    async restoreOffline(signal: AbortSignal): Promise<ProfileSummary | undefined> {
+        const choice = this.choice();
+        if (!choice?.remember || choice.profileId === undefined) return undefined;
+        return this.restore([{ id: choice.profileId, name: choice.profileId, hasPin: choice.proofAlias !== undefined, isPrimary: false, isChild: false, ...choice.profile, avatarUrl: undefined }], signal, true);
+    }
+
+    async restore(list: readonly ProfileSummary[], signal: AbortSignal, localOnly = false): Promise<ProfileSummary | undefined> {
         const key = this.key();
         const choice = this.choice(key);
         if (key === undefined || !choice?.remember) return undefined;
@@ -175,12 +188,14 @@ export class ProfileLaunch {
         if (signal.aborted || generation !== this.session.authorityGeneration || key !== this.key()) return undefined;
         this.session.setProfile({ id: profile.id, token: proof }, "profile_selected");
         const restoredGeneration = this.session.authorityGeneration;
+        if (localOnly) return profile;
         try {
             // Reuse the normal profile-scoped authority check before opening any content.
             await this.session.call({ ...operations.listUserLibraries(), profileScoped: true, signal });
             if (signal.aborted || this.session.authorityGeneration !== restoredGeneration) return undefined;
             return profile;
         } catch (error) {
+            if (error instanceof ApiError && ["network", "timeout"].includes(error.failure.kind) && !signal.aborted && this.session.authorityGeneration === restoredGeneration) return profile;
             if (this.session.authorityGeneration === restoredGeneration) this.session.setProfile(undefined, "profile_cleared");
             throw error;
         }

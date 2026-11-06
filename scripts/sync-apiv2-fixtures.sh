@@ -83,6 +83,7 @@ SELECTED=(
   query_catalog_items_ok
   query_catalog_letters_ok
   rate_limited
+  refresh_catalog_item_trailers_ok
   refresh_session_ok
   refresh_session_provider_unavailable
   refresh_session_revoked
@@ -91,6 +92,12 @@ SELECTED=(
   user_libraries
   verify_profile_pin_ok
   verify_profile_pin_wrong
+)
+
+# Present at silo-server 6e8c68d and newer than SOURCE. Kept until SOURCE includes it
+# and the name moves into SELECTED. See src/contracts/v2/README.md.
+KEPT=(
+  request_status_ok
 )
 
 # The Settings manifest subset in settings_contract_ok.json (src/contracts/v2/README.md).
@@ -181,6 +188,7 @@ for file in "$DEST"/*.json; do
   [ "$name" = "$SETTINGS_FIXTURE" ] && continue
   [ "$name" = "$SETTINGS_ROWS_FIXTURE" ] && continue
   in_list "$name" "${SELECTED[@]}" && continue
+  in_list "$name" "${KEPT[@]}" && continue
   rm "$file"
   echo "removed stale $name.json (not in SELECTED)"
   removed=$((removed + 1))

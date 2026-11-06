@@ -199,7 +199,10 @@ The pill nodes stay mounted during episode updates so repainting cannot cancel t
 The selected pill centers on initial display and selection, clamped to the row ends, following `TVSeriesDetailView.swift:653–674`.
 The signed same-state comparison on 5 November 2026 at `93a39b3` confirmed the pill window; the later inset and hero corrections still need signed comparison.
 The current season keeps its current episode on focus, while a different season starts at E01 and retains pill focus until Down.
-Episode-card focus uses loaded episode summaries and never starts a detail read.
+Episode-card focus paints the loaded summary immediately, then reads missing full detail after 120 ms on the same episode, matching `TVItemDetailView.swift:805-858` at Apple source `df891d2e`.
+This is an explicit exception to the general no-focus-fetch rule, approved for Apple TV parity.
+Cached episodes need no read; leaving before the dwell cancels it.
+The existing queue runs at most four detail reads, drops superseded queued focus reads, and keeps failures for explicit Retry rather than retrying on focus.
 Uncached playback and version/audio/subtitle activation resolve the selected episode's extra details explicitly.
 Crossing into a loaded season in the Series rail only selects its cached page; it starts no reads.
 Initial row loading warms the neighbouring episode window; focus activation, Select and selected-season Retry do not.
@@ -215,7 +218,7 @@ Neither ordinary loaded-card movement nor revisiting a failed edge retries a rea
 Translation polls publish the selected season without restarting neighbour reads or clearing a failed edge, following `ItemDetailViewModel.swift:1752–1773` at the same Apple source revision.
 Featured cards are another exception. In the server's auto mode, the marquee starts a description translation only after that card has held the preview for 1500 ms, matching Apple TV's featured-card dwell. Moving on before then starts nothing. Details translation starts with the page. Focusing another episode does not.
 
-Outside the named filter, season-pill, outer-edge and featured-card exceptions, moving focus never starts a request, activates a route or writes data.
+Outside the named filter, season-pill, episode-detail, outer-edge and featured-card exceptions, moving focus never starts a request, activates a route or writes data.
 Fetching belongs to explicit activation (Enter), to a view loading, or to a one-off prefetch.
 
 - Card focus calls `context.preview`, which only redraws the marquee from data already in memory (`Skyline.preview`).

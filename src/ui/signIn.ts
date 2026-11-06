@@ -349,7 +349,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
      * `fallbacks`: plain-HTTP addresses the person agreed to, tried in order after `target`.
      * `chosen`: the protocol picked in Advanced options; only Auto asks about plain HTTP.
      */
-    const startConnect = (fallbacks: readonly string[] = [], target = address, chosen: AdvancedScheme = "auto"): void => {
+    const startConnect = (fallbacks: readonly string[] = [], target = address, chosen: AdvancedScheme = "auto", offlineRestore = false): void => {
         connecting?.abort();
         const controller = new AbortController();
         connecting = controller;
@@ -364,7 +364,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         pendingAccountCleanup.then(() => {
             cancelCleanupWait();
             if (!controller.signal.aborted && !destroyed) {
-                return connectInOrder([target, ...fallbacks], controller.signal);
+                return connectInOrder([target, ...fallbacks], controller.signal, offlineRestore);
             }
             return undefined;
         }).then(
@@ -397,10 +397,10 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     };
 
     /** Like the Apple TV app, the first plain-HTTP address that answers as Silo wins. */
-    const connectInOrder = async (addresses: readonly string[], signal: AbortSignal): Promise<ConnectResult> => {
+    const connectInOrder = async (addresses: readonly string[], signal: AbortSignal, offlineRestore: boolean): Promise<ConnectResult> => {
         let result: ConnectResult = { status: "unreachable" };
         for (const candidate of addresses) {
-            result = await connect(candidate, core, signal);
+            result = await connect(candidate, { ...core, allowOfflineRestore: offlineRestore }, signal);
             if (result.status === "connected" || result.status === "needs_setup" || signal.aborted) {
                 break;
             }
@@ -504,7 +504,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         const controller = new AbortController();
         setupProbe = controller;
         showNeedsSetup(true);
-        void connect(expected, core, controller.signal).then((result) => {
+        void connect(expected, { ...core, allowOfflineRestore: false }, controller.signal).then((result) => {
             if (controller.signal.aborted || destroyed || address !== expected || host.name !== "needs-setup") {
                 return;
             }
@@ -1066,7 +1066,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     } else if (options.chooseServer === true) {
         showEntry([], false, "connect");
     } else if (address !== "") {
-        startConnect();
+        startConnect([], address, "auto", true);
     } else {
         showEntry([], false);
     }

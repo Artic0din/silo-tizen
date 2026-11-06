@@ -25,9 +25,11 @@ export function discoveryView(route: LibraryRoute, state: DiscoveryState, handle
     const open = (title: string, source: LibrarySource): void => handlers.push(newRoute({ kind: "libraryResults", library: route.library, title, source, pages: newPages(), descending: false }));
     if (state.mode === "Browse") {
         const page = browsePage(route, state, handlers);
-        const modal = state.panel !== undefined || handlers.shuffle?.failure !== undefined;
-        if (modal) { pillRow.setAttribute("aria-hidden", "true"); pillRow.setAttribute("inert", ""); }
-        return { name: `library:${route.library.id}`, content: [pillRow, ...page.content], zones: [...(modal ? [] : zones), ...page.zones], focus: panelFocus(state) ?? { zone: "controls", key: "sort" }, back: page.back ?? handlers.pop, ready: state.snapshot !== undefined };
+        // TVLibraryGridView (abf4ac45) draws no mode pills. The actions stay in
+        // the document for Genres, A–Z and Recently Added, but they are not
+        // shown and not a focus stop. Up from Sort is the top bar.
+        pillRow.hidden = true;
+        return { name: `library:${route.library.id}`, content: [pillRow, ...page.content], zones: page.zones, focus: panelFocus(state) ?? { zone: "controls", key: "sort" }, back: page.back ?? handlers.pop, ready: state.snapshot !== undefined };
     }
     if (route.failure !== undefined) {
         const retry = actionButton("retry", "Try again", () => handlers.retry(route));

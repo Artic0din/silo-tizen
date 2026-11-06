@@ -221,6 +221,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     surface.type = "application/avplayer";
     surface.className = "player-video";
     surface.setAttribute("aria-hidden", "true");
+    const backdrop = el("div", "player-backdrop");
+    backdrop.hidden = true;
     const overlay = el("div", "player-overlay");
     overlay.setAttribute("data-focus", "player");
     overlay.tabIndex = -1;
@@ -371,7 +373,9 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     cancelAutoplay.addEventListener("click", () => controls.cancelAutoplay());
     actions.append(next, keep, cancelAutoplay, retry, back);
     failure.append(eyebrow, failureTitle, mark, failureText, synopsis, actions, deck);
-    section.append(surface, spinner, overlay, status, skip, failure, hud);
+    section.append(surface, backdrop, spinner, overlay, status, skip, failure, hud);
+    const covered = Array.from(root.children).flatMap((child) => child instanceof HTMLElement ? [{ element: child, display: child.style.display }] : []);
+    for (const item of covered) item.element.style.display = "none";
     root.appendChild(section);
 
     let view: PlaybackView = { phase: "closed" };
@@ -528,6 +532,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     };
 
     const render = (): void => {
+        backdrop.hidden = view.phase !== "loading";
         renderSubtitles(view);
         const prompt = view.phase === "playing" || view.phase === "paused" ? view.upNext : undefined;
         const active = view.phase === "playing" || view.phase === "paused";
@@ -1221,6 +1226,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             if (section.parentNode === root) {
                 root.removeChild(section);
             }
+            for (const item of covered) item.element.style.display = item.display;
         },
     };
 }

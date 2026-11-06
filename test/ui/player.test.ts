@@ -11,10 +11,11 @@ import { DEFAULT_APPEARANCE } from "../../src/contracts/v2/subtitles.ts";
 import { readLive } from "./support/tv.ts";
 
 const ORIGIN = "https://tv.example.test";
-const CSS = ["theme.css", "player/player.css"].map((name) => readFileSync(new URL(`../../src/${name}`, import.meta.url), "utf8")).join("\n");
+const CSS = ["theme.css", "app.css", "player/player.css"].map((name) => readFileSync(new URL(`../../src/${name}`, import.meta.url), "utf8")).join("\n");
 const HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Silo</title>
-<link rel="stylesheet" href="player.css"></head>
-<body style="margin:0;background:#000"><main id="root"></main><script src="harness.js"></script></body></html>`;
+<link rel="stylesheet" href="player.css">
+<style>#sibling { position: absolute; inset: 0; background: #000; }</style></head>
+<body><main id="root"></main><script src="harness.js"></script></body></html>`;
 const BACK = 10009;
 const ENTER = 13;
 const LEFT = 37;
@@ -1172,6 +1173,77 @@ async function capture(page: Page, name: string): Promise<void> {
         await page.screenshot({ path: `${dir}/${name}.png` });
     }
 }
+
+/** AVPlay draws behind the page, so a full-screen non-transparent layer hides the picture. */
+const planeCoveredBy = (page: Page): Promise<string[]> => page.evaluate(() => {
+    const video = document.querySelector("object.player-video");
+    if (!(video instanceof HTMLElement)) return ["missing object"];
+    const videoBox = video.getBoundingClientRect();
+    const opaque = (style: CSSStyleDeclaration): boolean => {
+        const image = style.backgroundImage;
+        if (image !== "none") return !/rgba?\([^)]*,\s*0(?:\.0+)?\s*\)|transparent/.test(image);
+        const match = style.backgroundColor.match(/rgba?\(([^)]+)\)/);
+        const channels = match?.[1];
+        if (channels === undefined) return style.backgroundColor !== "transparent";
+        const parts = channels.split(",").map((part) => part.trim());
+        const alpha = parts[3];
+        return alpha === undefined || Number(alpha) > 0;
+    };
+    const paints = (element: Element): boolean => {
+        if (!(element instanceof HTMLElement) || element.hidden) return false;
+        const style = getComputedStyle(element);
+        if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return false;
+        return opaque(style) && Number(style.opacity) > 0;
+    };
+    const covers = (element: Element): boolean => {
+        const box = element.getBoundingClientRect();
+        return box.left <= videoBox.left + 0.5 && box.top <= videoBox.top + 0.5 && box.right >= videoBox.right - 0.5 && box.bottom >= videoBox.bottom - 0.5;
+    };
+    const name = (element: Element): string => `${element.tagName.toLowerCase()}${element.id === "" ? "" : `#${element.id}`}${element.className === "" ? "" : `.${String(element.className).trim().replace(/\s+/g, ".")}`}`;
+    const offenders: string[] = [];
+    for (let node = video.parentElement; node !== null; node = node.parentElement) {
+        if (paints(node)) offenders.push(`ancestor ${name(node)}`);
+    }
+    for (const element of document.querySelectorAll("body *")) {
+        if (element === video || video.contains(element) || element.contains(video)) continue;
+        if (paints(element) && covers(element)) offenders.push(`full-screen ${name(element)}`);
+    }
+    return offenders;
+});
+
+test("the video plane stays clear while playing, paused, seeking and the panel is open", async () => {
+    const { page, logs } = await open();
+    try {
+        const assertClear = async (state: string): Promise<void> => {
+            assert.deepEqual(await planeCoveredBy(page), [], state);
+        };
+        await show(page, playing(NO_TRACKS));
+        await assertClear("playing");
+        await show(page, { ...playing(NO_TRACKS), phase: "paused" });
+        await assertClear("paused");
+        await show(page, playing(NO_TRACKS));
+        await page.locator(".player-bar").focus();
+        await remote(page, ENTER);
+        await remote(page, RIGHT);
+        assert.equal(await page.locator(".player-bar").evaluate((node) => node.className), "player-bar player-bar-preview");
+        await assertClear("seeking");
+        await remote(page, BACK);
+        await show(page, playing(TRACKS));
+        await openPanel(page);
+        assert.equal(await page.locator(".player-menu").isVisible(), true);
+        await assertClear("panel");
+        await show(page, { phase: "error", title: "The Movie", error: { kind: "network" } });
+        await assertClear("error");
+        await show(page, { phase: "loading", title: "The Movie" });
+        const backdrop = page.locator(".player-backdrop");
+        assert.equal(await backdrop.isVisible(), true);
+        assert.equal(await backdrop.evaluate((node) => getComputedStyle(node).backgroundColor), "rgb(0, 0, 0)");
+        assert.equal(await page.locator(".player-overlay .player-title").isVisible(), false);
+        assert.deepEqual(logs, []);
+    } finally {
+        await page.close();
+    }
+});
 
 test("loading, playing and paused are readable; the remote cancels a seek preview and goes back with focus kept", async () => {
     const { page, logs } = await open();

@@ -246,8 +246,9 @@ journey("a delayed Home libraries read cannot remove a library restored in Setti
     await tv.page.getByText("Saving…", { exact: true }).waitFor({ state: "hidden" });
     for (let step = 0; step < 4 && await tv.page.locator(".settings").count() > 0; step++) await tv.remote(10009);
     assert.equal(await tv.page.locator(".settings").count(), 0);
-    assert.equal(await tv.page.locator('.browse[data-view="calendar"]').count(), 1);
-    await tv.eventually(async () => await tv.page.locator('[data-focus="series"]').count() === 1 && await tv.page.locator('[data-focus="movies"]').count() === 1, "Calendar refresh restored libraries");
+    assert.equal(await tv.page.locator('.browse[data-view="home"]').count(), 1);
+    assert.equal(await tv.focused(), "home", "Settings Back selects Home");
+    await tv.eventually(async () => await tv.page.locator('[data-focus="series"]').count() === 1 && await tv.page.locator('[data-focus="movies"]').count() === 1, "Home refresh restored libraries");
     heldStaleLibraries.release();
     const deadline = performance.now() + 1500;
     do {

@@ -329,18 +329,21 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     const credits = detail.extra?.cast ?? [];
     if (credits.length > 0) {
         const occurrences = new Map<string, number>();
-        const people = credits.slice(0, 24).map((credit, index) => {
+        const people = credits.slice(0, 24).map(credit => {
             const item = creditCard(credit, context);
-            const identity = JSON.stringify([credit.id ?? credit.name, credit.role]);
+            // Always key by identity/role/occurrence, including singleton credits.
+            // A conditional key format used to rename a focused card when another
+            // role for the same person appeared or disappeared, so FocusHost could
+            // not restore it after trailer discovery refreshed the detail. Apple's
+            // rail keys by index; Tizen keeps identity so a reorder of the same set
+            // can still restore focus.
+            const identity = `${credit.id ?? credit.name}\u001f${credit.role}`;
             const occurrence = occurrences.get(identity) ?? 0;
             occurrences.set(identity, occurrence + 1);
-            // Every credit for a repeated person stays stable when other roles move.
-            if (credits.some((other, otherIndex) => otherIndex !== index && (other.id ?? other.name) === (credit.id ?? credit.name))) {
-                const key = `credit:${identity}:${occurrence}`;
-                item.element.dataset.focus = key;
-                return { ...item, key };
-            }
-            return item;
+            // encodeURIComponent keeps the key CSS-selectable and free of JSON quotes.
+            const key = `credit:${encodeURIComponent(credit.id ?? credit.name)}:${encodeURIComponent(credit.role)}:${occurrence}`;
+            item.element.dataset.focus = key;
+            return { ...item, key };
         });
         content.push(el("h2", "browse-section-title", "Cast & Crew"), zoneNode("browse-row details-people", people));
         zones.push({ id: "people", layout: "row", items: people });

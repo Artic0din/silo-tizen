@@ -34,6 +34,29 @@ for (const personId of ['7', undefined]) trailerTest(`duplicate cast focus survi
     assert.equal(await tv.page.locator(':focus .browse-card-subtitle').textContent(), 'Second role');
 });
 
+
+trailerTest("singleton cast focus stays put when a duplicate credit appears", async (tv, catalog) => {
+    const body = catalog.route("GET", "/catalog/items/movie%3Am0001", "p-owner")?.body as Record<string, unknown>;
+    const solo = [{ person_id: "7", name: "Same actor", character: "Only role", order: 0 }];
+    const withDuplicate = [
+        { person_id: "7", name: "Same actor", character: "Only role", order: 0 },
+        { person_id: "7", name: "Same actor", character: "Extra role", order: 1 },
+    ];
+    let refreshed = false;
+    await tv.page.route("**/api/v2/catalog/items/movie%3Am0001/trailers/refresh", route => { refreshed = true; return route.fulfill({ status: 202, json: { status: "queued" } }); });
+    await tv.page.route("**/api/v2/catalog/items/movie%3Am0001?**", route => route.fulfill({ json: { ...body, cast: refreshed ? withDuplicate : solo, videos: refreshed ? [YOUTUBE] : [] } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.locator('[data-focus="find-trailers"]').click();
+    await tv.page.locator(".details-people [data-focus]").first().focus();
+    const key = await tv.focused();
+    assert.match(key ?? "", /^credit:/, "singleton cast already uses the stable credit key");
+    await tv.jump(3000);
+    await tv.page.locator(".details-extras").waitFor();
+    assert.equal(await tv.focused(), key, "adding another role must not rename the focused credit");
+    assert.equal(await tv.page.locator(".details-people [data-focus]").count(), 2);
+});
+
 for (const path of ['playback', 'watched then navigate']) trailerTest(`interrupted trailer discovery survives ${path} owner replacement`, async (tv, catalog) => {
     const body = catalog.route('GET', '/catalog/items/movie%3Am0001', 'p-owner')?.body as Record<string, unknown>;
     let posts = 0; let found = false; let reads = 0;

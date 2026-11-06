@@ -1702,7 +1702,9 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
     personal.release();
     await tv.page.locator('[data-focus="watchlist"]').waitFor();
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "refreshed related titles");
-    await tv.page.locator('[data-focus="person:7"]').first().focus();
+    await tv.page.locator(".details-people [data-focus]").first().focus();
+    const castKey = await tv.focused();
+    assert.ok(castKey?.startsWith("credit:"));
     const reads = tv.fake.requests.length;
     await press(tv, "ArrowRight", "ArrowLeft");
     assert.equal(tv.fake.requests.length, reads, "focus performs no reads");
@@ -1712,7 +1714,7 @@ browseTest("richer Details: facts, versions, people, bounded filmography, relate
     assert.equal(await tv.page.locator(".browse-card").count(), 24);
     await tv.remote(BACK);
     await showing(tv, "item:movie:m0001");
-    assert.equal(await tv.focused(), "person:7");
+    assert.equal(await tv.focused(), castKey);
     await tv.eventually(async () => await tv.page.locator('[data-detail-section="related"] .browse-card').count() === 24, "the bounded related rail");
     assert.equal(await tv.page.getByRole("button", { name: /trailer/i }).count(), 0);
 }, { catalog: new FakeDetails() });

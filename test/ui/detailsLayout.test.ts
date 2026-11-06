@@ -695,7 +695,7 @@ detailTest('Series More keeps series and season watched writes separate and reco
     await panel.getByRole('button', { name: 'Retry season watched', exact: true }).waitFor();
     await panel.getByRole('alert').filter({ hasText: 'Could not update season watched.' }).waitFor();
     await tv.remote(10009);
-    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await tv.page.locator('[data-view="person:7"]').waitFor();
     await tv.remote(10009);
     await tv.page.locator('[data-focus="more"]').click();
@@ -1684,7 +1684,7 @@ detailTest('Series remote navigation scrolls down to Cast and back to episodes',
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('[data-focus="episode:s1e11"]').focus();
     await tv.remote(40);
-    assert.match(await tv.focused() ?? '', /^person:/);
+    assert.match(await tv.focused() ?? '', /^(person:|credit:)/);
     const cast = await readLive(tv, () => {
         const photo = document.querySelector(".details-photo");
         const browse = document.querySelector(".browse");

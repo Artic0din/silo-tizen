@@ -534,9 +534,9 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             const candidate = view.phase === "completion" ? view.next : prompt?.next;
             const cards = view.phase === "completion" ? view.deck ?? [] : prompt?.deck ?? [];
             const seconds = view.phase === "completion" ? view.countdown : prompt?.countdown;
-            const status = view.phase === "completion" ? view.title : prompt?.status ?? "Up Next";
+            const nextStatus = view.phase === "completion" ? view.title : prompt?.status ?? "Up Next";
             failure.classList.add("player-next-up");
-            eyebrow.textContent = status;
+            eyebrow.textContent = nextStatus;
             synopsis.textContent = candidate?.overview ?? "";
             const identity = cards.map(card => card.contentId).join("|");
             if (deck.dataset.items !== identity) {
@@ -577,6 +577,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                 failureTitle.textContent = loading ? "Finding the next episode" : candidate?.title ?? "Almost finished";
                 failureText.textContent = loading ? "" : failed ? "Couldn't load the next episode. Pick something from On Deck, or go back." : candidate === undefined ? "No next episode is available." : seconds === undefined ? "" : `Playing in ${seconds}s`;
                 if (!failure.contains(document.activeElement)) (next.hidden ? keep : next).focus();
+                spinner.hidden = true;
+                status.hidden = true;
                 return;
             }
             next.hidden = view.state !== "ready" || view.next === undefined;

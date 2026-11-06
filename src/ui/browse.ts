@@ -2106,8 +2106,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 : title === undefined || action === "cancel" ? undefined : action === "create" ? requestOperations.create(title) : requestOperations.follow(title, action === "follow");
             if (spec === undefined) return;
             // Claim the list gate for Cancel so a hub menu cannot start a second POST for the same request.
-            const gateToken = action === "cancel" && "id" in data ? requestGate.begin(data.id) : undefined;
-            if (action === "cancel" && "id" in data && gateToken === undefined) return;
+            const cancelId = action === "cancel" && "id" in data ? data.id : undefined;
+            const gateToken = cancelId !== undefined ? requestGate.begin(cancelId) : undefined;
+            if (cancelId !== undefined && gateToken === undefined) return;
             // The ended record is no longer the page's subject: a new request belongs to the title (RequestDetailViewModel.submitRequest reloads the title).
             const followTitle = (): void => { if (action === "create" && title !== undefined && state.source.kind === "request") state.source = { kind: "media", title }; };
             const releaseGate = (): void => { if (gateToken !== undefined) requestGate.release(gateToken); };
@@ -2127,9 +2128,17 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (visible?.kind === "requests") { keepMovedFocus(visible); visible.requests.uncertain = true; loadRoute(visible, true); }
                 else render(host.focused());
             }, (error: unknown) => {
-                requestWritePending = false; state.writing = false; releaseGate();
-                if (torn) return;
+                requestWritePending = false; state.writing = false;
+                if (torn) { releaseGate(); return; }
                 const unconfirmed = writeMayHaveApplied(error);
+                // Match list cancel: an uncertain Cancel stays held until a successful list/detail read settles it.
+                if (unconfirmed && cancelId !== undefined) {
+                    requestGate.hold(cancelId);
+                    releaseGate();
+                    if (requestGate.held.has(cancelId)) requestGate.listMessage = UNCONFIRMED_CANCEL_MESSAGE;
+                } else {
+                    releaseGate();
+                }
                 if (unconfirmed) followTitle();
                 state.uncertain = unconfirmed; state.unconfirmed = unconfirmed;
                 state.actionMessage = unconfirmed ? unconfirmedWriteMessage(action) : writeFailureMessage(error);

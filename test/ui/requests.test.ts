@@ -565,6 +565,34 @@ test("cancel lost response is read back without replay and writes refuse refresh
     } finally { await tv.page.context().close(); }
 });
 
+test("an unconfirmed detail cancel keeps the hub from offering Cancel Request again", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests();
+        fake.created = true;
+        await start(tv, fake);
+        await openRequests(tv);
+        await button(tv, "request-one").waitFor();
+        await button(tv, "request-one").click();
+        await view(tv, "request");
+        await button(tv, "cancel").waitFor();
+        // Lost cancel answer, then both the detail readback and a later hub refresh fail so pending cards stay.
+        tv.fake.script("/requests/request-one", { status: 500, text: "bad" });
+        tv.fake.script("/requests/mine?limit=50", problem(500, "internal", "Unavailable"));
+        tv.fake.script("/requests/discover", problem(500, "internal", "Unavailable"));
+        tv.fake.dropNextAnswer("/requests/request-one/cancel");
+        await button(tv, "cancel").click();
+        await tv.page.getByText(UNCONFIRMED_CANCEL).waitFor();
+        assert.equal(tv.fake.paths().filter(path => path === "POST /requests/request-one/cancel").length, 1);
+        await tv.remote(10009);
+        await button(tv, "request-one").waitFor();
+        assert.equal(await button(tv, "request-one").getAttribute("data-request-actions"), null, "held unconfirmed cancel blocks the hub menu");
+        await holdCard(tv, "request-one");
+        assert.equal(await button(tv, "cancel-request").count(), 0);
+        assert.equal(tv.fake.paths().filter(path => path === "POST /requests/request-one/cancel").length, 1, "no second cancel POST");
+    } finally { await tv.page.context().close(); }
+});
+
 test("a held write fences profile changes", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

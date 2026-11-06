@@ -241,6 +241,8 @@ interface Attempt {
         deckSettled: boolean;
         deckFailed: boolean;
         deck: PlayRequest[];
+        /** Successor whose catalog presentation was requested. Ticks must not read it again. */
+        presentationFor: string | undefined;
     };
     transportCommandCount: number;
     autoNext: boolean;
@@ -400,7 +402,7 @@ export class PlaybackController implements PlayerControls {
             hud: new HUDState(),
             autoNextSupported: false,
             promptSeconds: 30, promptSupported: false, promptDismissed: false, promptPending: false, promptLookedUp: false, prompt: undefined,
-            offer: { started: false, manual: false, episodeLoading: false, deckLoading: false, episodeSettled: false, episodeFailed: false, episode: undefined, deckSettled: false, deckFailed: false, deck: [] },
+            offer: { started: false, manual: false, episodeLoading: false, deckLoading: false, episodeSettled: false, episodeFailed: false, episode: undefined, deckSettled: false, deckFailed: false, deck: [], presentationFor: undefined },
             transportCommandCount: 0,
             autoNext: false,
             introMode: "ask", skipCredits: false, skippedMarkers: new Set(), undoSkip: undefined, pendingSkipUndo: undefined,
@@ -2959,7 +2961,8 @@ export class PlaybackController implements PlayerControls {
         attempt.prompt = { next: displayed, deck: offer.deckFailed ? [] : offer.deck, fromDeck, ...(loading ? { loading: true } : {}), ...(failed ? { failed: true } : {}) };
         try { this.setDisplayRect(attempt); } catch { /* A PLAYING seek refuses the rectangle until it settles. */ }
         this.showPlayback(attempt);
-        if (displayed !== undefined && !fromDeck) {
+        if (displayed !== undefined && !fromDeck && attempt.offer.presentationFor !== displayed.contentId) {
+            attempt.offer.presentationFor = displayed.contentId;
             this.loadPresentation(displayed, attempt.signal, enriched => {
                 if (this.active() !== attempt || attempt.offer.episode?.contentId !== displayed.contentId || attempt.prompt?.next?.contentId !== displayed.contentId) return;
                 attempt.offer.episode = enriched;

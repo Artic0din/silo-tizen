@@ -195,7 +195,7 @@ A valid older response without the optional flag, a false flag, or a confirmed u
 Network, server and malformed capability responses fail visibly with Try again; they never fabricate unsupported status or empty results.
 The optional flag is strictly boolean when present, while unknown additive fields remain accepted.
 
-The operation remains `listCatalogItems`, **GET `/api/v2/catalog`**, with `q`, `type`, `limit=24`, opaque continuation and small artwork.
+The operation remains `listCatalogItems`, **GET `/api/v2/catalog`**, with `q`, `type`, `limit=60`, opaque continuation and small artwork.
 At [server cc851494](https://github.com/Silo-Server/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/internal/catalog/catalog_parser.go), `video_with_episodes` is legal only on the query source; with text it includes movies, series and episodes, and without text it browses movies and series.
 The typed client exposes that scope only for text Search, leaving library/Home types and POST source requests unchanged.
 Resolved scope belongs to the active Search route and stays fixed through its cursor sequence, retries and returns from Details.

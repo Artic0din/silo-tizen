@@ -450,7 +450,9 @@ export class FocusHost {
                     const rect = from.element.getBoundingClientRect();
                     this.navigationX = rect.left + rect.width / 2;
                 }
-                const nearest = spatial ? nearestItem(edgeItems, from.element, this.navigationX) : undefined;
+                const searchLanding = searchVerticalLanding(zones[zoneIndex], zone, from.element, edgeItems);
+                if (searchLanding === "stay") return true;
+                const nearest = searchLanding ?? (spatial ? nearestItem(edgeItems, from.element, this.navigationX) : undefined);
                 this.focusItem(zone, zone.items.find(item => item.key === zone.entry) ?? nearest ?? zone.items.find((item) => item.key === remembered) ?? zone.items[0]);
                 return true;
             }
@@ -476,9 +478,8 @@ export class FocusHost {
         // than the day button the axis still holds.
         // Search People is the same kind of landing. TVDetailCastRail uses
         // tvDefaultFocus on the first person, so a filter pill's column must not
-        // survive into the grid or the request rail. A later vertical move
-        // measures the person who actually has focus. Moves that start on a
-        // person or a poster still keep that card's column.
+        // survive into the next row. People into the title grid, and moves into
+        // or out of Requests, measure the focused card instead.
         const calendarChrome = this.view?.name === "calendar" && (zone.id === "filters" || zone.id === "days" || zone.id === "status" || zone.id === "empty" || this.lastZone === "filters" || this.lastZone === "days" || this.lastZone === "status" || this.lastZone === "empty");
         if (zone.id === "nav" || this.lastZone === "nav" || calendarChrome || zone.id === "search-people") this.navigationX = undefined;
         this.memory.set(zone.id, item.key);
@@ -609,6 +610,47 @@ function landscapeArt(element: HTMLElement): boolean {
     const box = art instanceof HTMLElement ? art : element;
     // Focus transforms can round a square's viewport width above its height.
     return box.offsetWidth > box.offsetHeight;
+}
+
+/**
+ * People into the title grid take the first column whose left edge is at or past the
+ * focused centre. That is one column to the right of the nearest centre.
+ * Requests move only onto a card that lines up; otherwise focus stays.
+ * Box sets keep the ordinary nearest-centre move.
+ */
+function searchVerticalLanding(source: Zone | undefined, destination: Zone, from: HTMLElement, edgeItems: readonly FocusItem[]): FocusItem | "stay" | undefined {
+    if (source === undefined) return undefined;
+    if (source.id === "search-people" && destination.id === "grid") {
+        // A person past the last column still enters that column. The measured rows have a column at or past the centre.
+        return columnAtOrPastCenter(edgeItems, from) ?? nearestItem(edgeItems, from);
+    }
+    const intoRequests = destination.id === "search-requests" && (source.id === "search-people" || source.id === "grid");
+    const outOfRequests = source.id === "search-requests" && (destination.id === "grid" || destination.id === "search-people");
+    if (!intoRequests && !outOfRequests) return undefined;
+    return overlappingNearest(edgeItems, from) ?? "stay";
+}
+
+function columnAtOrPastCenter(items: readonly FocusItem[], from: HTMLElement): FocusItem | undefined {
+    const box = from.getBoundingClientRect();
+    const center = box.left + box.width / 2;
+    return items.find(item => item.element.getBoundingClientRect().left >= center - 0.5);
+}
+
+function overlappingNearest(items: readonly FocusItem[], from: HTMLElement): FocusItem | undefined {
+    const origin = from.getBoundingClientRect();
+    const center = origin.left + origin.width / 2;
+    let best: FocusItem | undefined;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const item of items) {
+        const target = item.element.getBoundingClientRect();
+        if (origin.left >= target.right || target.left >= origin.right) continue;
+        const distance = Math.abs(target.left + target.width / 2 - center);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            best = item;
+        }
+    }
+    return best;
 }
 
 function nearestItem(items: readonly FocusItem[], from: HTMLElement, navigationX?: number): FocusItem | undefined {

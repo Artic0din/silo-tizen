@@ -19,7 +19,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Down from Search's People row now follows that person into the results and the first request, instead of keeping the filter pill's column.
+- Down from a Search person lands on the first title column at or past that person's centre. A request moves only onto a card that lines up with it, so Up from the right end stays when the title grid's last row does not. Search loads 60 titles per page, so 25 results have no pager.
 - Added Retry for retryable playback startup failures and exhausted route recovery.
 - Kept the Details hero pinned when action focus survived a repaint during its return scroll.
 - Opened a remembered profile and cached Home promptly on cold start while checking the saved session in the background, then refreshed the top-bar profile artwork from the reconciled summary.

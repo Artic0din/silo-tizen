@@ -386,6 +386,10 @@ browseTest("Collections uses portrait posters and visible failed-art fallback wi
 });
 
 class SearchCatalog extends FakeRequests {
+    constructor(movieCount = 60) {
+        super(movieCount);
+    }
+
     peopleFailure = false;
     override route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): Reply | undefined {
         if (new URL(path, "https://fake.invalid").pathname === "/catalog/people") return this.peopleFailure
@@ -396,6 +400,10 @@ class SearchCatalog extends FakeRequests {
 }
 
 class SearchEdgeCatalog extends SearchCatalog {
+    constructor(movieCount = 60) {
+        super(movieCount);
+    }
+
     override route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): Reply | undefined {
         const pathname = new URL(path, "https://fake.invalid").pathname;
         if (pathname === "/catalog/people") return { status: 200, body: { items: Array.from({ length: 20 }, (_, index) => ({
@@ -513,14 +521,14 @@ for (const reduced of [false, true]) {
     }, { catalog: new SearchEdgeCatalog() });
 }
 
-browseTest("Search spatial People entry chooses the nearest title column", async tv => {
+browseTest("Search spatial People entry chooses the title column at or past that person", async tv => {
     await tv.page.locator('[data-focus="search"]').click();
     await tv.page.fill("#browse-search", "Movie 000"); await tv.remote(IME_DONE);
     await tv.page.locator('.browse-grid [data-focus="movie:m0002"]').waitFor();
     await tv.page.locator('[data-focus="person:edge-1"]').focus();
     const reads = tv.fake.requests.length;
     await press(tv, "ArrowDown");
-    assert.equal(await tv.focused(), "movie:m0002");
+    assert.equal(await tv.focused(), "movie:m0003", "the second person lands on the third poster");
     await press(tv, "ArrowUp");
     await tv.jump(250);
     await tv.page.waitForTimeout(260);
@@ -601,7 +609,7 @@ browseTest("Related shelf omits the watched badge Apple leaves off the similar c
 
 for (const visit of ["warm", "cold", "rounded square"] as const) {
 const coldStart = visit !== "warm";
-browseTest(`Search measures the default person, not the filter column, through the grid into Requests${coldStart ? " from the field on a cold visit" : ""}${visit === "rounded square" ? " with fractional portrait bounds" : ""}`, async tv => {
+browseTest(`Search measures the default person, not the filter column, onto the second poster${coldStart ? " from the field on a cold visit" : ""}${visit === "rounded square" ? " with fractional portrait bounds" : ""}`, async tv => {
     await tv.page.locator('[data-focus="search"]').click();
     await tv.page.fill("#browse-search", "Movie 000"); await tv.remote(IME_DONE);
     await tv.page.locator('.browse-grid [data-focus="movie:m0002"]').waitFor();
@@ -623,9 +631,7 @@ browseTest(`Search measures the default person, not the filter column, through t
         };
     });
     await press(tv, "ArrowDown");
-    assert.equal(await tv.focused(), "movie:m0001", "Down from the default person measures that person, not All's pill");
-    await press(tv, "ArrowDown", "ArrowDown");
-    assert.equal(await tv.focused(), "movie:949", "that person's column continues into the first request");
+    assert.equal(await tv.focused(), "movie:m0002", "Down from the default person lands on the second poster");
 }, { catalog: new SearchEdgeCatalog(), beforeConnect: tv => {
     new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" });
 } });
@@ -644,6 +650,59 @@ browseTest("Down from People lands on the first request when the Series pill ope
     await press(tv, "ArrowDown");
     assert.equal(await tv.focused(), "movie:949", "the first person meets the first request, not the Series pill");
 }, { catalog: new SearchEdgeCatalog() });
+
+browseTest("Search requests keep the fourth person's column", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Tom"); await tv.remote(IME_DONE);
+    await tv.page.locator('[data-focus="person:edge-3"]').waitFor({ state: "attached" });
+    await tv.page.locator('[data-focus="movie:953"]').waitFor({ state: "attached" });
+    await tv.page.locator('[data-focus="search-filter:all"]').focus();
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "person:edge-0");
+    for (let step = 0; step < 3; step++) await press(tv, "ArrowRight");
+    assert.equal(await tv.focused(), "person:edge-3");
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "movie:953", "the fourth person meets the fifth request");
+}, { catalog: new SearchEdgeCatalog(), beforeConnect: tv => {
+    new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" });
+} });
+
+browseTest("Search people, a 25-title grid and requests follow the measured columns", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Movie"); await tv.remote(IME_DONE);
+    await tv.page.locator('[data-focus="person:edge-0"]').waitFor({ state: "attached" });
+    await tv.page.locator('.browse-grid [data-focus="movie:m0025"]').waitFor({ state: "attached" });
+    await tv.page.locator('[data-focus="movie:960"]').waitFor({ state: "attached" });
+    assert.equal(await tv.page.locator('.browse-grid .browse-card').count(), 25, "25 results stay on one page");
+    assert.equal(await tv.page.getByRole("button", { name: "Next page", exact: true }).count(), 0);
+    assert.equal(await tv.page.getByText("Page 1 of 2", { exact: true }).count(), 0);
+    await tv.page.locator('[data-focus="search-filter:all"]').focus();
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "person:edge-0", "the filter pill lands on the first person");
+    const column = async (personKey: string): Promise<string | null> => tv.page.evaluate(key => {
+        const person = document.querySelector(`[data-focus="${key}"]`);
+        if (!(person instanceof HTMLElement)) return null;
+        const center = person.getBoundingClientRect().left + person.getBoundingClientRect().width / 2;
+        const cards = [...document.querySelectorAll(".browse-grid .browse-card")];
+        const match = cards.find(card => card.getBoundingClientRect().left >= center - 0.5);
+        return match?.getAttribute("data-focus") ?? null;
+    }, personKey);
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), await column("person:edge-0"));
+    assert.equal(await tv.focused(), "movie:m0002", "the first person lands on the second poster");
+    await tv.page.locator('[data-focus="person:edge-1"]').focus();
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), await column("person:edge-1"));
+    assert.equal(await tv.focused(), "movie:m0003", "the second person lands on the third poster");
+    await tv.page.locator('.browse-grid [data-focus="movie:m0025"]').focus();
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "movie:949", "the last card is column 0 and lines up with the first request");
+    await tv.page.locator('[data-focus="movie:960"]').focus();
+    await press(tv, "ArrowUp");
+    assert.equal(await tv.focused(), "movie:960", "Up from the right end of Requests stays put");
+}, { catalog: new SearchEdgeCatalog(25), beforeConnect: tv => {
+    new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" });
+} });
 
 browseTest("Search field and no-results spacing use the native presentation", async tv => {
     await tv.page.locator('[data-focus="search"]').click();
@@ -736,7 +795,8 @@ for (const reduced of [false, true]) {
         await tv.eventually(async () => Math.abs(await tv.page.locator('.search-request-rail').evaluate(row => row.scrollLeft) - 1179) < 2, "native request end");
         assert.equal(await paints('[data-focus="movie:960"] .browse-art'), true);
         await press(tv, "ArrowUp");
-        for (let step = 0; step < 15; step++) await press(tv, "ArrowRight");
+        assert.equal(await tv.focused(), "person:edge-5", "Up returns to the person that lines up with the scrolled request");
+        for (let step = 0; step < 14; step++) await press(tv, "ArrowRight");
         assert.equal(await tv.focused(), "person:edge-19");
         await tv.eventually(async () => Math.abs(await tv.page.locator('.search-people-rail').evaluate(row => row.scrollLeft) - 3696) < 2, "native People end");
         assert.equal(await paints('[data-focus="person:edge-19"] .browse-art'), true);
@@ -845,7 +905,7 @@ browseTest("Search releases rail visibility observers after query replacement an
     await tv.eventually(async () => await observers() === "0", "Search observers released on Back");
 }, { catalog: new SearchEdgeCatalog() });
 
-const resumedPeople = new SearchCatalog();
+const resumedPeople = new SearchCatalog(120);
 resumedPeople.searchCapabilities = { ...resumedPeople.searchCapabilities, people_media_scope: true };
 browseTest("Search resumes interrupted People independently on a retained later catalog page", async tv => {
     await tv.page.locator('[data-focus="search"]').click();
@@ -1332,7 +1392,7 @@ browseTest("Search uses shared progress and centered failure states without losi
     assert.equal(await tv.page.getByRole("heading", { name: "Something went wrong", exact: true }).count(), 0);
 });
 
-const failedCatalog = new SearchCatalog();
+const failedCatalog = new SearchCatalog(120);
 failedCatalog.searchCapabilities = { ...failedCatalog.searchCapabilities, people_media_scope: true };
 browseTest("Search catalog failure replaces People and title count but preserves Requests", async (tv, catalog) => {
     await tv.page.locator('[data-focus="search"]').click();
@@ -3538,7 +3598,7 @@ browseTest("episode-aware Search opens the series and preserves explicit informa
     await tv.remote(IME_DONE);
     await tv.eventually(async () => (await cardIds(tv)).includes("episode:s1e12"), "the episode-only match");
     assert.deepEqual(await cardIds(tv), ["episode:s1e12", "episode:s2e12"]);
-    assert.match(browseReads(tv, "/catalog")[0]?.path ?? "", /q=chapter%201\.2&type=video_with_episodes&limit=24/);
+    assert.match(browseReads(tv, "/catalog")[0]?.path ?? "", /q=chapter%201\.2&type=video_with_episodes&limit=60/);
     await tv.page.locator('[data-focus="episode:s1e12"]').focus();
     const reads = browseReads(tv).length;
     await press(tv, "ArrowRight", "ArrowLeft");
@@ -3693,25 +3753,25 @@ for (const path of ["/catalog/search/capabilities", "/catalog"] as const) {
 }
 
 browseTest("episode-aware Search preserves opaque paging scope, invalid-cursor Retry and cached page focus", async (tv, catalog) => {
-    for (let i = 1; i <= 50; i++) catalog.add({ id: `episode:signal${i}`, title: `Signal ${String(i).padStart(2, "0")}`, type: "episode", libraryId: "13", seriesId: "series:s1", season: 3, episode: i });
+    for (let i = 1; i <= 130; i++) catalog.add({ id: `episode:signal${i}`, title: `Signal ${String(i).padStart(3, "0")}`, type: "episode", libraryId: "13", seriesId: "series:s1", season: 3, episode: i });
     await tv.page.locator('[data-focus="search"]').click();
     await tv.page.fill("#browse-search", "Signal");
     await tv.remote(IME_DONE);
-    await tv.eventually(async () => (await cardIds(tv)).length === 24, "first episode page");
+    await tv.eventually(async () => (await cardIds(tv)).length === 60, "first episode page");
     catalog.searchCapabilities = { ...catalog.searchCapabilities, allowed: false };
     await tv.page.getByRole("button", { name: "Next page", exact: true }).click();
-    await tv.eventually(async () => (await cardIds(tv))[0] === "episode:signal25", "second episode page");
+    await tv.eventually(async () => (await cardIds(tv))[0] === "episode:signal61", "second episode page");
     const second = new URL(browseReads(tv, "/catalog").slice(-1)[0]?.path ?? "", "https://fake.invalid");
-    assert.equal(second.searchParams.get("cursor"), "search+/= ?字:signal:video_with_episodes:24");
+    assert.equal(second.searchParams.get("cursor"), "search+/= ?字:signal:video_with_episodes:60");
     assert.equal(second.searchParams.get("type"), "video_with_episodes");
-    await tv.page.locator('[data-focus="episode:signal25"]').focus();
-    await tv.page.locator('[data-focus="episode:signal25"]').click({ button: "right" });
+    await tv.page.locator('[data-focus="episode:signal61"]').focus();
+    await tv.page.locator('[data-focus="episode:signal61"]').click({ button: "right" });
     await tv.page.locator('[data-focus="episode-information"]').click();
-    await showing(tv, "item:episode:signal25");
+    await showing(tv, "item:episode:signal61");
     await tv.remote(BACK);
     await showing(tv, "search");
-    assert.equal(await tv.focused(), "episode:signal25");
-    assert.equal((await cardIds(tv))[0], "episode:signal25");
+    assert.equal(await tv.focused(), "episode:signal61");
+    assert.equal((await cardIds(tv))[0], "episode:signal61");
     catalog.failNext("/catalog", problem(400, "invalid_cursor", "Invalid cursor"));
     await tv.page.getByRole("button", { name: "Next page", exact: true }).click();
     await tv.page.getByRole("button", { name: "Try Again", exact: true }).click();
@@ -3767,7 +3827,7 @@ browseTest("search uses the TV keyboard, shows only the latest query's answer, a
     first.release();
     await tv.jump(0);
     assert.deepEqual(await cardIds(tv), ["series:s2"], "the late answer for the older query is dropped");
-    assert.match(browseReads(tv, "/catalog")[1]?.path ?? "", /q=night&type=video&limit=24/);
+    assert.match(browseReads(tv, "/catalog")[1]?.path ?? "", /q=night&type=video&limit=60/);
     assert.equal(await tv.focused(), "query", "focus stays in the field while results arrive");
     await press(tv, "ArrowDown");
     assert.equal(await tv.focused(), "search-filter:all");

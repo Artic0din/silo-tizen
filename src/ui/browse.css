@@ -1097,34 +1097,40 @@
 /* Swift's scrollClipDisabled paints past the mode viewport's trailing inset. */
 .details-season-chips { margin-right: -88px; padding-right: 100px; }
 /* Paint to the screen edges while retaining the logical scroll viewport.
-   TVDetailLayout's 100px leading inset belongs to this rail, not Cast or Related. */
-.details-series-rail .details-episodes { --episode-paint-end: 88px; margin-left: -88px; margin-right: -88px; padding: 12px calc(100px + 360px * var(--poster-scale, 1) * .025 + 2px); }
+   The row starts at x=0 so the anchored predecessor can sit in the lookbehind.
+   TVEpisodeRail masks that lookbehind to the rail frame, which begins at
+   TVDetailLayout.horizontalInset (100). The focused still stays at
+   100 + cardWidth * 0.025 + 2. */
+.details-series-rail .details-episodes { --episode-paint-end: 88px; margin-left: -88px; margin-right: -88px; padding: 12px calc(100px + 360px * var(--poster-scale, 1) * .025 + 2px); clip-path: inset(0 0 0 100px); }
 .details-playback-summary span:empty { align-self: center; width: 128px; height: 16px; border-radius: 4px; background: rgba(255,255,255,.1); }
 .details-playback-summary [data-track-summary="audio"] span:empty { width: 166px; }
 .details-playback-summary [data-track-summary="subtitles"] span:empty { width: 77px; }
 .details-episodes .skyline-progress { bottom: 0; left: 0; right: 0; height: 5px; background: rgba(0,0,0,.6); }
 .browse:has(.details-hero) > .browse-row:has(+ .browse-section-title) { margin-bottom: 35px; }
-/* TVTrailersRail rail padding 12 plus body section spacing 64 is the 76px caption-to-heading gap. */
-.browse:has(.details-hero) > .browse-row.details-extras { margin-bottom: 64px; padding: 12px 0; }
-.browse .browse-row.details-extras .details-extra { box-sizing: border-box; width: 470px; margin: 0 48px 0 0; border: 0; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,.3); }
+/* TVTrailersRail rail padding 12 plus body section spacing 64 is the 76px caption-to-heading gap.
+   The body inset is 100, and scrollClipDisabled paints through the trailing 88px to the screen edge. */
+.browse:has(.details-hero) > .browse-row.details-extras { margin-bottom: 64px; margin-right: -88px; padding: 12px 0 12px 12px; }
+.browse .browse-row.details-extras .details-extra { box-sizing: border-box; width: 470px; margin: 0 48px 0 0; border: 0; text-align: center; background: transparent; box-shadow: none; appearance: none; }
 .browse .browse-row.details-extras .details-extra:last-child { margin-right: 0; }
-.browse .browse-row.details-extras .browse-still { width: 470px; height: 264px; border-radius: 18px; background: #15171c; }
+.browse .browse-row.details-extras .browse-still { width: 470px; height: 264px; border-radius: 18px; background: #15171c; box-shadow: 0 4px 16px rgba(0,0,0,.3); }
 .browse .browse-row.details-extras .details-extra .browse-card-title { margin: 14px 0 0; padding: 0; font-size: 21px; font-weight: 600; line-height: normal; color: rgba(237,237,237,.92); }
 .browse .browse-row.details-extras .details-extra .browse-card-subtitle { margin: 5px 0 0; padding: 0; font-size: 17px; font-weight: 500; color: rgba(237,237,237,.6); }
 .browse .details-extra .browse-art-fallback { display: flex; align-items: center; justify-content: center; height: 100%; padding: 0; color: rgba(237,237,237,.6); }
 .browse .details-extra .details-extra-play { position: absolute; z-index: 1; left: 50%; top: 50%; width: 60px; height: 60px; margin: -30px 0 0 -30px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: rgba(0,0,0,.55); box-shadow: 0 3px 16px rgba(0,0,0,.35); }
 .browse .details-extra .details-extra-play svg { display: block; width: 24px; height: 24px; }
-.browse .details-extra:focus { box-shadow: 0 8px 36px rgba(0,0,0,.45); }
+.browse .details-extra:focus { box-shadow: none; }
 .browse .details-extra:focus .details-extra-play { background: rgba(0,0,0,.72); }
-.browse .details-extra:focus .browse-still { transform: none; box-shadow: none; }
+.browse .details-extra:focus .browse-still { transform: none; box-shadow: 0 8px 36px rgba(0,0,0,.45); }
 .browse .browse-row.details-extras .details-extra:is(:focus) .browse-card-title { color: #ededed; }
 .browse .browse-row.details-extras .details-extra:is(:focus) .browse-card-subtitle { color: rgba(237,237,237,.6); }
 .browse .browse-row.details-extras .details-extra:is(:focus) :is(.browse-card-title, .browse-card-subtitle) { transform: none; text-shadow: none; }
 /* The episode row already contributes 12px of bottom padding. */
 .browse:has(.details-hero) > .details-series-rail { margin-bottom: calc(79px - 12px); }
 .browse:has(.details-hero) .details-facts { margin-top: 34px; }
-/* TVDetailCastRail pads both edges by 12px so its 1.05 focus lift fits. */
-.browse:has(.details-hero) > .details-people { padding-top: 12px; padding-right: 100px; }
+/* TVDetailCastRail pads vertically by 12. The page already insets 88, so 12 more
+   starts the first portrait at horizontalInset 100. The row still ends at the screen. */
+.browse:has(.details-hero) > .details-people { padding-top: 12px; padding-right: 100px; padding-left: 12px; }
+.browse:has(.details-hero) > .browse-row[data-detail-section="related"] { margin-right: -88px; padding-left: 12px; padding-right: 0; }
 .browse:has(.details-hero) > .details-people .details-person:last-child { margin-right: 0; }
 .browse .details-series-rail .browse-card { margin-right: 40px; }
 .browse .details-series-rail .browse-card .browse-card-title { padding: 0; font-size: 20px; font-weight: 600; line-height: 28px; margin-top: 18px; }

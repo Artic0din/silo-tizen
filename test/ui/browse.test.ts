@@ -2395,6 +2395,19 @@ browseTest("R2 interrupted letter read resumes on cached library return", async 
     assert.equal(await tv.page.locator('[data-focus="letter:M"]').getAttribute("aria-pressed"), "true");
 });
 
+browseTest("Browse grid shows no mode pills and Up from Sort returns to the top bar", async tv => {
+    await tv.page.locator('[data-focus="movies"]').click();
+    await showing(tv, "library:12");
+    await selectLibraryMode(tv, "Browse");
+    await tv.page.locator('.catalog-grid .browse-card').first().waitFor();
+    assert.equal(await tv.page.locator('.skyline-pills:visible').count(), 0);
+    await tv.page.locator('.catalog-grid [data-focus]').first().focus();
+    await press(tv, "ArrowUp");
+    assert.equal(await tv.focused(), "sort");
+    await press(tv, "ArrowUp");
+    assert.equal(await tv.page.locator('.skyline-roots :focus').count(), 1, await tv.focused() ?? "nothing focused");
+});
+
 browseTest("full library Browse keeps Recommended and exposes the Swift control row and grid", async tv => {
     await tv.page.locator('[data-focus="movies"]').click();
     await showing(tv, "library:12");

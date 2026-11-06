@@ -879,7 +879,7 @@ detailTest("an empty boundary response does not chain reads when the focused edg
     assert.equal(await tv.focused(), "episode:empty:3:13");
 });
 
-detailTest("Episode rail paints neighbouring stills to both screen edges without changing scroll steps", async tv => {
+detailTest("Episode rail reaches both screen edges, masks the lookbehind, and keeps scroll steps", async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog);
     const body = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner')?.body as { items: Record<string, unknown>[] };
     await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**', route => route.fulfill({ json: { items: Array.from({ length: 8 }, (_, index) => ({ ...body.items[0], content_id: `episode:edge${index}`, episode_number: index + 1 })) } }));
@@ -892,10 +892,17 @@ detailTest("Episode rail paints neighbouring stills to both screen edges without
         const art = row.querySelector(".browse-art")?.getBoundingClientRect();
         if (art === undefined) return null;
         const box = row.getBoundingClientRect();
-        return { left: box.left, right: box.right, visible: document.elementFromPoint(1, art.y + art.height / 2)?.closest("[data-focus]")?.getAttribute("data-focus") ?? null };
-    }, null, value => value.left === 0 && value.right === 1920 && value.visible === "episode:edge0", "episode rail reaches both screen edges");
+        const y = art.y + art.height / 2;
+        return {
+            left: box.left,
+            right: box.right,
+            masked: document.elementFromPoint(1, y)?.closest("[data-focus]")?.getAttribute("data-focus") ?? null,
+            visible: document.elementFromPoint(120, y)?.closest("[data-focus]")?.getAttribute("data-focus") ?? null,
+        };
+    }, null, value => value.left === 0 && value.right === 1920 && value.masked !== "episode:edge0" && value.visible === "episode:edge0", "episode rail masks the 100px lookbehind");
     assert.equal(bounds.left, 0);
     assert.equal(bounds.right, 1920);
+    assert.equal(bounds.masked, null, JSON.stringify(bounds));
     assert.equal(bounds.visible, "episode:edge0", JSON.stringify(bounds));
     await tv.page.locator('[data-focus="episode:edge0"]').focus(); await tv.jump(500);
     assert.equal(await readLive(tv, () => {
@@ -2407,4 +2414,87 @@ for (const media of ["movie:m0001", "series:s1"]) detailTest(`a wrapped ${media}
     if (media.startsWith("series")) assert.equal(bounds.height, 690);
     else assert.ok(bounds.height !== undefined && bounds.height >= 690);
     assert.ok(bounds.actionBottom !== undefined && bounds.bottom !== undefined && bounds.actionBottom <= bounds.bottom, JSON.stringify(bounds));
+});
+
+function readDetailEdges(): {
+    rowLeft: number; rowRight: number; focusedLeft: number; layoutWidth: number; artScale: number;
+    predecessorClipped: boolean; liftPainted: boolean; probeY: number;
+    castFirst: number; castEighth: number;
+    extrasRight: number; extrasCardLeft: number; cardBackground: string; cardShadow: string; titleBackground: string;
+    relatedRight: number; relatedCardLeft: number;
+} | null {
+    const row = document.querySelector(".details-episodes");
+    const focused = row?.querySelector(":focus");
+    const art = focused?.querySelector(".browse-art");
+    const previous = focused?.previousElementSibling;
+    const previousArt = previous?.querySelector(".browse-art");
+    const people = document.querySelector(".details-people");
+    const portraits = people?.querySelectorAll(".details-person") ?? [];
+    const extras = document.querySelector(".details-extras");
+    const extra = extras?.querySelector(".details-extra");
+    const title = extra?.querySelector(".browse-card-title");
+    const related = document.querySelector('[data-detail-section="related"]');
+    const relatedCard = related?.querySelector(".browse-card");
+    if (!(row instanceof HTMLElement) || !(focused instanceof HTMLElement) || !(art instanceof HTMLElement) || !(previous instanceof HTMLElement) || !(previousArt instanceof HTMLElement) || !(people instanceof HTMLElement) || portraits.length < 8 || !(extras instanceof HTMLElement) || !(extra instanceof HTMLElement) || !(title instanceof HTMLElement) || !(related instanceof HTMLElement) || !(relatedCard instanceof HTMLElement)) return null;
+    if (![row, focused, art, previous, people, extras, extra, title, related, relatedCard].every(node => node.isConnected)) return null;
+    for (const animation of art.getAnimations()) animation.finish();
+    const still = art.getBoundingClientRect();
+    const probeY = still.top + still.height / 2;
+    const leftOfInset = [20, 40, 70, 90].map(x => document.elementFromPoint(x, probeY));
+    const lift = document.elementFromPoint(focused.getBoundingClientRect().left - 4, probeY);
+    return {
+        rowLeft: row.getBoundingClientRect().left,
+        rowRight: row.getBoundingClientRect().right,
+        focusedLeft: focused.getBoundingClientRect().left,
+        layoutWidth: art.offsetWidth,
+        artScale: still.width / art.offsetWidth,
+        predecessorClipped: leftOfInset.every(hit => hit === null || !previous.contains(hit)),
+        liftPainted: lift !== null && art.contains(lift),
+        probeY,
+        castFirst: portraits[0]?.getBoundingClientRect().left ?? Number.NaN,
+        castEighth: portraits[7]?.getBoundingClientRect().left ?? Number.NaN,
+        extrasRight: extras.getBoundingClientRect().right,
+        extrasCardLeft: extra.getBoundingClientRect().left,
+        cardBackground: getComputedStyle(extra).backgroundColor,
+        cardShadow: getComputedStyle(extra).boxShadow,
+        titleBackground: getComputedStyle(title).backgroundColor,
+        relatedRight: related.getBoundingClientRect().right,
+        relatedCardLeft: relatedCard.getBoundingClientRect().left,
+    };
+}
+
+detailTest("series detail rows match Apple's 100px inset, episode mask and still lift", async tv => {
+    await tv.page.emulateMedia({ reducedMotion: "no-preference" });
+    const catalog = tv.fake.catalog;
+    assert.ok(catalog instanceof FakeDetails);
+    const episodes = catalog.route("GET", "/catalog/series/series%3As1/seasons/1/episodes", "p-owner")?.body as { items: Record<string, unknown>[] };
+    const item = catalog.route("GET", "/catalog/items/series%3As1", "p-owner")?.body as Record<string, unknown>;
+    await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**", route => route.fulfill({ json: { items: episodes.items.map(episode => ({ ...episode, user_data: { played: true } })) } }));
+    await tv.page.route("**/api/v2/catalog/items/series%3As1?**", route => route.fulfill({ json: {
+        ...item,
+        cast: Array.from({ length: 25 }, (_, order) => ({ person_id: String(order), name: `Actor ${order}`, character: "Role", order })),
+        videos: [{ kind: "trailer", site: "YouTube", site_key: "abc_def-1", name: "Official Trailer", is_official: true }],
+    } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:s1e12"]').focus();
+    await tv.page.locator(".details-extras").waitFor();
+    await tv.page.locator('[data-detail-section="related"] .browse-card').first().waitFor();
+    await tv.jump(400);
+    await tv.page.evaluate(() => { for (const animation of document.getAnimations()) animation.finish(); });
+    const edge = await readLive(tv, readDetailEdges, null, value => value.artScale > 1.02 && value.probeY > 0 && value.probeY < 1080, "settled detail edges");
+    const leading = 100 + edge.layoutWidth * 0.025 + 2;
+    assert.ok(Math.abs(edge.focusedLeft - leading) < 1, JSON.stringify(edge));
+    assert.equal(edge.predecessorClipped, true, JSON.stringify(edge));
+    assert.ok(Math.abs(edge.artScale - 1.05) < 0.02, JSON.stringify(edge));
+    assert.equal(edge.liftPainted, true, JSON.stringify(edge));
+    assert.ok(Math.abs(edge.rowRight - 1920) < 1, JSON.stringify(edge));
+    assert.ok(Math.abs(edge.castFirst - 100) < 1, JSON.stringify(edge));
+    assert.ok(edge.castEighth >= 1920 - 0.5, JSON.stringify(edge));
+    assert.ok(Math.abs(edge.extrasCardLeft - 100) < 1, JSON.stringify(edge));
+    assert.ok(Math.abs(edge.extrasRight - 1920) < 1, JSON.stringify(edge));
+    assert.equal(edge.cardBackground, "rgba(0, 0, 0, 0)", JSON.stringify(edge));
+    assert.equal(edge.cardShadow, "none", JSON.stringify(edge));
+    assert.equal(edge.titleBackground, "rgba(0, 0, 0, 0)", JSON.stringify(edge));
+    assert.ok(Math.abs(edge.relatedCardLeft - 100) < 1, JSON.stringify(edge));
+    assert.ok(Math.abs(edge.relatedRight - 1920) < 1, JSON.stringify(edge));
 });

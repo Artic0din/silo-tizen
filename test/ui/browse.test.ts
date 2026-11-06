@@ -1082,7 +1082,7 @@ browseTest("Back restarts a movie box-set read that opening a cast member cancel
     await tv.eventually(async () => browseReads(tv, membership).length === 1, "movie box-set lookup");
     const itemReads = browseReads(tv, "/catalog/items/movie%3Am0001").length;
     const cancelled = tv.page.waitForEvent("requestfailed", request => new URL(request.url()).pathname === `/api/v2${membership}`);
-    await tv.page.locator('[data-focus="person:7"]').first().click();
+    await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
     await cancelled;
     held.release();
     await showing(tv, "person:7");
@@ -1941,9 +1941,9 @@ browseTest("Details portraits keep their circular geometry and retain the cast c
         const art = node.querySelector(".skyline-art-frame");
         return art !== null && getComputedStyle(node).overflow === "clip";
     }), true, "hero artwork cannot paint over later rails");
-    assert.equal(await tv.page.locator('[data-focus="person:7"]').count(), 1);
+    assert.equal(await tv.page.locator('.details-people [data-focus^="credit:7:"]').count(), 1);
     await shows(tv, "Alex");
-    assert.equal(await tv.page.locator('[data-focus="person:7"] .browse-card-subtitle').textContent(), 'Alex');
+    assert.equal(await tv.page.locator('.details-people [data-focus^="credit:7:"] .browse-card-subtitle').textContent(), 'Alex');
 }, { catalog: new FakeDetails() });
 
 browseTest("grouped Details facts remain reachable as one passive table with the remote", async (tv) => {

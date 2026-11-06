@@ -102,6 +102,8 @@ test("browse fixtures decode with the production decoders", () => {
     assert.ok(page.nextCursor?.startsWith("eyJ2Ijox"));
 
     const detail = decodeItemDetail(fixture("get_catalog_item_ok"));
+    assert.equal(detail.advisorySource, undefined);
+    assert.equal(decodeItemDetail({ ...fixture("get_catalog_item_ok"), advisory_age: 13, advisory_source: "commonsense" }).advisorySource, "commonsense");
     assert.equal(detail.type, "movie");
     assert.equal(detail.tagline, "A Los Angeles crime saga");
     assert.deepEqual(detail.versions, [{ detailLabel: "0 MB", fileId: "120", effectiveAudioTrackIndex: 1, durationSeconds: 0, audio: [], label: "2160p" }]);

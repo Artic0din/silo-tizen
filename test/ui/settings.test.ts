@@ -328,8 +328,15 @@ test("Show Advisory Age controls the detail badge when the server supplies an ag
             await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').focus();
             await tv.page.keyboard.press("Enter");
             await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
-            if (enabled) await tv.page.getByText("Advisory Age 13+", { exact: true }).waitFor();
-            else assert.equal(await tv.page.getByText("Advisory Age 13+", { exact: true }).count(), 0);
+            const chip = tv.page.locator(".details-editorial [data-advisory-age]");
+            if (enabled) {
+                await chip.waitFor();
+                assert.equal(await chip.textContent(), "13+");
+                assert.equal(await tv.page.locator(".details-editorial .browse-meta").count(), 1);
+            } else {
+                await tv.page.locator(".details-editorial .browse-meta").waitFor();
+                assert.equal(await chip.count(), 0);
+            }
         } finally { await tv.page.context().close(); }
     }
 });

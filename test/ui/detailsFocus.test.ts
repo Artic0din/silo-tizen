@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, pauseTvClock, type Tv } from "./support/tv.ts";
 
 const IME_DONE = 65376;
 const ENTER = 13;
@@ -59,8 +59,13 @@ test("opening a movie from Search leaves Play focused when the opening claim doe
             "/settings/values/effective",
         ].map(path => tv.fake.hold(path));
         // The TV can drop the Play claim made while the search card is removed.
-        // Reject every claim in that opening turn; a later frame has to take Play
-        // without a remote key and without a follow-up repaint.
+        // Reject every claim in that opening turn. The page clock otherwise keeps
+        // running across the round trip, and the 50ms retry restores Play before
+        // a later read. Hold the clock so this read is still that rejected claim,
+        // then advance the window Apple retries inside (three attempts, 50ms apart).
+        // That later read is the Play focus the viewer sees, with no remote key
+        // and no follow-up repaint.
+        await pauseTvClock(tv);
         await tv.page.evaluate(() => {
             document.documentElement.dataset.blockPlay = "1";
             document.addEventListener("focusin", event => {
@@ -71,8 +76,18 @@ test("opening a movie from Search leaves Play focused when the opening claim doe
         });
         await tv.remote(ENTER);
         await tv.page.locator(".details-play").waitFor();
-        await tv.page.evaluate(() => { delete document.documentElement.dataset.blockPlay; });
-        const dropped = await owner(tv);
+        await tv.page.evaluate(() => undefined);
+        const dropped = await tv.page.evaluate(() => {
+            const active = document.activeElement;
+            const snapshot = {
+                tag: active?.tagName ?? null,
+                key: active?.getAttribute("data-focus") ?? null,
+                play: active?.classList.contains("details-play") === true,
+                body: active === document.body,
+            };
+            delete document.documentElement.dataset.blockPlay;
+            return snapshot;
+        });
         await tv.jump(200);
         const settled = await owner(tv);
         assert.equal(dropped.body, true, `opening claim stayed on ${dropped.key ?? dropped.tag}`);

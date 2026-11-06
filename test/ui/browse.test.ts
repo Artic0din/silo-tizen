@@ -601,7 +601,7 @@ browseTest("Related shelf omits the watched badge Apple leaves off the similar c
 
 for (const visit of ["warm", "cold", "rounded square"] as const) {
 const coldStart = visit !== "warm";
-browseTest(`Search retains the filter column through default People and ragged grid entry${coldStart ? " from the field on a cold visit" : ""}${visit === "rounded square" ? " with fractional portrait bounds" : ""}`, async tv => {
+browseTest(`Search measures the default person, not the filter column, through the grid into Requests${coldStart ? " from the field on a cold visit" : ""}${visit === "rounded square" ? " with fractional portrait bounds" : ""}`, async tv => {
     await tv.page.locator('[data-focus="search"]').click();
     await tv.page.fill("#browse-search", "Movie 000"); await tv.remote(IME_DONE);
     await tv.page.locator('.browse-grid [data-focus="movie:m0002"]').waitFor();
@@ -623,13 +623,27 @@ browseTest(`Search retains the filter column through default People and ragged g
         };
     });
     await press(tv, "ArrowDown");
-    assert.equal(await tv.focused(), "movie:m0002", "default People entry keeps All's horizontal navigation axis");
+    assert.equal(await tv.focused(), "movie:m0001", "Down from the default person measures that person, not All's pill");
     await press(tv, "ArrowDown", "ArrowDown");
-    assert.equal(await tv.focused(), "movie:951", "ragged grid entry keeps the same axis into Requests");
+    assert.equal(await tv.focused(), "movie:949", "that person's column continues into the first request");
 }, { catalog: new SearchEdgeCatalog(), beforeConnect: tv => {
     new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: "compact", caption: "title_metadata" });
 } });
 }
+
+browseTest("Down from People lands on the first request when the Series pill opened the row", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "Tom"); await tv.remote(IME_DONE);
+    await tv.page.locator('[data-focus="person:edge-0"]').waitFor({ state: "attached" });
+    await tv.page.locator('[data-focus="movie:960"]').waitFor({ state: "attached" });
+    await tv.page.locator('[data-focus="search-filter:series"]').focus();
+    await tv.page.locator('[data-focus="person:edge-0"]').waitFor({ state: "attached" });
+    assert.equal(await tv.focused(), "search-filter:series");
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "person:edge-0", "People still owns its default entry from Series");
+    await press(tv, "ArrowDown");
+    assert.equal(await tv.focused(), "movie:949", "the first person meets the first request, not the Series pill");
+}, { catalog: new SearchEdgeCatalog() });
 
 browseTest("Search field and no-results spacing use the native presentation", async tv => {
     await tv.page.locator('[data-focus="search"]').click();

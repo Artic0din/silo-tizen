@@ -474,8 +474,13 @@ export class FocusHost {
         // first card is a default-focus landing (CalendarView prefers the first
         // item on every shelf), so the next Down must measure that card rather
         // than the day button the axis still holds.
+        // Search People is the same kind of landing. TVDetailCastRail uses
+        // tvDefaultFocus on the first person, so a filter pill's column must not
+        // survive into the grid or the request rail. A later vertical move
+        // measures the person who actually has focus. Moves that start on a
+        // person or a poster still keep that card's column.
         const calendarChrome = this.view?.name === "calendar" && (zone.id === "filters" || zone.id === "days" || zone.id === "status" || zone.id === "empty" || this.lastZone === "filters" || this.lastZone === "days" || this.lastZone === "status" || this.lastZone === "empty");
-        if (zone.id === "nav" || this.lastZone === "nav" || calendarChrome) this.navigationX = undefined;
+        if (zone.id === "nav" || this.lastZone === "nav" || calendarChrome || zone.id === "search-people") this.navigationX = undefined;
         this.memory.set(zone.id, item.key);
         this.lastZone = zone.id;
         // Opening the cascade must not replace the content return target.

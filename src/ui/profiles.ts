@@ -37,6 +37,8 @@ export interface ProfileOptions {
     readonly launch?: ProfileLaunch;
     /** A profile acts. The profile screens are gone; the caller owns the root until `signal` aborts. */
     readonly onSelected: (active: ProfileHandoff) => void;
+    /** Fresh profile metadata after a local cold-start paint; do not remount content. */
+    readonly onProfileUpdated?: (profile: ProfileSummary) => void;
     /** The account is signed out on this TV. The profile screens are gone; show sign-in, with the notice when given. */
     readonly onSignedOut: (notice: LogoutResult | undefined) => void;
 }
@@ -52,7 +54,7 @@ const TITLE = "Who's watching?";
 const PROOF_ENDED = "The PIN for this profile changed, or its unlock ended. Enter the PIN again.";
 
 export function mountProfiles(root: HTMLElement, options: ProfileOptions): ProfileScreens {
-    const { server, onSelected, onSignedOut } = options;
+    const { server, onSelected, onProfileUpdated, onSignedOut } = options;
     const clock = options.clock ?? systemClock;
     const session = server.session;
     let host: ScreenHost | undefined;
@@ -436,6 +438,9 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
                     return;
                 }
                 await session.call({ ...operations.listUserLibraries(), profileScoped: true, signal });
+                if (generation !== session.authorityGeneration || signal.aborted) return;
+                current = fresh;
+                onProfileUpdated?.(fresh);
             }).catch((error: unknown) => {
                 if (destroyed || generation !== session.authorityGeneration || signal.aborted) return;
                 if ((error instanceof ApiError && error.transient) || (error instanceof SessionError && error.reason === "unavailable")) {

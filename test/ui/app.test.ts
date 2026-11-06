@@ -71,6 +71,19 @@ appTest("cold saved profile paints cached Home before discovery answers", async 
     hold.release();
 });
 
+appTest("cold reconciliation refreshes remembered profile artwork without remounting Home", async tv => {
+    await signIn(tv, true);
+    const hold = tv.fake.hold("/system/info");
+    await tv.page.evaluate(() => window.appHarness.mount());
+    await tv.page.locator('[data-view="home"] .browse-card').first().waitFor({ timeout: 5000 });
+    assert.equal(await tv.page.locator('[data-focus="profiles"] img').count(), 0, "offline handoff has no avatar URL yet");
+    hold.release();
+    await tv.eventually(async () => await tv.page.locator('[data-focus="profiles"] img').count() === 1, "reconcile paints the server avatar");
+    assert.equal(await tv.page.locator('[data-view="home"] .browse-card').count() > 0, true, "Home stays painted");
+    const source = await tv.page.locator('[data-focus="profiles"] img').getAttribute("src") ?? "";
+    assert.match(source, /\/avatars\/presets\/fox\.png/);
+});
+
 appTest("cold reconciliation removes a deleted profile from Home", async tv => {
     await signIn(tv, true);
     const hold = tv.fake.hold("/system/info");

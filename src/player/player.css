@@ -59,7 +59,7 @@
     width: 1920px;
     height: 1080px;
     overflow: hidden;
-    background: transparent;
+    background: #000000;
     color: var(--silo-text);
     font-family: var(--silo-font);
 }
@@ -100,6 +100,11 @@
     opacity: 0;
 }
 
+/* The panel and the opening load take the transport off the picture. */
+.player-overlay-clear {
+    background: none;
+}
+
 .player-skip {
     position: absolute;
     right: 88px;
@@ -127,17 +132,56 @@
     text-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
 }
 
-.player-footer { position: relative; }
-.player-series { margin: 0 0 2px; font-size: 20px; font-weight: 500; color: rgba(255, 255, 255, 0.65); }
-.player-title-row { display: flex; align-items: baseline; gap: 10px; }
-.player-episode { font-size: 20px; color: rgba(255, 255, 255, 0.6); }
-
-.player-status {
-    min-height: 36px;
-    margin: 0 0 16px;
-    font-size: 26px;
-    color: var(--silo-text);
+/* The slot keeps the scrubber at y 792. The footer itself is lifted to the measured lines:
+   series 711, title 737, and the episode tag centered beside the title at 747. */
+.player-footer-slot { height: 65.59375px; }
+.player-footer {
+    position: absolute;
+    top: -15.40625px;
+    right: 160px;
+    left: 160px;
 }
+.player-overlay .player-title { line-height: 44px; }
+.player-series { margin: 0 0 2px; font-size: 20px; font-weight: 500; line-height: 24px; color: rgba(255, 255, 255, 0.65); }
+.player-title-row { display: flex; align-items: center; gap: 10px; }
+.player-episode { font-size: 20px; line-height: 24px; color: rgba(255, 255, 255, 0.6); }
+
+/* PlayerBufferingCapsule / the status column: top-trailing, off the title stack. */
+.player-status {
+    position: absolute;
+    top: 64px;
+    right: 80px;
+    z-index: 3;
+    margin: 0;
+    font-size: 20px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.82);
+    pointer-events: none;
+}
+
+.player-spinner {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.player-spinner[hidden] { display: none; }
+
+.player-spinner-mark {
+    width: 80px;
+    height: 80px;
+    color: #ffffff;
+    filter: drop-shadow(0 0 12px rgba(0, 0, 0, 0.5));
+    animation: player-spin 1s linear infinite;
+}
+
+.player-spinner-mark svg { display: block; width: 80px; height: 80px; }
+
+@keyframes player-spin { to { transform: rotate(360deg); } }
 
 .player-bar {
     position: relative;
@@ -177,6 +221,16 @@
 .player-thumbnail img {
     position: absolute;
     max-width: none;
+}
+
+.player-thumbnail-time {
+    margin: 8px 0 0;
+    font-size: 24px;
+    font-weight: 600;
+    line-height: 1;
+    text-align: center;
+    color: #ffffff;
+    font-variant-numeric: tabular-nums;
 }
 
 .player-bar-track {
@@ -310,6 +364,8 @@
     background: #ffffff;
     color: #000000;
 }
+
+.player-time[hidden] { display: none; }
 
 .player-time {
     display: flex;
@@ -636,4 +692,5 @@
     .player-menu-list.player-menu-pane-active {
         scroll-behavior: auto;
     }
+    .player-spinner-mark { animation: none; }
 }

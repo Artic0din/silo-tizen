@@ -8,7 +8,8 @@ import { el } from "../ui/screen.ts";
 export function mountSeekThumbnail(parent: HTMLElement, controls: PlayerControls, clock: Clock): { show(seconds: number): void; clear(): void } {
     const frame = el("div", "player-thumbnail");
     const crop = el("div", "player-thumbnail-frame");
-    frame.appendChild(crop);
+    const time = el("p", "player-thumbnail-time");
+    frame.append(crop, time);
     frame.setAttribute("aria-hidden", "true");
     frame.hidden = true;
     parent.appendChild(frame);
@@ -51,6 +52,7 @@ export function mountSeekThumbnail(parent: HTMLElement, controls: PlayerControls
             const target = new AbortController();
             request = target;
             frame.hidden = true;
+            time.textContent = previewClock(seconds);
             void controls.seekThumbnail(seconds, target.signal, loadSheet).then((tile) => {
                 if (target.signal.aborted || request !== target || tile === undefined || sheet === undefined) return;
                 const frameWidth = 320;
@@ -72,7 +74,18 @@ export function mountSeekThumbnail(parent: HTMLElement, controls: PlayerControls
             sheet?.removeAttribute("src");
             sheet = undefined;
             crop.textContent = "";
+            time.textContent = "";
             frame.hidden = true;
         },
     };
+}
+
+/** `PlayerTimeFormatter.formatHMS`, the same clock as the transport elapsed label. */
+function previewClock(seconds: number): string {
+    const total = Math.max(0, Math.floor(seconds));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    const two = (value: number): string => (value < 10 ? `0${value}` : String(value));
+    return hours > 0 ? `${hours}:${two(minutes)}:${two(secs)}` : `${minutes}:${two(secs)}`;
 }

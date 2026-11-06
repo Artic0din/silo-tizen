@@ -14,7 +14,7 @@ import { actions, button, type Control, el, type Note, type Screen, ScreenHost }
 import { navigationIcon } from "./navigationIcon.ts";
 import { logoutCollectedAccount } from "./signIn.ts";
 import { PASSWORD_CHANGE_REQUIRED_MESSAGE } from "./signInText.ts";
-import { MarqueeBackdrop } from "./marqueeBackdrop.ts";
+import { MarqueeBackdrop, marqueeScene } from "./marqueeBackdrop.ts";
 import { profilePickerScreen } from "./profilePicker.ts";
 import { createProfileFlow, type ProfileCreateFlow } from "./profileCreate.ts";
 
@@ -74,7 +74,9 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             root.classList.add("signin");
             root.classList.add("profiles-flow");
             backdrop = new MarqueeBackdrop(clock);
-            backdrop.setStage(2);
+            marqueeScene.showServer();
+            marqueeScene.focus = "profiles";
+            backdrop.setStage(marqueeScene.stage);
             host = new ScreenHost(root, undefined, backdrop.element);
         }
         root.classList.toggle("profile-picker", screen.name === "profiles");

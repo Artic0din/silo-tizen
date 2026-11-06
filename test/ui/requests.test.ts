@@ -1555,6 +1555,30 @@ test("Remove Request confirms with Apple's copy, deletes once, and focuses the n
     } finally { await tv.page.context().close(); }
 });
 
+test("a held Select on Remove Request cannot dismiss the confirmation", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests();
+        tv.fake.script("/requests/mine?limit=50", minePage([failedItem("failed-a", "Heat")]));
+        await start(tv, fake);
+        await openRequests(tv);
+        await button(tv, "failed-a").waitFor();
+        await holdCard(tv, "failed-a");
+        await button(tv, "remove-request").waitFor();
+        await button(tv, "remove-request").focus();
+        await tv.down(13);
+        assert.equal(await tv.page.locator(".card-actions-panel h1").textContent(), "Remove this request?");
+        assert.equal(await tv.focused(), "keep-request");
+        await tv.down(13, true);
+        assert.equal(await tv.page.locator(".card-actions-scrim").count(), 1, "a repeated Enter while Select is held must not activate Keep request");
+        assert.equal(await tv.focused(), "keep-request");
+        await tv.up(13);
+        await button(tv, "keep-request").click();
+        assert.equal(await tv.focused(), "failed-a");
+        assert.equal(removals(tv).length, 0);
+    } finally { await tv.page.context().close(); }
+});
+
 test("removing the last of your requests focuses the first discover title", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

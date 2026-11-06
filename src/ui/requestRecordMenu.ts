@@ -49,6 +49,7 @@ export class RequestRecordMenu {
     open(options: RequestRecordMenuOptions): void {
         if (this.active) return;
         this.options = options;
+        this.pressed = false;
         this.panel = el("div", "card-actions-scrim");
         options.container.appendChild(this.panel);
         document.addEventListener("keydown", this.onKey, true);
@@ -93,7 +94,7 @@ export class RequestRecordMenu {
         const panel = this.panel;
         if (panel === undefined) return;
         this.items = items;
-        this.pressed = false;
+        // Keep the Enter latch across Remove Request → confirmation so a held Select cannot activate Keep request.
         const content = el("div", "card-actions-panel");
         content.setAttribute("role", "alertdialog");
         content.setAttribute("aria-modal", "true");

@@ -20,6 +20,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Down from Search's People row now follows that person into the results and the first request, instead of keeping the filter pill's column.
+- Added Retry for retryable playback startup failures and exhausted route recovery.
 - Kept the Details hero pinned when action focus survived a repaint during its return scroll.
 - Opened a remembered profile and cached Home promptly on cold start while checking the saved session in the background, then refreshed the top-bar profile artwork from the reconciled summary.
 - Kept a detail Cancel's hub card visible while the shared gate still owns it, even when a refresh already sees the server's cancelled state, and left hub cards alone so a failed quiet refresh keeps its earlier rows.

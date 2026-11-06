@@ -10,6 +10,44 @@
 
 import type { Clock } from "../api/clock.ts";
 
+/** MarqueeScene.focus. Sign-in is account; Who's watching is profiles. */
+export type MarqueeFocus = "account" | "profiles";
+
+/**
+ * MarqueeScene.shared. One stage for the whole first-run flow.
+ * Sign-in and Who's watching write it. Change Account only reads it.
+ */
+class MarqueeScene {
+    private serverConfirmed = false;
+    focus: MarqueeFocus = "account";
+
+    /** 0 choosing a server, 1 signing in, 2 choosing a profile. */
+    get stage(): number {
+        if (!this.serverConfirmed) return 0;
+        switch (this.focus) {
+            case "account": return 1;
+            case "profiles": return 2;
+            default: {
+                const unreachable: never = this.focus;
+                return unreachable;
+            }
+        }
+    }
+
+    /** A server answered (SignInServerModel.load / showActiveServer). */
+    showServer(): void {
+        this.serverConfirmed = true;
+    }
+
+    /** Back to the pre-connect state (TVServerSetupView.showGeneric). */
+    showGeneric(): void {
+        this.serverConfirmed = false;
+        this.focus = "account";
+    }
+}
+
+export const marqueeScene = new MarqueeScene();
+
 /** Date.timeIntervalSinceReferenceDate counts from 1 January 2001, UTC. */
 export const REFERENCE_DATE_MS = Date.UTC(2001, 0, 1);
 export const GRAIN_SIDE = 96;

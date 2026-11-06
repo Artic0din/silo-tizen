@@ -94,6 +94,8 @@ export class FocusHost {
     private incoming: HTMLElement[] = [];
     private transitionTimer: number | undefined;
     private press: { item: FocusItem; started: number; timer: number | undefined; cancelled: boolean } | undefined;
+    /** One Play claim per Details visit. tvOS retries it; a failed claim used to leave body focused until the next key. */
+    private playClaim: { visit: string; attempts: number; waits: number; finished: boolean; timer: number | undefined } | undefined;
     private readonly detach = new MutationObserver(() => {
         if (this.press !== undefined && !this.press.item.element.isConnected) this.cancelPress();
     });
@@ -208,6 +210,7 @@ export class FocusHost {
         const offscreenShelf = restoring && item?.element.closest(".browse-row") != null && !this.intersects(item.element);
         const returnSnap = restoring && !offscreenShelf && item !== undefined && this.intersects(item.element) && this.insideRow(item.element);
         this.focusFirst(offscreenShelf ? [view.focus] : [focus, nearby === undefined ? kept : { zone: previous?.zone.id ?? "", key: nearby.key }, restoring ? this.memoryTarget() : undefined, view.focus]);
+        this.settlePrimaryFocus(view);
         const focused = this.focused();
         const sameIdentity = unchanged !== undefined && focused?.zone === unchanged.zone && focused.key === unchanged.key;
         if ((sameIdentity || returnSnap) && visit !== undefined) {
@@ -307,6 +310,7 @@ export class FocusHost {
         this.cancelPress();
         this.detach.disconnect();
         this.clearTransition();
+        this.cancelPlayClaim();
         this.scroll.stop();
         if (this.listening) {
             document.removeEventListener("keydown", this.onKey);
@@ -462,6 +466,90 @@ export class FocusHost {
         if (zone.restoreEntry === undefined) return undefined;
         return zone.items.find(item => item.key === this.memory.get(zone.id) && !item.element.matches(':disabled, [aria-disabled="true"]'))
             ?? zone.items.find(item => item.key === zone.restoreEntry);
+    }
+
+    /** Play, Resume, or the series primary. Anything else is not the page's opening claim. */
+    private primaryTarget(view: View): { zone: Zone; item: FocusItem } | undefined {
+        const focus = view.focus;
+        if (focus === undefined || (focus.key !== "resume" && focus.key !== "play" && focus.key !== "next-episode")) return undefined;
+        const zone = view.zones.find(candidate => candidate.id === focus.zone && candidate.items.length > 0);
+        const item = zone?.items.find(candidate => candidate.key === focus.key);
+        return zone === undefined || item === undefined ? undefined : { zone, item };
+    }
+
+    private primaryReady(element: HTMLElement): boolean {
+        return element.isConnected && element.offsetWidth > 0 && element.offsetHeight > 0 && !element.matches(":disabled, [aria-disabled='true']");
+    }
+
+    private clearPlayClaimTimer(): void {
+        if (this.playClaim?.timer !== undefined) window.clearTimeout(this.playClaim.timer);
+        if (this.playClaim !== undefined) this.playClaim.timer = undefined;
+    }
+
+    private cancelPlayClaim(): void {
+        this.clearPlayClaimTimer();
+        this.playClaim = undefined;
+    }
+
+    /**
+     * TVDetailActionRow.resetInitialPlayFocus (silo-apple abf4ac45): one Play claim per
+     * Details visit, retried while the control can take focus. A claim that does not
+     * stick leaves document focus on body until the next key. Stop once the viewer
+     * has moved to another control, or the primary is not this page's opening target.
+     */
+    private settlePrimaryFocus(view: View, fromTimer = false): void {
+        if (!view.name.startsWith("item:")) {
+            this.cancelPlayClaim();
+            return;
+        }
+        const visit = visitKey(view);
+        if (this.playClaim === undefined || this.playClaim.visit !== visit) {
+            this.cancelPlayClaim();
+            this.playClaim = { visit, attempts: 0, waits: 0, finished: false, timer: undefined };
+        }
+        const claim = this.playClaim;
+        if (claim.finished) return;
+        const primary = this.primaryTarget(view);
+        const active = this.locate(document.activeElement);
+        if (primary === undefined || (active !== undefined && active.item.key !== primary.item.key)) {
+            claim.finished = true;
+            this.clearPlayClaimTimer();
+            return;
+        }
+        const ready = this.primaryReady(primary.item.element);
+        if (!ready) {
+            if (fromTimer) claim.waits += 1;
+            if (claim.waits < 3) this.armPlayClaim(visit);
+            return;
+        }
+        if (document.activeElement !== primary.item.element) this.focusItem(primary.zone, primary.item);
+        const held = document.activeElement === primary.item.element;
+        if (fromTimer && held) {
+            claim.finished = true;
+            this.clearPlayClaimTimer();
+            return;
+        }
+        if (fromTimer && !held) {
+            claim.attempts += 1;
+            if (claim.attempts >= 3) {
+                claim.finished = true;
+                this.clearPlayClaimTimer();
+                return;
+            }
+        }
+        this.armPlayClaim(visit);
+    }
+
+    private armPlayClaim(visit: string): void {
+        const claim = this.playClaim;
+        if (claim === undefined || claim.visit !== visit || claim.finished || claim.timer !== undefined) return;
+        claim.timer = window.setTimeout(() => {
+            if (this.playClaim?.visit !== visit) return;
+            this.playClaim.timer = undefined;
+            const current = this.view;
+            if (current === undefined || visitKey(current) !== visit) return;
+            this.settlePrimaryFocus(current, true);
+        }, 50);
     }
 
     private focusItem(zone: Zone | undefined, item: FocusItem | undefined): void {

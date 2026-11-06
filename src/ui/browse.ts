@@ -1100,7 +1100,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     }
                     if (!requestsCapability.enabled) { roots.delete("requests"); stack = [home]; showRoute(home, { zone: "nav", key: "home" }); return; }
                     let data: typeof state.data = result.data;
-                    // Apple's hub leaves a removed request out of every answer. A My Requests read that started before the removal does not put it back.
+                    // Apple's hub leaves a removed or cancelled request out of every answer. A My Requests read that started before the tombstone does not put it back.
                     if (data !== undefined && "sections" in data) data = { ...data, mine: { ...data.mine, items: requestGate.filter(data.mine.items) } };
                     else if (source.kind === "mine" && data !== undefined && "items" in data) data = result.startedEpoch === requestGate.epoch ? { ...data, items: requestGate.filter(data.items) } : state.data;
                     if ((source.kind === "hub" || source.kind === "mine") && result.startedEpoch === requestGate.epoch) requestGate.releaseHolds(result.coveredHolds);
@@ -2020,6 +2020,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             const updated: unknown = await session.call({ ...requestOperations.cancel(record.id), profileScoped: true, replayAfterRefresh: false });
             const listed = visibleRequestList(route);
             const focus = listFocusAfter(listed, record.id, origin);
+            // Tombstone + epoch so an ordinary hub/mine load that started before this cancel cannot put the pending row back (filter strips it; mine also fences on epoch).
+            requestGate.drop(record.id);
             if (typeof updated === "object" && updated !== null && "id" in updated && "outcome" in updated) paintRequestRecord(updated as MediaRequest);
             // Apple's hub applies the cancel result in place and does not reload (RequestsHubViewModel.applyRequestUpdate). A reload here can put the pending row back.
             const kind = listed.requests.source.kind;

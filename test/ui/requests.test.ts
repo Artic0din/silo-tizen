@@ -1767,6 +1767,37 @@ test("a list cancel that settles after Requests was reopened refreshes the visib
     } finally { await tv.page.context().close(); }
 });
 
+test("an ordinary hub load started before cancel cannot restore the cancelled card", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        const fake = new FakeRequests();
+        fake.created = true;
+        const pending = { ...fake.record };
+        const other = { ...pending, id: "request-two", tmdb_id: 950, title: "Other" };
+        await start(tv, fake);
+        await openRequests(tv);
+        await button(tv, "request-one").waitFor();
+        tv.fake.script("/requests/mine?limit=50", ...Array.from({ length: 8 }, () => minePage([pending, other])));
+        const cancel = tv.fake.hold("/requests/request-one/cancel", true);
+        await holdCard(tv, "request-one");
+        await button(tv, "cancel-request").click();
+        await tv.eventually(async () => tv.fake.paths().includes("POST /requests/request-one/cancel"), "cancel held");
+        await leaveRequests(tv);
+        await button(tv, "home").click();
+        await tv.page.locator('.browse[data-view="home"]').waitFor();
+        const mineReads = tv.fake.paths().filter(path => path === "GET /requests/mine?limit=50").length;
+        const mine = tv.fake.hold("/requests/mine?limit=50", true);
+        await openRequests(tv);
+        await tv.eventually(async () => tv.fake.paths().filter(path => path === "GET /requests/mine?limit=50").length > mineReads, "reopened hub mine is held");
+        cancel.release();
+        await tv.eventually(async () => tv.fake.paths().filter(path => path === "POST /requests/request-one/cancel").length === 1, "cancel settles while the hub load is still out");
+        mine.release();
+        await tv.eventually(async () => await button(tv, "request-two").count() === 1, "the held hub load installs");
+        assert.equal(await button(tv, "request-one").count(), 0, "a pre-cancel hub load cannot put the cancelled card back");
+        assert.equal(await button(tv, "request-two").getAttribute("data-request-actions"), "cancel");
+    } finally { await tv.page.context().close(); }
+});
+
 test("a list cancel capability refusal rechecks permission and retires Requests", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

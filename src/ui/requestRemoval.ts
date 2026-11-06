@@ -120,7 +120,7 @@ export class RequestActionGate {
         if (this.held.size === 0 && (this.listMessage === UNCONFIRMED_REMOVE_MESSAGE || this.listMessage === UNCONFIRMED_CANCEL_MESSAGE)) this.listMessage = undefined;
     }
 
-    /** The server says the request is gone. Later list answers leave it out. */
+    /** The server says the request is gone or cancelled. Later list answers leave it out. */
     drop(id: string): void {
         this.removed.add(id);
         this.epoch += 1;

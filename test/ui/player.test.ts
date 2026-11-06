@@ -612,6 +612,26 @@ test("external playback resume drops a timeline preview and follows the playhead
     } finally { await page.close(); }
 });
 
+for (const landing of ["same-plan", "replacement-plan"] as const) test(`a running hold survives only a ${landing} landing`, async () => {
+    const { page } = await open();
+    try {
+        await show(page, { ...playing(TRACKS), previewKey: "same-plan" });
+        await press(page, RIGHT);
+        await page.clock.fastForward(200);
+        await show(page, { ...playing(TRACKS), previewKey: undefined });
+        await holdKey(page, RIGHT);
+        await page.clock.fastForward(400);
+        const held = await page.getByRole("slider").getAttribute("aria-valuenow");
+        assert.notEqual(held, "754");
+        await show(page, { ...playing(TRACKS), previewKey: landing });
+        assert.equal(await page.getByRole("slider").getAttribute("aria-valuenow"), landing === "same-plan" ? held : "754");
+        assert.equal(await page.locator(".player-bar-preview").count(), landing === "same-plan" ? 1 : 0);
+        await press(page, ENTER);
+        const committed = landing === "same-plan" ? ["seekToSeconds 764", `seekToSeconds ${held}`, "setPaused false"] : ["seekToSeconds 764", "setPaused true"];
+        assert.deepEqual(await commands(page), committed);
+    } finally { await page.close(); }
+});
+
 test("a Left or Right hold keeps active playback running", async () => {
     const { page } = await open();
     try {

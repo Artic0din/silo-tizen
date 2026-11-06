@@ -47,7 +47,7 @@ import { personQuery } from "./personFilmography.ts";
 import { mountSettings, type SettingsScreen } from "./settings.ts";
 import type { CardOverlayPrefs } from "./cardOverlays.ts";
 import { PresentationSettings } from "./presentationSettings.ts";
-import { EpisodeSpoilerPreferences } from "./episodeSpoilers.ts";
+import { EpisodeSpoilerPreferences, type EpisodeSpoilerSettings } from "./episodeSpoilers.ts";
 import { NavigationSettings } from "./navigationSettings.ts";
 import { cachedBranding } from "./brandingCache.ts";
 import { getCalendar } from "../api/calendarOperations.ts";
@@ -87,6 +87,8 @@ export interface Browse {
     updateProfile(profile: Pick<ProfileSummary, "name" | "avatarUrl" | "avatar">): void;
     /** Removes browse and its container; nothing else in `root` is touched. */
     destroy(): void;
+    /** The profile spoiler switches playback uses for Up Next. */
+    spoilers(): EpisodeSpoilerSettings;
 }
 
 const SEARCH_DELAY_MS = 600;
@@ -2491,6 +2493,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             shell.setAvatar(profileName, profileAvatarUrl, context.baseUrl);
         },
         destroy: teardown,
+        spoilers: () => episodeSpoilers?.settings ?? { hidesImages: false, hidesOverviews: false },
     };
 }
 

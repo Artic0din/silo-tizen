@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type PlaybackError, PlaybackController, type PlaybackView, type PlayRequest } from "../../src/player/controller.ts";
+import type { EpisodeSpoilerSettings } from "../../src/ui/episodeSpoilers.ts";
 import { FakeAVPlay } from "./support/fakeAVPlay.ts";
 import { FakePlayback } from "./support/fakePlayback.ts";
 import { FakeSilo, fixture, problem, type RecordedRequest } from "./support/fakeSilo.ts";
@@ -145,7 +146,7 @@ interface Rig {
     readonly views: PlaybackView[];
 }
 
-async function rig(profileId = "p-owner", origin?: string): Promise<Rig> {
+async function rig(profileId = "p-owner", origin?: string, spoilers?: () => EpisodeSpoilerSettings): Promise<Rig> {
     const clock = new ManualClock();
     const h = await connected({ clock, fake: new FakeSilo(clock, undefined, origin) });
     await signIn(h);
@@ -172,6 +173,7 @@ async function rig(profileId = "p-owner", origin?: string): Promise<Rig> {
                 exits.push(`error:${error.kind}`);
             },
         },
+        ...(spoilers === undefined ? {} : { spoilers }),
     });
     const views: PlaybackView[] = [];
     controller.subscribe((view) => views.push(view));
@@ -1233,8 +1235,8 @@ test("EOF holds the handoff until pending progress and the exact final STOP rece
 
 const EPISODE: PlayRequest = { contentId: "episode:s1e12", fileId: "42", title: "Harbor Lights chapter 1.2", startSeconds: 0, episode: true };
 
-async function episodeRig(): Promise<Rig & { catalog: FakeCatalog }> {
-    const r = await rig();
+async function episodeRig(spoilers?: () => EpisodeSpoilerSettings): Promise<Rig & { catalog: FakeCatalog }> {
+    const r = await rig("p-owner", undefined, spoilers);
     const catalog = new FakeCatalog();
     catalog.fileIds.set(EPISODE.contentId, "42");
     catalog.fileIds.set("episode:s1e13", "43");
@@ -1280,8 +1282,8 @@ function completion(r: Rig): Extract<PlaybackView, { phase: "completion" }> {
     return view;
 }
 
-async function autoplayRig(enabled: boolean, promptSeconds?: number): Promise<Rig & { catalog: FakeCatalog; settings: FakeSettings }> {
-    const r = await episodeRig();
+async function autoplayRig(enabled: boolean, promptSeconds?: number, spoilers?: () => EpisodeSpoilerSettings): Promise<Rig & { catalog: FakeCatalog; settings: FakeSettings }> {
+    const r = await episodeRig(spoilers);
     const settings = new FakeSettings(r.h.fake);
     settings.overrides.set("playback.auto_play_next", enabled);
     const contract = fixture("settings_contract_ok");
@@ -1647,6 +1649,70 @@ test("an empty successor and On Deck leave the pre-end video and progress unchan
     assert.equal(r.h.fake.requests.length, requests, "empty discovery is not repeated on clock updates");
     assert.deepEqual(r.avplay.displayRects.at(-1), [0, 0, 1920, 1080]);
     r.controller.destroy();
+});
+
+test("Play Now outside the prompt window stops at the current position", async () => {
+    const r = await autoplayRig(false);
+    const id = await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing" && view.durationSeconds !== undefined && view.durationSeconds > 120);
+    r.avplay.tick(60000);
+    await r.h.clock.advance(0);
+    assert.equal("upNext" in last(r.views), false);
+    r.controller.showUpNext();
+    await r.h.clock.advance(0);
+    const shown = last(r.views);
+    assert.ok(shown.phase === "playing");
+    assert.equal(shown.upNext?.next?.contentId, "episode:s1e13");
+    const stop = r.h.fake.hold(`/playback/${id}`);
+    r.controller.playNext();
+    await r.h.clock.advance(0);
+    assert.equal(only(bodies(r.h, `/playback/${id}`)).position, 60);
+    stop.release();
+    r.controller.destroy();
+});
+
+test("a deck answer during a seek out of Up Next restores the full video", async () => {
+    const r = await autoplayRig(false);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing" && view.durationSeconds !== undefined);
+    const hold = r.h.fake.hold("/home/sections");
+    r.avplay.tick((view.durationSeconds - 20) * 1000);
+    await r.h.clock.advance(0);
+    assert.ok("upNext" in last(r.views));
+    assert.notDeepEqual(r.avplay.displayRects.at(-1), [0, 0, 1920, 1080]);
+    r.controller.seekToSeconds(60);
+    hold.release();
+    await r.h.clock.advance(0);
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    assert.equal("upNext" in last(r.views), false);
+    assert.deepEqual(r.avplay.displayRects.at(-1), [0, 0, 1920, 1080]);
+    r.controller.destroy();
+});
+
+test("Up Next hides an unwatched episode synopsis when the profile asks and keeps a started one", async () => {
+    const spoilers = (): EpisodeSpoilerSettings => ({ hidesImages: false, hidesOverviews: true });
+    const hidden = await autoplayRig(false, undefined, spoilers);
+    await playMovie(hidden, EPISODE);
+    hidden.controller.showUpNext();
+    await hidden.h.clock.advance(0);
+    const concealed = last(hidden.views);
+    assert.ok(concealed.phase === "playing");
+    assert.equal(concealed.upNext?.next?.contentId, "episode:s1e13");
+    assert.equal(concealed.upNext?.next?.overview, undefined);
+    hidden.controller.destroy();
+
+    const shown = await autoplayRig(false, undefined, spoilers);
+    shown.catalog.progress.set("episode:s1e13", 30);
+    await playMovie(shown, EPISODE);
+    shown.controller.showUpNext();
+    await shown.h.clock.advance(0);
+    const visible = last(shown.views);
+    assert.ok(visible.phase === "playing");
+    assert.match(visible.upNext?.next?.overview ?? "", /synthetic episode/);
+    shown.controller.destroy();
 });
 
 test("Play Now before EOF waits for progress and final stop at duration", async () => {

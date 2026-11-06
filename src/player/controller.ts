@@ -1579,18 +1579,7 @@ export class PlaybackController implements PlayerControls {
             if (!this.alignOpenStream(attempt, plan)) return;
             this.updatePrompt(attempt);
             this.showPlayback(attempt);
-            if (attempt.pendingAIResult !== undefined) {
-                const resultId = attempt.pendingAIResult;
-                attempt.pendingAIResult = undefined;
-                const track = plan.subtitle.inventory.find(track => track.syncKey === `stored-${resultId}`);
-                if (track === undefined) attempt.ai?.notice("The completed subtitle is not in the refreshed inventory. Playback continues; try selecting it later.");
-                else this.selectSubtitle(track.trackId);
-            }
-            if (attempt.queuedSubtitle !== undefined) {
-                const queued = attempt.queuedSubtitle;
-                attempt.queuedSubtitle = undefined;
-                this.selectSubtitle(queued.id);
-            }
+            this.applyPreparedSubtitleChoices(attempt, plan);
         };
         const startMs = Math.round(plan.timeline.playerStartSeconds * 1000);
         if (startMs <= 0) {
@@ -1605,6 +1594,21 @@ export class PlaybackController implements PlayerControls {
             });
         } catch {
             this.routeFailed(attempt, "avplay_resume_seek_failed");
+        }
+    }
+
+    private applyPreparedSubtitleChoices(attempt: Attempt, plan: PlaybackPlan): void {
+        if (attempt.pendingAIResult !== undefined) {
+            const resultId = attempt.pendingAIResult;
+            attempt.pendingAIResult = undefined;
+            const track = plan.subtitle.inventory.find(track => track.syncKey === `stored-${resultId}`);
+            if (track === undefined) attempt.ai?.notice("The completed subtitle is not in the refreshed inventory. Playback continues; try selecting it later.");
+            else this.selectSubtitle(track.trackId);
+        }
+        if (attempt.queuedSubtitle !== undefined) {
+            const queued = attempt.queuedSubtitle;
+            attempt.queuedSubtitle = undefined;
+            this.selectSubtitle(queued.id);
         }
     }
 
@@ -2474,6 +2478,7 @@ export class PlaybackController implements PlayerControls {
                 if (attempt.recovery?.active === true) attempt.recovery.recovered(this.deps.clock.now());
                 if (attempt.plan !== undefined && !this.alignOpenStream(attempt, attempt.plan)) return;
                 this.showPlayback(attempt);
+                if (attempt.plan !== undefined) this.applyPreparedSubtitleChoices(attempt, attempt.plan);
             } catch {
                 this.recoverConnection(attempt);
                 return;

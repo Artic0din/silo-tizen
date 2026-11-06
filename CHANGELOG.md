@@ -23,6 +23,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Reloaded the subtitle language catalog when Try Again or Choose another language follows a catalog failure, instead of searching the previously chosen language.
 - Returned subtitle pickers to their originating pane and row after selection or Back, while preserving focus in another active tab.
 
 - Kept unavailable subtitle display capabilities quiet while reporting failures to load advertised preferences.

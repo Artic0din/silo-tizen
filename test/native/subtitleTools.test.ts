@@ -127,6 +127,46 @@ test("a failed language catalog is an error with a retry, not an empty list", as
     search.destroy();
 });
 
+test("Try Again after a catalog failure reloads languages instead of repeating the previous search", async () => {
+    const h = await signed();
+    const languages = { status: 200, body: { option_sets: { playback_subtitle_languages: { options: [{ value: "en", label: "English" }, { value: "fr", label: "French" }] } } } };
+    const search = new SubtitleSearch(h.core.session, h.clock, FILE, () => false, () => undefined);
+    h.fake.script(PROVIDERS, { status: 200, body: available });
+    h.fake.script("/settings/contract", languages);
+    h.fake.script(SEARCH, { status: 200, body: { results: [], warnings: [] } });
+    await search.refresh();
+    search.open();
+    await h.clock.advance(0);
+    await search.pick("en");
+    assert.equal(search.view.language, "en");
+    search.close();
+    h.fake.script("/settings/contract", problem(500, "internal_error", "Unavailable"));
+    search.open();
+    await h.clock.advance(0);
+    assert.equal(search.view.phase, "failed");
+    assert.equal(search.view.canRetry, true);
+    assert.equal(search.view.suggested.length + search.view.other.length, 0);
+    const searches = (): number => h.fake.requests.filter(request => request.path === SEARCH).length;
+    const before = searches();
+    h.fake.script("/settings/contract", languages);
+    await search.retry();
+    assert.equal(searches(), before, "a catalog failure must not search the previously chosen language");
+    assert.equal(search.view.phase, "languages");
+    assert.deepEqual([...search.view.suggested, ...search.view.other].map(choice => choice.code).sort(), ["en", "fr"]);
+    h.fake.script("/settings/contract", problem(500, "internal_error", "Unavailable"));
+    search.close();
+    search.open();
+    await h.clock.advance(0);
+    assert.equal(search.view.phase, "failed");
+    h.fake.script("/settings/contract", languages);
+    search.back();
+    await h.clock.advance(0);
+    assert.equal(search.view.phase, "languages");
+    assert.deepEqual([...search.view.suggested, ...search.view.other].map(choice => choice.code).sort(), ["en", "fr"]);
+    assert.equal(searches(), before);
+    search.destroy();
+});
+
 test("a language search can be cancelled and a failure can be retried without a second download", async () => {
     const h = await signed();
     const search = new SubtitleSearch(h.core.session, h.clock, FILE, () => false, () => undefined);

@@ -50,6 +50,8 @@ export class SubtitleSearch {
     private canRetry = false;
     private results: readonly SearchResult[] = [];
     private downloadingKey: string | undefined;
+    /** A language-catalog failure. Retry and Choose another language reload it; a chosen language stays for search retries. */
+    private catalogFailed = false;
     private readonly settled = new Map<string, string>();
 
     constructor(session: NativeSession, clock: Clock, fileId: string, onAdded: (id: string) => boolean, changed: () => void) {
@@ -103,16 +105,18 @@ export class SubtitleSearch {
     back(): void {
         if (this.abort.signal.aborted || this.downloadingKey !== undefined || this.phase === "closed") return;
         this.cancelSearch();
+        const reloadCatalog = this.catalogFailed;
         this.phase = this.phase === "languages" ? "closed" : "languages";
         this.status = "";
         this.message = "";
         this.canRetry = false;
         this.changed();
+        if (reloadCatalog && this.phase === "languages") void this.loadLanguages();
     }
 
     async retry(): Promise<void> {
         if (this.abort.signal.aborted || this.downloadingKey !== undefined) return;
-        if (this.language !== undefined) {
+        if (!this.catalogFailed && this.language !== undefined) {
             await this.pick(this.language);
             return;
         }
@@ -249,6 +253,7 @@ export class SubtitleSearch {
         }
         if (this.abort.signal.aborted || generation !== this.catalogGeneration || this.phase !== "languages") return;
         if (catalogFailed) {
+            this.catalogFailed = true;
             this.suggested = [];
             this.other = [];
             this.phase = "failed";
@@ -258,6 +263,7 @@ export class SubtitleSearch {
             this.changed();
             return;
         }
+        this.catalogFailed = false;
         const choices = languageChoices(catalog, preferred);
         this.suggested = choices.suggested;
         this.other = choices.other;

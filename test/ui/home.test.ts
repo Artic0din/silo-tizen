@@ -24,6 +24,135 @@ after(async () => { await browser.close(); });
 const homeTitles = (tv: Tv): Promise<string[]> => tv.page.locator('[data-view="home"] [data-section] .browse-card:not(.skyline-explore)').evaluateAll(nodes => [...new Set(nodes.map(node => node.getAttribute("data-focus") ?? ""))]);
 const detailsRead = homeDetailsRead;
 
+journey("an explicit Home access refusal removes hydrated cached rows", async tv => {
+    await tv.page.route("**/api/v2/home/sections**", route => route.fulfill({ status: 403, contentType: "application/problem+json", body: JSON.stringify({ type: "about:blank", title: "Forbidden", status: 403 }) }));
+    await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+    await tv.page.locator('[data-view="home:failed"]').waitFor();
+    assert.equal((await homeTitles(tv)).length, 0);
+    assert.equal(await tv.page.locator('.browse-card').count(), 0);
+});
+
+journey("Home retains cached rows after remount offline and refreshes on recovery", async tv => {
+    const before = await homeTitles(tv);
+    let rejected = 0;
+    assert.ok(before.length > 0);
+    await tv.page.route("**/api/v2/**", route => { rejected++; return route.abort("connectionrefused"); });
+    await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+    await tv.jump(35000);
+    await tv.eventually(async () => (await homeTitles(tv)).length > 0, "cached Home rows");
+    assert.deepEqual(await homeTitles(tv), before);
+    assert.ok(rejected > 0, "fresh mount attempted reads while unreachable");
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.cacheOffline()), "cached transport failure");
+    assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Can't reach server|showing cached content/);
+    await tv.page.unroute("**/api/v2/**");
+    await tv.jump(50000);
+    await tv.eventually(() => tv.page.evaluate(() => !window.browseHarness.cacheOffline()), "recovered Home");
+});
+
+test("missing Details artwork renders its tint without an empty image", async () => {
+    const page = await browser.newPage();
+    try {
+        const fixture = await build({ entryPoints: [new URL("../../src/ui/heroBackdrop.ts", import.meta.url).pathname], bundle: true, format: "iife", globalName: "HomeBackdropFixture", target: "chrome108", write: false });
+        await page.addScriptTag({ content: fixture.outputFiles[0]?.text ?? "" });
+        const content = await page.evaluate(() => {
+            const fixture = Reflect.get(window, "HomeBackdropFixture") as typeof import("../../src/ui/heroBackdrop.ts");
+            const backdrop = fixture.heroBackdrop("", undefined, new Map(), true);
+            return { images: backdrop.querySelectorAll("img").length, frames: backdrop.querySelectorAll(".skyline-art-frame").length, washes: backdrop.querySelectorAll(".skyline-tint-wash").length };
+        });
+        assert.deepEqual(content, { images: 0, frames: 0, washes: 1 });
+    } finally { await page.context().close(); }
+});
+
+journey("Details reopens cached metadata while unreachable", async tv => {
+    const card = '[data-section="recent/12"] [data-focus="movie:m0004"]';
+    await tv.page.locator(card).click();
+    await tv.page.locator('[data-view="item:movie:m0004"]').waitFor();
+    await tv.remote(10009);
+    const enrichmentBefore = detailReads(tv).length;
+    await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+    await tv.page.locator('[data-view="home"] [data-section]').first().waitFor();
+    const titles = await homeTitles(tv);
+    await tv.eventually(async () => detailReads(tv).length >= enrichmentBefore + titles.length, "new Home mount reread every visible title");
+    await detailsRead(tv);
+    await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+    await tv.page.locator(card).click();
+    await tv.page.locator('[data-view="item:movie:m0004"] h1').waitFor();
+    await tv.jump(35000);
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.cacheOffline("movie:m0004")), "cached transport failure");
+    assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Can't reach server|showing cached content/);
+    assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "Movie 0004");
+    assert.doesNotMatch(await tv.page.locator(".browse").innerText(), /Could not load|Retry personal|Retry title|Retry related/);
+    assert.ok(await tv.page.locator('.details-hero .skyline-backdrop').count() > 0);
+});
+
+journey("Home resumes cached recovery after a hidden retry deadline", async tv => {
+    await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+    await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
+    await tv.jump(35000);
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.cacheOffline()), "cached transport failure");
+    await tv.page.evaluate(() => {
+        Object.defineProperty(document, "hidden", { configurable: true, value: true });
+        Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+        document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await tv.jump(20000);
+    await tv.page.unroute("**/api/v2/**");
+    await tv.page.evaluate(() => {
+        Object.defineProperty(document, "hidden", { configurable: true, value: false });
+        Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+        document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await tv.eventually(() => tv.page.evaluate(() => !window.browseHarness.cacheOffline()), "foreground recovery");
+});
+
+journey("automatic cached Details recovery preserves an open More panel", async tv => {
+    const card = '[data-section="recent/12"] [data-focus="movie:m0004"]';
+    await tv.page.locator(card).click();
+    await tv.page.locator('[data-view="item:movie:m0004"]').waitFor();
+    await tv.remote(10009);
+    await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+    await tv.page.locator(card).click();
+    await tv.jump(35000);
+    await tv.page.locator('[data-focus="more"]').waitFor();
+    await tv.page.locator('[data-focus="more"]').click();
+    const panel = tv.page.getByRole("dialog", { name: "More", exact: true });
+    await panel.waitFor();
+    await tv.jump(16000);
+    assert.equal(await panel.count(), 1, "recovery never closes an active control");
+    await tv.remote(10009);
+    await tv.page.unroute("**/api/v2/**");
+    await tv.jump(35000);
+    await tv.eventually(() => tv.page.evaluate(() => !window.browseHarness.cacheOffline("movie:m0004")), "recovery after panel closes");
+});
+
+journey("Details retries a recovery response deferred by a newly opened control", async tv => {
+    await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0004"]').click();
+    await tv.page.locator('[data-view="item:movie:m0004"]').waitFor();
+    await tv.remote(10009);
+    await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+    await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0004"]').click();
+    await tv.jump(35000);
+    await tv.page.locator('[data-focus="more"]').waitFor();
+    await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.cacheOffline("movie:m0004")), "Details transport failure settled");
+    await tv.page.unroute("**/api/v2/**");
+    const path = "/catalog/items/movie%3Am0004";
+    const held = tv.fake.hold(path, true);
+    const reads = (): number => tv.fake.requests.filter(request => request.path.startsWith(path)).length;
+    const before = reads();
+    await tv.jump(16000);
+    await tv.eventually(async () => reads() > before, "recovery in flight");
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.getByRole("dialog", { name: "More", exact: true }).waitFor();
+    const response = tv.page.waitForResponse(reply => new URL(reply.url()).pathname === `/api/v2${path}`);
+    held.release();
+    assert.equal(await (await response).finished(), null);
+    await tv.jump(0);
+    await tv.eventually(() => tv.page.evaluate(() => !window.browseHarness.cacheOffline("movie:m0004")), "successful recovery deferred");
+    const deferred = reads();
+    await tv.remote(10009);
+    await tv.eventually(async () => reads() > deferred, "idle Details refresh resumes");
+});
+
 function sectionReplyProduced(catalog: FakeHome): Promise<void> {
     return new Promise(resolve => {
         const read = catalog.route.bind(catalog);

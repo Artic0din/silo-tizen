@@ -10,6 +10,27 @@ import { FakeSilo } from "./support/fakeSilo.ts";
 
 const device = { id: "abababab", name: "Living room TV", platform: "tizen" };
 
+for (const abort of [false, true]) test(`connection verification respects request ${abort ? "cancellation" : "deadline"}`, async () => {
+    const { clock, fake, http } = setup();
+    let release = (): void => {};
+    const checking = new Promise<void>(resolve => { release = resolve; });
+    const guarded = new NativeHttp(http.base, device, fake.fetch, clock, () => checking);
+    const controller = new AbortController();
+    let failure: string | undefined;
+    const pending = guarded.send({ ...operations.logout(), retry: "never", timeoutMs: 5000, signal: controller.signal }).catch((error: unknown) => {
+        assert.ok(error instanceof ApiError);
+        failure = error.failure.kind;
+    });
+    await clock.advance(0);
+    if (abort) controller.abort();
+    await clock.advance(abort ? 0 : 5000);
+    const observed = failure;
+    release();
+    await pending;
+    assert.equal(observed, abort ? "aborted" : "timeout");
+    assert.equal(fake.requests.length, 0, "a late verification never dispatches the abandoned request");
+});
+
 function setup(): { clock: ManualClock; fake: FakeSilo; http: NativeHttp } {
     const clock = new ManualClock();
     const fake = new FakeSilo(clock);

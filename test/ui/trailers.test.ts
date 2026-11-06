@@ -10,6 +10,131 @@ after(async () => { await browser.close(); });
 
 const YOUTUBE = { kind: "trailer", site: "YouTube", site_key: "abc_def-1", name: "Official Trailer", is_official: true };
 
+for (const personId of ['7', undefined]) trailerTest(`duplicate cast focus survives trailer refresh reordering with person id ${personId}`, async (tv, catalog) => {
+    const body = catalog.route('GET', '/catalog/items/movie%3Am0001', 'p-owner')?.body as Record<string, unknown>;
+    const credits = [
+        { person_id: personId, name: 'Same actor', character: 'First role', order: 0 },
+        { person_id: 'other', name: 'Other actor', character: 'Other role', order: 1 },
+        { person_id: personId, name: 'Same actor', character: 'Second role', order: 2 },
+        { person_id: personId, name: 'Same actor', character: 'Second role', order: 3 },
+    ];
+    let refreshed = false;
+    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001/trailers/refresh', route => { refreshed = true; return route.fulfill({ status: 202, json: { status: 'queued' } }); });
+    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001?**', route => route.fulfill({ json: { ...body, cast: refreshed ? [credits[2], credits[3], credits[1], credits[0]] : credits, videos: refreshed ? [YOUTUBE] : [] } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.locator('[data-focus="find-trailers"]').click();
+    const duplicate = tv.page.locator('.details-people [data-focus]').nth(3);
+    await duplicate.focus();
+    const key = await tv.focused();
+    await tv.jump(3000);
+    await tv.page.locator('.details-extras').waitFor();
+    assert.equal(await tv.focused(), key);
+    assert.equal(await tv.page.locator('.details-people [data-focus]').nth(1).getAttribute('data-focus'), key, 'second occurrence keeps its identity after reorder');
+    assert.equal(await tv.page.locator(':focus .browse-card-subtitle').textContent(), 'Second role');
+});
+
+
+trailerTest("singleton cast focus stays put when a duplicate credit appears", async (tv, catalog) => {
+    const body = catalog.route("GET", "/catalog/items/movie%3Am0001", "p-owner")?.body as Record<string, unknown>;
+    const solo = [{ person_id: "7", name: "Same actor", character: "Only role", order: 0 }];
+    const withDuplicate = [
+        { person_id: "7", name: "Same actor", character: "Only role", order: 0 },
+        { person_id: "7", name: "Same actor", character: "Extra role", order: 1 },
+    ];
+    let refreshed = false;
+    await tv.page.route("**/api/v2/catalog/items/movie%3Am0001/trailers/refresh", route => { refreshed = true; return route.fulfill({ status: 202, json: { status: "queued" } }); });
+    await tv.page.route("**/api/v2/catalog/items/movie%3Am0001?**", route => route.fulfill({ json: { ...body, cast: refreshed ? withDuplicate : solo, videos: refreshed ? [YOUTUBE] : [] } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.locator('[data-focus="find-trailers"]').click();
+    await tv.page.locator(".details-people [data-focus]").first().focus();
+    const key = await tv.focused();
+    assert.match(key ?? "", /^credit:/, "singleton cast already uses the stable credit key");
+    await tv.jump(3000);
+    await tv.page.locator(".details-extras").waitFor();
+    assert.equal(await tv.focused(), key, "adding another role must not rename the focused credit");
+    assert.equal(await tv.page.locator(".details-people [data-focus]").count(), 2);
+});
+
+trailerTest("discovered trailers survive a late watched season readback", async (tv, catalog) => {
+    const body = catalog.route("GET", "/catalog/items/series%3As1", "p-owner")?.body as Record<string, unknown>;
+    let found = false;
+    let holdEpisodes = false;
+    let releaseEpisodes: (() => void) | undefined;
+    let heldEpisodes = false;
+    await tv.page.route("**/api/v2/catalog/items/series%3As1/trailers/refresh", route => route.fulfill({ status: 202, json: { status: "queued" } }));
+    await tv.page.route("**/api/v2/catalog/items/series%3As1?**", route => route.fulfill({
+        json: { ...body, user_data: { played: catalog.watched }, videos: found ? [YOUTUBE] : [] },
+    }));
+    await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons/*/episodes?**", async route => {
+        if (holdEpisodes) {
+            heldEpisodes = true;
+            await new Promise<void>(resolve => { releaseEpisodes = resolve; });
+        }
+        return route.fallback();
+    });
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.locator('[data-focus="find-trailers"]').click();
+    await tv.page.locator(".details-trailer-status").waitFor();
+    holdEpisodes = true;
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.locator('[data-focus="watched"]').click();
+    await tv.eventually(async () => heldEpisodes, "watched readback awaits season episodes");
+    found = true;
+    await tv.jump(3000);
+    await tv.eventually(async () => await tv.page.locator('[data-focus="remote:YouTube:abc_def-1"]').count() === 1, "discovery publishes while watched readback is held");
+    holdEpisodes = false;
+    releaseEpisodes?.();
+    await tv.jump(0);
+    assert.equal(await tv.page.locator('[data-focus="remote:YouTube:abc_def-1"]').count(), 1, "late watched assignment must not wipe discovered trailers");
+});
+
+for (const path of ['playback', 'watched then navigate']) trailerTest(`interrupted trailer discovery survives ${path} owner replacement`, async (tv, catalog) => {
+    const body = catalog.route('GET', '/catalog/items/movie%3Am0001', 'p-owner')?.body as Record<string, unknown>;
+    let posts = 0; let found = false; let reads = 0;
+    let holdWatchRead = path !== 'playback'; let heldWatchRead = false;
+    const watchWaiters: Array<() => void> = [];
+    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001/trailers/refresh', route => { posts++; return route.fulfill({ status: 202, json: { status: 'queued' } }); });
+    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001?**', async route => {
+        reads++;
+        if (holdWatchRead && catalog.watched) {
+            heldWatchRead = true;
+            await new Promise<void>(resolve => watchWaiters.push(resolve));
+        }
+        return route.fulfill({ json: { ...body, user_data: { played: catalog.watched }, videos: found ? [YOUTUBE] : [] } });
+    });
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    await tv.page.locator('[data-focus="more"]').click();
+    await tv.page.locator('[data-focus="find-trailers"]').click();
+    await tv.page.locator('.details-trailer-status').waitFor();
+    const before = reads;
+    if (path === 'playback') {
+        await tv.page.locator('[data-focus="play"][aria-disabled="false"]').click();
+        await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.plays.length === 1), 'playback entered');
+        await tv.jump(150000);
+        await tv.page.evaluate(() => window.browseHarness.resume());
+    } else {
+        await tv.page.locator('[data-focus="more"]').click();
+        await tv.page.locator('[data-focus="watched"]').click();
+        await tv.eventually(async () => heldWatchRead, 'watched write committed before its readback');
+        await tv.page.locator('.details-people [data-focus^="credit:"]').first().click();
+        await tv.page.locator('[data-view^="person:"]').waitFor();
+        await tv.jump(150000);
+        holdWatchRead = false;
+        for (const release of watchWaiters.splice(0)) release();
+        await tv.remote(10009);
+    }
+    await tv.eventually(async () => reads > before && await tv.page.locator('[data-focus="more"]').count() === 1, 'Details reloaded');
+    assert.equal(await tv.page.locator('.details-extras').count(), 0, 'return read precedes trailer arrival');
+    found = true;
+    await tv.jump(3000);
+    await tv.eventually(async () => await tv.page.locator('[data-focus="remote:YouTube:abc_def-1"]').count() === 1, 'trailer arriving after return is published');
+    assert.equal(posts, 1);
+    if (path !== 'playback') assert.equal(catalog.watched, true);
+});
+
 function trailerTest(name: string, body: (tv: Tv, catalog: FakeDetails) => Promise<void>): void {
     test(name, async () => {
         const tv = await openTv(browser, { app: "browse" });
@@ -104,8 +229,12 @@ trailerTest("a series with a YouTube video shows the rail and hides it when the 
     assert.equal(await tv.page.getByRole("heading", { name: "Trailers & More", exact: true }).count(), 1);
     catalog.videos = [];
     await tv.remote(10009);
+    const fresh = tv.fake.hold("/catalog/items/series%3As1", true);
     await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
     await tv.page.locator('[data-focus="next-episode"]').waitFor();
+    assert.equal(await tv.page.locator(".details-extras").count(), 1, "the cached rail remains while the fresh read is pending");
+    fresh.release();
+    await tv.eventually(async () => await tv.page.locator(".details-extras").count() === 0, "fresh empty videos remove the cached rail");
     assert.equal(await tv.page.locator(".details-extras").count(), 0);
 });
 

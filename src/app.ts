@@ -99,6 +99,11 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
             pickerRequested, server, launch: server.profileLaunch,
             onChangeServer: () => showAccounts(),
             onSelected: active => showBrowse(server, active),
+            onProfileUpdated: summary => {
+                if (profile === undefined || profile.profile.id !== summary.id) return;
+                profile = { ...profile, profile: summary };
+                browse?.updateProfile(summary);
+            },
             onSignedOut: result => {
                 profiles = undefined;
                 const account = result?.server === "not_signed_in" ? server.accounts.directory.list().find(row => row.id === server.accounts.localAccountId) : undefined;

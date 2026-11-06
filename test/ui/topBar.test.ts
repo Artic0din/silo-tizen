@@ -139,6 +139,18 @@ test("Down from the avatar enters the open profile menu and leaves it for Contin
     } finally { await tv.page.context().close(); }
 });
 
+test("Down from the avatar before the dwell opens Switch Profile", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await start(tv);
+        await tv.page.locator('[data-focus="profiles"]').focus();
+        assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "false", "the dwell has not opened the menu");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "switch-profile", "Down before the dwell still enters Switch Profile");
+        assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "true");
+    } finally { await tv.page.context().close(); }
+});
+
 test("focused avatar paints Apple's inset white ring above loaded artwork", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

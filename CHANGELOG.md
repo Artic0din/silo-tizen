@@ -20,7 +20,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Back from Settings now returns to Home, including when Settings was opened from another tab.
-- Down from the profile avatar enters Switch Profile only while that menu is open. After Back closes it, Down reaches the first Continue Watching card.
+- Down from the profile avatar enters Switch Profile, including before the menu's dwell finishes. After Back closes it, Down reaches the first Continue Watching card.
 - Added Retry for retryable playback startup failures and exhausted route recovery.
 - Kept the Details hero pinned when action focus survived a repaint during its return scroll.
 - Opened a remembered profile and cached Home promptly on cold start while checking the saved session in the background, then refreshed the top-bar profile artwork from the reconciled summary.

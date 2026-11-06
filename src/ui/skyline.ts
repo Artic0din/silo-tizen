@@ -626,10 +626,10 @@ export class Skyline {
         const key = remoteKey(event);
         const anchor = this.items.find(item => item.element === document.activeElement);
         if (key === "down" && anchor?.element.hasAttribute("aria-haspopup")) {
-            // The avatar opens its menu when it gains focus. Down steps into that menu only
-            // while the preview is open. After Back closes it, the page's first card is the
-            // candidate, so Down is left for the content focus host.
-            if (anchor.key === "profiles" && !this.profileOpen) return;
+            // Down enters the avatar menu unless Back has closed it. A press before the
+            // dwell finishes still opens the menu. After Back, the page's first card is
+            // the candidate, so that Down is left for the content focus host.
+            if (anchor.key === "profiles" && !this.profileOpen && this.dismissedAnchor === "profiles") return;
             event.preventDefault();
             this.cancelDwell();
             if (anchor.key === "profiles") this.openProfile();

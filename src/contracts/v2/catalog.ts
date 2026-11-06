@@ -345,6 +345,7 @@ export interface WatchState {
 
 export interface ItemDetail {
     readonly advisoryAge?: number | undefined;
+    readonly advisorySource?: string | undefined;
     readonly airDate?: string | undefined;
     readonly extras?: readonly LocalExtra[];
     /** Remote provider videos. Absent on the wire decodes as an empty list. */
@@ -442,6 +443,7 @@ export function decodeItemDetail(value: unknown): ItemDetail {
     const watch = decodeWatch(obj.user_data, `${path}.user_data`);
     return {
         advisoryAge: optionalInteger(obj, "advisory_age", path),
+        advisorySource: optionalString(obj, "advisory_source", path),
         played: obj.user_state === undefined ? watch?.played : boolean(object(obj.user_state, `${path}.user_state`), "played", `${path}.user_state`),
         extra: decodeDetailExtras(value),
         extras: decodeExtras(obj),

@@ -30,7 +30,7 @@ Returning rechecks policy without a persistent cache; optional reads preserve th
 Older servers identified by a missing capability endpoint (404/501) or a pre-16 manifest retain the built-in logos-on compatibility behavior; this is not a fabricated saved true value.
 Person names/photos are unchanged.
 Home's marquee follows Apple's fallback instead: logos unless the last confirmed answer, kept on the TV per server and profile, is off ([Skyline browse shell](skyline-browse-shell.md)).
-Details still uses the text-first rule above, which differs from Apple's; aligning it is outside the Home change.
+Details still shows the text title until a logo first decodes. A logo that has decoded stays in the heading for the rest of that visit, including later repaints, matching [`TVDecodedLogoTitle`](https://github.com/Silo-Server/silo-apple/blob/e28300c61f044a9322f588203c8819d6f06e6197/iosApp/iosApp/tvOS/Screens/Detail/TVDetailHero.swift) seeding its pipeline cache. The title-art answer itself is still rechecked without a persistent cache.
 
 The primary sources are the [server manifest](https://github.com/Silo-Server/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/contracts/settings/v1/manifest.json), [server wire encoder](https://github.com/Silo-Server/silo-server/blob/cc8514943289045e7b9f7ac8d36d4968bfe93926/internal/apiv2/settings.go) and [Apple title-art plan](https://github.com/Silo-Server/silo-apple/blob/f33479404712737499b22365430db1885cf6c6ab/iosApp/iosApp/Networking/TitleArtPreferences.swift).
 The binding [Skyline guide](https://github.com/Silo-Server/silo-apple/blob/f33479404712737499b22365430db1885cf6c6ab/docs/skyline-design-guide.md) was verified with SHA-256 `2d42d292e01ab6ee539278b63c286756fc432edf876a9286a33c9e853672cac2`.

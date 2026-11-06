@@ -2886,6 +2886,12 @@ export class PlaybackController implements PlayerControls {
         const displayed = fromDeck ? offer.deck[0] : episode;
         const loading = displayed === undefined && (offer.episodeLoading || (offer.deckLoading && !offer.episodeFailed));
         const failed = displayed === undefined && !loading && (offer.episodeFailed || offer.deckFailed);
+        // An automatic prompt waits for a real choice. A loading or empty read must not shrink the video or move the reported position.
+        if (!showManual && displayed === undefined && offer.deck.length === 0) {
+            this.clearPrompt(attempt);
+            this.showPlayback(attempt);
+            return;
+        }
         attempt.prompt = { next: displayed, deck: offer.deckFailed ? [] : offer.deck, fromDeck, ...(loading ? { loading: true } : {}), ...(failed ? { failed: true } : {}) };
         try { this.setDisplayRect(attempt); } catch { /* A PLAYING seek refuses the rectangle until it settles. */ }
         this.showPlayback(attempt);

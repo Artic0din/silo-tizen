@@ -980,8 +980,9 @@ appTest("EOF during a refused subtitle change still offers manual continuation",
     assert.ok(id !== undefined);
     playback.next.push({ terminal: "adaptation_unavailable" });
     const response = tv.fake.hold(`/playback/${id}/replan`);
-    // Old Down opened the panel. Down focuses Play/Pause; Options opens Info, then Subtitles is two tabs right.
+    // Down focuses Play/Pause. Show Up Next sits before Options on an episode, so three Rights reach Options. Enter opens Info, then two Rights reach Subtitles.
     await tv.remote(40);
+    await tv.remote(39);
     await tv.remote(39);
     await tv.remote(39);
     await tv.remote(13);

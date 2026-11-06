@@ -5,7 +5,7 @@ import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import type { SettingsKey } from "../../src/contracts/v2/settings.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
 
 const TITLE = "ui.title_art" as SettingsKey;
 let browser: Browser;
@@ -279,6 +279,58 @@ test("delayed title-art policy while playback hides a connected node is discarde
         assert.equal(logos, 0);
         assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "The Last Signal");
     } finally { hold.release(); await tv.page.context().close(); }
+});
+
+test("a decoded Details title logo stays in place across a repaint", async () => {
+    const { tv, catalog } = await setup();
+    const held = tv.fake.hold("/recommendations/similar/movie%3Am0001", true);
+    try {
+        await details(tv, catalog);
+        // The first decode may still swap from the 110px text fallback to the 160px slot.
+        // This sample starts only after that swap has settled.
+        const settled = await readLive(tv, () => {
+            const hero = document.querySelector(".details-hero");
+            const title = hero?.querySelector(".browse-title");
+            const row = hero?.querySelector(".browse-meta");
+            if (!(hero instanceof HTMLElement) || !(title instanceof HTMLElement) || !(row instanceof HTMLElement) || !title.isConnected || !row.isConnected) return null;
+            const logo = title.querySelector(".details-logo");
+            if (!(logo instanceof HTMLImageElement) || !logo.complete || logo.naturalWidth === 0) return null;
+            return {
+                titleHeight: title.getBoundingClientRect().height,
+                rowTop: row.getBoundingClientRect().top - hero.getBoundingClientRect().top,
+            };
+        }, null, value => Math.abs(value.titleHeight - 160) < 0.5 && Math.abs(value.rowTop - 290) < 0.5, "decoded movie logo before the forced repaint");
+        assert.ok(Math.abs(settled.titleHeight - 160) < 0.5, JSON.stringify(settled));
+        assert.ok(Math.abs(settled.rowTop - 290) < 0.5, JSON.stringify(settled));
+        await tv.page.evaluate(() => {
+            const samples: { titleHeight: number; rowTop: number; logo: boolean }[] = [];
+            const read = (): void => {
+                const hero = document.querySelector(".details-hero");
+                const title = hero?.querySelector(".browse-title");
+                const row = hero?.querySelector(".browse-meta");
+                if (!(hero instanceof HTMLElement) || !(title instanceof HTMLElement) || !(row instanceof HTMLElement)) return;
+                if (!hero.isConnected || !title.isConnected || !row.isConnected) return;
+                samples.push({
+                    titleHeight: title.getBoundingClientRect().height,
+                    rowTop: row.getBoundingClientRect().top - hero.getBoundingClientRect().top,
+                    logo: title.querySelector(".details-logo") !== null,
+                });
+            };
+            const observer = new MutationObserver(read);
+            observer.observe(document.body, { childList: true, subtree: true });
+            Object.assign(window, { __titleLogoWatch: { samples, stop: (): typeof samples => { observer.disconnect(); return samples; } } });
+            read();
+        });
+        held.release();
+        await tv.page.locator('[data-detail-section="related"] [data-focus]').first().waitFor();
+        const samples = await tv.page.evaluate(() => {
+            const watch = (window as unknown as { __titleLogoWatch: { stop(): { titleHeight: number; rowTop: number; logo: boolean }[] } }).__titleLogoWatch;
+            return watch.stop();
+        });
+        assert.ok(samples.length > 1, `the forced repaint produced no connected samples: ${JSON.stringify(samples)}`);
+        const flashed = samples.filter(sample => !sample.logo || Math.abs(sample.titleHeight - 160) >= 0.5 || Math.abs(sample.rowTop - 290) >= 0.5);
+        assert.deepEqual(flashed, []);
+    } finally { held.release(); await tv.page.context().close(); }
 });
 
 test("delayed image load cannot replace a hidden heading and a new generation restores logos", async () => {

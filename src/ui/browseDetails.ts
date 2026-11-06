@@ -24,6 +24,8 @@ import { TMDB_LOGO_PATH } from "./acknowledgements.ts";
 import { spinner } from "./marquee.ts";
 
 const detailPalette = new Map<string, Tints>();
+/** Logo URLs that have decoded on a visible Details page. Later paints of the same visit seed that image, as TVDecodedLogoTitle does from the pipeline cache (silo-apple e28300c61f044a9322f588203c8819d6f06e6197, TVDetailHero.swift). */
+const decodedTitleLogos = new Set<string>();
 
 /** OverlayData.advisoryAgeBadgeLabel at silo-apple e28300c6. */
 function advisoryAgeBadgeLabel(age: number | undefined, source: string | undefined): string | undefined {
@@ -129,21 +131,34 @@ function detailHeader(detail: ItemDetail, context: ViewContext, actions: readonl
     const title = heading(detail.title);
     title.classList.add("requests-detail-title");
     const split = detail.title.indexOf(": ");
-    title.textContent = "";
-    title.appendChild(el("span", "requests-title-primary", split < 0 ? detail.title : detail.title.slice(0, split)));
-    if (split >= 0) title.appendChild(el("span", "requests-title-secondary", detail.title.slice(split + 2)));
+    const primary = el("span", "requests-title-primary", split < 0 ? detail.title : detail.title.slice(0, split));
+    const secondary = split >= 0 ? el("span", "requests-title-secondary", detail.title.slice(split + 2)) : undefined;
+    const showText = (): void => {
+        title.replaceChildren(primary);
+        if (secondary !== undefined) title.appendChild(secondary);
+    };
+    showText();
     const logo = artworkUrl(detail.extra?.logoUrl, context.baseUrl);
     const allowed = state?.titleArtGuard();
     if (logo !== undefined && allowed?.()) {
         const image = el("img", "details-logo");
         image.alt = detail.title;
         image.referrerPolicy = "no-referrer";
-        image.addEventListener("load", () => {
+        const showLogo = (): void => {
             if (!allowed() || !title.isConnected || title.closest("[hidden]") !== null) return;
-            title.textContent = "";
-            title.appendChild(image);
+            decodedTitleLogos.add(logo);
+            if (image.parentElement === title) return;
+            title.replaceChildren(image);
+        };
+        image.addEventListener("load", showLogo);
+        image.addEventListener("error", () => {
+            if (image.parentElement !== title) return;
+            decodedTitleLogos.delete(logo);
+            showText();
         });
         image.src = logo;
+        // A logo that already decoded this visit is in the title before the repaint connects, so the 110px fallback does not paint again.
+        if (decodedTitleLogos.has(logo)) title.replaceChildren(image);
     }
     nodes.push(title);
     const episode = state?.series?.episodes?.find(item => item.id === state.heroEpisodeId);

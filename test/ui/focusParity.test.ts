@@ -485,6 +485,11 @@ for (const destination of ["mode", "settings"] as const) test(`pending library r
             await tv.page.locator('[data-focus="playback"]').waitFor();
             held.release();
             await tv.remote(BACK);
+            // The rail's Back selects Home. The saved visit still has to be there when Movies opens again.
+            await showing(tv, "home");
+            assert.equal(await tv.focused(), "home", "Settings Back selects Home");
+            await activate(tv, "movies");
+            await showing(tv, "library:12");
         }
         await tv.page.locator(`[data-focus="${committed.key}"]`).waitFor();
         await tv.jump(300);

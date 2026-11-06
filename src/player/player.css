@@ -38,10 +38,19 @@
     width: 1920px;
     height: 1080px;
     overflow: hidden;
-    background: #000000;
+    /* AVPlay draws on a plane behind the page. An opaque player hides the picture. */
+    background: transparent;
     color: var(--silo-text);
     font-family: var(--silo-font);
 }
+
+.player-backdrop {
+    position: absolute;
+    inset: 0;
+    background: #000000;
+}
+
+.player-backdrop[hidden] { display: none; }
 
 .player-video {
     /* AVPlay draws video separately; this object's browser placeholder must not cover it. */
@@ -93,7 +102,7 @@
 .player-error {
     top: 0;
     padding: 320px 88px 64px;
-    background: var(--silo-background);
+    background: none;
 }
 
 .player-error .player-title {

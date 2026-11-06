@@ -188,6 +188,23 @@ function stored(key: string, scope: string, value: unknown, isSet = true) {
     return { status: 200, body: { key, scope, profile_id: "p-owner", ...(scope === "profile_device" ? { device_id: "device" } : {}), value, revision: 8, is_set: isSet } };
 }
 
+for (const missing of ["capability", "preferences"] as const) {
+    test(`missing subtitle display ${missing} keeps unsupported edits disabled`, async () => {
+        const h = await signed();
+        if (missing === "preferences") {
+            h.fake.script("/settings/contract/capabilities", { status: 200, body: capability(24) });
+            h.fake.script("/settings/contract", { status: 200, body: contract(24, [appearanceDef]) });
+            h.fake.script(`/settings/values?scope=profile_device&keys=${APPEARANCE}`, { status: 200, body: { revision: 24, items: [{ key: APPEARANCE, scope: "profile_device", profile_id: "p-owner", device_id: h.core.session.http.deviceId, is_set: false }] } });
+        }
+        const display = new SubtitleDisplay(h.core.session, "p-owner", () => undefined, () => undefined);
+        await display.load();
+        assert.equal(display.view?.styling, false);
+        if (missing === "capability") assert.equal(display.view?.message, "");
+        else assert.match(display.view?.message ?? "", /Could not load subtitle preferences/);
+        display.destroy();
+    });
+}
+
 for (const inherited of [false, true]) for (const supportedSync of [false, true]) {
     test(`appearance edits load effective values with inherited reset ${inherited} and sync ${supportedSync}`, async () => {
         const h = await signed();

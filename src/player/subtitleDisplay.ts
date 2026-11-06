@@ -58,10 +58,12 @@ export class SubtitleDisplay {
     destroy(): void { this.abort.abort(); }
 
     async load(): Promise<void> {
+        let effectiveSupported = false;
         try {
             const capability = await this.call(operations.capabilities());
             const contract = await this.call(operations.contract());
             const support = subtitleControlSupport(contract, capability);
+            effectiveSupported = support.styling || support.delay || support.deviceScope;
             const device = support.deviceScope ? await this.call(operations.deviceAppearance(this.profileId, this.session.http.deviceId)) : false;
             const [appearance, delay] = await Promise.all([
                 support.styling ? this.call(subtitleOperations.subtitleAppearance(this.profileId)) : this.appearance,
@@ -76,10 +78,10 @@ export class SubtitleDisplay {
             this.deviceOverride = device;
             this.loaded = true;
             this.onChange(appearance, delay);
-        } catch {
+        } catch (error) {
             if (this.abort.signal.aborted) return;
             this.loaded = true;
-            this.message = "Could not load subtitle preferences. Reopen playback to retry.";
+            if (!(error instanceof ApiError && error.status === 404 && !effectiveSupported)) this.message = "Could not load subtitle preferences. Reopen playback to retry.";
         }
         this.changed();
     }

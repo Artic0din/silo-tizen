@@ -455,7 +455,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                     const id = button.getAttribute("data-focus") ?? "";
                     const aiAction = id === "ai-translate" || id === "ai-transcribe" || id.startsWith("ai-language:");
                     const quota = tracks.ai?.quota;
-                    const blocked = tracks.change.state === "changing" || (id === SERIES_SUBTITLE && tracks.seriesSubtitle?.busy === true) || (aiAction && tracks.ai?.busy === true) || (id === "ai-transcribe" && (quota === undefined || (quota.limited && quota.remaining <= 0)));
+                    const queuesDuringReport = index === 2 && id !== SERIES_SUBTITLE && !id.startsWith("ai-");
+                    const blocked = tracks.change.state === "changing" || (tracks.reporting === true && index !== 0 && !queuesDuringReport) || (id === SERIES_SUBTITLE && tracks.seriesSubtitle?.busy === true) || (aiAction && tracks.ai?.busy === true) || (id === "ai-transcribe" && (quota === undefined || (quota.limited && quota.remaining <= 0)));
                     button.setAttribute("aria-disabled", String(blocked));
                 }
             }

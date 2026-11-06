@@ -96,6 +96,30 @@ test("live autoplay saves once while pending and retains the old value on refusa
     r.controller.destroy();
 });
 
+test("a discovery settings read started before a save cannot overwrite Auto-play next", async () => {
+    const r = await autoplayRig(true);
+    r.settings.overrides.delete("playback.auto_play_next");
+    r.settings.profile().set("playback.auto_play_next", true);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing" && view.durationSeconds !== undefined);
+    const path = "/settings/values/effective?keys=playback.auto_play_next";
+    const hold = r.h.fake.hold(path);
+    r.avplay.tick((view.durationSeconds - 20) * 1000);
+    await r.h.clock.advance(0);
+    r.controller.toggleAutoNext();
+    await r.h.clock.advance(0);
+    const saved = last(r.views);
+    assert.ok(saved.phase === "playing");
+    assert.equal(saved.hud?.autoNext, false);
+    hold.release();
+    await r.h.clock.advance(0);
+    const later = last(r.views);
+    assert.ok(later.phase === "playing");
+    assert.equal(later.hud?.autoNext, false);
+    r.controller.destroy();
+});
+
 test("a completed Shuffle item advances the same server session before offering its next pick", async () => {
     const r = await rig();
     r.h.fake.script("/shuffles/sh1/advance", { status: 200, body: { id: "sh1", current: { content_id: MOVIE.contentId }, next: { content_id: MOVIE.contentId } } });

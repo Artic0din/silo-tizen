@@ -885,7 +885,9 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         const all = buttons(column);
         const at = all.findIndex((button) => button === document.activeElement);
         const atTab = tabs.findIndex(tab => tab === document.activeElement);
-        if (key === "up" && at <= 0) { tabs[column]?.focus(); return; }
+        const infoPane = lists[column];
+        const infoCanScrollUp = key === "up" && focusedId() === "info" && tabNames[column] === "Info" && infoPane !== undefined && infoPane.scrollTop > 1;
+        if (key === "up" && at <= 0 && !infoCanScrollUp) { tabs[column]?.focus(); return; }
         if (atTab >= 0) {
             if (key === "down" || key === "enter") focusList(column);
             else if (key === "left" || key === "right") {

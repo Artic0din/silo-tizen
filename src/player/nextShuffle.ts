@@ -24,5 +24,5 @@ export async function shufflePick(read: Read, shuffle: Shuffle): Promise<PlayReq
     const version = detail.versions.find(candidate => candidate.fileId === detail.watch?.lastFileId) ?? detail.versions[0];
     if (version === undefined) return undefined;
     const resume = detail.watch?.played === false ? resumeSeconds(detail.watch.positionSeconds, version.durationSeconds || undefined) : undefined;
-    return { contentId: detail.id, fileId: version.fileId, title: detail.title, startSeconds: resume ?? 0, shuffleId: shuffle.id, ...(detail.type === "episode" ? { episode: true as const } : {}) };
+    return { contentId: detail.id, fileId: version.fileId, title: detail.title, startSeconds: resume ?? 0, shuffleId: shuffle.id, ...(detail.type === "episode" ? { episode: true as const, seasonNumber: detail.seasonNumber, episodeNumber: detail.episodeNumber } : {}) };
 }

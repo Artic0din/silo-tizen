@@ -6,6 +6,24 @@ The image is decorative, never takes focus, and adds no controls or explanatory 
 Unsupported, unavailable, malformed, expired or failed previews leave timestamp seeking usable.
 This slice does not complete issue 29 or whole-app acceptance.
 
+## Scrub transport behavior
+
+The scrubber follows the tvOS-only controls at Apple main `b3d08d444b75dc078d3047730db72e0c4456e79b`.
+Apple #1022 (`c9fb59bedd1db3f32dcf1818feb7d3218bbebbfb`) retains resume intent across a seek reanchor without starting the outgoing transport.
+The existing controller queues the latest Play/Pause intent through local seek callbacks and replacement preparation.
+Apple #994 (`1f10c72dbe591177c32ae60fb501c1540be5b198`) cancels an open timeline preview when playback resumes externally, follows the playhead again and rearms auto-hide.
+Its references are `TVPlayerControls.swift:256-269`, `TVPlayerScrubber.swift:350-443` and `PlayerViewModel.swift:7105-7142,8090-8130`.
+A direction hold leaves active playback running; when it holds a pending resume, cancellation returns that resume only if no newer Play/Pause command superseded it.
+A local seek can land paused beneath a newly opened scrub without discarding that scrub.
+A moved selection committed before that seek lands is retained by the playback controller, which serializes it after the pending callback and keeps the latest Play/Pause intent.
+Only the latest queued target runs, and a queued reanchor records resume without playing the outgoing transport.
+Back, suspension, replacement loading and teardown discard the queued commit.
+Native AVPlay and same-state Apple/Samsung comparison remain pending; these source revisions do not identify an installed Apple build.
+
+Apple download commits `9720d636288de77ab71ce219db851fa9f7fbe08c` and `b3d08d444b75dc078d3047730db72e0c4456e79b` add no reachable tvOS download journey here.
+`SeriesDownloadSheet.swift` and `OfflineBrowse.swift` are guarded by `#if !os(tvOS)`, and `TVMainTabView` does not pass the offline download identity to the player.
+Shared streaming hooks in #892 maintain the offline preference ledger; this client has no downloads owner or ledger to port.
+
 ## Contract and ownership
 
 The sources are [silo-server at cc851494](https://github.com/Silo-Server/silo-server/tree/cc8514943289045e7b9f7ac8d36d4968bfe93926) and canonical [silo-apple at 148d5d70](https://github.com/Silo-Server/silo-apple/tree/148d5d70f8b8ce982a827fead2b16f8de40f0f57).

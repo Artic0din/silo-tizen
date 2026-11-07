@@ -49,7 +49,7 @@ test("item videos keep the contract fields and a missing official flag does not 
     assert.deepEqual(decodeItemDetail(fixture("get_catalog_item_ok")).videos, []);
     assert.throws(() => decodeItemDetail({ ...fixture("get_catalog_item_ok"), videos: [{ kind: "trailer", site: "youtube", site_key: "k", is_official: "yes" }] }), WireError);
 });
-import { artworkUrl, clockTime, destinationOf, playChoices, resumeSeconds, browseCardDestination, visibleLibraries } from "../../src/ui/browseModel.ts";
+import { artworkUrl, clockTime, destinationOf, playChoices, resumeSeconds, browseCardDestination, seriesPlayback, visibleLibraries } from "../../src/ui/browseModel.ts";
 import { moveWithin } from "../../src/ui/browseFocus.ts";
 import { fixture } from "./support/fakeSilo.ts";
 
@@ -274,6 +274,41 @@ test("play: the last-played version when still listed, else the first; resume po
     assert.equal(gone?.resume, undefined, "7198 of the file's 7200 seconds is finished");
     assert.equal(playChoices(movie({ versions: [] })), undefined);
     assert.equal(playChoices(movie({ type: "series" })), undefined);
+});
+
+test("series Resume and Start Over keep the page series line when the episode item omits it", () => {
+    const episode = movie({
+        id: "episode:s1e25",
+        type: "episode",
+        title: "Going Green",
+        seriesId: "series:spidey",
+        seriesTitle: undefined,
+        seasonNumber: undefined,
+        episodeNumber: undefined,
+        versions: [{ fileId: "42", durationSeconds: 1500 }],
+        watch: { played: false, positionSeconds: 90, lastFileId: "42" },
+    });
+    const choices = playChoices(episode);
+    assert.ok(choices?.resume);
+    assert.equal(choices.resume.seriesTitle, undefined);
+    assert.equal(choices.resume.seasonNumber, undefined);
+    const series = movie({ id: "series:spidey", type: "series", title: "Spidey and His Amazing Friends", versions: [] });
+    const rail = { seasonNumber: 1, episodeNumber: 25 };
+    const resume = seriesPlayback({ ...choices.resume, subtitle: { kind: "auto" } }, series, rail);
+    const startOver = seriesPlayback({ ...choices.fromStart, startSeconds: 0, subtitle: { kind: "auto" } }, series, rail);
+    assert.equal(resume.seriesTitle, "Spidey and His Amazing Friends");
+    assert.equal(resume.seasonNumber, 1);
+    assert.equal(resume.episodeNumber, 25);
+    assert.equal(resume.title, "Going Green");
+    assert.equal(resume.startSeconds, 90);
+    assert.equal(startOver.seriesTitle, resume.seriesTitle);
+    assert.equal(startOver.seasonNumber, 1);
+    assert.equal(startOver.episodeNumber, 25);
+    assert.equal(startOver.startSeconds, 0);
+    const kept = seriesPlayback({ ...choices.fromStart, seriesTitle: "Kept", seasonNumber: 2, episodeNumber: 3 }, series, rail);
+    assert.equal(kept.seriesTitle, "Kept");
+    assert.equal(kept.seasonNumber, 2);
+    assert.equal(kept.episodeNumber, 3);
 });
 
 test("focus moves inside rows, columns and grids, and reports the edges", () => {

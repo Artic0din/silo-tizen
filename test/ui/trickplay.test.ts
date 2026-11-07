@@ -127,6 +127,8 @@ async function open(timelineOffset = 0, intervals?: { backward: number; forward:
     await page.waitForFunction(() => window.trickplay.avplay.calls.some((call) => call.startsWith("seekTo")));
     await page.evaluate(() => window.trickplay.avplay.finishSeek());
     await page.waitForFunction(() => window.trickplay.avplay.state === "PLAYING");
+    // Navigation resumes the fake clock. Hold it so a skip preview stays until the test commits it.
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 2000));
     return { page, fake, playback, previews, sheets, errors,
         status(value: number) { sheetStatus = value; }, offline() { offline = true; },
         holdImage(fn: () => Promise<void>) { holdImage = fn; },
@@ -134,7 +136,9 @@ async function open(timelineOffset = 0, intervals?: { backward: number; forward:
 }
 
 const remote = (page: Page, keyCode: number): Promise<void> => page.evaluate((code) => {
-    (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, bubbles: true, cancelable: true }));
+    const target = document.activeElement ?? document.body;
+    target.dispatchEvent(new KeyboardEvent("keydown", { keyCode: code, bubbles: true, cancelable: true }));
+    target.dispatchEvent(new KeyboardEvent("keyup", { keyCode: code, bubbles: true, cancelable: true }));
 }, keyCode);
 const focus = (page: Page) => page.evaluate(() => document.activeElement?.getAttribute("data-focus"));
 const capture = async (page: Page, name: string): Promise<void> => { if (CAPTURE !== undefined) await page.screenshot({ path: join(CAPTURE, `${name}.png`), animations: "disabled" }); };
@@ -145,6 +149,7 @@ test("15/45 previews select thumbnails by resulting source time, independently o
         await remote(r.page, 37);
         assert.match(await r.page.locator(".player-time").innerText(), /^20:10/);
         await r.page.locator(".player-thumbnail:not([hidden]) img").waitFor();
+        assert.equal(await r.page.locator(".player-thumbnail-time").innerText(), "20:10");
         assert.equal(await r.page.locator(".player-thumbnail img").evaluate(image => (image as HTMLElement).style.left), "-320px");
         await remote(r.page, 39);
         assert.match(await r.page.locator(".player-time").innerText(), /^20:55/);
@@ -167,19 +172,24 @@ test("matched native-size seek journey: active JPEG, failure fallback and cancel
             await r.page.locator(".player-thumbnail:not([hidden]) img").waitFor();
             const geometry = await r.page.locator(".player-thumbnail img").evaluate((image) => {
                 if (!(image instanceof HTMLImageElement)) throw new Error("Missing image");
-                return { natural: [image.naturalWidth, image.naturalHeight], left: image.style.left, top: image.style.top, frame: image.parentElement?.getBoundingClientRect().toJSON(), focus: image.tabIndex };
+                const frame = image.parentElement;
+                return { natural: [image.naturalWidth, image.naturalHeight], left: image.style.left, top: image.style.top, crop: frame instanceof HTMLElement ? frame.style.height : "", frame: frame?.getBoundingClientRect().toJSON(), focus: image.tabIndex };
             });
             assert.deepEqual(geometry.natural, [3000, 1260]);
             assert.equal(geometry.left, "-960px");
             assert.equal(geometry.top, "-268.8px");
             assert.equal(geometry.frame?.width, 320);
+            // `scrubPreviewCard` frames the still at 320×180. The sheet is still scaled to that width.
+            assert.equal(geometry.crop, "180px");
+            assert.ok(geometry.frame !== undefined && Math.abs(geometry.frame.height - 180) < 0.1);
             assert.ok(geometry.frame !== undefined && geometry.frame.y >= 0 && geometry.frame.bottom < 1080);
             assert.equal(geometry.focus, -1);
             assert.equal(r.sheets.length, 1);
         }
         await capture(r.page, "02-active-preview");
         await remote(r.page, 10009);
-        assert.equal(await focus(r.page), "player");
+        // Old focus was "player". Cancelling a preview stays on the scrubber.
+        assert.equal(await focus(r.page), "position");
         assert.match(await r.page.locator(".player-time").innerText(), /^20:25/);
         assert.equal(await r.page.locator(".player-thumbnail:not([hidden])").count(), 0);
         await capture(r.page, "03-cancel");
@@ -197,7 +207,8 @@ test("matched native-size seek journey: active JPEG, failure fallback and cancel
         assert.equal(await focus(r.page), "position");
         assert.equal(await r.page.locator(".player-thumbnail:not([hidden])").count(), 0);
         await remote(r.page, 13);
-        assert.equal(await focus(r.page), "player");
+        // Old focus was "player". A committed seek leaves the scrubber focused.
+        assert.equal(await focus(r.page), "position");
         assert.equal(await r.page.evaluate(() => window.trickplay.avplay.calls.filter((call) => call === "seekTo 995000").length), 1);
         await r.page.evaluate(() => window.trickplay.avplay.finishSeek());
         await capture(r.page, "05-commit");
@@ -208,7 +219,8 @@ test("matched native-size seek journey: active JPEG, failure fallback and cancel
 test("focus navigation never requests previews; one sheet is reused and carries only opaque signed authorization", { skip: BASELINE !== undefined }, async () => {
     const r = await open();
     try {
-        await remote(r.page, 38);
+        // Old Up entered the transport. Down does that now, so the arrows move between buttons.
+        await remote(r.page, 40);
         await remote(r.page, 39);
         await remote(r.page, 39);
         await remote(r.page, 37);
@@ -277,7 +289,8 @@ for (const failure of [401, 404, 503, "offline"] as const) {
             await failed;
             await secondImage;
             await remote(r.page, 10009);
-            assert.equal(await focus(r.page), "player");
+            // Old focus was "player". Cancelling a preview stays on the scrubber.
+            assert.equal(await focus(r.page), "position");
             await remote(r.page, 39);
             assert.match(await r.page.locator(".player-time").innerText(), /^20:35/);
             assert.equal(await focus(r.page), "position");
@@ -324,6 +337,7 @@ test("offset streams preview and cancel in source time, then commit through the 
         await remote(r.page, 13);
         assert.equal(await r.page.evaluate(() => window.trickplay.avplay.calls.filter((call) => call === "seekTo 12500").length), 1);
         await r.page.evaluate(() => window.trickplay.avplay.finishSeek());
-        assert.equal(await focus(r.page), "player");
+        // Old focus was "player". A committed seek leaves the scrubber focused.
+        assert.equal(await focus(r.page), "position");
     } finally { await r.close(); }
 });

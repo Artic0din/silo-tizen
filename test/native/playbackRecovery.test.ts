@@ -1102,3 +1102,20 @@ test("a refused subtitle stays a refusal, and natural end still completes", asyn
     assert.notEqual(r.server.session(id).receipt, undefined);
     r.controller.destroy();
 });
+
+test("a playing scrub's queued resume survives connection loss during the local seek", async () => {
+    const r = await rig();
+    await play(r);
+    r.controller.setPaused(true);
+    assert.equal(r.avplay.state, "PAUSED");
+    r.controller.seekToSeconds(40);
+    r.controller.setPaused(false);
+    r.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
+    r.avplay.finishSeek();
+    await r.h.clock.advance(1000);
+    await resumePlan(r);
+    assert.equal(r.avplay.state, "PLAYING");
+    const view = last(r.views);
+    assert.equal(view.phase, "playing");
+    r.controller.destroy();
+});

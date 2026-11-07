@@ -6,7 +6,7 @@ import type { Card } from "../contracts/v2/catalog.ts";
 import type { DetailsState } from "./detailsState.ts";
 import { TRANSLATE_DESCRIPTION_LABEL, type DescriptionTranslationStatus } from "./descriptionTranslation.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
-import { artworkUrl, clockTime, episodeLabel, playChoices, type PlayRequest } from "./browseModel.ts";
+import { artworkUrl, clockTime, episodeLabel, playChoices, seriesPlayback, type PlayRequest } from "./browseModel.ts";
 import { trailerCards, type TrailerCard } from "./trailerRail.ts";
 import { actionButton, artwork, cardItem, heading, lines, mediaItem, type ViewContext, zoneNode } from "./browseViews.ts";
 import { boxSetMovieRow, type BoxSetRowState } from "./boxSetRow.ts";
@@ -258,14 +258,15 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     if ((detail.type === "series" || detail.type === "season") && next !== undefined) {
         const target = state?.nextEpisode;
         const targetChoices = playbackChoices;
+        const summary = state?.series?.railEpisodes?.find(episode => episode.id === next);
         const playNext = (startOver = false): void => {
             if (state?.episodePreferencesBlocked) return;
-            if (target === undefined) { context.playEpisode?.(next, state?.series?.railEpisodes?.find(episode => episode.id === next)?.title ?? detail.title, startOver); return; }
+            if (target === undefined) { context.playEpisode?.(next, summary?.title ?? detail.title, startOver); return; }
             if (targetChoices === undefined) return;
             const audioTrackId = tracks?.audioTrackId(true);
-            play({ ...(targetChoices.resume ?? targetChoices.fromStart), startSeconds: startOver ? 0 : targetChoices.resume?.startSeconds, ...(audioTrackId === undefined ? {} : { audioTrackId }), ...(tracks === undefined ? {} : { subtitle: tracks.subtitleIntent() }) });
+            const request = { ...(targetChoices.resume ?? targetChoices.fromStart), startSeconds: startOver ? 0 : targetChoices.resume?.startSeconds, ...(audioTrackId === undefined ? {} : { audioTrackId }), ...(tracks === undefined ? {} : { subtitle: tracks.subtitleIntent() }) };
+            play(seriesPlayback(request, detail, summary));
         };
-        const summary = state?.series?.railEpisodes?.find(episode => episode.id === next);
         const labelTarget = summary ?? target;
         const canResume = targetChoices?.resume !== undefined || target === undefined && summary?.inProgress === true;
         const label = labelTarget === undefined ? "Loading episode…" : `${canResume ? "Resume" : "Play"} ${episodeLabel(labelTarget.seasonNumber, labelTarget.episodeNumber) ?? labelTarget.title}`;
@@ -441,10 +442,11 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         }
     }
     const facts: { label: string; value: string }[] = [];
-    for (const [label, jobs] of [["DIRECTOR", ["director"]], ["WRITTEN BY", ["writer", "screenplay", "story"]]] as const) {
-        const names = [...new Set(detail.extra?.crew.filter(credit => (jobs as readonly string[]).includes(credit.role.toLowerCase())).map(credit => credit.name))];
-        if (names.length) facts.push({ label, value: names.slice(0, 3).join(", ") });
-    }
+    const crew = detail.extra?.crew ?? [];
+    const directors = creditLine(crew, ["director"]);
+    if (directors !== undefined) facts.push({ label: "Director", value: directors });
+    const writers = creditLine(crew, ["writer", "screenplay", "story"]);
+    if (writers !== undefined) facts.push({ label: writerFactLabel(crew), value: writers });
     facts.push(...detail.extra?.facts ?? []);
     if (facts.length > 0) {
         const panel = el("div", "details-facts");
@@ -663,6 +665,24 @@ function titleCards(cards: readonly Card[], context: ViewContext): FocusItem[] {
         if (item !== undefined) items.push(item);
     }
     return items;
+}
+
+/**
+ * `DetailFacts.creditNames` at silo-apple `2ef3a171`: unique names in Unicode
+ * order, three of them, then an ellipsis when more remain.
+ */
+export function creditLine(crew: readonly Credit[], jobs: readonly string[]): string | undefined {
+    const wanted = new Set(jobs);
+    const names = [...new Set(crew.filter(credit => wanted.has(credit.role.toLowerCase())).map(credit => credit.name))];
+    names.sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+    if (names.length === 0) return undefined;
+    const shown = names.slice(0, 3).join(", ");
+    return names.length > 3 ? `${shown}, …` : shown;
+}
+
+/** A screenplay credit uses "Writer". Every other writing credit uses "Written by". */
+export function writerFactLabel(crew: readonly Credit[]): "Writer" | "Written by" {
+    return crew.some(credit => credit.role.toLowerCase() === "screenplay") ? "Writer" : "Written by";
 }
 
 export function personHero(person: Person, baseUrl: string, metadataLoading = false): HTMLElement {

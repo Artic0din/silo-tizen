@@ -22,7 +22,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Lowered the person page name by 2px. Apple's column inset stays 10px, and the title adds the 2px the TV sweep measured.
+- Matched the person page name to Apple's 85px line box, so the name starts 10px below the portrait and the facts start at 117px.
 - The collapsed A–Z circle is plain.
 - Hid the TV's native scrollbars, drew the History returning mark as an outlined television, drew the collapsed A–Z index as Apple's 10px circle plus the faint letter marks, and centred Related captions on the poster.
 - Removed the Continue Watching playback bar, kept Search posters 247px apart, restored biography paragraphs, and matched Related captions and the Written by order to Apple TV.

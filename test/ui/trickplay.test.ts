@@ -179,9 +179,9 @@ test("matched native-size seek journey: active JPEG, failure fallback and cancel
             assert.equal(geometry.left, "-960px");
             assert.equal(geometry.top, "-268.8px");
             assert.equal(geometry.frame?.width, 320);
-            // The fixture cell is 300 by 126. Scaled to the 320-wide frame, the crop is that cell, not a 16:9 window.
-            assert.equal(geometry.crop, "134.4px");
-            assert.ok(geometry.frame !== undefined && Math.abs(geometry.frame.height - 134.4) < 0.1);
+            // `scrubPreviewCard` frames the still at 320×180. The sheet is still scaled to that width.
+            assert.equal(geometry.crop, "180px");
+            assert.ok(geometry.frame !== undefined && Math.abs(geometry.frame.height - 180) < 0.1);
             assert.ok(geometry.frame !== undefined && geometry.frame.y >= 0 && geometry.frame.bottom < 1080);
             assert.equal(geometry.focus, -1);
             assert.equal(r.sheets.length, 1);

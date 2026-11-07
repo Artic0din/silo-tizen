@@ -4,9 +4,21 @@ import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
 import type { PlayerControls } from "./controller.ts";
 import { el } from "../ui/screen.ts";
 
-/** `TVPlayerControls.scrubPreviewCardWidth` and `scrubPreviewBottomInset` at silo-apple 2ef3a171. */
+/** `TVPlayerControls.scrubPreviewCardWidth` at silo-apple 2ef3a171. */
 const CARD_WIDTH = 340;
-const BOTTOM_INSET = 300;
+/** SwiftUI line height of SF Pro Rounded Semibold 24, the preview clock. The still is the 180pt frame in `scrubPreviewCard`. */
+const PREVIEW_TEXT_LINE = 28.265625;
+const PREVIEW_FRAME_HEIGHT = 180;
+/** SwiftUI line height of SF Pro Rounded Semibold 28, the transport clock under the scrubber. */
+const TIME_ROW_LINE = 32.9765625;
+/**
+ * `scrubPreviewBottomInset` is 300 from the bottom of `TVPlayerControls`, and the handle
+ * is the centre of the 56pt track. Under it: spacing 12, the clock, spacing 12, the 66pt
+ * transport, and the stack's 48pt bottom padding. The card bottom is the difference above
+ * the handle. The safe area shifts both, so it is not part of this gap.
+ */
+const HANDLE_CENTER_FROM_CONTROLS_BOTTOM = 48 + 66 + 12 + TIME_ROW_LINE + 12 + 56 / 2;
+const ABOVE_HANDLE = 300 - HANDLE_CENTER_FROM_CONTROLS_BOTTOM;
 
 /**
  * Apple `scrubPreviewLeadingInset`: center the card on the playhead and keep it inside the
@@ -24,8 +36,9 @@ function placeThumbnail(frame: HTMLElement, parent: HTMLElement, seconds: number
     const minimum = track.left;
     const maximum = Math.max(minimum, track.right - CARD_WIDTH);
     const left = Math.min(Math.max(playhead - CARD_WIDTH / 2, minimum), maximum);
+    const handleCenter = track.top + track.height / 2;
     frame.style.left = `${left - host.left}px`;
-    frame.style.bottom = `${BOTTOM_INSET}px`;
+    frame.style.bottom = `${host.bottom - (handleCenter - ABOVE_HANDLE)}px`;
 }
 
 /** One loaded sheet and at most one replacement; image requests carry only signed authorization. */
@@ -33,6 +46,8 @@ export function mountSeekThumbnail(parent: HTMLElement, controls: PlayerControls
     const frame = el("div", "player-thumbnail");
     const crop = el("div", "player-thumbnail-frame");
     const time = el("p", "player-thumbnail-time");
+    time.style.lineHeight = `${PREVIEW_TEXT_LINE}px`;
+    crop.style.height = `${PREVIEW_FRAME_HEIGHT}px`;
     frame.append(crop, time);
     frame.setAttribute("aria-hidden", "true");
     frame.hidden = true;
@@ -83,7 +98,7 @@ export function mountSeekThumbnail(parent: HTMLElement, controls: PlayerControls
                 const frameWidth = 320;
                 const scale = frameWidth / tile.width;
                 crop.style.width = `${frameWidth}px`;
-                crop.style.height = `${tile.height * scale}px`;
+                crop.style.height = `${PREVIEW_FRAME_HEIGHT}px`;
                 sheet.style.width = `${tile.sheetWidth * scale}px`;
                 sheet.style.height = `${tile.sheetHeight * scale}px`;
                 sheet.style.left = `${-tile.x * scale}px`;

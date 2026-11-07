@@ -280,7 +280,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     tracksButton.setAttribute("aria-label", "Info and options");
     tracksButton.appendChild(el("span", "player-glyph"));
     tracksButton.firstElementChild?.setAttribute("aria-hidden", "true");
-    tracksButton.addEventListener("click", () => openMenu());
+    tracksButton.addEventListener("click", () => openMenu("remembered"));
     const closeButton = el("button", "player-button player-close-button");
     closeButton.type = "button";
     closeButton.tabIndex = -1;
@@ -895,15 +895,20 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }, OVERLAY_MS);
     };
 
-    const openMenu = (): void => {
+    /** Options reopens the last tab, which starts on Info. Hidden Down opens Video, as `openSettingsHUD`. */
+    const openMenu = (entry: "remembered" | "video"): void => {
         if (view.phase !== "playing" && view.phase !== "paused") {
             return;
         }
         if (timeline) cancelScrub(true);
         menuOpen = true;
         render();
-        if (!focusList(0)) {
-            focusList(1);
+        if (entry === "video") {
+            const video = tabs.findIndex((tab) => tab.textContent === "Video");
+            if (video >= 0 && tabs[video]?.hidden !== true) column = video;
+        }
+        if (!focusList(column)) {
+            if (!focusList(0)) focusList(1);
         }
         tabs[column]?.focus();
     };
@@ -968,7 +973,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                 render();
                 return;
             }
-            if (key === "down") { openMenu(); return; }
+            if (key === "down") { openMenu("video"); return; }
             if (key === "left" || key === "right") bar.focus();
         }
         reveal();

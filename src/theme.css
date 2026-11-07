@@ -42,3 +42,10 @@
         --silo-page: 0ms;
     }
 }
+
+/* The TV's browser paints a native scrollbar on every overflow region. The app
+   moves scrollTop and scrollLeft itself. scrollbar-width shipped in Chrome 121,
+   and this TV runs 120, so only the WebKit pseudo works; hiding it does not disable scrolling. */
+::-webkit-scrollbar {
+    display: none;
+}

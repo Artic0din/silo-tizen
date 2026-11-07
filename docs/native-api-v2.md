@@ -467,7 +467,7 @@ Sheets load as plain images (`src/player/seekThumbnailView.ts`), and no credenti
 
 ### Subtitles and AI subtitles
 
-Defined in `src/api/subtitleOperations.ts` and `src/api/subtitleAIOperations.ts`.
+Defined in `src/api/subtitleOperations.ts`, `src/api/subtitleAIOperations.ts`, `src/api/subtitleSearchOperations.ts` and `src/api/subtitleDisplayOperations.ts`.
 All are Bearer plus Profile.
 
 | Operation | Method and path | Retry |
@@ -480,6 +480,13 @@ All are Bearer plus Profile.
 | AI languages | `GET /settings/contract` | safe |
 | create AI job | `POST /subtitles/ai/translate` | never |
 | AI job | `GET /subtitles/ai/jobs/{id}` | safe |
+| subtitle provider status | `GET /subtitles/providers/status` | never |
+| subtitle search | `POST /subtitles/search` | never |
+| subtitle download | `POST /subtitles/download` | never |
+| subtitle delay | `PUT /settings/values/player.subtitle_sync_ms?scope=` | never |
+| subtitle appearance write | `PUT /settings/values/playback.subtitle_appearance?scope=` | never |
+| clear device appearance | `DELETE /settings/values/playback.subtitle_appearance?scope=profile_device` | never |
+| clear device subtitle delay | `DELETE /settings/values/player.subtitle_sync_ms?scope=profile_device` | never |
 
 Subtitle file text is fetched by `NativeHttp.subtitleText`, which is not an API operation.
 It checks that the URL passes `isPermittedUrl` and has no embedded credentials.
@@ -493,6 +500,10 @@ AI subtitles (`src/player/subtitleAI.ts`):
 - Create is sent once.
 - A failure with a Problem id that is non-transient, or a 429, is treated as certain; any other failure leaves the job "uncertain" and blocks another start.
 - Jobs are polled with `GET /subtitles/ai/jobs/{id}` until `completed`, `failed` or `cancelled`.
+
+Subtitle search (`src/player/subtitleSearch.ts`) stays offered until provider status says the viewer is not allowed, the state is not `available`, or providers are not enabled. A failed probe is not retried and does not change that. Search and download are each sent once. A stored subtitle is selected through the existing track owner. An uncertain download is not sent again while the menu stays open.
+
+Subtitle delay and appearance (`src/player/subtitleDisplay.ts`) are shown only when the settings contract advertises `player.subtitle_sync_ms` and `playback.subtitle_appearance`, and only while the selected subtitle is not burn-in or text AVPlay is drawing itself. Delay is clamped to ±10000 ms and written at profile scope, or `profile_device` when "Only on this TV" is on or the manifest revision is below 19. The offset moves cues this app draws. AVPlay has no subtitle-offset call, so text it draws itself is not shifted; a TV has to confirm whether that platform can move its own TEXT track.
 
 ### Settings
 

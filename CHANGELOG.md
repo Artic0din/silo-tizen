@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added subtitle search and download, plus in-player delay, size, position and appearance controls, during playback.
+- Added player chapters, playback stats, richer title information, supported speed and aspect controls, and an in-player Auto-play next toggle.
 - Added Show Next Up to Playback Settings with five prompt timings and profile inheritance.
 - Showed Up Next before playback ended with Play Now, Keep Watching and an On Deck row, and refreshed autoplay at episode completion.
 - Added Remove Request for a failed request of yours, including the confirmation, the notice, and focus on the card that takes its place.
@@ -27,6 +29,7 @@ All notable changes to this project are documented in this file.
 - Kept the page transparent over AVPlay. The black opening is a loading backdrop only, and a previous screen in the same root is not painted while the player is up. Once a frame has shown, that backdrop stays off through a later load, reconnect and restore.
 - Kept the other series' title and the fresh season and episode on an On Deck play, so the player can show them.
 - Blurred an unwatched On Deck episode still when image spoilers are on, and left series art sharp.
+- Waited for a pending Auto-play save before an ended episode decided whether to continue.
 - Matched Apple TV playback opening, hidden Up, the title lines, and the panel: a spinner on black, Up reveals the scrubber, pause shows no status line, and the open panel hides the transport until Back.
 - Showed Calendar noon as 12:00 pm on an en-GB TV, and kept the first Search person visible.
 - Kept a decoded Details title logo in place across later repaints, so the metadata row no longer jumps back to the text title during that visit.
@@ -37,11 +40,19 @@ All notable changes to this project are documented in this file.
 - Down from the profile avatar enters Switch Profile, including before the menu's dwell finishes. After Back closes it, Down reaches the first Continue Watching card.
 - Matched the library Browse grid to Apple TV: the mode pills are gone, and Up from Sort returns to the top bar. Episode rows now crop the previous card at the 100px inset, the focused still lifts by 5%, and Cast, trailer and related rows start at that inset and paint to the screen edge.
 - Kept Play focused when a movie's Details opened, even if the first focus claim did not stick, and kept that claim from leaving a card-actions dialog or ignoring a Play button that appears after the page opens.
+- Reloaded the subtitle language catalog when Try Again or Choose another language follows a catalog failure, instead of searching the previously chosen language.
+- Returned subtitle pickers to their originating pane and row after selection or Back, while preserving focus in another active tab.
+- Kept unavailable subtitle display capabilities quiet while reporting failures to load advertised preferences.
+- Preserved saved subtitle appearance when editing from Off, restored inherited values after clearing TV overrides, and hid unsupported native subtitle controls.
+- Kept Info Retry visible during remote navigation and restored selected video settings after hidden stream preparation.
+- Showed the effective autoplay setting after saving.
 - Kept a debounced skip when an earlier scrub seek landed on the same plan.
 - Disabled audio and quality choices while a subtitle report is still pending.
 - Kept a running skip hold when the earlier seek landed on the same plan.
 - Added the Show Up Next episodes icon. A seek during discovery finishes the open panel, and a failed On Deck read can be tried again in that playback.
 - Read a successor's catalog presentation once, so playback ticks do not request it again.
+- Scrolled a long Info overview upward before leaving it, and kept a saved Auto-play value ahead of an older discovery read.
+- Reported a failed subtitle-language catalog with a retry, and said when a downloaded subtitle was saved but could not be turned on.
 - Retried Up Next discovery after seeks, preserved fresh autoplay settings at EOF, and kept captions inside the video preview.
 
 - Updated composed EOF checks for Apple TV's Play Now, On Deck and tail replay behavior, and isolated focus checks from background reads.

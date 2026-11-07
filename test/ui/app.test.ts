@@ -980,14 +980,14 @@ appTest("EOF during a refused subtitle change still offers manual continuation",
     assert.ok(id !== undefined);
     playback.next.push({ terminal: "adaptation_unavailable" });
     const response = tv.fake.hold(`/playback/${id}/replan`);
-    // Down focuses Play/Pause. Show Up Next sits before Options on an episode, so three Rights reach Options. Enter opens Info, then two Rights reach Subtitles.
+    // Down focuses Play/Pause. Show Up Next sits before Options on an episode, so three Rights reach Options. Enter opens Info. Stats and Video sit between Info and Audio in the expanded HUD.
     await tv.remote(40);
     await tv.remote(39);
     await tv.remote(39);
     await tv.remote(39);
     await tv.remote(13);
-    await tv.remote(39);
-    await tv.remote(39);
+    for (let tab = 0; tab < 4; tab++) await tv.remote(39);
+    assert.equal(await tv.page.getByRole("tab", { name: "Subtitles", exact: true }).getAttribute("aria-selected"), "true");
     await tv.page.locator('.player-menu [data-focus="file:42:subtitle:0"]').click();
     await tv.page.evaluate(() => window.appHarness.avplay.listener?.onstreamcompleted());
     assert.equal(tv.fake.requests.filter(r => r.method === "DELETE").length, 0);
@@ -1419,6 +1419,7 @@ for (const [command, state] of [[415, "PLAYING"], [19, "PAUSED"], [10252, "PAUSE
 appTest("the composed remote seeks and changes audio through the real playback owner", async (tv, playback) => {
     await signIn(tv);
     await startMovie(tv);
+    await pauseTvClock(tv);
     await tv.page.evaluate(() => window.appHarness.avplay.tick(90000));
     await tv.page.keyboard.press("ArrowLeft");
     assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.positionMs), 90000, "preview leaves playback untouched");
@@ -1430,10 +1431,11 @@ appTest("the composed remote seeks and changes audio through the real playback o
     await tv.page.keyboard.press("ArrowRight");
     await tv.page.keyboard.press("ArrowRight");
     await tv.page.keyboard.press("Enter");
-    await tv.page.keyboard.press("ArrowRight");
+    for (let index = 0; index < 3; index++) await tv.page.keyboard.press("ArrowRight");
     const id = [...playback.sessions.keys()][0];
     assert.ok(id !== undefined);
     const hold = tv.fake.hold(`/playback/${id}/replan`);
+    assert.equal(await tv.page.getByRole("tab", { name: "Audio", exact: true }).getAttribute("aria-selected"), "true");
     await tv.page.locator('.player-menu [data-focus="file:42:audio:1"]').click();
     assert.equal(await tv.page.locator(".player-menu-status").innerText(), "Changing track", "a track button click must activate the same change as remote Enter");
     hold.release();

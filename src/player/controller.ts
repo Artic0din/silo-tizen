@@ -37,12 +37,17 @@ import { NEXT_UP_KEY } from "../contracts/v2/settings.ts";
 import { INTRO_SKIP_KEY, CREDITS_SKIP_KEY } from "../contracts/v2/settingsRows.ts";
 import { nextShuffle } from "./nextShuffle.ts";
 import { SubtitleAI, type SubtitleAIView } from "./subtitleAI.ts";
+import { type AppearanceMember } from "./subtitleAppearance.ts";
+import { SubtitleDisplay, type SubtitleDisplayView } from "./subtitleDisplay.ts";
+import { SubtitleSearch, type SubtitleSearchView } from "./subtitleSearch.ts";
 const SKIP_UNDO_MILLISECONDS = 5000;
 import { DEFAULT_APPEARANCE, decodeCues, type SubtitleAppearance, type SubtitleCue } from "../contracts/v2/subtitles.ts";
 import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
 import { initialSubtitle } from "./preplaySubtitles.ts";
 import { PlaybackRecovery, recoveryVerdict, type RecoveryStep, type RecoveryVerdict, unanswered } from "./playbackRecovery.ts";
 import { audioRow, qualityMenuLabel, subtitleRow } from "./trackLabels.ts";
+import { HUDState } from "./hudState.ts";
+import { planStats, videoOptions, type PlayerHUD } from "./playerHUD.ts";
 
 /** What browse hands over: one file of one catalog item. */
 export interface PlayRequest {
@@ -128,7 +133,21 @@ export interface TrackView {
     /** A subtitle report is in flight. Subtitle choices can still queue; other track actions wait. */
     readonly reporting?: boolean;
     readonly notices: readonly string[];
+    readonly subtitleTools?: { readonly search: SubtitleSearchView; readonly display?: SubtitleDisplayView; readonly overlay: boolean };
 }
+
+export type SubtitleToolAction =
+    | { readonly kind: "search-open" }
+    | { readonly kind: "search-language"; readonly code: string }
+    | { readonly kind: "search-back" }
+    | { readonly kind: "search-close" }
+    | { readonly kind: "search-download"; readonly key: string }
+    | { readonly kind: "search-retry" }
+    | { readonly kind: "delay"; readonly milliseconds: number }
+    | { readonly kind: "size"; readonly size: SubtitleAppearance["fontSize"] }
+    | { readonly kind: "position"; readonly position: SubtitleAppearance["position"] }
+    | { readonly kind: "device"; readonly enabled: boolean }
+    | { readonly kind: "appearance"; readonly member: AppearanceMember; readonly value: string | number | boolean };
 
 export type PlaybackView =
     | { readonly phase: "completion"; readonly title: string; readonly state: "finalizing" | "resolving" | "ready" | "failed"; readonly next: PlayRequest | undefined; readonly retryable: boolean; readonly countdown?: number | undefined; readonly deck?: readonly PlayRequest[] }
@@ -149,6 +168,7 @@ export type PlaybackView =
           readonly resumePending?: boolean;
           readonly transportCommandCount?: number;
           readonly tracks: TrackView;
+          readonly hud?: PlayerHUD;
           readonly seekIntervals: { readonly backward: number; readonly forward: number };
           readonly previewKey?: string | undefined;
           readonly captions?: { readonly text: string; readonly appearance: SubtitleAppearance } | undefined;
@@ -160,6 +180,9 @@ export type PlaybackView =
 
 /** What the player screen drives. */
 export interface PlayerControls {
+    setVideo(kind: "speed" | "aspect", value: string): void;
+    toggleAutoNext(): void;
+    retryChapters(): void;
     subscribe(listener: (view: PlaybackView) => void): () => void;
     togglePause(): void;
     setPaused(paused: boolean): void;
@@ -189,6 +212,7 @@ export interface PlayerControls {
     saveSeriesSubtitle(): void;
     startSubtitleAI(kind: "translate" | "transcribe", language?: string): void;
     selectAIResult(id: string): void;
+    subtitleTool(action: SubtitleToolAction): void;
     seekThumbnail(seconds: number, signal: AbortSignal, loadSheet: ThumbnailSheetLoader): Promise<SeekThumbnail | undefined>;
 }
 
@@ -226,6 +250,7 @@ const WARNING_NOTICES: Readonly<Record<string, string>> = {
 };
 
 interface Attempt {
+    readonly hud: HUDState;
     autoNextSupported: boolean;
     promptSeconds: number;
     promptSupported: boolean;
@@ -252,14 +277,22 @@ interface Attempt {
     };
     transportCommandCount: number;
     autoNext: boolean;
+    /** Confirmed Auto-play saves advance this so an older settings read cannot overwrite them. */
+    settingsEpoch: number;
+    /** The in-flight Auto-play save. EOF waits for it before reading the effective value. */
+    autoNextSave: Promise<void> | undefined;
     introMode: "never" | "ask" | "always";
     skipCredits: boolean;
     skippedMarkers: Set<SkipMarker>;
     undoSkip: { seconds: number; until: number } | undefined;
     pendingSkipUndo: number | undefined;
     ai: SubtitleAI | undefined;
+    search: SubtitleSearch | undefined;
+    display: SubtitleDisplay | undefined;
     readonly aiBlockedFiles: Set<string>;
     pendingAIResult: string | undefined;
+    /** A downloaded subtitle waiting for the refreshed inventory, reported even when AI is unavailable. */
+    pendingDownloadId: string | undefined;
     appearance: SubtitleAppearance;
     subtitleSync: number;
     cues: readonly SubtitleCue[];
@@ -405,14 +438,15 @@ export class PlaybackController implements PlayerControls {
         }
         this.shownError = undefined;
         const attempt: Attempt = {
+            hud: new HUDState(),
             autoNextSupported: false,
             promptSeconds: 30, promptSupported: false, promptDismissed: false, promptPending: false, promptLookedUp: false, prompt: undefined,
             offer: { started: false, manual: false, episodeLoading: false, deckLoading: false, episodeSettled: false, episodeFailed: false, episode: undefined, deckSettled: false, deckFailed: false, deck: [], presentationFor: undefined },
             rectPending: false,
             transportCommandCount: 0,
-            autoNext: false,
+            autoNext: false, settingsEpoch: 0, autoNextSave: undefined,
+            ai: undefined, search: undefined, display: undefined, aiBlockedFiles: new Set(), pendingAIResult: undefined, pendingDownloadId: undefined,
             introMode: "ask", skipCredits: false, skippedMarkers: new Set(), undoSkip: undefined, pendingSkipUndo: undefined,
-            ai: undefined, aiBlockedFiles: new Set(), pendingAIResult: undefined,
             appearance: DEFAULT_APPEARANCE, subtitleSync: 0, cues: [], captionAbort: undefined, captionNotice: "", captionPreferenceNotice: "", captionKey: undefined, captionPreferencesRead: false, seriesSubtitle: request.episode ? { busy: false, message: "" } : undefined,
             request,
             playbackAttemptId: this.newId(),
@@ -493,6 +527,48 @@ export class PlaybackController implements PlayerControls {
                 this.listeners.splice(index, 1);
             }
         };
+    }
+
+    setVideo(kind: "speed" | "aspect", value: string): void {
+        const attempt = this.active();
+        if (attempt?.plan === undefined || attempt.busy || attempt.hidden || attempt.restoring) return;
+        attempt.hud.setVideo(this.deps.avplay, attempt.plan, kind, value);
+        this.showPlayback(attempt);
+    }
+
+    retryChapters(): void {
+        const attempt = this.active();
+        if (attempt?.plan === undefined) return;
+        attempt.hud.read(this.deps.session, attempt.request.contentId, attempt.plan.effectiveMediaFileId, attempt.signal, () => this.showPlayback(attempt), true);
+        this.showPlayback(attempt);
+    }
+
+    toggleAutoNext(): void {
+        const attempt = this.active();
+        if (attempt === undefined || !attempt.autoNextSupported || attempt.hud.autoBusy) return;
+        attempt.hud.autoBusy = true;
+        attempt.hud.message = "Saving Auto-play next";
+        this.showPlayback(attempt);
+        const enabled = !attempt.autoNext;
+        const epoch = attempt.settingsEpoch;
+        const deciding = (): boolean => attempt.live || this.completion?.attempt === attempt;
+        const save = this.deps.session.call({ ...operations.putSetting(AUTO_NEXT_KEY, enabled), profileScoped: true, signal: attempt.signal }).then(async () => {
+            const values = await this.deps.session.call({ ...operations.effectiveSettings([AUTO_NEXT_KEY]), profileScoped: true, signal: attempt.signal });
+            if (attempt.signal.aborted || epoch !== attempt.settingsEpoch || !deciding()) return;
+            attempt.settingsEpoch = epoch + 1;
+            attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
+            if (attempt.live) attempt.hud.message = attempt.autoNext === enabled ? "" : "This TV's override keeps Auto-play next unchanged.";
+        }).catch(() => {
+            if (!attempt.signal.aborted && attempt.live) attempt.hud.message = "Could not save Auto-play next. Try again.";
+        }).finally(() => {
+            attempt.hud.autoBusy = false;
+            if (attempt.live) this.showPlayback(attempt);
+        });
+        const settled = save.then(() => undefined, () => undefined);
+        attempt.autoNextSave = settled;
+        void settled.finally(() => {
+            if (attempt.autoNextSave === settled) attempt.autoNextSave = undefined;
+        });
     }
 
     togglePause(): void {
@@ -855,6 +931,46 @@ export class PlaybackController implements PlayerControls {
         this.changeTracks(attempt, plan, chosenTracks(attempt, plan));
     }
 
+    subtitleTool(action: SubtitleToolAction): void {
+        const attempt = this.active();
+        if (attempt === undefined || !attempt.started || attempt.plan === undefined) return;
+        const search = attempt.search;
+        const display = attempt.display;
+        switch (action.kind) {
+            case "search-open": search?.open(); return;
+            case "search-language": void search?.pick(action.code); return;
+            case "search-back": search?.back(); return;
+            case "search-close": search?.close(); return;
+            case "search-download": void search?.download(action.key); return;
+            case "search-retry": void search?.retry(); return;
+            case "delay": void display?.setDelay(action.milliseconds); return;
+            case "size": void display?.setSize(action.size); return;
+            case "position": void display?.setPosition(action.position); return;
+            case "device": void display?.setDeviceOverride(action.enabled); return;
+            case "appearance": void display?.setAppearance(action.member, action.value); return;
+            default: {
+                const unexpected: never = action;
+                return unexpected;
+            }
+        }
+    }
+
+    /** Hands a downloaded subtitle to the same selection path as a finished AI result. */
+    private attachDownloaded(attempt: Attempt, id: string): boolean {
+        const plan = attempt.plan;
+        if (!attempt.live || this.attempt !== attempt || plan === undefined || attempt.hidden || attempt.restoring) return false;
+        const track = plan.subtitle.inventory.find(entry => entry.syncKey === `stored-${id}`);
+        if (track !== undefined) {
+            if (!attempt.started || attempt.busy) return false;
+            this.selectSubtitle(track.trackId);
+            return true;
+        }
+        if (!attempt.started || attempt.busy) return false;
+        attempt.pendingDownloadId = id;
+        this.changeTracks(attempt, plan, chosenTracks(attempt, plan));
+        return true;
+    }
+
     selectQuality(preference: string): void {
         const attempt = this.changeable();
         const plan = attempt?.plan;
@@ -942,9 +1058,10 @@ export class PlaybackController implements PlayerControls {
             }
             if (definitions.some(def => def.key === AUTO_NEXT_KEY)) {
                 attempt.autoNextSupported = true;
+                const epoch = attempt.settingsEpoch;
                 try {
                     const values = await call(operations.effectiveSettings([AUTO_NEXT_KEY]));
-                    if (attempt.live) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
+                    if (attempt.live && epoch === attempt.settingsEpoch) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
                 } catch { /* Unavailable autoplay preferences leave Play next manual. */ }
             }
             if (!SEEK_KEYS.every(key => definitions.some(def => def.key === key))) return true;
@@ -1287,6 +1404,7 @@ export class PlaybackController implements PlayerControls {
         const presented = attempt.presented;
         this.readCaptions(attempt, plan);
         attempt.plan = plan;
+        attempt.hud.read(this.deps.session, attempt.request.contentId, plan.effectiveMediaFileId, attempt.signal, () => this.showPlayback(attempt));
         attempt.serverFeatures = serverFeatures;
         attempt.planAttemptId = this.newId();
         attempt.sourceSeconds = seconds;
@@ -1379,6 +1497,10 @@ export class PlaybackController implements PlayerControls {
             attempt.pendingAIResult = undefined;
             attempt.ai?.notice("Could not load the completed subtitle track. Playback continues; select it again to retry.");
         }
+        if (attempt.pendingDownloadId !== undefined) {
+            attempt.pendingDownloadId = undefined;
+            attempt.search?.reportUnselected();
+        }
         attempt.busy = false;
         attempt.change = change;
         if (attempt.endedDuringChange) {
@@ -1423,11 +1545,28 @@ export class PlaybackController implements PlayerControls {
         this.clearThumbnails(attempt);
         this.readCaptions(attempt, plan);
         attempt.plan = plan;
+        attempt.hud.read(this.deps.session, attempt.request.contentId, plan.effectiveMediaFileId, attempt.signal, () => this.showPlayback(attempt));
         if (attempt.ai?.fileId !== plan.effectiveMediaFileId) {
             attempt.ai?.destroy();
             attempt.ai = new SubtitleAI(this.deps.session, this.deps.clock, plan.effectiveMediaFileId, () => this.showPlayback(attempt), attempt.aiBlockedFiles);
             attempt.pendingAIResult = undefined;
         }
+        if (attempt.search?.fileId !== plan.effectiveMediaFileId) {
+            attempt.search?.destroy();
+            attempt.pendingDownloadId = undefined;
+            attempt.search = new SubtitleSearch(this.deps.session, this.deps.clock, plan.effectiveMediaFileId, id => this.attachDownloaded(attempt, id), () => this.showPlayback(attempt));
+            void attempt.search.refresh();
+        }
+        if (attempt.display === undefined && attempt.profileId !== undefined) {
+            const profileId = attempt.profileId;
+            attempt.display = new SubtitleDisplay(this.deps.session, profileId, (appearance, sync) => {
+                attempt.appearance = appearance;
+                attempt.subtitleSync = sync;
+                this.showPlayback(attempt);
+            }, () => this.showPlayback(attempt));
+            void attempt.display.load();
+        }
+        attempt.display?.adopt(attempt.appearance, attempt.subtitleSync);
         this.readMarkers(attempt, plan.effectiveMediaFileId);
         attempt.serverFeatures = serverFeatures;
         attempt.subtitleOverride = undefined;
@@ -1497,13 +1636,15 @@ export class PlaybackController implements PlayerControls {
             this.showPlayback(attempt);
         };
         void this.deps.session.call({ ...operations.subtitleAppearance(attempt.profileId ?? ""), profileScoped: true, signal: attempt.signal }).then(appearance => {
-            if (!current()) return;
+            if (!current() || attempt.display?.editedAppearance) return;
             attempt.appearance = appearance;
+            attempt.display?.adopt(appearance, attempt.subtitleSync);
             this.showPlayback(attempt);
         }, preferencesFailed);
         void this.deps.session.call({ ...operations.subtitleSync(), profileScoped: true, signal: attempt.signal }).then(sync => {
-            if (!current()) return;
+            if (!current() || attempt.display?.editedAppearance) return;
             attempt.subtitleSync = sync;
+            attempt.display?.adopt(attempt.appearance, sync);
             this.showPlayback(attempt);
         }, preferencesFailed);
     }
@@ -1604,6 +1745,7 @@ export class PlaybackController implements PlayerControls {
             }
             try {
                 this.deps.avplay.play();
+                attempt.hud.restore(this.deps.avplay, plan);
                 if (attempt.paused) {
                     this.deps.avplay.pause();
                 }
@@ -1646,6 +1788,13 @@ export class PlaybackController implements PlayerControls {
             attempt.pendingAIResult = undefined;
             const track = plan.subtitle.inventory.find(track => track.syncKey === `stored-${resultId}`);
             if (track === undefined) attempt.ai?.notice("The completed subtitle is not in the refreshed inventory. Playback continues; try selecting it later.");
+            else this.selectSubtitle(track.trackId);
+        }
+        if (attempt.pendingDownloadId !== undefined) {
+            const id = attempt.pendingDownloadId;
+            attempt.pendingDownloadId = undefined;
+            const track = plan.subtitle.inventory.find(entry => entry.syncKey === `stored-${id}`);
+            if (track === undefined) attempt.search?.reportUnselected();
             else this.selectSubtitle(track.trackId);
         }
         if (attempt.queuedSubtitle !== undefined) {
@@ -1996,10 +2145,13 @@ export class PlaybackController implements PlayerControls {
                 return;
             }
             if (attempt.autoNextSupported) {
+                await attempt.autoNextSave;
+                if (!current()) return;
+                const epoch = attempt.settingsEpoch;
                 try {
                     const values = await this.deps.session.call({ ...operations.effectiveSettings([AUTO_NEXT_KEY]), profileScoped: true, signal: abort.signal });
-                    attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
-                } catch { if (current()) attempt.autoNext = false; }
+                    if (epoch === attempt.settingsEpoch) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
+                } catch { if (current() && epoch === attempt.settingsEpoch) attempt.autoNext = false; }
                 if (!current()) return;
             }
             if (attempt.request.shuffleId !== undefined) {
@@ -2058,6 +2210,8 @@ export class PlaybackController implements PlayerControls {
     /** Leaves an attempt: no callback of it acts again. `stop` also ends its server session. */
     private leave(attempt: Attempt, how: "stop" | "abandon"): void {
         attempt.ai?.destroy();
+        attempt.search?.destroy();
+        attempt.display?.destroy();
         attempt.captionAbort?.abort();
         if (!attempt.live) {
             return;
@@ -2547,6 +2701,7 @@ export class PlaybackController implements PlayerControls {
             attempt.suspendedReady = false;
             try {
                 this.deps.avplay.play();
+                if (attempt.plan !== undefined) attempt.hud.restore(this.deps.avplay, attempt.plan);
                 if (attempt.paused) {
                     this.deps.avplay.pause();
                 }
@@ -2656,6 +2811,7 @@ export class PlaybackController implements PlayerControls {
                     attempt.presented = true;
                     attempt.resuming = false;
                     try {
+                        attempt.hud.restore(this.deps.avplay, plan);
                         if (attempt.paused) {
                             if (this.deps.avplay.getState() === "PLAYING") {
                                 this.deps.avplay.pause();
@@ -2781,8 +2937,20 @@ export class PlaybackController implements PlayerControls {
             resumePending: attempt.paused && attempt.pauseAfterSeek === false,
             transportCommandCount: attempt.transportCommandCount,
             tracks: trackView(attempt, plan),
+            hud: {
+                chapters: attempt.hud.chapters, chapterState: attempt.hud.chapterState,
+                overview: attempt.hud.metadata?.overview ?? attempt.request.overview,
+                metadata: attempt.hud.metadata, metadataFailed: attempt.hud.metadataFailed,
+                stats: planStats(plan),
+                ...videoOptions(this.deps.avplay.setSpeed !== undefined, this.deps.avplay.setDisplayMethod !== undefined, plan.streamProtocol),
+                speed: attempt.hud.speed, aspect: attempt.hud.aspect,
+                autoNext: attempt.autoNextSupported ? attempt.autoNext : undefined,
+                busy: attempt.hud.autoBusy || attempt.busy,
+                message: attempt.hud.message,
+            },
             seekIntervals: attempt.seekIntervals,
             previewKey: frozen ? undefined : attempt.planAttemptId,
+            // The offset moves cues this overlay draws. Text AVPlay selects itself is not shifted: AVPlay has no subtitle-offset call, and a TV has to confirm whether its TEXT track can move.
             captions: attempt.hidden || attempt.restoring || frozen ? undefined : { text: attempt.cues.filter(cue => attempt.sourceSeconds - attempt.subtitleSync / 1000 >= cue.start && attempt.sourceSeconds - attempt.subtitleSync / 1000 < cue.end).map(cue => cue.text).join("\n"), appearance: attempt.appearance },
             skipMarker: frozen ? undefined : markerAt((attempt.markers?.segments ?? []).filter(marker => marker.kind !== "intro" || attempt.introMode !== "never"), attempt.sourceSeconds),
             undoSkipSeconds: attempt.undoSkip !== undefined && this.deps.clock.now() < attempt.undoSkip.until ? attempt.undoSkip.seconds : undefined,
@@ -2855,10 +3023,11 @@ export class PlaybackController implements PlayerControls {
         if (part !== "deck") {
             try {
                 if (attempt.autoNextSupported) {
+                    const epoch = attempt.settingsEpoch;
                     try {
                         const values = await read(operations.effectiveSettings([AUTO_NEXT_KEY]));
-                        if (live()) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
-                    } catch { if (live()) attempt.autoNext = false; }
+                        if (live() && epoch === attempt.settingsEpoch) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
+                    } catch { if (live() && epoch === attempt.settingsEpoch) attempt.autoNext = false; }
                 }
                 if (attempt.request.episode === true) {
                     const fileId = attempt.plan?.effectiveMediaFileId;
@@ -3079,7 +3248,17 @@ function trackView(attempt: Attempt, plan: PlaybackPlan): TrackView {
         change: attempt.change,
         reporting: attempt.reporting,
         notices,
+        ...(attempt.search === undefined ? {} : { subtitleTools: { search: attempt.search.view, ...(attempt.display?.view === undefined ? {} : { display: attempt.display.view }), overlay: subtitleOverlay(attempt, plan) } }),
     };
+}
+
+/** Delay and styling apply to overlay cues. AVPlay-drawn text and burn-in have no offset or style path here. */
+function subtitleOverlay(attempt: Attempt, plan: PlaybackPlan): boolean {
+    const id = shownSubtitle(attempt, plan);
+    if (id === undefined) return true;
+    if (plan.subtitle.mode === "burn_in") return false;
+    const row = plan.subtitle.inventory.find(entry => entry.trackId === id);
+    return row === undefined || !inStreamCandidate(plan, row);
 }
 
 function qualityChoices(plan: PlaybackPlan): TrackChoice[] {

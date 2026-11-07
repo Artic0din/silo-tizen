@@ -141,7 +141,7 @@ test("Details Auto resolves effective preferences before AVPlay; explicit Off pe
         try {
             await playMovie(r, { ...MOVIE, subtitle: { kind } });
             assert.equal(replans(r.h).length, kind === "auto" ? 1 : 0);
-            assert.equal(r.h.fake.requests.filter(request => request.path.startsWith("/watch/")).length, kind === "auto" ? 1 : 0);
+            assert.equal(r.h.fake.requests.filter(request => request.path.startsWith("/watch/")).length, kind === "auto" ? 2 : 1, "one chapter read plus the optional preference read");
             assert.equal(tracks(r).selectedSubtitleId === undefined, kind === "off");
             assert.equal(r.avplay.urls.length, 1);
         } finally { r.controller.destroy(); }
@@ -1188,6 +1188,38 @@ function renditionPlan(subtitle: number, name: string, index: number) {
         decisionRendition: { groupId: "sub", name, format: "vtt", index },
     };
 }
+
+test("a downloaded subtitle missing from the refreshed inventory is reported without AI", async () => {
+    const r = await rig();
+    await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    assert.equal(tracks(r).ai, undefined);
+    r.h.fake.script("/subtitles/providers/status", { status: 200, body: { schema_version: 1, enabled: true, providers: ["opensubtitles"], revision: "r", state: "available", allowed: true } });
+    r.h.fake.script("/settings/contract", { status: 200, body: { option_sets: { playback_subtitle_languages: { options: [{ value: "en", label: "English" }] } } } });
+    r.h.fake.script("/subtitles/search", { status: 200, body: { results: [{ id: "opaque-result", provider: "opensubtitles", language: "en", release_name: "Example.Release", format: "srt", score: 82, downloads: 12, hearing_impaired: true }], warnings: [] } });
+    r.h.fake.script("/subtitles/download", { status: 200, body: { subtitle: { id: "7", media_file_id: "42", provider: "opensubtitles", language: "en", format: "srt", release_name: "Example.Release", score: 82, hearing_impaired: true, created_at: "2026-01-02T03:04:05.678Z" } } });
+    r.controller.subtitleTool({ kind: "search-open" });
+    await settle(r);
+    r.controller.subtitleTool({ kind: "search-language", code: "en" });
+    await settle(r);
+    r.controller.subtitleTool({ kind: "search-download", key: "opensubtitles:opaque-result" });
+    await settle(r);
+    await playReplacement(r);
+    const shown = tracks(r);
+    assert.equal(shown.ai, undefined);
+    assert.match(shown.subtitleTools?.search.message ?? "", /saved but couldn't be turned on/i);
+    r.controller.destroy();
+});
+
+test("a native subtitle selected from an Off plan hides overlay-only tools", async () => {
+    const r = await rig();
+    r.server.next.push({ delivery: "original_http", clearSubtitle: true });
+    r.avplay.tracks = [{ index: 4, type: "TEXT", extra_info: JSON.stringify({ track_lang: "eng" }) }];
+    await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.controller.selectSubtitle("file:42:subtitle:1");
+    assert.equal(r.avplay.calls.includes("setSelectTrack TEXT 4"), true);
+    assert.equal(tracks(r).subtitleTools?.overlay, false);
+    r.controller.destroy();
+});
 
 for (const choice of ["off", "refused"] as const) {
     test(`sidecar captions follow a local ${choice} choice before the report settles`, async () => {

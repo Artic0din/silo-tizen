@@ -28,6 +28,9 @@ root.appendChild(sibling);
 const commands: string[] = [];
 let listener: ((view: PlaybackView) => void) | undefined;
 const controls: PlayerControls = {
+    setVideo: (kind, value) => commands.push(`setVideo ${kind} ${value}`),
+    toggleAutoNext: () => commands.push("toggleAutoNext"),
+    retryChapters: () => commands.push("retryChapters"),
     subscribe(next) {
         listener = next;
         next({ phase: "loading", title: "The Movie" });
@@ -60,6 +63,7 @@ const controls: PlayerControls = {
     saveSeriesSubtitle: () => commands.push("saveSeriesSubtitle"),
     startSubtitleAI: (kind, language) => commands.push(`startSubtitleAI ${kind} ${language ?? ""}`),
     selectAIResult: id => commands.push(`selectAIResult ${id}`),
+    subtitleTool: action => commands.push(`subtitleTool ${JSON.stringify(action)}`),
     seekThumbnail: async () => undefined,
 };
 const screen: PlayerScreen = mountPlayerScreen(root, controls, undefined, "https://media.test");

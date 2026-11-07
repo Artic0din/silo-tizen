@@ -23,6 +23,7 @@ All notable changes to this project are documented in this file.
 - Move the scrub thumbnail with the playhead, 300px from the bottom of the screen.
 - Kept the page transparent over AVPlay. The black opening is a loading backdrop only, and a previous screen in the same root is not painted while the player is up. Once a frame has shown, that backdrop stays off through a later load, reconnect and restore.
 - Matched Apple TV playback opening, hidden Up, the title lines, and the panel: a spinner on black, Up reveals the scrubber, pause shows no status line, and the open panel hides the transport until Back.
+- Showed Calendar noon as 12:00 pm on an en-GB TV, and kept the first Search person visible.
 - Kept a decoded Details title logo in place across later repaints, so the metadata row no longer jumps back to the text title during that visit.
 - Matched the Details metadata row to Apple TV: the content rating and advisory age sit in outlined chips sized to the 18pt line height so the stroke stays inside the row, and the year, runtime and genres are separate text facts on that same row.
 - Removed the extra focus outline on Accounts rows and Cancel. Change Account keeps the backdrop stage the previous screen left, warm after Who's watching and blue after sign-in, and an unfocused selected server is white at 14%.

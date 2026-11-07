@@ -23,6 +23,14 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- The collapsed A–Z circle is plain.
+- Hid the TV's native scrollbars, drew the History returning mark as an outlined television, drew the collapsed A–Z index as Apple's 10px circle plus the faint letter marks, and centred Related captions on the poster.
+- Removed the Continue Watching playback bar, kept Search posters 247px apart, restored biography paragraphs, and matched Related captions and the Written by order to Apple TV.
+- Show the series name and episode tag while playing when Resume or Start Over starts from the series page and the episode item omits them.
+- Move the scrub thumbnail with the playhead, 101.0234375px above the handle, in a 236.265625px card.
+- Open the hidden player panel on Video, and the options button on the last tab, which starts on Info.
+- Kept the page transparent over AVPlay. The black opening is a loading backdrop only, and a previous screen in the same root is not painted while the player is up. Once a frame has shown, that backdrop stays off through a later load, reconnect and restore.
+- Matched Apple TV playback opening, hidden Up, the title lines, and the panel: a spinner on black, Up reveals the scrubber, pause shows no status line, and the open panel hides the transport until Back.
 - Kept focus on a season you select right after a series opens, instead of moving it to Play or Resume.
 - Matched Settings row fill and the On and Off value brightness to Apple TV.
 - Matched Profile Selection's caption to each launch choice. Settings footers use a 23px line so section labels sit at Apple's measured rows, the subtitle preview stays 958 by 150, and pane rows use a regular label with a 1px white stroke at 9%.
@@ -37,7 +45,17 @@ All notable changes to this project are documented in this file.
 - Down from the profile avatar enters Switch Profile, including before the menu's dwell finishes. After Back closes it, Down reaches the first Continue Watching card.
 - Matched the library Browse grid to Apple TV: the mode pills are gone, and Up from Sort returns to the top bar. Episode rows now crop the previous card at the 100px inset, the focused still lifts by 5%, and Cast, trailer and related rows start at that inset and paint to the screen edge.
 - Kept Play focused when a movie's Details opened, even if the first focus claim did not stick, and kept that claim from leaving a card-actions dialog or ignoring a Play button that appears after the page opens.
+- Kept a debounced skip when an earlier scrub seek landed on the same plan.
+- Kept a running skip hold when the earlier seek landed on the same plan.
 - Added Retry for retryable playback startup failures and exhausted route recovery.
+- Matched the measured player layout, showed episode context, hid idle controls from every transport focus, and held seek times until playback caught up.
+
+- Preserved repeated skip taps while seeking and disabled track-list scroll animation with reduced motion.
+
+- Followed playback after an external resume during scrubbing and preserved newer Play/Pause choices while a scrub seek landed.
+- Resumed committed scrubs after a server reanchor, kept Skip reachable with the remote, and let navigation cross Audio while its choices loaded.
+- Kept the latest Play/Pause choice when remote presses arrive during a seek.
+- Resumed playback after a timeline scrub once the seek finished, and let the remote move through an empty audio list.
 - Kept the Details hero pinned when action focus survived a repaint during its return scroll.
 - Opened a remembered profile and cached Home promptly on cold start while checking the saved session in the background, then refreshed the top-bar profile artwork from the reconciled summary.
 - Kept a detail Cancel's hub card visible while the shared gate still owns it, even when a refresh already sees the server's cancelled state, and left hub cards alone so a failed quiet refresh keeps its earlier rows.

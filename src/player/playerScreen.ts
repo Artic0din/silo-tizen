@@ -370,6 +370,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     root.appendChild(section);
 
     let view: PlaybackView = { phase: "closed" };
+    /** A playing or paused view means AVPlay can show a frame. Later loads must not cover it. */
+    let pictureShown = false;
     let cancelHide: (() => void) | undefined;
     let menuOpen = false;
     let seekPreview: number | undefined;
@@ -490,7 +492,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     };
 
     const render = (): void => {
-        backdrop.hidden = view.phase !== "loading";
+        if (view.phase === "playing" || view.phase === "paused") pictureShown = true;
+        backdrop.hidden = pictureShown || view.phase !== "loading";
         renderSubtitles(view);
         const active = view.phase === "playing" || view.phase === "paused";
         if (!active && (seekPreview !== undefined || timeline || autoRate !== 0)) cancelScrub();

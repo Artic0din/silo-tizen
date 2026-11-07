@@ -20,6 +20,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Moving Right on an episode rail uses the same leading slot as the first episode, and the last episode ends at Apple's edge. Opening already on a mid-season Resume episode keeps that card where it opened. The collapsed A–Z circle is plain.
 - Hid the TV's native scrollbars, drew the History returning mark as an outlined television, drew the collapsed A–Z index as Apple's 10px circle plus the faint letter marks, and centred Related captions on the poster.
 - Removed the Continue Watching playback bar, kept the focused episode frame at the 100px inset and the next episode one step away, kept Search posters 247px apart, restored biography paragraphs, and matched Related captions and the Written by order to Apple TV.
 - Tightened Inter tracking so titles match Apple TV's text width, kept a Calendar title on one line, and left a compact home title of about 152px whole in the artwork frame.

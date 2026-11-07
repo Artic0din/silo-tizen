@@ -15,8 +15,8 @@ test("Apple rail anchors selection and focus to whole steps, clamped at the term
     assert.equal(episodeRailOffset(14, 24, 360, 40, 1813) - 1600, 4000);
     // A long season can pin E05; the measured final season has only six cards.
     assert.equal(episodeRailOffset(4, 14, 309.6, 40, 1813), 1398.4);
-    // The mask cancels the lookbehind's card width and keeps one spacing.
-    // Compact layout left is 149.74; the previous card ends at 109.74.
+    // Padding left is 149.74. The visual anchor subtracts the 40px spacing
+    // except when Details opens on a mid-season episode.
     const slot = episodeRailSlot(309.6, 40);
     assert.ok(Math.abs(slot - 149.74) < .001);
     assert.equal(slot + 4 * 349.6 - 1398.4, slot);

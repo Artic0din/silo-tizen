@@ -110,6 +110,7 @@ test("a collapsed A-Z letter is a circle and the expanded label stays readable",
                 background: style.backgroundColor,
                 ink: range.getBoundingClientRect().width,
                 text: node.textContent,
+                top: node.getBoundingClientRect().top,
             };
         }));
         const all = collapsed[0];
@@ -124,7 +125,10 @@ test("a collapsed A-Z letter is a circle and the expanded label stays readable",
         assert.equal(all.opacity, "1");
         assert.equal(all.background, "rgb(237, 237, 237)");
         assert.equal(all.text, "All");
+        // The collapsed selected chip is a plain circle. Black "All" ink is the expanded label.
+        assert.equal(all.color, "rgba(0, 0, 0, 0)");
         assert.ok(all.ink > 0, String(all.ink));
+        assert.ok(Math.abs((mark.top ?? 0) - (all.top ?? 0) - 14) < 0.5, `letter pitch ${mark.top}`);
         assert.equal(mark.width, 10);
         assert.equal(mark.height, 10);
         assert.equal(mark.fontSize, "10px");

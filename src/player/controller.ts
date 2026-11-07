@@ -1514,12 +1514,14 @@ export class PlaybackController implements PlayerControls {
 
     private changeSettled(attempt: Attempt, change: TrackChange): void {
         // A kept picture never reaches prepare, where a refreshed inventory used to be read.
-        const resolveCompletedSubtitle = change.state === "idle" && !attempt.endedDuringChange && attempt.pendingAIResult !== undefined;
+        const keptInventory = change.state === "idle" && !attempt.endedDuringChange;
+        const resolveCompletedSubtitle = keptInventory && attempt.pendingAIResult !== undefined;
+        const resolveDownloadedSubtitle = keptInventory && attempt.pendingDownloadId !== undefined;
         if (attempt.pendingAIResult !== undefined && !resolveCompletedSubtitle) {
             attempt.pendingAIResult = undefined;
             attempt.ai?.notice("Could not load the completed subtitle track. Playback continues; select it again to retry.");
         }
-        if (attempt.pendingDownloadId !== undefined) {
+        if (attempt.pendingDownloadId !== undefined && !resolveDownloadedSubtitle) {
             attempt.pendingDownloadId = undefined;
             attempt.search?.reportUnselected();
         }
@@ -1539,7 +1541,7 @@ export class PlaybackController implements PlayerControls {
             attempt.pendingSubtitle = undefined;
             this.selectSubtitle(pending.id);
         }
-        if (failure === undefined && resolveCompletedSubtitle && attempt.plan !== undefined && !attempt.busy) {
+        if (failure === undefined && (resolveCompletedSubtitle || resolveDownloadedSubtitle) && attempt.plan !== undefined && !attempt.busy) {
             this.applyPreparedSubtitleChoices(attempt, attempt.plan);
         }
     }

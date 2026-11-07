@@ -1201,9 +1201,13 @@ test("a downloaded subtitle missing from the refreshed inventory is reported wit
     await settle(r);
     r.controller.subtitleTool({ kind: "search-language", code: "en" });
     await settle(r);
+    const opens = r.avplay.urls.length;
     r.controller.subtitleTool({ kind: "search-download", key: "opensubtitles:opaque-result" });
     await settle(r);
-    await playReplacement(r);
+    // The refresh only renews `st` on the open direct-play path. playReplacement waited on
+    // the prepare that used to read the inventory; that prepare no longer runs.
+    assert.equal(r.avplay.urls.length, opens);
+    assert.equal(r.avplay.state, "PLAYING");
     const shown = tracks(r);
     assert.equal(shown.ai, undefined);
     assert.match(shown.subtitleTools?.search.message ?? "", /saved but couldn't be turned on/i);

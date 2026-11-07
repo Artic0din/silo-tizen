@@ -19,6 +19,14 @@
 .player-next-deck > h2 { position: absolute; margin-top: -24px; }
 .player-next-card { flex: 0 0 360px; display: flex; flex-direction: column; }
 .player-next-card img { width: 360px; aspect-ratio: 16 / 9; object-fit: cover; }
+.player-next-card .episode-spoiler-blur { display: block; width: 360px; aspect-ratio: 16 / 9; overflow: hidden; }
+.player-next-card .episode-spoiler-blur > .player-next-still {
+    filter: blur(24px);
+    width: calc(100% + 48px);
+    height: calc(100% + 48px);
+    max-width: none;
+    margin: -24px;
+}
 .player-next-deck[hidden] { display: none; }
 
 .player-captions {

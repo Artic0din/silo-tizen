@@ -13,7 +13,7 @@ import type { Clock } from "../api/clock.ts";
 import { systemClock } from "../api/clock.ts";
 import type { ConnectedServer } from "../session/core.ts";
 import type { RandomBytes } from "../session/deviceIdentity.ts";
-import type { EpisodeSpoilerSettings } from "../ui/episodeSpoilers.ts";
+import { blurEpisodeStill, type EpisodeSpoilerSettings } from "../ui/episodeSpoilers.ts";
 import { remoteKey } from "../ui/keys.ts";
 import { el } from "../ui/screen.ts";
 import { artworkUrl } from "../ui/browseModel.ts";
@@ -379,6 +379,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     root.appendChild(section);
 
     let view: PlaybackView = { phase: "closed" };
+    /** A playing or paused view means AVPlay can show a frame. Later loads must not cover it. */
+    let pictureShown = false;
     let cancelHide: (() => void) | undefined;
     let menuOpen = false;
     let seekPreview: number | undefined;
@@ -532,7 +534,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     };
 
     const render = (): void => {
-        backdrop.hidden = view.phase !== "loading";
+        if (view.phase === "playing" || view.phase === "paused") pictureShown = true;
+        backdrop.hidden = pictureShown || view.phase !== "loading";
         renderSubtitles(view);
         const prompt = view.phase === "playing" || view.phase === "paused" ? view.upNext : undefined;
         const active = view.phase === "playing" || view.phase === "paused";
@@ -578,7 +581,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             failure.classList.add("player-next-up");
             eyebrow.textContent = nextStatus;
             synopsis.textContent = candidate?.overview ?? "";
-            const identity = cards.map(card => card.contentId).join("|");
+            const identity = cards.map(card => `${card.contentId}:${card.hideBackdrop === true ? "1" : "0"}`).join("|");
             if (deck.dataset.items !== identity) {
                 const focusedCard = deck.contains(document.activeElement) ? document.activeElement?.getAttribute("data-focus") : undefined;
                 deck.dataset.items = identity;
@@ -594,7 +597,15 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                         img.src = backdrop;
                         img.alt = "";
                         img.addEventListener("error", () => img.remove(), { once: true });
-                        button.prepend(img);
+                        if (card.hideBackdrop === true) {
+                            img.className = "player-next-still";
+                            const frame = el("span", "episode-spoiler-blur");
+                            frame.append(img);
+                            blurEpisodeStill(frame);
+                            button.prepend(frame);
+                        } else {
+                            button.prepend(img);
+                        }
                     }
                     button.addEventListener("click", () => {
                         const current = view.phase === "completion" ? view.deck : view.phase === "playing" || view.phase === "paused" ? view.upNext?.deck : undefined;

@@ -50,6 +50,10 @@ import { planStats, videoOptions, type PlayerHUD } from "./playerHUD.ts";
 export interface PlayRequest {
     readonly overview?: string | undefined;
     readonly backdropUrl?: string | undefined;
+    /** False for series key art. Absent or true is an episode still. */
+    readonly backdropIsEpisodeStill?: boolean | undefined;
+    /** On Deck blurs this still. Series art stays sharp. */
+    readonly hideBackdrop?: true;
     readonly seriesTitle?: string | undefined;
     readonly seasonNumber?: number | undefined;
     readonly episodeNumber?: number | undefined;
@@ -3041,7 +3045,7 @@ export class PlaybackController implements PlayerControls {
         void this.deps.session.call({ ...operations.getCatalogItem(request.contentId), profileScoped: true, signal }).then(detail => {
             if (!signal.aborted && detail.id === request.contentId) {
                 const watch = playbackWatch(detail.watch);
-                accept({ ...request, overview: detail.overview, backdropUrl: detail.backdropUrl, ...(watch === undefined ? {} : { watch }) });
+                accept({ ...request, overview: detail.overview, backdropUrl: detail.backdropUrl, backdropIsEpisodeStill: detail.backdropIsEpisodeStill, ...(watch === undefined ? {} : { watch }) });
             }
         }, () => undefined);
     }
@@ -3050,8 +3054,18 @@ export class PlaybackController implements PlayerControls {
     private shownNext(request: PlayRequest | undefined): PlayRequest | undefined {
         if (request?.episode !== true) return request;
         const settings = this.deps.spoilers?.() ?? { hidesImages: false, hidesOverviews: false };
-        const overview = episodeDetailPresentation({ type: "episode", overview: request.overview, watch: request.watch, played: request.watch?.played }, settings).overview;
-        return overview === request.overview ? request : { ...request, overview };
+        const presentation = episodeDetailPresentation({
+            type: "episode",
+            overview: request.overview,
+            watch: request.watch,
+            played: request.watch?.played,
+            backdropUrl: request.backdropUrl,
+            backdropIsEpisodeStill: request.backdropIsEpisodeStill,
+        }, settings);
+        const overview = presentation.overview;
+        const hideBackdrop = presentation.hideBackdrop ? true as const : undefined;
+        if (overview === request.overview && hideBackdrop === undefined) return request;
+        return { ...request, ...(overview === request.overview ? {} : { overview }), ...(hideBackdrop === undefined ? {} : { hideBackdrop }) };
     }
 
     private show(view: PlaybackView): void {

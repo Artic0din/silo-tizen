@@ -16,6 +16,8 @@ export interface FakeTitle {
     readonly season?: number;
     readonly episode?: number;
     readonly backdrop?: string;
+    /** Explicit episode-still provenance for the backdrop. Absent leaves the server flag unset. */
+    readonly backdropStill?: boolean;
     readonly overview?: string;
     readonly runtime?: number;
     readonly duration?: number;
@@ -354,6 +356,7 @@ export class FakeCatalog implements CatalogRoutes {
             card.poster_is_episode_still = true;
             card.overview = "Secret chapter";
         }
+        if (title.backdropStill !== undefined) card.backdrop_is_episode_still = title.backdropStill;
         const position = this.progress.get(id);
         if (position !== undefined) {
             card.position_seconds = position;

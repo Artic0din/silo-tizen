@@ -16,6 +16,7 @@ import { navigationIcon } from "./navigationIcon.ts";
 import { decodeAppearance, DEFAULT_APPEARANCE } from "../contracts/v2/subtitles.ts";
 import { applySubtitleAppearance } from "../player/subtitleView.ts";
 import { pairedProfileDescription, pairedProfileLabel, profileSelectionCaption } from "./pairedProfile.ts";
+import { bitrateLabel, qualityFooter } from "./qualitySettings.ts";
 
 type Category = "general" | "playback" | "subtitles" | "server";
 const CATEGORY_LABELS = { general: "General", playback: "Playback", subtitles: "Subtitles", server: "Server" } as const;
@@ -60,8 +61,6 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     let acknowledging = false;
     let confirmingSignOut = false;
     let choosingLaunch = false;
-    let bitrateDraft = "";
-    let bitrateError: string | undefined;
     let torn = false;
     let launchPending = false;
     let launchError = false;
@@ -144,9 +143,6 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     const openPicker = (next: Picker): void => {
         picker = next;
         returnRow = next;
-        bitrateError = undefined;
-        const stored = state.stored(BITRATE_KEY);
-        bitrateDraft = stored?.isSet && typeof stored.value === "number" ? String(stored.value) : "";
         render();
     };
     const commit = async (key: SettingsKey, value: SettingValue | undefined): Promise<void> => {
@@ -285,41 +281,15 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             }
         } else {
             const current = stored?.isSet ? stored.value : state.scope(key) === "profile" ? state.effective.get(key)?.value : undefined;
-            const caps = [...new Set([...BITRATE_CHOICES, ...(typeof current === "number" ? [current] : [])])].sort((a, b) => b - a);
+            // SiloQualityPresets.bitrateChoices(including:): a stored cap no preset covers stays in descending order and selected.
+            const extra = typeof current === "number" && current > 0 && !BITRATE_CHOICES.includes(current) ? [current] : [];
+            const caps = [...BITRATE_CHOICES, ...extra].sort((a, b) => b - a);
             for (const value of caps) {
-                const item = button(`bitrate:${value}`, `${value / 1000} Mbps`, () => { void commit(key, value); });
+                const item = button(`bitrate:${value}`, bitrateLabel(value), () => { void commit(key, value); });
                 item.element.setAttribute("role", "radio");
                 item.element.setAttribute("aria-checked", String(current === value));
                 controls.push(item);
             }
-            const input = el("input", "browse-button settings-input");
-            input.type = "text";
-            input.inputMode = "numeric";
-            input.pattern = "[0-9]*";
-            input.setAttribute("aria-label", "Maximum bitrate (kbps)");
-            input.setAttribute("data-focus", "bitrate-input");
-            input.value = bitrateDraft;
-            input.readOnly = state.busy || state.canRetry;
-            input.addEventListener("input", () => { bitrateDraft = input.value; });
-            if (bitrateError !== undefined) {
-                input.setAttribute("aria-invalid", "true");
-                input.setAttribute("aria-describedby", "bitrate-error");
-                const error = el("p", "browse-text browse-error", bitrateError);
-                error.id = "bitrate-error";
-                error.setAttribute("role", "alert");
-                content.push(error);
-            }
-            controls.push({ key: "bitrate-input", element: input });
-            controls.push(button("save", "Save", () => {
-                const cap = Number(bitrateDraft);
-                if (!/^\d+$/.test(bitrateDraft) || !Number.isInteger(cap) || cap < 100 || cap > 200000) {
-                    bitrateError = "Enter a whole number from 100 to 200000 kbps, or choose No limit.";
-                    render();
-                    return;
-                }
-                bitrateError = undefined;
-                void commit(key, cap);
-            }));
             const noLimit = button("no-limit", "No limit", () => { void commit(key, null); });
             noLimit.element.setAttribute("aria-checked", String(current === null));
             controls.unshift(noLimit);
@@ -559,10 +529,18 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             if (section !== undefined) body.appendChild(el("h3", "settings-section-header", section));
             const item = button(id, PICKER_LABELS[id], () => openPicker(id));
             const value = state.effective.get(key)?.value ?? null;
-            const displayValue = key === BITRATE_KEY && typeof value === "number" && value >= 1000 ? `${Number((value / 1000).toFixed(1))} Mbps` : label(value, key);
+            const displayValue = key === BITRATE_KEY ? bitrateLabel(typeof value === "number" ? value : null) : label(value, key);
             item.element.replaceChildren(el("span", "settings-row-title", PICKER_LABELS[id]), el("span", "settings-row-value", displayValue), el("span", "settings-chevron", "›"));
             rows.push(item);
             body.append(item.element);
+        }
+        if (category === "playback" && state.loaded && state.definitions.some(def => def.key === QUALITY_KEY)) {
+            const resolution = state.effective.get(QUALITY_KEY)?.value;
+            const bitrate = state.effective.get(BITRATE_KEY)?.value;
+            const footer = el("p", "settings-value settings-quality-footer", qualityFooter(typeof resolution === "string" ? resolution : null, typeof bitrate === "number" ? bitrate : null));
+            const streaming = [...body.children].find(node => node.classList.contains("settings-section-header") && node.textContent === "STREAMING");
+            if (streaming !== undefined) body.insertBefore(footer, streaming);
+            else body.appendChild(footer);
         }
         if (category === "subtitles" && state.loaded) {
             const language = state.definitions.some(def => def.key === SUBTITLE_LANGUAGE_KEY);
@@ -744,7 +722,7 @@ function subtitleOverride(state: SettingsState): string | undefined {
 }
 
 function valueLabel(value: SettingValue, key: SettingsKey = AUDIO_KEY): string {
-    if (key === BITRATE_KEY) return value === null ? "No limit" : `${value} kbps`;
+    if (key === BITRATE_KEY) return bitrateLabel(typeof value === "number" ? value : null);
     if (value === null) return key === HIDDEN_KEY ? "None hidden" : "No preference";
     if (Array.isArray(value)) return `${value.length} hidden`;
     if (typeof value === "object") return key === "ui.card_presentation" && "poster_size" in value ? String(value.poster_size) : "Custom appearance";

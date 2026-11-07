@@ -688,6 +688,37 @@ test("device pickers preserve profile, show inheritance, retain legacy audio nul
     } finally { await tv.page.context().close(); }
 });
 
+test("quality footer and bitrate labels follow Apple TV", async () => {
+    const { tv, settings } = await setup();
+    settings.profile().set(QUALITY_KEY, "2160p");
+    settings.profile().set(BITRATE_KEY, 999);
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        const footer = "Plays the original file up to 4K. Larger files are converted. Files above this bitrate are converted to fit.";
+        await tv.page.getByText(footer, { exact: true }).waitFor();
+        assert.equal(await tv.page.locator('[data-focus="bitrate"] .settings-row-value').textContent(), "999 kbps");
+        assert.equal(await tv.page.locator('[data-focus="quality"] .settings-row-value').textContent(), "4K");
+        const order = await tv.page.evaluate(() => {
+            const bitrate = document.querySelector('[data-focus="bitrate"]');
+            const note = document.querySelector(".settings-quality-footer");
+            const streaming = [...document.querySelectorAll(".settings-section-header")].find(node => node.textContent === "STREAMING");
+            if (bitrate === null || note === null || streaming === undefined) return false;
+            return Boolean(bitrate.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING)
+                && Boolean(note.compareDocumentPosition(streaming) & Node.DOCUMENT_POSITION_FOLLOWING);
+        });
+        assert.equal(order, true);
+        await tv.page.locator('[data-focus="bitrate"]').click();
+        const dialog = tv.page.getByRole("dialog", { name: "Maximum Bitrate" });
+        await dialog.waitFor();
+        const choices = await dialog.locator('.settings-modal-options [data-focus^="bitrate:"], .settings-modal-options [data-focus="no-limit"]').allTextContents();
+        assert.deepEqual(choices, ["No limit", "200 Mbps", "100 Mbps", "60 Mbps", "40 Mbps", "20 Mbps", "15 Mbps", "10 Mbps", "6 Mbps", "4 Mbps", "2 Mbps", "1.5 Mbps", "999 kbps"]);
+        assert.equal(await dialog.locator('[data-focus="bitrate:999"]').getAttribute("aria-checked"), "true");
+        assert.equal(await dialog.getByRole("textbox").count(), 0);
+        assert.equal(await dialog.getByRole("button", { name: "Save", exact: true }).count(), 0);
+    } finally { await tv.page.context().close(); }
+});
+
 test("Playback restores video skip intervals after episodes and focus moves do not write settings", async () => {
     const { tv } = await setup();
     try {
@@ -969,7 +1000,7 @@ test("quality picker uses server labels, keeps legacy current values honest and 
     } finally { await tv.page.context().close(); }
 });
 
-test("bitrate editor validates whole kbps, saves only explicitly, cancels and keeps null distinct from reset", async () => {
+test("bitrate No limit stays distinct from inherited reset and the picker has no custom field", async () => {
     const { tv, settings } = await setup();
     try {
         settings.profile().set(BITRATE_KEY, 6000);
@@ -977,50 +1008,16 @@ test("bitrate editor validates whole kbps, saves only explicitly, cancels and ke
         await openSettings(tv);
         await tv.page.locator('[data-focus="playback"]').click();
         await tv.page.locator('[data-focus="bitrate"]').click();
-        const input = tv.page.getByRole("textbox", { name: "Maximum bitrate (kbps)" });
-        assert.equal(await input.inputValue(), "6000", "edit the explicit profile row, not the device override");
-        const count = tv.fake.requests.length;
-        for (const value of ["", "0", "99", "200001", "100.5", "NaN", "1e3", "-100", " 100 "]) {
-            await input.fill(value);
-            await tv.page.getByRole("button", { name: "Save", exact: true }).click();
-            await tv.page.getByRole("alert").waitFor();
-            assert.equal(await input.getAttribute("aria-invalid"), "true");
-            await tv.jump(250);
-            assert.equal(await tv.page.locator('[data-focus="save"]').evaluate(node => {
-                const bounds = node.getBoundingClientRect();
-                const list = node.closest(".settings-modal-options")?.getBoundingClientRect();
-                return list !== undefined && bounds.top >= list.top && bounds.bottom <= list.bottom;
-            }), true, "invalid bitrate save keeps its focused control visible");
-        }
-        assert.equal(tv.fake.requests.length, count, "invalid inputs never send reads or writes");
-        await input.fill("100");
-        await tv.page.keyboard.press("ArrowDown");
-        assert.equal(await tv.focused(), "save");
-        await tv.page.keyboard.press("Enter");
-        await tv.page.locator('[data-focus="bitrate"]').waitFor();
-        assert.equal(await tv.focused(), "bitrate");
-        assert.equal(settings.profile().get(BITRATE_KEY), 100);
-        await tv.page.keyboard.press("Enter");
-        await input.fill("200000");
-        await tv.page.getByRole("button", { name: "Save", exact: true }).click();
-        await tv.page.locator('[data-focus="bitrate"]').waitFor();
-        assert.equal(settings.profile().get(BITRATE_KEY), 200000);
-        await tv.page.keyboard.press("Enter");
-        await input.fill("1234");
-        await tv.remote(10009);
-        assert.equal(await tv.focused(), "bitrate");
-        assert.equal(settings.profile().get(BITRATE_KEY), 200000);
-        await tv.page.keyboard.press("Enter");
-        await input.fill("4321");
-        await tv.remote(10009);
-        assert.equal(await tv.focused(), "bitrate");
-        assert.equal(settings.profile().get(BITRATE_KEY), 200000);
-        await tv.page.keyboard.press("Enter");
+        const dialog = tv.page.getByRole("dialog", { name: "Maximum Bitrate" });
+        await dialog.waitFor();
+        assert.equal(await dialog.getByRole("textbox").count(), 0);
+        assert.equal(await dialog.getByRole("button", { name: "Save", exact: true }).count(), 0);
+        const choices = await dialog.locator('.settings-modal-options [data-focus^="bitrate:"], .settings-modal-options [data-focus="no-limit"]').allTextContents();
+        assert.deepEqual(choices, ["No limit", "200 Mbps", "100 Mbps", "60 Mbps", "40 Mbps", "20 Mbps", "15 Mbps", "10 Mbps", "6 Mbps", "4 Mbps", "2 Mbps", "1.5 Mbps"]);
         await tv.page.getByRole("button", { name: "No limit", exact: true }).click();
         await tv.page.locator('[data-focus="bitrate"]').waitFor();
         assert.equal(settings.profile().get(BITRATE_KEY), null);
-        await tv.page.keyboard.press("Enter");
-        assert.equal(await input.inputValue(), "");
+        await tv.page.locator('[data-focus="bitrate"]').click();
         await tv.page.getByRole("button", { name: "Use inherited default", exact: true }).click();
         await tv.page.locator('[data-focus="bitrate"]').waitFor();
         assert.equal(settings.profile().has(BITRATE_KEY), false);
@@ -1050,48 +1047,6 @@ test("quality controls remain absent for unsupported manifests and empty Playbac
         await tv.page.locator('[data-focus="spoiler-images"]').focus();
         await tv.remote(10009);
         assert.equal(await tv.focused(), "playback");
-    } finally { await tv.page.context().close(); }
-});
-
-test("bitrate uncertain readback keeps the draft and Retry checks the committed value without resending", async () => {
-    const { tv, settings } = await setup();
-    try {
-        await openSettings(tv);
-        await tv.page.locator('[data-focus="playback"]').click();
-        await tv.page.locator('[data-focus="bitrate"]').click();
-        await tv.page.getByRole("textbox").fill("4321");
-        const path = `/settings/values?scope=profile&keys=${BITRATE_KEY}`;
-        const preflight = tv.fake.hold(path);
-        tv.fake.dropNextAnswer(`/settings/values/${BITRATE_KEY}?scope=profile`);
-        await tv.page.getByRole("button", { name: "Save", exact: true }).click();
-        await tv.eventually(async () => tv.fake.requests.some(r => r.path === path), "preflight read");
-        tv.fake.script(path, problem(429, "rate_limited", "Wait", { "Retry-After": "1" }));
-        preflight.release();
-        await tv.page.getByRole("alert").waitFor();
-        assert.equal(settings.profile().get(BITRATE_KEY), 4321);
-        assert.equal(await tv.page.getByRole("textbox").inputValue(), "4321");
-        assert.equal(await tv.page.getByRole("textbox").getAttribute("readonly"), "");
-        assert.equal(tv.fake.requests.filter(r => r.method === "PUT").length, 1);
-        await tv.jump(1000);
-        await tv.page.getByRole("button", { name: "Check and retry", exact: true }).click();
-        await tv.page.getByRole("alert").waitFor({ state: "hidden" });
-        await tv.eventually(async () => await tv.page.getByRole("textbox").getAttribute("readonly") === null, "confirmed readback");
-        assert.equal(await tv.page.getByRole("textbox").inputValue(), "4321");
-        assert.equal(await tv.page.locator('[data-focus="bitrate:4321"]').getAttribute("aria-checked"), "true");
-        assert.equal(tv.fake.requests.filter(r => r.method === "PUT").length, 1);
-        await tv.remote(10009);
-        assert.equal(await tv.focused(), "bitrate");
-        await tv.page.keyboard.press("Enter");
-        await tv.page.getByRole("textbox").fill("9999");
-        const held = tv.fake.hold(`/settings/values/${BITRATE_KEY}`, true);
-        await tv.page.getByRole("button", { name: "Save", exact: true }).click();
-        await tv.eventually(async () => tv.fake.requests.filter(r => r.method === "PUT").length === 2, "pending write");
-        await tv.page.evaluate(() => window.browseHarness.clearProfile());
-        held.release();
-        await tv.page.locator("#successor").waitFor();
-        assert.equal(await tv.page.locator(".settings").count(), 0);
-        assert.equal(tv.fake.requests.filter(r => r.method === "PUT").length, 2);
-        assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
 

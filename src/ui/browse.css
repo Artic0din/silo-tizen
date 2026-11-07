@@ -68,7 +68,6 @@
 .settings-controls .browse-button[aria-checked="true"] { background: var(--silo-selected); }
 .settings .browse-button:focus { outline: none; background: #fff; color: #000; border-color: #fff; }
 .settings .settings-categories .browse-button:not(.settings-signout):focus { background: #ededed; color: #000; border-color: transparent; box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5); }
-.settings-input { box-sizing: border-box; }
 .settings-value { color: rgba(237,237,237,.6); font-size: 19px; line-height: 1.4; margin: 4px 0 8px; padding: 0 24px; }
 /* Apple TVSettingsSectionHeader. */
 .settings-section-header { margin: 26px 0 6px; padding: 0 24px; font-size: 19px; font-weight: 600; letter-spacing: 1.2px; color: rgba(237,237,237,.6); }

@@ -23,14 +23,15 @@
 .browse.settings { overflow: hidden; height: 100vh; box-sizing: border-box; padding: 108px 164px 44px; }
 .settings-panes { display: flex; align-items: stretch; gap: 52px; height: 100%; min-height: 0; }
 .settings-categories { width: 490px; flex-shrink: 0; display: flex; flex-direction: column; padding: 24px 0 100px; }
-.settings-pane { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 0 22px 64px; }
+.settings-pane { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 0 22px 64px; }
 .settings-pane-header { display: flex; align-items: center; gap: 20px; padding: 0 24px; margin: 0 0 10px; }
 .settings-header-icon { display: grid; place-items: center; width: 72px; height: 72px; border-radius: 18px; background: #ffffff12; flex-shrink: 0; }
 .settings-header-icon svg { width: 34px; height: 34px; margin: 0; }
 .settings-category-icon, .settings-signout-icon { display: grid; place-items: center; width: 34px; flex-shrink: 0; }
 .settings-category-icon svg, .settings-signout-icon svg { width: 22px; height: 22px; margin: 0; }
-.settings-pane-header .browse-section-title { margin: 0 0 5px; font-size: 42px; font-weight: 700; }
-.settings-pane-header .settings-blurb { margin: 0; font-size: 20px; }
+/* TVSettingsView.swift:455-462 at silo-apple 2ef3a171. 50 + 5 + 25 keeps the header 80 tall, so the first section text starts at y 240. */
+.settings-pane-header .browse-section-title { margin: 0 0 5px; font-size: 42px; font-weight: 700; line-height: 50px; }
+.settings-pane-header .settings-blurb { margin: 0; font-size: 20px; line-height: 25px; }
 .settings-row-title { font-size: 26px; }
 .settings-row-value { margin-left: auto; font-size: 24px; opacity: .68; }
 .settings-chevron { margin-left: 16px; font-size: 18px; opacity: .55; }
@@ -50,7 +51,7 @@
 .settings-categories .settings-signout { margin-top: auto; margin-left: 28px; width: 150px; height: 33px; padding: 0; border: 0; border-radius: 0; background: transparent; font-size: 27px; line-height: 33px; gap: 8px; white-space: nowrap; }
 .settings-categories .browse-title { font-size: 48px; margin: 0 20px 26px; }
 .settings-pane .browse-button, .settings-info-row { box-sizing: border-box; min-height: 66px; line-height: 32px; }
-.settings-info-row { display: flex; align-items: center; gap: 16px; padding: 17px 24px; font-size: 26px; margin-bottom: 8px; background: #202020d6; border: 1px solid #ffffff18; border-radius: 14px; }
+.settings-info-row { display: flex; align-items: center; gap: 16px; padding: 17px 24px; font-size: 26px; margin-bottom: 8px; background: #202020d6; border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 14px; }
 .settings-info-row svg { width: 22px; height: 22px; margin: 0; }
 .settings-pane .settings-server-action { display: flex; align-items: center; gap: 16px; }
 .settings-server-action svg { width: 22px; height: 22px; margin: 0; }
@@ -70,6 +71,20 @@
 .settings-value { color: rgba(237,237,237,.6); font-size: 19px; line-height: 1.4; margin: 4px 0 8px; padding: 0 24px; }
 /* Apple TVSettingsSectionHeader. */
 .settings-section-header { margin: 26px 0 6px; padding: 0 24px; font-size: 19px; font-weight: 600; letter-spacing: 1.2px; color: rgba(237,237,237,.6); }
+/* TVSettingsView.swift:424-431 and TVSettingsComponents.swift:425-448 at silo-apple 2ef3a171.
+   The detail stack spaces children by 8, then pads the pane body by 18.
+   Section labels pad 26 above and 6 below; footers pad 4 above.
+   Flex gap keeps that 8 from collapsing into the padding. */
+.settings-pane > .settings-pane-header { margin: 0; }
+/* 19pt system text uses a 23px line box, so a three-line footer is 69px and the next label stays 34px below it. */
+.settings-pane > .settings-section-header { margin: 0; padding: 26px 24px 6px; line-height: 23px; }
+.settings-pane > .settings-pane-header + * { margin-top: 18px; }
+.settings-pane > .settings-value { margin: 0; padding: 4px 24px 0; line-height: 23px; }
+.settings-pane > .browse-text { margin: 0; }
+.settings-pane.settings-controls > .browse-button,
+.settings-pane > .settings-info-row { margin-bottom: 0; }
+.settings-pane > .settings-subtitle-preview { margin-bottom: 8px; padding-bottom: 0; }
+.settings-pane > .settings-controls:empty { display: none; }
 /* Apple TVOpenSourceAcknowledgementsOverlay: a 1500 x 900 elevated panel over a dimmed screen, the document as one focus stop. */
 .acknowledgements-panel { position: fixed; z-index: 20; top: 90px; left: 210px; box-sizing: border-box; display: flex; flex-direction: column; width: 1500px; height: 900px; padding: 40px; background: #15171c; border: 1px solid rgba(255,255,255,.09); border-radius: 32px; box-shadow: 0 0 0 100vmax rgba(0,0,0,.82); }
 .acknowledgements-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
@@ -1444,8 +1459,10 @@
 .settings .browse-button:focus .settings-checkmark::after { color: #fff; }
 .settings-picker-hint { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #ffffff14; border-radius: 20px; }
 .settings-nested-group { margin-left: 24px; padding: 8px; border: 1px solid #ffffff12; border-radius: 14px; background: #ffffff06; }
-.settings-subtitle-preview { margin: 0 24px 8px; border: 1px solid #ffffff20; border-radius: 18px; background: linear-gradient(135deg, #263750, #10151d 65%, #352637); overflow: hidden; }
-.settings-subtitle-preview span { left: 16px; right: 16px; text-align: center; font-weight: 600; }
+/* SubtitleAppearancePreview.swift: tvOS height 150, grey gradient from the top-leading to the bottom-trailing corner, text padded 12 and 16. SwiftUI's gradient axis runs along the diagonal of the 958 x 150 box, which is 98.9deg; CSS "to bottom right" would slant the colour bands.
+   overflow:hidden would otherwise let this flex child shrink in a constrained pane. */
+.settings-subtitle-preview { display: flex; justify-content: center; align-items: flex-end; box-sizing: border-box; height: 150px; min-height: 150px; flex-shrink: 0; margin: 0 24px 8px; padding: 12px 16px; border-radius: 18px; background: linear-gradient(98.9deg, #525252, #0f0f0f); overflow: hidden; }
+.settings-subtitle-preview span { text-align: center; font-weight: 600; }
 /* TVSettingsPaneRowStyle isDestructive (TVSettingsComponents.swift:273-276): #B00020 at rest, #D22F3F on the white platter. */
 .settings-pane .settings-destructive { display: flex; align-items: center; gap: 16px; color: #b00020; }
 .settings-pane .settings-destructive .skyline-menu-icon { width: 22px; height: 22px; margin: 0; }
@@ -1463,4 +1480,10 @@
 .settings-category-detail { font-size: 16px; margin-top: 2px; }
 .settings-profile-name { font-size: 27px; }
 .settings-profile-account { font-size: 19px; }
-.settings-pane .browse-button { height: 66px; }
+/* TVSettingsPickerRow uses .font(.system(size: 26)), regular. The resting stroke is siloChromeRestingBorder, white at 9%, 1px. On is semibold. */
+.settings-pane .browse-button,
+.settings-info-row { height: 66px; font-weight: 400; border: 1px solid rgba(255, 255, 255, 0.09); }
+.settings-pane .settings-row-title,
+.settings-pane .settings-row-value { font-weight: 400; }
+.settings-pane .settings-chevron { font-weight: 600; }
+.settings-pane .browse-button[role="switch"][aria-checked="true"] .settings-row-value { font-weight: 600; }

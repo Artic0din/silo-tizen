@@ -27,7 +27,7 @@ test("native scrollbars stay hidden while the app still scrolls", async () => {
         <div class="accounts-rail" style="height:80px"><div style="height:400px;flex:none"></div></div>
         <div class="requests-scene"><div class="requests-rail" style="width:240px"><div style="width:900px;height:40px;flex:none"></div></div></div>
         <div class="personal-history"><div class="skyline-content" style="height:80px"><div style="height:400px"></div></div></div>
-        <div class="settings-pane" style="height:80px"><div style="height:400px"></div></div>
+        <div class="settings-pane" style="height:80px"><div style="height:400px;flex:none"></div></div>
     </main>`);
     try {
         const bars = await page.evaluate(() => [".accounts-rail", ".requests-rail", ".personal-history .skyline-content", ".settings-pane"].map(selector => {

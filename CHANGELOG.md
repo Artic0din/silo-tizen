@@ -22,6 +22,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Matched the subtitle preview caption's height to Apple TV.
 - The collapsed A–Z circle is plain.
 - Hid the TV's native scrollbars, drew the History returning mark as an outlined television, drew the collapsed A–Z index as Apple's 10px circle plus the faint letter marks, and centred Related captions on the poster.
 - Removed the Continue Watching playback bar, kept Search posters 247px apart, restored biography paragraphs, and matched Related captions and the Written by order to Apple TV.

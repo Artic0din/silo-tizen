@@ -543,9 +543,11 @@ test("Settings rows use Apple's regular label and resting stroke", async () => {
             const style = getComputedStyle(node);
             const on = getComputedStyle(node.querySelector(".settings-row-value")!);
             const off = getComputedStyle(document.querySelector('[data-focus="title-art-all"] .settings-row-value')!);
-            return { weight: style.fontWeight, border: style.borderTopWidth, borderColor: style.borderTopColor, on: on.fontWeight, off: off.fontWeight };
+            const offRow = document.querySelector('[data-focus="title-art-all"]')!;
+            return { weight: style.fontWeight, border: style.borderTopWidth, borderColor: style.borderTopColor, on: on.fontWeight, off: off.fontWeight, onOpacity: on.opacity, offOpacity: off.opacity, fill: style.backgroundColor, offFill: getComputedStyle(offRow).backgroundColor };
         });
-        assert.deepEqual(row, { weight: "400", border: "1px", borderColor: "rgba(255, 255, 255, 0.09)", on: "600", off: "400" });
+        // Colors.swift:70 siloChromeRestingFill, and TVSettingsToggleRow's opacity for each state.
+        assert.deepEqual(row, { weight: "400", border: "1px", borderColor: "rgba(255, 255, 255, 0.09)", on: "600", off: "400", onOpacity: "0.9", offOpacity: "0.55", fill: "rgba(255, 255, 255, 0.07)", offFill: "rgba(255, 255, 255, 0.07)" });
     } finally { await tv.page.context().close(); }
 });
 

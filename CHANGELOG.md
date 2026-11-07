@@ -23,12 +23,14 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Show the series name and episode tag while playing when Resume or Start Over starts from the series page and the episode item omits them.
-- Move the scrub thumbnail with the playhead, 300px from the bottom of the screen.
+- Move the scrub thumbnail with the playhead, 101.0234375px above the handle, in a 236.265625px card.
+- Open the hidden player panel on Video, and the options button on the last tab, which starts on Info.
 - Kept the page transparent over AVPlay. The black opening is a loading backdrop only, and a previous screen in the same root is not painted while the player is up. Once a frame has shown, that backdrop stays off through a later load, reconnect and restore.
 - Kept the other series' title and the fresh season and episode on an On Deck play, so the player can show them.
 - Blurred an unwatched On Deck episode still when image spoilers are on, and left series art sharp.
 - Waited for a pending Auto-play save before an ended episode decided whether to continue.
 - Matched Apple TV playback opening, hidden Up, the title lines, and the panel: a spinner on black, Up reveals the scrubber, pause shows no status line, and the open panel hides the transport until Back.
+- Showed Calendar noon as 12:00 pm on an en-GB TV, and kept the first Search person visible.
 - Kept a decoded Details title logo in place across later repaints, so the metadata row no longer jumps back to the text title during that visit.
 - Matched the Details metadata row to Apple TV: the content rating and advisory age sit in outlined chips sized to the 18pt line height so the stroke stays inside the row, and the year, runtime and genres are separate text facts on that same row.
 - Removed the extra focus outline on Accounts rows and Cancel. Change Account keeps the backdrop stage the previous screen left, warm after Who's watching and blue after sign-in, and an unfocused selected server is white at 14%.
@@ -66,7 +68,7 @@ All notable changes to this project are documented in this file.
 - Followed playback after an external resume during scrubbing and preserved newer Play/Pause choices while a scrub seek landed.
 - Resumed committed scrubs after a server reanchor, kept Skip reachable with the remote, and let navigation cross Audio while its choices loaded.
 - Kept the latest Play/Pause choice when remote presses arrive during a seek.
-- Resumed playback after a timeline scrub once the seek finished, let the remote move through an empty audio list, and cropped seek previews to each thumbnail's own shape.
+- Resumed playback after a timeline scrub once the seek finished, and let the remote move through an empty audio list.
 - Kept the Details hero pinned when action focus survived a repaint during its return scroll.
 - Opened a remembered profile and cached Home promptly on cold start while checking the saved session in the background, then refreshed the top-bar profile artwork from the reconciled summary.
 - Kept a detail Cancel's hub card visible while the shared gate still owns it, even when a refresh already sees the server's cancelled state, and left hub cards alone so a failed quiet refresh keeps its earlier rows.

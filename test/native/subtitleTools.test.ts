@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_APPEARANCE } from "../../src/contracts/v2/subtitles.ts";
-import { appearanceSummary, appearanceValue, delayLabel, delayOptions, editAppearance, languageChoices, scoreTier, subtitleControlSupport, syncWriteScope } from "../../src/player/subtitleAppearance.ts";
+import { AUDIO_KEY, decodeSettingsContract } from "../../src/contracts/v2/settings.ts";
+import { allowedScopes, appearanceSummary, appearanceValue, delayLabel, delayOptions, editAppearance, languageChoices, scoreTier, subtitleControlSupport, syncWriteScope } from "../../src/player/subtitleAppearance.ts";
 import { SubtitleDisplay } from "../../src/player/subtitleDisplay.ts";
 import { SubtitleSearch } from "../../src/player/subtitleSearch.ts";
 import { decodeProviderStatus, decodeSearchResponse } from "../../src/contracts/v2/subtitleSearch.ts";
 import { connected, signIn } from "./support/harness.ts";
-import { problem } from "./support/fakeSilo.ts";
+import { fixture, problem } from "./support/fakeSilo.ts";
 
 const FILE = "42";
 const PROVIDERS = "/subtitles/providers/status";
@@ -360,5 +361,53 @@ test("a leftover device delay that cannot be removed says this TV still has its 
     await display.load();
     assert.equal(display.view?.delayMs, 800);
     assert.match(display.view?.message ?? "", /this TV still has its own/i);
+    display.destroy();
+});
+
+/** Live `player.subtitle_sync_ms`: profile scope arrives as `{scope, introduced_in}` from revision 19. Settings skips that unknown key. */
+const taggedSync = { key: SYNC, introduced_in: 1, persistence: "remote", allowed_scopes: [{ scope: "profile", introduced_in: 19 }, "profile_device"], resolution_order: ["profile_device", "profile", "default"], value_schema: { type: "integer", minimum: -10000, maximum: 10000 }, default_value: 0, unit: "milliseconds", recommended_control: "slider" };
+const liveAppearance = { key: APPEARANCE, introduced_in: 1, persistence: "remote", allowed_scopes: ["profile", "profile_device"], resolution_order: ["profile_device", "profile", "default"], value_schema: { type: "object", schema_ref: "subtitle-appearance.json" }, default_value: DEFAULT_APPEARANCE, recommended_control: "panel" };
+
+function liveContract(revision = 27) {
+    const base = fixture("settings_contract_ok");
+    const definitions = Array.isArray(base.definitions) ? [...base.definitions, liveAppearance, taggedSync] : [liveAppearance, taggedSync];
+    return { ...base, revision, definitions };
+}
+
+test("a revision-tagged delay scope is a profile scope from the revision that added it", () => {
+    const support = subtitleControlSupport(liveContract(27), capability(27));
+    assert.equal(support.delay, true);
+    assert.equal(support.styling, true);
+    assert.equal(support.syncAtProfile, true);
+    assert.deepEqual(allowedScopes(liveContract(27), SYNC), ["profile", "profile_device"]);
+    const older = subtitleControlSupport(liveContract(18), capability(18));
+    assert.equal(older.delay, true);
+    assert.equal(older.syncAtProfile, false);
+    assert.deepEqual(allowedScopes(liveContract(18), SYNC), ["profile_device"]);
+});
+
+test("the settings contract the Settings screen accepts still loads subtitle preferences", async () => {
+    const body = liveContract();
+    const decoded = decodeSettingsContract(body);
+    assert.ok(decoded.definitions.some(def => def.key === AUDIO_KEY));
+    assert.ok(decoded.definitions.some(def => def.key === APPEARANCE));
+    const h = await signed();
+    const deviceId = h.core.session.http.deviceId;
+    const deviceRow = (key: string) => ({ status: 200, body: { revision: 27, items: [{ key, scope: "profile_device", profile_id: "p-owner", device_id: deviceId, is_set: false }] } });
+    h.fake.script("/settings/contract/capabilities", { status: 200, body: capability(27) });
+    h.fake.script("/settings/contract", { status: 200, body });
+    h.fake.script(`/settings/values?scope=profile_device&keys=${APPEARANCE}`, deviceRow(APPEARANCE));
+    h.fake.script(`/settings/values?scope=profile_device&keys=${SYNC}`, deviceRow(SYNC));
+    h.fake.script("/settings/subtitle-appearance/effective", { status: 200, body: { profile_id: "p-owner", effective_value: JSON.stringify(DEFAULT_APPEARANCE) } });
+    h.fake.script(`/settings/values/effective?keys=${SYNC}`, { status: 200, body: { items: [{ key: SYNC, value: 400 }] } });
+    const display = new SubtitleDisplay(h.core.session, "p-owner", () => undefined, () => undefined);
+    await display.load();
+    const paths = h.fake.requests.map(request => request.path);
+    assert.equal(display.view?.message, "");
+    assert.equal(display.view?.delay, true);
+    assert.equal(display.view?.styling, true);
+    assert.equal(display.view?.delayMs, 400);
+    assert.ok(paths.includes("/settings/subtitle-appearance/effective"));
+    assert.ok(paths.includes(`/settings/values/effective?keys=${SYNC}`));
     display.destroy();
 });

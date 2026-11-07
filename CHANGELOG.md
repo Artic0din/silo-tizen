@@ -23,6 +23,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Loaded in-player subtitle delay and appearance when the settings contract tags a scope with the revision that added it.
 - Show the series name and episode tag while playing when Resume or Start Over starts from the series page and the episode item omits them.
 - Move the scrub thumbnail with the playhead, 101.0234375px above the handle, in a 236.265625px card.
 - Open the hidden player panel on Video, and the options button on the last tab, which starts on Info.

@@ -1921,10 +1921,12 @@ test("backing out of subtitle results restores the chosen language", async () =>
     } finally { await page.close(); }
 });
 
+const CLOSED_SEARCH = { offered: true, unavailableReason: "", phase: "closed" as const, suggested: [], other: [], language: undefined, status: "", message: "", warnings: [], canRetry: false, results: [], downloadingKey: undefined };
+
 test("subtitle search remains remote reachable without existing subtitle tracks", async () => {
     const { page } = await open();
     const tracks: TrackView = { ...TRACKS, subtitles: [], subtitleTools: {
-        search: { offered: true, unavailableReason: "", phase: "closed", suggested: [], other: [], language: undefined, status: "", message: "", warnings: [], canRetry: false, results: [], downloadingKey: undefined },
+        search: CLOSED_SEARCH,
         overlay: false,
     } };
     try {
@@ -1935,6 +1937,42 @@ test("subtitle search remains remote reachable without existing subtitle tracks"
         assert.equal(await focused(page), "subtitles-off");
         await remote(page, DOWN);
         assert.equal(await focused(page), "subtitle-search");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ['subtitleTool {"kind":"search-open"}']);
+    } finally { await page.close(); }
+});
+
+test("subtitle search stays reachable under a long track list and after a preference failure", async () => {
+    const { page } = await open();
+    const subtitles = Array.from({ length: 12 }, (_, index) => ({ id: `file:42:subtitle:${index}`, label: `Subtitle ${index + 1}` }));
+    const failed = "Could not load subtitle preferences. Reopen playback to retry.";
+    const tracks: TrackView = {
+        ...TRACKS,
+        subtitles,
+        subtitleTools: {
+            search: CLOSED_SEARCH,
+            display: { delay: false, styling: false, deviceScope: false, textOpacity: false, delayMs: 0, appearance: DEFAULT_APPEARANCE, deviceOverride: false, busy: false, message: failed },
+            overlay: true,
+        },
+    };
+    try {
+        await show(page, playing(tracks));
+        await openPanel(page);
+        for (let index = 0; index < 4; index++) await remote(page, RIGHT);
+        assert.match(await text(page, ".player-menu-status"), /Could not load subtitle preferences/);
+        assert.equal(await focused(page), "subtitles-off");
+        for (let index = 0; index < subtitles.length + 1; index += 1) await remote(page, DOWN);
+        assert.equal(await focused(page), "subtitle-search");
+        assert.equal(await page.locator('[data-focus="subtitle-search"]').getAttribute("aria-disabled"), "false");
+        await page.clock.resume();
+        await page.waitForFunction(() => {
+            const list = document.querySelector(".player-menu-subtitles");
+            const focus = document.activeElement;
+            if (list === null || focus === null) return false;
+            const bounds = list.getBoundingClientRect();
+            const item = focus.getBoundingClientRect();
+            return item.top >= bounds.top && item.bottom <= bounds.bottom;
+        });
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), ['subtitleTool {"kind":"search-open"}']);
     } finally { await page.close(); }

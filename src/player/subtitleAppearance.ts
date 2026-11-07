@@ -6,7 +6,7 @@
 
 import type { SubtitleAppearance } from "../contracts/v2/subtitles.ts";
 import { decodeSettingsCapabilities } from "../contracts/v2/settings.ts";
-import { integer, object, WireError } from "../contracts/v2/wire.ts";
+import { integer, object, string, WireError } from "../contracts/v2/wire.ts";
 
 export const APPEARANCE_KEY = "playback.subtitle_appearance";
 export const SYNC_KEY = "player.subtitle_sync_ms";
@@ -137,13 +137,24 @@ export function allowedScopes(contract: unknown, key: string): readonly string[]
     return definitionScopes(contract, key, revision) ?? [];
 }
 
+/** A scope is a name, or `{ scope, introduced_in }` once that revision is being served. */
+function scopeAt(entry: unknown, revision: number): string | undefined {
+    if (typeof entry === "string") return entry;
+    const row = object(entry, "setting_definition.allowed_scopes");
+    const name = string(row, "scope", "setting_definition.allowed_scopes");
+    return integer(row, "introduced_in", "setting_definition.allowed_scopes") <= revision ? name : undefined;
+}
+
 function definitionScopes(contract: unknown, key: string, revision: number): readonly string[] | undefined {
     const body = object(contract, "settings_contract");
     if (!Array.isArray(body.definitions)) throw new WireError("settings_contract.definitions", "an array");
     const found = body.definitions.map(entry => object(entry, "setting_definition")).find(entry => entry.key === key && integer(entry, "introduced_in", "setting_definition") <= revision);
     if (found === undefined) return undefined;
-    if (!Array.isArray(found.allowed_scopes) || found.allowed_scopes.some(scope => typeof scope !== "string")) throw new WireError("setting_definition.allowed_scopes", "strings");
-    return found.allowed_scopes.filter((scope): scope is string => typeof scope === "string");
+    if (!Array.isArray(found.allowed_scopes)) throw new WireError("setting_definition.allowed_scopes", "scope names");
+    return found.allowed_scopes.flatMap(entry => {
+        const name = scopeAt(entry, revision);
+        return name === undefined ? [] : [name];
+    });
 }
 
 export function subtitleControlSupport(contract: unknown, capabilityValue: unknown): SubtitleControlSupport {

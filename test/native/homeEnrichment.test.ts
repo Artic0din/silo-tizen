@@ -202,6 +202,45 @@ test("the marquee line is the aired date and the first three billed cast", async
     assert.equal(enrichment.detailLine("episode:e1"), "Aired Mar 12, 2026 · Pedro Pascal, Bella Ramsey, Anna Torv");
 });
 
+test("a 20-card Continue Watching row keeps 4 saved-file reads in flight, then completes and redraws every badge", async () => {
+    const server = new DetailServer();
+    let continuingSettled = 0;
+    const { enrichment } = owner(server, () => undefined, () => { continuingSettled++; });
+    const file = { file_id: "saved", resolution: "1080p", codec_video: "h264", codec_audio: "aac", hdr: false, container: "mp4", file_size: 1, duration: 60, bitrate: 1, added_at: "2026-01-01T00:00:00Z" };
+    const cards = Array.from({ length: 20 }, (_, index) => {
+        const id = `movie:cw${index}`;
+        server.details.set(id, { user_data: { played: false, last_file_id: "saved" }, versions: [file] });
+        return card(id, { progressUpdatedAt: "r1" });
+    });
+    enrichment.present([{ cards, continuing: true }], false);
+    await settle();
+    assert.equal(server.maxInFlight, 4);
+    assert.equal(server.paths.length, 4);
+    assert.equal(continuingSettled, 0);
+    await server.drain();
+    assert.equal(server.maxInFlight, 4);
+    assert.equal(server.ids().length, 20);
+    assert.equal(new Set(server.ids()).size, 20);
+    assert.equal(continuingSettled, 1);
+    for (const title of cards) assert.deepEqual(enrichment.savedFile(title)?.badges, ["1080p", "AAC"]);
+});
+
+test("suspend cancels Continue Watching reads that have not started", async () => {
+    const server = new DetailServer();
+    let continuingSettled = 0;
+    const { enrichment } = owner(server, () => undefined, () => { continuingSettled++; });
+    const cards = Array.from({ length: 20 }, (_, index) => card(`movie:cw${index}`, { progressUpdatedAt: "r1" }));
+    enrichment.present([{ cards, continuing: true }], false);
+    await settle();
+    assert.equal(server.paths.length, 4);
+    enrichment.suspend();
+    await server.drain();
+    await settle();
+    assert.equal(server.paths.length, 4);
+    assert.equal(continuingSettled, 0);
+    assert.equal(enrichment.savedFile(cards[0] ?? card("x")), undefined);
+});
+
 test("Continue Watching shows the exact last-played file, never a guess", async () => {
     const server = new DetailServer();
     const file = (id: string, extra: Record<string, unknown>) => ({ file_id: id, resolution: "1080p", codec_video: "h264", codec_audio: "aac", hdr: false, container: "mp4", file_size: 1, duration: 60, bitrate: 1, added_at: "2026-01-01T00:00:00Z", ...extra });

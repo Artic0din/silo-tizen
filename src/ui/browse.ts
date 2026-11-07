@@ -827,7 +827,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             clock.schedule(() => { throw error; }, 0);
         });
     };
-    // Detail the rows don't carry. Continue Watching reads its saved file when the row loads.
+    // Detail the rows don't carry. Continue Watching reads its saved file when the row loads, four at a time.
     // Every other title waits until the marquee has rested (TVFocusMarquee.loadEnrichment).
     const homeDetails = new HomeEnrichment((spec, signal) => session.call({ ...spec, signal, profileScoped: true }), id => { if (!torn) shell.refreshDetails(id); }, () => {
         // Continue Watching cards redraw once with saved-file badges, keeping focus where it is.

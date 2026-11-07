@@ -27,7 +27,7 @@ All notable changes to this project are documented in this file.
 - Open the hidden player panel on Video, and the options button on the last tab, which starts on Info.
 - Kept the page transparent over AVPlay. The black opening is a loading backdrop only, and a previous screen in the same root is not painted while the player is up. Once a frame has shown, that backdrop stays off through a later load, reconnect and restore.
 - Matched Apple TV playback opening, hidden Up, the title lines, and the panel: a spinner on black, Up reveals the scrubber, pause shows no status line, and the open panel hides the transport until Back.
-- Stopped Home from asking for every title's details as soon as it appears. The card you rest on is read after a short pause, Continue Watching still reads the file you were playing, and For You warms only the first few cards that are missing a rating.
+- Stopped Home from asking for every title's details as soon as it appears. The card you rest on is read after a short pause, Continue Watching reads the file you were playing four titles at a time, and For You warms only the first few cards that are missing a rating.
 - Kept focus on a season you select right after a series opens, instead of moving it to Play or Resume.
 - Matched Settings row fill and the On and Off value brightness to Apple TV.
 - Matched Profile Selection's caption to each launch choice. Settings footers use a 23px line so section labels sit at Apple's measured rows, the subtitle preview stays 958 by 150, and pane rows use a regular label with a 1px white stroke at 9%.

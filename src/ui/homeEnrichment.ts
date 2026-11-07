@@ -3,7 +3,11 @@
 // silo-apple 2ef3a171 (AGPL-3.0-or-later):
 // - TVFocusMarquee.swift waits `marqueeRestDebounceMilliseconds` (150) before an uncached detail read,
 //   and drops the answer when focus has moved.
-// - EpisodeThumbCard.swift loads Continue Watching's saved file when that card is mounted.
+// - EpisodeThumbCard.swift:108-110 loads Continue Watching's saved file from `.task` when that
+//   card's view exists. MediaRow.swift:413-416 keeps the row in a LazyHStack, so a card that
+//   has not been mounted is not read (MediaRow.swift:49-50, 168-169). ArtworkLookahead warms
+//   image bytes from the focused card (MediaRow.swift:143, 481-486), not item detail.
+//   This row draws every card, so those saved-file reads stay on the queue, four at a time.
 // - RecommendationsView.swift prewarms at most two rows of eight cards that omit a content rating,
 //   three at a time. Home does not. Home's own prefetch is image bytes, not item detail.
 // The presentation below is ported from TVMarqueeEnrichment and TVContinueWatchingPlaybackMetadataStore.
@@ -26,6 +30,12 @@ export const FOR_YOU_PREWARM_CARDS = 8;
 
 /** `RecommendationsView.prewarmInitialMarqueeDetails`: three detail reads at a time. */
 export const FOR_YOU_PREWARM_CONCURRENCY = 3;
+
+/**
+ * Saved-file reads in flight for one Continue Watching row.
+ * Apple mounts only the visible LazyHStack cards; this row draws all of them.
+ */
+export const CONTINUE_WATCHING_CONCURRENCY = 4;
 
 export interface HomeEnrichmentRow {
     readonly cards: readonly Card[];
@@ -68,8 +78,9 @@ export class HomeEnrichment {
     }
 
     /**
-     * Continue Watching cards read the saved file as each mounted card does on Apple.
-     * For You also warms ratings the first two rows omitted. Neither path reads every other title.
+     * Continue Watching reads each saved file, four at a time. For You also warms ratings the
+     * first two rows omitted, except titles this pass is already reading. Neither path reads
+     * every other title.
      */
     present(rows: readonly HomeEnrichmentRow[], prewarmRatings: boolean): void {
         this.continuingController?.abort();
@@ -77,7 +88,7 @@ export class HomeEnrichment {
         const continuing = new AbortController();
         this.continuingController = continuing;
         const seen = new Set<string>();
-        let pending = 0;
+        const jobs: { id: string; revision: string }[] = [];
         for (const row of rows) {
             if (!row.continuing) continue;
             for (const card of row.cards) {
@@ -85,26 +96,26 @@ export class HomeEnrichment {
                 seen.add(card.id);
                 const revision = card.progressUpdatedAt ?? "";
                 if (this.fresh(card.id, revision)) continue;
-                pending += 1;
-                this.request(card.id, revision, continuing.signal, () => {
-                    if (continuing.signal.aborted) return;
-                    if (this.focusedId === card.id && this.fresh(card.id, revision)) this.landed(card.id);
-                    pending -= 1;
-                    if (pending === 0) this.continuingSettled();
-                });
+                jobs.push({ id: card.id, revision });
             }
         }
+        let pending = jobs.length;
+        this.pump(jobs, continuing.signal, CONTINUE_WATCHING_CONCURRENCY, () => {
+            if (continuing.signal.aborted) return;
+            pending -= 1;
+            if (pending === 0) this.continuingSettled();
+        });
         if (!prewarmRatings) return;
         const prewarm = new AbortController();
         this.prewarmController = prewarm;
         const ids: string[] = [];
         for (const row of rows.slice(0, FOR_YOU_PREWARM_ROWS)) {
             for (const card of row.cards.slice(0, FOR_YOU_PREWARM_CARDS)) {
-                if (!missingRating(card) || this.fresh(card.id, undefined) || ids.includes(card.id)) continue;
+                if (!missingRating(card) || this.fresh(card.id, undefined) || seen.has(card.id) || ids.includes(card.id)) continue;
                 ids.push(card.id);
             }
         }
-        this.pump(ids, prewarm.signal);
+        this.pump(ids.map(id => ({ id, revision: undefined })), prewarm.signal, FOR_YOU_PREWARM_CONCURRENCY);
     }
 
     /**
@@ -206,22 +217,23 @@ export class HomeEnrichment {
         }, { once: true });
     }
 
-    /** For You's rating warm-up: three titles at a time, and a cancelled scene stops the queue. */
-    private pump(ids: readonly string[], signal: AbortSignal): void {
-        const queue = [...ids];
-        const workers = Math.min(FOR_YOU_PREWARM_CONCURRENCY, queue.length);
+    /** At most `concurrency` reads at once. One flight per title, and a cancelled scene stops the queue. */
+    private pump(jobs: readonly { id: string; revision: string | undefined }[], signal: AbortSignal, concurrency: number, onDone?: () => void): void {
+        const queue = [...jobs];
+        const workers = Math.min(concurrency, queue.length);
         const worker = async (): Promise<void> => {
             for (;;) {
                 if (signal.aborted) return;
-                const id = queue.shift();
-                if (id === undefined) return;
+                const job = queue.shift();
+                if (job === undefined) return;
                 await new Promise<void>(resolve => {
                     if (signal.aborted) {
                         resolve();
                         return;
                     }
-                    this.request(id, undefined, signal, () => {
-                        if (!signal.aborted && this.focusedId === id && this.fresh(id, undefined)) this.landed(id);
+                    this.request(job.id, job.revision, signal, () => {
+                        if (!signal.aborted && this.focusedId === job.id && this.fresh(job.id, job.revision)) this.landed(job.id);
+                        onDone?.();
                         resolve();
                     });
                 });

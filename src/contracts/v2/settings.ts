@@ -17,11 +17,6 @@ export const SEEK_FORWARD_KEY = "player.video_skip_forward_seconds";
 export const SEEK_KEYS = [SEEK_BACK_KEY, SEEK_FORWARD_KEY] as const;
 /** Device-only boolean. Apple's manifest lists it; the vendored subset does not. */
 export const HDR_KEY = "player.hdr_enabled";
-/**
- * Apple stores `player.dolby_vision_enabled`. This client does not read or write it:
- * Samsung exposes no Dolby Vision support check, and the capability profile claims no profile.
- */
-export const DOLBY_VISION_KEY = "player.dolby_vision_enabled";
 export const HDR_KEYS = [HDR_KEY] as const;
 const SEEK_SECONDS = [5, 10, 15, 30, 45, 60, 90];
 export const NEXT_UP_KEY = "playback.next_up_prompt_seconds";

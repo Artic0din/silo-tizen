@@ -30,10 +30,9 @@ const CATEGORY_BLURBS = {
     server: "The Silo server this TV is connected to.",
 } as const;
 const SUBTITLE_FOOTER = "Used to pick a matching track when one is available. Forced subtitles cover foreign-language dialogue even when subtitles are off or set to auto.";
-/** SettingsViewModel.swift:136-142, the sentence that is true here. The tvOS original-file sentence is omitted; see docs/settings.md. */
-// After STREAMING, as TVPlaybackSettingsView.swift:248-258. Wording is SettingsViewModel.swift:136-143
-// (tvOS) without "without Dolby Vision", and without the Lossless and TrueHD sentences at 251-257.
-const HDR_FOOTER = "With HDR off, videos the server converts for this device are sent in SDR. Videos that play from the original file can still play in HDR, and the TV can still switch to HDR for them.";
+/** First sentence of SettingsViewModel.hdrFooterText (136-143), without "without Dolby Vision". The tvOS original-file sentence is omitted; see docs/settings.md. */
+// After STREAMING, as TVPlaybackSettingsView.swift:248. The Lossless and TrueHD sentences at 251-257 are not on this pane.
+const HDR_FOOTER = "With HDR off, videos the server converts for this device are sent in SDR.";
 /** tvOS preview point sizes at 1080 lines, then ×0.5. SubtitleAppearance.swift:36-41; SubtitleAppearancePreview.swift:19-21,128-129. */
 const TV_PREVIEW_POINT_SIZE = { small: 43, medium: 51, large: 58, xlarge: 74, xxlarge: 88 } as const;
 const MODE_CHOICES = [["auto", "Auto"], ["always", "Always"], ["off", "Off"]] as const;

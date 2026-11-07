@@ -27,6 +27,24 @@ test("off or an unsupported panel matches the SDR capability profile exactly", (
     }
 });
 
+test("HDR off omits HDR on the output and on every delivery", () => {
+    const supporting = probeHdrPanel({ webapis: { avinfo: { isHdrTvSupport: () => true } } });
+    const report: HdrReport = { panel: supporting, preference: { hdrEnabled: false } };
+    const capabilities = clientCapabilities(report);
+    const context = playbackContext("S95C", "0.1.0", report);
+    assert.equal(capabilities.hdr, false);
+    assert.equal(capabilities.hdr_details, undefined);
+    assert.equal(context.output.hdr_details, undefined);
+    assert.deepEqual(Object.keys(context.deliveries).sort(), ["hls", "original_http"]);
+    for (const kind of ["original_http", "hls"]) {
+        const delivery = context.deliveries[kind];
+        assert.ok(delivery, kind);
+        assert.equal(delivery.enabled, true);
+        assert.equal(delivery.hdr_details, undefined, kind);
+        assert.equal(delivery.validated_claims.includes("client_managed_dynamic_range_v1"), false, kind);
+    }
+});
+
 test("HDR on claims only the ranges the panel reported, and Dolby Vision profiles stay empty", () => {
     const hdr10 = { hdr10: true, hdr10_plus: false, hlg: false, dolby_vision_profiles: [] as readonly number[] };
     const report: HdrReport = { panel: { hdr10: true, hlg: true, dolbyVision: true }, preference: { hdrEnabled: true } };

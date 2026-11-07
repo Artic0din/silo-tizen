@@ -3,9 +3,11 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
-import { AUDIO_KEY, DOLBY_VISION_KEY, HDR_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, SHOW_FORCED_KEY } from "../../src/contracts/v2/settings.ts";
+import { AUDIO_KEY, HDR_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, SHOW_FORCED_KEY } from "../../src/contracts/v2/settings.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
+
+const DOLBY_VISION_KEY = "player.dolby_vision_enabled";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -1102,9 +1104,9 @@ test("Playback shows HDR after the Streaming rows and never shows or writes Dolb
         assert.deepEqual(await tv.page.locator(".settings-section-header").allTextContents(), ["QUALITY", "STREAMING", "EPISODES", "SPOILERS", "VIDEO", "RESET"]);
         assert.equal(await tv.page.locator('[data-focus="hdr"] .settings-row-value').innerText(), "On");
         assert.equal(await tv.page.getByRole("switch", { name: "HDR", exact: true }).getAttribute("aria-checked"), "true");
-        // TVPlaybackSettingsView.swift:248-258, after the STREAMING rows. SettingsViewModel.swift:136-143
-        // without "without Dolby Vision", and without the Lossless and TrueHD sentences at 251-257.
-        assert.equal(await tv.page.locator(".settings-hdr-footer").innerText(), "With HDR off, videos the server converts for this device are sent in SDR. Videos that play from the original file can still play in HDR, and the TV can still switch to HDR for them.");
+        // TVPlaybackSettingsView.swift:248-258, after the STREAMING rows. The first sentence of
+        // SettingsViewModel.swift:136-143, without "without Dolby Vision". The original-file sentence is omitted.
+        assert.equal(await tv.page.locator(".settings-hdr-footer").innerText(), "With HDR off, videos the server converts for this device are sent in SDR.");
         const place = await tv.page.evaluate(() => {
             const streaming = [...document.querySelectorAll(".settings-section-header")].find(node => node.textContent === "STREAMING");
             const hdrRow = document.querySelector('[data-focus="hdr"]');

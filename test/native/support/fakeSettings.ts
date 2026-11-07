@@ -1,6 +1,7 @@
 import type { FakeSilo, Reply } from "./fakeSilo.ts";
 import { fixture, problem } from "./fakeSilo.ts";
-import { AUDIO_KEY, DOLBY_VISION_KEY, HDR_KEY, QUALITY_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SETTINGS_KEYS, SHOW_FORCED_KEY, SPOILER_IMAGE_KEY, SPOILER_OVERVIEW_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, type SettingsKey, type SettingValue } from "../../../src/contracts/v2/settings.ts";
+import { AUDIO_KEY, HDR_KEY, QUALITY_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SETTINGS_KEYS, SHOW_FORCED_KEY, SPOILER_IMAGE_KEY, SPOILER_OVERVIEW_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, type SettingsKey, type SettingValue } from "../../../src/contracts/v2/settings.ts";
+const DOLBY_VISION_KEY = "player.dolby_vision_enabled";
 const TITLE = "ui.title_art" as SettingsKey;
 
 export class FakeSettings {

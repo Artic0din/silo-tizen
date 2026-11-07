@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { operations } from "../../src/api/operations.ts";
-import { AUDIO_KEY, DOLBY_VISION_KEY, HDR_KEY, HIDDEN_KEY, SETTINGS_KEYS, decodeEffectiveSettings, decodeExplicitSettings, decodeSettingsCapabilities, decodeSettingsContract, decodeSettingValue, numericLibraryId, profileSettings, type SettingsKey } from "../../src/contracts/v2/settings.ts";
+import { AUDIO_KEY, HDR_KEY, HIDDEN_KEY, SETTINGS_KEYS, decodeEffectiveSettings, decodeExplicitSettings, decodeSettingsCapabilities, decodeSettingsContract, decodeSettingValue, numericLibraryId, profileSettings, type SettingsKey } from "../../src/contracts/v2/settings.ts";
 import { PlaybackController } from "../../src/player/controller.ts";
 import { FakePlayback } from "./support/fakePlayback.ts";
 import { FakeAVPlay } from "./support/fakeAVPlay.ts";
@@ -11,6 +11,7 @@ import { FakeCatalog } from "./support/fakeCatalog.ts";
 import { FakeSettings } from "./support/fakeSettings.ts";
 import { fixture, problem } from "./support/fakeSilo.ts";
 
+const DOLBY_VISION_KEY = "player.dolby_vision_enabled";
 const QUALITY = "playback.preferred_quality" as SettingsKey;
 const BITRATE = "playback.max_bitrate_kbps" as SettingsKey;
 const SEEK_BACK = "player.video_skip_back_seconds" as SettingsKey;

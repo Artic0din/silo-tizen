@@ -15,6 +15,10 @@ export const SHOW_FORCED_KEY = "playback.show_forced_subtitles" as const;
 export const SEEK_BACK_KEY = "player.video_skip_back_seconds";
 export const SEEK_FORWARD_KEY = "player.video_skip_forward_seconds";
 export const SEEK_KEYS = [SEEK_BACK_KEY, SEEK_FORWARD_KEY] as const;
+/** Device-only booleans. Apple's manifest lists them; the vendored subset does not. */
+export const HDR_KEY = "player.hdr_enabled";
+export const DOLBY_VISION_KEY = "player.dolby_vision_enabled";
+export const HDR_KEYS = [HDR_KEY, DOLBY_VISION_KEY] as const;
 const SEEK_SECONDS = [5, 10, 15, 30, 45, 60, 90];
 export const NEXT_UP_KEY = "playback.next_up_prompt_seconds";
 export const AUTO_NEXT_KEY = "playback.auto_play_next";
@@ -25,7 +29,7 @@ export const CARD_PRESENTATION_KEY = "ui.card_presentation";
 /** Profile switches from settings manifest revision 17. The consumed contract subset does not list them. */
 export const SPOILER_IMAGE_KEY = "catalog.hide_unwatched_episode_images";
 export const SPOILER_OVERVIEW_KEY = "catalog.hide_unwatched_episode_overviews";
-export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY, QUALITY_KEY, BITRATE_KEY, ...SEEK_KEYS, TITLE_ART_KEY, AUTO_NEXT_KEY, NEXT_UP_KEY, ...ROW_KEYS] as const;
+export const SETTINGS_KEYS = [HIDDEN_KEY, AUDIO_KEY, QUALITY_KEY, BITRATE_KEY, ...SEEK_KEYS, ...HDR_KEYS, TITLE_ART_KEY, AUTO_NEXT_KEY, NEXT_UP_KEY, ...ROW_KEYS] as const;
 export type SettingsKey = (typeof SETTINGS_KEYS)[number] | typeof AUTO_NEXT_KEY | typeof SUBTITLE_LANGUAGE_KEY | typeof SUBTITLE_MODE_KEY | typeof SHOW_FORCED_KEY | typeof CARD_OVERLAYS_KEY | typeof CARD_OVERLAYS_ENABLED_KEY | typeof CARD_PRESENTATION_KEY | typeof PRIMARY_MENU_KEY | typeof SPOILER_IMAGE_KEY | typeof SPOILER_OVERVIEW_KEY;
 type Json = null | boolean | string | number | readonly Json[] | { readonly [member: string]: Json | undefined };
 export type SettingValue = null | boolean | string | number | readonly number[] | { readonly [member: string]: Json | undefined };
@@ -122,6 +126,9 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
         if (subtitleLanguage && (schema.nullable !== true || schema.type !== "language_tag" || def.default_value !== null || def.recommended_control !== "select" || def.unset_label !== "None" || typeof def.suggested_options !== "string")) continue;
         if (subtitleMode && (schema.type !== "enum" || schema.nullable === true || def.default_value !== "auto" || def.recommended_control !== "select")) continue;
         if (showForced && (schema.type !== "boolean" || schema.nullable === true || def.default_value !== true || def.recommended_control !== "switch")) continue;
+        const hdr = key === HDR_KEY || key === DOLBY_VISION_KEY;
+        if (hdr && (def.persistence !== "remote" || schema.type !== "boolean" || schema.nullable === true || def.default_value !== true || def.introduced_in !== 1 || def.recommended_control !== "switch" || JSON.stringify(def.allowed_scopes) !== JSON.stringify(["profile_device"]) || JSON.stringify(def.resolution_order) !== JSON.stringify(["profile_device", "default"]))) continue;
+        if (hdr && definitions.some(existing => existing.key === key)) throw new WireError("setting_definition.key", "each HDR key once");
         if (key === HIDDEN_KEY && (schema.nullable !== true || schema.type !== "object" || schema.schema_ref !== "library-id-list.json")) continue;
         if (key === QUALITY_KEY && (schema.type !== "enum" || schema.nullable === true || def.default_value !== "auto" || def.recommended_control !== "select")) continue;
         if (key === BITRATE_KEY && (schema.type !== "integer" || schema.nullable !== true || schema.minimum !== 100 || schema.maximum !== 200000 || def.default_value !== null || def.unit !== "kbps" || def.recommended_control !== "select")) continue;
@@ -169,7 +176,8 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
             });
             if (definitions.some(def => def.key === key)) throw new WireError("setting_definition.key", "each seek key once");
         }
-        // Only the two seek keys and title art have approved advisory-platform adoption.
+        // Only the two seek keys and title art have approved advisory-platform adoption for a profile row.
+        // HDR keys are device-only, so a platform list that omits tizen does not hide them.
         definitions.push({ key, introducedIn: integer(def, "introduced_in", "setting_definition"), profile: scopes.includes("profile") && (extra || seek || titleArt || subtitleLanguage || subtitleMode || showForced || platforms === undefined || platforms.includes("tizen")), device: scopes.includes("profile_device"), client: scopes.includes("profile_client"), options });
     }
     return { apiVersion: integer(obj, "api_version", "settings_contract"), revision: integer(obj, "revision", "settings_contract"), definitions };
@@ -178,7 +186,8 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
 export function profileSettings(contract: SettingsContract, capability: SettingsCapabilities): readonly SettingDefinition[] {
     if (capability.apiVersion !== 1 || capability.state !== "available" || !capability.allowed || !capability.scopes.includes("profile") || contract.apiVersion !== 1) return [];
     const revision = Math.min(contract.revision, capability.manifestRevision);
-    const definitions = contract.definitions.filter(def => def.profile && def.introducedIn <= revision).map(def => ({ ...def, device: def.device === true && capability.scopes.includes("profile_device"), options: def.options.filter(option => option.introducedIn <= revision) }));
+    const deviceScope = capability.scopes.includes("profile_device");
+    const definitions = contract.definitions.filter(def => def.introducedIn <= revision && (def.profile || (deviceScope && def.device && (def.key === HDR_KEY || def.key === DOLBY_VISION_KEY)))).map(def => ({ ...def, device: def.device === true && deviceScope, options: def.options.filter(option => option.introducedIn <= revision) }));
     const pair = revision >= 9 && SEEK_KEYS.every(key => definitions.some(def => def.key === key && def.options.length === SEEK_SECONDS.length && def.options.every(option => !option.deprecated)));
     return definitions.filter(def => (pair || (def.key !== SEEK_BACK_KEY && def.key !== SEEK_FORWARD_KEY)) && (def.key !== TITLE_ART_KEY || capability.scopes.includes("profile_device")));
 }
@@ -229,6 +238,10 @@ export function decodeSettingValue(key: SettingsKey, value: unknown): SettingVal
     }
     if (key === SHOW_FORCED_KEY) {
         if (typeof value !== "boolean") throw new WireError("show_forced_subtitles.value", "a JSON boolean");
+        return value;
+    }
+    if (key === HDR_KEY || key === DOLBY_VISION_KEY) {
+        if (typeof value !== "boolean") throw new WireError(key, "a boolean");
         return value;
     }
     if (key === SUBTITLE_MODE_KEY) {

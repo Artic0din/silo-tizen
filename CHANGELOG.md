@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added HDR and Dolby Vision on Playback. A TV that reports HDR, with the HDR setting on, claims HDR10 for direct play. Dolby Vision is saved and is not claimed.
 - Added Paired Silo Profile on General, showing the profile this TV reopens and opening the profile picker to change it.
 - Added Remove Request for a failed request of yours, including the confirmation, the notice, and focus on the card that takes its place.
 - Hid unwatched episode stills and descriptions from Playback when the server supports the profile spoiler settings.

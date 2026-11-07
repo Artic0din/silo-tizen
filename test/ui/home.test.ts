@@ -906,11 +906,19 @@ for (const [name, configure, expected] of [
         await tv.jump(300);
         assert.deepEqual(await corners(tv, POSTER), expected);
         assert.equal(await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0004"] .browse-art').count(), 1, "Home stays usable");
-        const requests = tv.fake.requests.length;
+        const otherReads = (): number => tv.fake.requests.filter(request => !request.path.startsWith("/catalog/items/")).length;
+        const others = otherReads();
+        const beforeIds = detailReads(tv);
         await tv.page.locator(POSTER).focus();
         await tv.page.keyboard.press("ArrowLeft");
         await tv.jump(300);
-        assert.equal(tv.fake.requests.length, requests, "focus moves read nothing");
+        const rested = await tv.focused();
+        const mediaId = rested !== null && /^(movie|episode|series|season):/.test(rested) ? rested : undefined;
+        const expectDetail = mediaId !== undefined && !beforeIds.includes(mediaId);
+        // jump() returns before the page's fetch is logged.
+        if (mediaId !== undefined && expectDetail) await tv.eventually(async () => detailReads(tv).includes(mediaId), "rested card detail");
+        assert.equal(otherReads(), others, "focus moves do not reread badge settings");
+        assert.equal(detailReads(tv).length - beforeIds.length, expectDetail ? 1 : 0, "at most the rested card is read");
     }, catalog => enrichHome(catalog, badgeFields), configure);
 }
 
@@ -1319,6 +1327,9 @@ journey("a pending optional image probe cannot block cold Home", async tv => {
     await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0012"]').focus();
     await tv.jump(200);
     const focus = await tv.focused();
+    assert.equal(focus, "movie:m0012");
+    // The rest timer starts the read in the page. jump() returns before that fetch is logged.
+    await tv.eventually(async () => detailReads(tv).includes("movie:m0012"), "rested card detail started");
     const metadataReads = detailReads(tv).length;
     const upgraded = tv.page.waitForResponse(response => new URL(response.url()).pathname === "/api/v2/home/sections" && new URL(response.url()).searchParams.get("backdrop_width") === "1344");
     assert.equal(await tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), false);
@@ -1336,6 +1347,8 @@ journey("a pending optional image probe cannot block cold Home", async tv => {
     await tv.page.keyboard.press("ArrowRight"); await tv.jump(200);
     const rested = await tv.focused();
     assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, 2, "focus does not reload Home");
+    assert.ok(rested !== null && rested !== focus);
+    await tv.eventually(async () => detailReads(tv).filter(id => id === rested).length === 1, "resting reads the newly focused title once");
     assert.equal(detailReads(tv).filter(id => id === rested).length, 1, "resting reads the newly focused title once");
     assert.equal(tv.fake.requests.length, reads + 1, "that detail read is the only new request");
 }, catalog => {

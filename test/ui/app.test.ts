@@ -5,7 +5,7 @@ import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakePlayback } from "../native/support/fakePlayback.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { SEEK_BACK_KEY, SEEK_FORWARD_KEY } from "../../src/contracts/v2/settings.ts";
-import { homeDetailsRead, launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
+import { homeDetailsRead, launchBrowser, openTv, pauseTvClock, readLive, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -973,7 +973,13 @@ appTest("EOF during a refused subtitle change still offers manual continuation",
     assert.ok(id !== undefined);
     playback.next.push({ terminal: "adaptation_unavailable" });
     const response = tv.fake.hold(`/playback/${id}/replan`);
+    // Old Down opened the panel. Down focuses Play/Pause; Options opens Info, then Subtitles is two tabs right.
     await tv.remote(40);
+    await tv.remote(39);
+    await tv.remote(39);
+    await tv.remote(13);
+    await tv.remote(39);
+    await tv.remote(39);
     await tv.page.locator('.player-menu [data-focus="file:42:subtitle:0"]').click();
     await tv.page.evaluate(() => window.appHarness.avplay.listener?.onstreamcompleted());
     assert.equal(tv.fake.requests.filter(r => r.method === "DELETE").length, 0);
@@ -1074,6 +1080,9 @@ appTest("the composed app signs in, selects a profile, plays and returns to the 
     assert.equal(await tv.page.locator("object.player-video").count(), 1);
     await tv.page.keyboard.press("Enter");
     assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.state), "PAUSED");
+    // Old path: Enter toggled pause, and one Back left playback. Select now enters timeline scrub, so the first Back cancels it.
+    await tv.remote(10009);
+    assert.equal(await tv.page.locator('[data-screen="player"]').count(), 1);
     await tv.remote(10009);
     await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
     assert.equal(await tv.focused(), "play");
@@ -1341,6 +1350,45 @@ appTest("completion and dismissed playback errors return to browse without openi
     assert.equal(await tv.page.getByRole("dialog").count(), 0);
 });
 
+appTest("reopening a committed scrub holds its pending resume until Select", async tv => {
+    await signIn(tv);
+    await startMovie(tv);
+    await pauseTvClock(tv);
+    await tv.remote(13);
+    await tv.remote(39);
+    await tv.remote(13);
+    const seeks = await tv.page.evaluate(() => window.appHarness.avplay.calls.filter(call => call.startsWith("seekTo ")).length);
+    await tv.remote(13);
+    await tv.page.evaluate(() => window.appHarness.avplay.finishSeek());
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.state), "PAUSED");
+    assert.equal(await tv.page.locator(".player-bar-preview").count(), 1);
+    await tv.remote(13);
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.state), "PLAYING");
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.calls.filter(call => call.startsWith("seekTo ")).length), seeks);
+});
+
+for (const [command, state] of [[415, "PLAYING"], [19, "PAUSED"], [10252, "PAUSED"]] as const) appTest(`a moved reopened scrub keeps its target and latest transport command (${command})`, async tv => {
+    await signIn(tv);
+    await startMovie(tv);
+    await pauseTvClock(tv);
+    await tv.remote(13);
+    await tv.remote(39);
+    await tv.remote(13);
+    const seeks = await tv.page.evaluate(() => window.appHarness.avplay.calls.filter(call => call.startsWith("seekTo ")).length);
+    await tv.remote(13);
+    await tv.remote(39);
+    const target = Number(await tv.page.getByRole("slider").getAttribute("aria-valuenow"));
+    await tv.remote(13);
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.calls.filter(call => call.startsWith("seekTo ")).length), seeks);
+    await tv.remote(command);
+    await tv.page.evaluate(() => window.appHarness.avplay.finishSeek());
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.calls.filter(call => call.startsWith("seekTo ")).at(-1)), `seekTo ${target * 1000}`);
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.state), "PAUSED");
+    await tv.page.evaluate(() => window.appHarness.avplay.finishSeek());
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.positionMs), target * 1000);
+    assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.state), state);
+});
+
 appTest("the composed remote seeks and changes audio through the real playback owner", async (tv, playback) => {
     await signIn(tv);
     await startMovie(tv);
@@ -1350,7 +1398,12 @@ appTest("the composed remote seeks and changes audio through the real playback o
     await tv.page.keyboard.press("Enter");
     await tv.page.evaluate(() => window.appHarness.avplay.finishSeek());
     assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.positionMs), 80000);
+    // Old Down opened the panel on Audio. Down focuses Play/Pause; Options opens Info, and Audio is the next tab.
     await tv.page.keyboard.press("ArrowDown");
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("Enter");
+    await tv.page.keyboard.press("ArrowRight");
     const id = [...playback.sessions.keys()][0];
     assert.ok(id !== undefined);
     const hold = tv.fake.hold(`/playback/${id}/replan`);
@@ -1363,7 +1416,12 @@ appTest("the composed remote seeks and changes audio through the real playback o
     const change = tv.fake.requests.filter((request) => request.path.endsWith("/replan")).pop();
     assert.equal(change?.body?.operation, "track_change");
     assert.equal(change?.body?.position_seconds, 80);
+    // Old second Down reopened the panel. A track change closes it while the new route loads, and Options opens Info.
     await tv.page.keyboard.press("ArrowDown");
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("Enter");
+    await tv.page.keyboard.press("ArrowRight");
     assert.equal(await tv.page.locator('.player-menu [data-focus="file:42:audio:1"]').getAttribute("aria-pressed"), "true");
     await tv.remote(10009);
     assert.equal(await tv.page.locator(".player-menu").isVisible(), false);

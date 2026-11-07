@@ -244,7 +244,7 @@ export async function openTv(
  * Repeats until the live node is connected and `accept` holds. A timeout
  * includes the last value read.
  */
-export async function readLive<T, Arg>(tv: Tv, read: (arg: Arg) => T | null, arg: Arg, accept: (value: T) => boolean, what: string): Promise<T> {
+export async function readLive<T, Arg>(tv: Pick<Tv, "page" | "eventually">, read: (arg: Arg) => T | null, arg: Arg, accept: (value: T) => boolean, what: string): Promise<T> {
     let last: T | null = null;
     try {
         await tv.eventually(async () => {

@@ -255,10 +255,16 @@ It therefore never reaches the app's Exit dialog.
 While playback runs, `FocusHost.stop()` has removed browse's key listeners.
 Playback has these differences from browse:
 
-- Enter pauses or resumes.
+- Enter on the scrubber opens a paused timeline selection; another Enter commits it and resumes when playback was running.
   Left and Right preview a seek, Enter commits it and Back cancels it.
-  Up focuses the transport buttons, and Down opens the audio and subtitle menu.
-- The track menu captures every key: Up/Down within a list, Left/Right between lists, Enter chooses and Back closes.
+  A held direction keeps active playback running.
+  With controls visible, Down focuses Play/Pause, and Info and options opens the track menu.
+  With controls hidden, Down opens Video when that tab is shown and Info when it is not. Up leaves them hidden, and Left/Right reveals the scrubber and skips.
+  Playing controls hide after five seconds from the last interaction, including while a transport button has focus.
+- Playback resuming outside the scrubber cancels its timeline preview without seeking and restores auto-hide.
+  A hold that paused a pending resume returns that resume on cancellation only if no newer Play or Pause superseded it.
+- The track menu opens on the active tab.
+  Down enters its pane, Up at the top returns to its tab, Left/Right switches panes, Enter chooses and Back closes.
 - Play/Pause, Play, Pause, Stop, Rewind and Fast Forward act directly.
   Stop leaves playback.
 - Back from the overlay leaves playback (`controls.back()`), which restores the originating browse view and focus.

@@ -301,11 +301,16 @@ for (const season of [1, 2, 30]) detailTest(`fresh season ${season} has no retai
     await tv.page.locator(`[data-focus="season:${season}"]`).focus(); await tv.jump(500);
     const frame = await readLive(tv, liveRail, null, value => {
         const card = value.cards.at(-5);
-        const expected = card === value.cards[0] ? 109.7 : 149.5;
-        return card !== undefined && Math.abs(card.x - expected) <= 2 && Math.abs(value.cards.at(-1)!.right - 1818) <= 2;
+        const last = value.cards.at(-1);
+        const firstLeads = card === value.cards[0];
+        // The first episode shifts the whole rail back by the spacing, so the
+        // last card ends at 1818. A later episode keeps the unshifted edge.
+        return card !== undefined && last !== undefined && Math.abs(card.x - (firstLeads ? 109.7 : 149.5)) <= 2 && Math.abs(last.right - (firstLeads ? 1818 : 1858)) <= 2;
     }, 'fresh first and final card geometry');
     const anchored = frame.cards.at(-5)!;
-    assert.ok(Math.abs(anchored.x - (anchored === frame.cards[0] ? 109.7 : 149.5)) <= 2);
+    const firstLeads = anchored === frame.cards[0];
+    assert.ok(Math.abs(anchored.x - (firstLeads ? 109.7 : 149.5)) <= 2);
+    assert.ok(Math.abs(frame.cards.at(-1)!.right - (firstLeads ? 1818 : 1858)) <= 2, JSON.stringify(frame.cards.at(-1)));
     const pill = await readLive(tv, () => {
         const node = document.querySelector('.details-season-chips [aria-pressed="true"]');
         if (!(node instanceof HTMLElement)) return null;

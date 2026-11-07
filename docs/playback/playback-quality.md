@@ -50,8 +50,8 @@ No server or Apple source changes are required by this supported subset.
 | `Shared/ProfileLaunchBehavior.swift:5` | Automatic, Every Time, After 1 Hour, After 12 Hours | All four choices use the existing protected ProfileLaunch owner; Automatic uses the last profile on Samsung because there is no Apple TV OS user pairing. |
 | `tvOS/Screens/Settings/TVGeneralSettingsView.swift:166` | TITLE PAGES: Show Title Art, Apply to All Devices, each On/Off | Existing title-art owner and profile/device reconciliation retained |
 | `tvOS/Screens/Settings/TVGeneralSettingsView.swift:50-126` | THEME MUSIC: Play Theme Music, Loop Theme Music; SYNC SOURCE: Use Synced TV Settings; CARDS & POSTERS: Show Advisory Age, Poster Size, Use Profile Default; TOP MENU: Show Audiobooks | Advisory age and TV-family poster editing are supported, including clearing older device overrides and Use Profile Default before the footer. Theme music has no playback owner. Show Audiobooks remains with open PR #230, which supplies the navigation switch and audiobook player. |
-| `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:66` | QUALITY: Resolution, Maximum Bitrate, conditional Lower quality when buffering and learned limit Reset; CONNECTION: Connection Speed and test | Resolution and bitrate supported; probe, learned-limit and buffering policy controls omitted until those runtime owners exist |
-| `Networking/SiloQualityPresets.swift:146` | Resolution order Auto, 4K, 1080p, 720p, 480p; bitrate caps 200000, 100000, 60000, 40000, 20000, 15000, 10000, 6000, 4000, 2000, 1500 kbps plus No limit | Same named choices, filtered by server support; unfamiliar stored caps retained. Existing validated custom-kbps input remains an explicit Tizen extension |
+| `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:66` | QUALITY: Resolution, Maximum Bitrate, conditional Lower quality when buffering and learned limit Reset; CONNECTION: Connection Speed and test | Resolution and Maximum Bitrate are supported, with Apple's footer for the effective pair. Probe, learned-limit and buffering policy controls stay omitted until those runtime owners exist. See [Settings rows](../settings.md). |
+| `Networking/SiloQualityPresets.swift:146` | Resolution order Auto, 4K, 1080p, 720p, 480p; bitrate caps 200000, 100000, 60000, 40000, 20000, 15000, 10000, 6000, 4000, 2000, 1500 kbps plus No limit | Same named choices, filtered by server support. A stored cap outside that list stays in descending order and selected. Caps under 1000 kbps use Apple's kbps label. The picker has no separate kbps field |
 | `tvOS/Screens/Settings/TVSettingsComponents.swift:44` | Audio Language from server options; device Use Profile Setting first; legacy No preference retained only when stored | Device scope, legacy null and individual inherited resets retained; language display currently follows server tags |
 | `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:174` | STREAMING: Audio Language, HDR, Dolby Vision, Seek Cache, Buffer Ahead, Lossless Multichannel Audio, TrueHD Atmos and DTS:X, Deinterlacing, Deinterlacing Field Rate | Only Audio Language offered; other controls need verified AVPlay equivalents and plan/capability consumption, not Apple-only stored settings |
 | `tvOS/Screens/Settings/TVPlaybackSettingsView.swift:262-290` | EPISODES: Auto-Play Next Episode, Show Next Up, Skip Intros, Skip Credits | Auto-play, intro and credits policies are consumed by PlaybackController. Show Next Up is omitted until #213 supplies its playback reader; the prior editor saved unused values. |
@@ -234,12 +234,10 @@ Quality choices are filtered by the supported server manifest and use Apple's or
 Deprecated Original and unfamiliar stored strings are displayed as current values, without becoming new choices or being rewritten during a read.
 New profiles inherit Auto and no cap.
 
-Maximum Bitrate offers Apple's discrete caps and retains a native text field with numeric input mode and an explicit Save action for custom values.
-Only whole integers from 100 to 200000 kbps are accepted; blank, zero, fractions and out-of-range values never send a write.
+Maximum Bitrate offers Apple's discrete caps. A stored cap that is not in that list stays in descending order and selected. The picker has no separate kbps field or Save action.
 No limit writes JSON null; Use Profile Setting deletes only this device's row when device scope is advertised.
 Profile-only definitions retain Use inherited default and delete only the profile row.
-Cancel and remote Back discard the draft and return focus to the Maximum Bitrate row.
-The field starts from the explicit row in the edited scope, never from an effective value from another scope.
+Remote Back returns focus to the Maximum Bitrate row.
 
 Explicit profile defaults, this TV's overrides and the effective value/source remain separate.
 Audio Language, Resolution and Maximum Bitrate edit this device only when both the discovered definition and capabilities advertise `profile_device`; otherwise they retain profile scope.
@@ -253,8 +251,8 @@ Profile authority changes discard late answers and remove the screen.
 Unsupported capabilities, platforms, schema shapes or profile scopes do not expose these controls.
 
 The pinned [Apple TV Settings](https://github.com/Silo-Server/silo-apple/blob/9723df007baa8e933f5615cc14b13e99a6ee1ea1/iosApp/iosApp/tvOS/Screens/Settings/TVPlaybackSettingsView.swift) separates resolution and bitrate into two pickers.
-Its [quality presets](https://github.com/Silo-Server/silo-apple/blob/9723df007baa8e933f5615cc14b13e99a6ee1ea1/iosApp/iosApp/Networking/SiloQualityPresets.swift) offer discrete bitrate choices while retaining a stored custom cap.
-This Tizen slice retains the numeric editor across the server's complete valid range.
+Its [quality presets](https://github.com/Silo-Server/silo-apple/blob/9723df007baa8e933f5615cc14b13e99a6ee1ea1/iosApp/iosApp/Networking/SiloQualityPresets.swift) offer discrete bitrate choices and keep a stored cap that is not in the list.
+This Tizen picker matches that list.
 The #104 scope candidate follows [Apple's device selection owner](https://github.com/Silo-Server/silo-apple/blob/9723df007baa8e933f5615cc14b13e99a6ee1ea1/iosApp/iosApp/Screens/Settings/SettingsViewModel.swift#L742) and the pinned server revision 24 scopes.
 Native Apple/Samsung comparison remains pending; this candidate does not close #104 or establish Settings parity.
 The binding [Skyline guide](https://github.com/Silo-Server/silo-apple/blob/148d5d70f8b8ce982a827fead2b16f8de40f0f57/docs/skyline-design-guide.md) has SHA-256 `2d42d292e01ab6ee539278b63c286756fc432edf876a9286a33c9e853672cac2`.

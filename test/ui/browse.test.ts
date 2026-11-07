@@ -906,6 +906,68 @@ browseTest("Search releases rail visibility observers after query replacement an
     await tv.eventually(async () => await observers() === "0", "Search observers released on Back");
 }, { catalog: new SearchEdgeCatalog() });
 
+/** Chromium 108 clips an overflow root to its content box, then still applies rootMargin. Padding is inset twice, so the person at x 238, width 200 misses. */
+async function emulateChromium108Intersection(page: Tv["page"]): Promise<void> {
+    await page.addInitScript(() => {
+        const Native = window.IntersectionObserver;
+        function margins(value: string): [number, number, number, number] {
+            const parts = value.trim().split(/\s+/).map(part => Number.parseFloat(part) || 0);
+            const top = parts[0] ?? 0;
+            const right = parts[1] ?? top;
+            const bottom = parts[2] ?? top;
+            const left = parts[3] ?? right;
+            return [top, right, bottom, left];
+        }
+        window.IntersectionObserver = class extends Native {
+            constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
+                super((entries, observer) => {
+                    const root = options?.root instanceof Element ? options.root : null;
+                    const margin = options?.rootMargin ?? "0px";
+                    callback(entries.map(entry => {
+                        if (root === null) return entry;
+                        const style = getComputedStyle(root);
+                        const box = root.getBoundingClientRect();
+                        const [top, right, bottom, left] = margins(margin);
+                        const frameLeft = box.left + (Number.parseFloat(style.paddingLeft) || 0) - left;
+                        const frameRight = box.right - (Number.parseFloat(style.paddingRight) || 0) + right;
+                        const frameTop = box.top + (Number.parseFloat(style.paddingTop) || 0) - top;
+                        const frameBottom = box.bottom - (Number.parseFloat(style.paddingBottom) || 0) + bottom;
+                        const target = entry.boundingClientRect;
+                        const width = Math.min(frameRight, target.right) - Math.max(frameLeft, target.left);
+                        const height = Math.min(frameBottom, target.bottom) - Math.max(frameTop, target.top);
+                        const intersectionRect = width > 0 && height > 0 ? new DOMRect(Math.max(frameLeft, target.left), Math.max(frameTop, target.top), width, height) : new DOMRect(0, 0, 0, 0);
+                        if (Math.abs(target.left - 238) < 1 && Math.abs(target.width - 200) < 1) document.documentElement.dataset.tvSearchEdge = intersectionRect.width === 0 ? "zero" : "shown";
+                        return { target: entry.target, boundingClientRect: entry.boundingClientRect, intersectionRect, isIntersecting: intersectionRect.width > 0 && intersectionRect.height > 0, intersectionRatio: entry.intersectionRatio, rootBounds: entry.rootBounds, time: entry.time };
+                    }), observer);
+                }, options);
+            }
+        };
+    });
+}
+
+test("Search shows the first People card Chromium 108 reports outside the rail", async () => {
+    const tv = await openTv(browser, { app: "browse", prepare: emulateChromium108Intersection });
+    try {
+        await signedInBrowse(tv, new SearchEdgeCatalog(), "p-owner");
+        if (await tv.page.locator('[data-view="home"]').count() === 1) await homeDetailsRead(tv);
+        await tv.page.locator('[data-focus="search"]').click();
+        await tv.page.fill("#browse-search", "Tom");
+        await tv.remote(IME_DONE);
+        const card = tv.page.locator('[data-focus="person:edge-0"]');
+        await card.waitFor({ state: "attached" });
+        await tv.eventually(async () => { const edge = await tv.page.evaluate(() => document.documentElement.dataset.tvSearchEdge); return edge === "zero" || edge === "shown"; }, "Chrome 108 classified the person at x 238");
+        const sample = await card.evaluate(node => {
+            const rect = node.getBoundingClientRect();
+            return { x: rect.x, width: rect.width, outside: node.classList.contains("search-rail-outside"), opacity: getComputedStyle(node).opacity };
+        });
+        assert.equal(Math.round(sample.x), 238, JSON.stringify(sample));
+        assert.equal(Math.round(sample.width), 200, JSON.stringify(sample));
+        assert.equal(sample.outside, false, JSON.stringify(sample));
+        assert.equal(sample.opacity, "1", JSON.stringify(sample));
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 const resumedPeople = new SearchCatalog(120);
 resumedPeople.searchCapabilities = { ...resumedPeople.searchCapabilities, people_media_scope: true };
 browseTest("Search resumes interrupted People independently on a retained later catalog page", async tv => {

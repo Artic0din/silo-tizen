@@ -378,6 +378,29 @@ test("Down into the filmography grid uses Apple's bottom scroll inset", async ()
     } finally { await tv.page.context().close(); }
 });
 
+test("the person name starts 12px below the portrait", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await signIn(tv);
+        await person(tv, {});
+        const placed = await tv.page.locator(".details-person-hero").evaluate(hero => {
+            const portrait = hero.querySelector(".person-portrait")?.getBoundingClientRect();
+            const name = hero.querySelector(".browse-title");
+            const info = hero.querySelector(".browse-detail-info");
+            const nameBox = name?.getBoundingClientRect();
+            if (portrait === undefined || nameBox === undefined || !(name instanceof Element) || !(info instanceof Element)) return null;
+            return {
+                offset: nameBox.top - portrait.top,
+                marginTop: getComputedStyle(name).marginTop,
+                paddingTop: getComputedStyle(info).paddingTop,
+            };
+        });
+        // PersonDetailView.swift:466 pads the name column 10pt. The sweep measured this name 2px higher than Apple.
+        assert.deepEqual(placed, { offset: 12, marginTop: "2px", paddingTop: "10px" });
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 test("an authority change cancels a late portrait image", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

@@ -25,9 +25,9 @@ import type { AudioTrackInfo, FileVersionTracks, PlaybackDecision, PlaybackDefau
 import type { RandomBytes } from "../session/deviceIdentity.ts";
 import type { NativeSession } from "../session/session.ts";
 import type { AVPlay, AVPlayListener } from "./avplay.ts";
-import { CLIENT_CAPABILITIES, CLIENT_FEATURES, playbackContext } from "./capabilities.ts";
+import { CLIENT_FEATURES, clientCapabilities, playbackContext, probeHdrPanel, type HdrPanel } from "./capabilities.ts";
 import { SeekThumbnails, type ThumbnailSheetLoader } from "./seekThumbnails.ts";
-import { AUTO_NEXT_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS, profileSettings } from "../contracts/v2/settings.ts";
+import { AUTO_NEXT_KEY, HDR_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS, profileSettings } from "../contracts/v2/settings.ts";
 import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
 import { markerAt, type SkipMarker } from "../contracts/v2/markers.ts";
 import { nextEpisode } from "./nextEpisode.ts";
@@ -167,7 +167,7 @@ export interface PlaybackDeps {
     readonly clock: Clock;
     readonly randomBytes: RandomBytes;
     /** `webapis.productinfo.getRealModel()` and the package version, for the server's device-quirk match. */
-    readonly device: { readonly model: string; readonly appVersion: string };
+    readonly device: { readonly model: string; readonly appVersion: string; readonly hdrProbeScope?: unknown };
     readonly exits: PlaybackExits;
 }
 
@@ -230,6 +230,9 @@ interface Attempt {
     autoBandwidthCapKbps: number | undefined;
     qualityPicked: boolean;
     seekIntervals: { readonly backward: number; readonly forward: number };
+    /** Apple's default is on. A failed read of an offered HDR key forces it off. */
+    hdrEnabled: boolean;
+    hdrPanel: HdrPanel;
     batchedSettings: boolean;
     serverFeatures: readonly string[];
     trickplayEnabled: boolean;
@@ -352,6 +355,8 @@ export class PlaybackController implements PlayerControls {
             autoBandwidthCapKbps: undefined,
             qualityPicked: false,
             seekIntervals: { backward: 10, forward: 10 },
+            hdrEnabled: true,
+            hdrPanel: { hdr10: false, hlg: false, dolbyVision: false },
             batchedSettings: true,
             serverFeatures: [],
             trickplayEnabled: false,
@@ -774,6 +779,16 @@ export class PlaybackController implements PlayerControls {
                     if (attempt.live) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
                 } catch { /* Unavailable autoplay preferences leave Play next manual. */ }
             }
+            if (definitions.some(def => def.key === HDR_KEY)) {
+                try {
+                    const values = await call(operations.effectiveSettings([HDR_KEY]));
+                    if (!attempt.live) return false;
+                    attempt.hdrEnabled = values.get(HDR_KEY)?.value === true;
+                } catch {
+                    if (!attempt.live) return false;
+                    attempt.hdrEnabled = false;
+                }
+            }
             if (!SEEK_KEYS.every(key => definitions.some(def => def.key === key))) return true;
             const values = await Promise.all((capability.supportsBatchedEffective ? [SEEK_KEYS] : SEEK_KEYS.map(key => [key])).map(keys => call(operations.effectiveSettings(keys))));
             if (!attempt.live) return false;
@@ -790,7 +805,16 @@ export class PlaybackController implements PlayerControls {
         }
     }
 
+    private reportedPlayback(attempt: Attempt): Pick<StartPlaybackBody, "client_capabilities" | "client_playback_context"> {
+        const report = { panel: attempt.hdrPanel, preference: { hdrEnabled: attempt.hdrEnabled } };
+        return {
+            client_capabilities: clientCapabilities(report),
+            client_playback_context: playbackContext(this.deps.device.model, this.deps.device.appVersion, report),
+        };
+    }
+
     private async begin(attempt: Attempt): Promise<void> {
+        attempt.hdrPanel = probeHdrPanel(this.deps.device.hdrProbeScope);
         const session = this.deps.session;
         let decision: PlaybackDecision;
         try {
@@ -839,8 +863,7 @@ export class PlaybackController implements PlayerControls {
                 ...(attempt.request.startSeconds === undefined ? {} : { start_position: attempt.request.startSeconds }),
                 ...(attempt.request.audioTrackId === undefined ? {} : { audio_track_id: attempt.request.audioTrackId }),
                 ...(attempt.request.allowAlternateVersions === undefined ? {} : { allow_alternate_versions: attempt.request.allowAlternateVersions }),
-                client_capabilities: CLIENT_CAPABILITIES,
-                client_playback_context: playbackContext(this.deps.device.model, this.deps.device.appVersion),
+                ...this.reportedPlayback(attempt),
             });
             // Back does not abort the start: its answer names the session that must then be stopped.
             decision = await this.resend(attempt, () => session.call({ ...start, profileScoped: true, signal: attempt.signal }));
@@ -918,8 +941,7 @@ export class PlaybackController implements PlayerControls {
             position_seconds: positionSeconds,
             selected_tracks: selected,
             ...(classification === undefined ? {} : { failure: { classification } }),
-            client_capabilities: CLIENT_CAPABILITIES,
-            client_playback_context: playbackContext(this.deps.device.model, this.deps.device.appVersion),
+            ...this.reportedPlayback(attempt),
         });
         let decision: PlaybackDecision;
         try {
@@ -1897,8 +1919,7 @@ export class PlaybackController implements PlayerControls {
             ...(attempt.bandwidthCapKbps === undefined ? {} : { bandwidth_cap_kbps: attempt.bandwidthCapKbps }),
             position_seconds: attempt.sourceSeconds,
             selected_tracks: keptTracks(plan),
-            client_capabilities: CLIENT_CAPABILITIES,
-            client_playback_context: playbackContext(this.deps.device.model, this.deps.device.appVersion),
+            ...this.reportedPlayback(attempt),
         });
         attempt.recoverySpec = replan;
         return this.deps.session.call({ ...replan, profileScoped: true, signal: attempt.signal });
@@ -1927,8 +1948,7 @@ export class PlaybackController implements PlayerControls {
             ...(audio === undefined ? {} : { audio_track_id: audio }),
             ...(subtitle === undefined ? {} : { subtitle_track_id: subtitle }),
             ...(attempt.request.allowAlternateVersions === undefined ? {} : { allow_alternate_versions: attempt.request.allowAlternateVersions }),
-            client_capabilities: CLIENT_CAPABILITIES,
-            client_playback_context: playbackContext(this.deps.device.model, this.deps.device.appVersion),
+            ...this.reportedPlayback(attempt),
         };
     }
 

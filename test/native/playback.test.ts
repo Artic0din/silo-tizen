@@ -11,7 +11,8 @@ import { FakeSilo, fixture, problem, type RecordedRequest } from "./support/fake
 import { ManualClock } from "./support/clock.ts";
 import { FakeSettings } from "./support/fakeSettings.ts";
 import { FakeCatalog } from "./support/fakeCatalog.ts";
-import { SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS } from "../../src/contracts/v2/settings.ts";
+import { HDR_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS } from "../../src/contracts/v2/settings.ts";
+import { clientCapabilities, playbackContext } from "../../src/player/capabilities.ts";
 import { operations } from "../../src/api/operations.ts";
 import { connected, type Harness, signIn } from "./support/harness.ts";
 
@@ -143,7 +144,7 @@ interface Rig {
     readonly views: PlaybackView[];
 }
 
-async function rig(profileId = "p-owner", origin?: string): Promise<Rig> {
+async function rig(profileId = "p-owner", origin?: string, hdrProbeScope?: unknown): Promise<Rig> {
     const clock = new ManualClock();
     const h = await connected({ clock, fake: new FakeSilo(clock, undefined, origin) });
     await signIn(h);
@@ -161,7 +162,7 @@ async function rig(profileId = "p-owner", origin?: string): Promise<Rig> {
         avplay,
         clock: h.clock,
         randomBytes: (bytes) => bytes.fill(++serial),
-        device: { model: "QN55Q60AAFXZA", appVersion: "0.1.0" },
+        device: { model: "QN55Q60AAFXZA", appVersion: "0.1.0", ...(hdrProbeScope === undefined ? {} : { hdrProbeScope }) },
         exits: {
             onBack: () => exits.push("back"),
             onEnd: (reason) => exits.push(`end:${reason}`),
@@ -1917,4 +1918,54 @@ test("backgrounding during a failed seek cancels its deferred replan and closes 
     assert.equal(bodies(r.h, "/replan").length, 0);
     const view = last(r.views);
     assert.deepEqual(view.phase === "error" ? view.error : undefined, { kind: "backgrounded" });
+});
+
+const HDR10 = { hdr10: true, hdr10_plus: false, hlg: false, dolby_vision_profiles: [] };
+
+function hdrPanel(result: boolean | "throw"): unknown {
+    return { webapis: { avinfo: { isHdrTvSupport: () => { if (result === "throw") throw new Error("unavailable"); return result; } } } };
+}
+
+test("a supporting panel claims HDR10 on start and leaves Dolby Vision unclaimed", async () => {
+    const r = await rig("p-owner", undefined, hdrPanel(true));
+    const settings = new FakeSettings(r.h.fake);
+    settings.hdrRows = true;
+    settings.device("p-owner", r.h.core.session.http.deviceId).set(HDR_KEY, true);
+    r.controller.play(MOVIE);
+    await r.h.clock.advance(0);
+    const start = only(bodies(r.h, "/playback/start"));
+    const capabilities = start.client_capabilities as { hdr: boolean; hdr_details: unknown };
+    const context = start.client_playback_context as { output: unknown; deliveries: { original_http: { hdr_details?: unknown }; hls: { hdr_details?: unknown } } };
+    assert.equal(capabilities.hdr, true);
+    assert.deepEqual(capabilities.hdr_details, HDR10);
+    assert.deepEqual(context.output, { hdr_details: HDR10 });
+    assert.deepEqual(context.deliveries.original_http.hdr_details, HDR10);
+    assert.deepEqual(context.deliveries.hls.hdr_details, HDR10);
+    assert.equal(r.h.fake.requests.some(request => request.path.includes("player.dolby_vision_enabled")), false);
+    r.controller.destroy();
+});
+
+test("HDR off, a throwing probe, or a missing probe sends today's SDR profile", async () => {
+    for (const mode of ["off", "throw", "missing"] as const) {
+        const r = await rig("p-owner", undefined, mode === "missing" ? { webapis: {} } : hdrPanel(mode === "throw" ? "throw" : true));
+        const settings = new FakeSettings(r.h.fake);
+        settings.hdrRows = true;
+        settings.device("p-owner", r.h.core.session.http.deviceId).set(HDR_KEY, mode !== "off");
+        r.controller.play(MOVIE);
+        await r.h.clock.advance(0);
+        const start = only(bodies(r.h, "/playback/start"));
+        assert.deepEqual(start.client_capabilities, clientCapabilities());
+        assert.deepEqual(start.client_playback_context, playbackContext("QN55Q60AAFXZA", "0.1.0"));
+        r.controller.destroy();
+    }
+});
+
+test("an HDR panel claims HDR10 when the server offers no HDR setting", async () => {
+    const r = await rig("p-owner", undefined, hdrPanel(true));
+    new FakeSettings(r.h.fake);
+    r.controller.play(MOVIE);
+    await r.h.clock.advance(0);
+    const start = only(bodies(r.h, "/playback/start"));
+    assert.deepEqual((start.client_capabilities as { hdr_details: unknown }).hdr_details, HDR10);
+    r.controller.destroy();
 });

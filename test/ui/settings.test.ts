@@ -517,8 +517,8 @@ test("Settings rows use Apple's regular label and resting stroke", async () => {
 
 test("Title Art caption uses Apple's sentence for the current scope", async () => {
     const { tv } = await setup();
-    const device = "Use logo artwork as the title when available. Only affects this Apple TV. Your other devices keep their own setting.";
-    const every = (state: "on" | "off"): string => `Title art is ${state} on every device signed into this profile. Changing it here changes it everywhere. Turn off Apply to All Devices to choose for this Apple TV only.`;
+    const device = "Use logo artwork as the title when available. Only affects this TV. Your other devices keep their own setting.";
+    const every = (state: "on" | "off"): string => `Title art is ${state} on every device signed into this profile. Changing it here changes it everywhere. Turn off Apply to All Devices to choose for this TV only.`;
     try {
         await openSettings(tv);
         const caption = async (): Promise<string | null> => tv.page.locator('[data-focus="title-art-all"] + .settings-value').textContent();

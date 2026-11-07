@@ -548,8 +548,8 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             }
             const titleArtState = titleArt.value === true ? "on" : "off";
             body.appendChild(el("p", "settings-value", all
-                ? `Title art is ${titleArtState} on every device signed into this profile. Changing it here changes it everywhere. Turn off Apply to All Devices to choose for this Apple TV only.`
-                : "Use logo artwork as the title when available. Only affects this Apple TV. Your other devices keep their own setting."));
+                ? `Title art is ${titleArtState} on every device signed into this profile. Changing it here changes it everywhere. Turn off Apply to All Devices to choose for this TV only.`
+                : "Use logo artwork as the title when available. Only affects this TV. Your other devices keep their own setting."));
         }
         for (const id of pickers) {
             if (id === "seek-back" || id === "seek-forward") continue;

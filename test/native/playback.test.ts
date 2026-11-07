@@ -97,6 +97,27 @@ test("live autoplay saves once while pending and retains the old value on refusa
     r.controller.destroy();
 });
 
+test("EOF waits for a pending Auto-play save before starting a countdown", async () => {
+    const r = await autoplayRig(true);
+    r.settings.overrides.delete("playback.auto_play_next");
+    r.settings.profile().set("playback.auto_play_next", true);
+    await playMovie(r, EPISODE);
+    const hold = r.h.fake.hold("/settings/values/playback.auto_play_next?scope=profile");
+    r.controller.toggleAutoNext();
+    await r.h.clock.advance(0);
+    r.settings.profile().set("playback.auto_play_next", true);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, "/start").length, 1, "the old effective value must not start the next episode while the save is pending");
+    assert.equal(completion(r).countdown, undefined);
+    r.settings.profile().set("playback.auto_play_next", false);
+    hold.release();
+    await r.h.clock.advance(15000);
+    assert.equal(completion(r).countdown, undefined);
+    assert.equal(bodies(r.h, "/start").length, 1);
+    r.controller.destroy();
+});
+
 test("a discovery settings read started before a save cannot overwrite Auto-play next", async () => {
     const r = await autoplayRig(true);
     r.settings.overrides.delete("playback.auto_play_next");

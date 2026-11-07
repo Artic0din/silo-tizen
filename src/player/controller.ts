@@ -257,6 +257,8 @@ interface Attempt {
     autoNext: boolean;
     /** Confirmed Auto-play saves advance this so an older settings read cannot overwrite them. */
     settingsEpoch: number;
+    /** The in-flight Auto-play save. EOF waits for it before reading the effective value. */
+    autoNextSave: Promise<void> | undefined;
     introMode: "never" | "ask" | "always";
     skipCredits: boolean;
     skippedMarkers: Set<SkipMarker>;
@@ -416,7 +418,7 @@ export class PlaybackController implements PlayerControls {
             offer: { started: false, manual: false, episodeLoading: false, deckLoading: false, episodeSettled: false, episodeFailed: false, episode: undefined, deckSettled: false, deckFailed: false, deck: [], presentationFor: undefined },
             rectPending: false,
             transportCommandCount: 0,
-            autoNext: false, settingsEpoch: 0,
+            autoNext: false, settingsEpoch: 0, autoNextSave: undefined,
             introMode: "ask", skipCredits: false, skippedMarkers: new Set(), undoSkip: undefined, pendingSkipUndo: undefined,
             ai: undefined, aiBlockedFiles: new Set(), pendingAIResult: undefined,
             appearance: DEFAULT_APPEARANCE, subtitleSync: 0, cues: [], captionAbort: undefined, captionNotice: "", captionPreferenceNotice: "", captionKey: undefined, captionPreferencesRead: false, seriesSubtitle: request.episode ? { busy: false, message: "" } : undefined,
@@ -523,17 +525,23 @@ export class PlaybackController implements PlayerControls {
         this.showPlayback(attempt);
         const enabled = !attempt.autoNext;
         const epoch = attempt.settingsEpoch;
-        void this.deps.session.call({ ...operations.putSetting(AUTO_NEXT_KEY, enabled), profileScoped: true, signal: attempt.signal }).then(async () => {
+        const deciding = (): boolean => attempt.live || this.completion?.attempt === attempt;
+        const save = this.deps.session.call({ ...operations.putSetting(AUTO_NEXT_KEY, enabled), profileScoped: true, signal: attempt.signal }).then(async () => {
             const values = await this.deps.session.call({ ...operations.effectiveSettings([AUTO_NEXT_KEY]), profileScoped: true, signal: attempt.signal });
-            if (!attempt.live || attempt.signal.aborted || epoch !== attempt.settingsEpoch) return;
+            if (attempt.signal.aborted || epoch !== attempt.settingsEpoch || !deciding()) return;
             attempt.settingsEpoch = epoch + 1;
             attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
-            attempt.hud.message = attempt.autoNext === enabled ? "" : "This TV's override keeps Auto-play next unchanged.";
+            if (attempt.live) attempt.hud.message = attempt.autoNext === enabled ? "" : "This TV's override keeps Auto-play next unchanged.";
         }).catch(() => {
-            if (attempt.live && !attempt.signal.aborted) attempt.hud.message = "Could not save Auto-play next. Try again.";
+            if (!attempt.signal.aborted && attempt.live) attempt.hud.message = "Could not save Auto-play next. Try again.";
         }).finally(() => {
             attempt.hud.autoBusy = false;
             if (attempt.live) this.showPlayback(attempt);
+        });
+        const settled = save.then(() => undefined, () => undefined);
+        attempt.autoNextSave = settled;
+        void settled.finally(() => {
+            if (attempt.autoNextSave === settled) attempt.autoNextSave = undefined;
         });
     }
 
@@ -2042,6 +2050,8 @@ export class PlaybackController implements PlayerControls {
                 return;
             }
             if (attempt.autoNextSupported) {
+                await attempt.autoNextSave;
+                if (!current()) return;
                 const epoch = attempt.settingsEpoch;
                 try {
                     const values = await this.deps.session.call({ ...operations.effectiveSettings([AUTO_NEXT_KEY]), profileScoped: true, signal: abort.signal });

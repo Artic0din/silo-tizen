@@ -98,16 +98,18 @@ export interface Tv {
 export async function openTv(
     browser: Browser,
     /** `origin`: where the page and the fake server live; an http one serves Silo over plain HTTP. */
-    options: { sessionOnly?: boolean; profiles?: boolean; production?: boolean; video?: string; app?: TvApp; origin?: string; time?: number } = {},
+    options: { sessionOnly?: boolean; profiles?: boolean; production?: boolean; video?: string; app?: TvApp; origin?: string; time?: number; locale?: string; prepare?: (page: Page) => Promise<void> } = {},
 ): Promise<Tv> {
     const app = options.app ?? "signIn";
     const origin = options.origin ?? ORIGIN;
     const script = await harnessBundle(app);
     const context = await browser.newContext({
         viewport: { width: 1920, height: 1080 },
+        ...(options.locale === undefined ? {} : { locale: options.locale }),
         ...(options.video === undefined ? {} : { recordVideo: { dir: options.video, size: { width: 1920, height: 1080 } } }),
     });
     const page = await context.newPage();
+    if (options.prepare !== undefined) await options.prepare(page);
     const clock = new ManualClock(options.time);
     const fake = new FakeSilo(clock, undefined, origin);
     const logs: string[] = [];

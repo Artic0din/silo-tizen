@@ -209,7 +209,6 @@
 
 .player-thumbnail {
     position: absolute;
-    bottom: 300px;
     box-sizing: border-box;
     width: 340px;
     padding: 10px;
@@ -222,6 +221,7 @@
 .player-thumbnail-frame {
     position: relative;
     width: 320px;
+    height: 180px;
     overflow: hidden;
     border-radius: 14px;
 }
@@ -243,7 +243,7 @@
     margin: 8px 0 0;
     font-size: 24px;
     font-weight: 600;
-    line-height: 1;
+    line-height: 28.265625px;
     text-align: center;
     color: #ffffff;
     font-variant-numeric: tabular-nums;

@@ -22,6 +22,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Matched the subtitle preview caption's height to Apple TV.
 - Kept focus on a season you select right after a series opens, instead of moving it to Play or Resume.
 - Matched Settings row fill and the On and Off value brightness to Apple TV.
 - Matched Profile Selection's caption to each launch choice. Settings footers use a 23px line so section labels sit at Apple's measured rows, the subtitle preview stays 958 by 150, and pane rows use a regular label with a 1px white stroke at 9%.

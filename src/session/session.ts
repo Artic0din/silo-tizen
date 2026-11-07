@@ -274,6 +274,45 @@ export class NativeSession {
         return credential.accessToken;
     }
 
+    /**
+     * GET a same-origin URL with the account and the active profile, the way a
+     * profile-scoped read does. A 401 refreshes once and sends the GET again.
+     * The body is left unread for the bandwidth probe.
+     */
+    async authorizedFetch(url: string, signal?: AbortSignal): Promise<Response> {
+        const generation = this.generation;
+        const ensureCurrent = (): void => {
+            if (this.generation !== generation || signal?.aborted === true) throw abortedError();
+        };
+        const profile = this.profile;
+        if (profile === undefined) throw new SessionError("signed_out");
+        let replayed = false;
+        for (;;) {
+            const credential = await this.freshCredential(ensureCurrent);
+            ensureCurrent();
+            const linked = linkSignals(this.authorityController.signal, signal);
+            try {
+                const response = await this.http.fetchResource(url, {
+                    bearer: credential.accessToken,
+                    profile: { id: profile.id, token: profile.token },
+                    signal: linked.signal,
+                });
+                if (response.status === 401 && !replayed) {
+                    await response.body?.cancel().catch(() => undefined);
+                    const outcome = await this.refreshAfterRejection(credential);
+                    throwUnlessRefreshed(outcome);
+                    ensureCurrent();
+                    replayed = true;
+                    continue;
+                }
+                ensureCurrent();
+                return response;
+            } finally {
+                linked.dispose();
+            }
+        }
+    }
+
     private async freshCredential(ensureCurrent: () => void): Promise<StoredCredential> {
         ensureCurrent();
         const credential = this.credential;

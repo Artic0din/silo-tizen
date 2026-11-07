@@ -9,6 +9,8 @@ All notable changes to this project are documented in this file.
 - Added player chapters, playback stats, richer title information, supported speed and aspect controls, and an in-player Auto-play next toggle.
 - Added Show Next Up to Playback Settings with five prompt timings and profile inheritance.
 - Showed Up Next before playback ended with Play Now, Keep Watching and an On Deck row, and refreshed autoplay at episode completion.
+- Playback settings show Connection speed and Test speed when the server advertises `connection_speed_v1`.
+- Added Paired Silo Profile on General, showing the profile this TV reopens and opening the profile picker to change it.
 - Added Remove Request for a failed request of yours, including the confirmation, the notice, and focus on the card that takes its place.
 - Hid unwatched episode stills and descriptions from Playback when the server supports the profile spoiler settings.
 - Show Trailers & More on movie and series Details for local extras and YouTube listings, using Apple's card size and the 76px gap to the next heading. Local extras still play from the start. YouTube listings stay on their card because this TV cannot play them.
@@ -17,11 +19,16 @@ All notable changes to this project are documented in this file.
 
 ### Removed
 
+- Removed the custom kbps field and Save action from the Maximum Bitrate picker. A stored cap outside the preset list still appears in that list.
 - Removed the Settings Hidden Libraries editor and duplicate Manage Servers navigation; existing hidden libraries can still be restored.
 - Removed Details Read synopsis, its expanded view, #66's personal star rating control, and Season details to match the controls reachable on Apple TV.
 
 ### Fixed
 
+- Kept direct play running when a subtitle choice stays on the same stream, and showed that sidecar's cue at the picture's time after a seek.
+- The collapsed A–Z circle is plain.
+- Hid the TV's native scrollbars, drew the History returning mark as an outlined television, drew the collapsed A–Z index as Apple's 10px circle plus the faint letter marks, and centred Related captions on the poster.
+- Removed the Continue Watching playback bar, kept Search posters 247px apart, restored biography paragraphs, and matched Related captions and the Written by order to Apple TV.
 - Show the series name and episode tag while playing when Resume or Start Over starts from the series page and the episode item omits them.
 - Move the scrub thumbnail with the playhead, 101.0234375px above the handle, in a 236.265625px card.
 - Open the hidden player panel on Video, and the options button on the last tab, which starts on Info.
@@ -30,6 +37,12 @@ All notable changes to this project are documented in this file.
 - Blurred an unwatched On Deck episode still when image spoilers are on, and left series art sharp.
 - Waited for a pending Auto-play save before an ended episode decided whether to continue.
 - Matched Apple TV playback opening, hidden Up, the title lines, and the panel: a spinner on black, Up reveals the scrubber, pause shows no status line, and the open panel hides the transport until Back.
+- Kept focus on a season you select right after a series opens, instead of moving it to Play or Resume.
+- Matched Settings row fill and the On and Off value brightness to Apple TV.
+- Matched Profile Selection's caption to each launch choice. Settings footers use a 23px line so section labels sit at Apple's measured rows, the subtitle preview stays 958 by 150, and pane rows use a regular label with a 1px white stroke at 9%.
+- Tightened Inter tracking so titles match Apple TV's text width, kept a Calendar title on one line, and left a compact home title of about 152px whole in the artwork frame.
+- Matched the Playback quality footer and Maximum Bitrate labels to Apple TV.
+
 - Showed Calendar noon as 12:00 pm on an en-GB TV, and kept the first Search person visible.
 - Kept a decoded Details title logo in place across later repaints, so the metadata row no longer jumps back to the text title during that visit.
 - Matched the Details metadata row to Apple TV: the content rating and advisory age sit in outlined chips sized to the 18pt line height so the stroke stays inside the row, and the year, runtime and genres are separate text facts on that same row.
@@ -54,7 +67,6 @@ All notable changes to this project are documented in this file.
 - Restored full-screen playback after a paused seek left the Up Next window and offered Play Now before later On Deck lookups finished.
 - Kept media keys working during the pre-end Up Next prompt, cancelled pending scrub timers when it opened, and resolved On Deck artwork against the connected server.
 - Preserved newer subtitle choices when an unanswered report required connection recovery.
-
 - Applied queued subtitle choices after a replacement stream finished preparing while hidden.
 - Restored sidecar captions and queued choices after refused subtitle reports, aligned subtitles after suspended preparation, and honoured published HLS rendition order.
 - Reported an HLS subtitle alignment failure instead of showing a track that the native player could not select.

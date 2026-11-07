@@ -17,6 +17,8 @@ test("playback capability retains the server's trickplay availability feature", 
     assert.deepEqual(decodePlaybackCapabilities(raw), {
         state: base.state, allowed: base.allowed, installationId: base.installation_id,
         protocolVersions: base.protocol_versions, features: ["trickplay_v1"],
+        bandwidthProbeUrl: base.bandwidth_probe_url, bandwidthProbeTargetKbps: base.bandwidth_probe_target_kbps,
+        bandwidthProbeAutomatic: base.bandwidth_probe_automatic, bandwidthProbeMaxAgeSeconds: base.bandwidth_probe_max_age_seconds,
     });
 });
 

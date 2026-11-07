@@ -6,7 +6,7 @@ import type { Card } from "../contracts/v2/catalog.ts";
 import type { DetailsState } from "./detailsState.ts";
 import { TRANSLATE_DESCRIPTION_LABEL, type DescriptionTranslationStatus } from "./descriptionTranslation.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
-import { artworkUrl, clockTime, episodeLabel, playChoices, type PlayRequest } from "./browseModel.ts";
+import { artworkUrl, clockTime, episodeLabel, playChoices, seriesPlayback, type PlayRequest } from "./browseModel.ts";
 import { trailerCards, type TrailerCard } from "./trailerRail.ts";
 import { actionButton, artwork, cardItem, heading, lines, mediaItem, type ViewContext, zoneNode } from "./browseViews.ts";
 import { boxSetMovieRow, type BoxSetRowState } from "./boxSetRow.ts";
@@ -258,14 +258,15 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
     if ((detail.type === "series" || detail.type === "season") && next !== undefined) {
         const target = state?.nextEpisode;
         const targetChoices = playbackChoices;
+        const summary = state?.series?.railEpisodes?.find(episode => episode.id === next);
         const playNext = (startOver = false): void => {
             if (state?.episodePreferencesBlocked) return;
-            if (target === undefined) { context.playEpisode?.(next, state?.series?.railEpisodes?.find(episode => episode.id === next)?.title ?? detail.title, startOver); return; }
+            if (target === undefined) { context.playEpisode?.(next, summary?.title ?? detail.title, startOver); return; }
             if (targetChoices === undefined) return;
             const audioTrackId = tracks?.audioTrackId(true);
-            play({ ...(targetChoices.resume ?? targetChoices.fromStart), startSeconds: startOver ? 0 : targetChoices.resume?.startSeconds, ...(audioTrackId === undefined ? {} : { audioTrackId }), ...(tracks === undefined ? {} : { subtitle: tracks.subtitleIntent() }) });
+            const request = { ...(targetChoices.resume ?? targetChoices.fromStart), startSeconds: startOver ? 0 : targetChoices.resume?.startSeconds, ...(audioTrackId === undefined ? {} : { audioTrackId }), ...(tracks === undefined ? {} : { subtitle: tracks.subtitleIntent() }) };
+            play(seriesPlayback(request, detail, summary));
         };
-        const summary = state?.series?.railEpisodes?.find(episode => episode.id === next);
         const labelTarget = summary ?? target;
         const canResume = targetChoices?.resume !== undefined || target === undefined && summary?.inProgress === true;
         const label = labelTarget === undefined ? "Loading episode…" : `${canResume ? "Resume" : "Play"} ${episodeLabel(labelTarget.seasonNumber, labelTarget.episodeNumber) ?? labelTarget.title}`;

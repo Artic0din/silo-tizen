@@ -191,7 +191,8 @@
 .details-facts .browse-text:focus { outline: none; border-color: #fff; }
 /* tvOS person portrait is 300×450, not the 260×390 poster. siloSmall capsules, 12px radius. */
 .details-person-hero .person-portrait { width: 300px; height: 450px; margin-right: 48px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.10); background: var(--silo-elevated); }
-.details-person-hero .browse-title { max-width: 1100px; margin-bottom: 22px; font-size: 72px; line-height: 1.05; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* PersonDetailView.swift:466 pads the name column 10pt. The TV sweep measured the name 2px higher than that, so the title adds the difference. */
+.details-person-hero .browse-title { max-width: 1100px; margin-top: 2px; margin-bottom: 22px; font-size: 72px; line-height: 1.05; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .details-person-hero .browse-detail-info { padding-top: 10px; }
 .details-person-hero .browse-overview { max-width: 920px; max-height: none; margin-bottom: 22px; font-size: 26px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 7; -webkit-box-orient: vertical; overflow: hidden; }
 .person-facts { margin: 0 0 10px; }

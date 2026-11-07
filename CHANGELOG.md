@@ -20,6 +20,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Lowered the person page name by 2px. Apple's column inset stays 10px, and the title adds the 2px the TV sweep measured.
 - Tightened Inter tracking so titles match Apple TV's text width, kept a Calendar title on one line, and left a compact home title of about 152px whole in the artwork frame.
 - Matched the Playback quality footer and Maximum Bitrate labels to Apple TV.
 - Showed Calendar noon as 12:00 pm on an en-GB TV, and kept the first Search person visible.

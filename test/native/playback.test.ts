@@ -64,20 +64,19 @@ test("completed AI subtitles resolve through fresh sync identities before select
     r.server.files.set("42", { ...file, inventory: file.inventory.map((track, index) => index === 4 ? { ...track, sync_key: "stored-opaque-result" } : track) });
     r.server.next.push({}, { subtitle: 4, subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/captions?token=synthetic`, format: "vtt", timing_origin_seconds: 0 } });
     r.h.fake.script("/captions?token=synthetic", { status: 200, text: "WEBVTT\n\n00:12.000 --> 00:14.000\nAI text" });
+    const opens = r.avplay.urls.length;
+    const closes = r.avplay.calls.filter((call) => call === "close").length;
     r.controller.selectAIResult("opaque-result");
-    await r.h.clock.advance(0);
-    r.avplay.finishPrepare();
-    await r.h.clock.advance(0);
-    r.avplay.finishSeek();
-    await r.h.clock.advance(0);
+    for (let step = 0; step < 5; step++) await r.h.clock.advance(0);
     assert.equal(bodies(r.h, "/replan").length, 2, "refresh then select server-returned identity");
     const selected = bodies(r.h, "/replan")[1]?.selected_tracks;
     assert.equal(typeof selected, "object");
     assert.deepEqual((selected as { subtitle: unknown }).subtitle, { id: "file:42:subtitle:4" });
-    r.avplay.finishPrepare();
-    await r.h.clock.advance(0);
-    r.avplay.finishSeek();
-    await r.h.clock.advance(0);
+    // Both answers only renew `st` on the open direct-play path. The old prepare/seek steps
+    // waited on a reopen that the renewed token caused.
+    assert.equal(r.avplay.urls.length, opens);
+    assert.equal(r.avplay.calls.filter((call) => call === "close").length, closes);
+    assert.equal(r.avplay.state, "PLAYING");
     view = last(r.views);
     assert.ok(view.phase === "playing");
     assert.equal(view.tracks.selectedSubtitleId, "file:42:subtitle:4");

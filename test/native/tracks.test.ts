@@ -1745,6 +1745,30 @@ test("an embedded SRT sidecar on the same direct-play URL switches without reope
     r.controller.destroy();
 });
 
+test("a subtitle replan that only renews the stream token keeps the open picture", async () => {
+    const r = await rig();
+    embeddedEnglishSrts(r);
+    r.avplay.tracks = [];
+    await playMovie(r);
+    const opens = r.avplay.urls.length;
+    const closes = r.avplay.calls.filter((call) => call === "close").length;
+    const opened = new URL(only(r.avplay.urls));
+    r.h.fake.script("/captions?token=en", { status: 200, text: EMBEDDED_SRT_VTT });
+    r.server.next.push({
+        url: () => `${opened.pathname}?st=renewed`,
+        subtitle: 5,
+        subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/captions?token=en`, format: "vtt", timing_origin_seconds: 0 },
+    });
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    assert.equal(replans(r.h).length, 1);
+    assert.equal(only(replans(r.h)).operation, "track_change");
+    assert.equal(r.avplay.urls.length, opens);
+    assert.equal(r.avplay.calls.filter((call) => call === "close").length, closes);
+    assert.equal(r.avplay.state, "PLAYING");
+    r.controller.destroy();
+});
+
 test("a subtitle replan that changes the stream URL still reopens", async () => {
     const r = await rig();
     embeddedEnglishSrts(r);

@@ -257,7 +257,7 @@ Playback has these differences from browse:
   Left and Right preview a seek, Enter commits it and Back cancels it.
   A held direction keeps active playback running.
   With controls visible, Down focuses Play/Pause, and Info and options opens the track menu.
-  With controls hidden, Down opens Info, Up leaves them hidden, and Left/Right reveals the scrubber and skips.
+  With controls hidden, Down opens Video when that tab is shown and Info when it is not. Up leaves them hidden, and Left/Right reveals the scrubber and skips.
   Playing controls hide after five seconds from the last interaction, including while a transport button has focus.
 - Playback resuming outside the scrubber cancels its timeline preview without seeking and restores auto-hide.
   A hold that paused a pending resume returns that resume on cancellation only if no newer Play or Pause superseded it.

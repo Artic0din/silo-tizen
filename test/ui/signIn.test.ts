@@ -256,7 +256,7 @@ tvTest("unsupported, misrouted and failing servers are named, and a retry connec
 
 const PENDING_SETUP = { needs_setup: true, wizard_completed: false };
 
-/** TVServerNeedsSetupView pads the error 20pt below the body. The body wraps, with 4pt between lines. */
+/** TVServerNeedsSetupView pads the error 20pt below the body. The 38px line box is the wrapped pitch; this sentence now fits the 900px measure on one line. */
 function errorBelowBody(tv: Tv): Promise<{ gap: number; line: number }> {
     return readLive(tv, () => {
         const body = document.querySelector<HTMLElement>('[data-screen="needs-setup"] .marquee-lead');
@@ -267,10 +267,10 @@ function errorBelowBody(tv: Tv): Promise<{ gap: number; line: number }> {
         const lines = [...range.getClientRects()];
         const first = lines[0];
         const second = lines[1];
-        if (first === undefined || second === undefined) return null;
+        if (first === undefined) return null;
         return {
             gap: error.getBoundingClientRect().top - body.getBoundingClientRect().bottom,
-            line: second.top - first.top,
+            line: second === undefined ? Number.parseFloat(getComputedStyle(body).lineHeight) : second.top - first.top,
         };
     }, null, (value) => value.gap === 20 && value.line === 38, "the error 20px below the body");
 }

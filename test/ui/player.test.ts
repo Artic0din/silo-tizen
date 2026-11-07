@@ -343,6 +343,19 @@ test("On Deck resolves relative artwork against the connected server", async () 
     } finally { await page.close(); }
 });
 
+test("On Deck blurs an unwatched episode still and leaves other artwork sharp", async () => {
+    const { page } = await open();
+    try {
+        await page.route("**/api/v2/images/**", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>' }));
+        const still = { contentId: "still", fileId: "43", title: "Secret", startSeconds: 0, episode: true as const, backdropUrl: "/api/v2/images/still", hideBackdrop: true as const };
+        const series = { contentId: "series-art", fileId: "44", title: "Key art", startSeconds: 0, episode: true as const, backdropUrl: "/api/v2/images/series" };
+        await show(page, { ...playing(TRACKS), upNext: { next: still, deck: [still, series], countdown: undefined, status: "Up Next" } });
+        assert.equal(await page.locator(".player-next-card .episode-spoiler-blur .player-next-still").count(), 1);
+        assert.match(await page.locator(".player-next-still").evaluate(node => getComputedStyle(node).filter), /blur\(24px\)/);
+        assert.equal(await page.locator(".player-next-card > img").count(), 1);
+    } finally { await page.close(); }
+});
+
 for (const complete of [false, true]) {
     test(`On Deck preserves the focused content when later candidates arrive (${complete ? "EOF" : "pre-end"})`, async () => {
         const { page } = await open();

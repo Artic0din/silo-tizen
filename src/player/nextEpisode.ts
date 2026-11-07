@@ -112,6 +112,7 @@ export async function readOnDeck(read: Read, contentId: string, publish?: (items
                     title: detail.title,
                     overview: card.overview,
                     backdropUrl: card.backdropUrl,
+                    ...(card.backdropIsEpisodeStill === undefined ? {} : { backdropIsEpisodeStill: card.backdropIsEpisodeStill }),
                     startSeconds: start ?? 0,
                     ...(detail.type === "episode" ? { episode: true as const } : {}),
                     ...(watch === undefined ? {} : { watch }),

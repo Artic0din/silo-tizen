@@ -1715,6 +1715,54 @@ test("Up Next hides an unwatched episode synopsis when the profile asks and keep
     shown.controller.destroy();
 });
 
+test("On Deck blurs an unwatched episode still and leaves series art and a started episode sharp", async () => {
+    const spoilers = (): EpisodeSpoilerSettings => ({ hidesImages: true, hidesOverviews: false });
+    const hidden = await autoplayRig(false, undefined, spoilers);
+    hidden.catalog.episodeStills = true;
+    const home = hidden.catalog.households.get("p-owner");
+    const row = home?.sections.find(section => section.id === "continue_watching");
+    assert.ok(row);
+    row.items.unshift("episode:s2e11");
+    await playMovie(hidden, EPISODE);
+    hidden.controller.showUpNext();
+    await hidden.h.clock.advance(0);
+    const concealed = last(hidden.views);
+    assert.ok(concealed.phase === "playing");
+    const still = concealed.upNext?.deck.find(item => item.contentId === "episode:s2e11");
+    assert.ok(still);
+    assert.equal(still.hideBackdrop, true);
+    assert.equal(still.backdropIsEpisodeStill, true);
+    hidden.controller.destroy();
+
+    const sharp = await autoplayRig(false, undefined, spoilers);
+    const existing = sharp.catalog.titles.get("episode:s2e11");
+    assert.ok(existing);
+    sharp.catalog.add({ ...existing, backdrop: "/art/series.svg", backdropStill: false });
+    const sharpHome = sharp.catalog.households.get("p-owner");
+    sharpHome?.sections.find(section => section.id === "continue_watching")?.items.unshift("episode:s2e11");
+    await playMovie(sharp, EPISODE);
+    sharp.controller.showUpNext();
+    await sharp.h.clock.advance(0);
+    const clear = last(sharp.views);
+    assert.ok(clear.phase === "playing");
+    const art = clear.upNext?.deck.find(item => item.contentId === "episode:s2e11");
+    assert.equal(art?.backdropIsEpisodeStill, false);
+    assert.equal(art?.hideBackdrop, undefined);
+    sharp.controller.destroy();
+
+    const started = await autoplayRig(false, undefined, spoilers);
+    started.catalog.episodeStills = true;
+    started.catalog.progress.set("episode:s2e11", 30);
+    started.catalog.households.get("p-owner")?.sections.find(section => section.id === "continue_watching")?.items.unshift("episode:s2e11");
+    await playMovie(started, EPISODE);
+    started.controller.showUpNext();
+    await started.h.clock.advance(0);
+    const playing = last(started.views);
+    assert.ok(playing.phase === "playing");
+    assert.equal(playing.upNext?.deck.find(item => item.contentId === "episode:s2e11")?.hideBackdrop, undefined);
+    started.controller.destroy();
+});
+
 test("Play Now before EOF waits for progress and final stop at duration", async () => {
     const r = await autoplayRig(true);
     const id = await playMovie(r, EPISODE);

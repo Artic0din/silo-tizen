@@ -318,6 +318,7 @@ export class FocusHost {
             document.removeEventListener("keyup", this.onRelease, true);
             document.removeEventListener("focusout", this.cancelPress);
             this.container.removeEventListener("focusin", this.rememberContent);
+            this.container.removeEventListener("click", this.endPlayClaim, true);
             document.removeEventListener("visibilitychange", this.cancelPress);
             window.removeEventListener("blur", this.cancelPress);
             this.press = undefined;
@@ -342,6 +343,7 @@ export class FocusHost {
             document.addEventListener("keyup", this.onRelease, true);
             document.addEventListener("focusout", this.cancelPress);
             this.container.addEventListener("focusin", this.rememberContent);
+            this.container.addEventListener("click", this.endPlayClaim, true);
             document.addEventListener("visibilitychange", this.cancelPress);
             window.addEventListener("blur", this.cancelPress);
             this.listening = true;
@@ -375,6 +377,11 @@ export class FocusHost {
         }
         return undefined;
     }
+
+    /** Select by Enter or pointer is the viewer's choice, like a directional move (`userNavigated` in TVSeriesDetailView). */
+    private readonly endPlayClaim = (): void => {
+        if (this.playClaim !== undefined) this.playClaim.moved = true;
+    };
 
     private readonly rememberContent = (event: FocusEvent): void => {
         if (event.target !== this.navigationItem?.element) this.navigationX = undefined;
@@ -499,10 +506,11 @@ export class FocusHost {
      * (lines 504, 567-568, 571) and Watchlist is the live stand-in (lines 597-602).
      * The first attempt then assigns Play without reading that focus (lines 635–643).
      * A later attempt bails only when another action is focused and the page does
-     * not track navigation (lines 622–641). Series tracks a directional move
-     * instead (`TVSeriesDetailView.swift` lines 311–326 and 528–529) and cancels
-     * the claim (lines 555-559). A claim that does not stick leaves focus on body
-     * until the next key. Stop once the viewer has moved, or a dialog has taken focus.
+     * not track navigation (lines 622–641). Series tracks a directional move or a
+     * Select (season tab, Play, Watchlist) instead (`TVSeriesDetailView.swift`
+     * lines 311–326, 504–517, 528–529 and 615) and cancels the claim (lines 555-559).
+     * A claim that does not stick leaves focus on body until the next key. Stop once
+     * the viewer has moved or selected, or a dialog has taken focus.
      */
     private settlePrimaryFocus(view: View, fromTimer = false): void {
         if (!view.name.startsWith("item:")) {

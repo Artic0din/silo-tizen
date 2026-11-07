@@ -34,6 +34,11 @@
 .settings-pane-header .settings-blurb { margin: 0; font-size: 20px; line-height: 25px; }
 .settings-row-title { font-size: 26px; }
 .settings-row-value { margin-left: auto; font-size: 24px; opacity: .68; }
+.settings-connection-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 4px; }
+/* Apple's two-line row measures 97 at 2ef3a171. Its stroke is an overlay, so the fixed height carries the border here. */
+.settings-pane .browse-button.settings-connection-speed { height: 97px; flex-shrink: 0; }
+.settings-connection-line { font-size: 22px; font-weight: 400; line-height: 26px; opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-pane .browse-button.settings-connection-speed .settings-row-value { font-weight: 600; opacity: 1; }
 .settings-chevron { margin-left: 16px; font-size: 18px; opacity: .55; }
 .settings-controls .browse-button:has(.settings-row-value) { display: flex; align-items: center; gap: 16px; }
 .settings-version { margin: 10px 20px 24px; font-size: 18px; color: var(--silo-secondary); }
@@ -1479,4 +1484,7 @@
 .settings-pane .settings-row-title,
 .settings-pane .settings-row-value { font-weight: 400; }
 .settings-pane .settings-chevron { font-weight: 600; }
-.settings-pane .browse-button[role="switch"][aria-checked="true"] .settings-row-value { font-weight: 600; }
+.settings-pane .browse-button[role="switch"][aria-checked="true"] .settings-row-value { font-weight: 600; opacity: 0.9; }
+/* TVSettingsToggleRow: On at 0.9 opacity, Off at 0.55. TVSettingsPaneRowStyle fills every row with siloChromeRestingFill, whether it is on or off. */
+.settings-pane .browse-button[role="switch"][aria-checked="false"] .settings-row-value { opacity: 0.55; }
+.settings-pane .browse-button:not(:focus) { background: rgba(255, 255, 255, 0.07); }

@@ -17,6 +17,7 @@ import { decodeAppearance, DEFAULT_APPEARANCE } from "../contracts/v2/subtitles.
 import { applySubtitleAppearance } from "../player/subtitleView.ts";
 import { pairedProfileDescription, pairedProfileLabel, profileSelectionCaption } from "./pairedProfile.ts";
 import { bitrateLabel, qualityFooter } from "./qualitySettings.ts";
+import { ConnectionSpeed } from "./connectionSpeed.ts";
 
 type Category = "general" | "playback" | "subtitles" | "server";
 const CATEGORY_LABELS = { general: "General", playback: "Playback", subtitles: "Subtitles", server: "Server" } as const;
@@ -88,10 +89,12 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         });
     };
     const state = new SettingsState(session, () => render());
+    const connection = new ConnectionSpeed(session, () => { if (!torn) render(host.focused()); });
     const stopSpoilers = spoilers?.subscribe(() => { if (!torn) render(host.focused()); }) ?? (() => undefined);
     const destroy = (): void => {
         if (torn) return;
         torn = true;
+        connection.stop();
         stopSpoilers();
         launchController.abort();
         stopAuthority();
@@ -449,6 +452,8 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         const headerCopy = el("div", ""); headerCopy.append(el("h2", "browse-section-title", CATEGORY_LABELS[category]), el("p", "settings-blurb", CATEGORY_BLURBS[category]));
         header.append(tile, headerCopy);
         body.append(header, ...feedback());
+        if (category === "playback") connection.watch();
+        else connection.unwatch();
         const pickers: readonly Picker[] = category === "playback" ? ["quality", "bitrate", "audio", "seek-back", "seek-forward"] : [];
         if (category === "server") {
             const info = (title: string, value: string): HTMLElement => {
@@ -552,6 +557,27 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             const streaming = [...body.children].find(node => node.classList.contains("settings-section-header") && node.textContent === "STREAMING");
             if (streaming !== undefined) body.insertBefore(footer, streaming);
             else body.appendChild(footer);
+        }
+        const speed = category === "playback" ? connection.view : undefined;
+        if (speed !== undefined) {
+            const item = button("connection-speed", "Connection speed", () => connection.test());
+            const copy = el("span", "settings-connection-copy");
+            copy.append(el("span", "settings-row-title", "Connection speed"), el("span", "settings-connection-line", speed.line));
+            item.element.replaceChildren(copy, ...(speed.action === undefined ? [] : [el("span", "settings-row-value", speed.action)]));
+            item.element.classList.add("settings-connection-speed");
+            if (speed.disabled) item.element.setAttribute("aria-disabled", "true");
+            if (speed.testing) item.element.setAttribute("aria-busy", "true");
+            const nodes: HTMLElement[] = [el("h3", "settings-section-header", "CONNECTION"), item.element];
+            if (speed.budget !== undefined) nodes.push(el("p", "settings-value settings-connection-budget", speed.budget));
+            if (speed.message !== undefined) {
+                const warning = el("p", "browse-text browse-error", speed.message);
+                warning.setAttribute("role", "alert");
+                nodes.push(warning);
+            }
+            const streaming = [...body.children].find(node => node.classList.contains("settings-section-header") && node.textContent === "STREAMING");
+            if (streaming !== undefined) for (const node of nodes) body.insertBefore(node, streaming);
+            else for (const node of nodes) body.appendChild(node);
+            rows.push(item);
         }
         if (category === "subtitles" && state.loaded) {
             const language = state.definitions.some(def => def.key === SUBTITLE_LANGUAGE_KEY);
@@ -724,6 +750,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             { id: "settings-rows", layout: "column", left: "settings-categories", items: rows },
         ], focus: { zone: "settings-categories", key: category }, back }, focus);
     }
+    connection.start();
     host.listen();
     render();
     void state.load();

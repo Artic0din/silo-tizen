@@ -242,6 +242,23 @@ test("transport focus re-arms five seconds then hides and hidden Up reveals the 
     } finally { await page.close(); }
 });
 
+test("hidden Down opens Video when that tab is shown and options opens Info", async () => {
+    const { page } = await open();
+    try {
+        const quality = { choices: [{ id: "auto", label: "Auto" }, { id: "1080p", label: "1080p" }], selectedId: "auto" };
+        await show(page, playing({ ...TRACKS, quality }));
+        await page.getByRole("button", { name: "Info and options", exact: true }).click();
+        assert.equal(await focused(page), "tab-info");
+        await remote(page, BACK);
+        await page.clock.runFor(5000);
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "tab-video");
+        await remote(page, BACK);
+        await page.getByRole("button", { name: "Info and options", exact: true }).click();
+        assert.equal(await focused(page), "tab-video");
+    } finally { await page.close(); }
+});
+
 test("hidden Down opens Info and hidden Right returns to scrubber", async () => {
     const { page } = await open();
     try {
@@ -305,9 +322,9 @@ test("track updates preserve the focused HUD tab", async () => {
         await show(page, playing(TRACKS));
         await page.clock.runFor(5000);
         await remote(page, DOWN);
-        assert.equal(await focused(page), "tab-info");
+        assert.equal(await focused(page), "tab-video");
         await show(page, playing({ ...TRACKS, notices: ["Updated"] }));
-        assert.equal(await focused(page), "tab-info");
+        assert.equal(await focused(page), "tab-video");
     } finally { await page.close(); }
 });
 
@@ -320,33 +337,38 @@ test("timeline scrub opacity takes precedence over focus", async () => {
     } finally { await page.close(); }
 });
 
-test("scrub thumbnail follows the playhead and sits 300px above the bottom", async () => {
+test("scrub thumbnail follows the playhead and sits 101.0234375px above the handle", async () => {
     const { page } = await open();
     try {
-        const measure = async (seconds: number): Promise<{ x: number; bottom: number; width: number; barX: number; barRight: number; playerBottom: number; puck: number }> => {
+        // TVScrubPreviewLayer at silo-apple 2ef3a171: card bottom is scrubPreviewBottomInset (300)
+        // above the controls' bottom, and the handle centre is 198.9765625 above that same edge.
+        const aboveHandle = 101.0234375;
+        // padding 10 + image 180 + spacing 8 + 24pt rounded semibold line 28.265625 + padding 10.
+        const cardHeight = 236.265625;
+        const measure = async (seconds: number): Promise<{ x: number; bottom: number; height: number; width: number; barX: number; barRight: number; handle: number; puck: number }> => {
             await show(page, { ...playing(TRACKS), positionSeconds: seconds, durationSeconds: 7200 });
             await remote(page, ENTER);
             return page.evaluate(() => {
                 const card = document.querySelector<HTMLElement>(".player-thumbnail");
                 const bar = document.querySelector(".player-bar");
-                const player = document.querySelector(".player");
                 const puck = document.querySelector(".player-puck");
-                if (card === null || bar === null || player === null || puck === null) throw new Error("missing scrub preview");
+                if (card === null || bar === null || puck === null) throw new Error("missing scrub preview");
                 card.hidden = false;
                 const cardBox = card.getBoundingClientRect();
                 const barBox = bar.getBoundingClientRect();
-                const playerBox = player.getBoundingClientRect();
                 const puckBox = puck.getBoundingClientRect();
-                return { x: cardBox.x, bottom: cardBox.bottom, width: cardBox.width, barX: barBox.x, barRight: barBox.right, playerBottom: playerBox.bottom, puck: puckBox.x + puckBox.width / 2 };
+                return { x: cardBox.x, bottom: cardBox.bottom, height: cardBox.height, width: cardBox.width, barX: barBox.x, barRight: barBox.right, handle: barBox.y + barBox.height / 2, puck: puckBox.x + puckBox.width / 2 };
             });
         };
         const start = await measure(0);
-        assert.ok(Math.abs(start.bottom - (start.playerBottom - 300)) < 1, `thumbnail bottom ${start.bottom}, player ${start.playerBottom}`);
+        assert.ok(Math.abs(start.bottom - (start.handle - aboveHandle)) < 0.01, `thumbnail bottom ${start.bottom}, handle ${start.handle}`);
+        assert.ok(Math.abs(start.height - cardHeight) < 0.01, `thumbnail height ${start.height}`);
         assert.ok(Math.abs(start.x - start.barX) < 1, `thumbnail x ${start.x}, track ${start.barX}`);
         await remote(page, BACK);
         const middle = await measure(3600);
         assert.ok(Math.abs(middle.x + middle.width / 2 - middle.puck) < 1, `thumbnail center ${middle.x + middle.width / 2}, puck ${middle.puck}`);
-        assert.ok(Math.abs(middle.bottom - (middle.playerBottom - 300)) < 1, `middle bottom ${middle.bottom}`);
+        assert.ok(Math.abs(middle.bottom - (middle.handle - aboveHandle)) < 0.01, `middle bottom ${middle.bottom}, handle ${middle.handle}`);
+        assert.ok(Math.abs(middle.height - cardHeight) < 0.01, `middle height ${middle.height}`);
         await remote(page, BACK);
         const end = await measure(7200);
         assert.ok(Math.abs(end.x + end.width - end.barRight) < 1, `thumbnail right ${end.x + end.width}, track ${end.barRight}`);
@@ -384,8 +406,7 @@ test("Info panel measured placement and Up Down Menu focus", async () => {
     const { page } = await open();
     try {
         await show(page, playing(TRACKS));
-        await page.clock.runFor(5000);
-        await remote(page, DOWN);
+        await page.getByRole("button", { name: "Info and options", exact: true }).click();
         assert.equal(await focused(page), "tab-info");
         await remote(page, DOWN);
         assert.equal(await focused(page), "info");

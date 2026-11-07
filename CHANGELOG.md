@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added Show Next Up to Playback Settings with five prompt timings and profile inheritance.
+- Showed Up Next before playback ended with Play Now, Keep Watching and an On Deck row, and refreshed autoplay at episode completion.
 - Added Remove Request for a failed request of yours, including the confirmation, the notice, and focus on the card that takes its place.
 - Hid unwatched episode stills and descriptions from Playback when the server supports the profile spoiler settings.
 - Show Trailers & More on movie and series Details for local extras and YouTube listings, using Apple's card size and the 76px gap to the next heading. Local extras still play from the start. YouTube listings stay on their card because this TV cannot play them.
@@ -24,6 +26,7 @@ All notable changes to this project are documented in this file.
 - Open the hidden player panel on Video, and the options button on the last tab, which starts on Info.
 - Kept the page transparent over AVPlay. The black opening is a loading backdrop only, and a previous screen in the same root is not painted while the player is up. Once a frame has shown, that backdrop stays off through a later load, reconnect and restore.
 - Kept the other series' title and the fresh season and episode on an On Deck play, so the player can show them.
+- Blurred an unwatched On Deck episode still when image spoilers are on, and left series art sharp.
 - Matched Apple TV playback opening, hidden Up, the title lines, and the panel: a spinner on black, Up reveals the scrubber, pause shows no status line, and the open panel hides the transport until Back.
 - Showed Calendar noon as 12:00 pm on an en-GB TV, and kept the first Search person visible.
 - Kept a decoded Details title logo in place across later repaints, so the metadata row no longer jumps back to the text title during that visit.
@@ -37,6 +40,14 @@ All notable changes to this project are documented in this file.
 - Kept a debounced skip when an earlier scrub seek landed on the same plan.
 - Disabled audio and quality choices while a subtitle report is still pending.
 - Kept a running skip hold when the earlier seek landed on the same plan.
+- Added the Show Up Next episodes icon. A seek during discovery finishes the open panel, and a failed On Deck read can be tried again in that playback.
+- Read a successor's catalog presentation once, so playback ticks do not request it again.
+- Retried Up Next discovery after seeks, preserved fresh autoplay settings at EOF, and kept captions inside the video preview.
+
+- Updated composed EOF checks for Apple TV's Play Now, On Deck and tail replay behavior, and isolated focus checks from background reads.
+- Kept focus on the selected On Deck title when more candidates arrived.
+- Restored full-screen playback after a paused seek left the Up Next window and offered Play Now before later On Deck lookups finished.
+- Kept media keys working during the pre-end Up Next prompt, cancelled pending scrub timers when it opened, and resolved On Deck artwork against the connected server.
 - Preserved newer subtitle choices when an unanswered report required connection recovery.
 
 - Applied queued subtitle choices after a replacement stream finished preparing while hidden.

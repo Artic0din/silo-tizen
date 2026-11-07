@@ -105,6 +105,13 @@ test("Playback shows the stored speed and tests only from Test speed", async () 
         assert.equal(probes(tv).length, 0);
         assert.equal(await tv.page.locator(".settings-connection-line").textContent(), "48 Mbps · measured just now on Wi-Fi");
         assert.equal(await tv.page.locator('[data-focus="connection-speed"] .settings-row-value').textContent(), "Test speed");
+        // TVPlaybackSettingsView.swift:139-156: a 26pt title over a 22pt line, with a 24pt semibold action. Apple's row measures 97.
+        const row = await tv.page.locator('[data-focus="connection-speed"]').evaluate(node => {
+            const value = node.querySelector(".settings-row-value") as Element;
+            const line = node.querySelector(".settings-connection-line") as Element;
+            return { shrink: getComputedStyle(node).flexShrink, height: node.getBoundingClientRect().height, value: getComputedStyle(value).fontWeight, line: getComputedStyle(line).fontWeight };
+        });
+        assert.deepEqual(row, { shrink: "0", height: 97, value: "600", line: "400" });
         assert.equal(await tv.page.locator(".settings-connection-budget").textContent(), "Auto plays videos up to 35 Mbps without converting them.");
         assert.deepEqual(await tv.page.locator(".settings-section-header").allTextContents(), ["QUALITY", "CONNECTION", "STREAMING", "EPISODES", "SPOILERS", "VIDEO"]);
         const order = await tv.page.evaluate(() => {

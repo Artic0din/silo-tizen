@@ -24,7 +24,7 @@ export interface SearchSupplement {
 
 /**
  * Search columns keep the measured 247.333px pitch (1484 / 6). The track is
- * the poster itself, so Chromium 108 cannot grow a `minmax(0, 1fr)` column
+ * the poster itself, so the TV's browser cannot grow a `minmax(0, 1fr)` column
  * and open that pitch to 287px. The count is a literal so `repeat(var())`
  * cannot drop the declaration.
  */

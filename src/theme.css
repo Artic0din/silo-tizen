@@ -43,9 +43,9 @@
     }
 }
 
-/* Chromium 108 paints a native scrollbar on every overflow region. The app
+/* The TV's browser paints a native scrollbar on every overflow region. The app
    moves scrollTop and scrollLeft itself. scrollbar-width shipped in Chrome 121,
-   so this TV only honours the WebKit pseudo; hiding it does not disable scrolling. */
+   and this TV runs 120, so only the WebKit pseudo works; hiding it does not disable scrolling. */
 ::-webkit-scrollbar {
     display: none;
 }

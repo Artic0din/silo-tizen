@@ -753,13 +753,18 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }, SKIP_DEBOUNCE_MS);
     };
 
+    const showThumbnail = (seconds: number): void => {
+        const duration = view.phase === "playing" || view.phase === "paused" ? view.durationSeconds ?? 0 : 0;
+        thumbnail.show(seconds, duration);
+    };
+
     const stepSkip = (direction: "backward" | "forward"): void => {
         if (view.phase !== "playing" && view.phase !== "paused") return;
         const delta = view.seekIntervals[direction] * (direction === "backward" ? -1 : 1);
         seekPreview = clampSeek((seekPreview ?? pendingSkipTarget ?? view.positionSeconds) + delta);
         reveal();
         bar.focus();
-        thumbnail.show(seekPreview);
+        showThumbnail(seekPreview);
         scheduleSkipCommit();
         render();
     };
@@ -772,7 +777,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         const target = clampSeek(base + delta);
         if (target !== base) timelineMoved = true;
         seekPreview = target;
-        thumbnail.show(target);
+        showThumbnail(target);
         render();
     };
 
@@ -838,7 +843,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         seekPreview = view.positionSeconds;
         reveal();
         bar.focus();
-        thumbnail.show(seekPreview);
+        showThumbnail(seekPreview);
         render();
     };
 

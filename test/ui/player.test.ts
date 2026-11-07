@@ -234,6 +234,39 @@ test("timeline scrub opacity takes precedence over focus", async () => {
     } finally { await page.close(); }
 });
 
+test("scrub thumbnail follows the playhead and sits 300px above the bottom", async () => {
+    const { page } = await open();
+    try {
+        const measure = async (seconds: number): Promise<{ x: number; bottom: number; width: number; barX: number; barRight: number; playerBottom: number; puck: number }> => {
+            await show(page, { ...playing(TRACKS), positionSeconds: seconds, durationSeconds: 7200 });
+            await remote(page, ENTER);
+            return page.evaluate(() => {
+                const card = document.querySelector<HTMLElement>(".player-thumbnail");
+                const bar = document.querySelector(".player-bar");
+                const player = document.querySelector(".player");
+                const puck = document.querySelector(".player-puck");
+                if (card === null || bar === null || player === null || puck === null) throw new Error("missing scrub preview");
+                card.hidden = false;
+                const cardBox = card.getBoundingClientRect();
+                const barBox = bar.getBoundingClientRect();
+                const playerBox = player.getBoundingClientRect();
+                const puckBox = puck.getBoundingClientRect();
+                return { x: cardBox.x, bottom: cardBox.bottom, width: cardBox.width, barX: barBox.x, barRight: barBox.right, playerBottom: playerBox.bottom, puck: puckBox.x + puckBox.width / 2 };
+            });
+        };
+        const start = await measure(0);
+        assert.ok(Math.abs(start.bottom - (start.playerBottom - 300)) < 1, `thumbnail bottom ${start.bottom}, player ${start.playerBottom}`);
+        assert.ok(Math.abs(start.x - start.barX) < 1, `thumbnail x ${start.x}, track ${start.barX}`);
+        await remote(page, BACK);
+        const middle = await measure(3600);
+        assert.ok(Math.abs(middle.x + middle.width / 2 - middle.puck) < 1, `thumbnail center ${middle.x + middle.width / 2}, puck ${middle.puck}`);
+        assert.ok(Math.abs(middle.bottom - (middle.playerBottom - 300)) < 1, `middle bottom ${middle.bottom}`);
+        await remote(page, BACK);
+        const end = await measure(7200);
+        assert.ok(Math.abs(end.x + end.width - end.barRight) < 1, `thumbnail right ${end.x + end.width}, track ${end.barRight}`);
+    } finally { await page.close(); }
+});
+
 test("episode footer shows series, title and episode tag without an empty status row", async () => {
     const { page } = await open();
     try {

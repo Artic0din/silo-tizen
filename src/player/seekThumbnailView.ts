@@ -4,8 +4,32 @@ import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
 import type { PlayerControls } from "./controller.ts";
 import { el } from "../ui/screen.ts";
 
+/** `TVPlayerControls.scrubPreviewCardWidth` and `scrubPreviewBottomInset` at silo-apple 2ef3a171. */
+const CARD_WIDTH = 340;
+const BOTTOM_INSET = 300;
+
+/**
+ * Apple `scrubPreviewLeadingInset`: center the card on the playhead and keep it inside the
+ * timeline's horizontal bounds. The inset is the live bar, which is the measured transport
+ * inset, so the card follows the puck on this layout.
+ */
+function placeThumbnail(frame: HTMLElement, parent: HTMLElement, seconds: number, duration: number): void {
+    const bar = parent.querySelector(".player-bar");
+    if (!(bar instanceof HTMLElement)) return;
+    const host = parent.getBoundingClientRect();
+    const track = bar.getBoundingClientRect();
+    if (host.width <= 0 || track.width <= 0) return;
+    const fraction = duration > 0 ? Math.min(Math.max(seconds / duration, 0), 1) : 0;
+    const playhead = track.left + track.width * fraction;
+    const minimum = track.left;
+    const maximum = Math.max(minimum, track.right - CARD_WIDTH);
+    const left = Math.min(Math.max(playhead - CARD_WIDTH / 2, minimum), maximum);
+    frame.style.left = `${left - host.left}px`;
+    frame.style.bottom = `${BOTTOM_INSET}px`;
+}
+
 /** One loaded sheet and at most one replacement; image requests carry only signed authorization. */
-export function mountSeekThumbnail(parent: HTMLElement, controls: PlayerControls, clock: Clock): { show(seconds: number): void; clear(): void } {
+export function mountSeekThumbnail(parent: HTMLElement, controls: PlayerControls, clock: Clock): { show(seconds: number, duration: number): void; clear(): void } {
     const frame = el("div", "player-thumbnail");
     const crop = el("div", "player-thumbnail-frame");
     const time = el("p", "player-thumbnail-time");
@@ -47,10 +71,11 @@ export function mountSeekThumbnail(parent: HTMLElement, controls: PlayerControls
     };
 
     return {
-        show(seconds) {
+        show(seconds, duration) {
             request?.abort();
             const target = new AbortController();
             request = target;
+            placeThumbnail(frame, parent, seconds, duration);
             frame.hidden = true;
             time.textContent = previewClock(seconds);
             void controls.seekThumbnail(seconds, target.signal, loadSheet).then((tile) => {

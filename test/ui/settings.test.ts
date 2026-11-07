@@ -172,7 +172,7 @@ test("remaining settings expose only honoured rows and save profile appearance",
             hugsText: true,
             bottomGap: 12,
         });
-        assert.equal(await tv.page.locator(".settings-subtitle-preview span").evaluate(node => getComputedStyle(node).lineHeight), "35px");
+        assert.equal(await tv.page.locator(".settings-subtitle-preview span").evaluate(node => getComputedStyle(node).lineHeight), "25.8px", "the line scales with the Small preview size");
         await tv.page.getByRole("button", { name: /Position/ }).click();
         await tv.page.getByRole("radio", { name: "Lower Third", exact: true }).click();
         await tv.page.locator('[data-focus="appearance-position"]').waitFor();

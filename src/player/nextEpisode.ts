@@ -85,12 +85,18 @@ export async function onDeckPlay(read: Read, contentId: string): Promise<PlayReq
                 const file = detail.versions.find((version) => version.fileId === detail.watch?.lastFileId) ?? detail.versions[0];
                 if (file === undefined) continue;
                 const start = resumeSeconds(detail.watch?.positionSeconds, file.durationSeconds > 0 ? file.durationSeconds : undefined);
+                const seriesTitle = card.seriesTitle?.trim();
                 return {
                     contentId: detail.id,
                     fileId: file.fileId,
                     title: detail.title,
                     startSeconds: start ?? 0,
-                    ...(detail.type === "episode" ? { episode: true as const } : {}),
+                    ...(detail.type === "episode" ? {
+                        episode: true as const,
+                        ...(seriesTitle === undefined || seriesTitle === "" ? {} : { seriesTitle }),
+                        ...(detail.seasonNumber === undefined ? {} : { seasonNumber: detail.seasonNumber }),
+                        ...(detail.episodeNumber === undefined ? {} : { episodeNumber: detail.episodeNumber }),
+                    } : {}),
                 };
             } catch {
                 continue;

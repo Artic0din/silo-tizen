@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Playback settings show Connection speed and Test speed when the server advertises `connection_speed_v1`.
 - Added Paired Silo Profile on General, showing the profile this TV reopens and opening the profile picker to change it.
 - Added Remove Request for a failed request of yours, including the confirmation, the notice, and focus on the card that takes its place.
 - Hid unwatched episode stills and descriptions from Playback when the server supports the profile spoiler settings.
@@ -24,6 +25,8 @@ All notable changes to this project are documented in this file.
 - Moving Right on an episode rail uses the same leading slot as the first episode, and the last episode ends at Apple's edge. Opening already on a mid-season Resume episode keeps that card where it opened. The collapsed A–Z circle is plain.
 - Hid the TV's native scrollbars, drew the History returning mark as an outlined television, drew the collapsed A–Z index as Apple's 10px circle plus the faint letter marks, and centred Related captions on the poster.
 - Removed the Continue Watching playback bar, kept the focused episode frame at the 100px inset and the next episode one step away, kept Search posters 247px apart, restored biography paragraphs, and matched Related captions and the Written by order to Apple TV.
+- Kept focus on a season you select right after a series opens, instead of moving it to Play or Resume.
+- Matched Settings row fill and the On and Off value brightness to Apple TV.
 - Matched Profile Selection's caption to each launch choice. Settings footers use a 23px line so section labels sit at Apple's measured rows, the subtitle preview stays 958 by 150, and pane rows use a regular label with a 1px white stroke at 9%.
 - Tightened Inter tracking so titles match Apple TV's text width, kept a Calendar title on one line, and left a compact home title of about 152px whole in the artwork frame.
 - Matched the Playback quality footer and Maximum Bitrate labels to Apple TV.

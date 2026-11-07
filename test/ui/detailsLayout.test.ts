@@ -1471,6 +1471,26 @@ detailTest('Select on the current season during its initial load supersedes resu
     assert.equal(await tv.focused(), 'episode:s1e11');
 });
 
+detailTest('Select on a season before the opening Play claim settles keeps focus on that season', async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const body = catalog.route('GET', '/catalog/series/series%3As1/seasons/1/episodes', 'p-owner')?.body as { items: Record<string, unknown>[] };
+    let release: () => void = () => {};
+    const held = new Promise<void>(resolve => { release = resolve; });
+    await tv.page.route('**/api/v2/catalog/series/series%3As1/seasons/1/episodes?**', async route => {
+        await held;
+        await route.fulfill({ json: { items: body.items } });
+    });
+    // The claim settles on a 50 ms timer; a paused clock keeps it open until the viewer selects a season.
+    await pauseTvClock(tv);
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="season:1"]').click();
+    release();
+    await tv.page.locator('[data-focus="episode:s1e11"]').waitFor();
+    assert.equal(await tv.focused(), 'season:1', 'the opening Play claim does not take focus back from a selected season');
+    await tv.remote(40);
+    assert.equal(await tv.focused(), 'episode:s1e11');
+});
+
 detailTest('Subtitle display order keeps original selection keys and separates language from format', async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
     catalog.subtitleFiles.set('42', [

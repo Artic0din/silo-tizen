@@ -1618,3 +1618,174 @@ test("an original-file embedded text track selects the open TEXT row and does no
     assert.equal(last(r.views).phase, "playing");
     r.controller.destroy();
 });
+
+/** A converted embedded SRT, as the server writes it: hours, cue id, settings, tags, and an inline timestamp. */
+const EMBEDDED_SRT_VTT = [
+    "\uFEFFWEBVTT",
+    "X-TIMESTAMP-MAP=LOCAL:00:00:00.000,MPEGTS:0",
+    "",
+    "NOTE converted embedded SRT",
+    "",
+    "21",
+    "00:14:16.400 --> 00:14:19.800 line:90% align:middle",
+    "<b>Good morning.</b>",
+    "<00:14:17.200>from the east",
+    "",
+].join("\n");
+
+const EMBEDDED_SDH_VTT = [
+    "WEBVTT",
+    "",
+    "21",
+    "00:14:16.400 --> 00:14:19.800",
+    "Hearing impaired.",
+    "",
+].join("\n");
+
+function embeddedEnglishSrts(r: Rig): void {
+    const file = r.server.file("42");
+    const embedded = file.inventory[1];
+    assert.ok(embedded !== undefined);
+    r.server.files.set("42", {
+        ...file,
+        inventory: [
+            ...file.inventory,
+            { ...embedded, track_id: "file:42:subtitle:5", combined_index: 5, codec: "subrip", language: "eng", label: "English", forced: false, hearing_impaired: false },
+            { ...embedded, track_id: "file:42:subtitle:6", combined_index: 6, codec: "subrip", language: "eng", label: "English", forced: false, hearing_impaired: true },
+        ],
+    });
+}
+
+function openStreamPath(url: string): string {
+    const opened = new URL(url);
+    opened.searchParams.delete("token");
+    return `${opened.pathname}${opened.search}`;
+}
+
+test("a direct-play sidecar at the resume seek shows its cue text before the next clock tick", async () => {
+    const r = await rig();
+    embeddedEnglishSrts(r);
+    r.h.fake.script("/captions?token=resume", { status: 200, text: EMBEDDED_SRT_VTT });
+    r.server.next.push({
+        subtitle: 5,
+        subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/captions?token=resume`, format: "vtt", timing_origin_seconds: 0 },
+        // The file plan begins at 0. player_start is the resume. Cue times are absolute source time.
+        timeline: {
+            source_start_seconds: 0,
+            stream_origin_seconds: 0,
+            player_start_seconds: 857.2,
+            timeline_offset_seconds: 0,
+            can_seek_anywhere: true,
+            seek_restoration: "player_position",
+        },
+    });
+    await playMovie(r, { ...MOVIE, startSeconds: 857.2 });
+    const view = last(r.views);
+    assert.equal(view.phase, "playing");
+    assert.equal(r.avplay.positionMs, 857200);
+    assert.equal(r.avplay.state, "PLAYING");
+    if (view.phase === "playing") {
+        // Empty text is what sets .player-captions hidden.
+        assert.equal(view.captions?.text, "Good morning.\nfrom the east");
+    }
+    r.controller.destroy();
+});
+
+test("an embedded SRT sidecar on the same direct-play URL switches without reopening and shows the cue", async () => {
+    const r = await rig();
+    embeddedEnglishSrts(r);
+    // Samsung does not list these SRT rows as TEXT tracks, so setSelectTrack cannot take them.
+    r.avplay.tracks = [];
+    await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.controller.seekToSeconds(857.2);
+    r.avplay.finishSeek();
+    await settle(r);
+    assert.equal(r.avplay.positionMs, 857200);
+    assert.equal(r.avplay.state, "PLAYING");
+    const streamUrl = openStreamPath(only(r.avplay.urls));
+    const opens = r.avplay.urls.length;
+    const closes = r.avplay.calls.filter((call) => call === "close").length;
+    r.h.fake.script("/captions?token=en", { status: 200, text: EMBEDDED_SRT_VTT });
+    r.h.fake.script("/captions?token=sdh", { status: 200, text: EMBEDDED_SDH_VTT });
+    const artifact = (token: string) => ({ url: `${r.h.fake.origin}/api/v2/captions?token=${token}`, format: "vtt", timing_origin_seconds: 0 });
+    r.server.next.push(
+        { url: () => streamUrl, subtitle: 5, subtitleArtifact: artifact("en") },
+        { url: () => streamUrl, subtitle: 6, subtitleArtifact: artifact("sdh") },
+        { url: () => streamUrl, clearSubtitle: true },
+    );
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    assert.equal(replans(r.h).length, 1);
+    assert.equal(only(replans(r.h)).operation, "track_change");
+    assert.equal(r.avplay.urls.length, opens, "the picture stays on the open stream");
+    assert.equal(r.avplay.calls.filter((call) => call === "close").length, closes);
+    assert.equal(r.avplay.state, "PLAYING");
+    assert.equal(r.avplay.positionMs, 857200);
+    let view = last(r.views);
+    assert.equal(view.phase, "playing");
+    if (view.phase === "playing") assert.equal(view.captions?.text, "Good morning.\nfrom the east");
+    r.controller.selectSubtitle("file:42:subtitle:6");
+    await settle(r);
+    assert.equal(replans(r.h).length, 2);
+    assert.equal(r.avplay.urls.length, opens);
+    assert.equal(r.avplay.calls.filter((call) => call === "close").length, closes);
+    assert.equal(r.avplay.state, "PLAYING");
+    view = last(r.views);
+    assert.equal(view.phase, "playing");
+    if (view.phase === "playing") assert.equal(view.captions?.text, "Hearing impaired.");
+    r.controller.selectSubtitle(undefined);
+    await settle(r);
+    assert.equal(replans(r.h).length, 3);
+    assert.equal(r.avplay.urls.length, opens);
+    assert.equal(r.avplay.calls.filter((call) => call === "close").length, closes);
+    assert.equal(r.avplay.state, "PLAYING");
+    view = last(r.views);
+    assert.equal(view.phase, "playing");
+    if (view.phase === "playing") assert.equal(view.captions?.text ?? "", "");
+    r.controller.destroy();
+});
+
+test("a subtitle replan that only renews the stream token keeps the open picture", async () => {
+    const r = await rig();
+    embeddedEnglishSrts(r);
+    r.avplay.tracks = [];
+    await playMovie(r);
+    const opens = r.avplay.urls.length;
+    const closes = r.avplay.calls.filter((call) => call === "close").length;
+    const opened = new URL(only(r.avplay.urls));
+    r.h.fake.script("/captions?token=en", { status: 200, text: EMBEDDED_SRT_VTT });
+    r.server.next.push({
+        url: () => `${opened.pathname}?st=renewed`,
+        subtitle: 5,
+        subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/captions?token=en`, format: "vtt", timing_origin_seconds: 0 },
+    });
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    assert.equal(replans(r.h).length, 1);
+    assert.equal(only(replans(r.h)).operation, "track_change");
+    assert.equal(r.avplay.urls.length, opens);
+    assert.equal(r.avplay.calls.filter((call) => call === "close").length, closes);
+    assert.equal(r.avplay.state, "PLAYING");
+    r.controller.destroy();
+});
+
+test("a subtitle replan that changes the stream URL still reopens", async () => {
+    const r = await rig();
+    embeddedEnglishSrts(r);
+    r.avplay.tracks = [];
+    await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    const opens = r.avplay.urls.length;
+    r.h.fake.script("/captions?token=burn", { status: 200, text: EMBEDDED_SDH_VTT });
+    r.server.next.push({
+        url: () => "/api/v2/stream/replacement?st=new",
+        delivery: "server_transcode_hls",
+        protocol: "hls",
+        subtitle: 6,
+        subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/captions?token=burn`, format: "vtt", timing_origin_seconds: 0 },
+    });
+    r.controller.selectSubtitle("file:42:subtitle:6");
+    await settle(r);
+    assert.equal(r.avplay.urls.length, opens + 1);
+    assert.equal(r.avplay.state, "IDLE");
+    r.controller.destroy();
+});

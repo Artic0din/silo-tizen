@@ -44,9 +44,11 @@ export function decodeCues(text: string, format: string, origin: number): readon
     const add = (start: number, end: number, text: string): void => {
         if (Number.isFinite(start) && Number.isFinite(end) && end > start) cues.push({ start: start + origin, end: end + origin, text });
     };
-    const plain = (text: string): string => text.replace(/<[^>]*>/g, "").replace(/&(?:amp|lt|gt|nbsp|quot|apos);/g, entity => ({ "&amp;": "&", "&lt;": "<", "&gt;": ">", "&nbsp;": " ", "&quot;": '"', "&apos;": "'" })[entity] ?? entity);
+    const plain = (text: string): string => text.replace(/<[^>]*>/g, "").replace(/&(?:amp|lt|gt|nbsp|quot|apos);/g, entity => ({ "&amp;": "&", "&lt;": "<", "&gt;": ">", "&nbsp;": " ", "&quot;": '"', "&apos;": "'" })[entity] ?? entity).replace(/\n+$/, "");
     if (format === "vtt" || format === "webvtt" || format === "srt") {
-        for (const block of text.replace(/\r/g, "").split(/\n\s*\n/)) {
+        for (const block of text.replace(/^\uFEFF/, "").replace(/\r/g, "").split(/\n\s*\n/)) {
+            const trimmed = block.trim();
+            if (trimmed === "" || trimmed.startsWith("WEBVTT") || /^(?:NOTE|STYLE|REGION)(?:\s|$)/.test(trimmed)) continue;
             const lines = block.split("\n");
             const index = lines.findIndex(line => line.includes(" --> "));
             const timing = lines[index]?.match(/^(\S+)\s+-->\s+(\S+)/);

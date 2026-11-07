@@ -15,14 +15,17 @@
 // subtitle inventory track_id, or `file:{effective file}:audio:{n}` for the version's nth
 // audio_tracks entry. The server request never carries an AVPlay index. When the open stream
 // already lists the embedded text row, AVPlay setSelectTrack switches it without a new open.
-// A refused change leaves the current plan playing.
+// A direct-play sidecar or Off on the same stream path stays on that open picture too: this
+// overlay draws the VTT, so the plan does not need a new AVPlay open. A renewed `st` on that
+// path is the same media. A different path, an audio change, a native embedded selection, or
+// a burn-in still reopens. A refused change leaves the current plan playing.
 
 import { type Clock, sleep } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
 import { abortedError, type RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import { isPermittedUrl } from "../api/serverUrl.ts";
-import type { FileVersionTracks, PlaybackDecision, PlaybackDefaults, PlaybackMutation, PlaybackPlan, ReplanOperation, SelectedTracks, StartPlaybackBody, SubtitleTrack } from "../contracts/v2/playback.ts";
+import type { FileVersionTracks, PlaybackDecision, PlaybackDefaults, PlaybackMutation, PlaybackPlan, ReplanOperation, SelectedTracks, StartPlaybackBody, SubtitleTrack, TrackIdentity } from "../contracts/v2/playback.ts";
 import type { RandomBytes } from "../session/deviceIdentity.ts";
 import type { NativeSession } from "../session/session.ts";
 import type { AVPlay, AVPlayListener, AVPlayTrackInfo } from "./avplay.ts";
@@ -1166,6 +1169,10 @@ export class PlaybackController implements PlayerControls {
                 this.finishSubtitleReport(attempt, decision.plan, decision.serverFeatures, selected);
                 return;
             }
+            if (operation === "track_change" && attempt.plan !== undefined && sameDirectTransport(attempt.plan, decision.plan, selected)) {
+                this.applyKeptSubtitle(attempt, decision.plan, decision.serverFeatures);
+                return;
+            }
             this.adopt(attempt, decision.plan, decision.serverFeatures);
         } else {
             this.fail(attempt, decisionFailure(decision), true);
@@ -1277,8 +1284,21 @@ export class PlaybackController implements PlayerControls {
             this.changeSettled(attempt, { state: "idle" });
             return;
         }
+        if (current !== undefined && sameDirectTransport(current, next, reported)) {
+            this.applyKeptSubtitle(attempt, next, serverFeatures);
+            return;
+        }
         attempt.subtitleOverride = undefined;
         this.adopt(attempt, next, serverFeatures);
+    }
+
+    /** The picture is already the plan's stream. Load the sidecar, or clear it, and leave AVPlay open. */
+    private applyKeptSubtitle(attempt: Attempt, next: PlaybackPlan, serverFeatures: readonly string[]): void {
+        try { this.deps.avplay.setSilentSubtitle?.(true); } catch { /* The HTML overlay draws the sidecar. */ }
+        this.rememberKeptPlan(attempt, next, serverFeatures);
+        attempt.subtitleOverride = undefined;
+        attempt.subtitleRestore = undefined;
+        this.changeSettled(attempt, { state: "idle" });
     }
 
     private rememberKeptPlan(attempt: Attempt, plan: PlaybackPlan, serverFeatures: readonly string[]): void {
@@ -1307,7 +1327,7 @@ export class PlaybackController implements PlayerControls {
 
     /**
      * Selects an embedded text row on the open AVPlay stream. Off silences a rendition stream.
-     * A miss leaves the caller to replan and reopen, which is how burn-in and sidecars change.
+     * A miss leaves the caller to replan. A same-URL direct-play sidecar stays open; a new URL or burn-in reopens.
      */
     private applyStreamSubtitle(attempt: Attempt, trackId: string | undefined): boolean {
         const plan = attempt.plan;
@@ -1375,7 +1395,9 @@ export class PlaybackController implements PlayerControls {
     }
 
     private changeSettled(attempt: Attempt, change: TrackChange): void {
-        if (attempt.pendingAIResult !== undefined) {
+        // A kept picture never reaches prepare, where a refreshed inventory used to be read.
+        const resolveCompletedSubtitle = change.state === "idle" && !attempt.endedDuringChange && attempt.pendingAIResult !== undefined;
+        if (attempt.pendingAIResult !== undefined && !resolveCompletedSubtitle) {
             attempt.pendingAIResult = undefined;
             attempt.ai?.notice("Could not load the completed subtitle track. Playback continues; select it again to retry.");
         }
@@ -1394,6 +1416,9 @@ export class PlaybackController implements PlayerControls {
             const pending = attempt.pendingSubtitle;
             attempt.pendingSubtitle = undefined;
             this.selectSubtitle(pending.id);
+        }
+        if (failure === undefined && resolveCompletedSubtitle && attempt.plan !== undefined && !attempt.busy) {
+            this.applyPreparedSubtitleChoices(attempt, attempt.plan);
         }
     }
 
@@ -2761,6 +2786,7 @@ export class PlaybackController implements PlayerControls {
             return;
         }
         const frozen = attempt.busy && !attempt.reporting;
+        const captionTime = this.captionInstant(attempt, plan);
         this.show({
             phase: attempt.paused ? "paused" : "playing",
             title: attempt.request.title,
@@ -2783,7 +2809,7 @@ export class PlaybackController implements PlayerControls {
             tracks: trackView(attempt, plan),
             seekIntervals: attempt.seekIntervals,
             previewKey: frozen ? undefined : attempt.planAttemptId,
-            captions: attempt.hidden || attempt.restoring || frozen ? undefined : { text: attempt.cues.filter(cue => attempt.sourceSeconds - attempt.subtitleSync / 1000 >= cue.start && attempt.sourceSeconds - attempt.subtitleSync / 1000 < cue.end).map(cue => cue.text).join("\n"), appearance: attempt.appearance },
+            captions: attempt.hidden || attempt.restoring || frozen ? undefined : { text: attempt.cues.filter(cue => captionTime >= cue.start && captionTime < cue.end).map(cue => cue.text).join("\n"), appearance: attempt.appearance },
             skipMarker: frozen ? undefined : markerAt((attempt.markers?.segments ?? []).filter(marker => marker.kind !== "intro" || attempt.introMode !== "never"), attempt.sourceSeconds),
             undoSkipSeconds: attempt.undoSkip !== undefined && this.deps.clock.now() < attempt.undoSkip.until ? attempt.undoSkip.seconds : undefined,
         });
@@ -2993,6 +3019,21 @@ export class PlaybackController implements PlayerControls {
         return { ...request, ...(overview === request.overview ? {} : { overview }), ...(hideBackdrop === undefined ? {} : { hideBackdrop }) };
     }
 
+    /**
+     * Cue times are absolute source time. After a resume seek, AVPlay's clock is the picture
+     * and the plan's source start can still be 0 until the next playhead callback.
+     */
+    private captionInstant(attempt: Attempt, plan: PlaybackPlan): number {
+        const sync = attempt.subtitleSync / 1000;
+        if (attempt.started) {
+            try {
+                const milliseconds = this.deps.avplay.getCurrentTime();
+                if (Number.isFinite(milliseconds) && milliseconds >= 0) return milliseconds / 1000 + plan.timeline.timelineOffsetSeconds - sync;
+            } catch { /* The last reported source time still places the cue. */ }
+        }
+        return attempt.sourceSeconds - sync;
+    }
+
     private show(view: PlaybackView): void {
         this.current = view;
         for (const listener of this.listeners.slice()) {
@@ -3147,6 +3188,73 @@ function streamRenditionAnswer(plan: PlaybackPlan, id: string | undefined): bool
     if (id === undefined) return plan.subtitle.mode === "off";
     const row = plan.subtitle.inventory.find((entry) => entry.trackId === id);
     return row?.hlsRendition !== undefined && plan.subtitle.mode !== "burn_in" && plan.subtitle.mode !== "off" && plan.subtitle.mode !== "unknown";
+}
+
+/**
+ * Same original file and stream path. AVPlay cannot send headers, so a renewed `st` is still
+ * this picture. A sidecar or Off draws here. An audio change, a burn-in, a native row with no
+ * artifact, or a different native embedded selection does not.
+ */
+function sameDirectTransport(current: PlaybackPlan, next: PlaybackPlan, requested?: SelectedTracks): boolean {
+    if (!sameDirectStreamUrl(current.streamUrl, next.streamUrl) || current.delivery !== "original_http" || next.delivery !== "original_http") return false;
+    if (current.effectiveMediaFileId !== next.effectiveMediaFileId || current.streamProtocol !== next.streamProtocol) return false;
+    if (current.timeline.streamOriginSeconds !== next.timeline.streamOriginSeconds || current.timeline.timelineOffsetSeconds !== next.timeline.timelineOffsetSeconds) return false;
+    if (!samePlanAudio(current.selectedTracks.audio, next.selectedTracks.audio)) return false;
+    if (requestedAudioChanges(current.selectedTracks.audio, requested?.audio)) return false;
+    if (current.subtitle.mode === "burn_in" || next.subtitle.mode === "burn_in" || current.subtitle.mode === "unknown" || next.subtitle.mode === "unknown") return false;
+    if ((next.subtitle.mode === "render" || next.subtitle.mode === "convert") && next.subtitle.artifact === undefined) return false;
+    if (nativeEmbeddedSelection(current) !== nativeEmbeddedSelection(next)) return false;
+    if ((current.recipe !== undefined || next.recipe !== undefined) && !sameRecipe(current.recipe, next.recipe)) return false;
+    return true;
+}
+
+/** Same path and query, ignoring a renewed `st`. A different path or any other query value is a new stream. */
+function sameDirectStreamUrl(current: string, next: string): boolean {
+    if (current === next) return true;
+    let left: URL;
+    let right: URL;
+    try {
+        left = new URL(current, "https://stream.invalid");
+        right = new URL(next, "https://stream.invalid");
+    } catch {
+        return false;
+    }
+    if (left.protocol !== right.protocol || left.host !== right.host || left.pathname !== right.pathname || left.hash !== right.hash) return false;
+    const keys = new Set<string>();
+    for (const key of left.searchParams.keys()) keys.add(key);
+    for (const key of right.searchParams.keys()) keys.add(key);
+    for (const key of keys) {
+        if (key === "st") continue;
+        const leftValues = left.searchParams.getAll(key);
+        const rightValues = right.searchParams.getAll(key);
+        if (leftValues.length !== rightValues.length || leftValues.some((value, index) => value !== rightValues[index])) return false;
+    }
+    return true;
+}
+
+function samePlanAudio(current: TrackIdentity | undefined, next: TrackIdentity | undefined): boolean {
+    return current?.id === next?.id && current?.index === next?.index;
+}
+
+/** The viewer asked for different audio. Apple reloads on that change even when the answer keeps the previous track. */
+function requestedAudioChanges(current: TrackIdentity | undefined, requested: TrackIdentity | undefined): boolean {
+    if (requested === undefined) return false;
+    if (requested.id !== current?.id) return true;
+    return requested.index !== undefined && requested.index !== current?.index;
+}
+
+/**
+ * The native embedded text this direct-play plan binds, or none when the overlay draws a sidecar.
+ * Apple reloads when this identity changes: `subtitle.embedded`, or a render/convert row with no artifact.
+ */
+function nativeEmbeddedSelection(plan: PlaybackPlan): string | undefined {
+    if (plan.subtitle.embedded !== undefined) return `embedded:${plan.subtitle.embedded.streamIndex}`;
+    if ((plan.subtitle.mode !== "render" && plan.subtitle.mode !== "convert") || plan.subtitle.artifact !== undefined) return undefined;
+    const id = plan.subtitle.trackId;
+    if (id === undefined) return undefined;
+    const row = plan.subtitle.inventory.find((entry) => entry.trackId === id);
+    if (row === undefined || !inStreamCandidate(plan, row)) return undefined;
+    return `${id}\n${row.streamIndex ?? ""}\n${row.nativeSelectable === true ? "1" : "0"}`;
 }
 
 function keepsHlsTransport(current: PlaybackPlan, next: PlaybackPlan): boolean {

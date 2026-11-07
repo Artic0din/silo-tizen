@@ -1018,6 +1018,9 @@ appTest("saved server profile 15/45 reaches the composed controller and every re
     await tv.page.locator('[data-focus="profiles"]').click();
     await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
     await tv.page.locator('[data-focus="playback"]').click();
+    // The skip rows appear only after the settings contract loads. Counting immediately reads the empty pane.
+    await tv.page.locator('[data-focus="seek-back"]').waitFor();
+    await tv.page.locator('[data-focus="seek-forward"]').waitFor();
     assert.equal(await tv.page.locator('[data-focus="seek-back"], [data-focus="seek-forward"]').count(), 2);
     await tv.page.locator('[data-focus="seek-back"]').click();
     await tv.page.getByRole('radio', { name: '15 seconds', exact: true }).click();

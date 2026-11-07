@@ -79,7 +79,11 @@ export class SkylineScroll {
     static episodeOffset(row: HTMLElement, element: HTMLElement): number {
         const maximum = SkylineScroll.prepareEpisodeRow(row) ?? 0;
         const first = row.firstElementChild as HTMLElement | null;
-        return first === null ? 0 : Math.min(maximum, Math.max(0, element.offsetLeft - first.offsetLeft));
+        const offset = first === null ? 0 : Math.min(maximum, Math.max(0, element.offsetLeft - first.offsetLeft));
+        // The spacing in the slot is the previous card's lookbehind. The first
+        // episode has none, so its frame moves back to the 100px inset.
+        if (row.classList.contains("details-episodes")) row.dataset.episodeLeading = offset === 0 ? "first" : "later";
+        return offset;
     }
 
     move(node: HTMLElement, left: number, top: number): void {

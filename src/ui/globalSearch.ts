@@ -22,6 +22,17 @@ export interface SearchSupplement {
     requestsFor?: string | undefined;
 }
 
+/**
+ * Search columns keep the measured 247.333px pitch (1484 / 6). The track is
+ * the poster itself, so Chromium 108 cannot grow a `minmax(0, 1fr)` column
+ * and open that pitch to 287px. The count is a literal so `repeat(var())`
+ * cannot drop the declaration.
+ */
+function lockSearchColumns(node: HTMLElement, columns: number): void {
+    node.style.setProperty("--search-columns", String(columns));
+    node.style.gridTemplateColumns = `repeat(${columns}, calc(220px * var(--poster-scale, 1)))`;
+}
+
 export function searchRequestCatalogId(title: RequestTitle): string | undefined {
     return requestProgress(title)?.display === "inLibrary" && title.libraryContentId?.trim() ? title.libraryContentId : undefined;
 }
@@ -55,7 +66,7 @@ export function globalSearchView(view: View, route: Extract<Route, { kind: "sear
         const items = boxSets.map(set => boxSetSearchCard(set, h.context.baseUrl, () => h.push(newRoute({ kind: "boxSet", id: set.id, libraryId: set.libraryId, title: set.title, data: undefined }))));
         const grid = zoneNode("browse-grid", items);
         grid.dataset.section = "search-box-sets";
-        grid.style.setProperty("--search-columns", String(h.gridColumns));
+        lockSearchColumns(grid, h.gridColumns);
         content.push(el("h2", "browse-section-title search-box-sets-heading", "Box Sets"), grid);
         zones.push({ id: "search-box-sets", layout: "grid", spatial: true, columns: h.gridColumns, items });
     }
@@ -82,7 +93,7 @@ export function globalSearchView(view: View, route: Extract<Route, { kind: "sear
     const hasPager = view.zones.some(zone => zone.id === "pager" && zone.items.length > 0);
     content.push(...view.content.slice(h.searchHead.length).filter(node => {
         if (node.classList.contains("search-empty") && (people.length > 0 || boxSets.length > 0 || waitingForSupplement)) return false;
-        if (node.classList.contains("browse-grid")) node.style.setProperty("--search-columns", String(h.gridColumns));
+        if (node.classList.contains("browse-grid")) lockSearchColumns(node, h.gridColumns);
         if (node.classList.contains("browse-page-status") && !hasPager) return false;
         return !((node.classList.contains("browse-grid") || node.classList.contains("browse-actions")) && node.childElementCount === 0);
     }));

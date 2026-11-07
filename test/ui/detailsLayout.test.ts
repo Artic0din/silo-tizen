@@ -301,9 +301,11 @@ for (const season of [1, 2, 30]) detailTest(`fresh season ${season} has no retai
     await tv.page.locator(`[data-focus="season:${season}"]`).focus(); await tv.jump(500);
     const frame = await readLive(tv, liveRail, null, value => {
         const card = value.cards.at(-5);
-        return card !== undefined && Math.abs(card.x - 149.5) <= 2 && Math.abs(value.cards.at(-1)!.right - 1858) <= 2;
+        const expected = card === value.cards[0] ? 109.7 : 149.5;
+        return card !== undefined && Math.abs(card.x - expected) <= 2 && Math.abs(value.cards.at(-1)!.right - 1858) <= 2;
     }, 'fresh first and final card geometry');
-    assert.ok(Math.abs(frame.cards.at(-5)!.x - 149.5) <= 2);
+    const anchored = frame.cards.at(-5)!;
+    assert.ok(Math.abs(anchored.x - (anchored === frame.cards[0] ? 109.7 : 149.5)) <= 2);
     const pill = await readLive(tv, () => {
         const node = document.querySelector('.details-season-chips [aria-pressed="true"]');
         if (!(node instanceof HTMLElement)) return null;
@@ -1060,11 +1062,11 @@ detailTest("Final season E05 clamps with one successor while start and interior 
     await card('s13e1').focus(); await tv.jump(500); await tv.remote(37);
     const start = await readLive(tv, liveRail, null, value => {
         const card = value.cards[0];
-        return card !== undefined && value.scroll === 0 && Math.abs(card.frameX - 149.7) < 1 && Math.abs(card.x - 142) < 2;
+        return card !== undefined && value.scroll === 0 && Math.abs(card.frameX - 109.7) < 1 && Math.abs(card.x - 102) < 2;
     }, "first focus lift settled");
     assert.equal(start.scroll, 0);
-    assert.ok(Math.abs(start.cards[0]!.frameX - 149.7) < 1, JSON.stringify(start));
-    assert.ok(Math.abs(start.cards[0]!.x - 142) < 2, JSON.stringify(start));
+    assert.ok(Math.abs(start.cards[0]!.frameX - 109.7) < 1, JSON.stringify(start));
+    assert.ok(Math.abs(start.cards[0]!.x - 102) < 2, JSON.stringify(start));
     assert.equal(await tv.focused(), 'episode:s13e1');
     assert.equal(seasonReads(), reads, 'loaded neighbour and interior focus start no season reads');
     await card('s14e6').focus(); await tv.jump(800);
@@ -1148,9 +1150,9 @@ for (const current of [1, 5]) detailTest(`Measured five-card episode rail with E
     await tv.jump(500);
     const lifted = await readLive(tv, liveRail, null, value => {
         const card = value.cards[0];
-        return card !== undefined && card.width > 377 && Math.abs(card.x - 142) < 2;
+        return card !== undefined && card.width > 377 && Math.abs(card.x - 102) < 2;
     }, "first card lift settled");
-    assert.ok(Math.abs(lifted.cards[0]!.x - 142) < 2);
+    assert.ok(Math.abs(lifted.cards[0]!.x - 102) < 2);
     await tv.page.locator('[data-focus="episode:s1e15"]').focus();
     await tv.jump(500);
     const focused = await readLive(tv, liveRail, null, value => {

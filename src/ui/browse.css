@@ -238,7 +238,7 @@
 .search-scene .search-filters .browse-button[aria-pressed="true"] { background: #454545; background-clip: padding-box; }
 .search-scene .search-filters .browse-button:focus { transform: none; color: #000; background: #ededed; }
 .search-scene .search-count { margin: 0 162px 24px; font-size: 22px; line-height: 27px; }
-.search-scene > .browse-grid { width: 1444px; margin: 0 162px; padding: 24px 9px 20px; grid-template-columns: repeat(var(--search-columns, 6), minmax(0, 1fr)); gap: 48px 58px; }
+.search-scene > .browse-grid { width: 1444px; margin: 0 162px; padding: 24px 9px 20px; grid-template-columns: repeat(var(--search-columns, 6), calc(220px * var(--poster-scale, 1))); column-gap: calc((1484px / var(--search-columns, 6)) - 220px * var(--poster-scale, 1)); row-gap: 48px; justify-content: start; }
 .search-scene .browse-grid .browse-card { width: calc(220px * var(--poster-scale, 1)); margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .search-scene .browse-grid .browse-art { width: calc(220px * var(--poster-scale, 1)); height: calc(330px * var(--poster-scale, 1)); border-radius: 16px; }
 .search-scene .browse-grid .browse-card-title { margin: 16px 0 0; padding: 0; font-size: 24px; line-height: 29px; font-weight: 600; }
@@ -993,7 +993,8 @@
 .search-scene .browse-grid .browse-card { --card-art-height: calc(330px * var(--poster-scale, 1)); --card-caption-gap: 16px; }
 .search-scene .search-request-rail .browse-card { --card-art-height: calc(330px * var(--poster-scale, 1)); --card-caption-gap: 22px; }
 .browse-row[data-detail-section="related"] .browse-card { --card-caption-gap: 16px; }
-.browse-row[data-detail-section="related"] .browse-card-title { margin-top: 16px; }
+.browse-row[data-detail-section="related"] .browse-card-title { margin-top: 16px; font-size: 24px; font-weight: 500; line-height: 29px; }
+.browse-row[data-detail-section="related"] .browse-card-subtitle { font-size: 20px; font-weight: 400; line-height: 24px; }
 .browse .browse-card:focus { transform: none; border-color: transparent; box-shadow: none; }
 .browse .browse-card .browse-art { transition: transform var(--silo-fast) ease-out, box-shadow var(--silo-fast) ease-out, outline-color var(--silo-fast) ease-out; outline: 4px solid transparent; outline-offset: -2px; }
 .browse .browse-card:is(:focus, [aria-current="true"]) .browse-art { outline-color: rgba(255,255,255,.7); }
@@ -1120,9 +1121,11 @@
    leading padding adds the hover inset. The mask at horizontalInset 100
    cancels the card width, so one spacing stays in the visible slot.
    The focused card's layout left is 100 + spacing + width * 0.025 + 2.
-   At rest the previous card ends at 100 + width * 0.025 + 2, a sliver past the mask. */
+   At rest the previous card ends at 100 + width * 0.025 + 2, a sliver past the mask.
+   The first episode has no previous card, so it shifts back by the spacing and its frame starts at the 100px inset. */
 .details-series-rail { --episode-spacing: 40px; }
 .details-series-rail .details-episodes { --episode-paint-end: 88px; margin-left: -88px; margin-right: -88px; padding: 12px calc(100px + var(--episode-spacing) + 360px * var(--poster-scale, 1) * .025 + 2px); clip-path: inset(0 0 0 100px); }
+.details-series-rail .details-episodes:not([data-episode-leading="later"]) > .browse-card:first-child { transform: translateX(calc(-1 * var(--episode-spacing))); }
 .details-playback-summary span:empty { align-self: center; width: 128px; height: 16px; border-radius: 4px; background: rgba(255,255,255,.1); }
 .details-playback-summary [data-track-summary="audio"] span:empty { width: 166px; }
 .details-playback-summary [data-track-summary="subtitles"] span:empty { width: 77px; }
@@ -1410,7 +1413,7 @@
 .browse[data-view^="person:"] .browse-title { margin-bottom: 0; }
 .browse[data-view^="person:"] .person-facts { display: flex; gap: 12px; margin: 0; }
 .browse[data-view^="person:"] .person-fact { flex-shrink: 0; margin: 0; }
-.browse[data-view^="person:"] .browse-overview { margin: 0; color: rgba(237, 237, 237, 0.6); font-size: 26px; font-weight: 400; }
+.browse[data-view^="person:"] .browse-overview { margin: 0; color: rgba(237, 237, 237, 0.6); font-size: 26px; font-weight: 400; white-space: pre-line; }
 .browse[data-view^="person:"] .browse-detail-info > * + * { margin-top: 22px; }
 .person-filmography-heading { display: flex; align-items: baseline; gap: 60px; margin: 0 0 20px; }
 .person-filmography-heading .browse-section-title { margin: 0; font-size: 36px; font-weight: 600; }

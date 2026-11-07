@@ -441,10 +441,11 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         }
     }
     const facts: { label: string; value: string }[] = [];
-    for (const [label, jobs] of [["DIRECTOR", ["director"]], ["WRITTEN BY", ["writer", "screenplay", "story"]]] as const) {
-        const names = [...new Set(detail.extra?.crew.filter(credit => (jobs as readonly string[]).includes(credit.role.toLowerCase())).map(credit => credit.name))];
-        if (names.length) facts.push({ label, value: names.slice(0, 3).join(", ") });
-    }
+    const crew = detail.extra?.crew ?? [];
+    const directors = creditLine(crew, ["director"]);
+    if (directors !== undefined) facts.push({ label: "Director", value: directors });
+    const writers = creditLine(crew, ["writer", "screenplay", "story"]);
+    if (writers !== undefined) facts.push({ label: writerFactLabel(crew), value: writers });
     facts.push(...detail.extra?.facts ?? []);
     if (facts.length > 0) {
         const panel = el("div", "details-facts");
@@ -663,6 +664,24 @@ function titleCards(cards: readonly Card[], context: ViewContext): FocusItem[] {
         if (item !== undefined) items.push(item);
     }
     return items;
+}
+
+/**
+ * `DetailFacts.creditNames` at silo-apple `2ef3a171`: unique names in Unicode
+ * order, three of them, then an ellipsis when more remain.
+ */
+export function creditLine(crew: readonly Credit[], jobs: readonly string[]): string | undefined {
+    const wanted = new Set(jobs);
+    const names = [...new Set(crew.filter(credit => wanted.has(credit.role.toLowerCase())).map(credit => credit.name))];
+    names.sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+    if (names.length === 0) return undefined;
+    const shown = names.slice(0, 3).join(", ");
+    return names.length > 3 ? `${shown}, …` : shown;
+}
+
+/** A screenplay credit uses "Writer". Every other writing credit uses "Written by". */
+export function writerFactLabel(crew: readonly Credit[]): "Writer" | "Written by" {
+    return crew.some(credit => credit.role.toLowerCase() === "screenplay") ? "Writer" : "Written by";
 }
 
 export function personHero(person: Person, baseUrl: string, metadataLoading = false): HTMLElement {

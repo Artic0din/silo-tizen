@@ -15,7 +15,7 @@ import { navigationAvatar } from "./navigationAvatar.ts";
 import { navigationIcon } from "./navigationIcon.ts";
 import { decodeAppearance, DEFAULT_APPEARANCE } from "../contracts/v2/subtitles.ts";
 import { applySubtitleAppearance } from "../player/subtitleView.ts";
-import { pairedProfileDescription, pairedProfileLabel } from "./pairedProfile.ts";
+import { pairedProfileDescription, pairedProfileLabel, profileSelectionCaption } from "./pairedProfile.ts";
 
 type Category = "general" | "playback" | "subtitles" | "server";
 const CATEGORY_LABELS = { general: "General", playback: "Playback", subtitles: "Subtitles", server: "Server" } as const;
@@ -410,13 +410,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 const item = actionButton(`launch:${behavior === "automatic" ? "true" : behavior === "askEveryLaunch" ? "false" : behavior}`, text, () => { if (!launchPending) saveLaunch(behavior); });
                 item.element.setAttribute("role", "radio");
                 item.element.setAttribute("aria-checked", String(launch.behavior === behavior));
-                const descriptions = {
-                    automatic: "Use the last profile selected on this device. A protected profile can reopen without asking for its PIN.",
-                    askEveryLaunch: "Show Who's Watching whenever you return to Silo.",
-                    afterOneHour: "Show Who's Watching when you've been away from Silo for 1 hour.",
-                    afterTwelveHours: "Show Who's Watching when you've been away from Silo for 12 hours.",
-                };
-                const detail = el("span", "settings-option-detail", descriptions[behavior]);
+                const detail = el("span", "settings-option-detail", profileSelectionCaption(behavior));
                 detail.id = `settings-launch-${behavior}-detail`;
                 item.element.setAttribute("aria-label", text);
                 item.element.setAttribute("aria-describedby", detail.id);
@@ -527,7 +521,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             item.element.append(el("span", "settings-row-value", LAUNCH_CHOICES.find(([value]) => value === launch.behavior)?.[1] ?? "Every Time"), el("span", "settings-chevron", "›"));
             item.element.setAttribute("aria-disabled", String(launchPending));
             rows.push(item);
-            body.append(el("h3", "settings-section-header", "PROFILE AT LAUNCH"), item.element, el("p", "settings-value", "Choose when to show Who’s Watching on this TV."));
+            body.append(el("h3", "settings-section-header", "PROFILE AT LAUNCH"), item.element, el("p", "settings-value", profileSelectionCaption(launch.behavior)));
             if (launchError) {
                 const error = el("p", "browse-text browse-error", "Could not save the launch choice.");
                 error.setAttribute("role", "alert");

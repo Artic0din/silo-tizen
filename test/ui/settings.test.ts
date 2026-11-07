@@ -222,7 +222,7 @@ test("measured Settings pickers centre the selected choice and privacy handoff",
         await tv.page.locator('[data-focus="remember-profile"]').click();
         assert.equal(await tv.page.getByRole("dialog").count(), 1);
         assert.equal(await tv.page.getByRole("radio", { checked: true }).evaluate(node => node === document.activeElement), true);
-        assert.equal(await tv.page.getByText("Show Who's Watching whenever you return to Silo.", { exact: true }).count(), 1);
+        assert.equal(await tv.page.getByRole("dialog").getByText("Show Who's Watching whenever you return to Silo.", { exact: true }).count(), 1);
         assert.equal(await tv.page.locator('.settings-checkmark').count(), 1);
         await tv.remote(10009);
         assert.equal(await tv.focused(), "remember-profile");
@@ -390,6 +390,79 @@ test("profile subtitle editors read and compare profile values while narrower ov
         assert.equal(settings.overrides.get(SUBTITLE_MODE_KEY), "off");
         assert.equal(settings.overrides.get(SHOW_FORCED_KEY), true);
         await tv.page.getByText(/Override active/).waitFor();
+    } finally { await tv.page.context().close(); }
+});
+
+test("Profile Selection caption follows the chosen launch behavior", async () => {
+    const { tv } = await setup();
+    const captions = {
+        "Every Time": "Show Who's Watching whenever you return to Silo.",
+        "After 1 Hour": "Show Who's Watching when you've been away from Silo for 1 hour.",
+        "After 12 Hours": "Show Who's Watching when you've been away from Silo for 12 hours.",
+        Automatic: "Use the profile selected for the current TV user. A protected profile can reopen without asking for its PIN.",
+    } as const;
+    try {
+        await openSettings(tv);
+        const caption = async (): Promise<string | null> => tv.page.locator('[data-focus="remember-profile"] + .settings-value').textContent();
+        assert.equal(await caption(), captions["Every Time"]);
+        for (const [name, text] of Object.entries(captions)) {
+            if (name === "Every Time") continue;
+            await tv.page.locator('[data-focus="remember-profile"]').click();
+            if (name === "Automatic") {
+                assert.equal(await tv.page.getByRole("dialog").locator(".settings-option-detail").nth(0).textContent(), text);
+            }
+            await tv.page.getByRole("radio", { name, exact: true }).click();
+            await tv.eventually(async () => await caption() === text, `${name} caption`);
+        }
+    } finally { await tv.page.context().close(); }
+});
+
+test("Settings pane spacing matches Apple's section gaps", async () => {
+    const { tv } = await setup();
+    try {
+        await openSettings(tv);
+        const general = await tv.page.evaluate(() => {
+            const header = document.querySelector(".settings-pane-header");
+            const user = document.querySelector(".settings-pane > .settings-section-header");
+            const paired = document.querySelector('[data-focus="paired-profile"]');
+            const footer = document.querySelector('[data-focus="paired-profile"] + .settings-value');
+            const launch = [...document.querySelectorAll(".settings-pane > .settings-section-header")].find(node => node.textContent === "PROFILE AT LAUNCH");
+            const titleArt = document.querySelector('[data-focus="title-art"]');
+            const titleArtAll = document.querySelector('[data-focus="title-art-all"]');
+            if (!header || !user || !paired || !footer || !launch || !titleArt || !titleArtAll) return null;
+            const userStyle = getComputedStyle(user);
+            const footerStyle = getComputedStyle(footer);
+            const launchStyle = getComputedStyle(launch);
+            const box = (node: Element) => node.getBoundingClientRect();
+            return {
+                headerToSectionText: box(user).top + parseFloat(userStyle.paddingTop) - box(header).bottom,
+                sectionPaddingTop: userStyle.paddingTop,
+                sectionPaddingBottom: userStyle.paddingBottom,
+                sectionToRow: box(paired).top - box(user).bottom,
+                rowToFooterText: box(footer).top + parseFloat(footerStyle.paddingTop) - box(paired).bottom,
+                footerPaddingTop: footerStyle.paddingTop,
+                footerToNextSectionText: box(launch).top + parseFloat(launchStyle.paddingTop) - box(footer).bottom,
+                rowPitch: box(titleArtAll).top - box(titleArt).bottom,
+            };
+        });
+        assert.deepEqual(general, {
+            headerToSectionText: 52,
+            sectionPaddingTop: "26px",
+            sectionPaddingBottom: "6px",
+            sectionToRow: 8,
+            rowToFooterText: 12,
+            footerPaddingTop: "4px",
+            footerToNextSectionText: 34,
+            rowPitch: 8,
+        });
+        await tv.page.locator('[data-focus="playback"]').click();
+        const playback = await tv.page.evaluate(() => {
+            const header = document.querySelector(".settings-pane > .settings-section-header");
+            const row = document.querySelector('[data-focus="quality"]');
+            if (!header || !row) return null;
+            return row.getBoundingClientRect().top - header.getBoundingClientRect().bottom;
+        });
+        assert.equal(playback, 8);
     } finally { await tv.page.context().close(); }
 });
 

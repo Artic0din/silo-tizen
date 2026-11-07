@@ -97,6 +97,27 @@ test("live autoplay saves once while pending and retains the old value on refusa
     r.controller.destroy();
 });
 
+test("EOF waits for a pending Auto-play save before starting a countdown", async () => {
+    const r = await autoplayRig(true);
+    r.settings.overrides.delete("playback.auto_play_next");
+    r.settings.profile().set("playback.auto_play_next", true);
+    await playMovie(r, EPISODE);
+    const hold = r.h.fake.hold("/settings/values/playback.auto_play_next?scope=profile");
+    r.controller.toggleAutoNext();
+    await r.h.clock.advance(0);
+    r.settings.profile().set("playback.auto_play_next", true);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, "/start").length, 1, "the old effective value must not start the next episode while the save is pending");
+    assert.equal(completion(r).countdown, undefined);
+    r.settings.profile().set("playback.auto_play_next", false);
+    hold.release();
+    await r.h.clock.advance(15000);
+    assert.equal(completion(r).countdown, undefined);
+    assert.equal(bodies(r.h, "/start").length, 1);
+    r.controller.destroy();
+});
+
 test("a discovery settings read started before a save cannot overwrite Auto-play next", async () => {
     const r = await autoplayRig(true);
     r.settings.overrides.delete("playback.auto_play_next");
@@ -1814,6 +1835,54 @@ test("Up Next hides an unwatched episode synopsis when the profile asks and keep
     assert.ok(visible.phase === "playing");
     assert.match(visible.upNext?.next?.overview ?? "", /synthetic episode/);
     shown.controller.destroy();
+});
+
+test("On Deck blurs an unwatched episode still and leaves series art and a started episode sharp", async () => {
+    const spoilers = (): EpisodeSpoilerSettings => ({ hidesImages: true, hidesOverviews: false });
+    const hidden = await autoplayRig(false, undefined, spoilers);
+    hidden.catalog.episodeStills = true;
+    const home = hidden.catalog.households.get("p-owner");
+    const row = home?.sections.find(section => section.id === "continue_watching");
+    assert.ok(row);
+    row.items.unshift("episode:s2e11");
+    await playMovie(hidden, EPISODE);
+    hidden.controller.showUpNext();
+    await hidden.h.clock.advance(0);
+    const concealed = last(hidden.views);
+    assert.ok(concealed.phase === "playing");
+    const still = concealed.upNext?.deck.find(item => item.contentId === "episode:s2e11");
+    assert.ok(still);
+    assert.equal(still.hideBackdrop, true);
+    assert.equal(still.backdropIsEpisodeStill, true);
+    hidden.controller.destroy();
+
+    const sharp = await autoplayRig(false, undefined, spoilers);
+    const existing = sharp.catalog.titles.get("episode:s2e11");
+    assert.ok(existing);
+    sharp.catalog.add({ ...existing, backdrop: "/art/series.svg", backdropStill: false });
+    const sharpHome = sharp.catalog.households.get("p-owner");
+    sharpHome?.sections.find(section => section.id === "continue_watching")?.items.unshift("episode:s2e11");
+    await playMovie(sharp, EPISODE);
+    sharp.controller.showUpNext();
+    await sharp.h.clock.advance(0);
+    const clear = last(sharp.views);
+    assert.ok(clear.phase === "playing");
+    const art = clear.upNext?.deck.find(item => item.contentId === "episode:s2e11");
+    assert.equal(art?.backdropIsEpisodeStill, false);
+    assert.equal(art?.hideBackdrop, undefined);
+    sharp.controller.destroy();
+
+    const started = await autoplayRig(false, undefined, spoilers);
+    started.catalog.episodeStills = true;
+    started.catalog.progress.set("episode:s2e11", 30);
+    started.catalog.households.get("p-owner")?.sections.find(section => section.id === "continue_watching")?.items.unshift("episode:s2e11");
+    await playMovie(started, EPISODE);
+    started.controller.showUpNext();
+    await started.h.clock.advance(0);
+    const playing = last(started.views);
+    assert.ok(playing.phase === "playing");
+    assert.equal(playing.upNext?.deck.find(item => item.contentId === "episode:s2e11")?.hideBackdrop, undefined);
+    started.controller.destroy();
 });
 
 test("Play Now before EOF waits for progress and final stop at duration", async () => {

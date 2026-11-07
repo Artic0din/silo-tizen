@@ -53,6 +53,10 @@ import { planStats, videoOptions, type PlayerHUD } from "./playerHUD.ts";
 export interface PlayRequest {
     readonly overview?: string | undefined;
     readonly backdropUrl?: string | undefined;
+    /** False for series key art. Absent or true is an episode still. */
+    readonly backdropIsEpisodeStill?: boolean | undefined;
+    /** On Deck blurs this still. Series art stays sharp. */
+    readonly hideBackdrop?: true;
     readonly seriesTitle?: string | undefined;
     readonly seasonNumber?: number | undefined;
     readonly episodeNumber?: number | undefined;
@@ -275,6 +279,8 @@ interface Attempt {
     autoNext: boolean;
     /** Confirmed Auto-play saves advance this so an older settings read cannot overwrite them. */
     settingsEpoch: number;
+    /** The in-flight Auto-play save. EOF waits for it before reading the effective value. */
+    autoNextSave: Promise<void> | undefined;
     introMode: "never" | "ask" | "always";
     skipCredits: boolean;
     skippedMarkers: Set<SkipMarker>;
@@ -438,7 +444,7 @@ export class PlaybackController implements PlayerControls {
             offer: { started: false, manual: false, episodeLoading: false, deckLoading: false, episodeSettled: false, episodeFailed: false, episode: undefined, deckSettled: false, deckFailed: false, deck: [], presentationFor: undefined },
             rectPending: false,
             transportCommandCount: 0,
-            autoNext: false, settingsEpoch: 0,
+            autoNext: false, settingsEpoch: 0, autoNextSave: undefined,
             ai: undefined, search: undefined, display: undefined, aiBlockedFiles: new Set(), pendingAIResult: undefined, pendingDownloadId: undefined,
             introMode: "ask", skipCredits: false, skippedMarkers: new Set(), undoSkip: undefined, pendingSkipUndo: undefined,
             appearance: DEFAULT_APPEARANCE, subtitleSync: 0, cues: [], captionAbort: undefined, captionNotice: "", captionPreferenceNotice: "", captionKey: undefined, captionPreferencesRead: false, seriesSubtitle: request.episode ? { busy: false, message: "" } : undefined,
@@ -545,17 +551,23 @@ export class PlaybackController implements PlayerControls {
         this.showPlayback(attempt);
         const enabled = !attempt.autoNext;
         const epoch = attempt.settingsEpoch;
-        void this.deps.session.call({ ...operations.putSetting(AUTO_NEXT_KEY, enabled), profileScoped: true, signal: attempt.signal }).then(async () => {
+        const deciding = (): boolean => attempt.live || this.completion?.attempt === attempt;
+        const save = this.deps.session.call({ ...operations.putSetting(AUTO_NEXT_KEY, enabled), profileScoped: true, signal: attempt.signal }).then(async () => {
             const values = await this.deps.session.call({ ...operations.effectiveSettings([AUTO_NEXT_KEY]), profileScoped: true, signal: attempt.signal });
-            if (!attempt.live || attempt.signal.aborted || epoch !== attempt.settingsEpoch) return;
+            if (attempt.signal.aborted || epoch !== attempt.settingsEpoch || !deciding()) return;
             attempt.settingsEpoch = epoch + 1;
             attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
-            attempt.hud.message = attempt.autoNext === enabled ? "" : "This TV's override keeps Auto-play next unchanged.";
+            if (attempt.live) attempt.hud.message = attempt.autoNext === enabled ? "" : "This TV's override keeps Auto-play next unchanged.";
         }).catch(() => {
-            if (attempt.live && !attempt.signal.aborted) attempt.hud.message = "Could not save Auto-play next. Try again.";
+            if (!attempt.signal.aborted && attempt.live) attempt.hud.message = "Could not save Auto-play next. Try again.";
         }).finally(() => {
             attempt.hud.autoBusy = false;
             if (attempt.live) this.showPlayback(attempt);
+        });
+        const settled = save.then(() => undefined, () => undefined);
+        attempt.autoNextSave = settled;
+        void settled.finally(() => {
+            if (attempt.autoNextSave === settled) attempt.autoNextSave = undefined;
         });
     }
 
@@ -2133,6 +2145,8 @@ export class PlaybackController implements PlayerControls {
                 return;
             }
             if (attempt.autoNextSupported) {
+                await attempt.autoNextSave;
+                if (!current()) return;
                 const epoch = attempt.settingsEpoch;
                 try {
                     const values = await this.deps.session.call({ ...operations.effectiveSettings([AUTO_NEXT_KEY]), profileScoped: true, signal: abort.signal });
@@ -3125,7 +3139,7 @@ export class PlaybackController implements PlayerControls {
         void this.deps.session.call({ ...operations.getCatalogItem(request.contentId), profileScoped: true, signal }).then(detail => {
             if (!signal.aborted && detail.id === request.contentId) {
                 const watch = playbackWatch(detail.watch);
-                accept({ ...request, overview: detail.overview, backdropUrl: detail.backdropUrl, ...(watch === undefined ? {} : { watch }) });
+                accept({ ...request, overview: detail.overview, backdropUrl: detail.backdropUrl, backdropIsEpisodeStill: detail.backdropIsEpisodeStill, ...(watch === undefined ? {} : { watch }) });
             }
         }, () => undefined);
     }
@@ -3134,8 +3148,18 @@ export class PlaybackController implements PlayerControls {
     private shownNext(request: PlayRequest | undefined): PlayRequest | undefined {
         if (request?.episode !== true) return request;
         const settings = this.deps.spoilers?.() ?? { hidesImages: false, hidesOverviews: false };
-        const overview = episodeDetailPresentation({ type: "episode", overview: request.overview, watch: request.watch, played: request.watch?.played }, settings).overview;
-        return overview === request.overview ? request : { ...request, overview };
+        const presentation = episodeDetailPresentation({
+            type: "episode",
+            overview: request.overview,
+            watch: request.watch,
+            played: request.watch?.played,
+            backdropUrl: request.backdropUrl,
+            backdropIsEpisodeStill: request.backdropIsEpisodeStill,
+        }, settings);
+        const overview = presentation.overview;
+        const hideBackdrop = presentation.hideBackdrop ? true as const : undefined;
+        if (overview === request.overview && hideBackdrop === undefined) return request;
+        return { ...request, ...(overview === request.overview ? {} : { overview }), ...(hideBackdrop === undefined ? {} : { hideBackdrop }) };
     }
 
     private show(view: PlaybackView): void {

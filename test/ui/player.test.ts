@@ -429,6 +429,19 @@ test("On Deck resolves relative artwork against the connected server", async () 
     } finally { await page.close(); }
 });
 
+test("On Deck blurs an unwatched episode still and leaves other artwork sharp", async () => {
+    const { page } = await open();
+    try {
+        await page.route("**/api/v2/images/**", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>' }));
+        const still = { contentId: "still", fileId: "43", title: "Secret", startSeconds: 0, episode: true as const, backdropUrl: "/api/v2/images/still", hideBackdrop: true as const };
+        const series = { contentId: "series-art", fileId: "44", title: "Key art", startSeconds: 0, episode: true as const, backdropUrl: "/api/v2/images/series" };
+        await show(page, { ...playing(TRACKS), upNext: { next: still, deck: [still, series], countdown: undefined, status: "Up Next" } });
+        assert.equal(await page.locator(".player-next-card .episode-spoiler-blur .player-next-still").count(), 1);
+        assert.match(await page.locator(".player-next-still").evaluate(node => getComputedStyle(node).filter), /blur\(24px\)/);
+        assert.equal(await page.locator(".player-next-card > img").count(), 1);
+    } finally { await page.close(); }
+});
+
 for (const complete of [false, true]) {
     test(`On Deck preserves the focused content when later candidates arrive (${complete ? "EOF" : "pre-end"})`, async () => {
         const { page } = await open();
@@ -1211,14 +1224,18 @@ const planeCoveredBy = (page: Page): Promise<string[]> => page.evaluate(() => {
     return offenders;
 });
 
-test("the video plane stays clear while playing, paused, seeking and the panel is open", async () => {
+test("the video plane stays clear once a frame can show, including replan, reconnect and restore", async () => {
     const { page, logs } = await open();
     try {
         const assertClear = async (state: string): Promise<void> => {
             assert.deepEqual(await planeCoveredBy(page), [], state);
         };
+        const backdrop = page.locator(".player-backdrop");
+        assert.equal(await backdrop.isVisible(), true, "the opening load is still black");
+        assert.equal(await backdrop.evaluate((node) => getComputedStyle(node).backgroundColor), "rgb(0, 0, 0)");
         await show(page, playing(NO_TRACKS));
-        await assertClear("playing");
+        await assertClear("left loading");
+        assert.equal(await backdrop.isVisible(), false, "the backdrop leaves with the loading phase");
         await show(page, { ...playing(NO_TRACKS), phase: "paused" });
         await assertClear("paused");
         await show(page, playing(NO_TRACKS));
@@ -1235,10 +1252,14 @@ test("the video plane stays clear while playing, paused, seeking and the panel i
         await show(page, { phase: "error", title: "The Movie", error: { kind: "network" } });
         await assertClear("error");
         await show(page, { phase: "loading", title: "The Movie" });
-        const backdrop = page.locator(".player-backdrop");
-        assert.equal(await backdrop.isVisible(), true);
-        assert.equal(await backdrop.evaluate((node) => getComputedStyle(node).backgroundColor), "rgb(0, 0, 0)");
-        assert.equal(await page.locator(".player-overlay .player-title").isVisible(), false);
+        await assertClear("replan");
+        assert.equal(await backdrop.isVisible(), false, "a later load must not cover a picture that already showed");
+        await show(page, { phase: "loading", title: "The Movie", detail: "reconnecting" });
+        await assertClear("reconnect");
+        assert.equal(await page.locator(".player-status").innerText(), "Reconnecting");
+        await show(page, { phase: "loading", title: "The Movie", detail: "restoring" });
+        await assertClear("restore");
+        assert.equal(await page.locator(".player-status").innerText(), "Restoring");
         assert.deepEqual(logs, []);
     } finally {
         await page.close();

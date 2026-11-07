@@ -106,14 +106,21 @@ export async function readOnDeck(read: Read, contentId: string, publish?: (items
                 if (file === undefined) continue;
                 const start = resumeSeconds(detail.watch?.positionSeconds, file.durationSeconds > 0 ? file.durationSeconds : undefined);
                 const watch = presentationWatch(detail.watch);
+                const seriesTitle = card.seriesTitle?.trim();
                 result.push({
                     contentId: detail.id,
                     fileId: file.fileId,
                     title: detail.title,
                     overview: card.overview,
                     backdropUrl: card.backdropUrl,
+                    ...(card.backdropIsEpisodeStill === undefined ? {} : { backdropIsEpisodeStill: card.backdropIsEpisodeStill }),
                     startSeconds: start ?? 0,
-                    ...(detail.type === "episode" ? { episode: true as const } : {}),
+                    ...(detail.type === "episode" ? {
+                        episode: true as const,
+                        ...(seriesTitle === undefined || seriesTitle === "" ? {} : { seriesTitle }),
+                        ...(detail.seasonNumber === undefined ? {} : { seasonNumber: detail.seasonNumber }),
+                        ...(detail.episodeNumber === undefined ? {} : { episodeNumber: detail.episodeNumber }),
+                    } : {}),
                     ...(watch === undefined ? {} : { watch }),
                 });
                 publish?.(result.slice());

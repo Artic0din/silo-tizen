@@ -65,6 +65,26 @@ test("Settings pins its rail, resets pane scroll and keeps modal background geom
         assert.equal(appearance.height, 66);
         assert.equal(appearance.pitch, 74);
         assert.deepEqual(appearance.order.slice(0, 3), ["preview", "appearance-device", "appearance-fontSize"]);
+        const previewBox = await tv.page.evaluate(() => {
+            const pane = document.querySelector<HTMLElement>(".settings-pane");
+            const preview = document.querySelector<HTMLElement>(".settings-subtitle-preview");
+            if (pane === null || preview === null) return null;
+            const previous = pane.style.maxHeight;
+            pane.style.maxHeight = "320px";
+            const box = preview.getBoundingClientRect();
+            const style = getComputedStyle(preview);
+            const result = {
+                height: box.height,
+                width: box.width,
+                flexShrink: style.flexShrink,
+                minHeight: style.minHeight,
+                constrained: pane.scrollHeight > pane.clientHeight,
+                direction: getComputedStyle(pane).flexDirection,
+            };
+            pane.style.maxHeight = previous;
+            return result;
+        });
+        assert.deepEqual(previewBox, { height: 150, width: 480, flexShrink: "0", minHeight: "150px", constrained: true, direction: "column" });
         assert.equal(appearance.order.at(-1), "reset-appearance");
         assert.equal(await tv.page.locator('[data-focus="metadata-language"]').count(), 0, "metadata AI is unavailable");
         assert.equal(await tv.page.locator('[data-focus="appearance-textOutlineColor"] .settings-row-value').textContent(), "—");
@@ -418,7 +438,8 @@ test("Profile Selection caption follows the chosen launch behavior", async () =>
 });
 
 test("Settings pane spacing matches Apple's section gaps", async () => {
-    const { tv } = await setup();
+    const { tv, settings } = await setup();
+    settings.profileSubtitles = true;
     try {
         await openSettings(tv);
         const general = await tv.page.evaluate(() => {
@@ -434,6 +455,9 @@ test("Settings pane spacing matches Apple's section gaps", async () => {
             const footerStyle = getComputedStyle(footer);
             const launchStyle = getComputedStyle(launch);
             const box = (node: Element) => node.getBoundingClientRect();
+            const textTop = (node: Element): number => node.getBoundingClientRect().top + parseFloat(getComputedStyle(node).paddingTop);
+            const labels = [...document.querySelectorAll(".settings-pane > .settings-section-header")];
+            const captionHeight = box(footer).height - parseFloat(footerStyle.paddingTop) - parseFloat(footerStyle.paddingBottom);
             return {
                 headerToSectionText: box(user).top + parseFloat(userStyle.paddingTop) - box(header).bottom,
                 sectionPaddingTop: userStyle.paddingTop,
@@ -441,8 +465,12 @@ test("Settings pane spacing matches Apple's section gaps", async () => {
                 sectionToRow: box(paired).top - box(user).bottom,
                 rowToFooterText: box(footer).top + parseFloat(footerStyle.paddingTop) - box(paired).bottom,
                 footerPaddingTop: footerStyle.paddingTop,
+                footerLineHeight: footerStyle.lineHeight,
                 footerToNextSectionText: box(launch).top + parseFloat(launchStyle.paddingTop) - box(footer).bottom,
                 rowPitch: box(titleArtAll).top - box(titleArt).bottom,
+                sectionText: labels.slice(0, 3).map(textTop),
+                firstRow: box(paired).top,
+                captionHeight,
             };
         });
         assert.deepEqual(general, {
@@ -452,17 +480,53 @@ test("Settings pane spacing matches Apple's section gaps", async () => {
             sectionToRow: 8,
             rowToFooterText: 12,
             footerPaddingTop: "4px",
+            footerLineHeight: "23px",
             footerToNextSectionText: 34,
             rowPitch: 8,
+            sectionText: [240, 458, 630],
+            firstRow: 277,
+            captionHeight: 69,
         });
         await tv.page.locator('[data-focus="playback"]').click();
         const playback = await tv.page.evaluate(() => {
             const header = document.querySelector(".settings-pane > .settings-section-header");
             const row = document.querySelector('[data-focus="quality"]');
             if (!header || !row) return null;
-            return row.getBoundingClientRect().top - header.getBoundingClientRect().bottom;
+            return { gap: row.getBoundingClientRect().top - header.getBoundingClientRect().bottom, row: row.getBoundingClientRect().top };
         });
-        assert.equal(playback, 8);
+        assert.deepEqual(playback, { gap: 8, row: 277 });
+        await tv.page.locator('[data-focus="subtitles"]').click();
+        const subtitles = await tv.page.evaluate(() => document.querySelector('[data-focus="subtitle-language"]')?.getBoundingClientRect().top ?? null);
+        assert.equal(subtitles, 277);
+    } finally { await tv.page.context().close(); }
+});
+
+test("Settings rows use Apple's regular label and resting stroke", async () => {
+    const { tv } = await setup();
+    try {
+        await openSettings(tv);
+        const row = await tv.page.locator('[data-focus="title-art"]').evaluate(node => {
+            const style = getComputedStyle(node);
+            const on = getComputedStyle(node.querySelector(".settings-row-value")!);
+            const off = getComputedStyle(document.querySelector('[data-focus="title-art-all"] .settings-row-value')!);
+            return { weight: style.fontWeight, border: style.borderTopWidth, borderColor: style.borderTopColor, on: on.fontWeight, off: off.fontWeight };
+        });
+        assert.deepEqual(row, { weight: "400", border: "1px", borderColor: "rgba(255, 255, 255, 0.09)", on: "600", off: "400" });
+    } finally { await tv.page.context().close(); }
+});
+
+test("Title Art caption uses Apple's sentence for the current scope", async () => {
+    const { tv } = await setup();
+    const device = "Use logo artwork as the title when available. Only affects this Apple TV. Your other devices keep their own setting.";
+    const every = (state: "on" | "off"): string => `Title art is ${state} on every device signed into this profile. Changing it here changes it everywhere. Turn off Apply to All Devices to choose for this Apple TV only.`;
+    try {
+        await openSettings(tv);
+        const caption = async (): Promise<string | null> => tv.page.locator('[data-focus="title-art-all"] + .settings-value').textContent();
+        assert.equal(await caption(), device);
+        await tv.page.getByRole("switch", { name: "Apply to All Devices", exact: true }).click();
+        await tv.eventually(async () => await caption() === every("on"), "profile title art caption");
+        await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).click();
+        await tv.eventually(async () => await caption() === every("off"), "title art off caption");
     } finally { await tv.page.context().close(); }
 });
 

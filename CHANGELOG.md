@@ -20,7 +20,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Matched Profile Selection's caption to each launch choice, and opened every Settings pane with Apple's 8-point gaps, 18-point space under the title, and section-label padding.
+- Matched Profile Selection's caption to each launch choice. Settings footers use a 23px line so section labels sit at Apple's measured rows, the subtitle preview stays 480 by 150, and pane rows use a regular label with a 1px white stroke at 9%.
 - Showed Calendar noon as 12:00 pm on an en-GB TV, and kept the first Search person visible.
 - Kept a decoded Details title logo in place across later repaints, so the metadata row no longer jumps back to the text title during that visit.
 - Matched the Details metadata row to Apple TV: the content rating and advisory age sit in outlined chips sized to the 18pt line height so the stroke stays inside the row, and the year, runtime and genres are separate text facts on that same row.

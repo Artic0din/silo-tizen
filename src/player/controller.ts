@@ -43,6 +43,8 @@ import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
 import { initialSubtitle } from "./preplaySubtitles.ts";
 import { PlaybackRecovery, recoveryVerdict, type RecoveryStep, type RecoveryVerdict, unanswered } from "./playbackRecovery.ts";
 import { audioRow, qualityMenuLabel, subtitleRow } from "./trackLabels.ts";
+import { HUDState } from "./hudState.ts";
+import { planStats, videoOptions, type PlayerHUD } from "./playerHUD.ts";
 
 /** What browse hands over: one file of one catalog item. */
 export interface PlayRequest {
@@ -149,6 +151,7 @@ export type PlaybackView =
           readonly resumePending?: boolean;
           readonly transportCommandCount?: number;
           readonly tracks: TrackView;
+          readonly hud?: PlayerHUD;
           readonly seekIntervals: { readonly backward: number; readonly forward: number };
           readonly previewKey?: string | undefined;
           readonly captions?: { readonly text: string; readonly appearance: SubtitleAppearance } | undefined;
@@ -160,6 +163,9 @@ export type PlaybackView =
 
 /** What the player screen drives. */
 export interface PlayerControls {
+    setVideo(kind: "speed" | "aspect", value: string): void;
+    toggleAutoNext(): void;
+    retryChapters(): void;
     subscribe(listener: (view: PlaybackView) => void): () => void;
     togglePause(): void;
     setPaused(paused: boolean): void;
@@ -226,6 +232,7 @@ const WARNING_NOTICES: Readonly<Record<string, string>> = {
 };
 
 interface Attempt {
+    readonly hud: HUDState;
     autoNextSupported: boolean;
     promptSeconds: number;
     promptSupported: boolean;
@@ -252,6 +259,10 @@ interface Attempt {
     };
     transportCommandCount: number;
     autoNext: boolean;
+    /** Confirmed Auto-play saves advance this so an older settings read cannot overwrite them. */
+    settingsEpoch: number;
+    /** The in-flight Auto-play save. EOF waits for it before reading the effective value. */
+    autoNextSave: Promise<void> | undefined;
     introMode: "never" | "ask" | "always";
     skipCredits: boolean;
     skippedMarkers: Set<SkipMarker>;
@@ -405,12 +416,13 @@ export class PlaybackController implements PlayerControls {
         }
         this.shownError = undefined;
         const attempt: Attempt = {
+            hud: new HUDState(),
             autoNextSupported: false,
             promptSeconds: 30, promptSupported: false, promptDismissed: false, promptPending: false, promptLookedUp: false, prompt: undefined,
             offer: { started: false, manual: false, episodeLoading: false, deckLoading: false, episodeSettled: false, episodeFailed: false, episode: undefined, deckSettled: false, deckFailed: false, deck: [], presentationFor: undefined },
             rectPending: false,
             transportCommandCount: 0,
-            autoNext: false,
+            autoNext: false, settingsEpoch: 0, autoNextSave: undefined,
             introMode: "ask", skipCredits: false, skippedMarkers: new Set(), undoSkip: undefined, pendingSkipUndo: undefined,
             ai: undefined, aiBlockedFiles: new Set(), pendingAIResult: undefined,
             appearance: DEFAULT_APPEARANCE, subtitleSync: 0, cues: [], captionAbort: undefined, captionNotice: "", captionPreferenceNotice: "", captionKey: undefined, captionPreferencesRead: false, seriesSubtitle: request.episode ? { busy: false, message: "" } : undefined,
@@ -493,6 +505,48 @@ export class PlaybackController implements PlayerControls {
                 this.listeners.splice(index, 1);
             }
         };
+    }
+
+    setVideo(kind: "speed" | "aspect", value: string): void {
+        const attempt = this.active();
+        if (attempt?.plan === undefined || attempt.busy || attempt.hidden || attempt.restoring) return;
+        attempt.hud.setVideo(this.deps.avplay, attempt.plan, kind, value);
+        this.showPlayback(attempt);
+    }
+
+    retryChapters(): void {
+        const attempt = this.active();
+        if (attempt?.plan === undefined) return;
+        attempt.hud.read(this.deps.session, attempt.request.contentId, attempt.plan.effectiveMediaFileId, attempt.signal, () => this.showPlayback(attempt), true);
+        this.showPlayback(attempt);
+    }
+
+    toggleAutoNext(): void {
+        const attempt = this.active();
+        if (attempt === undefined || !attempt.autoNextSupported || attempt.hud.autoBusy) return;
+        attempt.hud.autoBusy = true;
+        attempt.hud.message = "Saving Auto-play next";
+        this.showPlayback(attempt);
+        const enabled = !attempt.autoNext;
+        const epoch = attempt.settingsEpoch;
+        const deciding = (): boolean => attempt.live || this.completion?.attempt === attempt;
+        const save = this.deps.session.call({ ...operations.putSetting(AUTO_NEXT_KEY, enabled), profileScoped: true, signal: attempt.signal }).then(async () => {
+            const values = await this.deps.session.call({ ...operations.effectiveSettings([AUTO_NEXT_KEY]), profileScoped: true, signal: attempt.signal });
+            if (attempt.signal.aborted || epoch !== attempt.settingsEpoch || !deciding()) return;
+            attempt.settingsEpoch = epoch + 1;
+            attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
+            if (attempt.live) attempt.hud.message = attempt.autoNext === enabled ? "" : "This TV's override keeps Auto-play next unchanged.";
+        }).catch(() => {
+            if (!attempt.signal.aborted && attempt.live) attempt.hud.message = "Could not save Auto-play next. Try again.";
+        }).finally(() => {
+            attempt.hud.autoBusy = false;
+            if (attempt.live) this.showPlayback(attempt);
+        });
+        const settled = save.then(() => undefined, () => undefined);
+        attempt.autoNextSave = settled;
+        void settled.finally(() => {
+            if (attempt.autoNextSave === settled) attempt.autoNextSave = undefined;
+        });
     }
 
     togglePause(): void {
@@ -942,9 +996,10 @@ export class PlaybackController implements PlayerControls {
             }
             if (definitions.some(def => def.key === AUTO_NEXT_KEY)) {
                 attempt.autoNextSupported = true;
+                const epoch = attempt.settingsEpoch;
                 try {
                     const values = await call(operations.effectiveSettings([AUTO_NEXT_KEY]));
-                    if (attempt.live) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
+                    if (attempt.live && epoch === attempt.settingsEpoch) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
                 } catch { /* Unavailable autoplay preferences leave Play next manual. */ }
             }
             if (!SEEK_KEYS.every(key => definitions.some(def => def.key === key))) return true;
@@ -1287,6 +1342,7 @@ export class PlaybackController implements PlayerControls {
         const presented = attempt.presented;
         this.readCaptions(attempt, plan);
         attempt.plan = plan;
+        attempt.hud.read(this.deps.session, attempt.request.contentId, plan.effectiveMediaFileId, attempt.signal, () => this.showPlayback(attempt));
         attempt.serverFeatures = serverFeatures;
         attempt.planAttemptId = this.newId();
         attempt.sourceSeconds = seconds;
@@ -1423,6 +1479,7 @@ export class PlaybackController implements PlayerControls {
         this.clearThumbnails(attempt);
         this.readCaptions(attempt, plan);
         attempt.plan = plan;
+        attempt.hud.read(this.deps.session, attempt.request.contentId, plan.effectiveMediaFileId, attempt.signal, () => this.showPlayback(attempt));
         if (attempt.ai?.fileId !== plan.effectiveMediaFileId) {
             attempt.ai?.destroy();
             attempt.ai = new SubtitleAI(this.deps.session, this.deps.clock, plan.effectiveMediaFileId, () => this.showPlayback(attempt), attempt.aiBlockedFiles);
@@ -1604,6 +1661,7 @@ export class PlaybackController implements PlayerControls {
             }
             try {
                 this.deps.avplay.play();
+                attempt.hud.restore(this.deps.avplay, plan);
                 if (attempt.paused) {
                     this.deps.avplay.pause();
                 }
@@ -1996,10 +2054,13 @@ export class PlaybackController implements PlayerControls {
                 return;
             }
             if (attempt.autoNextSupported) {
+                await attempt.autoNextSave;
+                if (!current()) return;
+                const epoch = attempt.settingsEpoch;
                 try {
                     const values = await this.deps.session.call({ ...operations.effectiveSettings([AUTO_NEXT_KEY]), profileScoped: true, signal: abort.signal });
-                    attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
-                } catch { if (current()) attempt.autoNext = false; }
+                    if (epoch === attempt.settingsEpoch) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
+                } catch { if (current() && epoch === attempt.settingsEpoch) attempt.autoNext = false; }
                 if (!current()) return;
             }
             if (attempt.request.shuffleId !== undefined) {
@@ -2547,6 +2608,7 @@ export class PlaybackController implements PlayerControls {
             attempt.suspendedReady = false;
             try {
                 this.deps.avplay.play();
+                if (attempt.plan !== undefined) attempt.hud.restore(this.deps.avplay, attempt.plan);
                 if (attempt.paused) {
                     this.deps.avplay.pause();
                 }
@@ -2656,6 +2718,7 @@ export class PlaybackController implements PlayerControls {
                     attempt.presented = true;
                     attempt.resuming = false;
                     try {
+                        attempt.hud.restore(this.deps.avplay, plan);
                         if (attempt.paused) {
                             if (this.deps.avplay.getState() === "PLAYING") {
                                 this.deps.avplay.pause();
@@ -2781,6 +2844,17 @@ export class PlaybackController implements PlayerControls {
             resumePending: attempt.paused && attempt.pauseAfterSeek === false,
             transportCommandCount: attempt.transportCommandCount,
             tracks: trackView(attempt, plan),
+            hud: {
+                chapters: attempt.hud.chapters, chapterState: attempt.hud.chapterState,
+                overview: attempt.hud.metadata?.overview ?? attempt.request.overview,
+                metadata: attempt.hud.metadata, metadataFailed: attempt.hud.metadataFailed,
+                stats: planStats(plan),
+                ...videoOptions(this.deps.avplay.setSpeed !== undefined, this.deps.avplay.setDisplayMethod !== undefined, plan.streamProtocol),
+                speed: attempt.hud.speed, aspect: attempt.hud.aspect,
+                autoNext: attempt.autoNextSupported ? attempt.autoNext : undefined,
+                busy: attempt.hud.autoBusy || attempt.busy,
+                message: attempt.hud.message,
+            },
             seekIntervals: attempt.seekIntervals,
             previewKey: frozen ? undefined : attempt.planAttemptId,
             captions: attempt.hidden || attempt.restoring || frozen ? undefined : { text: attempt.cues.filter(cue => attempt.sourceSeconds - attempt.subtitleSync / 1000 >= cue.start && attempt.sourceSeconds - attempt.subtitleSync / 1000 < cue.end).map(cue => cue.text).join("\n"), appearance: attempt.appearance },
@@ -2855,10 +2929,11 @@ export class PlaybackController implements PlayerControls {
         if (part !== "deck") {
             try {
                 if (attempt.autoNextSupported) {
+                    const epoch = attempt.settingsEpoch;
                     try {
                         const values = await read(operations.effectiveSettings([AUTO_NEXT_KEY]));
-                        if (live()) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
-                    } catch { if (live()) attempt.autoNext = false; }
+                        if (live() && epoch === attempt.settingsEpoch) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
+                    } catch { if (live() && epoch === attempt.settingsEpoch) attempt.autoNext = false; }
                 }
                 if (attempt.request.episode === true) {
                     const fileId = attempt.plan?.effectiveMediaFileId;

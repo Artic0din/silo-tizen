@@ -65,6 +65,26 @@ test("Settings pins its rail, resets pane scroll and keeps modal background geom
         assert.equal(appearance.height, 66);
         assert.equal(appearance.pitch, 74);
         assert.deepEqual(appearance.order.slice(0, 3), ["preview", "appearance-device", "appearance-fontSize"]);
+        const previewBox = await tv.page.evaluate(() => {
+            const pane = document.querySelector<HTMLElement>(".settings-pane");
+            const preview = document.querySelector<HTMLElement>(".settings-subtitle-preview");
+            if (pane === null || preview === null) return null;
+            const previous = pane.style.maxHeight;
+            pane.style.maxHeight = "320px";
+            const box = preview.getBoundingClientRect();
+            const style = getComputedStyle(preview);
+            const result = {
+                height: box.height,
+                width: box.width,
+                flexShrink: style.flexShrink,
+                minHeight: style.minHeight,
+                constrained: pane.scrollHeight > pane.clientHeight,
+                direction: getComputedStyle(pane).flexDirection,
+            };
+            pane.style.maxHeight = previous;
+            return result;
+        });
+        assert.deepEqual(previewBox, { height: 150, width: 958, flexShrink: "0", minHeight: "150px", constrained: true, direction: "column" });
         assert.equal(appearance.order.at(-1), "reset-appearance");
         assert.equal(await tv.page.locator('[data-focus="metadata-language"]').count(), 0, "metadata AI is unavailable");
         assert.equal(await tv.page.locator('[data-focus="appearance-textOutlineColor"] .settings-row-value').textContent(), "—");
@@ -125,6 +145,40 @@ test("remaining settings expose only honoured rows and save profile appearance",
             return { fontSize: element.style.fontSize, align: getComputedStyle(element).textAlign, weight: getComputedStyle(element).fontWeight };
         });
         assert.deepEqual(caption, { fontSize: "21.5px", align: "center", weight: "600" });
+        const previewLook = () => tv.page.locator(".settings-subtitle-preview").evaluate(node => {
+            const box = node.getBoundingClientRect();
+            const text = node.querySelector("span") as HTMLElement;
+            const rect = text.getBoundingClientRect();
+            const style = getComputedStyle(node);
+            const textStyle = getComputedStyle(text);
+            return {
+                gradient: style.backgroundImage,
+                border: style.borderTopWidth,
+                radius: style.borderTopLeftRadius,
+                padding: textStyle.padding,
+                textRadius: textStyle.borderTopLeftRadius,
+                centred: Math.abs((rect.left + rect.right) / 2 - (box.left + box.right) / 2) < 1,
+                hugsText: rect.width < box.width / 2,
+                bottomGap: Math.round(box.bottom - rect.bottom),
+            };
+        });
+        assert.deepEqual(await previewLook(), {
+            gradient: "linear-gradient(98.9deg, rgb(82, 82, 82), rgb(15, 15, 15))",
+            border: "0px",
+            radius: "18px",
+            padding: "4px 10px",
+            textRadius: "4px",
+            centred: true,
+            hugsText: true,
+            bottomGap: 12,
+        });
+        await tv.page.getByRole("button", { name: /Position/ }).click();
+        await tv.page.getByRole("radio", { name: "Lower Third", exact: true }).click();
+        await tv.page.locator('[data-focus="appearance-position"]').waitFor();
+        assert.equal((await previewLook()).bottomGap, 33);
+        await tv.page.getByRole("button", { name: /Position/ }).click();
+        await tv.page.getByRole("radio", { name: "Bottom", exact: true }).click();
+        await tv.page.locator('[data-focus="appearance-position"]').waitFor();
         const deviceId = tv.fake.requests.find(request => request.path === "/settings/contract/capabilities")?.headers["x-silo-device-id"];
         assert.ok(deviceId);
         await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).click();
@@ -132,21 +186,21 @@ test("remaining settings expose only honoured rows and save profile appearance",
         await tv.page.getByRole("button", { name: /Font Color/ }).click();
         await tv.page.getByRole("radio", { name: "Red", exact: true }).click();
         await tv.eventually(async () => JSON.stringify(settings.device("p-owner", deviceId).get("playback.subtitle_appearance"))?.includes('"fontColor":"#ef4444"') === true, "device appearance write");
-        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small" });
+        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small", position: "bottom" });
         await tv.page.locator('[data-focus="appearance-fontColor"]').waitFor();
         await tv.page.getByRole("button", { name: /Font Color/ }).click();
         await tv.remote(10009);
         await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).click();
         await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).getAttribute("aria-checked") === "false", "profile appearance restored");
         assert.equal(await tv.page.getByRole("alert").count(), 0, "device reset is confirmed at the deleted scope");
-        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small" });
+        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small", position: "bottom" });
         await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).click();
         await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).getAttribute("aria-checked") === "true", "device override enabled again");
         await tv.page.getByRole("button", { name: "Reset Appearance", exact: true }).click();
         await tv.page.getByRole("button", { name: "Reset", exact: true }).click();
         await tv.page.locator('[data-focus="reset-appearance"]').waitFor();
         assert.equal(JSON.stringify(settings.device("p-owner", deviceId).get("playback.subtitle_appearance")).includes('"fontSize":"large"'), true);
-        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small" });
+        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small", position: "bottom" });
         await tv.page.getByRole("button", { name: /Metadata Language/ }).click();
         await tv.page.getByRole("radio", { name: "fr", exact: true }).click();
         await tv.eventually(async () => settings.profile().get("catalog.metadata_language") === "fr", "metadata profile write");
@@ -222,7 +276,7 @@ test("measured Settings pickers centre the selected choice and privacy handoff",
         await tv.page.locator('[data-focus="remember-profile"]').click();
         assert.equal(await tv.page.getByRole("dialog").count(), 1);
         assert.equal(await tv.page.getByRole("radio", { checked: true }).evaluate(node => node === document.activeElement), true);
-        assert.equal(await tv.page.getByText("Show Who's Watching whenever you return to Silo.", { exact: true }).count(), 1);
+        assert.equal(await tv.page.getByRole("dialog").getByText("Show Who's Watching whenever you return to Silo.", { exact: true }).count(), 1);
         assert.equal(await tv.page.locator('.settings-checkmark').count(), 1);
         await tv.remote(10009);
         assert.equal(await tv.focused(), "remember-profile");
@@ -393,6 +447,142 @@ test("profile subtitle editors read and compare profile values while narrower ov
     } finally { await tv.page.context().close(); }
 });
 
+test("Profile Selection caption follows the chosen launch behavior", async () => {
+    const { tv } = await setup();
+    const captions = {
+        "Every Time": "Show Who's Watching whenever you return to Silo.",
+        "After 1 Hour": "Show Who's Watching when you've been away from Silo for 1 hour.",
+        "After 12 Hours": "Show Who's Watching when you've been away from Silo for 12 hours.",
+        Automatic: "Use the profile selected for the current TV user. A protected profile can reopen without asking for its PIN.",
+    } as const;
+    try {
+        await openSettings(tv);
+        const caption = async (): Promise<string | null> => tv.page.locator('[data-focus="remember-profile"] + .settings-value').textContent();
+        assert.equal(await caption(), captions["Every Time"]);
+        for (const [name, text] of Object.entries(captions)) {
+            if (name === "Every Time") continue;
+            await tv.page.locator('[data-focus="remember-profile"]').click();
+            if (name === "Automatic") {
+                assert.equal(await tv.page.getByRole("dialog").locator(".settings-option-detail").nth(0).textContent(), text);
+            }
+            await tv.page.getByRole("radio", { name, exact: true }).click();
+            await tv.eventually(async () => await caption() === text, `${name} caption`);
+        }
+    } finally { await tv.page.context().close(); }
+});
+
+test("Settings pane spacing matches Apple's section gaps", async () => {
+    const { tv, settings } = await setup();
+    settings.profileSubtitles = true;
+    try {
+        await openSettings(tv);
+        const general = await tv.page.evaluate(() => {
+            const header = document.querySelector(".settings-pane-header");
+            const user = document.querySelector(".settings-pane > .settings-section-header");
+            const paired = document.querySelector('[data-focus="paired-profile"]');
+            const footer = document.querySelector('[data-focus="paired-profile"] + .settings-value');
+            const launch = [...document.querySelectorAll(".settings-pane > .settings-section-header")].find(node => node.textContent === "PROFILE AT LAUNCH");
+            const titleArt = document.querySelector('[data-focus="title-art"]');
+            const titleArtAll = document.querySelector('[data-focus="title-art-all"]');
+            if (!header || !user || !paired || !footer || !launch || !titleArt || !titleArtAll) return null;
+            const userStyle = getComputedStyle(user);
+            const footerStyle = getComputedStyle(footer);
+            const launchStyle = getComputedStyle(launch);
+            const box = (node: Element) => node.getBoundingClientRect();
+            const textTop = (node: Element): number => node.getBoundingClientRect().top + parseFloat(getComputedStyle(node).paddingTop);
+            const labels = [...document.querySelectorAll(".settings-pane > .settings-section-header")];
+            const captionHeight = box(footer).height - parseFloat(footerStyle.paddingTop) - parseFloat(footerStyle.paddingBottom);
+            return {
+                headerToSectionText: box(user).top + parseFloat(userStyle.paddingTop) - box(header).bottom,
+                sectionPaddingTop: userStyle.paddingTop,
+                sectionPaddingBottom: userStyle.paddingBottom,
+                sectionToRow: box(paired).top - box(user).bottom,
+                rowToFooterText: box(footer).top + parseFloat(footerStyle.paddingTop) - box(paired).bottom,
+                footerPaddingTop: footerStyle.paddingTop,
+                footerLineHeight: footerStyle.lineHeight,
+                footerToNextSectionText: box(launch).top + parseFloat(launchStyle.paddingTop) - box(footer).bottom,
+                rowPitch: box(titleArtAll).top - box(titleArt).bottom,
+                sectionText: labels.slice(0, 3).map(textTop),
+                firstRow: box(paired).top,
+                captionHeight,
+            };
+        });
+        assert.deepEqual(general, {
+            headerToSectionText: 52,
+            sectionPaddingTop: "26px",
+            sectionPaddingBottom: "6px",
+            sectionToRow: 8,
+            rowToFooterText: 12,
+            footerPaddingTop: "4px",
+            footerLineHeight: "23px",
+            footerToNextSectionText: 34,
+            rowPitch: 8,
+            sectionText: [240, 458, 630],
+            firstRow: 277,
+            captionHeight: 69,
+        });
+        await tv.page.locator('[data-focus="playback"]').click();
+        const playback = await tv.page.evaluate(() => {
+            const header = document.querySelector(".settings-pane > .settings-section-header");
+            const row = document.querySelector('[data-focus="quality"]');
+            if (!header || !row) return null;
+            return { gap: row.getBoundingClientRect().top - header.getBoundingClientRect().bottom, row: row.getBoundingClientRect().top };
+        });
+        assert.deepEqual(playback, { gap: 8, row: 277 });
+        await tv.page.locator('[data-focus="subtitles"]').click();
+        const subtitles = await tv.page.evaluate(() => document.querySelector('[data-focus="subtitle-language"]')?.getBoundingClientRect().top ?? null);
+        assert.equal(subtitles, 277);
+    } finally { await tv.page.context().close(); }
+});
+
+test("Settings rows use Apple's regular label and resting stroke", async () => {
+    const { tv } = await setup();
+    try {
+        await openSettings(tv);
+        const row = await tv.page.locator('[data-focus="title-art"]').evaluate(node => {
+            const style = getComputedStyle(node);
+            const on = getComputedStyle(node.querySelector(".settings-row-value")!);
+            const off = getComputedStyle(document.querySelector('[data-focus="title-art-all"] .settings-row-value')!);
+            const offRow = document.querySelector('[data-focus="title-art-all"]')!;
+            return { weight: style.fontWeight, border: style.borderTopWidth, borderColor: style.borderTopColor, on: on.fontWeight, off: off.fontWeight, onOpacity: on.opacity, offOpacity: off.opacity, fill: style.backgroundColor, offFill: getComputedStyle(offRow).backgroundColor };
+        });
+        // Colors.swift:70 siloChromeRestingFill, and TVSettingsToggleRow's opacity for each state.
+        assert.deepEqual(row, { weight: "400", border: "1px", borderColor: "rgba(255, 255, 255, 0.09)", on: "600", off: "400", onOpacity: "0.9", offOpacity: "0.55", fill: "rgba(255, 255, 255, 0.07)", offFill: "rgba(255, 255, 255, 0.07)" });
+    } finally { await tv.page.context().close(); }
+});
+
+test("Title Art caption uses Apple's sentence for the current scope", async () => {
+    const { tv } = await setup();
+    const device = "Use logo artwork as the title when available. Only affects this TV. Your other devices keep their own setting.";
+    const every = (state: "on" | "off"): string => `Title art is ${state} on every device signed into this profile. Changing it here changes it everywhere. Turn off Apply to All Devices to choose for this TV only.`;
+    try {
+        await openSettings(tv);
+        const caption = async (): Promise<string | null> => tv.page.locator('[data-focus="title-art-all"] + .settings-value').textContent();
+        assert.equal(await caption(), device);
+        await tv.page.getByRole("switch", { name: "Apply to All Devices", exact: true }).click();
+        await tv.eventually(async () => await caption() === every("on"), "profile title art caption");
+        await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).click();
+        await tv.eventually(async () => await caption() === every("off"), "title art off caption");
+    } finally { await tv.page.context().close(); }
+});
+
+test("Paired Silo Profile shows the profile this TV reopens and opens the profile picker", async () => {
+    const { tv } = await setup();
+    try {
+        await openSettings(tv);
+        assert.equal(await tv.page.locator(".settings-section-header").first().textContent(), "TV USER");
+        assert.equal(await tv.page.locator('[data-focus="paired-profile"] .settings-row-value').textContent(), "Not paired");
+        await tv.page.getByText("This TV user context is not set to keep separate app preferences. Silo uses the profile pairing available to the current app context, and you can change it here at any time. Ask Every Time is on, so Silo will still show Who's Watching at launch.", { exact: true }).waitFor();
+        await tv.page.locator('[data-focus="remember-profile"]').click();
+        await tv.page.getByRole("radio", { name: "Automatic", exact: true }).click();
+        await tv.eventually(async () => await tv.page.locator('[data-focus="paired-profile"] .settings-row-value').textContent() === "Laura", "remembered profile name");
+        assert.equal(await tv.page.getByText(/Ask Every Time is on/).count(), 0);
+        await tv.page.locator('[data-focus="paired-profile"]').click();
+        assert.equal(await tv.page.evaluate(() => window.browseHarness.chooseProfileCalls.length), 1);
+        assert.equal(await tv.page.locator(".settings").count(), 0);
+    } finally { await tv.page.context().close(); }
+});
+
 test("Subtitles, the profile account line and sign-out confirmation follow Apple TV", async () => {
     const { tv, settings } = await setup();
     settings.profileSubtitles = true;
@@ -531,6 +721,37 @@ test("device pickers preserve profile, show inheritance, retain legacy audio nul
         assert.equal(await tv.page.locator('[data-focus="quality"] .settings-row-value').textContent(), "1080p");
         assert.equal(device.has(QUALITY_KEY), false);
         assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
+test("quality footer and bitrate labels follow Apple TV", async () => {
+    const { tv, settings } = await setup();
+    settings.profile().set(QUALITY_KEY, "2160p");
+    settings.profile().set(BITRATE_KEY, 999);
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        const footer = "Plays the original file up to 4K. Larger files are converted. Files above this bitrate are converted to fit.";
+        await tv.page.getByText(footer, { exact: true }).waitFor();
+        assert.equal(await tv.page.locator('[data-focus="bitrate"] .settings-row-value').textContent(), "999 kbps");
+        assert.equal(await tv.page.locator('[data-focus="quality"] .settings-row-value').textContent(), "4K");
+        const order = await tv.page.evaluate(() => {
+            const bitrate = document.querySelector('[data-focus="bitrate"]');
+            const note = document.querySelector(".settings-quality-footer");
+            const streaming = [...document.querySelectorAll(".settings-section-header")].find(node => node.textContent === "STREAMING");
+            if (bitrate === null || note === null || streaming === undefined) return false;
+            return Boolean(bitrate.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING)
+                && Boolean(note.compareDocumentPosition(streaming) & Node.DOCUMENT_POSITION_FOLLOWING);
+        });
+        assert.equal(order, true);
+        await tv.page.locator('[data-focus="bitrate"]').click();
+        const dialog = tv.page.getByRole("dialog", { name: "Maximum Bitrate" });
+        await dialog.waitFor();
+        const choices = await dialog.locator('.settings-modal-options [data-focus^="bitrate:"], .settings-modal-options [data-focus="no-limit"]').allTextContents();
+        assert.deepEqual(choices, ["No limit", "200 Mbps", "100 Mbps", "60 Mbps", "40 Mbps", "20 Mbps", "15 Mbps", "10 Mbps", "6 Mbps", "4 Mbps", "2 Mbps", "1.5 Mbps", "999 kbps"]);
+        assert.equal(await dialog.locator('[data-focus="bitrate:999"]').getAttribute("aria-checked"), "true");
+        assert.equal(await dialog.getByRole("textbox").count(), 0);
+        assert.equal(await dialog.getByRole("button", { name: "Save", exact: true }).count(), 0);
     } finally { await tv.page.context().close(); }
 });
 
@@ -815,7 +1036,7 @@ test("quality picker uses server labels, keeps legacy current values honest and 
     } finally { await tv.page.context().close(); }
 });
 
-test("bitrate editor validates whole kbps, saves only explicitly, cancels and keeps null distinct from reset", async () => {
+test("bitrate No limit stays distinct from inherited reset and the picker has no custom field", async () => {
     const { tv, settings } = await setup();
     try {
         settings.profile().set(BITRATE_KEY, 6000);
@@ -823,50 +1044,16 @@ test("bitrate editor validates whole kbps, saves only explicitly, cancels and ke
         await openSettings(tv);
         await tv.page.locator('[data-focus="playback"]').click();
         await tv.page.locator('[data-focus="bitrate"]').click();
-        const input = tv.page.getByRole("textbox", { name: "Maximum bitrate (kbps)" });
-        assert.equal(await input.inputValue(), "6000", "edit the explicit profile row, not the device override");
-        const count = tv.fake.requests.length;
-        for (const value of ["", "0", "99", "200001", "100.5", "NaN", "1e3", "-100", " 100 "]) {
-            await input.fill(value);
-            await tv.page.getByRole("button", { name: "Save", exact: true }).click();
-            await tv.page.getByRole("alert").waitFor();
-            assert.equal(await input.getAttribute("aria-invalid"), "true");
-            await tv.jump(250);
-            assert.equal(await tv.page.locator('[data-focus="save"]').evaluate(node => {
-                const bounds = node.getBoundingClientRect();
-                const list = node.closest(".settings-modal-options")?.getBoundingClientRect();
-                return list !== undefined && bounds.top >= list.top && bounds.bottom <= list.bottom;
-            }), true, "invalid bitrate save keeps its focused control visible");
-        }
-        assert.equal(tv.fake.requests.length, count, "invalid inputs never send reads or writes");
-        await input.fill("100");
-        await tv.page.keyboard.press("ArrowDown");
-        assert.equal(await tv.focused(), "save");
-        await tv.page.keyboard.press("Enter");
-        await tv.page.locator('[data-focus="bitrate"]').waitFor();
-        assert.equal(await tv.focused(), "bitrate");
-        assert.equal(settings.profile().get(BITRATE_KEY), 100);
-        await tv.page.keyboard.press("Enter");
-        await input.fill("200000");
-        await tv.page.getByRole("button", { name: "Save", exact: true }).click();
-        await tv.page.locator('[data-focus="bitrate"]').waitFor();
-        assert.equal(settings.profile().get(BITRATE_KEY), 200000);
-        await tv.page.keyboard.press("Enter");
-        await input.fill("1234");
-        await tv.remote(10009);
-        assert.equal(await tv.focused(), "bitrate");
-        assert.equal(settings.profile().get(BITRATE_KEY), 200000);
-        await tv.page.keyboard.press("Enter");
-        await input.fill("4321");
-        await tv.remote(10009);
-        assert.equal(await tv.focused(), "bitrate");
-        assert.equal(settings.profile().get(BITRATE_KEY), 200000);
-        await tv.page.keyboard.press("Enter");
+        const dialog = tv.page.getByRole("dialog", { name: "Maximum Bitrate" });
+        await dialog.waitFor();
+        assert.equal(await dialog.getByRole("textbox").count(), 0);
+        assert.equal(await dialog.getByRole("button", { name: "Save", exact: true }).count(), 0);
+        const choices = await dialog.locator('.settings-modal-options [data-focus^="bitrate:"], .settings-modal-options [data-focus="no-limit"]').allTextContents();
+        assert.deepEqual(choices, ["No limit", "200 Mbps", "100 Mbps", "60 Mbps", "40 Mbps", "20 Mbps", "15 Mbps", "10 Mbps", "6 Mbps", "4 Mbps", "2 Mbps", "1.5 Mbps"]);
         await tv.page.getByRole("button", { name: "No limit", exact: true }).click();
         await tv.page.locator('[data-focus="bitrate"]').waitFor();
         assert.equal(settings.profile().get(BITRATE_KEY), null);
-        await tv.page.keyboard.press("Enter");
-        assert.equal(await input.inputValue(), "");
+        await tv.page.locator('[data-focus="bitrate"]').click();
         await tv.page.getByRole("button", { name: "Use inherited default", exact: true }).click();
         await tv.page.locator('[data-focus="bitrate"]').waitFor();
         assert.equal(settings.profile().has(BITRATE_KEY), false);
@@ -896,48 +1083,6 @@ test("quality controls remain absent for unsupported manifests and empty Playbac
         await tv.page.locator('[data-focus="spoiler-images"]').focus();
         await tv.remote(10009);
         assert.equal(await tv.focused(), "playback");
-    } finally { await tv.page.context().close(); }
-});
-
-test("bitrate uncertain readback keeps the draft and Retry checks the committed value without resending", async () => {
-    const { tv, settings } = await setup();
-    try {
-        await openSettings(tv);
-        await tv.page.locator('[data-focus="playback"]').click();
-        await tv.page.locator('[data-focus="bitrate"]').click();
-        await tv.page.getByRole("textbox").fill("4321");
-        const path = `/settings/values?scope=profile&keys=${BITRATE_KEY}`;
-        const preflight = tv.fake.hold(path);
-        tv.fake.dropNextAnswer(`/settings/values/${BITRATE_KEY}?scope=profile`);
-        await tv.page.getByRole("button", { name: "Save", exact: true }).click();
-        await tv.eventually(async () => tv.fake.requests.some(r => r.path === path), "preflight read");
-        tv.fake.script(path, problem(429, "rate_limited", "Wait", { "Retry-After": "1" }));
-        preflight.release();
-        await tv.page.getByRole("alert").waitFor();
-        assert.equal(settings.profile().get(BITRATE_KEY), 4321);
-        assert.equal(await tv.page.getByRole("textbox").inputValue(), "4321");
-        assert.equal(await tv.page.getByRole("textbox").getAttribute("readonly"), "");
-        assert.equal(tv.fake.requests.filter(r => r.method === "PUT").length, 1);
-        await tv.jump(1000);
-        await tv.page.getByRole("button", { name: "Check and retry", exact: true }).click();
-        await tv.page.getByRole("alert").waitFor({ state: "hidden" });
-        await tv.eventually(async () => await tv.page.getByRole("textbox").getAttribute("readonly") === null, "confirmed readback");
-        assert.equal(await tv.page.getByRole("textbox").inputValue(), "4321");
-        assert.equal(await tv.page.locator('[data-focus="bitrate:4321"]').getAttribute("aria-checked"), "true");
-        assert.equal(tv.fake.requests.filter(r => r.method === "PUT").length, 1);
-        await tv.remote(10009);
-        assert.equal(await tv.focused(), "bitrate");
-        await tv.page.keyboard.press("Enter");
-        await tv.page.getByRole("textbox").fill("9999");
-        const held = tv.fake.hold(`/settings/values/${BITRATE_KEY}`, true);
-        await tv.page.getByRole("button", { name: "Save", exact: true }).click();
-        await tv.eventually(async () => tv.fake.requests.filter(r => r.method === "PUT").length === 2, "pending write");
-        await tv.page.evaluate(() => window.browseHarness.clearProfile());
-        held.release();
-        await tv.page.locator("#successor").waitFor();
-        assert.equal(await tv.page.locator(".settings").count(), 0);
-        assert.equal(tv.fake.requests.filter(r => r.method === "PUT").length, 2);
-        assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
 

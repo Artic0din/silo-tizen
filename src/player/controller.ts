@@ -15,7 +15,9 @@
 // subtitle inventory track_id, or `file:{effective file}:audio:{n}` for the version's nth
 // audio_tracks entry. The server request never carries an AVPlay index. When the open stream
 // already lists the embedded text row, AVPlay setSelectTrack switches it without a new open.
-// A refused change leaves the current plan playing.
+// A direct-play sidecar or Off on the same stream URL stays on that open picture too: this
+// overlay draws the VTT, so the plan does not need a new AVPlay open. A new stream URL or a
+// burn-in still reopens. A refused change leaves the current plan playing.
 
 import { type Clock, sleep } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
@@ -1107,6 +1109,10 @@ export class PlaybackController implements PlayerControls {
                 this.finishSubtitleReport(attempt, decision.plan, decision.serverFeatures, selected);
                 return;
             }
+            if (operation === "track_change" && attempt.plan !== undefined && sameDirectTransport(attempt.plan, decision.plan)) {
+                this.applyKeptSubtitle(attempt, decision.plan, decision.serverFeatures);
+                return;
+            }
             this.adopt(attempt, decision.plan, decision.serverFeatures);
         } else {
             this.fail(attempt, decisionFailure(decision), true);
@@ -1218,8 +1224,21 @@ export class PlaybackController implements PlayerControls {
             this.changeSettled(attempt, { state: "idle" });
             return;
         }
+        if (current !== undefined && sameDirectTransport(current, next)) {
+            this.applyKeptSubtitle(attempt, next, serverFeatures);
+            return;
+        }
         attempt.subtitleOverride = undefined;
         this.adopt(attempt, next, serverFeatures);
+    }
+
+    /** The picture is already the plan's stream. Load the sidecar, or clear it, and leave AVPlay open. */
+    private applyKeptSubtitle(attempt: Attempt, next: PlaybackPlan, serverFeatures: readonly string[]): void {
+        try { this.deps.avplay.setSilentSubtitle?.(true); } catch { /* The HTML overlay draws the sidecar. */ }
+        this.rememberKeptPlan(attempt, next, serverFeatures);
+        attempt.subtitleOverride = undefined;
+        attempt.subtitleRestore = undefined;
+        this.changeSettled(attempt, { state: "idle" });
     }
 
     private rememberKeptPlan(attempt: Attempt, plan: PlaybackPlan, serverFeatures: readonly string[]): void {
@@ -1248,7 +1267,7 @@ export class PlaybackController implements PlayerControls {
 
     /**
      * Selects an embedded text row on the open AVPlay stream. Off silences a rendition stream.
-     * A miss leaves the caller to replan and reopen, which is how burn-in and sidecars change.
+     * A miss leaves the caller to replan. A same-URL direct-play sidecar stays open; a new URL or burn-in reopens.
      */
     private applyStreamSubtitle(attempt: Attempt, trackId: string | undefined): boolean {
         const plan = attempt.plan;
@@ -2627,6 +2646,7 @@ export class PlaybackController implements PlayerControls {
             return;
         }
         const frozen = attempt.busy && !attempt.reporting;
+        const captionTime = this.captionInstant(attempt, plan);
         this.show({
             phase: attempt.paused ? "paused" : "playing",
             title: attempt.request.title,
@@ -2641,10 +2661,25 @@ export class PlaybackController implements PlayerControls {
             tracks: trackView(attempt, plan),
             seekIntervals: attempt.seekIntervals,
             previewKey: frozen ? undefined : attempt.planAttemptId,
-            captions: attempt.hidden || attempt.restoring || frozen ? undefined : { text: attempt.cues.filter(cue => attempt.sourceSeconds - attempt.subtitleSync / 1000 >= cue.start && attempt.sourceSeconds - attempt.subtitleSync / 1000 < cue.end).map(cue => cue.text).join("\n"), appearance: attempt.appearance },
+            captions: attempt.hidden || attempt.restoring || frozen ? undefined : { text: attempt.cues.filter(cue => captionTime >= cue.start && captionTime < cue.end).map(cue => cue.text).join("\n"), appearance: attempt.appearance },
             skipMarker: frozen ? undefined : markerAt((attempt.markers?.segments ?? []).filter(marker => marker.kind !== "intro" || attempt.introMode !== "never"), attempt.sourceSeconds),
             undoSkipSeconds: attempt.undoSkip !== undefined && this.deps.clock.now() < attempt.undoSkip.until ? attempt.undoSkip.seconds : undefined,
         });
+    }
+
+    /**
+     * Cue times are absolute source time. After a resume seek, AVPlay's clock is the picture
+     * and the plan's source start can still be 0 until the next playhead callback.
+     */
+    private captionInstant(attempt: Attempt, plan: PlaybackPlan): number {
+        const sync = attempt.subtitleSync / 1000;
+        if (attempt.started) {
+            try {
+                const milliseconds = this.deps.avplay.getCurrentTime();
+                if (Number.isFinite(milliseconds) && milliseconds >= 0) return milliseconds / 1000 + plan.timeline.timelineOffsetSeconds - sync;
+            } catch { /* The last reported source time still places the cue. */ }
+        }
+        return attempt.sourceSeconds - sync;
     }
 
     private show(view: PlaybackView): void {
@@ -2801,6 +2836,18 @@ function streamRenditionAnswer(plan: PlaybackPlan, id: string | undefined): bool
     if (id === undefined) return plan.subtitle.mode === "off";
     const row = plan.subtitle.inventory.find((entry) => entry.trackId === id);
     return row?.hlsRendition !== undefined && plan.subtitle.mode !== "burn_in" && plan.subtitle.mode !== "off" && plan.subtitle.mode !== "unknown";
+}
+
+/** Same original file and stream URL. A sidecar or Off draws here; burn-in and a native row with no artifact do not. */
+function sameDirectTransport(current: PlaybackPlan, next: PlaybackPlan): boolean {
+    if (current.streamUrl !== next.streamUrl || current.delivery !== "original_http" || next.delivery !== "original_http") return false;
+    if (current.effectiveMediaFileId !== next.effectiveMediaFileId || current.streamProtocol !== next.streamProtocol) return false;
+    if (current.timeline.streamOriginSeconds !== next.timeline.streamOriginSeconds || current.timeline.timelineOffsetSeconds !== next.timeline.timelineOffsetSeconds) return false;
+    if (current.selectedTracks.audio?.id !== next.selectedTracks.audio?.id) return false;
+    if (next.subtitle.mode === "burn_in" || next.subtitle.mode === "unknown") return false;
+    if ((next.subtitle.mode === "render" || next.subtitle.mode === "convert") && next.subtitle.artifact === undefined) return false;
+    if ((current.recipe !== undefined || next.recipe !== undefined) && !sameRecipe(current.recipe, next.recipe)) return false;
+    return true;
 }
 
 function keepsHlsTransport(current: PlaybackPlan, next: PlaybackPlan): boolean {

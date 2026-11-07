@@ -1028,7 +1028,9 @@ appTest("saved server profile 15/45 reaches the composed controller and every re
     await tv.page.locator('[data-focus="profiles"]').click();
     await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
     await tv.page.locator('[data-focus="playback"]').click();
+    // The skip rows appear only after the settings contract loads. Counting immediately reads the empty pane.
     await tv.page.locator('[data-focus="seek-back"]').waitFor();
+    await tv.page.locator('[data-focus="seek-forward"]').waitFor();
     assert.equal(await tv.page.locator('[data-focus="seek-back"], [data-focus="seek-forward"]').count(), 2);
     await tv.page.locator('[data-focus="seek-back"]').click();
     await tv.page.getByRole('radio', { name: '15 seconds', exact: true }).click();
@@ -1235,9 +1237,9 @@ const failureButtonFocus = {
     ring: true,
 };
 
-/** "Go Back" at siloSubheadline exceeds the 140px minimum; "Retry" stays on it. */
-const failureBack = { ...failureButton, layoutWidth: 144 };
-const failureBackFocus = { ...failureButtonFocus, layoutWidth: 144 };
+/** "Go Back" at siloSubheadline exceeds the 140px minimum; "Retry" stays on it. Tracking makes the label 141px, so the row centre is half a pixel from the player. */
+const failureBack = { ...failureButton, layoutWidth: 141 };
+const failureBackFocus = { ...failureButtonFocus, layoutWidth: 141 };
 
 async function showPlaybackFailure(tv: Tv, playback: FakePlayback, decision: { terminal: string; retryable?: boolean }): Promise<void> {
     await signIn(tv);
@@ -1279,7 +1281,7 @@ appTest("a terminal playback failure matches Apple's top-pinned error view and i
         retry: { ...failureButton, layoutWidth: null, layoutHeight: null },
         back: failureBackFocus,
         rowGap: null,
-        rowCenter: wall.playerCenter,
+        rowCenter: wall.playerCenter + 0.5,
     });
 });
 
@@ -1313,7 +1315,7 @@ appTest("a retryable playback failure keeps Retry focused and Back leaves withou
         retry: failureButtonFocus,
         back: failureBack,
         rowGap: 16,
-        rowCenter: wall.playerCenter,
+        rowCenter: wall.playerCenter + 0.5,
     });
     const starts = tv.fake.requests.filter((request) => request.path === "/playback/start").length;
     await tv.remote(10009);

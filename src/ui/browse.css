@@ -1122,10 +1122,13 @@
    cancels the card width, so one spacing stays in the visible slot.
    The focused card's layout left is 100 + spacing + width * 0.025 + 2.
    At rest the previous card ends at 100 + width * 0.025 + 2, a sliver past the mask.
-   The first episode has no previous card, so it shifts back by the spacing and its frame starts at the 100px inset. */
+   The first episode has no predecessor. The spacing in the padding is that
+   slot, so every card shifts back by it. A transform on only the first card
+   would open the step from 349.6 to 389.6. The focused frame stays at the
+   100px inset, and the next card stays one step away. */
 .details-series-rail { --episode-spacing: 40px; }
 .details-series-rail .details-episodes { --episode-paint-end: 88px; margin-left: -88px; margin-right: -88px; padding: 12px calc(100px + var(--episode-spacing) + 360px * var(--poster-scale, 1) * .025 + 2px); clip-path: inset(0 0 0 100px); }
-.details-series-rail .details-episodes:not([data-episode-leading="later"]) > .browse-card:first-child { transform: translateX(calc(-1 * var(--episode-spacing))); }
+.details-series-rail .details-episodes:not([data-episode-leading="later"]) > .browse-card { transform: translateX(calc(-1 * var(--episode-spacing))); }
 .details-playback-summary span:empty { align-self: center; width: 128px; height: 16px; border-radius: 4px; background: rgba(255,255,255,.1); }
 .details-playback-summary [data-track-summary="audio"] span:empty { width: 166px; }
 .details-playback-summary [data-track-summary="subtitles"] span:empty { width: 77px; }
@@ -1281,14 +1284,16 @@
 .browse-empty-title ~ .browse-text { max-width: none; text-align: center; font-size: 26px; }
 .browse-empty-actions { text-align: center; }
 .browse-empty-actions .browse-button { display: inline-flex; align-items: center; font-size: 24px; font-weight: 500; }
-/* TVAlphabetRail: a slim 18pt peek, centred like Apple's in the 1020pt column above the TV safe area, until a
-   letter is focused, then 96pt of 38pt chips from the top, as Apple's overflowing rail starts. The chips sit without
-   Apple's 4pt gap so all 28 (1064pt) stay on the 1080 screen without the rail scrolling. */
+/* TVAlphabetRail: collapsed width 18, centred in the 1020pt column. Each LetterButton is a 10×10
+   monospaced semibold 10pt glyph at opacity 0.35 (SiloTheme.Skyline, LetterButton). The selected
+   All chip is siloOnSurface in an 8pt corner, which on a 10px box is the circle. Expanded letters
+   are 15pt in 38px chips. The expanded column omits the 4pt VStack gap so all 28 chips stay on
+   the 1080 screen without the rail scrolling. */
 .browse-letters { position: fixed; z-index: 3; top: 0; right: 32px; width: 18px; height: 1020px; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: width 180ms ease-out; }
-.browse-letters .browse-button { flex-shrink: 0; width: 10px; height: 10px; min-height: 0; margin: 2px 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: transparent; font-family: var(--silo-font); font-size: 0; font-weight: 600; line-height: 10px; overflow: hidden; }
+.browse-letters .browse-button { flex-shrink: 0; width: 10px; height: 10px; min-height: 0; margin: 2px 0; padding: 0; border: 0; border-radius: 8px; background: transparent; color: rgba(237, 237, 237, 0.6); font-family: ui-monospace, monospace; font-size: 10px; font-weight: 600; line-height: 10px; opacity: 0.35; overflow: hidden; }
 .browse-letters[data-open], .browse-letters:focus-within { width: 96px; justify-content: flex-start; }
-.browse-letters:focus-within .browse-button { width: 38px; height: 38px; margin: 0; border-radius: 8px; color: #ededed; font-size: 15px; line-height: 38px; }
-.browse-letters .browse-button[aria-pressed="true"], .browse .browse-letters .browse-button:focus { background: #fff; color: #000; }
+.browse-letters:focus-within .browse-button { width: 38px; height: 38px; margin: 0; border-radius: 8px; color: #ededed; font-size: 15px; line-height: 38px; opacity: 1; }
+.browse-letters .browse-button[aria-pressed="true"], .browse .browse-letters .browse-button:focus { background: #ededed; color: #000; opacity: 1; }
 /* Sort and Filter panels over a dimmed page (TVSkylinePanelChrome), centred on y510 as measured
    on the Apple TV (the tab body sits under the top bar). */
 .browse-panel-scrim { position: fixed; z-index: 6; top: 0; left: 0; width: 1920px; height: 1080px; background: rgba(0,0,0,.55); }

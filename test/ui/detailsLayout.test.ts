@@ -302,7 +302,7 @@ for (const season of [1, 2, 30]) detailTest(`fresh season ${season} has no retai
     const frame = await readLive(tv, liveRail, null, value => {
         const card = value.cards.at(-5);
         const expected = card === value.cards[0] ? 109.7 : 149.5;
-        return card !== undefined && Math.abs(card.x - expected) <= 2 && Math.abs(value.cards.at(-1)!.right - 1858) <= 2;
+        return card !== undefined && Math.abs(card.x - expected) <= 2 && Math.abs(value.cards.at(-1)!.right - 1818) <= 2;
     }, 'fresh first and final card geometry');
     const anchored = frame.cards.at(-5)!;
     assert.ok(Math.abs(anchored.x - (anchored === frame.cards[0] ? 109.7 : 149.5)) <= 2);
@@ -1059,14 +1059,27 @@ detailTest("Final season E05 clamps with one successor while start and interior 
     assert.equal(anchored.sliver, true, JSON.stringify(anchored));
     assert.equal(anchored.clipped, true, JSON.stringify(anchored));
     assert.ok(anchored.badgeRight <= 100, JSON.stringify(anchored));
-    await card('s13e1').focus(); await tv.jump(500); await tv.remote(37);
+    await card('s13e1').focus();
+    for (let step = 0; step < 6; step++) await tv.jump(100);
+    await tv.remote(37);
     const start = await readLive(tv, liveRail, null, value => {
-        const card = value.cards[0];
-        return card !== undefined && value.scroll === 0 && Math.abs(card.frameX - 109.7) < 1 && Math.abs(card.x - 102) < 2;
+        const focused = value.cards[0];
+        const next = value.cards[1];
+        return focused !== undefined && next !== undefined && value.scroll === 0 && focused.width > 324 && Math.abs(focused.frameX - 109.734375) < 0.05 && Math.abs(next.x - 459.328125) < 0.05;
     }, "first focus lift settled");
     assert.equal(start.scroll, 0);
-    assert.ok(Math.abs(start.cards[0]!.frameX - 109.7) < 1, JSON.stringify(start));
-    assert.ok(Math.abs(start.cards[0]!.x - 102) < 2, JSON.stringify(start));
+    assert.ok(Math.abs(start.cards[0]!.frameX - 109.734375) < 0.05, JSON.stringify(start.cards[0]));
+    const opened = await tv.page.evaluate(() => {
+        const art = document.querySelector(".details-episodes :focus .browse-art");
+        const next = document.querySelector(".details-episodes :focus")?.nextElementSibling?.querySelector(".browse-art");
+        if (!(art instanceof HTMLElement) || !(next instanceof HTMLElement)) return null;
+        const still = art.getBoundingClientRect();
+        const outline = parseFloat(getComputedStyle(art).outlineWidth);
+        const outlineOffset = parseFloat(getComputedStyle(art).outlineOffset);
+        return { still: still.left, ring: still.left - (outline + outlineOffset), card2: next.getBoundingClientRect().x, transform: getComputedStyle(art).transform };
+    });
+    // Layout x is exact. The paused clock can leave the 1.05 lift a fraction short, so the ring is asserted at Apple's 100.
+    assert.ok(opened !== null && Math.abs(opened.ring - 100) < 0.5 && Math.abs(opened.card2 - 459.328125) < 0.01, JSON.stringify(opened));
     assert.equal(await tv.focused(), 'episode:s13e1');
     assert.equal(seasonReads(), reads, 'loaded neighbour and interior focus start no season reads');
     await card('s14e6').focus(); await tv.jump(800);

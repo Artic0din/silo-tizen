@@ -94,18 +94,45 @@ test("the returning badge draws an outlined television with a foot and a translu
 test("a collapsed A-Z letter is a circle and the expanded label stays readable", async () => {
     const page = await styledPage(`<main class="browse"><div class="browse-letters"><button class="browse-button" aria-pressed="true">All</button><button class="browse-button">M</button><button class="browse-button">Z</button></div></main>`);
     try {
-        const collapsed = await page.locator('[aria-pressed="true"]').evaluate(node => {
+        const collapsed = await page.locator(".browse-button").evaluateAll(nodes => nodes.map(node => {
             const style = getComputedStyle(node);
             const range = document.createRange();
             range.selectNodeContents(node);
-            return { radius: style.borderRadius, width: node.getBoundingClientRect().width, height: node.getBoundingClientRect().height, fontSize: style.fontSize, ink: range.getBoundingClientRect().width, text: node.textContent };
-        });
-        assert.equal(collapsed.radius, "50%");
-        assert.equal(collapsed.width, 10);
-        assert.equal(collapsed.height, 10);
-        assert.equal(collapsed.fontSize, "0px");
-        assert.equal(collapsed.ink, 0);
-        assert.equal(collapsed.text, "All");
+            return {
+                radius: style.borderRadius,
+                width: node.getBoundingClientRect().width,
+                height: node.getBoundingClientRect().height,
+                fontSize: style.fontSize,
+                fontFamily: style.fontFamily,
+                weight: style.fontWeight,
+                opacity: style.opacity,
+                color: style.color,
+                background: style.backgroundColor,
+                ink: range.getBoundingClientRect().width,
+                text: node.textContent,
+            };
+        }));
+        const all = collapsed[0];
+        const mark = collapsed[1];
+        assert.ok(all !== undefined && mark !== undefined);
+        // smallCornerRadius 8 on a 10px chip is the circle. The glyph stays drawn.
+        assert.equal(all.radius, "8px");
+        assert.equal(all.width, 10);
+        assert.equal(all.height, 10);
+        assert.equal(all.fontSize, "10px");
+        assert.equal(all.weight, "600");
+        assert.equal(all.opacity, "1");
+        assert.equal(all.background, "rgb(237, 237, 237)");
+        assert.equal(all.text, "All");
+        assert.ok(all.ink > 0, String(all.ink));
+        assert.equal(mark.width, 10);
+        assert.equal(mark.height, 10);
+        assert.equal(mark.fontSize, "10px");
+        assert.equal(mark.opacity, "0.35");
+        assert.equal(mark.color, "rgba(237, 237, 237, 0.6)");
+        assert.equal(mark.background, "rgba(0, 0, 0, 0)");
+        assert.ok(mark.fontFamily.toLowerCase().includes("mono"), mark.fontFamily);
+        assert.ok(mark.ink > 0, String(mark.ink));
         await page.locator(".browse-button").nth(1).focus();
         const expanded = await page.locator(".browse-button").evaluateAll(nodes => nodes.map(node => {
             const style = getComputedStyle(node);

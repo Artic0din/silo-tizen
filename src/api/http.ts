@@ -89,6 +89,44 @@ export class NativeHttp {
         this.connectionCheck = connectionCheck;
     }
 
+    /**
+     * GET a URL on this server and return the body unread.
+     * Redirects are refused: a browser cannot follow one and drop Authorization
+     * the way URLSession does (BandwidthProbeDownload.swift:403-411).
+     */
+    async fetchResource(url: string, spec: { readonly bearer: string; readonly profile?: ProfileHeaders; readonly signal?: AbortSignal }): Promise<Response> {
+        let address: URL;
+        try {
+            address = new URL(url);
+        } catch {
+            throw new ApiError({ kind: "network" });
+        }
+        if (!isPermittedUrl(address, this.base.baseUrl) || address.username !== "" || address.password !== "" || address.origin !== this.base.origin) {
+            throw new ApiError({ kind: "network" });
+        }
+        const headers = this.headers({
+            method: "GET",
+            path: `${address.pathname}${address.search}`,
+            retry: "never",
+            decode: () => undefined,
+            bearer: spec.bearer,
+            ...(spec.profile === undefined ? {} : { profile: spec.profile }),
+        });
+        try {
+            return await this.fetch(address.href, {
+                method: "GET",
+                headers,
+                ...(spec.signal === undefined ? {} : { signal: spec.signal }),
+                redirect: "error",
+                credentials: "omit",
+                cache: "no-store",
+            });
+        } catch {
+            if (spec.signal?.aborted === true) throw abortedError();
+            throw new ApiError({ kind: "network" });
+        }
+    }
+
     async send<T>(spec: RequestSpec<T>): Promise<T> {
         for (let attempt = 1; ; attempt++) {
             try {

@@ -1087,7 +1087,7 @@ test("quality controls remain absent for unsupported manifests and empty Playbac
     } finally { await tv.page.context().close(); }
 });
 
-test("Playback shows HDR and Dolby Vision as device switches and skips Dolby Vision while HDR is off", async () => {
+test("Playback shows HDR after the Streaming rows and never shows or writes Dolby Vision", async () => {
     const { tv, settings } = await setup();
     settings.hdrRows = true;
     try {
@@ -1096,36 +1096,36 @@ test("Playback shows HDR and Dolby Vision as device switches and skips Dolby Vis
         const order = await tv.page.locator(".settings-pane [data-focus]").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus")));
         const audio = order.indexOf("audio");
         const hdr = order.indexOf("hdr");
-        const dolby = order.indexOf("dolby-vision");
-        assert.ok(audio >= 0 && audio < hdr && hdr < dolby && order[dolby + 1] === "spoiler-images", order.join(","));
+        assert.equal(order.includes("dolby-vision"), false, order.join(","));
+        assert.equal(await tv.page.getByRole("switch", { name: "Dolby Vision", exact: true }).count(), 0);
+        assert.ok(audio >= 0 && audio < hdr && order[hdr + 1] === "spoiler-images", order.join(","));
         assert.deepEqual(await tv.page.locator(".settings-section-header").allTextContents(), ["QUALITY", "STREAMING", "EPISODES", "SPOILERS", "VIDEO", "RESET"]);
         assert.equal(await tv.page.locator('[data-focus="hdr"] .settings-row-value').innerText(), "On");
-        assert.equal(await tv.page.locator('[data-focus="dolby-vision"] .settings-row-value').innerText(), "On");
         assert.equal(await tv.page.getByRole("switch", { name: "HDR", exact: true }).getAttribute("aria-checked"), "true");
-        assert.equal(await tv.page.getByRole("switch", { name: "Dolby Vision", exact: true }).getAttribute("aria-checked"), "true");
-        assert.equal(await tv.page.locator(".settings-hdr-footer").innerText(), "With HDR off, videos the server converts for this device are sent in SDR, without Dolby Vision.");
-        await tv.page.locator('[data-focus="hdr"]').focus();
-        await tv.remote(40);
-        assert.equal(await tv.focused(), "dolby-vision");
+        // TVPlaybackSettingsView.swift:248-258, after the STREAMING rows. SettingsViewModel.swift:136-143
+        // without "without Dolby Vision", and without the Lossless and TrueHD sentences at 251-257.
+        assert.equal(await tv.page.locator(".settings-hdr-footer").innerText(), "With HDR off, videos the server converts for this device are sent in SDR. Videos that play from the original file can still play in HDR, and the TV can still switch to HDR for them.");
+        const place = await tv.page.evaluate(() => {
+            const streaming = [...document.querySelectorAll(".settings-section-header")].find(node => node.textContent === "STREAMING");
+            const hdrRow = document.querySelector('[data-focus="hdr"]');
+            const note = document.querySelector(".settings-hdr-footer");
+            const episodes = [...document.querySelectorAll(".settings-section-header")].find(node => node.textContent === "EPISODES");
+            if (streaming === undefined || hdrRow === null || note === null || episodes === undefined) return false;
+            return Boolean(streaming.compareDocumentPosition(hdrRow) & Node.DOCUMENT_POSITION_FOLLOWING)
+                && Boolean(hdrRow.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING)
+                && Boolean(note.compareDocumentPosition(episodes) & Node.DOCUMENT_POSITION_FOLLOWING);
+        });
+        assert.equal(place, true);
         const deviceId = tv.fake.requests.find(request => request.headers["x-silo-device-id"])?.headers["x-silo-device-id"];
         assert.ok(deviceId);
         const device = settings.device("p-owner", deviceId);
-        await tv.page.getByRole("switch", { name: "Dolby Vision", exact: true }).click();
-        await tv.eventually(async () => device.get(DOLBY_VISION_KEY) === false, "dolby vision write");
-        assert.equal(device.has(HDR_KEY), false);
-        assert.equal(settings.profile().has(DOLBY_VISION_KEY), false);
-        assert.equal(tv.fake.requests.find(request => request.method === "PUT" && request.path.includes(DOLBY_VISION_KEY))?.path, `/settings/values/${DOLBY_VISION_KEY}?scope=profile_device`);
-        await tv.page.getByRole("switch", { name: "Dolby Vision", exact: true }).click();
-        await tv.eventually(async () => device.get(DOLBY_VISION_KEY) === true, "dolby vision restored");
         await tv.page.getByRole("switch", { name: "HDR", exact: true }).click();
-        await tv.eventually(async () => device.get(HDR_KEY) === false && await tv.page.getByRole("switch", { name: "Dolby Vision", exact: true }).getAttribute("aria-checked") === "false", "hdr write");
-        assert.equal(device.get(DOLBY_VISION_KEY), true);
+        await tv.eventually(async () => device.get(HDR_KEY) === false, "hdr write");
+        assert.equal(device.has(HDR_KEY), true);
         assert.equal(settings.profile().has(HDR_KEY), false);
-        assert.equal(await tv.page.getByRole("switch", { name: "Dolby Vision", exact: true }).getAttribute("aria-disabled"), "true");
-        assert.equal(await tv.page.locator('[data-focus="dolby-vision"] .settings-row-value').innerText(), "Off");
-        const writes = tv.fake.requests.filter(request => request.method === "PUT" && request.path.includes(DOLBY_VISION_KEY)).length;
-        await tv.page.getByRole("switch", { name: "Dolby Vision", exact: true }).click({ force: true });
-        assert.equal(tv.fake.requests.filter(request => request.method === "PUT" && request.path.includes(DOLBY_VISION_KEY)).length, writes);
+        assert.equal([...device.keys()].join(" ").includes(DOLBY_VISION_KEY), false);
+        assert.equal(tv.fake.requests.some(request => request.method !== "GET" && request.path.includes(DOLBY_VISION_KEY)), false);
+        assert.equal(tv.fake.requests.some(request => request.path.includes(DOLBY_VISION_KEY)), false);
         await tv.page.locator('[data-focus="hdr"]').focus();
         await tv.remote(40);
         assert.equal(await tv.focused(), "spoiler-images");

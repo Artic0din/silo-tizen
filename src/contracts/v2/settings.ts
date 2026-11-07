@@ -15,10 +15,14 @@ export const SHOW_FORCED_KEY = "playback.show_forced_subtitles" as const;
 export const SEEK_BACK_KEY = "player.video_skip_back_seconds";
 export const SEEK_FORWARD_KEY = "player.video_skip_forward_seconds";
 export const SEEK_KEYS = [SEEK_BACK_KEY, SEEK_FORWARD_KEY] as const;
-/** Device-only booleans. Apple's manifest lists them; the vendored subset does not. */
+/** Device-only boolean. Apple's manifest lists it; the vendored subset does not. */
 export const HDR_KEY = "player.hdr_enabled";
+/**
+ * Apple stores `player.dolby_vision_enabled`. This client does not read or write it:
+ * Samsung exposes no Dolby Vision support check, and the capability profile claims no profile.
+ */
 export const DOLBY_VISION_KEY = "player.dolby_vision_enabled";
-export const HDR_KEYS = [HDR_KEY, DOLBY_VISION_KEY] as const;
+export const HDR_KEYS = [HDR_KEY] as const;
 const SEEK_SECONDS = [5, 10, 15, 30, 45, 60, 90];
 export const NEXT_UP_KEY = "playback.next_up_prompt_seconds";
 export const AUTO_NEXT_KEY = "playback.auto_play_next";
@@ -126,7 +130,7 @@ export function decodeSettingsContract(value: unknown): SettingsContract {
         if (subtitleLanguage && (schema.nullable !== true || schema.type !== "language_tag" || def.default_value !== null || def.recommended_control !== "select" || def.unset_label !== "None" || typeof def.suggested_options !== "string")) continue;
         if (subtitleMode && (schema.type !== "enum" || schema.nullable === true || def.default_value !== "auto" || def.recommended_control !== "select")) continue;
         if (showForced && (schema.type !== "boolean" || schema.nullable === true || def.default_value !== true || def.recommended_control !== "switch")) continue;
-        const hdr = key === HDR_KEY || key === DOLBY_VISION_KEY;
+        const hdr = key === HDR_KEY;
         if (hdr && (def.persistence !== "remote" || schema.type !== "boolean" || schema.nullable === true || def.default_value !== true || def.introduced_in !== 1 || def.recommended_control !== "switch" || JSON.stringify(def.allowed_scopes) !== JSON.stringify(["profile_device"]) || JSON.stringify(def.resolution_order) !== JSON.stringify(["profile_device", "default"]))) continue;
         if (hdr && definitions.some(existing => existing.key === key)) throw new WireError("setting_definition.key", "each HDR key once");
         if (key === HIDDEN_KEY && (schema.nullable !== true || schema.type !== "object" || schema.schema_ref !== "library-id-list.json")) continue;
@@ -187,7 +191,7 @@ export function profileSettings(contract: SettingsContract, capability: Settings
     if (capability.apiVersion !== 1 || capability.state !== "available" || !capability.allowed || !capability.scopes.includes("profile") || contract.apiVersion !== 1) return [];
     const revision = Math.min(contract.revision, capability.manifestRevision);
     const deviceScope = capability.scopes.includes("profile_device");
-    const definitions = contract.definitions.filter(def => def.introducedIn <= revision && (def.profile || (deviceScope && def.device && (def.key === HDR_KEY || def.key === DOLBY_VISION_KEY)))).map(def => ({ ...def, device: def.device === true && deviceScope, options: def.options.filter(option => option.introducedIn <= revision) }));
+    const definitions = contract.definitions.filter(def => def.introducedIn <= revision && (def.profile || (deviceScope && def.device && def.key === HDR_KEY))).map(def => ({ ...def, device: def.device === true && deviceScope, options: def.options.filter(option => option.introducedIn <= revision) }));
     const pair = revision >= 9 && SEEK_KEYS.every(key => definitions.some(def => def.key === key && def.options.length === SEEK_SECONDS.length && def.options.every(option => !option.deprecated)));
     return definitions.filter(def => (pair || (def.key !== SEEK_BACK_KEY && def.key !== SEEK_FORWARD_KEY)) && (def.key !== TITLE_ART_KEY || capability.scopes.includes("profile_device")));
 }
@@ -240,7 +244,7 @@ export function decodeSettingValue(key: SettingsKey, value: unknown): SettingVal
         if (typeof value !== "boolean") throw new WireError("show_forced_subtitles.value", "a JSON boolean");
         return value;
     }
-    if (key === HDR_KEY || key === DOLBY_VISION_KEY) {
+    if (key === HDR_KEY) {
         if (typeof value !== "boolean") throw new WireError(key, "a boolean");
         return value;
     }

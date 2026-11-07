@@ -6,7 +6,8 @@
 // H.264 and HEVC (MP4, MKV and TS), AAC, AC3, E-AC3 and MP3, and no DTS. Tizen offers no decoder
 // enumeration, so the evidence tier is `declared` and the resolution cap stays 1080p. HDR is
 // claimed only when webapis.avinfo.isHdrTvSupport() returns true and the HDR setting is on.
-// Samsung documents no HLG or Dolby Vision probe, so those stay unclaimed. Audio passthrough is
+// Samsung documents no HLG or Dolby Vision probe. HLG stays unclaimed, and dolby_vision_profiles
+// stays empty. Audio passthrough is
 // never claimed. Every subtitle capability uses the app's plain-text sidecar renderer; bitmap
 // and native embedded rendering stay disabled. The progressive class is omitted (no proof AVPlay
 // plays a forward-only chunked remux).
@@ -20,10 +21,9 @@ export interface HdrPanel {
     readonly dolbyVision: boolean;
 }
 
-/** Effective `player.hdr_enabled` and `player.dolby_vision_enabled`. Apple's defaults are on. */
+/** Effective `player.hdr_enabled`. Apple's default is on. Dolby Vision is not read. */
 export interface HdrPreference {
     readonly hdrEnabled: boolean;
-    readonly dolbyVisionEnabled: boolean;
 }
 
 export interface HdrReport {
@@ -56,15 +56,14 @@ export function probeHdrPanel(scope: unknown = globalThis): HdrPanel {
 
 /**
  * ApplePlaybackV3Capabilities.swift:439-483. HDR10 and HLG need the HDR setting and a panel
- * report. Dolby Vision also needs its setting. hdr10_plus stays false (lines 479-480). Profiles
- * 5 and 8 are sent only when Dolby Vision is claimed (line 482). No claim omits hdr_details.
+ * report. hdr10_plus stays false (lines 479-480). dolby_vision_profiles stays empty: this client
+ * claims no Dolby Vision profile. No claim omits hdr_details.
  */
 export function hdrDetails(report: HdrReport): HdrDetails | undefined {
     const hdr10 = report.preference.hdrEnabled && report.panel.hdr10;
     const hlg = report.preference.hdrEnabled && report.panel.hlg;
-    const dolbyVision = report.preference.hdrEnabled && report.preference.dolbyVisionEnabled && report.panel.dolbyVision;
-    if (!hdr10 && !hlg && !dolbyVision) return undefined;
-    return { hdr10, hdr10_plus: false, hlg, dolby_vision_profiles: dolbyVision ? [5, 8] : [] };
+    if (!hdr10 && !hlg) return undefined;
+    return { hdr10, hdr10_plus: false, hlg, dolby_vision_profiles: [] };
 }
 
 const VIDEO_CODECS = ["h264", "hevc"];

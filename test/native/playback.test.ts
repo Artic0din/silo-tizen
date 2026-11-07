@@ -1941,6 +1941,7 @@ test("a supporting panel claims HDR10 on start and leaves Dolby Vision unclaimed
     assert.deepEqual(context.output, { hdr_details: HDR10 });
     assert.deepEqual(context.deliveries.original_http.hdr_details, HDR10);
     assert.deepEqual(context.deliveries.hls.hdr_details, HDR10);
+    assert.equal(r.h.fake.requests.some(request => request.path.includes("player.dolby_vision_enabled")), false);
     r.controller.destroy();
 });
 

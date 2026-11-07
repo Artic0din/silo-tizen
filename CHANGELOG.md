@@ -6,7 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Added HDR and Dolby Vision on Playback. A TV that reports HDR, with the HDR setting on, claims HDR10 for direct play. Dolby Vision is saved and is not claimed.
+- Added HDR on Playback. A TV that reports HDR, with the HDR setting on, claims HDR10 for direct play. Dolby Vision is not a Playback row: Samsung exposes no Dolby Vision support check, and this client claims no Dolby Vision profile.
 - Playback settings show Connection speed and Test speed when the server advertises `connection_speed_v1`.
 - Added Paired Silo Profile on General, showing the profile this TV reopens and opening the profile picker to change it.
 - Added Remove Request for a failed request of yours, including the confirmation, the notice, and focus on the card that takes its place.

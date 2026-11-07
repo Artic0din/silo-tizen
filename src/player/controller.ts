@@ -27,7 +27,7 @@ import type { NativeSession } from "../session/session.ts";
 import type { AVPlay, AVPlayListener } from "./avplay.ts";
 import { CLIENT_FEATURES, clientCapabilities, playbackContext, probeHdrPanel, type HdrPanel } from "./capabilities.ts";
 import { SeekThumbnails, type ThumbnailSheetLoader } from "./seekThumbnails.ts";
-import { AUTO_NEXT_KEY, DOLBY_VISION_KEY, HDR_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS, profileSettings } from "../contracts/v2/settings.ts";
+import { AUTO_NEXT_KEY, HDR_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS, profileSettings } from "../contracts/v2/settings.ts";
 import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
 import { markerAt, type SkipMarker } from "../contracts/v2/markers.ts";
 import { nextEpisode } from "./nextEpisode.ts";
@@ -230,9 +230,8 @@ interface Attempt {
     autoBandwidthCapKbps: number | undefined;
     qualityPicked: boolean;
     seekIntervals: { readonly backward: number; readonly forward: number };
-    /** Apple's defaults are on. A failed read of an offered key forces both off. */
+    /** Apple's default is on. A failed read of an offered HDR key forces it off. */
     hdrEnabled: boolean;
-    dolbyVisionEnabled: boolean;
     hdrPanel: HdrPanel;
     batchedSettings: boolean;
     serverFeatures: readonly string[];
@@ -357,7 +356,6 @@ export class PlaybackController implements PlayerControls {
             qualityPicked: false,
             seekIntervals: { backward: 10, forward: 10 },
             hdrEnabled: true,
-            dolbyVisionEnabled: true,
             hdrPanel: { hdr10: false, hlg: false, dolbyVision: false },
             batchedSettings: true,
             serverFeatures: [],
@@ -781,19 +779,14 @@ export class PlaybackController implements PlayerControls {
                     if (attempt.live) attempt.autoNext = values.get(AUTO_NEXT_KEY)?.value === true;
                 } catch { /* Unavailable autoplay preferences leave Play next manual. */ }
             }
-            const hdrKeys = ([HDR_KEY, DOLBY_VISION_KEY] as const).filter(key => definitions.some(def => def.key === key));
-            if (hdrKeys.length > 0) {
+            if (definitions.some(def => def.key === HDR_KEY)) {
                 try {
-                    const groups = capability.supportsBatchedEffective ? [hdrKeys] : hdrKeys.map(key => [key]);
-                    const values = await Promise.all(groups.map(keys => call(operations.effectiveSettings(keys))));
+                    const values = await call(operations.effectiveSettings([HDR_KEY]));
                     if (!attempt.live) return false;
-                    const effective = new Map(values.flatMap(group => [...group]));
-                    if (hdrKeys.includes(HDR_KEY)) attempt.hdrEnabled = effective.get(HDR_KEY)?.value === true;
-                    if (hdrKeys.includes(DOLBY_VISION_KEY)) attempt.dolbyVisionEnabled = effective.get(DOLBY_VISION_KEY)?.value === true;
+                    attempt.hdrEnabled = values.get(HDR_KEY)?.value === true;
                 } catch {
                     if (!attempt.live) return false;
                     attempt.hdrEnabled = false;
-                    attempt.dolbyVisionEnabled = false;
                 }
             }
             if (!SEEK_KEYS.every(key => definitions.some(def => def.key === key))) return true;
@@ -813,7 +806,7 @@ export class PlaybackController implements PlayerControls {
     }
 
     private reportedPlayback(attempt: Attempt): Pick<StartPlaybackBody, "client_capabilities" | "client_playback_context"> {
-        const report = { panel: attempt.hdrPanel, preference: { hdrEnabled: attempt.hdrEnabled, dolbyVisionEnabled: attempt.dolbyVisionEnabled } };
+        const report = { panel: attempt.hdrPanel, preference: { hdrEnabled: attempt.hdrEnabled } };
         return {
             client_capabilities: clientCapabilities(report),
             client_playback_context: playbackContext(this.deps.device.model, this.deps.device.appVersion, report),

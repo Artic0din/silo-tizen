@@ -31,26 +31,28 @@ These parts of Apple's behaviour have no Samsung owner, so they are not copied:
 - `Stop playback before testing, then try again.` (`SettingsViewModel.swift:577,654-655`) is not shown. Settings replaces the browse screen, so it is not open during playback.
 - Apple hides the auto-budget sentence when buffering quality is Never and a learned limit exists (`SettingsViewModel.swift:630-632`). This TV has no buffering-quality mode, so the sentence is shown whenever the server sends `auto_budget_kbps` and tests are not skipped.
 
-## HDR and Dolby Vision
+## HDR
 
-`TVPlaybackSettingsView.swift:176-202` puts two switches in STREAMING, after Audio Language and before Seek Cache: **HDR**, then **Dolby Vision**. Each click writes the opposite boolean (`viewModel.hdrEnabled = !current`, then the same for Dolby Vision). The keys are `player.hdr_enabled` and `player.dolby_vision_enabled` (`SettingKeys.generated.swift:97` and `:93`). Both are remote booleans, default true, allowed only at `profile_device` (`PlayerSettings.swift:740-741`, `setHDREnabled` / `setDolbyVisionEnabled` at `1092-1099`). The vendored settings subset does not list them. A live contract that matches that device-only definition shows the rows. Any other shape hides the row, the same way the other optional rows stay hidden. The platform list may omit `tizen`; these keys are not a profile-scope adoption.
+`TVPlaybackSettingsView.swift:173-259` is Apple's STREAMING section: Audio Language, HDR (`185-191`), Dolby Vision (`193-202`), then Seek Cache, Buffer Ahead, Lossless Multichannel Audio, TrueHD Atmos and DTS:X, Deinterlacing and Deinterlacing Field Rate. The section ends with `TVSettingsFooter(streamingFooterText)` (`248-258`).
 
-Dolby Vision reads Off and is not focusable while HDR is off (`TVPlaybackSettingsView.swift:200-202`, `SettingsViewModel.swift:146-150`). The stored Dolby Vision choice is kept. Turning HDR back on shows that stored choice again.
+This pane shows Audio Language and HDR. Dolby Vision is absent. Samsung exposes no Dolby Vision support check, and this client claims no Dolby Vision profile, so a switch would not change playback. The client does not read or write `player.dolby_vision_enabled`. That absence is not a measurement that the panel lacks Dolby Vision.
 
-The footer under the rows is the first sentence of `SettingsViewModel.hdrFooterText` (`SettingsViewModel.swift:136-142`): "With HDR off, videos the server converts for this device are sent in SDR, without Dolby Vision." Apple's tvOS sentence after that says original files can still play in HDR and the TV can still switch for them. This client does not send that sentence. AVPlay has no separate path that keeps an original file in HDR after the setting is off, and this client does not claim `client_managed_dynamic_range`. Off clears every HDR claim, including originals.
+The HDR key is `player.hdr_enabled` (`SettingKeys.generated.swift:97`). It is a remote boolean, default true, allowed only at `profile_device` (`PlayerSettings.swift:740-741`, `setHDREnabled` at `1092-1099`). The vendored settings subset does not list it. A live contract that matches that device-only definition shows the row. Any other shape hides it. The platform list may omit `tizen`; this key is not a profile-scope adoption.
 
-The panel probe is Samsung's `webapis.avinfo.isHdrTvSupport()` (AvInfo API, since Tizen 2.3). The method returns a boolean and lists no privilege, so `config.xml` gains none. `webapis.productinfo` has no HDR or Dolby Vision call; the productinfo privilege already present is only for the model name. A missing object, a non-boolean, or a throw is SDR. The boolean does not name HDR10, HLG, or Dolby Vision, so a true result reports HDR10 only. HLG and Dolby Vision stay false. `hdr10_plus` stays false (`ApplePlaybackV3Capabilities.swift:479-480`).
+The caption is after the Streaming section, matching `TVPlaybackSettingsView.swift:248`. `streamingFooterText` starts from `SettingsViewModel.hdrFooterText` (`SettingsViewModel.swift:136-143`). The tvOS text is "With HDR off, videos the server converts for this device are sent in SDR, without Dolby Vision. Videos that play from the original file can still play in HDR, and the TV can still switch to HDR for them." The words "without Dolby Vision" are removed. The sentences about Lossless Multichannel Audio and TrueHD Atmos and DTS:X (`TVPlaybackSettingsView.swift:251-257`) are removed because those rows are not on this pane. The caption is: "With HDR off, videos the server converts for this device are sent in SDR. Videos that play from the original file can still play in HDR, and the TV can still switch to HDR for them."
+
+The panel probe is Samsung's `webapis.avinfo.isHdrTvSupport()` (AvInfo API, since Tizen 2.3). The method returns a boolean and lists no privilege, so `config.xml` gains none. `webapis.productinfo` has no HDR or Dolby Vision call; the productinfo privilege already present is only for the model name. A missing object, a non-boolean, or a throw is SDR. The boolean does not name HDR10, HLG, or Dolby Vision, so a true result reports HDR10 only. HLG stays false. `dolby_vision_profiles` stays empty. `hdr10_plus` stays false (`ApplePlaybackV3Capabilities.swift:479-480`). On the S95C on 8 Nov 2026, `webapis.avinfo.isHdrTvSupport()` returned true. That call does not say whether the panel can show Dolby Vision.
 
 The capability body follows `ApplePlaybackV3Capabilities.swift:439-483` and `PlaybackProtocolV3Models.swift:168-169`:
 
 - HDR10 is claimed only when the HDR setting is on and the panel reported HDR10.
 - HLG is claimed only when the HDR setting is on and the panel reported HLG. This probe never reports it.
-- Dolby Vision profiles `[5, 8]` are sent only when HDR is on, Dolby Vision is on, and the panel reported Dolby Vision. This probe never reports it, so a saved On does not put profiles on the wire.
-- `capabilities.hdr` is true only when one of those claims is present. The same `hdr_details` go on `client_capabilities`, `output`, and both `original_http` and `hls`.
+- `dolby_vision_profiles` is always `[]`. This client does not claim a Dolby Vision profile.
+- `capabilities.hdr` is true only when HDR10 or HLG is claimed. The same `hdr_details` go on `client_capabilities`, `output`, and both `original_http` and `hls`.
 
-Off, an unsupported panel, a throwing probe, or a failed read of a key the server offered sends the same SDR profile as before: `hdr: false` and no `hdr_details`. A title is never declared direct-playable in a range the panel did not report. If the server does not offer the keys, the Apple default stays on, so a panel that reports HDR still claims HDR10. Resolution stays 1080p. No DTS and no audio passthrough.
+Off, an unsupported panel, a throwing probe, or a failed read of the HDR key the server offered sends the same SDR profile as before: `hdr: false` and no `hdr_details`. A title is never declared direct-playable in a range the panel did not report. If the server does not offer the HDR key, the Apple default stays on, so a panel that reports HDR still claims HDR10. Resolution stays 1080p. No DTS and no audio passthrough.
 
-No TV, simulator, or live server has shown an HDR picture. A person has to check that on the S95C.
+No TV has shown an HDR title's picture. That check on the S95C is still pending.
 
 ## Rows left without a control
 
@@ -58,6 +60,7 @@ A row that nothing on this TV acts on stays hidden.
 
 | Row | Reason |
 | --- | --- |
+| Dolby Vision | Samsung exposes no Dolby Vision support check, and this client claims no Dolby Vision profile. A switch would not change playback. This is not a measurement that the panel lacks Dolby Vision. |
 | Paired Silo Profile | Open PR #292. This branch does not change it. |
 | Play Theme Music, Loop Theme Music | No theme-song reader or title-page player. Issue #293. |
 | Show Audiobooks | Open PR #230. No Audiobooks tab. |

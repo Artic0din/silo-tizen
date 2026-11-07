@@ -1,5 +1,5 @@
 import type { NativeSession } from "../session/session.ts";
-import { AUDIO_KEY, DOLBY_VISION_KEY, HDR_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SHOW_FORCED_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, TITLE_ART_KEY, type SettingValue, type SettingsKey } from "../contracts/v2/settings.ts";
+import { AUDIO_KEY, HDR_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SHOW_FORCED_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, TITLE_ART_KEY, type SettingValue, type SettingsKey } from "../contracts/v2/settings.ts";
 import { FocusHost, type FocusItem, type FocusTarget } from "./browseFocus.ts";
 import { actionButton, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
@@ -31,7 +31,9 @@ const CATEGORY_BLURBS = {
 } as const;
 const SUBTITLE_FOOTER = "Used to pick a matching track when one is available. Forced subtitles cover foreign-language dialogue even when subtitles are off or set to auto.";
 /** SettingsViewModel.swift:136-142, the sentence that is true here. The tvOS original-file sentence is omitted; see docs/settings.md. */
-const HDR_FOOTER = "With HDR off, videos the server converts for this device are sent in SDR, without Dolby Vision.";
+// After STREAMING, as TVPlaybackSettingsView.swift:248-258. Wording is SettingsViewModel.swift:136-143
+// (tvOS) without "without Dolby Vision", and without the Lossless and TrueHD sentences at 251-257.
+const HDR_FOOTER = "With HDR off, videos the server converts for this device are sent in SDR. Videos that play from the original file can still play in HDR, and the TV can still switch to HDR for them.";
 /** tvOS preview point sizes at 1080 lines, then ×0.5. SubtitleAppearance.swift:36-41; SubtitleAppearancePreview.swift:19-21,128-129. */
 const TV_PREVIEW_POINT_SIZE = { small: 43, medium: 51, large: 58, xlarge: 74, xxlarge: 88 } as const;
 const MODE_CHOICES = [["auto", "Auto"], ["always", "Always"], ["off", "Off"]] as const;
@@ -162,7 +164,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         if (blocked) item.element.setAttribute("aria-disabled", "true");
         return item;
     };
-    const devicePlaybackKeys = (): readonly SettingsKey[] => [QUALITY_KEY, BITRATE_KEY, AUDIO_KEY, HDR_KEY, DOLBY_VISION_KEY, ...settingsRows("playback", state).map(row => row.key)];
+    const devicePlaybackKeys = (): readonly SettingsKey[] => [QUALITY_KEY, BITRATE_KEY, AUDIO_KEY, HDR_KEY, ...settingsRows("playback", state).map(row => row.key)];
     const hdrSwitch = (id: string, title: string, on: boolean, action: () => void): FocusItem => {
         const item = button(id, title, action);
         item.element.appendChild(el("span", "settings-row-value", on ? "On" : "Off"));
@@ -605,22 +607,11 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         if (state.loaded) {
             if (category === "general") body.appendChild(el("h3", "settings-section-header", "CARDS & POSTERS"));
             if (category === "playback") {
-                const hdrKnown = state.definitions.some(def => def.key === HDR_KEY);
-                const dolbyKnown = state.definitions.some(def => def.key === DOLBY_VISION_KEY);
-                const hdrOn = hdrKnown ? state.effective.get(HDR_KEY)?.value === true : true;
-                if (hdrKnown || dolbyKnown) {
-                    if (hdrKnown) {
-                        const item = hdrSwitch("hdr", "HDR", hdrOn, () => { void state.save(HDR_KEY, !hdrOn); });
-                        rows.push(item);
-                        body.appendChild(item.element);
-                    }
-                    if (dolbyKnown) {
-                        const stored = state.effective.get(DOLBY_VISION_KEY)?.value === true;
-                        const item = hdrSwitch("dolby-vision", "Dolby Vision", hdrOn && stored, () => { if (hdrOn) void state.save(DOLBY_VISION_KEY, !stored); });
-                        body.appendChild(item.element);
-                        if (hdrOn) rows.push(item);
-                        else item.element.setAttribute("aria-disabled", "true");
-                    }
+                if (state.definitions.some(def => def.key === HDR_KEY)) {
+                    const hdrOn = state.effective.get(HDR_KEY)?.value === true;
+                    const item = hdrSwitch("hdr", "HDR", hdrOn, () => { void state.save(HDR_KEY, !hdrOn); });
+                    rows.push(item);
+                    body.appendChild(item.element);
                     body.appendChild(el("p", "settings-value settings-hdr-footer", HDR_FOOTER));
                 }
                 body.appendChild(el("h3", "settings-section-header", "EPISODES"));

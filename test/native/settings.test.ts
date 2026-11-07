@@ -557,26 +557,24 @@ test("late profile answers are discarded, and unsupported discovery never fetche
     next.stop();
 });
 
-test("HDR and Dolby Vision stay device booleans and out of the profile read", async () => {
+test("HDR stays a device boolean and Dolby Vision is never read or written", async () => {
     const { state, fakeSettings, core, fake } = await setup(true, true);
     assert.equal(state.definitions.some(def => def.key === HDR_KEY && def.device && !def.profile), true);
-    assert.equal(state.definitions.some(def => def.key === DOLBY_VISION_KEY && def.device && !def.profile), true);
+    assert.equal(state.definitions.some(def => (def.key as string) === DOLBY_VISION_KEY), false);
     assert.equal(state.effective.get(HDR_KEY)?.value, true);
-    assert.equal(state.effective.get(DOLBY_VISION_KEY)?.value, true);
     assert.equal(state.scope(HDR_KEY), "profile_device");
-    assert.equal(state.scope(DOLBY_VISION_KEY), "profile_device");
     const profileReads = fake.requests.filter(request => {
         const scope = new URL(request.path, "https://fake.invalid").searchParams.get("scope");
         return request.path.startsWith("/settings/values?") && scope === "profile";
     });
-    assert.equal(profileReads.some(request => request.path.includes(HDR_KEY) || request.path.includes(DOLBY_VISION_KEY)), false);
+    assert.equal(profileReads.some(request => request.path.includes(HDR_KEY)), false);
     const device = fakeSettings.device("p-owner", core.session.http.deviceId);
     await state.save(HDR_KEY, false);
     assert.equal(device.get(HDR_KEY), false);
     assert.equal(fakeSettings.profile().has(HDR_KEY), false);
-    await state.save(DOLBY_VISION_KEY, false);
-    assert.equal(device.get(DOLBY_VISION_KEY), false);
+    assert.equal([...device.keys()].join(" ").includes(DOLBY_VISION_KEY), false);
     assert.equal(state.effective.get(HDR_KEY)?.value, false);
+    assert.equal(fake.requests.some(request => request.path.includes(DOLBY_VISION_KEY)), false);
     assert.equal(fake.requests.filter(request => request.method === "PUT").every(request => request.path.endsWith("?scope=profile_device")), true);
     state.stop();
 });
@@ -592,7 +590,9 @@ function hdrDefinition(extra: Record<string, unknown> = {}) {
 
 test("the HDR definition is device-only and a mismatched contract hides it", () => {
     assert.equal(decodeSettingValue(HDR_KEY, true), true);
-    assert.equal(decodeSettingValue(DOLBY_VISION_KEY, false), false);
+    const withDolby = hdrDefinition();
+    (withDolby.definitions as object[]).push({ ...(withDolby.definitions as object[]).at(-1), key: DOLBY_VISION_KEY });
+    assert.equal(decodeSettingsContract(withDolby).definitions.some(def => (def.key as string) === DOLBY_VISION_KEY), false);
     for (const value of [null, "true", 1]) assert.throws(() => decodeSettingValue(HDR_KEY, value), String(value));
     const accepted = decodeSettingsContract(hdrDefinition());
     assert.equal(accepted.definitions.some(def => def.key === HDR_KEY && def.device && !def.profile), true);

@@ -65,6 +65,26 @@ test("Settings pins its rail, resets pane scroll and keeps modal background geom
         assert.equal(appearance.height, 66);
         assert.equal(appearance.pitch, 74);
         assert.deepEqual(appearance.order.slice(0, 3), ["preview", "appearance-device", "appearance-fontSize"]);
+        const previewBox = await tv.page.evaluate(() => {
+            const pane = document.querySelector<HTMLElement>(".settings-pane");
+            const preview = document.querySelector<HTMLElement>(".settings-subtitle-preview");
+            if (pane === null || preview === null) return null;
+            const previous = pane.style.maxHeight;
+            pane.style.maxHeight = "320px";
+            const box = preview.getBoundingClientRect();
+            const style = getComputedStyle(preview);
+            const result = {
+                height: box.height,
+                width: box.width,
+                flexShrink: style.flexShrink,
+                minHeight: style.minHeight,
+                constrained: pane.scrollHeight > pane.clientHeight,
+                direction: getComputedStyle(pane).flexDirection,
+            };
+            pane.style.maxHeight = previous;
+            return result;
+        });
+        assert.deepEqual(previewBox, { height: 150, width: 958, flexShrink: "0", minHeight: "150px", constrained: true, direction: "column" });
         assert.equal(appearance.order.at(-1), "reset-appearance");
         assert.equal(await tv.page.locator('[data-focus="metadata-language"]').count(), 0, "metadata AI is unavailable");
         assert.equal(await tv.page.locator('[data-focus="appearance-textOutlineColor"] .settings-row-value').textContent(), "—");
@@ -125,6 +145,40 @@ test("remaining settings expose only honoured rows and save profile appearance",
             return { fontSize: element.style.fontSize, align: getComputedStyle(element).textAlign, weight: getComputedStyle(element).fontWeight };
         });
         assert.deepEqual(caption, { fontSize: "21.5px", align: "center", weight: "600" });
+        const previewLook = () => tv.page.locator(".settings-subtitle-preview").evaluate(node => {
+            const box = node.getBoundingClientRect();
+            const text = node.querySelector("span") as HTMLElement;
+            const rect = text.getBoundingClientRect();
+            const style = getComputedStyle(node);
+            const textStyle = getComputedStyle(text);
+            return {
+                gradient: style.backgroundImage,
+                border: style.borderTopWidth,
+                radius: style.borderTopLeftRadius,
+                padding: textStyle.padding,
+                textRadius: textStyle.borderTopLeftRadius,
+                centred: Math.abs((rect.left + rect.right) / 2 - (box.left + box.right) / 2) < 1,
+                hugsText: rect.width < box.width / 2,
+                bottomGap: Math.round(box.bottom - rect.bottom),
+            };
+        });
+        assert.deepEqual(await previewLook(), {
+            gradient: "linear-gradient(98.9deg, rgb(82, 82, 82), rgb(15, 15, 15))",
+            border: "0px",
+            radius: "18px",
+            padding: "4px 10px",
+            textRadius: "4px",
+            centred: true,
+            hugsText: true,
+            bottomGap: 12,
+        });
+        await tv.page.getByRole("button", { name: /Position/ }).click();
+        await tv.page.getByRole("radio", { name: "Lower Third", exact: true }).click();
+        await tv.page.locator('[data-focus="appearance-position"]').waitFor();
+        assert.equal((await previewLook()).bottomGap, 33);
+        await tv.page.getByRole("button", { name: /Position/ }).click();
+        await tv.page.getByRole("radio", { name: "Bottom", exact: true }).click();
+        await tv.page.locator('[data-focus="appearance-position"]').waitFor();
         const deviceId = tv.fake.requests.find(request => request.path === "/settings/contract/capabilities")?.headers["x-silo-device-id"];
         assert.ok(deviceId);
         await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).click();
@@ -132,21 +186,21 @@ test("remaining settings expose only honoured rows and save profile appearance",
         await tv.page.getByRole("button", { name: /Font Color/ }).click();
         await tv.page.getByRole("radio", { name: "Red", exact: true }).click();
         await tv.eventually(async () => JSON.stringify(settings.device("p-owner", deviceId).get("playback.subtitle_appearance"))?.includes('"fontColor":"#ef4444"') === true, "device appearance write");
-        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small" });
+        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small", position: "bottom" });
         await tv.page.locator('[data-focus="appearance-fontColor"]').waitFor();
         await tv.page.getByRole("button", { name: /Font Color/ }).click();
         await tv.remote(10009);
         await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).click();
         await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).getAttribute("aria-checked") === "false", "profile appearance restored");
         assert.equal(await tv.page.getByRole("alert").count(), 0, "device reset is confirmed at the deleted scope");
-        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small" });
+        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small", position: "bottom" });
         await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).click();
         await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).getAttribute("aria-checked") === "true", "device override enabled again");
         await tv.page.getByRole("button", { name: "Reset Appearance", exact: true }).click();
         await tv.page.getByRole("button", { name: "Reset", exact: true }).click();
         await tv.page.locator('[data-focus="reset-appearance"]').waitFor();
         assert.equal(JSON.stringify(settings.device("p-owner", deviceId).get("playback.subtitle_appearance")).includes('"fontSize":"large"'), true);
-        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small" });
+        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small", position: "bottom" });
         await tv.page.getByRole("button", { name: /Metadata Language/ }).click();
         await tv.page.getByRole("radio", { name: "fr", exact: true }).click();
         await tv.eventually(async () => settings.profile().get("catalog.metadata_language") === "fr", "metadata profile write");
@@ -222,7 +276,7 @@ test("measured Settings pickers centre the selected choice and privacy handoff",
         await tv.page.locator('[data-focus="remember-profile"]').click();
         assert.equal(await tv.page.getByRole("dialog").count(), 1);
         assert.equal(await tv.page.getByRole("radio", { checked: true }).evaluate(node => node === document.activeElement), true);
-        assert.equal(await tv.page.getByText("Show Who's Watching whenever you return to Silo.", { exact: true }).count(), 1);
+        assert.equal(await tv.page.getByRole("dialog").getByText("Show Who's Watching whenever you return to Silo.", { exact: true }).count(), 1);
         assert.equal(await tv.page.locator('.settings-checkmark').count(), 1);
         await tv.remote(10009);
         assert.equal(await tv.focused(), "remember-profile");
@@ -390,6 +444,140 @@ test("profile subtitle editors read and compare profile values while narrower ov
         assert.equal(settings.overrides.get(SUBTITLE_MODE_KEY), "off");
         assert.equal(settings.overrides.get(SHOW_FORCED_KEY), true);
         await tv.page.getByText(/Override active/).waitFor();
+    } finally { await tv.page.context().close(); }
+});
+
+test("Profile Selection caption follows the chosen launch behavior", async () => {
+    const { tv } = await setup();
+    const captions = {
+        "Every Time": "Show Who's Watching whenever you return to Silo.",
+        "After 1 Hour": "Show Who's Watching when you've been away from Silo for 1 hour.",
+        "After 12 Hours": "Show Who's Watching when you've been away from Silo for 12 hours.",
+        Automatic: "Use the profile selected for the current TV user. A protected profile can reopen without asking for its PIN.",
+    } as const;
+    try {
+        await openSettings(tv);
+        const caption = async (): Promise<string | null> => tv.page.locator('[data-focus="remember-profile"] + .settings-value').textContent();
+        assert.equal(await caption(), captions["Every Time"]);
+        for (const [name, text] of Object.entries(captions)) {
+            if (name === "Every Time") continue;
+            await tv.page.locator('[data-focus="remember-profile"]').click();
+            if (name === "Automatic") {
+                assert.equal(await tv.page.getByRole("dialog").locator(".settings-option-detail").nth(0).textContent(), text);
+            }
+            await tv.page.getByRole("radio", { name, exact: true }).click();
+            await tv.eventually(async () => await caption() === text, `${name} caption`);
+        }
+    } finally { await tv.page.context().close(); }
+});
+
+test("Settings pane spacing matches Apple's section gaps", async () => {
+    const { tv, settings } = await setup();
+    settings.profileSubtitles = true;
+    try {
+        await openSettings(tv);
+        const general = await tv.page.evaluate(() => {
+            const header = document.querySelector(".settings-pane-header");
+            const user = document.querySelector(".settings-pane > .settings-section-header");
+            const paired = document.querySelector('[data-focus="paired-profile"]');
+            const footer = document.querySelector('[data-focus="paired-profile"] + .settings-value');
+            const launch = [...document.querySelectorAll(".settings-pane > .settings-section-header")].find(node => node.textContent === "PROFILE AT LAUNCH");
+            const titleArt = document.querySelector('[data-focus="title-art"]');
+            const titleArtAll = document.querySelector('[data-focus="title-art-all"]');
+            if (!header || !user || !paired || !footer || !launch || !titleArt || !titleArtAll) return null;
+            const userStyle = getComputedStyle(user);
+            const footerStyle = getComputedStyle(footer);
+            const launchStyle = getComputedStyle(launch);
+            const box = (node: Element) => node.getBoundingClientRect();
+            const textTop = (node: Element): number => node.getBoundingClientRect().top + parseFloat(getComputedStyle(node).paddingTop);
+            const labels = [...document.querySelectorAll(".settings-pane > .settings-section-header")];
+            const captionHeight = box(footer).height - parseFloat(footerStyle.paddingTop) - parseFloat(footerStyle.paddingBottom);
+            return {
+                headerToSectionText: box(user).top + parseFloat(userStyle.paddingTop) - box(header).bottom,
+                sectionPaddingTop: userStyle.paddingTop,
+                sectionPaddingBottom: userStyle.paddingBottom,
+                sectionToRow: box(paired).top - box(user).bottom,
+                rowToFooterText: box(footer).top + parseFloat(footerStyle.paddingTop) - box(paired).bottom,
+                footerPaddingTop: footerStyle.paddingTop,
+                footerLineHeight: footerStyle.lineHeight,
+                footerToNextSectionText: box(launch).top + parseFloat(launchStyle.paddingTop) - box(footer).bottom,
+                rowPitch: box(titleArtAll).top - box(titleArt).bottom,
+                sectionText: labels.slice(0, 3).map(textTop),
+                firstRow: box(paired).top,
+                captionHeight,
+            };
+        });
+        assert.deepEqual(general, {
+            headerToSectionText: 52,
+            sectionPaddingTop: "26px",
+            sectionPaddingBottom: "6px",
+            sectionToRow: 8,
+            rowToFooterText: 12,
+            footerPaddingTop: "4px",
+            footerLineHeight: "23px",
+            footerToNextSectionText: 34,
+            rowPitch: 8,
+            sectionText: [240, 458, 630],
+            firstRow: 277,
+            captionHeight: 69,
+        });
+        await tv.page.locator('[data-focus="playback"]').click();
+        const playback = await tv.page.evaluate(() => {
+            const header = document.querySelector(".settings-pane > .settings-section-header");
+            const row = document.querySelector('[data-focus="quality"]');
+            if (!header || !row) return null;
+            return { gap: row.getBoundingClientRect().top - header.getBoundingClientRect().bottom, row: row.getBoundingClientRect().top };
+        });
+        assert.deepEqual(playback, { gap: 8, row: 277 });
+        await tv.page.locator('[data-focus="subtitles"]').click();
+        const subtitles = await tv.page.evaluate(() => document.querySelector('[data-focus="subtitle-language"]')?.getBoundingClientRect().top ?? null);
+        assert.equal(subtitles, 277);
+    } finally { await tv.page.context().close(); }
+});
+
+test("Settings rows use Apple's regular label and resting stroke", async () => {
+    const { tv } = await setup();
+    try {
+        await openSettings(tv);
+        const row = await tv.page.locator('[data-focus="title-art"]').evaluate(node => {
+            const style = getComputedStyle(node);
+            const on = getComputedStyle(node.querySelector(".settings-row-value")!);
+            const off = getComputedStyle(document.querySelector('[data-focus="title-art-all"] .settings-row-value')!);
+            return { weight: style.fontWeight, border: style.borderTopWidth, borderColor: style.borderTopColor, on: on.fontWeight, off: off.fontWeight };
+        });
+        assert.deepEqual(row, { weight: "400", border: "1px", borderColor: "rgba(255, 255, 255, 0.09)", on: "600", off: "400" });
+    } finally { await tv.page.context().close(); }
+});
+
+test("Title Art caption uses Apple's sentence for the current scope", async () => {
+    const { tv } = await setup();
+    const device = "Use logo artwork as the title when available. Only affects this TV. Your other devices keep their own setting.";
+    const every = (state: "on" | "off"): string => `Title art is ${state} on every device signed into this profile. Changing it here changes it everywhere. Turn off Apply to All Devices to choose for this TV only.`;
+    try {
+        await openSettings(tv);
+        const caption = async (): Promise<string | null> => tv.page.locator('[data-focus="title-art-all"] + .settings-value').textContent();
+        assert.equal(await caption(), device);
+        await tv.page.getByRole("switch", { name: "Apply to All Devices", exact: true }).click();
+        await tv.eventually(async () => await caption() === every("on"), "profile title art caption");
+        await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).click();
+        await tv.eventually(async () => await caption() === every("off"), "title art off caption");
+    } finally { await tv.page.context().close(); }
+});
+
+test("Paired Silo Profile shows the profile this TV reopens and opens the profile picker", async () => {
+    const { tv } = await setup();
+    try {
+        await openSettings(tv);
+        assert.equal(await tv.page.locator(".settings-section-header").first().textContent(), "TV USER");
+        assert.equal(await tv.page.locator('[data-focus="paired-profile"] .settings-row-value').textContent(), "Not paired");
+        await tv.page.getByText("This TV user context is not set to keep separate app preferences. Silo uses the profile pairing available to the current app context, and you can change it here at any time. Ask Every Time is on, so Silo will still show Who's Watching at launch.", { exact: true }).waitFor();
+        await tv.page.locator('[data-focus="remember-profile"]').click();
+        await tv.page.getByRole("radio", { name: "Automatic", exact: true }).click();
+        await tv.eventually(async () => await tv.page.locator('[data-focus="paired-profile"] .settings-row-value').textContent() === "Laura", "remembered profile name");
+        assert.equal(await tv.page.getByText(/Ask Every Time is on/).count(), 0);
+        await tv.page.locator('[data-focus="paired-profile"]').click();
+        assert.equal(await tv.page.evaluate(() => window.browseHarness.chooseProfileCalls.length), 1);
+        assert.equal(await tv.page.locator(".settings").count(), 0);
     } finally { await tv.page.context().close(); }
 });
 

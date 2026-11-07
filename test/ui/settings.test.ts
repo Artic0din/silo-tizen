@@ -534,6 +534,33 @@ test("device pickers preserve profile, show inheritance, retain legacy audio nul
     } finally { await tv.page.context().close(); }
 });
 
+test("quality footer and bitrate labels follow Apple TV", async () => {
+    const { tv, settings } = await setup();
+    settings.profile().set(QUALITY_KEY, "2160p");
+    settings.profile().set(BITRATE_KEY, 999);
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        const footer = "Plays the original file up to 4K. Larger files are converted. Files above this bitrate are converted to fit.";
+        await tv.page.getByText(footer, { exact: true }).waitFor();
+        assert.equal(await tv.page.locator('[data-focus="bitrate"] .settings-row-value').textContent(), "999 kbps");
+        assert.equal(await tv.page.locator('[data-focus="quality"] .settings-row-value').textContent(), "4K");
+        const order = await tv.page.evaluate(() => {
+            const bitrate = document.querySelector('[data-focus="bitrate"]');
+            const note = document.querySelector(".settings-quality-footer");
+            const streaming = [...document.querySelectorAll(".settings-section-header")].find(node => node.textContent === "STREAMING");
+            if (bitrate === null || note === null || streaming === undefined) return false;
+            return Boolean(bitrate.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING)
+                && Boolean(note.compareDocumentPosition(streaming) & Node.DOCUMENT_POSITION_FOLLOWING);
+        });
+        assert.equal(order, true);
+        await tv.page.locator('[data-focus="bitrate"]').click();
+        await tv.page.getByRole("dialog", { name: "Maximum Bitrate" }).waitFor();
+        const choices = await tv.page.locator('.settings-modal-options [data-focus^="bitrate:"], .settings-modal-options [data-focus="no-limit"]').allTextContents();
+        assert.deepEqual(choices, ["No limit", "200 Mbps", "100 Mbps", "60 Mbps", "40 Mbps", "20 Mbps", "15 Mbps", "10 Mbps", "6 Mbps", "4 Mbps", "2 Mbps", "1.5 Mbps", "999 kbps"]);
+    } finally { await tv.page.context().close(); }
+});
+
 test("Playback restores video skip intervals after episodes and focus moves do not write settings", async () => {
     const { tv } = await setup();
     try {

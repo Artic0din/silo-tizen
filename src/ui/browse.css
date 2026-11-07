@@ -980,7 +980,8 @@
 .skyline-home .home-section .skyline-continue, .skyline-home .home-section .skyline-continue .browse-art { width: calc(360px * var(--poster-scale, 1)); }
 .skyline-home .home-section .skyline-continue .browse-art { height: calc(200px * var(--poster-scale, 1)); }
 .home-section .browse-card-title, .home-section .browse-card-subtitle { padding: 0; line-height: 1.2; transition: color var(--silo-fast) ease-out, text-shadow var(--silo-fast) ease-out, transform var(--silo-fast) ease-out; }
-.home-section .browse-card-title { margin: 22px 0 0; font-size: 24px; font-weight: 500; color: rgba(237,237,237,.45); }
+/* TVMediaCardCaption frames the title at the artwork width (densePosterCardWidth 176 times the poster scale) and does not clip it. The subtitle is the clipped line. clientWidth floors that frame and scrollWidth ceils the ink, so a line Apple draws in full at about 152px is replaced by an ellipsis. The extra 2px is that floor plus that ceil. The negative margin keeps the card at the artwork width, and a longer line still truncates. */
+.home-section .browse-card-title { width: calc(100% + 2px); margin: 22px -2px 0 0; font-size: 24px; font-weight: 500; color: rgba(237,237,237,.45); }
 .home-section .browse-card-subtitle { margin: 4px 0 0; font-size: 20px; font-weight: 400; color: rgba(237,237,237,.32); }
 .home-section .skyline-continue .browse-card-title { margin-top: 14px; }
 .home-section .skyline-explore .skyline-explore-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 8px; border: 1px solid rgba(255,255,255,.08); background: #15171c; color: #ededed; }
@@ -1451,10 +1452,10 @@
 .settings .browse-button:focus .settings-checkmark::after { color: #fff; }
 .settings-picker-hint { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #ffffff14; border-radius: 20px; }
 .settings-nested-group { margin-left: 24px; padding: 8px; border: 1px solid #ffffff12; border-radius: 14px; background: #ffffff06; }
-/* SubtitleAppearancePreview.defaultHeight is 150. The measured Apple box is 480 wide.
-   overflow:hidden would otherwise let this flex child shrink to its border in a constrained pane. */
-.settings-subtitle-preview { position: relative; box-sizing: border-box; height: 150px; min-height: 150px; flex-shrink: 0; margin: 0 24px 8px; border: 1px solid #ffffff20; border-radius: 18px; background: linear-gradient(135deg, #263750, #10151d 65%, #352637); overflow: hidden; }
-.settings-subtitle-preview span { position: absolute; left: 16px; right: 16px; text-align: center; font-weight: 600; }
+/* SubtitleAppearancePreview.swift: tvOS height 150, grey gradient from the top-leading to the bottom-trailing corner, text padded 12 and 16. SwiftUI's gradient axis runs along the diagonal of the 958 x 150 box, which is 98.9deg; CSS "to bottom right" would slant the colour bands.
+   overflow:hidden would otherwise let this flex child shrink in a constrained pane. */
+.settings-subtitle-preview { display: flex; justify-content: center; align-items: flex-end; box-sizing: border-box; height: 150px; min-height: 150px; flex-shrink: 0; margin: 0 24px 8px; padding: 12px 16px; border-radius: 18px; background: linear-gradient(98.9deg, #525252, #0f0f0f); overflow: hidden; }
+.settings-subtitle-preview span { text-align: center; font-weight: 600; }
 /* TVSettingsPaneRowStyle isDestructive (TVSettingsComponents.swift:273-276): #B00020 at rest, #D22F3F on the white platter. */
 .settings-pane .settings-destructive { display: flex; align-items: center; gap: 16px; color: #b00020; }
 .settings-pane .settings-destructive .skyline-menu-icon { width: 22px; height: 22px; margin: 0; }

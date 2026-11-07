@@ -145,6 +145,40 @@ test("remaining settings expose only honoured rows and save profile appearance",
             return { fontSize: element.style.fontSize, align: getComputedStyle(element).textAlign, weight: getComputedStyle(element).fontWeight };
         });
         assert.deepEqual(caption, { fontSize: "21.5px", align: "center", weight: "600" });
+        const previewLook = () => tv.page.locator(".settings-subtitle-preview").evaluate(node => {
+            const box = node.getBoundingClientRect();
+            const text = node.querySelector("span") as HTMLElement;
+            const rect = text.getBoundingClientRect();
+            const style = getComputedStyle(node);
+            const textStyle = getComputedStyle(text);
+            return {
+                gradient: style.backgroundImage,
+                border: style.borderTopWidth,
+                radius: style.borderTopLeftRadius,
+                padding: textStyle.padding,
+                textRadius: textStyle.borderTopLeftRadius,
+                centred: Math.abs((rect.left + rect.right) / 2 - (box.left + box.right) / 2) < 1,
+                hugsText: rect.width < box.width / 2,
+                bottomGap: Math.round(box.bottom - rect.bottom),
+            };
+        });
+        assert.deepEqual(await previewLook(), {
+            gradient: "linear-gradient(98.9deg, rgb(82, 82, 82), rgb(15, 15, 15))",
+            border: "0px",
+            radius: "18px",
+            padding: "4px 10px",
+            textRadius: "4px",
+            centred: true,
+            hugsText: true,
+            bottomGap: 12,
+        });
+        await tv.page.getByRole("button", { name: /Position/ }).click();
+        await tv.page.getByRole("radio", { name: "Lower Third", exact: true }).click();
+        await tv.page.locator('[data-focus="appearance-position"]').waitFor();
+        assert.equal((await previewLook()).bottomGap, 33);
+        await tv.page.getByRole("button", { name: /Position/ }).click();
+        await tv.page.getByRole("radio", { name: "Bottom", exact: true }).click();
+        await tv.page.locator('[data-focus="appearance-position"]').waitFor();
         const deviceId = tv.fake.requests.find(request => request.path === "/settings/contract/capabilities")?.headers["x-silo-device-id"];
         assert.ok(deviceId);
         await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).click();
@@ -152,21 +186,21 @@ test("remaining settings expose only honoured rows and save profile appearance",
         await tv.page.getByRole("button", { name: /Font Color/ }).click();
         await tv.page.getByRole("radio", { name: "Red", exact: true }).click();
         await tv.eventually(async () => JSON.stringify(settings.device("p-owner", deviceId).get("playback.subtitle_appearance"))?.includes('"fontColor":"#ef4444"') === true, "device appearance write");
-        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small" });
+        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small", position: "bottom" });
         await tv.page.locator('[data-focus="appearance-fontColor"]').waitFor();
         await tv.page.getByRole("button", { name: /Font Color/ }).click();
         await tv.remote(10009);
         await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).click();
         await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).getAttribute("aria-checked") === "false", "profile appearance restored");
         assert.equal(await tv.page.getByRole("alert").count(), 0, "device reset is confirmed at the deleted scope");
-        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small" });
+        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small", position: "bottom" });
         await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).click();
         await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Only on This TV", exact: true }).getAttribute("aria-checked") === "true", "device override enabled again");
         await tv.page.getByRole("button", { name: "Reset Appearance", exact: true }).click();
         await tv.page.getByRole("button", { name: "Reset", exact: true }).click();
         await tv.page.locator('[data-focus="reset-appearance"]').waitFor();
         assert.equal(JSON.stringify(settings.device("p-owner", deviceId).get("playback.subtitle_appearance")).includes('"fontSize":"large"'), true);
-        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small" });
+        assert.deepEqual(settings.profile().get("playback.subtitle_appearance"), { fontSize: "small", position: "bottom" });
         await tv.page.getByRole("button", { name: /Metadata Language/ }).click();
         await tv.page.getByRole("radio", { name: "fr", exact: true }).click();
         await tv.eventually(async () => settings.profile().get("catalog.metadata_language") === "fr", "metadata profile write");

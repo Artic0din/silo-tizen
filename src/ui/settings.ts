@@ -639,11 +639,10 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 applySubtitleAppearance(preview, text, appearance);
                 text.style.fontSize = `${TV_PREVIEW_POINT_SIZE[appearance.fontSize] * 0.5}px`;
                 text.style.fontWeight = "600";
-                text.style.textAlign = "center";
-                preview.style.position = "relative"; preview.style.height = "150px";
-                text.style.position = "absolute";
-                text.style.top = preview.style.top; text.style.bottom = preview.style.bottom;
-                preview.style.top = "auto"; preview.style.bottom = "auto";
+                text.style.padding = appearance.backgroundStyle === "box" ? "4px 10px" : "0";
+                text.style.borderRadius = "4px";
+                preview.style.alignItems = appearance.position === "top" ? "flex-start" : "flex-end";
+                preview.style.paddingBlock = appearance.position === "lower-third" ? "33px" : "12px";
                 body.appendChild(preview);
                 const reset = button("reset-appearance", "Reset Appearance", () => { confirmingAppearanceReset = true; render(); });
                 rows.push(reset); body.append(reset.element, el("p", "settings-value settings-appearance-footer", `${state.scope(APPEARANCE_KEY) === "profile_device" ? "Saved only on this TV. Other devices use the profile's settings." : "Saved for this profile on all devices."} Subtitles with their own built-in styling keep their original appearance; image-based subtitles keep their authored fonts and colors but follow the size, position, and background settings.`));

@@ -22,6 +22,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- The collapsed A–Z circle is plain.
+- Hid the TV's native scrollbars, drew the History returning mark as an outlined television, drew the collapsed A–Z index as Apple's 10px circle plus the faint letter marks, and centred Related captions on the poster.
+- Removed the Continue Watching playback bar, kept Search posters 247px apart, restored biography paragraphs, and matched Related captions and the Written by order to Apple TV.
 - Show the series name and episode tag while playing when Resume or Start Over starts from the series page and the episode item omits them.
 - Move the scrub thumbnail with the playhead, 101.0234375px above the handle, in a 236.265625px card.
 - Open the hidden player panel on Video, and the options button on the last tab, which starts on Info.

@@ -142,7 +142,9 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     element.appendChild(art);
     if (thumbnail) {
         element.classList.add("skyline-continue");
-        if (card.positionSeconds !== undefined && card.durationSeconds !== undefined && card.durationSeconds > 0 && card.positionSeconds > 0) {
+        // TVMediaCard draws ProgressBar for a box set's watched fraction only.
+        // Continue Watching is a playback position, so it stays off that bar.
+        if (!continuing && card.positionSeconds !== undefined && card.durationSeconds !== undefined && card.durationSeconds > 0 && card.positionSeconds > 0) {
             element.firstElementChild?.appendChild(thumbnailProgress(card.positionSeconds / card.durationSeconds));
         }
     }

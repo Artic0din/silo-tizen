@@ -6,6 +6,7 @@
 import { readFileSync } from "node:fs";
 import { build } from "esbuild";
 import { type Browser, chromium, type Page } from "playwright";
+import { MARQUEE_REST_MILLISECONDS } from "../../../src/ui/homeEnrichment.ts";
 import { ManualClock } from "../../native/support/clock.ts";
 import { FakeSilo } from "../../native/support/fakeSilo.ts";
 
@@ -275,10 +276,13 @@ export function detailReads(tv: Tv): string[] {
     return tv.fake.requests.filter(request => request.path.startsWith("/catalog/items/")).map(request => decodeURIComponent(request.path.slice("/catalog/items/".length).split("?")[0] ?? ""));
 }
 
-/** Waits until Home has sent its detail read for every title it drew (Home reads them once as it loads). */
+/** Waits until the focused card's detail read has started. That read waits for the marquee to rest. */
 export async function homeDetailsRead(tv: Tv, previousReads = 0): Promise<string[]> {
-    const titles = await tv.page.locator('[data-view="home"] [data-section] .browse-card:not(.skyline-explore)').evaluateAll(nodes => [...new Set(nodes.map(node => node.getAttribute("data-focus") ?? ""))]);
-    await tv.eventually(async () => titles.every(id => detailReads(tv).slice(previousReads).includes(id)), "Home detail reads");
+    await tv.jump(MARQUEE_REST_MILLISECONDS);
+    const focused = await tv.focused();
+    if (focused !== null && /^(movie|episode|series|season):/.test(focused)) {
+        await tv.eventually(async () => detailReads(tv).slice(previousReads).includes(focused), "focused title detail");
+    }
     await tv.jump(0);
-    return titles;
+    return detailReads(tv).slice(previousReads);
 }

@@ -1549,7 +1549,9 @@ browseTest("Movies opens on the server shelf without sort chips, and a saved Bro
     assert.deepEqual(await cardIds(tv, '[data-section="new_releases"] .browse-card:not(.skyline-explore)'), ["movie:m0005", "movie:m0001", "movie:m0003"]);
     assert.equal(await tv.page.locator('.browse-controls [data-focus="sort"]').count(), 0);
     assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/catalog/query")).length, 0);
-    await tv.eventually(async () => ["movie:m0005", "movie:m0001", "movie:m0003"].every(id => tv.fake.requests.some(request => request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(id)}`)), "shelf enrichment finished");
+    await tv.jump(150);
+    await tv.eventually(async () => detailReads(tv).includes("movie:m0005"), "the rested shelf card");
+    assert.equal(detailReads(tv).includes("movie:m0003"), false, "an unfocused shelf card is not read");
     const reads = tv.fake.requests.length;
     await tv.page.keyboard.press("ArrowRight");
     assert.equal(await tv.focused(), "movie:m0001");
@@ -3006,14 +3008,10 @@ browseTest("activating current Recommended restores its content without reads", 
         { id: "first", title: "First", items: Array.from({ length: 24 }, (_, index) => `movie:m${String(index + 1).padStart(4, "0")}`) },
         { id: "second", title: "Second", items: ["movie:m0025"] },
     ];
-    const paths = [13, 14, 15, 16].map(index => `/catalog/items/movie%3Am00${index}`);
-    const held = paths.map(path => tv.fake.hold(path, true));
     await tv.page.locator('[data-focus="movies"]').click();
     await showing(tv, "library:12");
-    await tv.eventually(async () => paths.every(path => tv.fake.requests.some(request => request.path.split("?")[0] === path)), "accepted enrichment workers held");
-    held.forEach(gate => gate.release());
-    const titles = await tv.page.locator('[data-view="library:12"] .home-section .browse-card:not(.skyline-explore)').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? ""));
-    await tv.eventually(async () => titles.every(id => tv.fake.requests.some(request => request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(id)}`)), "accepted enrichment queue dispatched");
+    await tv.jump(150);
+    await tv.eventually(async () => detailReads(tv).includes("movie:m0001"), "the rested Recommended card");
     await press(tv, "ArrowDown");
     assert.equal(await tv.focused(), "movie:m0025");
     const reads = tv.fake.requests.length;

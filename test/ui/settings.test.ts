@@ -84,7 +84,7 @@ test("Settings pins its rail, resets pane scroll and keeps modal background geom
             pane.style.maxHeight = previous;
             return result;
         });
-        assert.deepEqual(previewBox, { height: 150, width: 480, flexShrink: "0", minHeight: "150px", constrained: true, direction: "column" });
+        assert.deepEqual(previewBox, { height: 150, width: 958, flexShrink: "0", minHeight: "150px", constrained: true, direction: "column" });
         assert.equal(appearance.order.at(-1), "reset-appearance");
         assert.equal(await tv.page.locator('[data-focus="metadata-language"]').count(), 0, "metadata AI is unavailable");
         assert.equal(await tv.page.locator('[data-focus="appearance-textOutlineColor"] .settings-row-value').textContent(), "—");

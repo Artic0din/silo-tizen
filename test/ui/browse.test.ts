@@ -840,6 +840,7 @@ for (const size of ["compact", "standard", "large"] as const) {
         }));
         assert.equal(geometry.filter(card => card.top === geometry[0]?.top).length, columns);
         for (let index = 1; index < columns; index++) assert.ok(geometry[index]!.left >= geometry[index - 1]!.right, "adjacent posters do not overlap");
+        if (size === "standard") assert.ok(Math.abs(geometry[1]!.left - geometry[0]!.left - 247) < 1, `pitch ${geometry[1]!.left - geometry[0]!.left}`);
         const reads = tv.fake.requests.length;
         await cards.first().focus(); await press(tv, "ArrowDown");
         assert.equal(await tv.focused(), await cards.nth(columns).getAttribute("data-focus"));
@@ -2087,6 +2088,7 @@ browseTest("Details portraits keep their circular geometry and retain the cast c
         const art = node.querySelector(".skyline-art-frame");
         return art !== null && getComputedStyle(node).overflow === "clip";
     }), true, "hero artwork cannot paint over later rails");
+    assert.equal(await tv.page.locator('[data-detail-section="related"] .browse-card-title').first().evaluate(node => getComputedStyle(node).fontSize), "24px");
     assert.equal(await tv.page.locator('.details-people [data-focus^="credit:7:"]').count(), 1);
     await shows(tv, "Alex");
     assert.equal(await tv.page.locator('.details-people [data-focus^="credit:7:"] .browse-card-subtitle').textContent(), 'Alex');
@@ -2094,7 +2096,7 @@ browseTest("Details portraits keep their circular geometry and retain the cast c
 
 browseTest("grouped Details facts remain reachable as one passive table with the remote", async (tv) => {
     await tv.page.route("**/api/v2/catalog/items/movie%3Am0001?**", async (route) => {
-        await route.fulfill({ status: 200, json: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", studios: ['Studio'], countries: ['AU'], release_date: '2024-01-02', crew: Array.from({ length: 35 }, (_, index) => ({ name: `Crew ${index}`, job: 'Director' })) } });
+        await route.fulfill({ status: 200, json: { ...fixture("get_catalog_item_ok"), content_id: "movie:m0001", studios: ['Studio'], countries: ['AU'], release_date: '2024-01-02', crew: [...Array.from({ length: 35 }, (_, index) => ({ name: `Crew ${index}`, job: 'Director' })), { name: 'Zed Writer', job: 'Writer' }, { name: 'Ada Screen', job: 'Screenplay' }] } });
     });
     await activateDetails(tv);
     await showing(tv, "item:movie:m0001");
@@ -2114,7 +2116,9 @@ browseTest("grouped Details facts remain reachable as one passive table with the
     }
     assert.equal(reached.size, 1, 'facts form one passive focus target');
     const facts = [...reached][0] ?? '';
-    assert.match(facts, /DIRECTORCrew 0, Crew 1, Crew 2/);
+    assert.match(facts, /DIRECTORCrew 0, Crew 1, Crew 10, …/);
+    assert.match(facts, /WRITERAda Screen, Zed Writer/);
+    assert.doesNotMatch(facts, /WRITTEN BY/);
     assert.match(facts, /STUDIOStudio/); assert.match(facts, /COUNTRYAU/); assert.match(facts, /RELEASED/);
     assert.doesNotMatch(facts, /Crew 34/);
 }, { catalog: new FakeDetails() });
@@ -2237,7 +2241,7 @@ for (const scenario of [{ outcome: "completed", played: false }, { outcome: "los
     fixtureCatalog.watched = scenario.played;
     browseTest(`PR32 Home refreshes watched progress after a ${scenario.outcome} mutation`, async (tv, catalog) => {
         assert.ok(catalog instanceof FakeDetails);
-        assert.equal(await tv.page.locator('[data-focus="movie:m0001"] .skyline-progress').count(), 1);
+        assert.equal(await tv.page.locator('[data-focus="movie:m0001"] .skyline-progress').count(), 0, "Continue Watching draws no playback bar");
         await activateDetails(tv);
         await showing(tv, "item:movie:m0001");
         const path = "/watched/movie%3Am0001";

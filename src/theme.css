@@ -20,8 +20,15 @@
     --silo-selected: rgba(255, 255, 255, 0.14);
     --silo-error: #ffb4ab;
     --silo-font: "Inter", system-ui, sans-serif;
+    /* Inter's advances run wider than SF Pro. em resolves on each element, so a 24px title and a 28px title both tighten. A later letter-spacing rule still wins. */
+    --silo-tracking: -0.015em;
     --silo-fast: 120ms;
     --silo-page: 200ms;
+}
+
+/* Specified here, not inherited from :root: an inherited em is already a pixel length. */
+:where(*) {
+    letter-spacing: var(--silo-tracking);
 }
 
 @keyframes silo-page-enter {
@@ -34,4 +41,11 @@
         --silo-fast: 0ms;
         --silo-page: 0ms;
     }
+}
+
+/* The TV's browser paints a native scrollbar on every overflow region. The app
+   moves scrollTop and scrollLeft itself. scrollbar-width shipped in Chrome 121,
+   and this TV runs 120, so only the WebKit pseudo works; hiding it does not disable scrolling. */
+::-webkit-scrollbar {
+    display: none;
 }

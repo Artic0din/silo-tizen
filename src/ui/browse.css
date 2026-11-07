@@ -965,7 +965,8 @@
 .skyline-home .home-section .skyline-continue, .skyline-home .home-section .skyline-continue .browse-art { width: calc(360px * var(--poster-scale, 1)); }
 .skyline-home .home-section .skyline-continue .browse-art { height: calc(200px * var(--poster-scale, 1)); }
 .home-section .browse-card-title, .home-section .browse-card-subtitle { padding: 0; line-height: 1.2; transition: color var(--silo-fast) ease-out, text-shadow var(--silo-fast) ease-out, transform var(--silo-fast) ease-out; }
-.home-section .browse-card-title { margin: 22px 0 0; font-size: 24px; font-weight: 500; color: rgba(237,237,237,.45); }
+/* TVMediaCardCaption frames the title at the artwork width (densePosterCardWidth 176 times the poster scale) and does not clip it. The subtitle is the clipped line. clientWidth floors that frame and scrollWidth ceils the ink, so a line Apple draws in full at about 152px is replaced by an ellipsis. The extra 2px is that floor plus that ceil. The negative margin keeps the card at the artwork width, and a longer line still truncates. */
+.home-section .browse-card-title { width: calc(100% + 2px); margin: 22px -2px 0 0; font-size: 24px; font-weight: 500; color: rgba(237,237,237,.45); }
 .home-section .browse-card-subtitle { margin: 4px 0 0; font-size: 20px; font-weight: 400; color: rgba(237,237,237,.32); }
 .home-section .skyline-continue .browse-card-title { margin-top: 14px; }
 .home-section .skyline-explore .skyline-explore-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 8px; border: 1px solid rgba(255,255,255,.08); background: #15171c; color: #ededed; }

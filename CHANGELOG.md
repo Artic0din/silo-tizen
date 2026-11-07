@@ -14,6 +14,7 @@ All notable changes to this project are documented in this file.
 
 ### Removed
 
+- Removed the custom kbps field and Save action from the Maximum Bitrate picker. A stored cap outside the preset list still appears in that list.
 - Removed the Settings Hidden Libraries editor and duplicate Manage Servers navigation; existing hidden libraries can still be restored.
 - Removed Details Read synopsis, its expanded view, #66's personal star rating control, and Season details to match the controls reachable on Apple TV.
 
@@ -21,6 +22,7 @@ All notable changes to this project are documented in this file.
 
 - Hid the TV's native scrollbars, drew the History returning mark as an outlined television, turned the collapsed A–Z index into a circle, and centred Related captions on the poster.
 - Removed the Continue Watching playback bar, lined the first episode up with the 100px inset, kept Search posters 247px apart, restored biography paragraphs, and matched Related captions and the Written by order to Apple TV.
+- Matched the Playback quality footer and Maximum Bitrate labels to Apple TV.
 - Showed Calendar noon as 12:00 pm on an en-GB TV, and kept the first Search person visible.
 - Kept a decoded Details title logo in place across later repaints, so the metadata row no longer jumps back to the text title during that visit.
 - Matched the Details metadata row to Apple TV: the content rating and advisory age sit in outlined chips sized to the 18pt line height so the stroke stays inside the row, and the year, runtime and genres are separate text facts on that same row.

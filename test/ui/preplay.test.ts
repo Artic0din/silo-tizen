@@ -404,10 +404,11 @@ preplay("series Resume and Start Over keep the series line when the episode item
     playback.items.set("episode:s1e11", ["42"]);
     const reply = catalog.route("GET", path, "p-owner");
     assert.ok(reply?.status === 200 && reply.body !== undefined && typeof reply.body === "object");
-    const body = { ...reply.body };
-    delete body.series_title;
-    delete body.season_number;
-    delete body.episode_number;
+    const source = object(reply.body, "episode");
+    const body: Record<string, unknown> = {};
+    for (const key of Object.keys(source)) {
+        if (key !== "series_title" && key !== "season_number" && key !== "episode_number") body[key] = source[key];
+    }
     tv.fake.script(path, { status: 200, body });
     await series(tv);
     assert.equal(await tv.page.locator('[data-focus="next-episode"]').textContent(), "Resume S1:E1");

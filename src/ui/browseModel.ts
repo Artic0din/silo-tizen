@@ -14,9 +14,9 @@ export interface PlayRequest {
     readonly fileId: string;
     readonly title: string;
     /** Episode playback. The series page fills these when the episode item omits them. */
-    readonly seriesTitle?: string;
-    readonly seasonNumber?: number;
-    readonly episodeNumber?: number;
+    readonly seriesTitle?: string | undefined;
+    readonly seasonNumber?: number | undefined;
+    readonly episodeNumber?: number | undefined;
     readonly audioTrackId?: string;
     readonly subtitle?: SubtitleIntent;
     readonly allowAlternateVersions?: false;

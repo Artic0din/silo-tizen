@@ -1130,14 +1130,18 @@ const planeCoveredBy = (page: Page): Promise<string[]> => page.evaluate(() => {
     return offenders;
 });
 
-test("the video plane stays clear while playing, paused, seeking and the panel is open", async () => {
+test("the video plane stays clear once a frame can show, including replan, reconnect and restore", async () => {
     const { page, logs } = await open();
     try {
         const assertClear = async (state: string): Promise<void> => {
             assert.deepEqual(await planeCoveredBy(page), [], state);
         };
+        const backdrop = page.locator(".player-backdrop");
+        assert.equal(await backdrop.isVisible(), true, "the opening load is still black");
+        assert.equal(await backdrop.evaluate((node) => getComputedStyle(node).backgroundColor), "rgb(0, 0, 0)");
         await show(page, playing(NO_TRACKS));
-        await assertClear("playing");
+        await assertClear("left loading");
+        assert.equal(await backdrop.isVisible(), false, "the backdrop leaves with the loading phase");
         await show(page, { ...playing(NO_TRACKS), phase: "paused" });
         await assertClear("paused");
         await show(page, playing(NO_TRACKS));
@@ -1154,10 +1158,14 @@ test("the video plane stays clear while playing, paused, seeking and the panel i
         await show(page, { phase: "error", title: "The Movie", error: { kind: "network" } });
         await assertClear("error");
         await show(page, { phase: "loading", title: "The Movie" });
-        const backdrop = page.locator(".player-backdrop");
-        assert.equal(await backdrop.isVisible(), true);
-        assert.equal(await backdrop.evaluate((node) => getComputedStyle(node).backgroundColor), "rgb(0, 0, 0)");
-        assert.equal(await page.locator(".player-overlay .player-title").isVisible(), false);
+        await assertClear("replan");
+        assert.equal(await backdrop.isVisible(), false, "a later load must not cover a picture that already showed");
+        await show(page, { phase: "loading", title: "The Movie", detail: "reconnecting" });
+        await assertClear("reconnect");
+        assert.equal(await page.locator(".player-status").innerText(), "Reconnecting");
+        await show(page, { phase: "loading", title: "The Movie", detail: "restoring" });
+        await assertClear("restore");
+        assert.equal(await page.locator(".player-status").innerText(), "Restoring");
         assert.deepEqual(logs, []);
     } finally {
         await page.close();

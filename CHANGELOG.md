@@ -21,7 +21,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Kept the page transparent over AVPlay. The black opening is a loading backdrop only, and a previous screen in the same root is not painted while the player is up.
+- Kept the page transparent over AVPlay. The black opening is a loading backdrop only, and a previous screen in the same root is not painted while the player is up. Once a frame has shown, that backdrop stays off through a later load, reconnect and restore.
+- Kept the other series' title and the fresh season and episode on an On Deck play, so the player can show them.
 - Blurred an unwatched On Deck episode still when image spoilers are on, and left series art sharp.
 - Matched Apple TV playback opening, hidden Up, the title lines, and the panel: a spinner on black, Up reveals the scrubber, pause shows no status line, and the open panel hides the transport until Back.
 - Kept a decoded Details title logo in place across later repaints, so the metadata row no longer jumps back to the text title during that visit.

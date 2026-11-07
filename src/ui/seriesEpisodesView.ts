@@ -77,7 +77,6 @@ function episodeCard(episode: Episode, context: ViewContext): FocusItem {
     element.type = "button";
     element.tabIndex = -1;
     element.setAttribute("data-focus", episode.id);
-    element.dataset.episodeNumber = String(episode.episodeNumber);
     const art = artwork("browse-art browse-still", episode.stillUrl, context.baseUrl, episode.title);
     if (hidesEpisodeListStill(episode, context.spoilers?.() ?? { hidesImages: false, hidesOverviews: false })) blurEpisodeStill(art);
     const code = `S${String(episode.seasonNumber).padStart(2, "0")}E${String(episode.episodeNumber).padStart(2, "0")}`;

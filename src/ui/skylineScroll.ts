@@ -79,27 +79,7 @@ export class SkylineScroll {
     static episodeOffset(row: HTMLElement, element: HTMLElement): number {
         const maximum = SkylineScroll.prepareEpisodeRow(row) ?? 0;
         const first = row.firstElementChild as HTMLElement | null;
-        const offset = first === null ? 0 : Math.min(maximum, Math.max(0, element.offsetLeft - first.offsetLeft));
-        // TVEpisodeRail.swift:352-375 puts every unclamped card at the hover inset
-        // past the mask. The padding still includes one spacing, so the cards shift
-        // back by it. The exception is the episode Details opened on, when that
-        // episode is past the first of its season (Apple frame 148, sliver 110).
-        if (row.classList.contains("details-episodes")) {
-            const host = row.closest<HTMLElement>(".browse") ?? row;
-            const key = element.dataset.focus ?? "";
-            const view = host.dataset.view ?? "";
-            if (host.dataset.episodeVisit !== view) {
-                host.dataset.episodeVisit = view;
-                delete host.dataset.episodeSeed;
-                delete host.dataset.episodeMoved;
-            }
-            if (host.dataset.episodeSeed === undefined) host.dataset.episodeSeed = key;
-            if (key !== "" && key !== host.dataset.episodeSeed) host.dataset.episodeMoved = "1";
-            const episodeNumber = Number(element.dataset.episodeNumber);
-            const restingResume = host.dataset.episodeMoved !== "1" && key === host.dataset.episodeSeed && offset > 0 && episodeNumber > 1;
-            row.dataset.episodeLeading = restingResume ? "resume" : "anchored";
-        }
-        return offset;
+        return first === null ? 0 : Math.min(maximum, Math.max(0, element.offsetLeft - first.offsetLeft));
     }
 
     move(node: HTMLElement, left: number, top: number): void {

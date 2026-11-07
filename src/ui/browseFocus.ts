@@ -193,9 +193,6 @@ export class FocusHost {
         this.visitHeld = false;
         const visit = this.visits.get(visitKey(view));
         if (!sameVisit) {
-            delete this.container.dataset.episodeSeed;
-            delete this.container.dataset.episodeMoved;
-            delete this.container.dataset.episodeVisit;
             this.scroll.stop();
             this.navigationX = undefined;
             this.memory = new Map(visit?.memory);

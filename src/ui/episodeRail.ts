@@ -3,10 +3,9 @@ import type { Episode, Season } from "../contracts/v2/catalog.ts";
 /**
  * Scroll offset for the anchored episode rail.
  * TVEpisodeRail.swift:400-414,458-468 at abf4ac45aa0ded295dd1443b91457cdf42dffbf2.
- * The visible slot is not this offset. Leading padding is the lookbehind
- * (card width + spacing) plus the hover inset. The mask cancels the card
- * width, and the row shifts back by the spacing except when Details opens
- * on a mid-season episode. episodeRailSlot is that padding, before the shift.
+ * The visible slot is not this offset: leading padding is the lookbehind
+ * (card width + spacing) plus the hover inset, and the mask cancels only the
+ * card width. One spacing stays inside the 100px inset.
  */
 export function episodeRailOffset(index: number, count: number, width: number, spacing: number, viewport: number): number {
     if (count === 0) return 0;

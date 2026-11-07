@@ -15,6 +15,7 @@ import { navigationAvatar } from "./navigationAvatar.ts";
 import { navigationIcon } from "./navigationIcon.ts";
 import { decodeAppearance, DEFAULT_APPEARANCE } from "../contracts/v2/subtitles.ts";
 import { applySubtitleAppearance } from "../player/subtitleView.ts";
+import { pairedProfileDescription, pairedProfileLabel, profileSelectionCaption } from "./pairedProfile.ts";
 import { bitrateLabel, qualityFooter } from "./qualitySettings.ts";
 
 type Category = "general" | "playback" | "subtitles" | "server";
@@ -379,13 +380,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 const item = actionButton(`launch:${behavior === "automatic" ? "true" : behavior === "askEveryLaunch" ? "false" : behavior}`, text, () => { if (!launchPending) saveLaunch(behavior); });
                 item.element.setAttribute("role", "radio");
                 item.element.setAttribute("aria-checked", String(launch.behavior === behavior));
-                const descriptions = {
-                    automatic: "Use the last profile selected on this device. A protected profile can reopen without asking for its PIN.",
-                    askEveryLaunch: "Show Who's Watching whenever you return to Silo.",
-                    afterOneHour: "Show Who's Watching when you've been away from Silo for 1 hour.",
-                    afterTwelveHours: "Show Who's Watching when you've been away from Silo for 12 hours.",
-                };
-                const detail = el("span", "settings-option-detail", descriptions[behavior]);
+                const detail = el("span", "settings-option-detail", profileSelectionCaption(behavior));
                 detail.id = `settings-launch-${behavior}-detail`;
                 item.element.setAttribute("aria-label", text);
                 item.element.setAttribute("aria-describedby", detail.id);
@@ -485,12 +480,18 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             rows.push(policy);
             rows.push(item);
         }
+        if (category === "general" && launch !== undefined && actions?.switchProfile !== undefined) {
+            const item = actionButton("paired-profile", "Paired Silo Profile", () => { destroy(); actions.switchProfile(); });
+            item.element.append(el("span", "settings-row-value", pairedProfileLabel(launch.rememberedProfileId, session.activeProfile?.id, actions.profileName)), el("span", "settings-chevron", "›"));
+            rows.push(item);
+            body.append(el("h3", "settings-section-header", "TV USER"), item.element, el("p", "settings-value", pairedProfileDescription(launch.behavior === "askEveryLaunch")));
+        }
         if (category === "general" && launch !== undefined) {
             const item = actionButton("remember-profile", "Profile Selection", () => { choosingLaunch = true; render(); });
             item.element.append(el("span", "settings-row-value", LAUNCH_CHOICES.find(([value]) => value === launch.behavior)?.[1] ?? "Every Time"), el("span", "settings-chevron", "›"));
             item.element.setAttribute("aria-disabled", String(launchPending));
             rows.push(item);
-            body.append(el("h3", "settings-section-header", "PROFILE AT LAUNCH"), item.element, el("p", "settings-value", "Choose when to show Who’s Watching on this TV."));
+            body.append(el("h3", "settings-section-header", "PROFILE AT LAUNCH"), item.element, el("p", "settings-value", profileSelectionCaption(launch.behavior)));
             if (launchError) {
                 const error = el("p", "browse-text browse-error", "Could not save the launch choice.");
                 error.setAttribute("role", "alert");
@@ -515,7 +516,10 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 rows.push(item);
                 body.appendChild(item.element);
             }
-            body.appendChild(el("p", "settings-value", all ? "Title art applies on every device signed into this profile." : "Use logo artwork as the title when available. Only affects this TV. Your other devices keep their own setting."));
+            const titleArtState = titleArt.value === true ? "on" : "off";
+            body.appendChild(el("p", "settings-value", all
+                ? `Title art is ${titleArtState} on every device signed into this profile. Changing it here changes it everywhere. Turn off Apply to All Devices to choose for this TV only.`
+                : "Use logo artwork as the title when available. Only affects this TV. Your other devices keep their own setting."));
         }
         for (const id of pickers) {
             if (id === "seek-back" || id === "seek-forward") continue;
@@ -635,11 +639,10 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 applySubtitleAppearance(preview, text, appearance);
                 text.style.fontSize = `${TV_PREVIEW_POINT_SIZE[appearance.fontSize] * 0.5}px`;
                 text.style.fontWeight = "600";
-                text.style.textAlign = "center";
-                preview.style.position = "relative"; preview.style.height = "150px";
-                text.style.position = "absolute";
-                text.style.top = preview.style.top; text.style.bottom = preview.style.bottom;
-                preview.style.top = "auto"; preview.style.bottom = "auto";
+                text.style.padding = appearance.backgroundStyle === "box" ? "4px 10px" : "0";
+                text.style.borderRadius = "4px";
+                preview.style.alignItems = appearance.position === "top" ? "flex-start" : "flex-end";
+                preview.style.paddingBlock = appearance.position === "lower-third" ? "33px" : "12px";
                 body.appendChild(preview);
                 const reset = button("reset-appearance", "Reset Appearance", () => { confirmingAppearanceReset = true; render(); });
                 rows.push(reset); body.append(reset.element, el("p", "settings-value settings-appearance-footer", `${state.scope(APPEARANCE_KEY) === "profile_device" ? "Saved only on this TV. Other devices use the profile's settings." : "Saved for this profile on all devices."} Subtitles with their own built-in styling keep their original appearance; image-based subtitles keep their authored fonts and colors but follow the size, position, and background settings.`));

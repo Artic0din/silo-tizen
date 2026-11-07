@@ -1138,3 +1138,483 @@ for (const ending of ["back", "background", "authority"]) {
         assert.equal(r.h.fake.requests.length, count);
     });
 }
+
+const STREAM_TIMELINE = {
+    source_start_seconds: 0,
+    stream_origin_seconds: 0,
+    player_start_seconds: 0,
+    timeline_offset_seconds: 0,
+    can_seek_anywhere: true,
+    seek_restoration: "player_position",
+};
+
+const RENDITIONS = [
+    { trackId: "file:42:subtitle:1", groupId: "sub", name: "English Signs", index: 1 },
+    { trackId: "file:42:subtitle:5", groupId: "sub", name: "French", index: 2 },
+] as const;
+
+function frenchInventory(r: Rig): void {
+    r.avplay.tracks = [
+        { index: 2, type: "TEXT", extra_info: JSON.stringify({ track_lang: "eng", track_num: "0" }) },
+        { index: 3, type: "TEXT", extra_info: JSON.stringify({ track_lang: "fra", track_num: "1" }) },
+    ];
+    const file = r.server.file("42");
+    const embedded = file.inventory[1];
+    assert.ok(embedded !== undefined);
+    r.server.files.set("42", {
+        ...file,
+        inventory: [...file.inventory, {
+            ...embedded,
+            track_id: "file:42:subtitle:5",
+            combined_index: 5,
+            codec: "subrip",
+            language: "fra",
+            label: "French",
+            forced: false,
+            url: "/api/v2/stream/x/subtitles/5.vtt?file_id=42&embedded_stream_index=4",
+        }],
+    });
+}
+
+function renditionPlan(subtitle: number, name: string, index: number) {
+    return {
+        delivery: "server_transcode_hls",
+        url: (id: string) => `/api/v2/stream/${id}?st=renditions`,
+        protocol: "hls",
+        container: "mpegts",
+        timeline: STREAM_TIMELINE,
+        subtitle,
+        hlsRenditions: RENDITIONS,
+        decisionRendition: { groupId: "sub", name, format: "vtt", index },
+    };
+}
+
+for (const choice of ["off", "refused"] as const) {
+    test(`sidecar captions follow a local ${choice} choice before the report settles`, async () => {
+        const r = await rig();
+        frenchInventory(r);
+        r.h.fake.script("/captions?token=test", { status: 200, text: "WEBVTT\n\n00:00.000 --> 00:30.000\nSidecar" });
+        r.h.fake.script("/captions?token=test", { status: 200, text: "WEBVTT\n\n00:00.000 --> 00:30.000\nSidecar" });
+        const { decisionRendition: _rendition, ...plan } = renditionPlan(0, "Sidecar", 1);
+        r.server.next.push({ ...plan, subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/captions?token=test`, format: "vtt", timing_origin_seconds: 0 } });
+        const id = await playMovie(r, { ...MOVIE, startSeconds: 0 });
+        const caption = (): string | undefined => {
+            const view = last(r.views);
+            assert.ok(view.phase === "playing" || view.phase === "paused");
+            return view.captions?.text;
+        };
+        assert.equal(caption(), "Sidecar");
+        const held = r.h.fake.hold(`/playback/${id}/replan`);
+        r.server.next.push({ terminal: "subtitle_unavailable" });
+        r.controller.selectSubtitle(choice === "off" ? undefined : "file:42:subtitle:5");
+        await settle(r);
+        if (choice === "off") assert.equal(caption(), "");
+        held.release();
+        await settle(r);
+        assert.equal(caption(), "Sidecar");
+        assert.equal(r.avplay.calls.includes("setSilentSubtitle true"), true);
+        r.controller.destroy();
+    });
+}
+
+test("published rendition order wins over incomplete language metadata", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.server.next.push(renditionPlan(1, "English Signs", 1));
+    await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.avplay.tracks = [
+        { index: 2, type: "TEXT", extra_info: JSON.stringify({ track_lang: "fra" }) },
+        { index: 3, type: "TEXT", extra_info: "{}" },
+    ];
+    r.server.next.push(renditionPlan(5, "French", 2));
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    assert.equal(r.avplay.calls.filter(call => call.startsWith("setSelectTrack")).at(-1), "setSelectTrack TEXT 3");
+    r.controller.destroy();
+});
+
+test("report recovery preserves the latest queued subtitle across plan adoption", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.server.next.push(renditionPlan(1, "English Signs", 1));
+    const id = await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    const path = `/playback/${id}/replan`;
+    for (let index = 0; index < 3; index++) r.h.fake.dropNextAnswer(path);
+    r.server.next.push(renditionPlan(5, "French", 2));
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    r.controller.selectSubtitle("file:42:subtitle:0");
+    for (const milliseconds of [1000, 2000, 1000]) {
+        await r.h.clock.advance(milliseconds);
+        await settle(r);
+    }
+    await playReplacement(r);
+    assert.deepEqual(replans(r.h).at(-1)?.selected_tracks, { audio: { id: "file:42:audio:0", index: 0 }, subtitle: { id: "file:42:subtitle:0" } });
+    r.controller.destroy();
+});
+
+test("hidden replacement preparation replays the latest queued subtitle", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.server.next.push(renditionPlan(1, "English Signs", 1));
+    const id = await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    const held = r.h.fake.hold(`/playback/${id}/replan`);
+    r.server.next.push({ ...renditionPlan(5, "French", 2), url: () => "/api/v2/replacement" });
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    r.controller.selectSubtitle("file:42:subtitle:0");
+    held.release();
+    await settle(r);
+    r.controller.suspend();
+    r.avplay.finishPrepare();
+    await settle(r);
+    r.controller.restore();
+    await settle(r);
+    assert.equal(replans(r.h).length, 2);
+    assert.deepEqual(replans(r.h)[1]?.selected_tracks, { audio: { id: "file:42:audio:0", index: 0 }, subtitle: { id: "file:42:subtitle:0" } });
+    r.controller.destroy();
+});
+
+test("hidden preparation aligns the selected subtitle on restore", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.server.next.push(renditionPlan(5, "French", 2));
+    r.controller.play({ ...MOVIE, startSeconds: 0 });
+    await settle(r);
+    r.controller.suspend();
+    r.avplay.finishPrepare();
+    await settle(r);
+    r.controller.restore();
+    await settle(r);
+    assert.equal(last(r.views).phase, "playing");
+    assert.equal(r.avplay.calls.includes("setSelectTrack TEXT 3"), true);
+    r.controller.destroy();
+});
+
+test("a refused rendition report preserves the newer queued sidecar choice", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.server.next.push(renditionPlan(1, "English Signs", 1));
+    const id = await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    const held = r.h.fake.hold(`/playback/${id}/replan`);
+    r.server.next.push({ terminal: "subtitle_unavailable" });
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    r.controller.selectSubtitle("file:42:subtitle:0");
+    held.release();
+    await settle(r);
+    assert.equal(replans(r.h).length, 2);
+    r.controller.destroy();
+});
+
+test("start advertises embedded subtitle and HLS rendition features, and repeats renditions-all only when the server advertises it", async () => {
+    const plain = await rig();
+    await playMovie(plain, { ...MOVIE, startSeconds: 0 });
+    const features = only(requests(plain.h, "/playback/start")).body?.client_features;
+    assert.ok(Array.isArray(features));
+    for (const token of ["embedded_subtitles_v1", "hls_subtitle_renditions_v1", "hls_remux_subtitle_renditions_v1"]) {
+        assert.equal(features.includes(token), true, token);
+    }
+    assert.equal(features.includes("hls_subtitle_renditions_all_v1"), false);
+    plain.controller.destroy();
+
+    const negotiated = await rig();
+    negotiated.server.extraCapabilityFeatures.push("hls_subtitle_renditions_all_v1");
+    await playMovie(negotiated, { ...MOVIE, startSeconds: 0 });
+    const negotiatedFeatures = only(requests(negotiated.h, "/playback/start")).body?.client_features;
+    assert.ok(Array.isArray(negotiatedFeatures));
+    assert.equal(negotiatedFeatures.includes("hls_subtitle_renditions_all_v1"), true);
+    negotiated.controller.selectAudio("file:42:audio:1");
+    await settle(negotiated);
+    const replanFeatures = only(replans(negotiated.h)).client_features;
+    assert.ok(Array.isArray(replanFeatures));
+    assert.equal(replanFeatures.includes("hls_subtitle_renditions_all_v1"), true);
+    negotiated.controller.destroy();
+});
+
+test("a listed HLS subtitle rendition switches in place and a same-stream answer does not reopen", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.server.next.push(renditionPlan(1, "English Signs", 1));
+    await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.avplay.tracks = [
+        { index: 0, type: "VIDEO", extra_info: "{\"fourCC\":\"H264\",\"Width\":\"1920\",\"Height\":\"1080\",\"Bit_rate\":\"477000\"}" },
+        { index: 2, type: "TEXT", extra_info: "{\"track_num\":\"0\",\"track_lang\":\"eng\",\"subtitle_type\":\"0\",\"fourCC\":\"TTML\"}" },
+        { index: 3, type: "TEXT", extra_info: "{\"track_num\":\"1\",\"track_lang\":\"fra\",\"subtitle_type\":\"0\",\"fourCC\":\"TTML\"}" },
+    ];
+    const opens = r.avplay.urls.length;
+    const closes = r.avplay.calls.filter((call) => call === "close").length;
+    r.server.next.push(renditionPlan(5, "French", 2));
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    assert.equal(r.avplay.urls.length, opens, "AVPlay keeps the open stream");
+    assert.equal(r.avplay.calls.includes("setSelectTrack TEXT 3"), true);
+    assert.equal(r.avplay.calls.filter((call) => call === "close").length, closes);
+    assert.equal(last(r.views).phase, "playing");
+    const body = only(replans(r.h));
+    assert.equal(body.operation, "track_change");
+    assert.equal("failure" in body, false);
+    assert.deepEqual(body.selected_tracks, { audio: { id: "file:42:audio:0", index: 0 }, subtitle: { id: "file:42:subtitle:5" } });
+    assert.equal(tracks(r).selectedSubtitleId, "file:42:subtitle:5");
+    r.controller.destroy();
+});
+
+test("Off on a rendition stream hides subtitles without restarting", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.server.next.push(renditionPlan(1, "English Signs", 1));
+    await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.avplay.tracks = [
+        { index: 2, type: "TEXT", extra_info: "{\"track_num\":\"0\",\"track_lang\":\"eng\",\"subtitle_type\":\"0\",\"fourCC\":\"TTML\"}" },
+    ];
+    const opens = r.avplay.urls.length;
+    r.server.next.push({ ...renditionPlan(1, "English Signs", 1), clearSubtitle: true });
+    r.controller.selectSubtitle(undefined);
+    await settle(r);
+    assert.equal(r.avplay.urls.length, opens);
+    assert.equal(r.avplay.calls.includes("setSilentSubtitle true"), true);
+    assert.equal(tracks(r).selectedSubtitleId, undefined);
+    assert.equal(tracks(r).subtitleMode, "off");
+    const body = only(replans(r.h));
+    assert.equal(Object.hasOwn(body.selected_tracks ?? {}, "subtitle"), false);
+    r.controller.destroy();
+});
+
+test("pause remains available while a subtitle report is pending", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.server.next.push(renditionPlan(1, "English Signs", 1));
+    const id = await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.avplay.tracks = [{ index: 3, type: "TEXT", extra_info: JSON.stringify({ track_lang: "fra" }) }];
+    const held = r.h.fake.hold(`/playback/${id}/replan`);
+    r.server.next.push(renditionPlan(5, "French", 2));
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    r.controller.setPaused(true);
+    assert.equal(r.avplay.state, "PAUSED");
+    r.controller.setPaused(false);
+    assert.equal(r.avplay.state, "PLAYING");
+    held.release();
+    await settle(r);
+    r.controller.destroy();
+});
+
+test("an unlisted HLS subtitle requires a replan even with matching language", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    const file = r.server.file("42");
+    r.server.files.set("42", { ...file, inventory: file.inventory.map(row => row.combined_index === 5 ? { ...row, language: "eng" } : row) });
+    r.server.next.push({ ...renditionPlan(1, "English Signs", 1), hlsRenditions: RENDITIONS.slice(0, 1) });
+    await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.avplay.tracks = [{ index: 2, type: "TEXT", extra_info: JSON.stringify({ track_lang: "eng" }) }];
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    assert.equal(replans(r.h).length, 1);
+    r.controller.destroy();
+});
+
+test("a non-local subtitle pick waits for a pending rendition report", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.server.next.push(renditionPlan(1, "English Signs", 1));
+    const id = await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.avplay.tracks = [{ index: 3, type: "TEXT", extra_info: JSON.stringify({ track_lang: "fra" }) }];
+    const held = r.h.fake.hold(`/playback/${id}/replan`);
+    r.server.next.push(renditionPlan(5, "French", 2));
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    r.controller.selectSubtitle("file:42:subtitle:0");
+    held.release();
+    await settle(r);
+    assert.equal(replans(r.h).length, 2);
+    assert.deepEqual(replans(r.h)[1]?.selected_tracks, { audio: { id: "file:42:audio:0", index: 0 }, subtitle: { id: "file:42:subtitle:0" } });
+    r.controller.destroy();
+});
+
+test("ambiguous original embedded subtitles replan with native selection disabled", async () => {
+    const r = await rig();
+    r.avplay.tracks = [2, 3].map(index => ({ index, type: "TEXT", extra_info: JSON.stringify({ track_lang: "eng" }) }));
+    r.server.next.push({ subtitle: 1, hlsRenditions: [], timeline: STREAM_TIMELINE }, { subtitle: 1, subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/captions?token=fixture`, format: "vtt", timing_origin_seconds: 0 } });
+    r.h.fake.script("/captions?token=fixture", { status: 200, text: "WEBVTT\n\n00:00.000 --> 00:30.000\nFallback" });
+    r.controller.play({ ...MOVIE, startSeconds: 0 });
+    await settle(r);
+    r.avplay.finishPrepare();
+    await settle(r);
+    assert.equal(replans(r.h).length, 1);
+    const context = replans(r.h)[0]?.client_playback_context as { deliveries: { original_http: { subtitles: { embedded_text: boolean } } } };
+    assert.equal(context.deliveries.original_http.subtitles.embedded_text, false);
+    await playReplacement(r);
+    r.avplay.tick(1000);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.captions?.text, "Fallback");
+    assert.equal(replans(r.h).length, 1);
+    r.controller.destroy();
+});
+
+test("an HLS subtitle alignment failure is explicit instead of claiming a selected track", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.avplay.tracks = [];
+    r.server.next.push(renditionPlan(1, "English Signs", 1));
+    r.controller.play({ ...MOVIE, startSeconds: 0 });
+    await settle(r);
+    r.avplay.finishPrepare();
+    await settle(r);
+    assert.equal(last(r.views).phase, "error");
+    assert.equal(replans(r.h).length, 0);
+    r.controller.destroy();
+});
+
+for (const refusal of ["terminal", "validation"] as const) {
+    test(`an ambiguous native subtitle fallback ends loading on ${refusal} refusal`, async () => {
+        const r = await rig();
+        r.avplay.tracks = [2, 3].map(index => ({ index, type: "TEXT", extra_info: JSON.stringify({ track_lang: "eng" }) }));
+        r.server.next.push({ subtitle: 1, hlsRenditions: [], timeline: STREAM_TIMELINE });
+        r.controller.play({ ...MOVIE, startSeconds: 0 });
+        await settle(r);
+        const id = only([...r.server.sessions.keys()]);
+        if (refusal === "terminal") r.server.next.push({ terminal: "subtitle_unavailable" });
+        else r.h.fake.script(`/playback/${id}/replan`, problem(422, "validation_failed", "Unavailable subtitle"));
+        r.avplay.finishPrepare();
+        await settle(r);
+        assert.equal(last(r.views).phase, "error");
+        r.controller.destroy();
+    });
+}
+
+test("reselecting the shown rendition cancels a queued non-local subtitle", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.server.next.push(renditionPlan(1, "English Signs", 1));
+    const id = await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.avplay.tracks = [{ index: 3, type: "TEXT", extra_info: JSON.stringify({ track_lang: "fra" }) }];
+    const held = r.h.fake.hold(`/playback/${id}/replan`);
+    r.server.next.push(renditionPlan(5, "French", 2));
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    r.controller.selectSubtitle("file:42:subtitle:0");
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    held.release();
+    await settle(r);
+    assert.equal(replans(r.h).length, 1);
+    assert.equal(tracks(r).selectedSubtitleId, "file:42:subtitle:5");
+    r.controller.destroy();
+});
+
+test("a queued rendition that could not be applied reopens the confirmed stream", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.server.next.push(renditionPlan(1, "English Signs", 1));
+    const id = await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.avplay.tracks = [{ index: 3, type: "TEXT", extra_info: JSON.stringify({ track_lang: "fra" }) }];
+    const held = r.h.fake.hold(`/playback/${id}/replan`);
+    r.server.next.push(renditionPlan(5, "French", 2), renditionPlan(1, "English Signs", 1));
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    r.avplay.tracks = [];
+    r.controller.selectSubtitle("file:42:subtitle:1");
+    held.release();
+    await settle(r);
+    assert.equal(r.avplay.urls.length, 2);
+    r.avplay.tracks = [{ index: 3, type: "TEXT", extra_info: JSON.stringify({ track_lang: "fra" }) }];
+    await playReplacement(r);
+    assert.equal(replans(r.h).length, 2);
+    r.controller.destroy();
+});
+
+test("a refused queued sidecar restores the confirmed rendition after an intermediate Off", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.server.next.push(renditionPlan(1, "English Signs", 1));
+    const id = await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.avplay.tracks = [{ index: 3, type: "TEXT", extra_info: JSON.stringify({ track_lang: "fra" }) }];
+    const held = r.h.fake.hold(`/playback/${id}/replan`);
+    r.server.next.push(renditionPlan(5, "French", 2), { terminal: "subtitle_unavailable" });
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    r.controller.selectSubtitle(undefined);
+    r.controller.selectSubtitle("file:42:subtitle:0");
+    held.release();
+    await settle(r);
+    assert.equal(tracks(r).selectedSubtitleId, "file:42:subtitle:5");
+    assert.equal(r.avplay.calls.at(-1), "setSelectTrack TEXT 3");
+    r.controller.destroy();
+});
+
+test("a failed reselect of the reported rendition reopens instead of retaining muted subtitles", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.server.next.push(renditionPlan(1, "English Signs", 1));
+    const id = await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.avplay.tracks = [{ index: 3, type: "TEXT", extra_info: JSON.stringify({ track_lang: "fra" }) }];
+    const held = r.h.fake.hold(`/playback/${id}/replan`);
+    r.server.next.push(renditionPlan(5, "French", 2));
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    r.controller.selectSubtitle(undefined);
+    r.avplay.tracks = [];
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    held.release();
+    await settle(r);
+    assert.equal(r.avplay.urls.length, 2);
+    assert.equal(replans(r.h).length, 1);
+    r.controller.destroy();
+});
+
+test("a confirmed rendition becomes the rollback choice for a refused queued Off", async () => {
+    const r = await rig();
+    frenchInventory(r);
+    r.server.next.push(renditionPlan(1, "English Signs", 1));
+    const id = await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.avplay.tracks = [
+        { index: 2, type: "TEXT", extra_info: JSON.stringify({ track_num: "0", track_lang: "eng", subtitle_type: "0", fourCC: "TTML" }) },
+        { index: 3, type: "TEXT", extra_info: JSON.stringify({ track_num: "1", track_lang: "fra", subtitle_type: "0", fourCC: "TTML" }) },
+    ];
+    r.server.next.push(renditionPlan(5, "French", 2), { terminal: "subtitle_unavailable" });
+    const held = r.h.fake.hold(`/playback/${id}/replan`);
+    r.controller.selectSubtitle("file:42:subtitle:5");
+    await settle(r);
+    r.controller.selectSubtitle(undefined);
+    held.release();
+    await settle(r);
+    assert.equal(replans(r.h).length, 2);
+    assert.equal(tracks(r).selectedSubtitleId, "file:42:subtitle:5");
+    assert.equal(r.avplay.calls.at(-1), "setSelectTrack TEXT 3");
+    r.controller.destroy();
+});
+
+test("an original-file embedded text switch clears sidecar captions", async () => {
+    const r = await rig();
+    r.server.next.push({ timeline: STREAM_TIMELINE, subtitle: 0, subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/captions?token=fixture`, format: "vtt", timing_origin_seconds: 0 } });
+    r.h.fake.script("/captions?token=fixture", { status: 200, text: "WEBVTT\n\n00:00.000 --> 00:30.000\nSidecar" });
+    await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.avplay.tick(1000);
+    const before = last(r.views);
+    assert.ok(before.phase === "playing");
+    assert.equal(before.captions?.text, "Sidecar");
+    r.avplay.tracks = [{ index: 4, type: "TEXT", extra_info: JSON.stringify({ track_num: "0", track_lang: "eng", subtitle_type: "0", fourCC: "TTML" }) }];
+    r.controller.selectSubtitle("file:42:subtitle:1");
+    const after = last(r.views);
+    assert.ok(after.phase === "playing");
+    assert.equal(after.captions?.text ?? "", "");
+    assert.equal(replans(r.h).length, 0);
+    r.controller.destroy();
+});
+
+test("an original-file embedded text track selects the open TEXT row and does not replan", async () => {
+    const r = await rig();
+    r.server.next.push({ timeline: STREAM_TIMELINE });
+    await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.avplay.tracks = [
+        { index: 4, type: "TEXT", extra_info: "{\"track_num\":\"0\",\"track_lang\":\"eng\",\"subtitle_type\":\"0\",\"fourCC\":\"TTML\"}" },
+    ];
+    const calls = r.avplay.calls.length;
+    r.controller.selectSubtitle("file:42:subtitle:1");
+    await settle(r);
+    assert.deepEqual(r.avplay.calls.slice(calls), ["getTotalTrackInfo", "setSelectTrack TEXT 4"]);
+    assert.equal(replans(r.h).length, 0);
+    assert.equal(tracks(r).selectedSubtitleId, "file:42:subtitle:1");
+    assert.equal(last(r.views).phase, "playing");
+    r.controller.destroy();
+});

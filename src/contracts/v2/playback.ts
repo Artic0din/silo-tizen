@@ -112,9 +112,17 @@ export interface PlanTimeline {
     readonly seekWindowEndSeconds: number | undefined;
 }
 
+/** A row's WebVTT rendition in the plan's HLS SUBTITLES group. `index` is 1-based. */
+export interface InventoryHlsRendition {
+    readonly groupId: string;
+    readonly name: string;
+    readonly index: number;
+}
+
 /**
  * One entry of plan.subtitle.inventory (protocol v3 §8): the authoritative combined ordinal space.
- * Its track_id is echoed to select it; urls are not decoded because this client fetches none.
+ * Its track_id is echoed to select it. `url` is decoded only so an embedded row's stream index
+ * can be read from `embedded_stream_index`; this client does not fetch the URL.
  */
 export interface SubtitleTrack {
     readonly syncKey?: string | undefined;
@@ -127,14 +135,39 @@ export interface SubtitleTrack {
     readonly language: string | undefined;
     readonly forced: boolean;
     readonly hearingImpaired: boolean;
+    readonly url: string | undefined;
+    /** FFmpeg stream index when the server publishes `stream_index`. */
+    readonly streamIndex: number | undefined;
+    readonly containerTrackId: string | undefined;
+    readonly nativeSelectable: boolean | undefined;
+    readonly hlsRendition: InventoryHlsRendition | undefined;
+}
+
+/** The selected subtitle carried as one WebVTT rendition of the plan's HLS stream. */
+export interface PlanHlsRendition {
+    readonly groupId: string;
+    readonly name: string;
+    readonly format: string;
+    readonly index: number | undefined;
 }
 
 /** The current plan's subtitle decision; `off` carries no trackId even when the inventory lists tracks. */
 export interface PlanSubtitle {
     readonly artifact?: { readonly url: string; readonly format: string; readonly origin: number } | undefined;
+    readonly embedded: { readonly streamIndex: number } | undefined;
+    readonly hlsRendition: PlanHlsRendition | undefined;
     readonly mode: "off" | "render" | "convert" | "burn_in" | "unknown";
     readonly trackId: string | undefined;
     readonly inventory: readonly SubtitleTrack[];
+}
+
+/** Fields compared to decide that a replan kept the running stream. */
+export interface PlanRecipe {
+    readonly videoCodec: string;
+    readonly audioCodec: string;
+    readonly width: number;
+    readonly height: number;
+    readonly bitrateKbps: number;
 }
 
 export interface DegradationWarning {
@@ -149,9 +182,13 @@ export interface PlaybackPlan {
     readonly planId: string;
     /** Opaque `v3:` loop-guard key; echoed and collected unchanged. */
     readonly planAttemptKey: string;
+    readonly expiresAt: string | undefined;
     readonly delivery: (typeof DELIVERIES)[number] | "unknown";
     /** As published: root-relative on the API origin or absolute on a node origin. */
     readonly streamUrl: string;
+    readonly streamProtocol: string | undefined;
+    readonly streamContainer: string | undefined;
+    readonly recipe: PlanRecipe | undefined;
     readonly timeline: PlanTimeline;
     readonly selectedTracks: SelectedTracks;
     /** Full runtime; undefined when the server does not know it. Never the engine's duration. */
@@ -242,6 +279,59 @@ function decodeTimeline(value: unknown, path: string): PlanTimeline {
     };
 }
 
+function absent(value: unknown): boolean {
+    return value === undefined || value === null;
+}
+
+function optionalText(obj: WireObject, key: string, path: string): string | undefined {
+    return absent(obj[key]) ? undefined : string(obj, key, path);
+}
+
+function optionalBoolean(obj: WireObject, key: string, path: string): boolean | undefined {
+    return absent(obj[key]) ? undefined : boolean(obj, key, path);
+}
+
+function optionalNonnegative(obj: WireObject, key: string, path: string): number | undefined {
+    if (absent(obj[key])) return undefined;
+    const value = integer(obj, key, path);
+    if (value < 0) throw new WireError(`${path}.${key}`, "an integer >= 0");
+    return value;
+}
+
+function requiredNonnegative(obj: WireObject, key: string, path: string): number {
+    const value = optionalNonnegative(obj, key, path);
+    if (value === undefined) throw new WireError(`${path}.${key}`, "an integer >= 0");
+    return value;
+}
+
+function decodeInventoryRendition(value: unknown, path: string): InventoryHlsRendition | undefined {
+    if (absent(value)) return undefined;
+    const obj = object(value, path);
+    const index = integer(obj, "index", path);
+    if (index < 1) throw new WireError(`${path}.index`, "an integer >= 1");
+    return { groupId: nonEmptyString(obj, "group_id", path), name: nonEmptyString(obj, "name", path), index };
+}
+
+function decodePlanRendition(value: unknown, path: string): PlanHlsRendition | undefined {
+    if (absent(value)) return undefined;
+    const obj = object(value, path);
+    const index = absent(obj.index) ? undefined : integer(obj, "index", path);
+    if (index !== undefined && index < 1) throw new WireError(`${path}.index`, "an integer >= 1");
+    return { groupId: nonEmptyString(obj, "group_id", path), name: nonEmptyString(obj, "name", path), format: nonEmptyString(obj, "format", path), index };
+}
+
+function decodeRecipe(value: unknown, path: string): PlanRecipe | undefined {
+    if (absent(value)) return undefined;
+    const obj = object(value, path);
+    return {
+        videoCodec: nonEmptyString(obj, "video_codec", path),
+        audioCodec: nonEmptyString(obj, "audio_codec", path),
+        width: integer(obj, "width", path),
+        height: integer(obj, "height", path),
+        bitrateKbps: integer(obj, "bitrate_kbps", path),
+    };
+}
+
 function decodeSubtitleTrack(value: unknown, path: string): SubtitleTrack {
     const obj = object(value, path);
     return {
@@ -255,14 +345,22 @@ function decodeSubtitleTrack(value: unknown, path: string): SubtitleTrack {
         language: optionalString(obj, "language", path),
         forced: boolean(obj, "forced", path),
         hearingImpaired: boolean(obj, "hearing_impaired", path),
+        url: optionalText(obj, "url", path),
+        streamIndex: optionalNonnegative(obj, "stream_index", path),
+        containerTrackId: optionalText(obj, "container_track_id", path),
+        nativeSelectable: optionalBoolean(obj, "native_selectable", path),
+        hlsRendition: decodeInventoryRendition(obj.hls_rendition, `${path}.hls_rendition`),
     };
 }
 
 function decodeSubtitle(value: unknown, path: string): PlanSubtitle {
     const obj = object(value, path);
-    const artifact = obj.artifact === undefined ? undefined : object(obj.artifact, `${path}.artifact`);
+    const artifact = absent(obj.artifact) ? undefined : object(obj.artifact, `${path}.artifact`);
+    const embedded = absent(obj.embedded) ? undefined : object(obj.embedded, `${path}.embedded`);
     return {
         artifact: artifact === undefined ? undefined : { url: string(artifact, "url", path), format: string(artifact, "format", path), origin: number(artifact, "timing_origin_seconds", path) },
+        embedded: embedded === undefined ? undefined : { streamIndex: requiredNonnegative(embedded, "stream_index", `${path}.embedded`) },
+        hlsRendition: decodePlanRendition(obj.hls_rendition, `${path}.hls_rendition`),
         mode: oneOf(string(obj, "mode", path), SUBTITLE_MODES),
         trackId: optionalString(obj, "track_id", path),
         inventory: list(obj, "inventory", path).map((entry, index) => decodeSubtitleTrack(entry, `${path}.inventory[${index}]`)),
@@ -280,13 +378,18 @@ function decodePlan(value: unknown, path: string): PlaybackPlan {
     const audio = decodeTrack(tracks.audio, `${path}.selected_tracks.audio`);
     const subtitle = decodeTrack(tracks.subtitle, `${path}.selected_tracks.subtitle`);
     const source = object(obj.source, `${path}.source`);
+    const stream = object(obj.stream, `${path}.stream`);
     return {
         availableQualities: obj.available_qualities === undefined ? [] : list(obj, "available_qualities", path).map((entry, index) => decodeQuality(entry, `${path}.available_qualities[${index}]`)),
         activeQuality: optionalString(obj, "active_quality", path),
         planId: nonEmptyString(obj, "plan_id", path),
         planAttemptKey: nonEmptyString(obj, "plan_attempt_key", path),
+        expiresAt: optionalText(obj, "expires_at", path),
         delivery: oneOf(string(obj, "delivery", path), DELIVERIES),
-        streamUrl: nonEmptyString(object(obj.stream, `${path}.stream`), "url", `${path}.stream`),
+        streamUrl: nonEmptyString(stream, "url", `${path}.stream`),
+        streamProtocol: optionalText(stream, "protocol", `${path}.stream`),
+        streamContainer: optionalText(stream, "container", `${path}.stream`),
+        recipe: decodeRecipe(obj.effective_recipe, `${path}.effective_recipe`),
         timeline: decodeTimeline(obj.timeline, `${path}.timeline`),
         selectedTracks: { ...(audio === undefined ? {} : { audio }), ...(subtitle === undefined ? {} : { subtitle }) },
         durationSeconds: optionalNumber(source, "duration_seconds", `${path}.source`),

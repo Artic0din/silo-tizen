@@ -23,6 +23,7 @@ All notable changes to this project are documented in this file.
 - Move the scrub thumbnail with the playhead, 101.0234375px above the handle, in a 236.265625px card.
 - Open the hidden player panel on Video, and the options button on the last tab, which starts on Info.
 - Kept the page transparent over AVPlay. The black opening is a loading backdrop only, and a previous screen in the same root is not painted while the player is up. Once a frame has shown, that backdrop stays off through a later load, reconnect and restore.
+- Kept the other series' title and the fresh season and episode on an On Deck play, so the player can show them.
 - Matched Apple TV playback opening, hidden Up, the title lines, and the panel: a spinner on black, Up reveals the scrubber, pause shows no status line, and the open panel hides the transport until Back.
 - Showed Calendar noon as 12:00 pm on an en-GB TV, and kept the first Search person visible.
 - Kept a decoded Details title logo in place across later repaints, so the metadata row no longer jumps back to the text title during that visit.
@@ -34,7 +35,15 @@ All notable changes to this project are documented in this file.
 - Matched the library Browse grid to Apple TV: the mode pills are gone, and Up from Sort returns to the top bar. Episode rows now crop the previous card at the 100px inset, the focused still lifts by 5%, and Cast, trailer and related rows start at that inset and paint to the screen edge.
 - Kept Play focused when a movie's Details opened, even if the first focus claim did not stick, and kept that claim from leaving a card-actions dialog or ignoring a Play button that appears after the page opens.
 - Kept a debounced skip when an earlier scrub seek landed on the same plan.
+- Disabled audio and quality choices while a subtitle report is still pending.
 - Kept a running skip hold when the earlier seek landed on the same plan.
+- Preserved newer subtitle choices when an unanswered report required connection recovery.
+
+- Applied queued subtitle choices after a replacement stream finished preparing while hidden.
+- Restored sidecar captions and queued choices after refused subtitle reports, aligned subtitles after suspended preparation, and honoured published HLS rendition order.
+- Reported an HLS subtitle alignment failure instead of showing a track that the native player could not select.
+- Allowed pause during subtitle reports, queued choices needing a new stream, and replanned subtitle tracks that the native stream could not identify.
+- Cleared sidecar captions when selecting embedded subtitles and restored the last confirmed subtitle after a queued choice was refused.
 - Added Retry for retryable playback startup failures and exhausted route recovery.
 - Matched the measured player layout, showed episode context, hid idle controls from every transport focus, and held seek times until playback caught up.
 

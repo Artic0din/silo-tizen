@@ -81,6 +81,15 @@ export interface PlanShape {
     /** Replaces the default `/api/v2/stream/<session>?st=<signed>` URL. */
     readonly url?: (sessionId: string) => string;
     readonly durationSeconds?: number;
+    /** `stream.protocol`, when the plan is HLS (`hls`) rather than the fixture's progressive URL. */
+    readonly protocol?: string;
+    readonly container?: string;
+    /** Embedded text rows carried as WebVTT renditions of this plan's HLS stream. */
+    readonly hlsRenditions?: readonly { readonly trackId: string; readonly groupId: string; readonly name: string; readonly index: number }[];
+    /** The selected rendition on `subtitle.hls_rendition`. */
+    readonly decisionRendition?: { readonly groupId: string; readonly name: string; readonly format: string; readonly index?: number };
+    /** The answer selects no subtitle, including one the session had selected. */
+    readonly clearSubtitle?: boolean;
 }
 
 export type NextDecision = PlanShape | { readonly terminal: string; readonly retryable?: boolean };
@@ -107,6 +116,8 @@ interface Session {
 export class FakePlayback {
     readonly installationId: string;
     configured = true;
+    /** Appended to the capability fixture's feature list for this server. */
+    extraCapabilityFeatures: string[] = [];
     automaticAudioIndex = 0;
     /** Decisions for the next starts and replans, first in first out; default: a direct plan. */
     readonly next: NextDecision[] = [];
@@ -189,7 +200,10 @@ export class FakePlayback {
             return problem(422, "validation_failed", "X-Profile-Id is required");
         }
         if (method === "GET" && path === "/playback/capabilities") {
-            return { status: 200, body: fixture(this.configured ? "playback_capability_available" : "playback_capability_unconfigured") };
+            const body = fixture(this.configured ? "playback_capability_available" : "playback_capability_unconfigured");
+            if (this.extraCapabilityFeatures.length === 0) return { status: 200, body };
+            const features = Array.isArray(body.features) ? body.features : [];
+            return { status: 200, body: { ...body, features: [...features, ...this.extraCapabilityFeatures] } };
         }
         if (body === undefined) {
             return problem(422, "validation_failed", "Body required");
@@ -377,12 +391,12 @@ export class FakePlayback {
         if (shape.effectiveFileId !== undefined) {
             session.effectiveFileId = session.pinnedFileId ?? shape.effectiveFileId;
         }
-        if (shape.subtitle !== undefined) {
-            session.subtitle = shape.subtitle;
-        }
+        if (shape.clearSubtitle === true) session.subtitle = undefined;
+        else if (shape.subtitle !== undefined) session.subtitle = shape.subtitle;
         const file = this.file(session.effectiveFileId);
         const subtitleId = session.subtitle === undefined ? undefined : `file:${file.id}:subtitle:${session.subtitle}`;
-        const warnings = session.subtitle === undefined ? session.warnings : [...session.warnings, { code: "subtitle_burn_in", message: "Subtitles rendered into the video" }];
+        const inStream = shape.hlsRenditions !== undefined;
+        const warnings = session.subtitle === undefined || inStream ? session.warnings : [...session.warnings, { code: "subtitle_burn_in", message: "Subtitles rendered into the video" }];
         session.warnings = [];
         const n = ++this.serial;
         session.planId = `plan:${String(n).padStart(32, "0")}`;
@@ -405,7 +419,12 @@ export class FakePlayback {
                     plan_id: session.planId,
                     plan_attempt_key: session.planKey,
                     delivery: shape.delivery ?? plan.delivery,
-                    stream: { ...stream, url: shape.url === undefined ? `/api/v2/stream/${session.id}?st=signed-${n}` : shape.url(session.id) },
+                    stream: {
+                        ...stream,
+                        url: shape.url === undefined ? `/api/v2/stream/${session.id}?st=signed-${n}` : shape.url(session.id),
+                        ...(shape.protocol === undefined ? {} : { protocol: shape.protocol }),
+                        ...(shape.container === undefined ? {} : { container: shape.container }),
+                    },
                     timeline: { ...toRecord(plan.timeline), ...shape.timeline },
                     source: { ...source, duration_seconds: shape.durationSeconds ?? source.duration_seconds },
                     effective_media_file_id: file.id,
@@ -414,10 +433,22 @@ export class FakePlayback {
                         ...(subtitleId === undefined ? {} : { subtitle: { id: subtitleId, index: session.subtitle } }),
                     },
                     subtitle: {
-                        mode: shape.subtitleArtifact !== undefined ? "render" : subtitleId === undefined ? "off" : "burn_in",
+                        mode: shape.subtitleArtifact !== undefined || (inStream && subtitleId !== undefined) ? "render" : subtitleId === undefined ? "off" : "burn_in",
                         ...(shape.subtitleArtifact === undefined ? {} : { artifact: shape.subtitleArtifact }),
+                        ...(shape.decisionRendition === undefined ? {} : {
+                            hls_rendition: {
+                                group_id: shape.decisionRendition.groupId,
+                                name: shape.decisionRendition.name,
+                                format: shape.decisionRendition.format,
+                                mime_type: "text/vtt",
+                                ...(shape.decisionRendition.index === undefined ? {} : { index: shape.decisionRendition.index }),
+                            },
+                        }),
                         ...(subtitleId === undefined ? {} : { track_id: subtitleId }),
-                        inventory: file.inventory,
+                        inventory: file.inventory.map((entry) => {
+                            const rendition = shape.hlsRenditions?.find((row) => row.trackId === entry.track_id);
+                            return rendition === undefined ? entry : { ...entry, hls_rendition: { group_id: rendition.groupId, name: rendition.name, index: rendition.index } };
+                        }),
                     },
                     degradation_warnings: warnings,
                 },

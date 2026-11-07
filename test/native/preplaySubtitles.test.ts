@@ -4,7 +4,7 @@ import { decodeCatalogSubtitles, decodeSubtitlePreferences, type SubtitlePrefere
 import { initialSubtitle } from "../../src/player/preplaySubtitles.ts";
 import type { SubtitleTrack } from "../../src/contracts/v2/playback.ts";
 
-const track: SubtitleTrack = { trackId: "file:42:subtitle:9", combinedIndex: 9, source: "embedded", delivery: "sidecar", label: "English", codec: "srt", language: "en", forced: false, hearingImpaired: false };
+const track: SubtitleTrack = { trackId: "file:42:subtitle:9", combinedIndex: 9, source: "embedded", delivery: "sidecar", label: "English", codec: "srt", language: "en", forced: false, hearingImpaired: false, url: undefined, streamIndex: undefined, containerTrackId: undefined, nativeSelectable: undefined, hlsRendition: undefined };
 const forced: SubtitleTrack = { ...track, trackId: "file:42:subtitle:12", combinedIndex: 12, forced: true, label: "Forced" };
 const prefs: SubtitlePreferences = { mode: "auto", language: "en", audioLanguage: "ja", showForced: true, signature: undefined };
 

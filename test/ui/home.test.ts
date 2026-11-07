@@ -909,14 +909,14 @@ for (const [name, configure, expected] of [
     }, catalog => enrichHome(catalog, badgeFields), configure);
 }
 
-journey("Home poster badges scale from Apple's 185pt poster and Continue Watching badges sit above the progress bar", async tv => {
+journey("Home poster badges scale from Apple's 185pt poster and Continue Watching draws no playback bar", async tv => {
     await tv.eventually(async () => await tv.page.locator(`${POSTER} .card-overlay`).count() > 0, "badges");
     const sizes = await tv.page.locator(`${POSTER} .card-overlay`).first().evaluate(node => { const style = getComputedStyle(node); return [style.fontSize, style.paddingTop, style.paddingLeft]; });
     assert.deepEqual(sizes, ["9.51px", "2.85px", "7.61px"], "classic preset at 176 / 185");
     const wide = tv.page.locator('[data-section="resume/opaque"] [data-focus="episode:s1e12"]');
     await tv.eventually(async () => JSON.stringify(await corners(tv, '[data-section="resume/opaque"] [data-focus="episode:s1e12"]')) === JSON.stringify({ "top-left": ["4K", "DV", "EAC3"] }), "saved-file badges");
     assert.deepEqual(await corners(tv, '[data-section="resume/opaque"] [data-focus="movie:m0001"]'), { "top-left": ["4K", "Dolby Vision", "TrueHD Atmos"] }, "an unknown last file keeps the summary");
-    assert.equal(await wide.locator(".card-overlays + .skyline-progress").count(), 1, "the progress bar draws over the badges");
+    assert.equal(await wide.locator(".skyline-progress").count(), 0, "Continue Watching does not draw a playback bar");
 }, catalog => { enrichHome(catalog, badgeFields); enrichDetails(catalog, detailFields); }, () => undefined);
 
 const badgePx = (value: number, artWidth: number): number => Math.round(value * artWidth / 185 * 100) / 100;
@@ -1513,7 +1513,7 @@ for (const [id, activation, position] of [["movie:m0001", "MediaPlay", 321.5], [
         assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 0);
         held.release();
         await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "one player handoff");
-        assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays[0]), { contentId: id, fileId: "chosen", title: id === "movie:m0001" ? "Movie 0001" : "Harbor Lights chapter 1.2", startSeconds: position === 1195 ? 0 : position, ...(id === "episode:s1e12" ? { episode: true, subtitle: { kind: "auto" } } : {}) });
+        assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays[0]), { contentId: id, fileId: "chosen", title: id === "movie:m0001" ? "Movie 0001" : "Harbor Lights chapter 1.2", startSeconds: position === 1195 ? 0 : position, ...(id === "episode:s1e12" ? { episode: true, seriesTitle: "Harbor Lights", seasonNumber: 1, episodeNumber: 2, subtitle: { kind: "auto" } } : {}) });
         await tv.page.keyboard.press("MediaPlayPause");
         await tv.jump(30000);
         assert.equal(await tv.page.evaluate(() => window.browseHarness.plays.length), 1);

@@ -2,7 +2,8 @@
 // Ported (AGPL-3.0-or-later) from silo-apple 1a7cceeaf3b2bfc4f889c00487d19b2c6f843940:
 // iosApp/iosApp/Overlays/{OverlayTypes,OverlaySchema,OverlayRegistry,OverlayExtractors,OverlayPresets,CardOverlays,OverlayIcon}.swift.
 // Generic badge icons are SF Symbols there and are not drawn here, except the
-// series-status tv glyph: a flat screen in that symbol's layout box, without its foot.
+// series-status tv glyph: OverlayIcon's semibold "tv", outline and foot opaque,
+// screen fill at the monochrome secondary opacity.
 // Brand marks are text in both.
 
 import type { Card } from "../contracts/v2/catalog.ts";
@@ -258,17 +259,39 @@ const TV_SYMBOL_WIDTH = 73 / 48;
 const TV_SYMBOL_HEIGHT = 58 / 48;
 
 /**
- * Flat screen of SF Symbol "tv", without its foot. The screen sits in the symbol's
- * layout box (measured at 48pt: origin 6,4.25, size 60.75×40.75, corner 10).
+ * SF Symbol "tv" at 48pt semibold, in its 73×58 layout box. Measured from
+ * SwiftUI `Image(systemName: "tv").foregroundStyle(.white)`: the screen outline
+ * is a 5pt stroke (outer origin 6, 4.688, size 60.062×40.812, corner 10), the
+ * screen fill is the secondary layer at 63/255, and the foot sits below the gap.
  */
+const TV_SCREEN = { x: 6, y: 4.688, width: 60.062, height: 40.812, radius: 10 } as const;
+const TV_STROKE = 5;
+const TV_SCREEN_FILL = 63 / 255;
+const TV_FOOT = { x: 21.562, y: 49.188, width: 28.875, height: 4.625, radius: 2.312 } as const;
+
 function tvIcon(): SVGSVGElement {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("class", "card-overlay-icon");
     svg.setAttribute("viewBox", "0 0 73 58");
     svg.setAttribute("aria-hidden", "true");
-    const path = document.createElementNS(svg.namespaceURI, "path");
-    path.setAttribute("d", roundedRect(6, 4.25, 60.75, 40.75, 10));
-    svg.appendChild(path);
+    const inner = {
+        x: TV_SCREEN.x + TV_STROKE,
+        y: TV_SCREEN.y + TV_STROKE,
+        width: TV_SCREEN.width - TV_STROKE * 2,
+        height: TV_SCREEN.height - TV_STROKE * 2,
+        radius: TV_SCREEN.radius - TV_STROKE,
+    };
+    const fill = document.createElementNS(svg.namespaceURI, "path");
+    fill.setAttribute("fill-opacity", String(TV_SCREEN_FILL));
+    fill.setAttribute("d", roundedRect(inner.x, inner.y, inner.width, inner.height, inner.radius));
+    const outline = document.createElementNS(svg.namespaceURI, "path");
+    outline.setAttribute("fill-rule", "evenodd");
+    outline.setAttribute("d", [
+        roundedRect(TV_SCREEN.x, TV_SCREEN.y, TV_SCREEN.width, TV_SCREEN.height, TV_SCREEN.radius),
+        roundedRect(inner.x, inner.y, inner.width, inner.height, inner.radius),
+        roundedRect(TV_FOOT.x, TV_FOOT.y, TV_FOOT.width, TV_FOOT.height, TV_FOOT.radius),
+    ].join(""));
+    svg.append(fill, outline);
     return svg;
 }
 

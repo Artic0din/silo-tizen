@@ -401,6 +401,31 @@ test("the person name starts 12px below the portrait", async () => {
     } finally { await tv.page.context().close(); }
 });
 
+test("person biography keeps the blank line between paragraphs", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await signIn(tv);
+        const first = "First paragraph of the biography.";
+        const second = "Second paragraph starts after the blank line.";
+        await person(tv, { bio: `${first}\n\n${second}` });
+        const gap = await tv.page.locator(".details-person-hero .browse-overview").evaluate((node, parts) => {
+            const text = node.firstChild;
+            if (text === null) return -1;
+            const value = text.textContent ?? "";
+            const range = document.createRange();
+            range.setStart(text, 0);
+            range.setEnd(text, parts.first.length);
+            const opening = range.getBoundingClientRect();
+            const start = value.indexOf(parts.second);
+            range.setStart(text, start);
+            range.setEnd(text, start + parts.second.length);
+            return range.getBoundingClientRect().top - opening.bottom;
+        }, { first, second });
+        assert.ok(gap > 20, `paragraph gap ${gap}`);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 test("an authority change cancels a late portrait image", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

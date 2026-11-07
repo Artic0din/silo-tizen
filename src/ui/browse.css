@@ -34,6 +34,11 @@
 .settings-pane-header .settings-blurb { margin: 0; font-size: 20px; line-height: 25px; }
 .settings-row-title { font-size: 26px; }
 .settings-row-value { margin-left: auto; font-size: 24px; opacity: .68; }
+.settings-connection-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 4px; }
+/* Apple's two-line row measures 97 at 2ef3a171. Its stroke is an overlay, so the fixed height carries the border here. */
+.settings-pane .browse-button.settings-connection-speed { height: 97px; flex-shrink: 0; }
+.settings-connection-line { font-size: 22px; font-weight: 400; line-height: 26px; opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-pane .browse-button.settings-connection-speed .settings-row-value { font-weight: 600; opacity: 1; }
 .settings-chevron { margin-left: 16px; font-size: 18px; opacity: .55; }
 .settings-controls .browse-button:has(.settings-row-value) { display: flex; align-items: center; gap: 16px; }
 .settings-version { margin: 10px 20px 24px; font-size: 18px; color: var(--silo-secondary); }
@@ -201,7 +206,8 @@
 .details-facts-table:focus { outline: none; background: rgba(255,255,255,.06); }
 .browse [data-detail-section="related"] .browse-card, .browse [data-detail-section="related"] .browse-art { width: calc(220px * var(--poster-scale, 1)); }
 .browse [data-detail-section="related"] .browse-art { height: calc(330px * var(--poster-scale, 1)); }
-.browse [data-detail-section="related"] .browse-card { margin-right: 44px; }
+/* TVMediaCard frames the caption at the poster width and centres it. A 2px card border made that frame 4px narrower. */
+.browse [data-detail-section="related"] .browse-card { margin-right: 44px; border: 0; }
 .details-facts .browse-text { padding: 12px; font-size: 24px; border: 2px solid transparent; border-radius: 12px; }
 .details-facts .browse-text:focus { outline: none; border-color: #fff; }
 /* tvOS person portrait is 300×450, not the 260×390 poster. siloSmall capsules, 12px radius. */
@@ -253,7 +259,7 @@
 .search-scene .search-filters .browse-button[aria-pressed="true"] { background: #454545; background-clip: padding-box; }
 .search-scene .search-filters .browse-button:focus { transform: none; color: #000; background: #ededed; }
 .search-scene .search-count { margin: 0 162px 24px; font-size: 22px; line-height: 27px; }
-.search-scene > .browse-grid { width: 1444px; margin: 0 162px; padding: 24px 9px 20px; grid-template-columns: repeat(var(--search-columns, 6), minmax(0, 1fr)); gap: 48px 58px; }
+.search-scene > .browse-grid { width: 1444px; margin: 0 162px; padding: 24px 9px 20px; grid-template-columns: repeat(var(--search-columns, 6), calc(220px * var(--poster-scale, 1))); column-gap: calc((1484px / var(--search-columns, 6)) - 220px * var(--poster-scale, 1)); row-gap: 48px; justify-content: start; }
 .search-scene .browse-grid .browse-card { width: calc(220px * var(--poster-scale, 1)); margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .search-scene .browse-grid .browse-art { width: calc(220px * var(--poster-scale, 1)); height: calc(330px * var(--poster-scale, 1)); border-radius: 16px; }
 .search-scene .browse-grid .browse-card-title { margin: 16px 0 0; padding: 0; font-size: 24px; line-height: 29px; font-weight: 600; }
@@ -1009,7 +1015,8 @@
 .search-scene .browse-grid .browse-card { --card-art-height: calc(330px * var(--poster-scale, 1)); --card-caption-gap: 16px; }
 .search-scene .search-request-rail .browse-card { --card-art-height: calc(330px * var(--poster-scale, 1)); --card-caption-gap: 22px; }
 .browse-row[data-detail-section="related"] .browse-card { --card-caption-gap: 16px; }
-.browse-row[data-detail-section="related"] .browse-card-title { margin-top: 16px; }
+.browse-row[data-detail-section="related"] .browse-card-title { margin-top: 16px; padding-right: 0; padding-left: 0; font-size: 24px; font-weight: 500; line-height: 29px; text-align: center; }
+.browse-row[data-detail-section="related"] .browse-card-subtitle { padding-right: 0; padding-left: 0; font-size: 20px; font-weight: 400; line-height: 24px; text-align: center; }
 .browse .browse-card:focus { transform: none; border-color: transparent; box-shadow: none; }
 .browse .browse-card .browse-art { transition: transform var(--silo-fast) ease-out, box-shadow var(--silo-fast) ease-out, outline-color var(--silo-fast) ease-out; outline: 4px solid transparent; outline-offset: -2px; }
 .browse .browse-card:is(:focus, [aria-current="true"]) .browse-art { outline-color: rgba(255,255,255,.7); }
@@ -1294,14 +1301,18 @@
 .browse-empty-title ~ .browse-text { max-width: none; text-align: center; font-size: 26px; }
 .browse-empty-actions { text-align: center; }
 .browse-empty-actions .browse-button { display: inline-flex; align-items: center; font-size: 24px; font-weight: 500; }
-/* TVAlphabetRail: a slim 18pt peek, centred like Apple's in the 1020pt column above the TV safe area, until a
-   letter is focused, then 96pt of 38pt chips from the top, as Apple's overflowing rail starts. The chips sit without
-   Apple's 4pt gap so all 28 (1064pt) stay on the 1080 screen without the rail scrolling. */
+/* TVAlphabetRail: collapsed width 18, centred in the 1020pt column. Each LetterButton is a 10×10
+   monospaced semibold 10pt glyph at opacity 0.35 (SiloTheme.Skyline, LetterButton). The selected
+   All chip is siloOnSurface in an 8pt corner, which on a 10px box is the circle. Expanded letters
+   are 15pt in 38px chips. The expanded column omits the 4pt VStack gap so all 28 chips stay on
+   the 1080 screen without the rail scrolling. */
 .browse-letters { position: fixed; z-index: 3; top: 0; right: 32px; width: 18px; height: 1020px; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: width 180ms ease-out; }
-.browse-letters .browse-button { flex-shrink: 0; width: 10px; height: 10px; min-height: 0; margin: 2px 0; padding: 0; border: 0; border-radius: 3px; background: transparent; color: rgba(237,237,237,.35); font-family: var(--silo-font); font-size: 10px; font-weight: 600; line-height: 10px; overflow: hidden; }
+.browse-letters .browse-button { flex-shrink: 0; width: 10px; height: 10px; min-height: 0; margin: 2px 0; padding: 0; border: 0; border-radius: 8px; background: transparent; color: rgba(237, 237, 237, 0.6); font-family: ui-monospace, monospace; font-size: 10px; font-weight: 600; line-height: 10px; opacity: 0.35; overflow: hidden; }
 .browse-letters[data-open], .browse-letters:focus-within { width: 96px; justify-content: flex-start; }
-.browse-letters:focus-within .browse-button { width: 38px; height: 38px; margin: 0; border-radius: 8px; color: #ededed; font-size: 15px; line-height: 38px; }
-.browse-letters .browse-button[aria-pressed="true"], .browse .browse-letters .browse-button:focus { background: #fff; color: #000; }
+.browse-letters:focus-within .browse-button { width: 38px; height: 38px; margin: 0; border-radius: 8px; color: #ededed; font-size: 15px; line-height: 38px; opacity: 1; }
+/* Collapsed selected chip is a plain siloOnSurface circle. The 10px box clips the glyph, and transparent ink keeps "All" from painting inside it. */
+.browse-letters .browse-button[aria-pressed="true"] { background: #ededed; color: transparent; opacity: 1; }
+.browse-letters:focus-within .browse-button[aria-pressed="true"], .browse .browse-letters:focus-within .browse-button:focus { background: #ededed; color: #000; opacity: 1; }
 /* Sort and Filter panels over a dimmed page (TVSkylinePanelChrome), centred on y510 as measured
    on the Apple TV (the tab body sits under the top bar). */
 .browse-panel-scrim { position: fixed; z-index: 6; top: 0; left: 0; width: 1920px; height: 1080px; background: rgba(0,0,0,.55); }
@@ -1426,7 +1437,7 @@
 .browse[data-view^="person:"] .browse-title { margin-bottom: 0; }
 .browse[data-view^="person:"] .person-facts { display: flex; gap: 12px; margin: 0; }
 .browse[data-view^="person:"] .person-fact { flex-shrink: 0; margin: 0; }
-.browse[data-view^="person:"] .browse-overview { margin: 0; color: rgba(237, 237, 237, 0.6); font-size: 26px; font-weight: 400; }
+.browse[data-view^="person:"] .browse-overview { margin: 0; color: rgba(237, 237, 237, 0.6); font-size: 26px; font-weight: 400; white-space: pre-line; }
 .browse[data-view^="person:"] .browse-detail-info > * + * { margin-top: 22px; }
 .person-filmography-heading { display: flex; align-items: baseline; gap: 60px; margin: 0 0 20px; }
 .person-filmography-heading .browse-section-title { margin: 0; font-size: 36px; font-weight: 600; }
@@ -1480,4 +1491,7 @@
 .settings-pane .settings-row-title,
 .settings-pane .settings-row-value { font-weight: 400; }
 .settings-pane .settings-chevron { font-weight: 600; }
-.settings-pane .browse-button[role="switch"][aria-checked="true"] .settings-row-value { font-weight: 600; }
+.settings-pane .browse-button[role="switch"][aria-checked="true"] .settings-row-value { font-weight: 600; opacity: 0.9; }
+/* TVSettingsToggleRow: On at 0.9 opacity, Off at 0.55. TVSettingsPaneRowStyle fills every row with siloChromeRestingFill, whether it is on or off. */
+.settings-pane .browse-button[role="switch"][aria-checked="false"] .settings-row-value { opacity: 0.55; }
+.settings-pane .browse-button:not(:focus) { background: rgba(255, 255, 255, 0.07); }

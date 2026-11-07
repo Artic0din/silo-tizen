@@ -1,4 +1,5 @@
 import { operations } from "../api/operations.ts";
+import { ApiError } from "../api/errors.ts";
 import type { Card } from "../contracts/v2/catalog.ts";
 import type { NativeSession } from "../session/session.ts";
 import { personalControls } from "./browseDetails.ts";
@@ -17,6 +18,7 @@ export class CardActions {
     private items: FocusItem[] = [];
     private failed = false;
     private pressed = false;
+    private play: (() => void) | undefined;
     private card: Pick<Card, "id" | "title" | "type"> | undefined;
     private readonly container: HTMLElement;
     private readonly session: NativeSession;
@@ -24,22 +26,25 @@ export class CardActions {
     private readonly closed: () => void;
     private readonly pendingElsewhere: () => boolean;
     private readonly information: ((card: Pick<Card, "id" | "title" | "type">) => void) | undefined;
+    private readonly cachedDetails: Pick<Map<string, DetailsState>, "get" | "delete"> | undefined;
 
-    constructor(container: HTMLElement, session: NativeSession, changed: (state: DetailsState) => void, closed: () => void, pendingElsewhere: () => boolean, information?: (card: Pick<Card, "id" | "title" | "type">) => void) {
+    constructor(container: HTMLElement, session: NativeSession, changed: (state: DetailsState) => void, closed: () => void, pendingElsewhere: () => boolean, information?: (card: Pick<Card, "id" | "title" | "type">) => void, cachedDetails?: Pick<Map<string, DetailsState>, "get" | "delete">) {
         this.container = container;
         this.session = session;
         this.changed = changed;
         this.closed = closed;
         this.pendingElsewhere = pendingElsewhere;
         this.information = information;
+        this.cachedDetails = cachedDetails;
     }
 
     get active(): boolean { return this.panel !== undefined; }
     get pending(): boolean { return this.state?.pending === true; }
 
-    open(card: Pick<Card, "id" | "title" | "type">): void {
+    open(card: Pick<Card, "id" | "title" | "type">, play?: () => void): void {
         if (this.active) return;
         this.card = card;
+        this.play = play;
         this.panel = el("div", "card-actions-scrim");
         this.container.appendChild(this.panel);
         document.addEventListener("keydown", this.onKey, true);
@@ -55,14 +60,25 @@ export class CardActions {
         this.controller = controller;
         this.failed = false;
         const retained = this.retained.get(card.id);
+        const cached = this.cachedDetails?.get(card.id);
         this.render();
-        this.session.call({ ...operations.getCatalogItem(card.id), profileScoped: true, signal: controller.signal }).then(detail => {
+        this.session.call({ ...operations.getCatalogItem(card.id), profileScoped: true, signal: controller.signal }).catch((error: unknown) => {
+            if (controller.signal.aborted || this.controller !== controller) throw error;
+            if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+                this.cachedDetails?.delete(card.id);
+                this.state?.stop();
+                this.state = undefined;
+            }
+            if (error instanceof ApiError && ["network", "timeout"].includes(error.failure.kind) && cached !== undefined) return cached.detail;
+            throw error;
+        }).then(detail => {
             if (controller.signal.aborted || this.controller !== controller) return;
             if (detail.id !== card.id || detail.type !== card.type) throw new Error("Card identity changed");
             const state = new DetailsState(detail, this.session, () => {
                 this.changed(state);
                 if (this.state === state) this.render();
             }, async () => this.changed(state), this.pendingElsewhere);
+            state.restore(cached);
             for (const [kind, change] of retained?.changes ?? []) state.changes.set(kind, change);
             this.state = state;
             state.start("personal");
@@ -85,6 +101,11 @@ export class CardActions {
         content.appendChild(el("h1", "browse-section-title", this.state?.detail.title ?? this.card?.title ?? ""));
         const controls = this.state === undefined ? undefined : personalControls(this.state);
         this.items = [...controls?.items ?? [], ...(this.failed ? [actionButton("retry-card-actions", "Try again", () => this.load())] : []), actionButton("close-card-actions", "Close", () => this.close())];
+        const play = this.play;
+        if (play !== undefined && this.state !== undefined) this.items.unshift(actionButton("card-play", (this.state.detail.watch?.positionSeconds ?? 0) > 0 ? "Resume" : "Play", () => {
+            this.close();
+            play();
+        }));
         const card = this.card;
         if (card?.type === "episode" && this.information !== undefined) this.items.splice(this.items.length - 1, 0, actionButton("episode-information", "Episode information", () => {
             this.close();

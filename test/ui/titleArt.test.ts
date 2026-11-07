@@ -5,7 +5,7 @@ import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { problem } from "../native/support/fakeSilo.ts";
 import type { SettingsKey } from "../../src/contracts/v2/settings.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
 
 const TITLE = "ui.title_art" as SettingsKey;
 let browser: Browser;
@@ -60,13 +60,37 @@ test("returning from General rechecks Details and retains text after this-TV fal
         await tv.remote(10009);
         await settingsScreen(tv);
         await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).click();
-        await tv.page.getByText("Off · This TV", { exact: true }).waitFor();
+        await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).getAttribute("aria-checked") === "false", "title art confirmed off");
+        assert.equal(await tv.page.getByRole("switch", { name: "Apply to All Devices", exact: true }).getAttribute("aria-checked"), "false");
         await tv.remote(10009); await tv.remote(10009);
         let logos = 0;
         tv.page.on("request", r => { if (new URL(r.url()).pathname.endsWith("last-signal-logo.svg")) logos++; });
         await details(tv, catalog);
         await tv.jump(240);
         assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "The Last Signal");
+        assert.equal(logos, 0);
+    } finally { await tv.page.context().close(); }
+});
+
+test("confirmed title-art Off survives an offline cached Details revisit", async () => {
+    const { tv, catalog } = await setup();
+    try {
+        await details(tv, catalog);
+        await tv.page.locator(".details-logo").waitFor();
+        await tv.remote(10009);
+        await settingsScreen(tv);
+        await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).click();
+        await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).getAttribute("aria-checked") === "false", "title art confirmed off");
+        assert.equal(await tv.page.locator('[data-focus="title-art"] .settings-row-value').textContent(), "Off");
+        assert.equal(await tv.page.getByRole("switch", { name: "Apply to All Devices", exact: true }).getAttribute("aria-checked"), "false");
+        await tv.remote(10009); await tv.remote(10009);
+        let logos = 0;
+        tv.page.on("request", request => { if (new URL(request.url()).pathname.endsWith("last-signal-logo.svg")) logos++; });
+        await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
+        await details(tv, catalog);
+        await tv.jump(35000);
+        assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "The Last Signal");
+        assert.equal(await tv.page.locator(".details-logo").count(), 0);
         assert.equal(logos, 0);
     } finally { await tv.page.context().close(); }
 });
@@ -85,8 +109,7 @@ test("detailed seasons use the same false policy and leave episode navigation us
         await tv.page.locator('[data-focus="series"][role="tab"]').click();
         await tv.page.locator('[data-focus="series:s1"]').first().click();
         await tv.page.locator('[data-focus="season:1"]').click();
-        await tv.page.locator('[data-focus="more"]').click();
-        await tv.page.locator('[data-focus="season-info"]').click();
+        await tv.page.locator('[data-focus="series:s1-S1"]').click();
         await tv.page.locator('[data-view="season:series:s1:1"]').waitFor();
         await tv.jump(240);
         assert.equal(await tv.page.locator(".details-editorial h1").textContent(), "Harbor Lights · Season 1");
@@ -146,23 +169,31 @@ test("General switches show source/scope, serialize edits and keep focus without
     const { tv, settings } = await setup();
     try {
         await settingsScreen(tv);
-        await tv.page.getByText("On · Inherited default", { exact: true }).waitFor();
+        assert.equal(await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).getAttribute("aria-checked"), "true");
+        assert.equal(settings.profile().has(TITLE), false);
         assert.equal(await tv.page.getByText("Profile defaults", { exact: true }).count(), 0);
         const count = tv.fake.requests.length;
         await tv.page.keyboard.press("ArrowRight");
+        assert.equal(await tv.focused(), "paired-profile");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "remember-profile");
+        await tv.page.keyboard.press("ArrowDown");
+        assert.equal(await tv.focused(), "title-art");
         await tv.page.keyboard.press("ArrowDown");
         assert.equal(await tv.focused(), "title-art-all");
         assert.equal(tv.fake.requests.length, count);
         await tv.page.keyboard.press("Enter");
-        await tv.page.getByText("On · All devices", { exact: true }).waitFor();
+        await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Apply to All Devices", exact: true }).getAttribute("aria-checked") === "true", "confirmed profile scope");
+        assert.equal(settings.profile().get(TITLE), true);
         assert.equal(await tv.focused(), "title-art-all");
         await tv.page.keyboard.press("ArrowUp");
         await tv.page.keyboard.press("Enter");
-        await tv.page.getByText("Off · All devices", { exact: true }).waitFor();
+        await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).getAttribute("aria-checked") === "false", "confirmed title art off");
         assert.equal(settings.profile().get(TITLE), false);
         await tv.page.keyboard.press("ArrowDown");
         await tv.page.keyboard.press("Enter");
-        await tv.page.getByText("Off · This TV", { exact: true }).waitFor();
+        await tv.eventually(async () => await tv.page.getByRole("switch", { name: "Apply to All Devices", exact: true }).getAttribute("aria-checked") === "false", "confirmed device scope");
+        assert.equal(await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).getAttribute("aria-checked"), "false");
         assert.equal(await tv.focused(), "title-art-all");
         assert.equal(settings.profile().has(TITLE), false);
         assert.deepEqual(tv.fake.requests.filter(r => r.method === "PUT" || r.method === "DELETE").map(r => [r.method, r.path]), [
@@ -218,7 +249,8 @@ for (const conflict of ["profile", "device"] as const) test(`Settings recovers a
         await tv.page.keyboard.press("Enter");
         await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).waitFor();
         await tv.eventually(async () => await tv.page.getByRole("alert").count() === 0, "conflict reload");
-        await tv.page.getByText(`${conflict === "device" ? "On" : "Off"} · All devices`, { exact: true }).waitFor();
+        assert.equal(await tv.page.getByRole("switch", { name: "Apply to All Devices", exact: true }).getAttribute("aria-checked"), "true");
+        assert.equal(await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).getAttribute("aria-checked"), String(conflict === "device"));
         assert.equal(settings.profile().get(TITLE), conflict === "device");
         assert.equal(tv.fake.requests.filter(r => r.method === "PUT").length, 1);
         assert.equal(tv.fake.requests.filter(r => r.method === "DELETE").length, conflict === "profile" ? 0 : 1);
@@ -251,6 +283,58 @@ test("delayed title-art policy while playback hides a connected node is discarde
     } finally { hold.release(); await tv.page.context().close(); }
 });
 
+test("a decoded Details title logo stays in place across a repaint", async () => {
+    const { tv, catalog } = await setup();
+    const held = tv.fake.hold("/recommendations/similar/movie%3Am0001", true);
+    try {
+        await details(tv, catalog);
+        // The first decode may still swap from the 110px text fallback to the 160px slot.
+        // This sample starts only after that swap has settled.
+        const settled = await readLive(tv, () => {
+            const hero = document.querySelector(".details-hero");
+            const title = hero?.querySelector(".browse-title");
+            const row = hero?.querySelector(".browse-meta");
+            if (!(hero instanceof HTMLElement) || !(title instanceof HTMLElement) || !(row instanceof HTMLElement) || !title.isConnected || !row.isConnected) return null;
+            const logo = title.querySelector(".details-logo");
+            if (!(logo instanceof HTMLImageElement) || !logo.complete || logo.naturalWidth === 0) return null;
+            return {
+                titleHeight: title.getBoundingClientRect().height,
+                rowTop: row.getBoundingClientRect().top - hero.getBoundingClientRect().top,
+            };
+        }, null, value => Math.abs(value.titleHeight - 160) < 0.5 && Math.abs(value.rowTop - 290) < 0.5, "decoded movie logo before the forced repaint");
+        assert.ok(Math.abs(settled.titleHeight - 160) < 0.5, JSON.stringify(settled));
+        assert.ok(Math.abs(settled.rowTop - 290) < 0.5, JSON.stringify(settled));
+        await tv.page.evaluate(() => {
+            const samples: { titleHeight: number; rowTop: number; logo: boolean }[] = [];
+            const read = (): void => {
+                const hero = document.querySelector(".details-hero");
+                const title = hero?.querySelector(".browse-title");
+                const row = hero?.querySelector(".browse-meta");
+                if (!(hero instanceof HTMLElement) || !(title instanceof HTMLElement) || !(row instanceof HTMLElement)) return;
+                if (!hero.isConnected || !title.isConnected || !row.isConnected) return;
+                samples.push({
+                    titleHeight: title.getBoundingClientRect().height,
+                    rowTop: row.getBoundingClientRect().top - hero.getBoundingClientRect().top,
+                    logo: title.querySelector(".details-logo") !== null,
+                });
+            };
+            const observer = new MutationObserver(read);
+            observer.observe(document.body, { childList: true, subtree: true });
+            Object.assign(window, { __titleLogoWatch: { samples, stop: (): typeof samples => { observer.disconnect(); return samples; } } });
+            read();
+        });
+        held.release();
+        await tv.page.locator('[data-detail-section="related"] [data-focus]').first().waitFor();
+        const samples = await tv.page.evaluate(() => {
+            const watch = (window as unknown as { __titleLogoWatch: { stop(): { titleHeight: number; rowTop: number; logo: boolean }[] } }).__titleLogoWatch;
+            return watch.stop();
+        });
+        assert.ok(samples.length > 1, `the forced repaint produced no connected samples: ${JSON.stringify(samples)}`);
+        const flashed = samples.filter(sample => !sample.logo || Math.abs(sample.titleHeight - 160) >= 0.5 || Math.abs(sample.rowTop - 290) >= 0.5);
+        assert.deepEqual(flashed, []);
+    } finally { held.release(); await tv.page.context().close(); }
+});
+
 test("delayed image load cannot replace a hidden heading and a new generation restores logos", async () => {
     const { tv, catalog } = await setup();
     let release = (): void => undefined;
@@ -272,23 +356,4 @@ test("delayed image load cannot replace a hidden heading and a new generation re
         await tv.page.evaluate(() => window.browseHarness.resume());
         await tv.page.locator(".details-logo").waitFor();
     } finally { release(); await tv.page.context().close(); }
-});
-
-test("title-art policy settling preserves the open synopsis and its remote focus", async () => {
-    const { tv, catalog } = await setup();
-    const hold = tv.fake.hold(`/settings/values/effective?keys=${TITLE}`, true);
-    try {
-        await details(tv, catalog);
-        await tv.page.locator('[data-focus="more"]').click();
-        await tv.page.locator('[data-focus="synopsis"]').click();
-        const dialog = tv.page.getByRole("dialog", { name: "Synopsis" });
-        await dialog.getByRole("button", { name: "Close synopsis" }).focus();
-        hold.release();
-        await tv.jump(240);
-        assert.equal(await dialog.count(), 1);
-        assert.equal(await tv.focused(), "close-synopsis");
-        await tv.remote(10009);
-        await tv.page.locator(".details-logo").waitFor();
-        assert.equal(await tv.focused(), "synopsis");
-    } finally { hold.release(); await tv.page.context().close(); }
 });

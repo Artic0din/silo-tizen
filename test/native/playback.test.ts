@@ -233,6 +233,90 @@ async function playMovie(r: Rig, request: PlayRequest = MOVIE): Promise<string> 
     return id;
 }
 
+test("automatic skip undo starts after a six-second reanchor preparation", async () => {
+    const r = await rig();
+    const settings = new FakeSettings(r.h.fake);
+    settings.remainingRows = true;
+    settings.profile().set("playback.intro_skip_mode", "always");
+    r.h.fake.scripted.set("/markers/files/42", [{ status: 200, body: { file_id: "42", marker_segments: [
+        { kind: "intro", start_seconds: 20, end_seconds: 60 },
+    ] } }]);
+    r.server.next.push({ timeline: { can_seek_anywhere: false } });
+    await playMovie(r);
+    r.avplay.tick(20000);
+    await r.h.clock.advance(0);
+    assert.equal(last(r.views).phase, "loading");
+    await r.h.clock.advance(6000);
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    let view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.undoSkipSeconds, 20);
+    await r.h.clock.advance(4999);
+    r.avplay.tick(61000);
+    view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.undoSkipSeconds, 20);
+    await r.h.clock.advance(1);
+    r.avplay.tick(62000);
+    view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.undoSkipSeconds, undefined);
+    r.controller.destroy();
+});
+
+test("a failed automatic skip seek offers no undo", async () => {
+    const r = await rig();
+    const settings = new FakeSettings(r.h.fake);
+    settings.remainingRows = true;
+    settings.profile().set("playback.intro_skip_mode", "always");
+    r.h.fake.scripted.set("/markers/files/42", [{ status: 200, body: { file_id: "42", marker_segments: [
+        { kind: "intro", start_seconds: 20, end_seconds: 60 },
+    ] } }]);
+    await playMovie(r);
+    r.avplay.tick(20000);
+    r.avplay.finishSeek("UnknownError");
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.undoSkipSeconds, undefined);
+    r.controller.destroy();
+});
+
+test("intro and credits settings control markers and automatic skips can be undone", async () => {
+    for (const mode of ["never", "ask", "always"] as const) {
+        const r = await rig();
+        const settings = new FakeSettings(r.h.fake);
+        settings.remainingRows = true;
+        settings.profile().set("playback.intro_skip_mode", mode);
+        settings.profile().set("playback.auto_skip_credits", true);
+        r.h.fake.scripted.set("/markers/files/42", [{ status: 200, body: { file_id: "42", marker_segments: [
+            { kind: "intro", start_seconds: 20, end_seconds: 60 },
+            { kind: "credits", start_seconds: 90, end_seconds: 100 },
+        ] } }]);
+        await playMovie(r);
+        r.avplay.tick(20000);
+        let view = last(r.views);
+        assert.ok(view.phase === "playing");
+        if (mode === "always") {
+            assert.equal(r.avplay.calls.at(-1), "seekTo 60000");
+            r.avplay.finishSeek();
+            view = last(r.views);
+            assert.ok(view.phase === "playing");
+            assert.equal(view.undoSkipSeconds, 20);
+            r.controller.seekToSeconds(20);
+            r.avplay.finishSeek();
+            r.avplay.tick(21000);
+            assert.equal(r.avplay.positionMs, 21000);
+        } else assert.equal(view.skipMarker?.kind, mode === "ask" ? "intro" : undefined);
+        r.avplay.tick(90000);
+        assert.equal(r.avplay.calls.at(-1), "seekTo 100000");
+        r.avplay.finishSeek();
+        r.controller.destroy();
+    }
+});
+
 test("effective file markers follow source time and cannot replace an in-flight manual seek", async () => {
     const r = await rig();
     r.h.fake.scripted.set("/markers/files/42", [{ status: 200, body: {
@@ -430,6 +514,117 @@ test("explicit pause and play are idempotent and leave pending seeks alone", asy
     r.controller.setPaused(true);
     assert.equal(r.avplay.calls[r.avplay.calls.length - 1], "seekTo 22500");
     r.avplay.finishSeek();
+    r.controller.destroy();
+});
+
+test("a pending scrub resume publishes the latest transport command, including another Pause", async () => {
+    const r = await rig();
+    await playMovie(r);
+    r.controller.setPaused(true);
+    r.controller.seekToSeconds(45);
+    r.controller.setPaused(false);
+    const pending = last(r.views);
+    assert.ok(pending.phase === "paused");
+    assert.equal(pending.resumePending, true);
+    const count = pending.transportCommandCount;
+    assert.equal(count, 2);
+    r.controller.setPaused(true);
+    r.controller.setPaused(true);
+    const paused = last(r.views);
+    assert.ok(paused.phase === "paused");
+    assert.equal(paused.resumePending, false);
+    assert.equal(paused.transportCommandCount, 4);
+    r.avplay.finishSeek();
+    assert.equal(r.avplay.state, "PAUSED");
+    r.controller.destroy();
+});
+
+for (const newerPause of [false, true]) test(`a committed scrub queues its target and latest intent behind a pending seek (${newerPause})`, async () => {
+    const r = await rig();
+    await playMovie(r);
+    r.controller.setPaused(true);
+    r.controller.seekToSeconds(45);
+    r.controller.setPaused(false);
+    r.controller.setPaused(true);
+    const calls = r.avplay.calls.length;
+    r.controller.seekToSeconds(60);
+    r.controller.seekToSeconds(75);
+    r.controller.setPaused(false);
+    if (newerPause) r.controller.setPaused(true);
+    assert.equal(r.avplay.calls.length, calls);
+    r.avplay.finishSeek();
+    assert.equal(r.avplay.calls.at(-1), "seekTo 75000");
+    assert.equal(r.avplay.state, "PAUSED");
+    r.avplay.finishSeek();
+    assert.equal(r.avplay.positionMs, 75000);
+    assert.equal(r.avplay.state, newerPause ? "PAUSED" : "PLAYING");
+    r.controller.destroy();
+});
+
+for (const ending of ["back", "destroy", "suspend"] as const) test(`${ending} discards a scrub target queued behind a pending seek`, async () => {
+    const r = await rig();
+    await playMovie(r);
+    r.controller.seekToSeconds(45);
+    r.controller.seekToSeconds(75);
+    const calls = r.avplay.calls.length;
+    r.controller[ending]();
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    assert.deepEqual(r.avplay.calls.slice(calls), [ending === "suspend" ? "suspend" : "close"]);
+    assert.equal(r.avplay.state, ending === "suspend" ? "PLAYING" : "NONE");
+    r.controller.destroy();
+});
+
+test("a queued scrub reanchor records resume without playing the outgoing stream", async () => {
+    const r = await rig();
+    r.server.next.push({ timeline: { can_seek_anywhere: true, seek_window_end_seconds: 60 } });
+    await playMovie(r);
+    r.controller.setPaused(true);
+    r.controller.seekToSeconds(45);
+    r.controller.seekToSeconds(75);
+    r.controller.setPaused(false);
+    const plays = r.avplay.calls.filter(call => call === "play").length;
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    assert.equal(r.avplay.calls.filter(call => call === "play").length, plays);
+    assert.equal(only(bodies(r.h, "/replan")).operation, "seek_reanchor");
+    r.avplay.finishPrepare();
+    r.avplay.finishSeek();
+    assert.equal(r.avplay.state, "PLAYING");
+    r.controller.destroy();
+});
+
+test("a resume asked for during an in-flight seek plays once that seek settles", async () => {
+    const r = await rig();
+    await playMovie(r);
+    r.controller.setPaused(true);
+    assert.equal(last(r.views).phase, "paused");
+    r.controller.seekToSeconds(45);
+    r.controller.setPaused(false);
+    assert.equal(r.avplay.calls[r.avplay.calls.length - 1], "seekTo 45000");
+    assert.equal(r.avplay.state, "PAUSED");
+    r.avplay.finishSeek();
+    assert.equal(r.avplay.state, "PLAYING");
+    const view = last(r.views);
+    assert.equal(view.phase, "playing");
+    assert.equal(view.phase === "playing" ? view.positionSeconds : undefined, 45);
+    r.controller.destroy();
+});
+
+test("the latest pause request wins while a local seek is pending", async () => {
+    const r = await rig();
+    await playMovie(r);
+    r.controller.setPaused(true);
+    r.controller.seekToSeconds(45);
+    r.controller.setPaused(false);
+    r.controller.setPaused(true);
+    r.avplay.finishSeek();
+    assert.equal(r.avplay.state, "PAUSED");
+    r.controller.seekToSeconds(60);
+    r.controller.togglePause();
+    r.controller.togglePause();
+    r.avplay.finishSeek();
+    assert.equal(r.avplay.state, "PAUSED");
     r.controller.destroy();
 });
 
@@ -654,6 +849,29 @@ test("failure replans are bounded; then playback ends with an error and a stop",
     assert.deepEqual(r.exits, ["error:playback_failed"]);
 });
 
+test("route recovery that runs out of attempts offers Retry for a fresh start at the same position", async () => {
+    const r = await rig();
+    r.controller.play(MOVIE);
+    await r.h.clock.advance(0);
+    for (let failure = 0; failure < 4; failure++) {
+        r.avplay.finishPrepare("UnknownError");
+        await r.h.clock.advance(0);
+    }
+    const view = last(r.views);
+    assert.equal(view.phase, "error");
+    assert.deepEqual(view.phase === "error" ? view.error : undefined, { kind: "playback_failed" });
+    assert.equal(view.phase === "error" && view.retryable, true);
+    r.controller.retryCompletion();
+    await r.h.clock.advance(0);
+    const starts = bodies(r.h, "/start");
+    assert.equal(starts.length, 2);
+    assert.equal(starts[1]?.file_id, MOVIE.fileId);
+    assert.equal(starts[1]?.start_position, MOVIE.startSeconds);
+    assert.notEqual(starts[0]?.playback_attempt_id, starts[1]?.playback_attempt_id);
+    assert.equal(last(r.views).phase, "loading");
+    r.controller.destroy();
+});
+
 test("a terminal replan decision ends playback with the server's reason", async () => {
     const r = await rig();
     r.controller.play(MOVIE);
@@ -681,6 +899,77 @@ test("a network failure before the first frame is not a failed route: no replan,
     const view = last(r.views);
     assert.deepEqual(view.phase === "error" ? view.error : undefined, { kind: "network" });
     assert.equal(ops(r.h)[ops(r.h).length - 1], "DELETE /playback/S1");
+});
+
+test("a retryable first start offers Retry and replays that request at the same position", async () => {
+    const terminal = await rig();
+    terminal.server.next.push({ terminal: "temporarily_unavailable", retryable: true });
+    terminal.controller.play(MOVIE);
+    await terminal.h.clock.advance(0);
+    const terminalError = last(terminal.views);
+    assert.equal(terminalError.phase, "error");
+    assert.equal(terminalError.phase === "error" && terminalError.retryable, true);
+    assert.deepEqual(terminalError.phase === "error" ? terminalError.error : undefined, {
+        kind: "terminal",
+        reason: "temporarily_unavailable",
+        message: "Cannot play: temporarily_unavailable",
+        retryable: true,
+    });
+    terminal.controller.retryCompletion();
+    terminal.controller.retryCompletion();
+    await terminal.h.clock.advance(0);
+    const terminalStarts = bodies(terminal.h, "/start");
+    assert.equal(terminalStarts.length, 2);
+    assert.equal(terminalStarts[1]?.file_id, MOVIE.fileId);
+    assert.equal(terminalStarts[1]?.start_position, MOVIE.startSeconds);
+    assert.notEqual(terminalStarts[0]?.playback_attempt_id, terminalStarts[1]?.playback_attempt_id);
+    assert.equal(last(terminal.views).phase, "loading");
+    terminal.controller.destroy();
+
+    const server = await rig();
+    server.h.fake.script("/playback/start", problem(400, "validation_failed", "Rejected"));
+    server.controller.play(MOVIE);
+    await server.h.clock.advance(0);
+    const serverError = last(server.views);
+    assert.equal(serverError.phase === "error" && serverError.error.kind, "server");
+    assert.equal(serverError.phase === "error" && serverError.retryable, true);
+    server.controller.retryCompletion();
+    await server.h.clock.advance(0);
+    const serverStarts = bodies(server.h, "/start");
+    assert.equal(serverStarts.length, 2);
+    assert.equal(serverStarts[1]?.file_id, MOVIE.fileId);
+    assert.equal(serverStarts[1]?.start_position, MOVIE.startSeconds);
+    assert.equal(last(server.views).phase, "loading");
+    server.controller.destroy();
+
+    const network = await rig();
+    network.server.next.push({ timeline: { source_start_seconds: 1200, player_start_seconds: 1200, timeline_offset_seconds: 0 } });
+    network.controller.play({ ...MOVIE, startSeconds: undefined });
+    await network.h.clock.advance(0);
+    assert.equal("start_position" in (bodies(network.h, "/start")[0] ?? {}), false);
+    network.avplay.finishPrepare("InvalidAccessError");
+    await network.h.clock.advance(0);
+    const networkError = last(network.views);
+    assert.deepEqual(networkError.phase === "error" ? networkError.error : undefined, { kind: "network" });
+    assert.equal(networkError.phase === "error" && networkError.retryable, true);
+    network.controller.retryCompletion();
+    await network.h.clock.advance(0);
+    const networkStarts = bodies(network.h, "/start");
+    assert.equal(networkStarts.length, 2);
+    assert.equal(networkStarts[1]?.file_id, MOVIE.fileId);
+    assert.equal(networkStarts[1]?.start_position, 1200);
+    network.controller.destroy();
+
+    const refused = await rig();
+    refused.server.next.push({ terminal: "source_unreadable", retryable: false });
+    refused.controller.play(MOVIE);
+    await refused.h.clock.advance(0);
+    const refusedError = last(refused.views);
+    assert.equal(refusedError.phase === "error" && refusedError.retryable === true, false);
+    refused.controller.retryCompletion();
+    await refused.h.clock.advance(0);
+    assert.equal(bodies(refused.h, "/start").length, 1);
+    refused.controller.destroy();
 });
 
 test("progress is sequenced source time every 10 s; stop waits for the sample in flight and goes last", async () => {
@@ -949,6 +1238,35 @@ async function episodeRig(): Promise<Rig & { catalog: FakeCatalog }> {
     r.server.items.set("episode:s1e13", ["43"]);
     return { ...r, catalog };
 }
+
+test("Retry after Play next preserves the position reached before exhausted recovery", async () => {
+    const r = await episodeRig();
+    await playMovie(r, EPISODE);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).state, "ready");
+    r.controller.playNext();
+    await r.h.clock.advance(0);
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    r.avplay.tick(120000);
+    r.server.next.push(...Array.from({ length: 3 }, () => ({ timeline: { source_start_seconds: 120, player_start_seconds: 120, timeline_offset_seconds: 0 } })));
+    r.avplay.listener?.onerror("PLAYER_ERROR_NOT_SUPPORTED_FORMAT");
+    await r.h.clock.advance(0);
+    for (let failure = 0; failure < 3; failure++) {
+        r.avplay.finishPrepare("UnknownError");
+        await r.h.clock.advance(0);
+    }
+    const view = last(r.views);
+    assert.ok(view.phase === "error" && view.error.kind === "playback_failed" && view.retryable);
+    r.controller.retryCompletion();
+    await r.h.clock.advance(0);
+    const starts = bodies(r.h, "/start");
+    assert.equal(starts.length, 3);
+    assert.equal(starts[2]?.file_id, "43");
+    assert.equal(starts[2]?.start_position, 120);
+    r.controller.destroy();
+});
 
 function completion(r: Rig): Extract<PlaybackView, { phase: "completion" }> {
     const view = last(r.views);
@@ -1552,6 +1870,22 @@ test("a replacement transport waits for the old resume seek, including its failu
     }
     assert.equal(r.avplay.state, "PLAYING");
     assert.equal(r.avplay.calls.filter((call) => call === "play").length, 1);
+});
+
+test("a scrub resume survives server re-anchoring and replacement preparation", async () => {
+    const r = await rig();
+    r.server.next.push({ timeline: { can_seek_anywhere: false } });
+    await playMovie(r);
+    r.controller.setPaused(true);
+    r.controller.seekToSeconds(45);
+    r.controller.setPaused(false);
+    await r.h.clock.advance(0);
+    r.avplay.finishPrepare();
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    assert.equal(last(r.views).phase, "playing");
+    assert.equal(r.avplay.state, "PLAYING");
+    r.controller.destroy();
 });
 
 test("a paused seek that needs server re-anchoring remains paused after preparing the new plan", async () => {

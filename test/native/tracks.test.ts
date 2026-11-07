@@ -293,8 +293,8 @@ test("the versions decoder keeps each file's audio_tracks in server order and to
         {
             fileId: "7",
             audio: [
-                { isDefault: false, language: "ja", codec: "aac", channels: 2, title: undefined },
-                { isDefault: true, language: undefined, codec: undefined, channels: undefined, title: "Director" },
+                { isDefault: false, language: "ja", codec: "aac", channels: 2, title: undefined, rawTitle: undefined, embeddedTitle: undefined, layout: undefined },
+                { isDefault: true, language: undefined, codec: undefined, channels: undefined, title: "Director", rawTitle: undefined, embeddedTitle: "Director", layout: undefined },
             ],
         },
     ]);
@@ -791,13 +791,34 @@ test("effective quality and cap are read under the captured profile before start
     assert.equal(only(replans(r.h)).bandwidth_cap_kbps, 6000);
 });
 
+test("track rows lead with the language and put codec, layout and flags on the second line", async () => {
+    const r = await rig();
+    await playMovie(r);
+    const view = tracks(r);
+    assert.equal(view.audio.state, "ready");
+    if (view.audio.state !== "ready") return;
+    assert.deepEqual(view.audio.choices.map((choice) => ({ label: choice.label, detail: choice.detail })), [
+        { label: "English", detail: "EAC3 · 5.1 · Default" },
+        { label: "Japanese", detail: "AAC · Stereo" },
+        { label: "English", detail: "Commentary · AAC · Stereo" },
+    ]);
+    assert.deepEqual(view.subtitles.map((choice) => ({ label: choice.label, detail: choice.detail })), [
+        { label: "English", detail: "SRT · External" },
+        { label: "English", detail: "English (Signs) · ASS · Forced" },
+        { label: "Japanese", detail: "PGS" },
+        { label: "French", detail: "VobSub" },
+        { label: "Spanish", detail: "Spanish (downloaded) · SRT · External" },
+    ]);
+});
+
 test("only server alternatives expose Auto plus server labels; Original alone is hidden", async () => {
     for (const offered of [[], [{ label: "original", preserves_source: true }], QUALITIES]) {
         const r = await rig();
         r.server.next.push({ availableQualities: offered });
         await playMovie(r);
+        // Old value was "1080p Medium" with no bitrate. Apple labelWithBitrate appends formatBitrate (6000 kbps → "6 Mbps").
         assert.deepEqual(tracks(r).quality?.choices ?? [], offered === QUALITIES ? [
-            { id: "auto", label: "Auto" }, { id: "1080p-medium", label: "1080p Medium" }, { id: "future-rung", label: "future-rung" },
+            { id: "auto", label: "Auto" }, { id: "1080p-medium", label: "1080p Medium (6 Mbps)" }, { id: "future-rung", label: "future-rung" },
         ] : []);
     }
 });

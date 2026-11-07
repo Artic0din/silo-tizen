@@ -121,9 +121,8 @@ It is set to `false` for these calls:
 
 - PIN verification (`src/session/profiles.ts`)
 - personal-list and watched mutations (`src/ui/detailsState.ts`)
-- rating writes (`src/ui/ratingState.ts`)
 - shuffle creation (`src/ui/browse.ts`)
-- request create, cancel and follow (`src/ui/browse.ts`)
+- request create, cancel, remove and follow (`src/ui/browse.ts`)
 - series subtitle preference saves (`src/player/controller.ts`)
 
 Settings and AI-subtitle calls resend only when the method is GET (`src/ui/settingsState.ts`, `src/player/subtitleAI.ts`).
@@ -150,10 +149,18 @@ It reports `origin_mismatch` when `request_origin` differs from the entered orig
 It reports `unreachable` for network errors and timeouts, and `server_error` for any other failure.
 The `serverId` it returns is self-asserted and never authorizes anything on its own.
 
+`connect` (`src/session/core.ts`) then calls `GET /system/setup` on that server, still with no credentials.
+A failure is reported the same way as discovery, and no session is opened.
+`needs_setup: true` (true until the first administrator account exists) returns `needs_setup`.
+Sign-in shows the recovery screen and does not start a device code.
+`wizard_completed` is required by the contract and is not used to choose the screen.
+Account creation stays off the TV.
+
 | Operation | Method and path | Auth | Retry | Defined in |
 | --- | --- | --- | --- | --- |
 | getSystemInfo | `GET /system/info` | Public | safe | `src/api/operations.ts` |
 | getServerIdentity | `GET /system/identity` | Public | safe | `src/api/operations.ts` |
+| getSetupStatus | `GET /system/setup` | Public | safe | `src/api/operations.ts`, called from `src/session/core.ts` |
 | server branding | `GET /theme/branding` | Public | safe | `src/api/operations.ts`, called from `src/ui/signIn.ts` |
 | getImageCapabilities | `GET /images/capabilities` | Bearer, Profile | safe | `src/api/operations.ts` |
 
@@ -218,11 +225,26 @@ Outcomes:
 | No answer, or another status of 500 or above | `uncertain`; it may have counted. |
 
 `ProfileLaunch` (`src/session/profileLaunch.ts`) can remember a profile choice per account and device.
+Fresh TVs show the profile picker even for one unprotected profile until the viewer chooses Remember.
+Account migration preserves the existing launch choice and does not select a profile.
 The choice is public storage and the PIN proof is in KeyManager under a random alias.
 On restore it re-checks the profile with a profile-scoped `GET /user/libraries`.
 Remembering a PIN proof is refused when protected storage is not persistent.
 
 ### Catalog, browse and detail
+
+Details sends explicit audio and subtitle choices through `PUT /audio-prefs/{key}` and `PUT /subtitle-prefs/{key}`, and Auto through the corresponding `DELETE`.
+The key is a nonempty series ID or the item's own opaque content ID.
+The audio signature preserves title, embedded title, layout, language, codec, channels and default independently.
+Writes never replay after refresh; queued choices serialize, uncertain results require explicit readback before retry, and playback remains blocked until confirmation and effective catalog readback settle.
+Route teardown fences completions; retained playback returns reread effective state without resending writes.
+Version selection remains visit-only.
+Subtitle signatures preserve source, language, codec, label, forced and hearing-impaired flags.
+External subtitle paths use the catalog `file_name`, matching Apple; embedded tracks send an empty path.
+Explicit Off writes index `-1`, empty language/path and mode `off`.
+Ordinary picks omit `show_forced_subtitles` so they do not pin an inherited profile setting.
+Fresh effective subtitle signatures seed Details using Apple's language/label scoring; explicit Auto remains Auto for the retained visit.
+This is source work only, pending independent review and native Apple/Samsung parity.
 
 All of these are Bearer plus Profile.
 The server applies library access and content limits, so the client does not filter.
@@ -240,25 +262,31 @@ Defined in `src/api/operations.ts` unless noted.
 | getWatch (detail) | `GET /watch/{id}` | safe |
 | resume position | `GET /watch/{id}?file_id=` (`src/api/detailOperations.ts`) | safe |
 | person | `GET /catalog/people/{id}` (`src/api/detailOperations.ts`) | safe |
-| filmography | `GET /catalog?source=person&person_id&type=video&sort=-year&limit=24&image_size=small` (`src/api/detailOperations.ts`) | safe |
+| filmography | `queryCatalogItems`: `POST /catalog/query?image_size=small`, body from `personQuery` (`src/ui/personFilmography.ts`) | safe |
 | similar | `GET /recommendations/similar/{id}?limit=24&image_size=small` (`src/api/detailOperations.ts`) | safe |
 | library sections | `GET /library/{id}/sections?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
 | section items | `GET /library/{id}/sections/{sectionId}/items?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
 | library collections | `GET /library/{id}/collections` (`src/api/discoveryOperations.ts`) | safe |
-| collection items | `GET /library/{id}/collections/{cid}/items?limit&cursor` (`src/api/discoveryOperations.ts`) | safe |
+| collection items | `POST /catalog/query` with `source: library_collection` or `user_collection`, `collection_id`, `limit: 60`, `match: all` and cursor; library/media scope only when narrowing a mixed library, no sort override (`src/api/discoveryOperations.ts`); includes profile viewer state | safe |
 | catalog filters | `GET /catalog/filters?...` (`src/api/discoveryOperations.ts`) | safe |
 | search capabilities | `GET /catalog/search/capabilities` (`src/api/discoveryOperations.ts`) | safe |
 | Search people | `GET /catalog/people?q&media_scope&limit=20` (`src/api/detailOperations.ts`), gated by allowed/available `people_media_scope` | safe |
+| searchCatalogBoxSets | `GET /catalog/box-sets?q&limit=5` (`src/api/boxSetOperations.ts`), All and Movies only, gated by `box_sets: true` | safe |
+| getCatalogBoxSet | `GET /catalog/box-sets/{id}?library_id&image_size=medium` (`src/api/boxSetOperations.ts`) | safe |
+| getCatalogItemBoxSet | `GET /catalog/items/{id}/box-set?image_size=medium` (`src/api/boxSetOperations.ts`), movie pages only, gated by `box_sets: true`. `box_set` absent means no row. Library browse does not group box sets | safe |
 | queryCatalogItems | `POST /catalog/query?image_size=small` (`src/api/discoveryOperations.ts`) | safe |
 | queryCatalogLetters | `POST /catalog/letters` (`src/api/discoveryOperations.ts`) | safe |
 
 Notes:
 
 - Related titles decode the endpoint's `items` collection without requiring the catalog listing's `total` or `total_exact` fields.
+- Collection members decode `CatalogItemCollection` with optional totals and cursor pagination.
+  The test fixture follows the server schema and handler at `6d1562473336738009a91475ed3f33143670c249`; catalog queries and filmography retain their required totals.
 - Pages continue with the opaque `next_cursor`.
 - `limit` is bounded client-side (1 to 200 for collection items, 1 to 100 for `catalog/query`), and out-of-range values throw `RangeError` before any request.
 - The two POST queries are marked `safe` in code ("natural_idempotent"), so the transport retry applies to them.
 - `queryCatalogItems` also serves the watchlist, favorites and history lists (`src/ui/personalLists.ts`).
+- Person works use that same POST through `personQuery`: `source: "person"`, `person_id`, `type` (`video`, `movie` or `series`), `sort: "year"`, `order: "desc"`, `limit: 24` and an optional opaque `cursor`. `detailOperations.filmography` (`GET /catalog?source=person...`) is not called.
 - The detail view reads the same `GET /catalog/items/{id}` for Home marquee fields (`marqueeDetail`).
 - Library search capabilities are probed with `GET /catalog/search/capabilities` (`src/ui/libraryDiscovery.ts`). Text Search sends the episode-inclusive request only after an allowed, available `video_with_episodes_scope: true` answer (`src/contracts/v2/README.md`, Text Search).
 
@@ -279,21 +307,6 @@ All are Bearer plus Profile.
 Gating: `decodePersonalCapability` is true only when `state === "available"`, `allowed` and `membership_supported` are all true (`src/contracts/v2/details.ts`).
 Mutations are sent once, with refresh replay off, and repeat only when the person presses again (comment in `detailOperations.ts`).
 The list screens decode the same capability with a second decoder in `src/ui/personalLists.ts`, which requires a `revision` string.
-
-### Ratings
-
-Defined in `src/ui/ratingState.ts` as `ratingOperations`.
-All are Bearer plus Profile.
-
-| Operation | Method and path | Retry |
-| --- | --- | --- |
-| read | `GET /ratings/{id}` | safe |
-| set | `PUT /ratings/{id}` with body `{ "rating": 1..5 }` | never |
-| clear | `DELETE /ratings/{id}` | never |
-
-A 404 on read means unrated.
-Writes send once with refresh replay off, then read back to confirm; an explicit Retry reads first (`docs/features/ratings.md`).
-A star value outside 1 to 5 throws `RangeError` before any request.
 
 ### Recommendations
 
@@ -318,6 +331,35 @@ The request throws `RangeError` before sending if:
 - the timezone is empty or not a valid IANA zone.
 
 The decoder rejects any day outside the requested window.
+The Calendar view preserves these server day groups and event order without capping events.
+An `air_at` instant displays in the accepted query timezone with an explicit 12-hour clock.
+Without an instant, `air_time` is interpreted as a device-local wall clock and formatted with the same 12-hour clock, as Apple's `DateFormatters.localShortTime(fromWallClock:)` does.
+Date-only releases have no time pill.
+
+Following, Trending and All sit above one week strip: previous, seven stacked weekday/day cells, next, conditional Today, and month/year anchored on Thursday.
+Dots mean that the loaded response contains events for that date; pending days carry no confirmed event state.
+The strip has one focus zone, preserves control keys, and enters on the selected day.
+Artwork keeps the existing URL validation and missing/failed-image fallback, with release badges at top left, a watched check at top right and time at bottom right.
+Captions retain title, episode identity and unavailable-destination information, and the accessible card name includes the overlays.
+
+Presentation references are Apple `Screens/Calendar/CalendarView.swift`, `CalendarFilterBar.swift`, `CalendarWeekStrip.swift`, `CalendarDayShelf.swift`, `CalendarEventCard.swift`, `CalendarModels.swift` and `CalendarWeek.swift` at `9723df007baa8e933f5615cc14b13e99a6ee1ea1`.
+These shared Swift screens contain the tvOS implementations; the shell and focus style live under `tvOS/`.
+The issue's `1a7cceea` reference differs only in the Calendar card's shared focus style, now `TVCardOutlineButtonStyle`.
+The 84×96 day cells, 26 bold day number, 8 dot, 64×64 chevrons, 18 strip gap and 10 day gap come directly from that source.
+The CSS compensates the 18 strip gap by -8 between adjacent days to retain the source's 10 day gap without another focus owner or wrapper.
+Calendar enters on the active filter and the strip enters on the selected day without changing that selection when cards gain focus.
+Shelf zones use the shared spatial focus owner and retained horizontal axis, so vertical return chooses the nearest card and retains the row's scroll.
+The shared scroll owner supports declarative top and bottom alignment: strip entry restores the page top, while shelf entry keeps its heading and cards visible.
+The signed comparison's strip position is 281 pixels; the web filter's inherited action-row margin is removed and its strip gap accounts for the measured 66-pixel filter height.
+Card titles use Apple's `siloCardTitle` alias (28 semibold), and 22-pixel metadata is restricted to one line with an ellipsis.
+Empty weeks show the filter-specific Apple copy and links to the other two filters.
+The existing shell, focus host, artwork fallback, session invalidation and remote Back chain retain ownership.
+Loading has a blank focusable 320-pixel placeholder; empty weeks have a calendar icon and light primary filter links, without an extra Back button.
+Errors without retained data use the shared error mapping and placeholder builder: triangle, headline, message and a 200-pixel Try Again button.
+As in Apple, a quiet refresh retains cached events rather than replacing them with a loading page.
+Today updates the week and selected date without requesting filter focus; Tizen keeps a valid focus target on the selected strip day when Today disappears.
+The bundled Inter font and SVG symbol substitutes still require native comparison against SF Pro and SF Symbols.
+Desktop UI checks cover remote behavior and both motion settings; signed Samsung, matched Apple captures and physical-TV calibration remain separate acceptance gates.
 
 ### Requests
 
@@ -336,12 +378,14 @@ Bearer plus Profile.
 | get one | `GET /requests/{id}` | safe |
 | create | `POST /requests` with `media_type`, `tmdb_id`, `title` | never |
 | cancel | `POST /requests/{id}/cancel` (empty object body) | never |
+| remove | `DELETE /requests/{id}` (204, no body) | never |
 | follow | `PUT /requests/follows/{type}/{tmdbId}` | never |
 | unfollow | `DELETE /requests/follows/{type}/{tmdbId}` | never |
 
 Gating: the Requests section is shown only when `status` decodes as `requests_enabled`, `allowed` and `state === "available"` (`decodeRequestsCapability`).
 A failed probe keeps the last confirmed capability (`src/ui/browse.ts`).
 `follow_supported` is also decoded.
+`remove_failed_supported` is optional. Absent means false. A non-boolean is rejected. Remove Request is offered only when requests are available and the flag is true.
 
 ### Shuffle
 

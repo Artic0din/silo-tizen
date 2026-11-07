@@ -7,6 +7,9 @@
 #                                              <- contracts/settings/v1/manifest.json
 #                                                 (the SETTINGS_KEYS definitions and
 #                                                 SETTINGS_OPTION_SETS, in manifest order)
+#   src/contracts/v2/fixtures/settings_rows_216.json
+#                                              <- the SETTINGS_ROWS_KEYS definitions and
+#                                                 SETTINGS_ROWS_OPTION_SETS from that manifest
 #
 # Every byte comes from `git show <commit>:<path>` in the server repository,
 # never from its working tree, so SOURCE always reproduces the vendored files.
@@ -35,6 +38,7 @@ DEST="$CONTRACT/fixtures"
 FIXTURES_SRC="contracts/api/v2/fixtures"
 MANIFEST_SRC="contracts/settings/v1/manifest.json"
 SETTINGS_FIXTURE="settings_contract_ok"
+SETTINGS_ROWS_FIXTURE="settings_rows_216"
 
 # Server fixtures this client's decoders and fakes read.
 SELECTED=(
@@ -79,6 +83,7 @@ SELECTED=(
   query_catalog_items_ok
   query_catalog_letters_ok
   rate_limited
+  refresh_catalog_item_trailers_ok
   refresh_session_ok
   refresh_session_provider_unavailable
   refresh_session_revoked
@@ -87,6 +92,12 @@ SELECTED=(
   user_libraries
   verify_profile_pin_ok
   verify_profile_pin_wrong
+)
+
+# Present at silo-server 6e8c68d and newer than SOURCE. Kept until SOURCE includes it
+# and the name moves into SELECTED. See src/contracts/v2/README.md.
+KEPT=(
+  request_status_ok
 )
 
 # The Settings manifest subset in settings_contract_ok.json (src/contracts/v2/README.md).
@@ -101,6 +112,19 @@ SETTINGS_KEYS=(
 )
 SETTINGS_OPTION_SETS=(
   playback_audio_languages
+)
+SETTINGS_ROWS_KEYS=(
+  playback.subtitle_appearance
+  playback.intro_skip_mode
+  playback.auto_skip_credits
+  playback.auto_play_next
+  playback.next_up_prompt_seconds
+  catalog.metadata_language
+  catalog.show_advisory_age
+  ui.card_presentation
+)
+SETTINGS_ROWS_OPTION_SETS=(
+  catalog_metadata_languages
 )
 
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
@@ -124,18 +148,28 @@ for name in "${SELECTED[@]}"; do
   is_published "$name.json" || { echo "$FIXTURES_SRC/$name.json does not exist at $SHA" >&2; exit 1; }
 done
 manifest="$(show "$MANIFEST_SRC")"
+settings_subset() {
+  local keys="$1" sets="$2" subset found expected
+  subset="$(jq --argjson keys "$keys" --argjson sets "$sets" '
+    {api_version, revision,
+     definitions: [.definitions[] | select(.key as $k | $keys | index($k))],
+     option_sets: (.option_sets | with_entries(select(.key as $k | $sets | index($k))))}' <<< "$manifest")"
+  # Every key exactly once: a repeated key must not stand in for a missing one.
+  found="$(jq -c '[.definitions[].key] | sort' <<< "$subset")"
+  expected="$(jq -c 'sort' <<< "$keys")"
+  [ "$found" = "$expected" ] \
+    || { echo "$MANIFEST_SRC at $SHA does not hold each Settings key exactly once (expected: $expected; found: $found)" >&2; return 1; }
+  [ "$(jq -c '.option_sets | keys | sort' <<< "$subset")" = "$(jq -c 'sort' <<< "$sets")" ] \
+    || { echo "$MANIFEST_SRC at $SHA lacks one of the Settings option sets" >&2; return 1; }
+  printf '%s\n' "$subset"
+}
 keys_json="$(printf '%s\n' "${SETTINGS_KEYS[@]}" | jq -R . | jq -s .)"
 sets_json="$(printf '%s\n' "${SETTINGS_OPTION_SETS[@]}" | jq -R . | jq -s .)"
-settings="$(jq --argjson keys "$keys_json" --argjson sets "$sets_json" '
-  {api_version, revision,
-   definitions: [.definitions[] | select(.key as $k | $keys | index($k))],
-   option_sets: (.option_sets | with_entries(select(.key as $k | $sets | index($k))))}' <<< "$manifest")"
-# Every key exactly once: a repeated key must not stand in for a missing one.
-found="$(jq -r '[.definitions[].key] | sort | join(" ")' <<< "$settings")"
-[ "$found" = "$(printf '%s\n' "${SETTINGS_KEYS[@]}" | sort | paste -sd' ' -)" ] \
-  || { echo "$MANIFEST_SRC at $SHA does not hold each of the ${#SETTINGS_KEYS[@]} SETTINGS_KEYS exactly once (found: $found)" >&2; exit 1; }
-[ "$(jq '.option_sets | length' <<< "$settings")" -eq "${#SETTINGS_OPTION_SETS[@]}" ] \
-  || { echo "$MANIFEST_SRC at $SHA lacks one of the SETTINGS_OPTION_SETS" >&2; exit 1; }
+settings="$(settings_subset "$keys_json" "$sets_json")"
+rows_keys_json="$(printf '%s\n' "${SETTINGS_ROWS_KEYS[@]}" | jq -R . | jq -s .)"
+rows_sets_json="$(printf '%s\n' "${SETTINGS_ROWS_OPTION_SETS[@]}" | jq -R . | jq -s .)"
+rows="$(settings_subset "$rows_keys_json" "$rows_sets_json")"
+rows="$(jq 'del(.api_version, .revision)' <<< "$rows")"
 
 # Stage the whole set, then publish it, so a failed read never leaves a mixed fixture set.
 stage="$(mktemp -d)"
@@ -144,6 +178,7 @@ for name in "${SELECTED[@]}"; do
   show "$FIXTURES_SRC/$name.json" > "$stage/$name.json"
 done
 printf '%s\n' "$settings" > "$stage/$SETTINGS_FIXTURE.json"
+printf '%s\n' "$rows" > "$stage/$SETTINGS_ROWS_FIXTURE.json"
 
 mkdir -p "$DEST"
 removed=0
@@ -151,7 +186,9 @@ for file in "$DEST"/*.json; do
   [ -e "$file" ] || continue
   name="$(basename "$file" .json)"
   [ "$name" = "$SETTINGS_FIXTURE" ] && continue
+  [ "$name" = "$SETTINGS_ROWS_FIXTURE" ] && continue
   in_list "$name" "${SELECTED[@]}" && continue
+  in_list "$name" "${KEPT[@]}" && continue
   rm "$file"
   echo "removed stale $name.json (not in SELECTED)"
   removed=$((removed + 1))

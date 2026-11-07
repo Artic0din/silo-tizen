@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
@@ -20,19 +21,182 @@ async function selectKid(tv: Tv): Promise<void> {
     await tv.page.locator('[data-focus="unlock"]').click();
 }
 
-test("Change server from the composed picker preserves saved credentials and retires its screen", async () => {
+test("one unprotected profile asks until Remember, including reload", async () => {
+    const browser = await launchBrowser();
+    const tv = await openTv(browser, { app: "application" });
+    tv.fake.profiles = { ...tv.fake.profiles, items: (tv.fake.profiles.items as { id: string }[]).filter(p => p.id === "p-owner") };
+    tv.fake.catalog = new FakeDetails();
+    try {
+        await picker(tv);
+        await tv.page.locator('[data-focus="profile:p-owner"]').click();
+        await tv.page.locator('[data-focus="ask-every-launch"]').click();
+        await tv.page.locator('[data-view="home"]').waitFor();
+        await tv.page.evaluate(() => { window.appHarness.destroy(); window.appHarness.mount(); });
+        await tv.page.locator('[data-screen="profiles"]').waitFor();
+        assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+    } finally { await tv.page.context().close(); await browser.close(); }
+});
+
+test("Change account from the composed picker preserves saved credentials and retires its screen", async () => {
     const browser = await launchBrowser();
     const tv = await openTv(browser, { app: "application" });
     try {
         await picker(tv);
         const saved = await tv.page.evaluate(() => window.appHarness.keyManager.items.size);
         assert.ok(saved > 0);
-        await tv.page.getByRole("button", { name: "Change server", exact: true }).click();
-        await tv.page.locator('[data-screen="entry"]').waitFor();
-        assert.equal(await tv.focused(), "connect");
+        await tv.page.getByRole("button", { name: "Change account", exact: true }).click();
+        await tv.page.locator('[data-view="change-account"]').waitFor();
+        assert.equal(await tv.page.locator('.account-card:focus').count(), 1);
         assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 0);
         assert.equal(await tv.page.evaluate(() => window.appHarness.keyManager.items.size), saved);
         assert.equal(tv.fake.revokedSessions.size, 0);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); await browser.close(); }
+});
+
+test("Change Account waits for a profile instead of reopening a remembered profile", async () => {
+    const browser = await launchBrowser();
+    const tv = await openTv(browser, { app: "application" });
+    tv.fake.catalog = new FakeDetails();
+    try {
+        await picker(tv); await selectKid(tv);
+        await tv.page.locator('[data-screen="remember-profile"]').waitFor();
+        await tv.page.keyboard.press("Enter");
+        await tv.page.locator('[data-view="home"]').waitFor();
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+        await tv.page.locator('.account-card').first().click();
+        await tv.page.locator('[data-screen="profiles"]').waitFor();
+        assert.equal(await tv.page.locator('[data-view="home"]').count(), 0);
+    } finally { await tv.page.context().close(); await browser.close(); }
+});
+
+test("Settings Accounts uses pane rows and Back returns to Settings", async () => {
+    const browser = await launchBrowser();
+    const tv = await openTv(browser, { app: "application" });
+    tv.fake.catalog = new FakeDetails();
+    try {
+        await picker(tv); await selectKid(tv);
+        await tv.page.locator('[data-focus="ask-every-launch"]').click();
+        await tv.page.locator('[data-view="home"]').waitFor();
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+        await tv.page.locator('[data-focus="server"]').click();
+        assert.deepEqual(await tv.page.locator('.settings-pane').evaluate(node => [...node.children].filter(child => child.matches('h2, h3, button')).map(child => child.textContent)), ["ACTIVE SERVER", "Accounts", "ABOUT", "Privacy Policy", "Acknowledgements"]);
+        await tv.page.getByRole("button", { name: "Accounts", exact: true }).click();
+        await tv.page.locator('[data-view="accounts-settings"]').waitFor();
+        const pane = await tv.page.evaluate(() => {
+            const row = document.querySelector<HTMLElement>('.accounts-settings button')!;
+            const remove = document.querySelector<HTMLElement>('.accounts-settings [data-focus^="remove:"]')!;
+            // The focused row scales from its centre. Layout figures below divide that out.
+            const painted = row.getBoundingClientRect();
+            const scale = new DOMMatrix(getComputedStyle(row).transform).a || 1;
+            const unscaled = (node: Element) => {
+                const box = node.getBoundingClientRect();
+                const cx = painted.x + painted.width / 2;
+                const cy = painted.y + painted.height / 2;
+                return { x: cx + (box.x - cx) / scale, y: cy + (box.y - cy) / scale, width: box.width / scale, height: box.height / scale };
+            };
+            const layout = unscaled(row);
+            return { header: getComputedStyle(document.querySelector('.accounts-settings h1')!).fontSize,
+                icon: document.querySelector('.accounts-settings-header [aria-hidden="true"]') !== null,
+                x: layout.x, y: layout.y, scale,
+                addGap: document.querySelector('[data-focus="add-server"]')!.getBoundingClientRect().y - remove.getBoundingClientRect().y,
+                footnote: getComputedStyle(document.querySelector('.accounts-settings > p')!).fontSize,
+                height: layout.height, chevron: row.querySelector('.accounts-chevron svg') !== null,
+                arrow: unscaled(row.querySelector('.accounts-chevron path')!),
+                section: getComputedStyle(document.querySelector('.accounts-settings h2')!).fontSize,
+                red: getComputedStyle(remove).color, destructiveChevron: remove.querySelector('.accounts-chevron') !== null };
+        });
+        assert.equal(pane.header, "42px");
+        assert.equal(pane.icon, true);
+        assert.equal(pane.scale, 1.012);
+        const near = (actual: number, expected: number, what: string): void => {
+            assert.ok(Math.abs(actual - expected) < 0.05, `${what}: ${actual}`);
+        };
+        near(pane.height, 66, "row height");
+        assert.equal(pane.chevron, true);
+        near(pane.arrow.width, 7, "chevron width");
+        near(pane.arrow.height, 14, "chevron height");
+        // The 1.8px stroke adds 0.9px on each edge: painted bounds are 9 by 16 at x1231.
+        near(pane.arrow.x, 1232, "chevron x");
+        assert.equal(pane.section, "19px");
+        near(pane.x, 186, "row x");
+        near(pane.y, 290, "row y");
+        assert.equal(pane.addGap, 92);
+        assert.equal(pane.footnote, "20px");
+        assert.equal(pane.red, "rgb(176, 0, 32)");
+        assert.equal(pane.destructiveChevron, false);
+        await tv.remote(10009);
+        await tv.page.locator('[data-view="settings"]').waitFor();
+        assert.equal(await tv.focused(), "general");
+        await tv.page.locator('[data-focus="server"]').click();
+        assert.equal(await tv.page.getByRole("button", { name: "Manage Servers", exact: true }).count(), 0, "Accounts owns server management");
+        await tv.remote(10009);
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+        await tv.page.locator('.account-card').first().click();
+        await tv.page.locator('[data-screen="profiles"]').waitFor();
+        await tv.page.locator('[data-focus="profile:p-kid"]').click();
+        await tv.page.locator('[data-screen="pin"]').waitFor();
+    } finally { await tv.page.context().close(); await browser.close(); }
+});
+
+test("Accounts Back stays usable after signing out the active account", async () => {
+    const browser = await launchBrowser();
+    const tv = await openTv(browser, { app: "application" });
+    tv.fake.catalog = new FakeDetails();
+    try {
+        await picker(tv); await selectKid(tv);
+        await tv.page.locator('[data-focus="ask-every-launch"]').click();
+        await tv.page.locator('[data-view="home"]').waitFor();
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+        await tv.page.locator('[data-focus="server"]').click();
+        await tv.page.getByRole("button", { name: "Accounts", exact: true }).click();
+        await tv.page.locator('.accounts-settings button').first().click();
+        await tv.page.locator('[data-focus="confirm"]').click();
+        await tv.page.locator('[data-view="accounts-settings"]').waitFor();
+        await tv.remote(10009);
+        await tv.page.locator('[data-view="change-account"]').waitFor();
+        assert.equal(await tv.focused(), "add-server");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); await browser.close(); }
+});
+
+test("Switch Profile during an outage shows retry and keeps the remembered profile's cached Home", async () => {
+    const browser = await launchBrowser();
+    const tv = await openTv(browser, { app: "application" });
+    tv.fake.catalog = new FakeDetails();
+    try {
+        await picker(tv);
+        await selectKid(tv);
+        await tv.page.locator('[data-screen="remember-profile"]').waitFor();
+        await tv.page.keyboard.press("Enter");
+        await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+        const snapshot = await tv.page.evaluate(() => window.appHarness.storage.getItem("silo.browseSnapshots.v1"));
+        assert.match(snapshot ?? "", /\/home\/sections/);
+        const devices = tv.fake.devices.size;
+        const revoked = tv.fake.revokedSessions.size;
+        const secrets = await tv.page.evaluate(() => window.appHarness.keyManager.items.size);
+        const accounts = await tv.page.evaluate(() => window.appHarness.storage.getItem("silo.native.accounts.v1"));
+        tv.offline = true;
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.locator('[data-focus="switch-profile"]').click();
+        await tv.page.locator('[data-screen="profiles-error"]').waitFor({ timeout: 5000 });
+        assert.equal(await tv.page.locator('[data-view="home"]').count(), 0, "Switch Profile must not restore the remembered profile");
+        assert.equal(await tv.focused(), "retry");
+        await tv.page.getByText("Could not reach the server. Check the TV's internet connection, then try again.", { exact: true }).waitFor();
+        assert.equal(await tv.page.evaluate(() => window.appHarness.storage.getItem("silo.browseSnapshots.v1")), snapshot);
+        assert.equal(await tv.page.evaluate(() => window.appHarness.storage.getItem("silo.native.accounts.v1")), accounts);
+        assert.equal(await tv.page.evaluate(() => window.appHarness.keyManager.items.size), secrets);
+        assert.equal(tv.fake.devices.size, devices, "a network failure must not start a device code");
+        assert.equal(tv.fake.revokedSessions.size, revoked, "a network failure must not sign out");
+        await tv.remote(10009);
+        await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
+        assert.equal(await tv.page.evaluate(() => window.appHarness.storage.getItem("silo.browseSnapshots.v1")), snapshot);
+        assert.equal(tv.fake.devices.size, devices);
+        assert.equal(tv.fake.revokedSessions.size, revoked);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); await browser.close(); }
 });
@@ -80,14 +244,46 @@ test("fresh TV offers remember; protected restart skips PIN; Settings opt-out re
         assert.equal(tv.fake.pinAttempts, attempts);
         await tv.page.locator('[data-focus="profiles"]').click();
         await tv.page.locator('[data-focus="settings"]').click();
-        await tv.page.getByRole("button", { name: "Launch profile: Remember this profile", exact: true }).click();
-        await tv.page.getByRole("button", { name: "Launch profile: Ask who's watching", exact: true }).waitFor();
+        await tv.page.locator('[data-focus="remember-profile"]').click();
+        await tv.page.getByRole("radio", { name: "Every Time", exact: true }).click();
+        await tv.page.getByRole("button", { name: /Profile Selection.*Every Time/ }).waitFor();
         await tv.remote(10009); await tv.remote(10009);
         await tv.page.evaluate(() => window.appHarness.mount());
         await tv.page.locator('[data-screen="profiles"]').waitFor();
         await tv.page.locator('[data-focus="profile:p-kid"]').click();
         await tv.page.locator("#profile-pin").waitFor();
         assert.equal(tv.fake.pinAttempts, attempts);
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); await browser.close(); }
+});
+
+test("dismissed Settings launch save preserves the current General control focus", async () => {
+    const browser = await launchBrowser();
+    const tv = await openTv(browser, { app: "application" });
+    tv.fake.catalog = new FakeDetails();
+    new FakeSettings(tv.fake);
+    try {
+        await picker(tv); await selectKid(tv);
+        await tv.page.locator('[data-focus="ask-every-launch"]').click();
+        await tv.page.locator('[data-view="home"]').waitFor();
+        await tv.page.locator('[data-focus="profiles"]').click();
+        await tv.page.locator('[data-focus="settings"]').click();
+        await tv.page.locator('[data-focus="remember-profile"]').click();
+        await tv.page.evaluate(() => {
+            const hold = window.appHarness.keyManager.holdSaves();
+            Object.assign(window, { launchSaveHold: hold });
+        });
+        await tv.page.getByRole("radio", { name: "Automatic", exact: true }).click();
+        await tv.page.getByText("Saving launch choice…", { exact: true }).waitFor();
+        await tv.remote(10009);
+        await tv.page.locator('[data-focus="title-art"]').focus();
+        await tv.page.evaluate(() => {
+            const held = window as unknown as { launchSaveHold: { waiting(): number; release(): void } };
+            if (held.launchSaveHold.waiting() !== 1) throw new Error("expected one pending protected save");
+            held.launchSaveHold.release();
+        });
+        await tv.page.getByRole("button", { name: /Profile Selection.*Automatic/ }).waitFor();
+        assert.equal(await tv.focused(), "title-art");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); await browser.close(); }
 });

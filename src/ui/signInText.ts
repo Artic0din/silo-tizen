@@ -8,7 +8,7 @@ import type { VaultClear } from "../session/credentialVault.ts";
 import type { DeviceLoginState } from "../session/deviceLogin.ts";
 import type { LogoutResult, RestoreResult } from "../session/session.ts";
 
-export function connectProblem(result: Exclude<ConnectResult, { readonly status: "connected" }>): string {
+export function connectProblem(result: Exclude<ConnectResult, { readonly status: "connected" | "needs_setup" }>): string {
     switch (result.status) {
         case "invalid_url":
             return urlProblem(result.problem);
@@ -50,6 +50,13 @@ export function cleartextWarning(host: string): string {
 }
 
 export const CLEARTEXT_DECLINED = "Could not reach a Silo server at that address over HTTPS.";
+
+// TVServerNeedsSetupView and ServerNeedsSetupRetryModel, word for word.
+export const SERVER_NOT_READY_TITLE = "This server\nisn't ready";
+export const SERVER_NOT_READY_BODY = "Ask the server administrator to finish setup. When it is ready, check again.";
+export const SETUP_NEEDED = "Setup needed";
+export const STILL_NEEDS_SETUP = "This server still needs administrator setup.";
+export const SETUP_UNREACHABLE = "Couldn't reach the server. Check it's running and try again.";
 
 export function forgetResult(result: VaultClear): string {
     return result === "failed"
@@ -101,6 +108,20 @@ export function typedUrl(verificationUri: string, verificationUriComplete: strin
     return /^https:\/\//i.test(text) ? text.slice("https://".length) : text;
 }
 
+/** TVServerNeedsSetupView.hostLabel: the hostname, plus a non-default port. */
+export function serverHostLabel(serverUrl: string): string {
+    let url: URL;
+    try {
+        url = new URL(serverUrl);
+    } catch {
+        return serverUrl;
+    }
+    if (url.hostname === "") {
+        return serverUrl;
+    }
+    return url.port === "" ? url.hostname : `${url.hostname}:${url.port}`;
+}
+
 /** The host people recognise for a server, port included so two servers on one machine stay apart. */
 export function serverHost(serverUrl: string): string {
     const text = serverUrl.trim();
@@ -109,7 +130,14 @@ export function serverHost(serverUrl: string): string {
     return rest.split(/[/?]/)[0] ?? rest;
 }
 
-export function codeLead(typed: string | undefined): string {
+/**
+ * The paragraph under the headline. It points at the code on screen, so a declined sign-in,
+ * which withdraws the code, says what to do instead.
+ */
+export function codeLead(status: CodeStatus, typed: string | undefined): string {
+    if (status.kind === "denied") {
+        return "Show a new code to try again.";
+    }
     return `Scan the code with your phone's camera, or go to ${typed ?? "your server's /activate page"} and enter it. Approve on your phone and this TV signs in by itself.`;
 }
 
@@ -148,7 +176,7 @@ export function statusLine(status: CodeStatus, host: string): string {
         case "could_not_finish":
             return "Couldn't finish signing in on this TV.";
         case "denied":
-            return "Sign-in was declined on your phone.";
+            return "Sign-in was declined.";
         case "paused":
             return "Sign-in paused.";
         case "unreachable":
@@ -226,12 +254,11 @@ export function waitText(seconds: number): string {
     return `${Math.ceil(seconds / 60)} minutes`;
 }
 
-export function passwordChange(baseUrl: string): string[] {
-    return [
-        "An administrator set a temporary password for this account. This TV can't use the account until it has a new password.",
-        `In a web browser, open ${baseUrl}, sign in and choose a new password. Then get a new code here.`,
-    ];
-}
+/**
+ * `ErrorState.passwordChangeRequiredMessage` on tvOS (`ErrorState.swift`). Apple TV has no
+ * password change, so the profile picker shows this instead of the server's protocol detail.
+ */
+export const PASSWORD_CHANGE_REQUIRED_MESSAGE = "Your password needs to be reset. Use the Silo mobile app or website to set a new one, then come back.";
 
 // The Apple TV app's password screen (TVLoginView, LoginViewModel), word for word.
 export const PASSWORD_TITLE = "Sign in with\na password";

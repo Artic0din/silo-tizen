@@ -21,7 +21,7 @@ import { ApiError } from "../api/errors.ts";
 import { abortedError, type RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import { isPermittedUrl } from "../api/serverUrl.ts";
-import type { AudioTrackInfo, FileVersionTracks, PlaybackDecision, PlaybackDefaults, PlaybackMutation, PlaybackPlan, ReplanOperation, SelectedTracks, StartPlaybackBody, SubtitleTrack } from "../contracts/v2/playback.ts";
+import type { FileVersionTracks, PlaybackDecision, PlaybackDefaults, PlaybackMutation, PlaybackPlan, ReplanOperation, SelectedTracks, StartPlaybackBody } from "../contracts/v2/playback.ts";
 import type { RandomBytes } from "../session/deviceIdentity.ts";
 import type { NativeSession } from "../session/session.ts";
 import type { AVPlay, AVPlayListener } from "./avplay.ts";
@@ -31,15 +31,21 @@ import { AUTO_NEXT_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KE
 import type { SeekThumbnail } from "../contracts/v2/trickplay.ts";
 import { markerAt, type SkipMarker } from "../contracts/v2/markers.ts";
 import { nextEpisode } from "./nextEpisode.ts";
+import { INTRO_SKIP_KEY, CREDITS_SKIP_KEY } from "../contracts/v2/settingsRows.ts";
 import { nextShuffle } from "./nextShuffle.ts";
 import { SubtitleAI, type SubtitleAIView } from "./subtitleAI.ts";
+const SKIP_UNDO_MILLISECONDS = 5000;
 import { DEFAULT_APPEARANCE, decodeCues, type SubtitleAppearance, type SubtitleCue } from "../contracts/v2/subtitles.ts";
 import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
 import { initialSubtitle } from "./preplaySubtitles.ts";
 import { PlaybackRecovery, recoveryVerdict, type RecoveryStep, type RecoveryVerdict, unanswered } from "./playbackRecovery.ts";
+import { audioRow, qualityMenuLabel, subtitleRow } from "./trackLabels.ts";
 
 /** What browse hands over: one file of one catalog item. */
 export interface PlayRequest {
+    readonly seriesTitle?: string | undefined;
+    readonly seasonNumber?: number | undefined;
+    readonly episodeNumber?: number | undefined;
     readonly shuffleId?: string;
     readonly episode?: true;
     readonly audioTrackId?: string;
@@ -81,7 +87,10 @@ export interface PlaybackExits {
 
 export interface TrackChoice {
     readonly id: string;
+    /** Language, else a meaningful title. The format line is `detail`. */
     readonly label: string;
+    /** Codec, layout and flags. Absent when the name already says everything. */
+    readonly detail?: string;
 }
 
 export type AudioTracks = { readonly state: "loading" } | { readonly state: "failed" } | { readonly state: "ready"; readonly choices: readonly TrackChoice[] };
@@ -113,16 +122,22 @@ export type PlaybackView =
     | { readonly phase: "loading"; readonly title: string; readonly detail?: "reconnecting" | "restoring" }
     | {
           readonly phase: "playing" | "paused";
+          readonly seriesTitle?: string | undefined;
+          readonly seasonNumber?: number | undefined;
+          readonly episodeNumber?: number | undefined;
           readonly title: string;
           /** Source time. */
           readonly positionSeconds: number;
           readonly durationSeconds: number | undefined;
           readonly buffering: boolean;
+          readonly resumePending?: boolean;
+          readonly transportCommandCount?: number;
           readonly tracks: TrackView;
           readonly seekIntervals: { readonly backward: number; readonly forward: number };
           readonly previewKey?: string | undefined;
           readonly captions?: { readonly text: string; readonly appearance: SubtitleAppearance } | undefined;
           readonly skipMarker?: SkipMarker | undefined;
+          readonly undoSkipSeconds?: number | undefined;
       }
     | { readonly phase: "error"; readonly title: string; readonly error: PlaybackError; readonly retryable?: boolean }
     | { readonly phase: "closed" };
@@ -188,7 +203,13 @@ const WARNING_NOTICES: Readonly<Record<string, string>> = {
 };
 
 interface Attempt {
+    transportCommandCount: number;
     autoNext: boolean;
+    introMode: "never" | "ask" | "always";
+    skipCredits: boolean;
+    skippedMarkers: Set<SkipMarker>;
+    undoSkip: { seconds: number; until: number } | undefined;
+    pendingSkipUndo: number | undefined;
     ai: SubtitleAI | undefined;
     readonly aiBlockedFiles: Set<string>;
     pendingAIResult: string | undefined;
@@ -261,6 +282,9 @@ interface Attempt {
     changeFailure: string | undefined;
     endedDuringChange: boolean;
     seekFailure: string | undefined;
+    /** Pause or resume asked for while a local seek is settling. Applied when that seek ends. */
+    pauseAfterSeek: boolean | undefined;
+    queuedSeekSeconds: number | undefined;
     progress: Promise<void> | undefined;
     cancelTimer: (() => void) | undefined;
     stopSpec: RequestSpec<PlaybackMutation> | undefined;
@@ -321,7 +345,9 @@ export class PlaybackController implements PlayerControls {
         }
         this.shownError = undefined;
         const attempt: Attempt = {
+            transportCommandCount: 0,
             autoNext: false,
+            introMode: "ask", skipCredits: false, skippedMarkers: new Set(), undoSkip: undefined, pendingSkipUndo: undefined,
             ai: undefined, aiBlockedFiles: new Set(), pendingAIResult: undefined,
             appearance: DEFAULT_APPEARANCE, subtitleSync: 0, cues: [], captionAbort: undefined, captionNotice: "", captionPreferenceNotice: "", captionKey: undefined, captionPreferencesRead: false, seriesSubtitle: request.episode ? { busy: false, message: "" } : undefined,
             request,
@@ -373,6 +399,8 @@ export class PlaybackController implements PlayerControls {
             changeFailure: undefined,
             endedDuringChange: false,
             seekFailure: undefined,
+            pauseAfterSeek: undefined,
+            queuedSeekSeconds: undefined,
             progress: undefined,
             cancelTimer: undefined,
             stopSpec: undefined,
@@ -398,12 +426,28 @@ export class PlaybackController implements PlayerControls {
 
     togglePause(): void {
         const attempt = this.active();
-        if (attempt !== undefined) this.setPaused(!attempt.paused);
+        if (attempt !== undefined) this.setPaused(!(attempt.pauseAfterSeek ?? attempt.paused));
     }
 
     setPaused(paused: boolean): void {
         const attempt = this.active();
-        if (attempt === undefined || !attempt.started || (attempt.busy && !(attempt.change.state === "changing" && attempt.change.kind === "quality")) || attempt.paused === paused) {
+        if (attempt === undefined) {
+            return;
+        }
+        attempt.transportCommandCount++;
+        // A seek reanchor replaces the transport; preparation must use the latest intent.
+        if (!attempt.started) {
+            if (attempt.presented) attempt.paused = paused;
+            return;
+        }
+        // AVPlay rejects play and pause while seekTo is outstanding. Keep the request and apply it when the seek ends.
+        if (attempt.busy && this.pending.seek !== undefined && attempt.change.state !== "changing") {
+            attempt.pauseAfterSeek = paused;
+            this.showPlayback(attempt);
+            return;
+        }
+        if (attempt.paused === paused) { this.showPlayback(attempt); return; }
+        if (attempt.busy && !(attempt.change.state === "changing" && attempt.change.kind === "quality")) {
             return;
         }
         if (attempt.hidden || attempt.restoring) {
@@ -449,22 +493,34 @@ export class PlaybackController implements PlayerControls {
     }
 
     seekToSeconds(seconds: number): void {
+        this.seekAbsolute(seconds);
+    }
+
+    private seekAbsolute(seconds: number, requestedPaused?: boolean): void {
         const attempt = this.active();
         const plan = attempt?.plan;
-        if (attempt === undefined || plan === undefined || !attempt.started || attempt.busy) {
+        if (attempt === undefined || plan === undefined || !attempt.started) {
             return;
         }
         const duration = plan.durationSeconds;
         const target = Math.max(0, Math.min(seconds, duration ?? Number.MAX_VALUE));
+        if (attempt.busy) {
+            if (this.pending.seek !== undefined && attempt.change.state !== "changing" && !attempt.hidden && !attempt.restoring) attempt.queuedSeekSeconds = target;
+            return;
+        }
+        if (attempt.undoSkip?.seconds === target) attempt.undoSkip = undefined;
         const timeline = plan.timeline;
         const local =
             timeline.canSeekAnywhere &&
             target >= timeline.timelineOffsetSeconds &&
             (timeline.seekWindowStartSeconds === undefined || target >= timeline.seekWindowStartSeconds) &&
             (timeline.seekWindowEndSeconds === undefined || target <= timeline.seekWindowEndSeconds);
+        attempt.pauseAfterSeek = requestedPaused;
         attempt.busy = true;
         this.clearThumbnails(attempt);
         if (!local) {
+            if (requestedPaused !== undefined) attempt.paused = requestedPaused;
+            attempt.pauseAfterSeek = undefined;
             // An open or partial window has no bytes there yet: the server re-anchors the timeline.
             this.closeTransport();
             attempt.started = false;
@@ -475,6 +531,8 @@ export class PlaybackController implements PlayerControls {
         const transport = this.transport;
         const settled = (moved: boolean): void => {
             if (transport !== this.transport || !attempt.live) {
+                attempt.pauseAfterSeek = undefined;
+                attempt.queuedSeekSeconds = undefined;
                 return;
             }
             attempt.busy = false;
@@ -483,10 +541,35 @@ export class PlaybackController implements PlayerControls {
             }
             const failure = attempt.seekFailure;
             attempt.seekFailure = undefined;
+            const pauseAfterSeek = attempt.pauseAfterSeek;
+            attempt.pauseAfterSeek = undefined;
+            const queued = attempt.queuedSeekSeconds;
+            attempt.queuedSeekSeconds = undefined;
             if (failure !== undefined) {
+                if (pauseAfterSeek !== undefined) attempt.paused = pauseAfterSeek;
                 this.routeFailed(attempt, failure);
                 return;
             }
+            if (queued !== undefined) {
+                this.finishSkipSeek(attempt, moved);
+                this.seekAbsolute(queued, pauseAfterSeek);
+                this.showPlayback(attempt);
+                return;
+            }
+            if (pauseAfterSeek !== undefined && pauseAfterSeek !== attempt.paused) {
+                if (attempt.hidden || attempt.restoring) {
+                    attempt.paused = pauseAfterSeek;
+                } else {
+                    try {
+                        if (pauseAfterSeek) this.deps.avplay.pause();
+                        else this.deps.avplay.play();
+                        attempt.paused = pauseAfterSeek;
+                    } catch {
+                        // The platform still refuses play or pause; the next key tries again.
+                    }
+                }
+            }
+            this.finishSkipSeek(attempt, moved);
             this.showPlayback(attempt);
         };
         try {
@@ -525,6 +608,7 @@ export class PlaybackController implements PlayerControls {
         attempt.resumeGeneration += 1;
         attempt.restoring = false;
         attempt.hidden = true;
+        attempt.queuedSeekSeconds = undefined;
         this.capturePosition(attempt);
         this.holdTimers(attempt);
         const seek = this.pending.seek;
@@ -747,6 +831,16 @@ export class PlaybackController implements PlayerControls {
             if (!attempt.live) return false;
             if (contract.apiVersion !== 1 || contract.revision < capability.manifestRevision) throw new Error("Settings contract changed");
             const definitions = profileSettings(contract, capability);
+            for (const key of [INTRO_SKIP_KEY, CREDITS_SKIP_KEY] as const) {
+                if (!definitions.some(def => def.key === key)) continue;
+                try {
+                    const values = await call(operations.effectiveSettings([key]));
+                    if (!attempt.live) return false;
+                    const value = values.get(key)?.value;
+                    if (key === INTRO_SKIP_KEY && (value === "never" || value === "ask" || value === "always")) attempt.introMode = value;
+                    if (key === CREDITS_SKIP_KEY) attempt.skipCredits = value === true;
+                } catch { /* Unavailable optional preferences retain manual skipping. */ }
+            }
             if (definitions.some(def => def.key === AUTO_NEXT_KEY)) {
                 try {
                     const values = await call(operations.effectiveSettings([AUTO_NEXT_KEY]));
@@ -971,6 +1065,8 @@ export class PlaybackController implements PlayerControls {
 
     /** A codec or route failure on this TV: the server picks the next route, a bounded number of times. */
     private routeFailed(attempt: Attempt, classification: string): void {
+        attempt.queuedSeekSeconds = undefined;
+        attempt.pendingSkipUndo = undefined;
         const plan = attempt.plan;
         if (!attempt.live || plan === undefined) {
             return;
@@ -1246,6 +1342,7 @@ export class PlaybackController implements PlayerControls {
             attempt.started = true;
             attempt.presented = true;
             attempt.resuming = false;
+            this.finishSkipSeek(attempt, true);
             if (attempt.recovery?.active === true) attempt.recovery.recovered(this.deps.clock.now());
             if (attempt.cancelTimer === undefined) {
                 this.scheduleProgress(attempt);
@@ -1295,6 +1392,14 @@ export class PlaybackController implements PlayerControls {
                 const plan = attempt.plan;
                 if (current() && attempt.started && (!attempt.busy || attempt.change.state === "changing") && plan !== undefined) {
                     attempt.sourceSeconds = milliseconds / 1000 + plan.timeline.timelineOffsetSeconds;
+                    const marker = markerAt(attempt.markers?.segments ?? [], attempt.sourceSeconds);
+                    if (!attempt.busy && marker !== undefined && !attempt.skippedMarkers.has(marker) && ((marker.kind === "intro" && attempt.introMode === "always") || (marker.kind === "credits" && attempt.skipCredits))) {
+                        attempt.skippedMarkers.add(marker);
+                        attempt.undoSkip = undefined;
+                        attempt.pendingSkipUndo = marker.startSeconds;
+                        this.seekToSeconds(marker.endSeconds);
+                        return;
+                    }
                     this.showPlayback(attempt);
                 }
             },
@@ -1321,6 +1426,14 @@ export class PlaybackController implements PlayerControls {
         };
     }
 
+    private finishSkipSeek(attempt: Attempt, moved: boolean): void {
+        const seconds = attempt.pendingSkipUndo;
+        attempt.pendingSkipUndo = undefined;
+        if (moved && seconds !== undefined) {
+            attempt.undoSkip = { seconds, until: this.deps.clock.now() + SKIP_UNDO_MILLISECONDS };
+        }
+    }
+
     private beginCompletion(attempt: Attempt): void {
         attempt.endedDuringChange = false;
         this.leave(attempt, "abandon");
@@ -1330,11 +1443,18 @@ export class PlaybackController implements PlayerControls {
     }
 
     private closeTransport(): void {
+        const attempt = this.attempt;
+        // A playing scrub pauses the stream and queues Play. The seek callback
+        // drops that intent once this transport is gone, so keep it for the replacement.
+        if (attempt?.pauseAfterSeek !== undefined) {
+            attempt.paused = attempt.pauseAfterSeek;
+            attempt.pauseAfterSeek = undefined;
+        }
         this.transport++;
-        if (this.attempt !== undefined) {
-            this.attempt.suspended = false;
-            this.attempt.suspendedReady = false;
-            this.attempt.deferredOpen = false;
+        if (attempt !== undefined) {
+            attempt.suspended = false;
+            attempt.suspendedReady = false;
+            attempt.deferredOpen = false;
         }
         this.startupDue = undefined;
         this.cancelStartup?.();
@@ -1474,7 +1594,11 @@ export class PlaybackController implements PlayerControls {
                 this.arm(attempt, true, step);
                 return;
             }
-            if (this.nextStart !== undefined && this.shownError !== undefined && retryableStart(this.shownError)) this.play(this.nextStart);
+            if (this.shownError !== undefined && (retryableStart(this.shownError) || this.shownError.kind === "playback_failed")) {
+                const replay = this.shownError.kind === "playback_failed" || (!attempt?.started && this.shownError.kind !== "settings");
+                const next = attempt !== undefined && replay ? sameStart(attempt) : this.nextStart;
+                if (next !== undefined) this.play(next);
+            }
             return;
         }
         const view = this.current;
@@ -1551,7 +1675,7 @@ export class PlaybackController implements PlayerControls {
             const next = await nextEpisode(spec => {
                 if (!current()) throw abortedError();
                 return this.deps.session.call({ ...spec, profileScoped: true, signal: abort.signal });
-            }, attempt.request.contentId, fileId);
+            }, attempt.request.contentId, fileId, attempt.request.seriesTitle);
             show("ready", next);
             if (current() && next !== undefined && attempt.autoNext) this.startAutoplay(completion);
         } catch (error) {
@@ -1593,7 +1717,9 @@ export class PlaybackController implements PlayerControls {
             return;
         }
         this.shownError = error;
-        this.show({ phase: "error", title: attempt.request.title, error, retryable: this.nextStart !== undefined && !attempt.started && retryableStart(error) });
+        const exhausted = error.kind === "playback_failed";
+        const retryable = exhausted || (!attempt.started && retryableStart(error) && (error.kind !== "settings" || this.nextStart !== undefined));
+        this.show({ phase: "error", title: attempt.request.title, error, retryable });
     }
 
     /** A failed progress or replan for the session. */
@@ -2270,13 +2396,19 @@ export class PlaybackController implements PlayerControls {
             phase: attempt.paused ? "paused" : "playing",
             title: attempt.request.title,
             positionSeconds: attempt.sourceSeconds,
+            seriesTitle: attempt.request.seriesTitle,
+            seasonNumber: attempt.request.seasonNumber,
+            episodeNumber: attempt.request.episodeNumber,
             durationSeconds: plan.durationSeconds,
             buffering: attempt.buffering,
+            resumePending: attempt.paused && attempt.pauseAfterSeek === false,
+            transportCommandCount: attempt.transportCommandCount,
             tracks: trackView(attempt, plan),
             seekIntervals: attempt.seekIntervals,
             previewKey: attempt.busy ? undefined : attempt.planAttemptId,
             captions: attempt.hidden || attempt.restoring || attempt.busy ? undefined : { text: attempt.cues.filter(cue => attempt.sourceSeconds - attempt.subtitleSync / 1000 >= cue.start && attempt.sourceSeconds - attempt.subtitleSync / 1000 < cue.end).map(cue => cue.text).join("\n"), appearance: attempt.appearance },
-            skipMarker: attempt.busy ? undefined : markerAt(attempt.markers?.segments ?? [], attempt.sourceSeconds),
+            skipMarker: attempt.busy ? undefined : markerAt((attempt.markers?.segments ?? []).filter(marker => marker.kind !== "intro" || attempt.introMode !== "never"), attempt.sourceSeconds),
+            undoSkipSeconds: attempt.undoSkip !== undefined && this.deps.clock.now() < attempt.undoSkip.until ? attempt.undoSkip.seconds : undefined,
         });
     }
 
@@ -2316,6 +2448,13 @@ function retryableStart(error: PlaybackError): boolean {
     return error.kind === "network" || error.kind === "server" || error.kind === "settings" || (error.kind === "terminal" && error.retryable);
 }
 
+/** The failed start again. A plan that already chose a position keeps that position. */
+function sameStart(attempt: Attempt): PlayRequest {
+    const request = attempt.request;
+    if (attempt.plan === undefined || request.startSeconds === attempt.sourceSeconds) return request;
+    return { ...request, startSeconds: attempt.sourceSeconds };
+}
+
 function trackView(attempt: Attempt, plan: PlaybackPlan): TrackView {
     const tracks = attempt.tracks;
     const notices: string[] = [];
@@ -2341,7 +2480,10 @@ function trackView(attempt: Attempt, plan: PlaybackPlan): TrackView {
         },
         audio: tracks === undefined || tracks.state !== "ready" ? { state: tracks?.state ?? "loading" } : { state: "ready", choices: audioChoices(attempt, plan) },
         selectedAudioId: plan.selectedTracks.audio?.id,
-        subtitles: plan.subtitle.inventory.map((entry) => ({ id: entry.trackId, label: attempt.ai?.view?.results.find(result => entry.syncKey === `stored-${result.id}`)?.label ?? subtitleLabel(entry) })),
+        subtitles: plan.subtitle.inventory.map((entry) => {
+            const generated = attempt.ai?.view?.results.find(result => entry.syncKey === `stored-${result.id}`)?.label;
+            return generated === undefined ? { id: entry.trackId, ...subtitleRow(entry, entry.combinedIndex) } : { id: entry.trackId, label: generated };
+        }),
         selectedSubtitleId: selectedSubtitle(plan),
         subtitleMode: plan.subtitle.mode,
         change: attempt.change,
@@ -2351,7 +2493,7 @@ function trackView(attempt: Attempt, plan: PlaybackPlan): TrackView {
 
 function qualityChoices(plan: PlaybackPlan): TrackChoice[] {
     const offered = plan.availableQualities.filter((quality) => quality.label !== "original" && quality.label !== "auto");
-    return offered.length === 0 ? [] : [{ id: "auto", label: "Auto" }, ...offered.map((quality) => ({ id: quality.label, label: quality.displayName || quality.label }))];
+    return offered.length === 0 ? [] : [{ id: "auto", label: "Auto" }, ...offered.map((quality) => ({ id: quality.label, label: qualityMenuLabel(quality) }))];
 }
 
 /** The effective edition's audio tracks; empty until the versions read answers. */
@@ -2359,7 +2501,7 @@ function audioChoices(attempt: Attempt, plan: PlaybackPlan): TrackChoice[] {
     const tracks = attempt.tracks;
     const fileId = plan.effectiveMediaFileId;
     const version = tracks?.state === "ready" ? tracks.versions.find((candidate) => candidate.fileId === fileId) : undefined;
-    return (version?.audio ?? []).map((track, ordinal) => ({ id: `file:${fileId}:audio:${ordinal}`, label: audioLabel(track, ordinal) }));
+    return (version?.audio ?? []).map((track, ordinal) => ({ id: `file:${fileId}:audio:${ordinal}`, ...audioRow(track, ordinal) }));
 }
 
 /** The shown subtitle; `off` means none even when the plan still names a track. */
@@ -2367,35 +2509,8 @@ function selectedSubtitle(plan: PlaybackPlan): string | undefined {
     return plan.subtitle.mode === "off" ? undefined : plan.subtitle.trackId;
 }
 
-function languageText(language: string | undefined): string | undefined {
-    return language === undefined || language === "" || language === "und" ? undefined : language.toUpperCase();
-}
-
-function audioLabel(track: AudioTrackInfo, ordinal: number): string {
-    const parts = [track.title ?? languageText(track.language) ?? `Track ${ordinal + 1}`];
-    const channels = track.channels;
-    if (channels !== undefined && channels > 0) {
-        parts.push(channels === 1 ? "Mono" : channels === 2 ? "Stereo" : channels === 6 ? "5.1" : channels === 8 ? "7.1" : `${channels} channels`);
-    }
-    if (track.codec !== undefined && track.codec !== "") {
-        parts.push(track.codec.toUpperCase());
-    }
-    return parts.join(" · ");
-}
-
 function textSubtitle(codec: string | undefined): boolean {
     return codec !== undefined && ["srt", "subrip", "webvtt", "vtt", "ass", "ssa", "mov_text", "text"].includes(codec.toLowerCase());
-}
-
-function subtitleLabel(entry: SubtitleTrack): string {
-    const parts = [entry.label ?? languageText(entry.language) ?? `Subtitles ${entry.combinedIndex + 1}`];
-    if (entry.forced) {
-        parts.push("Forced");
-    }
-    if (entry.hearingImpaired) {
-        parts.push("SDH");
-    }
-    return parts.join(" · ");
 }
 
 /** The session itself is gone or the request was abandoned: not a track change the viewer can retry. */

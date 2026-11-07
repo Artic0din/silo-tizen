@@ -14,7 +14,7 @@ import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 class SeamCatalog extends FakeDetails {
     override route(method: string, path: string, profile: string | undefined, body?: Record<string, unknown>): Reply | undefined {
-        if (path.startsWith("/catalog/query") && body?.source === "watchlist") {
+        if (method === "GET" && path.startsWith("/watchlist?")) {
             const scoped = [...this.titles.values()].filter(title => title.type === "movie" || title.type === "series");
             const items = scoped.slice(0, 8).flatMap(title => {
                 const reply = super.route("GET", `/catalog/items/${encodeURIComponent(title.id)}`, profile);
@@ -485,6 +485,11 @@ for (const destination of ["mode", "settings"] as const) test(`pending library r
             await tv.page.locator('[data-focus="playback"]').waitFor();
             held.release();
             await tv.remote(BACK);
+            // The rail's Back selects Home. The saved visit still has to be there when Movies opens again.
+            await showing(tv, "home");
+            assert.equal(await tv.focused(), "home", "Settings Back selects Home");
+            await activate(tv, "movies");
+            await showing(tv, "library:12");
         }
         await tv.page.locator(`[data-focus="${committed.key}"]`).waitFor();
         await tv.jump(300);
@@ -576,7 +581,15 @@ test("a removed library card falls back to a visible title", async () => {
         await tv.eventually(async () => await tv.page.evaluate(() => window.browseHarness.plays.length) === 1, "playback handoff");
         catalog.removed.add("movie:m0005");
         await tv.page.evaluate(() => window.browseHarness.resume());
-        await tv.page.locator('[data-focus="play"]').waitFor();
+        // Resume rereads the title. Once that read sees the removal, Play is gone and the
+        // not-found page is what stays on screen; waiting only for Play misses that page.
+        await tv.eventually(async () => {
+            const view = await tv.page.evaluate(() => {
+                const browse = document.querySelector(".browse");
+                return browse instanceof HTMLElement && !browse.hidden ? browse.getAttribute("data-view") : null;
+            });
+            return view === "item:failed";
+        }, "resumed details");
         const reads = tv.fake.requests.filter(request => request.path.startsWith("/library/12/sections")).length;
         const held = tv.fake.hold("/library/12/sections", true);
         await tv.remote(BACK);
@@ -609,15 +622,17 @@ test("settings, audio, calendar, filmography, personal and card actions keep vis
         assert.ok(file);
         catalog.audioFiles.set("42", { ...file, audio: Array.from({ length: 16 }, (_, index) => ({ default: index === 0, language: "en", title: `Audio ${index + 1}` })) });
         await signedIn(tv, catalog);
-        new FakeSettings(tv.fake);
+        const settings = new FakeSettings(tv.fake);
+        settings.remainingRows = true;
         await tv.page.locator('[data-focus="profiles"]').focus();
         await tv.page.keyboard.press("Enter");
         await tv.page.getByRole("menuitem", { name: "Settings", exact: true }).click();
-        await tv.page.locator('[data-focus="playback"]').click();
-        await tv.page.locator('[data-focus="seek-forward"]').click();
-        for (let step = 0; step < 7; step++) await tv.page.keyboard.press("ArrowDown");
+        await tv.page.locator('[data-focus="subtitles"]').click();
+        await tv.page.locator('[data-focus="appearance-textOpacity"]').click();
+        for (let step = 0; step < 19; step++) await tv.page.keyboard.press("ArrowUp");
+        for (let step = 0; step < 19; step++) await tv.page.keyboard.press("ArrowDown");
         await tv.jump(250);
-        assert.equal(await tv.focused(), "seek-forward:90");
+        assert.equal(await tv.focused(), "choice:100");
         assert.equal(await visibleFocus(tv), true, "settings selector reveals the focused choice");
         await tv.remote(BACK);
         await tv.remote(BACK);
@@ -641,14 +656,17 @@ test("settings, audio, calendar, filmography, personal and card actions keep vis
         assert.equal(await visibleFocus(tv), true, "audio overflow keeps the focused track visible");
         await tv.remote(BACK);
         assert.equal(await tv.focused(), "audio");
-        await tv.page.locator('[data-focus="person:7"]').first().click();
-        await tv.page.locator('[data-focus="see-all"]').waitFor();
-        await tv.page.locator('[data-focus="see-all"]').click();
-        await tv.page.locator(".browse-grid .browse-card").first().waitFor();
+        await tv.page.locator('.details-people [data-focus^="credit:7:"]').first().click();
+        const personCard = tv.page.locator(".browse-grid .browse-card").first();
+        await personCard.waitFor();
+        const personId = await personCard.getAttribute("data-focus");
+        await personCard.click();
+        await tv.page.locator(".details-hero").waitFor();
         await tv.remote(BACK);
-        assert.equal(await tv.focused(), "see-all");
-        assert.equal(await visibleFocus(tv), true, "filmography return keeps See all visible");
+        assert.equal(await tv.focused(), personId);
+        assert.equal(await visibleFocus(tv), true, "Person return keeps its card visible");
         await tv.remote(BACK);
+        assert.match(await tv.focused() ?? "", /^credit:7:/);
         await tv.remote(BACK);
         await showing(tv, "home");
         await tv.page.locator('[data-focus="for_you"]').focus(); await tv.remote(40);
@@ -691,6 +709,14 @@ test("calendar return keeps the focused event visible", async () => {
         await showing(tv, "calendar");
         assert.equal(await tv.focused(), key);
         assert.equal(await visibleFocus(tv), true, "calendar return keeps the event visible");
+        const reads = tv.fake.requests.filter(request => request.path.startsWith("/calendar?")).length;
+        await tv.page.keyboard.press("ArrowUp");
+        assert.equal(await tv.focused(), "day:2026-01-02", "shelf return preserves the selected date instead of changing it on card focus");
+        assert.equal(await visibleFocus(tv), true, "selected strip day remains visible above the shelf");
+        for (let index = 0; index < 5; index++) await tv.page.keyboard.press("ArrowLeft");
+        assert.equal(await tv.focused(), "previous-week");
+        assert.equal(await visibleFocus(tv), true, "the strip chevron has visible focus");
+        assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/calendar?")).length, reads);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

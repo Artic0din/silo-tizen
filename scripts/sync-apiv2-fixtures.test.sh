@@ -16,6 +16,8 @@ array_names() {
 selected="$(array_names SELECTED)"
 keys="$(array_names SETTINGS_KEYS)"
 sets="$(array_names SETTINGS_OPTION_SETS)"
+rows_keys="$(array_names SETTINGS_ROWS_KEYS)"
+rows_sets="$(array_names SETTINGS_ROWS_OPTION_SETS)"
 [ -n "$selected" ] && [ -n "$keys" ] && [ -n "$sets" ] || fail "could not read the script's arrays"
 
 client="$tmp/client"
@@ -49,9 +51,9 @@ done
 write_manifest() {
   {
     printf '{"api_version":1,"revision":%s,"definitions":[{"key":"not.selected"}' "$1"
-    printf '%s\n' "$2" | sed 's/.*/,{"key":"&"}/' | tr -d '\n'
+    printf '%s\n' "$2" "$rows_keys" | sed '/^$/d; s/.*/,{"key":"&"}/' | tr -d '\n'
     printf '],"option_sets":{"unused":{}'
-    printf '%s\n' "$sets" | sed 's/.*/,"&":{"type":"x"}/' | tr -d '\n'
+    printf '%s\n' "$sets" "$rows_sets" | sed '/^$/d; s/.*/,"&":{"type":"x"}/' | tr -d '\n'
     printf '}}\n\n'
   } > "$server/contracts/settings/v1/manifest.json"
 }
@@ -78,6 +80,7 @@ env -u SILO_SERVER_REPO "$sync" "$base" >/dev/null 2>&1 || status=$?
 ok "requires SILO_SERVER_REPO"
 
 printf '{"stale":true}\n' > "$dest/dropped_from_selected.json"
+printf '{"remove_failed_supported":true}\n' > "$dest/request_status_ok.json"
 printf '%s\n' "0000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" > "$client/src/contracts/v2/SOURCE"
 mkdir -p "$client/docs"
 printf 'Pinned to 0000000.\n' > "$client/docs/pin.md"
@@ -87,6 +90,7 @@ while IFS= read -r name; do
 done <<< "$selected"
 ok "vendors every SELECTED fixture despite a listing larger than a pipe buffer"
 [ ! -e "$dest/dropped_from_selected.json" ] || fail "stale fixture was kept"
+[ -f "$dest/request_status_ok.json" ] || fail "request_status_ok was deleted before SOURCE includes it"
 [ ! -e "$dest/zz_padding_fixture_with_a_long_enough_name_0.json" ] || fail "an unselected server fixture was vendored"
 ok "deletes stale fixtures and vendors nothing outside SELECTED"
 settings="$dest/settings_contract_ok.json"
@@ -96,6 +100,15 @@ settings="$dest/settings_contract_ok.json"
   || fail "settings option sets are: $(jq -c '.option_sets | keys' "$settings")"
 [ "$(jq '.revision' "$settings")" = 24 ] || fail "settings revision not copied"
 ok "writes only the selected Settings definitions and option sets, in manifest order"
+rows="$dest/settings_rows_216.json"
+[ -f "$rows" ] || fail "Settings rows fixture was not generated"
+[ "$(jq -r '[.definitions[].key] | join(" ")' "$rows")" = "$(printf '%s\n' "$rows_keys" | paste -sd' ' -)" ] || fail "Settings rows definitions differ"
+[ "$(jq -r '.option_sets | keys | join(" ")' "$rows")" = "$rows_sets" ] || fail "Settings rows option sets differ"
+cp "$rows" "$tmp/rows-before.json"
+printf '{"stale":true}\n' > "$rows"
+SILO_SERVER_REPO="$server" "$sync" "$base" >/dev/null
+cmp -s "$tmp/rows-before.json" "$rows" || fail "refresh did not reproduce the Settings rows fixture"
+ok "refresh regenerates the Settings rows fixture instead of deleting or preserving stale bytes"
 [ "$(cat "$client/src/contracts/v2/SOURCE")" = "$base" ] || fail "SOURCE is not the server commit"
 ok "records the server commit in SOURCE"
 expected_sha="$(git -C "$server" show "$base:contracts/settings/v1/manifest.json" | shasum -a 256 | cut -d' ' -f1)"
@@ -113,6 +126,19 @@ first_key="$(printf '%s\n' "$keys" | head -n 1)"
 write_manifest 25 "$(printf '%s\n' "$keys" | sed 1d)"
 missing_key="$(commit "drop $first_key")"
 expect_reject "manifest loses a SETTINGS_KEYS definition" "exactly once" "$missing_key"
+
+saved_rows_keys="$rows_keys"
+rows_keys="$(printf '%s\n' "$rows_keys" | sed 1d)"
+write_manifest 24 "$keys"
+missing_row="$(commit "drop a Settings row definition")"
+expect_reject "manifest loses a Settings rows definition" "exactly once" "$missing_row"
+rows_keys="$saved_rows_keys"
+saved_rows_sets="$rows_sets"
+rows_sets=""
+write_manifest 24 "$keys"
+missing_rows_set="$(commit "drop the Settings rows option set")"
+expect_reject "manifest loses a Settings rows option set" "lacks one of the Settings option sets" "$missing_rows_set"
+rows_sets="$saved_rows_sets"
 
 first_selected="$(printf '%s\n' "$selected" | head -n 1)"
 write_manifest 24 "$keys"

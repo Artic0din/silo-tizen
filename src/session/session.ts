@@ -40,7 +40,7 @@ export type RefreshOutcome =
     | { readonly status: "refreshed" }
     | { readonly status: "session_ended" }
     /** Server or network unavailable; tokens kept, try again after the delay. */
-    | { readonly status: "unavailable"; readonly retryAfterSeconds: number | undefined }
+    | { readonly status: "unavailable"; readonly retryAfterSeconds: number | undefined; readonly transportFailure?: "network" | "timeout" }
     | { readonly status: "aborted" }
     | { readonly status: "signed_out" };
 
@@ -68,6 +68,9 @@ export type AuthorizedSpec<T> = Omit<RequestSpec<T>, "bearer" | "profile"> & {
     readonly replayAfterRefresh?: boolean;
 };
 
+/** Refresh failed before dispatch (or after an explicit 401 refusal). */
+export class SessionRefreshError extends ApiError {}
+
 export class SessionError extends Error {
     readonly reason: "signed_out" | "session_ended" | "unavailable";
     readonly retryAfterSeconds: number | undefined;
@@ -88,6 +91,7 @@ export class NativeSession {
     readonly server: ServerConnection;
     private readonly vault: CredentialVault;
     private readonly clock: Clock;
+    private readonly beforeInstall: ((accountId: string) => Promise<void>) | undefined;
     private credential: StoredCredential | undefined;
     private profile: ActiveProfile | undefined;
     private persistenceMode: Persistence;
@@ -101,10 +105,12 @@ export class NativeSession {
     private refreshing: Promise<RefreshOutcome> | undefined;
     private readonly listeners: AuthorityListener[] = [];
 
-    constructor(server: ServerConnection, vault: CredentialVault, clock: Clock) {
+    constructor(server: ServerConnection, vault: CredentialVault, clock: Clock,
+        beforeInstall?: (accountId: string) => Promise<void>) {
         this.server = server;
         this.vault = vault;
         this.clock = clock;
+        this.beforeInstall = beforeInstall;
         this.persistenceMode = vault.persistent ? "persistent" : "session_only";
     }
 
@@ -116,9 +122,9 @@ export class NativeSession {
         return this.credential !== undefined;
     }
 
-    get account(): { readonly id: string; readonly username: string } | undefined {
+    get account(): { readonly id: string; readonly username: string; readonly role?: string } | undefined {
         const credential = this.credential;
-        return credential === undefined ? undefined : { id: credential.accountId, username: credential.username };
+        return credential === undefined ? undefined : { id: credential.accountId, username: credential.username, ...(credential.role === undefined ? {} : { role: credential.role }) };
     }
 
     get persistence(): Persistence {
@@ -178,6 +184,7 @@ export class NativeSession {
             serverId: this.server.serverId,
             accountId: account.id,
             username: account.username,
+            ...(account.role === undefined ? {} : { role: account.role }),
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken,
             accessExpiresAt: this.clock.now() + tokens.expiresInSeconds * 1000,
@@ -189,9 +196,11 @@ export class NativeSession {
             void revokeIssuedTokens(this.http, replaced);
         }
         const epoch = this.accountEpoch;
+        await this.beforeInstall?.(account.id);
+        if (this.accountEpoch !== epoch) return undefined;
         // Whatever was stored before (even an account this run could not read) must not come
         // back after a restart if this save fails.
-        const previousSession = await this.vault.clear();
+        const previousSession = await this.vault.prepareSignIn(credential);
         const current = this.credential;
         if (this.accountEpoch !== epoch || current === undefined) {
             return undefined;
@@ -259,9 +268,49 @@ export class NativeSession {
                 throw abortedError();
             }
         };
+        await this.http.verifyConnection(signal);
         const credential = await this.freshCredential(ensureCurrent);
         ensureCurrent();
         return credential.accessToken;
+    }
+
+    /**
+     * GET a same-origin URL with the account and the active profile, the way a
+     * profile-scoped read does. A 401 refreshes once and sends the GET again.
+     * The body is left unread for the bandwidth probe.
+     */
+    async authorizedFetch(url: string, signal?: AbortSignal): Promise<Response> {
+        const generation = this.generation;
+        const ensureCurrent = (): void => {
+            if (this.generation !== generation || signal?.aborted === true) throw abortedError();
+        };
+        const profile = this.profile;
+        if (profile === undefined) throw new SessionError("signed_out");
+        let replayed = false;
+        for (;;) {
+            const credential = await this.freshCredential(ensureCurrent);
+            ensureCurrent();
+            const linked = linkSignals(this.authorityController.signal, signal);
+            try {
+                const response = await this.http.fetchResource(url, {
+                    bearer: credential.accessToken,
+                    profile: { id: profile.id, token: profile.token },
+                    signal: linked.signal,
+                });
+                if (response.status === 401 && !replayed) {
+                    await response.body?.cancel().catch(() => undefined);
+                    const outcome = await this.refreshAfterRejection(credential);
+                    throwUnlessRefreshed(outcome);
+                    ensureCurrent();
+                    replayed = true;
+                    continue;
+                }
+                ensureCurrent();
+                return response;
+            } finally {
+                linked.dispose();
+            }
+        }
     }
 
     private async freshCredential(ensureCurrent: () => void): Promise<StoredCredential> {
@@ -304,11 +353,25 @@ export class NativeSession {
     /** Ends the session here first, so it holds even offline; then asks the server to revoke it. */
     async logout(): Promise<LogoutResult> {
         const credential = this.credential;
-        const storage = await this.endAccount("signed_out");
+        const clearing = this.endAccount("signed_out");
         if (credential === undefined) {
-            return { storage, server: "not_signed_in" };
+            return { storage: await clearing, server: "not_signed_in" };
         }
-        return { storage, server: await revokeIssuedTokens(this.http, credential) };
+        const revoking = revokeIssuedTokens(this.http, credential);
+        return { storage: await clearing, server: await revoking };
+    }
+
+    /** Discard a replaced deployment's authority without sending it a revocation. */
+    async deploymentChanged(): Promise<void> {
+        await this.endAccount("session_expired");
+    }
+
+    /** Releases an obsolete owner without clearing the replacement login's vault. */
+    async retire(): Promise<void> {
+        this.resetAccount();
+        this.bump("signed_out");
+        // Drain earlier vault writes before the replacement owner saves its credentials.
+        await this.vault.drain();
     }
 
     /** Used by Profiles; switching aborts the old profile's requests and notifies listeners. */
@@ -363,7 +426,7 @@ export class NativeSession {
                 await this.endAccount("session_expired");
                 return { status: "session_ended" };
             }
-            return { status: "unavailable", retryAfterSeconds: error.retryAfterSeconds };
+            return { status: "unavailable", retryAfterSeconds: error.retryAfterSeconds, ...(error.failure.kind === "network" || error.failure.kind === "timeout" ? { transportFailure: error.failure.kind } : {}) };
         }
     }
 
@@ -374,9 +437,10 @@ export class NativeSession {
     }
 
     private endAccount(reason: "signed_out" | "session_expired"): Promise<VaultClear> {
+        const hadAccount = this.signedIn;
         this.resetAccount();
         this.bump(reason);
-        return this.vault.clear();
+        return reason === "signed_out" && hadAccount ? this.vault.signOut() : this.vault.clear();
     }
 
     private resetAccount(): void {
@@ -411,6 +475,7 @@ function throwUnlessRefreshed(outcome: RefreshOutcome): void {
         case "refreshed":
             return;
         case "unavailable":
+            if (outcome.transportFailure !== undefined) throw new SessionRefreshError({ kind: outcome.transportFailure });
             throw new SessionError("unavailable", outcome.retryAfterSeconds);
         case "session_ended":
             throw new SessionError("session_ended");

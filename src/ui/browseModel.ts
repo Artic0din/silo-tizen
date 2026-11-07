@@ -13,12 +13,18 @@ export interface PlayRequest {
     /** startPlayback's file_id. */
     readonly fileId: string;
     readonly title: string;
+    /** Episode playback. The series page fills these when the episode item omits them. */
+    readonly seriesTitle?: string | undefined;
+    readonly seasonNumber?: number | undefined;
+    readonly episodeNumber?: number | undefined;
     readonly audioTrackId?: string;
     readonly subtitle?: SubtitleIntent;
     readonly allowAlternateVersions?: false;
     /** Source seconds; zero starts over, omission lets the server resume. */
     readonly startSeconds: number | undefined;
 }
+
+export type EpisodeSelection = Partial<Pick<PlayRequest, "fileId" | "audioTrackId" | "subtitle">>;
 
 /** A place a card or row opens. Items open their detail page; seasons open their episode list. */
 export type Destination =
@@ -48,6 +54,35 @@ export function destinationOf(card: Card): Destination | undefined {
         case "unknown":
             return undefined;
     }
+}
+
+/** A series id that names a different parent, as Apple `SeriesDetailContext.parentID`. */
+function parentSeriesId(card: Card): string | undefined {
+    const seriesId = card.seriesId?.trim();
+    if (seriesId === undefined || seriesId === "" || seriesId === card.id) return undefined;
+    return seriesId;
+}
+
+function seriesCardTitle(card: Card): string {
+    const seriesTitle = card.seriesTitle?.trim();
+    return seriesTitle === undefined || seriesTitle === "" ? card.title : seriesTitle;
+}
+
+/**
+ * Browse Select follows Apple `Route.itemDetail(browseItem:)`.
+ * An episode opens its series on that episode. A season opens the series
+ * on that season. Movies and series open themselves.
+ */
+export function browseCardDestination(card: Card): Destination | undefined {
+    const seriesId = parentSeriesId(card);
+    // Unknown media stays omitted. An episode number on a season still names the parent series.
+    if (card.type !== "unknown" && seriesId !== undefined && (card.type === "episode" || card.episodeNumber !== undefined)) {
+        return { kind: "item", id: seriesId, title: seriesCardTitle(card), seriesContext: { seasonNumber: card.seasonNumber, episodeId: card.id } };
+    }
+    if (card.type === "season" && seriesId !== undefined && card.seasonNumber !== undefined) {
+        return { kind: "item", id: seriesId, title: seriesCardTitle(card), seriesContext: { seasonNumber: card.seasonNumber, episodeId: undefined } };
+    }
+    return destinationOf(card);
 }
 
 /**
@@ -125,7 +160,7 @@ export function playChoices(detail: ItemDetail, selectedFileId?: string): PlayCh
         contentId: detail.id,
         fileId: file.fileId,
         title: detail.title,
-        ...(detail.type === "episode" ? { episode: true as const } : {}),
+        ...(detail.type === "episode" ? { episode: true as const, seriesTitle: detail.seriesTitle, seasonNumber: detail.seasonNumber, episodeNumber: detail.episodeNumber } : {}),
         ...(selectedFileId === undefined ? {} : { allowAlternateVersions: false as const }),
     };
     const start = resumeSeconds(detail.watch?.positionSeconds, duration);
@@ -143,6 +178,30 @@ export function clockTime(totalSeconds: number): string {
     const rest = seconds % 60;
     const pad = (value: number): string => (value < 10 ? `0${value}` : String(value));
     return hours > 0 ? `${hours}:${pad(minutes)}:${pad(rest)}` : `${minutes}:${pad(rest)}`;
+}
+
+function named(value: string | undefined): string | undefined {
+    const trimmed = value?.trim();
+    return trimmed === undefined || trimmed === "" ? undefined : trimmed;
+}
+
+/**
+ * The player footer reads the play request. An episode item can omit the series name and
+ * the season and episode numbers that the series page and its rail already show.
+ * Apple TV takes the same line from the watch detail (`playerMetadata` at 2ef3a171).
+ */
+export function seriesPlayback(request: PlayRequest, page: ItemDetail, rail: { readonly seasonNumber: number; readonly episodeNumber: number } | undefined): PlayRequest {
+    if (request.episode !== true && page.type !== "series" && page.type !== "season") return request;
+    const seriesTitle = named(request.seriesTitle) ?? (page.type === "series" ? named(page.title) : named(page.seriesTitle));
+    const seasonNumber = request.seasonNumber ?? rail?.seasonNumber;
+    const episodeNumber = request.episodeNumber ?? rail?.episodeNumber;
+    return {
+        ...request,
+        episode: true,
+        ...(seriesTitle === undefined ? {} : { seriesTitle }),
+        ...(seasonNumber === undefined ? {} : { seasonNumber }),
+        ...(episodeNumber === undefined ? {} : { episodeNumber }),
+    };
 }
 
 export function episodeLabel(seasonNumber: number | undefined, episodeNumber: number | undefined): string | undefined {

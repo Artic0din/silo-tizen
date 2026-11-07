@@ -40,7 +40,7 @@ File pointers are repository-relative.
 | Switch Server | 🟡 | ✅ | ✅ | Opens manual entry and keeps saved sign-ins. Saved-server list is planned (#127). Apple: `ServerListView`. Android: `TvServerListScreen` |
 | Sign out with confirmation | ✅ | ✅ | ✅ | Cancel and Back keep the session. Android: `TvSignOutDialog` |
 | Sign Out & Remove Server | 🚧 | ✅ | ✅ | Tracked under #107. Apple: `signOutRemoveServerAndReset`. Android: `TvSignOut` |
-| "Server isn't ready" screen for a server that still needs setup | ➖ | ✅ | ✅ | Tizen never reads `/api/v2/system/setup`. Apple: `TVServerNeedsSetupView`. Android: first-run setup in `TvServerSetupViewModel` |
+| "Server isn't ready" screen for a server that still needs setup | ✅ | ✅ | ✅ | Server entry reads `GET /system/setup` and shows Apple TV's recovery screen. Account creation stays off the TV. Apple: `TVServerNeedsSetupView`. Android: first-run setup in `TvServerSetupViewModel` |
 
 ## Profiles
 
@@ -91,12 +91,12 @@ File pointers are repository-relative.
 |---|:---:|:---:|:---:|---|
 | Movie and series details (artwork, facts, ratings, cast and crew, versions) | ✅ | ✅ | ✅ | Layout parity open (#92). Android: `TvItemDetailScreen` |
 | Series → seasons → episodes | ✅ | ✅ | ✅ | Tizen uses season chips and an inline episode rail; episode Select plays directly. Card actions retains explicit Episode information; season information remains in More |
-| Series Play starts the next-up episode | ✅ | ✅ | ✅ | Tizen resolves the server's target for Play/Resume S#:E# and refreshes its resume point at activation. Apple: `TVSeriesDetailView`. Android: `TvItemDetailScreen` |
+| Series Play follows next-up or the focused episode | ✅ | ✅ | ✅ | Tizen loads the playback episode on season acceptance and missing focused episode details after a 120 ms dwell, reuses retained owners, and refreshes progress at activation. The focus-read rule exception remains pending. Apple: `TVSeriesDetailView`. Android: `TvItemDetailScreen` |
 | Related titles | 🟡 | ✅ | ✅ | Series page shows "Could not load related titles" (#90). Apple: `TVSimilarRail` |
 | Person page (bio, age, photo, filmography preview) | ✅ | ✅ | ✅ | Layout parity open (#102). Android: `TvPersonDetailScreen` |
 | Full filmography (All, Movies, Series) | ✅ | ✅ | ✅ | Server-filtered, paged. Android: filter chips on `TvPersonDetailScreen`. Apple: `TVPersonDetailContent` with `PersonFilterBar`, paged |
-| Trailers | ➖ | ✅ | ✅ | Server gives a site key, not an AVPlay stream URL. Apple: `TVTrailersRail`. Android: `TvDetailTrailersSection` |
-| Local extras | ➖ | ✅ | ✅ | Apple: `TVTrailersRail` "Trailers & More" plays local extras. Android: `TvDetailTrailersSection`, played from `TvItemDetailScreen` |
+| Trailers | 🟡 | ✅ | ✅ | Movie and series Details show YouTube cards in Trailers & More. Select stays on the card: AVPlay cannot play them, and a Samsung YouTube handoff is unproven. Apple: `TVTrailersRail`. Android: `TvDetailTrailersSection` |
+| Local extras | ✅ | ✅ | ✅ | Tizen's Trailers & More plays local extras from zero; absent embedded file IDs resolve through catalog versions, with Retry, cancellation and Back restoration. Fake-server/AVPlay tests pass; native playback and comparison remain pending. Apple: `TVTrailersRail`. Android: `TvDetailTrailersSection`, played from `TvItemDetailScreen` |
 | Synopsis dialog | ✅ | ➖ | ✅ | Android: `TvExpandableSynopsis`. Apple: `TVHeroSynopsis` is a non-focusable 3-line clamp, no dialog |
 
 ## Personal lists & ratings
@@ -126,7 +126,7 @@ File pointers are repository-relative.
 
 | Feature | Tizen | Apple TV | Android TV | Notes |
 |---|:---:|:---:|:---:|---|
-| Requests hub, discover rows, search, detail, My Requests, cancel | ✅ | ✅ | ✅ | Shown only when the server enables it. Bugs: focus (#74), status text (#75), artwork (#76). Layout parity open (#98). Tizen: a top-bar tab (`src/ui/navigation.ts`). Apple: in the profile menu (`TVMainTabView`). Android: `TvRequestsPage`, in the profile menu |
+| Requests hub, discover rows, search, detail, My Requests, cancel, remove a failed request | ✅ | ✅ | ✅ | Shown only when the server enables it. Remove Request needs `remove_failed_supported` and a failed request with nothing delivered. Bugs: focus (#74), status text (#75), artwork (#76). Layout parity open (#98). Tizen: a top-bar tab (`src/ui/navigation.ts`). Apple: in the profile menu (`TVMainTabView`). Android: `TvRequestsPage`, in the profile menu |
 | Follow / unfollow a requested title | ✅ | ✅ | ✅ | Android: "Notify me when available" when the server reports `follow_supported`. Apple: "Notify Me" in `RequestDetailView`, gated on `followSupported` |
 | Request administration | ➖ | ➖ | ➖ | Stays in web admin |
 
@@ -144,7 +144,7 @@ File pointers are repository-relative.
 | Skip intro, recap, credits | ✅ | ✅ | ✅ | Enter on Skip pauses instead of skipping (#73); on-screen buttons to remove (#87). Android: `TvIntroAutoSkipBanner` |
 | Autoplay next episode (10 s countdown, Cancel) | ✅ | ✅ | ✅ | Reads the server setting. Stale after the episode ends (#82) |
 | Up Next panel before the episode ends (Play Now, Keep Watching) | ➖ | ✅ | ✅ | Tizen offers Play next only after the episode ends. Apple: `PlayerView`, with a Show Next Up time setting. Android: `TvPlayerScreen` |
-| Retry after playback fails to start | 🟡 | ✅ | ✅ | Tizen offers Retry only for a next-episode start, a settings read and a lost connection; a failed first start offers Back (`src/player/controller.ts`). Apple: `PlayerViewModel.retry()`. Android: `TvPlayerScreen` |
+| Retry after playback fails to start | ✅ | ✅ | ✅ | A retryable first start (network, server, retryable terminal, or a route recovery that ran out of attempts) focuses Retry and replays that request at the same position. Go Back stays available. Apple: `PlayerViewModel.retry()`. Android: `TvPlayerScreen` |
 | Playback speed | ➖ | ✅ | ✅ | Apple: HUD Speed row, 0.75× to 2.0×. AVPlay `setSpeed` takes only whole-number rates (±1, 2, 4, 8, 16×), so Apple's range cannot be matched |
 | Sleep timer | ➖ | 🟡 | ✅ | Apple: audiobook player only (`AudioFullPlayerView`); the video HUD has no way to start it |
 | Chapters | ➖ | ✅ | ✅ | Apple: HUD Chapters tab. Android: scrubber markers |
@@ -161,11 +161,11 @@ File pointers are repository-relative.
 |---|:---:|:---:|:---:|---|
 | In-player audio track switch | ✅ | ✅ | ✅ | Server replans. Audible change not confirmed on a TV (#11) |
 | Preplay audio and file-version picker | ✅ | ✅ | ✅ | Tizen choice lasts one attempt; Apple persists per title or series. Apple: `TVPlaybackSelectorRow`. Android: `TvPlaybackSelectorRow` |
-| Preplay subtitle picker (including Off) | 🟡 | ✅ | ✅ | Tizen offers catalog tracks, Auto and Off, resolved against the authoritative initial playback inventory. Choices last for the Details visit; downloaded choices and persistence use the in-player menu. Apple: `TVPlaybackSelectorRow`. Android: `TvPlaybackSelectorRow`; Auto policy not rechecked here |
+| Preplay subtitle picker (including Off) | ✅ | ✅ | ✅ | Tizen offers catalog tracks, Auto and Off, resolved against the authoritative playback inventory. Saved series preferences gate every cached episode until confirmed; sidecars without a stream index remain visit-only. Downloaded choices use the in-player menu. Native comparison remains pending. Apple: `TVPlaybackSelectorRow`. Android: `TvPlaybackSelectorRow`; Auto policy not rechecked here |
 | Text subtitles (VTT/SRT, ASS dialogue) in an app overlay | ✅ | ✅ | ✅ | Captions not yet verified on a TV or simulator (#80). Android: Media3 `SubtitleManager` |
 | Embedded subtitle burn-in | ✅ | ✅ | ✅ | Server burns in when transcoding is allowed. Android: server plans render, convert or burn-in. Apple: server burn-in (`needsBurnIn`) |
 | ASS styling, bitmap subtitles | ➖ | ✅ | ✅ | Apple: ASS renderer ([`docs/tvos-player/ass-subtitles.md`](https://github.com/Silo-Server/silo-apple/blob/main/docs/tvos-player/ass-subtitles.md)). Android: libass in the TV player (`AndroidTvModule`) and PGS bitmap cues (`PgsSupExtractor`) |
-| Profile subtitle appearance and sync offset applied | ✅ | ✅ | ✅ | Read-only; no editor (see Settings) |
+| Profile subtitle appearance and sync offset applied | ✅ | ✅ | ✅ | Appearance has a profile/device editor in Settings; sync offset remains in the player |
 | Series subtitle choice (keep or Off) | ✅ | ✅ | ✅ | Apple: `TrackSelectionPersistence` saves per-series picks, including Off. Android: `SeriesTrackChoiceWriter` saves manual picks automatically; Tizen saves from a menu action |
 | Subtitle labels by language | 🟡 | ✅ | ✅ | #77. Android: `subtitleChoiceLabel`. Apple: `TrackLabels`, used by `TVPlaybackSelectorRow` |
 | AI subtitle translate / transcribe (quota-aware) | ✅ | ✅ | ✅ | Retry and duplicate-job fixes open (#83). Android: `TvAiTranslateDialog` |
@@ -175,12 +175,12 @@ File pointers are repository-relative.
 
 | Feature | Tizen | Apple TV | Android TV | Notes |
 |---|:---:|:---:|:---:|---|
-| Settings categories | 🟡 | ✅ | ✅ | Tizen: General, Playback, Server. Apple adds Subtitles and Diagnostics (#104). Android: General, Playback, Subtitles, Diagnostics, Server (`TvSettingsCategory`) |
+| Settings categories | 🟡 | ✅ | ✅ | Tizen: General, Playback, Subtitles, Server; Diagnostics is owned by #137. Android: General, Playback, Subtitles, Diagnostics, Server (`TvSettingsCategory`) |
 | Hidden libraries | ✅ | ✅ | ✅ | Apple: `HiddenLibraryPreference` applied in `TVMainTabView`; no tvOS editor. Android: `TvMainShell` leaves hidden libraries out |
 | Preferred audio, quality, maximum bitrate, seek intervals | ✅ | ✅ | ✅ | Server-confirmed writes |
 | Autoplay, Next Up, Skip Intros, Skip Credits switches | ➖ | ✅ | ✅ | Tizen reads autoplay but never writes it |
-| Episode spoiler protection (hide unwatched stills and descriptions) | ➖ | ✅ | ✅ | Apple: `TVPlaybackSettingsView`. Android: `TvSettingsScreen` |
-| Subtitle settings (language, behaviour, appearance) | ➖ | ✅ | ✅ | Apple: `TVSubtitleSettingsView` |
+| Episode spoiler protection (hide unwatched stills and descriptions) | ✅ | ✅ | ✅ | Apple: `TVPlaybackSettingsView`. Android: `TvSettingsScreen` |
+| Subtitle settings (language, behaviour, appearance) | 🟡 | ✅ | ✅ | Profile language/behaviour, metadata language and profile/device appearance; OS subtitle accessibility settings are unavailable |
 | HDR, Dolby Vision, buffering, lossless audio, deinterlacing | ➖ | ✅ | 🟡 | Android has Dolby Vision, Force HDR Passthrough, buffering quality and frame-rate matching; lossless audio and deinterlacing settings not found |
 | Poster size, advisory age, theme music, Show Audiobooks | ➖ | ✅ | 🟡 | Tizen honours the saved poster size but has no editor. Android has Poster Size, Theme Music and Show Audiobooks; advisory age not found |
 | Acknowledgements (TMDB and open source) | ✅ | ✅ | ➖ | Android: Settings → Server → About shows App Version and Privacy Policy only |

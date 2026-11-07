@@ -1,16 +1,28 @@
 import type { CalendarDay, CalendarEvent, CalendarFilter } from "../contracts/v2/calendar.ts";
 import type { CalendarQuery } from "../api/calendarOperations.ts";
 import type { Destination } from "./browseModel.ts";
+import type { ErrorState } from "./browseRoutes.ts";
 
 export interface CalendarState {
+    error?: ErrorState;
+    emptyLinkFocus?: boolean;
     start: string | undefined;
     timezone: string | undefined;
     selectedDay: string | undefined;
+    /** Today returns selection to today and leaves focus on that day's event card once it exists. */
+    returnToEvent?: boolean;
+    /** Day the next render should scroll to the top. CalendarView.selectDay uses anchor `.top`. */
+    alignDay?: string;
     filter: CalendarFilter;
     data: { readonly query: CalendarQuery; readonly days: readonly CalendarDay[] } | undefined;
 }
-export function calendarState(): CalendarState {
-    return { start: undefined, timezone: undefined, selectedDay: undefined, filter: "following", data: undefined };
+/** Apple `CalendarViewModel.filterDefaultsKey`. Unknown values open on Following. */
+export const CALENDAR_FILTER_KEY = "calendar.filter";
+export function storedCalendarFilter(stored: string | null | undefined): CalendarFilter {
+    return stored === "following" || stored === "trending" || stored === "everything" ? stored : "following";
+}
+export function calendarState(filter: CalendarFilter = "following"): CalendarState {
+    return { start: undefined, timezone: undefined, selectedDay: undefined, filter, data: undefined };
 }
 export function localDateKey(date: Date): string {
     return `${String(date.getFullYear()).padStart(4, "0")}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -56,13 +68,23 @@ export function calendarEventKeys(events: readonly CalendarEvent[]): string[] {
         return `event:${identity}:${occurrence}`;
     });
 }
+/**
+ * Apple `DateFormatters.localShortTime` uses the viewer's shortened time.
+ * The TV comparison showed a 12-hour clock ("12:00 pm"). `hour12: true` is not
+ * enough: Chromium 108 resolves en-GB to hour cycle h11, so noon is "0:00 pm"
+ * and 00:05 is "0:05 am". `hourCycle: "h12"` keeps 12 on that engine.
+ */
+const VIEWER_CLOCK = { hour: "numeric", minute: "2-digit", hourCycle: "h12" } as const;
+
 export function eventTime(event: CalendarEvent, timezone: string): string | undefined {
     if (event.airAt !== undefined) {
-        try { return new Intl.DateTimeFormat(undefined, { timeZone: timezone, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(event.airAt)); }
+        try { return new Intl.DateTimeFormat(undefined, { ...VIEWER_CLOCK, timeZone: timezone }).format(new Date(event.airAt)); }
         catch { throw new CalendarTimezoneError("Could not format this TV’s timezone. Try again."); }
     }
-    // Without an instant the network wall time is not a viewer-local time.
-    return event.airTime === undefined ? undefined : `${event.airTime}${event.airTimezone ? ` (${event.airTimezone})` : " (source time)"}`;
+    if (event.airTime === undefined) return undefined;
+    const [hour, minute] = event.airTime.split(":").map(Number);
+    const local = new Date(2000, 0, 1, hour, minute);
+    return new Intl.DateTimeFormat(undefined, VIEWER_CLOCK).format(local);
 }
 export function calendarDateLabel(date: string, weekday: "short" | "long"): string {
     try { return new Intl.DateTimeFormat(undefined, { weekday, month: "short", day: "numeric" }).format(dayDate(date)); }

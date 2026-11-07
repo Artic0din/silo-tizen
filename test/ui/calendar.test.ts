@@ -869,3 +869,39 @@ calendarTest("S-C1 Calendar owns one day timer and cancels it on root exit and t
     await tv.jump(await tv.page.evaluate(() => new Date(2026, 0, 3).getTime() - Date.now()));
     assert.equal(await tv.page.locator(".browse").count(), 0);
 });
+
+/** Chromium 108 maps en-GB `hour12: true` to hour cycle h11, so noon is "0:00 pm". This Chromium already resolves en-GB to h12. */
+async function emulateChromium108EnglishHour(page: Tv["page"]): Promise<void> {
+    await page.addInitScript(() => {
+        const Native = Intl.DateTimeFormat;
+        function DateTimeFormat(locales: Intl.LocalesArgument, options?: Intl.DateTimeFormatOptions) {
+            const requested = options === undefined ? undefined : { ...options };
+            const localesMissing = locales === undefined || (Array.isArray(locales) && locales.length === 0);
+            if (localesMissing && requested?.hour12 === true && requested.hourCycle === undefined && new Native().resolvedOptions().locale.toLowerCase().startsWith("en-gb")) {
+                delete requested.hour12;
+                requested.hourCycle = "h11";
+            }
+            return new Native(locales, requested);
+        }
+        DateTimeFormat.prototype = Native.prototype;
+        DateTimeFormat.supportedLocalesOf = Native.supportedLocalesOf.bind(Native);
+        Intl.DateTimeFormat = DateTimeFormat as unknown as typeof Intl.DateTimeFormat;
+    });
+}
+
+test("Calendar noon and the first minute stay on a 12-hour clock under en-GB", async () => {
+    const tv = await openTv(browser, { app: "browse", locale: "en-GB", prepare: emulateChromium108EnglishHour });
+    try {
+        const catalog = await start(tv);
+        catalog.events.push(
+            { content_id: "episode:noon", type: "episode", title: "Harbor Lights", series_id: "series:s1", season_number: 2, episode_number: 3, episode_title: "Noon", air_date: "2026-01-02", local_air_date: "2026-01-02", air_at: "2026-01-02T01:00:00Z", watched: false, badges: [] },
+            { content_id: "episode:after-midnight", type: "episode", title: "Harbor Lights", series_id: "series:s1", season_number: 2, episode_number: 4, episode_title: "After midnight", air_date: "2026-01-02", local_air_date: "2026-01-02", air_time: "00:05", watched: false, badges: [] },
+        );
+        await activate(tv, "calendar");
+        await ready(tv);
+        const clock = (value: string): string => value.replace(/\s+/g, " ").trim();
+        assert.equal(clock(await tv.page.locator('[data-content-id="episode:noon"] .calendar-time').innerText()), "12:00 pm");
+        assert.equal(clock(await tv.page.locator('[data-content-id="episode:after-midnight"] .calendar-time').innerText()), "12:05 am");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});

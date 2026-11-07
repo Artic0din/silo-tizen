@@ -397,6 +397,34 @@ preplay("direct episode malformed watch offers Retry for the same target without
     assert.equal(starts(tv)[0]?.body?.file_id, "42");
 });
 
+preplay("series Resume and Start Over keep the series line when the episode item omits it", async (tv, catalog, playback) => {
+    const path = "/catalog/items/episode%3As1e11?image_size=large";
+    catalog.fileIds.set("episode:s1e11", "42");
+    catalog.progress.set("episode:s1e11", 630);
+    playback.items.set("episode:s1e11", ["42"]);
+    const reply = catalog.route("GET", path, "p-owner");
+    assert.ok(reply?.status === 200 && reply.body !== undefined && typeof reply.body === "object");
+    const body = { ...reply.body };
+    delete body.series_title;
+    delete body.season_number;
+    delete body.episode_number;
+    tv.fake.script(path, { status: 200, body });
+    await series(tv);
+    assert.equal(await tv.page.locator('[data-focus="next-episode"]').textContent(), "Resume S1:E1");
+    await tv.page.locator('[data-focus="next-episode"]').click();
+    await prepare(tv);
+    assert.equal(await tv.page.locator(".player-series").textContent(), "Harbor Lights");
+    assert.equal(await tv.page.locator(".player-title").first().textContent(), "Harbor Lights chapter 1.1");
+    assert.equal(await tv.page.locator(".player-episode").textContent(), "S1 · E1");
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="item:series:s1"]').waitFor();
+    await tv.page.locator('[data-focus="start-over-episode"]').click();
+    await prepare(tv);
+    assert.equal(await tv.page.locator(".player-series").textContent(), "Harbor Lights");
+    assert.equal(await tv.page.locator(".player-episode").textContent(), "S1 · E1");
+    assert.equal(starts(tv).at(-1)?.body?.start_position, 0);
+});
+
 preplay("series Start Over skips fresh resume and retains automatic selectors", async (tv, catalog, playback) => {
     catalog.fileIds.set("episode:s1e11", "42");
     catalog.progress.set("episode:s1e11", 630);

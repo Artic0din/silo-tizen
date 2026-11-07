@@ -19,6 +19,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Show the series name and episode tag while playing when Resume or Start Over starts from the series page and the episode item omits them.
+- Move the scrub thumbnail with the playhead, 300px from the bottom of the screen.
 - Kept the page transparent over AVPlay. The black opening is a loading backdrop only, and a previous screen in the same root is not painted while the player is up. Once a frame has shown, that backdrop stays off through a later load, reconnect and restore.
 - Matched Apple TV playback opening, hidden Up, the title lines, and the panel: a spinner on black, Up reveals the scrubber, pause shows no status line, and the open panel hides the transport until Back.
 - Kept a decoded Details title logo in place across later repaints, so the metadata row no longer jumps back to the text title during that visit.

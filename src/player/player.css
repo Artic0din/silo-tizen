@@ -180,8 +180,7 @@
 
 .player-thumbnail {
     position: absolute;
-    left: 0;
-    bottom: calc(100% + 16px);
+    bottom: 300px;
     box-sizing: border-box;
     width: 340px;
     padding: 10px;

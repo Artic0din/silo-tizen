@@ -13,6 +13,10 @@ export interface PlayRequest {
     /** startPlayback's file_id. */
     readonly fileId: string;
     readonly title: string;
+    /** Episode playback. The series page fills these when the episode item omits them. */
+    readonly seriesTitle?: string;
+    readonly seasonNumber?: number;
+    readonly episodeNumber?: number;
     readonly audioTrackId?: string;
     readonly subtitle?: SubtitleIntent;
     readonly allowAlternateVersions?: false;
@@ -174,6 +178,30 @@ export function clockTime(totalSeconds: number): string {
     const rest = seconds % 60;
     const pad = (value: number): string => (value < 10 ? `0${value}` : String(value));
     return hours > 0 ? `${hours}:${pad(minutes)}:${pad(rest)}` : `${minutes}:${pad(rest)}`;
+}
+
+function named(value: string | undefined): string | undefined {
+    const trimmed = value?.trim();
+    return trimmed === undefined || trimmed === "" ? undefined : trimmed;
+}
+
+/**
+ * The player footer reads the play request. An episode item can omit the series name and
+ * the season and episode numbers that the series page and its rail already show.
+ * Apple TV takes the same line from the watch detail (`playerMetadata` at 2ef3a171).
+ */
+export function seriesPlayback(request: PlayRequest, page: ItemDetail, rail: { readonly seasonNumber: number; readonly episodeNumber: number } | undefined): PlayRequest {
+    if (request.episode !== true && page.type !== "series" && page.type !== "season") return request;
+    const seriesTitle = named(request.seriesTitle) ?? (page.type === "series" ? named(page.title) : named(page.seriesTitle));
+    const seasonNumber = request.seasonNumber ?? rail?.seasonNumber;
+    const episodeNumber = request.episodeNumber ?? rail?.episodeNumber;
+    return {
+        ...request,
+        episode: true,
+        ...(seriesTitle === undefined ? {} : { seriesTitle }),
+        ...(seasonNumber === undefined ? {} : { seasonNumber }),
+        ...(episodeNumber === undefined ? {} : { episodeNumber }),
+    };
 }
 
 export function episodeLabel(seasonNumber: number | undefined, episodeNumber: number | undefined): string | undefined {

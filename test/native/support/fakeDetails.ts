@@ -15,14 +15,13 @@ export class FakeDetails extends FakeCatalog {
     set watched(value: boolean) { this.setMember("p-owner", "watched", "movie:m0001", value); }
     capability = true;
     empty = false;
+    extras: readonly Record<string, unknown>[] = [];
+    videos: readonly Record<string, unknown>[] = [];
     readonly mutations: string[] = [];
     mutationFailure: Reply | undefined;
-    readonly ratings = new Map<string, number>();
-    ratingFailure: Reply | undefined;
-    /** The next write answers 204 without storing, or stores and then answers 500 (lost response). */
-    ratingFault: "unstored" | "applied-then-error" | undefined;
     readonly neverPlayed = new Set<string>();
     readonly audioFiles = defaultFiles();
+    readonly subtitleFiles = new Map<string, readonly Record<string, unknown>[]>();
     readonly personCredits = new Map<string, string[]>([["7", [...this.titles.keys(), "movie:m0001"]]]);
     readonly personLibraryIds = new Map<string, string[]>();
     readonly matureTitles = new Set<string>();
@@ -46,22 +45,6 @@ export class FakeDetails extends FakeCatalog {
     }
 
     override route(method: string, path: string, profileId: string | undefined, body?: Record<string, unknown>): Reply | undefined {
-        if (path.startsWith("/ratings/")) {
-            const id = decodeURIComponent(path.slice("/ratings/".length));
-            const key = JSON.stringify([profileId, id]);
-            if (method === "GET") {
-                const rating = this.ratings.get(key);
-                return rating === undefined ? problem(404, "not_found", "Not rated") : { status: 200, body: { item_id: id, rating, rated_at: "2026-01-02T03:04:05.000Z" } };
-            }
-            this.mutations.push(`${method} ${path}`);
-            if (this.ratingFailure !== undefined) { const reply = this.ratingFailure; this.ratingFailure = undefined; return reply; }
-            const fault = this.ratingFault;
-            this.ratingFault = undefined;
-            if (fault === "unstored") return { status: 204 };
-            if (method === "DELETE") this.ratings.delete(key);
-            else { assert.ok(typeof body?.rating === "number" && Number.isInteger(body.rating) && body.rating >= 1 && body.rating <= 5); this.ratings.set(key, body.rating); }
-            return fault === "applied-then-error" ? problem(500, "lost", "Response lost") : { status: 204 };
-        }
         const url = new URL(path, "https://example.test");
         if (method === "GET" && url.pathname.startsWith("/watch/")) {
             const reply = this.route("GET", `/catalog/items/${url.pathname.slice(7)}`, profileId);
@@ -85,8 +68,7 @@ export class FakeDetails extends FakeCatalog {
         if (profileId !== "p-owner" && !url.pathname.startsWith("/user/") && (url.pathname.startsWith("/catalog/people/") || url.pathname.startsWith("/recommendations/") || url.pathname.startsWith("/capabilities/"))) return problem(404, "not_found", "Not found");
         if (url.pathname === "/capabilities/personal-lists") return { status: 200, body: { state: this.capability ? "available" : "unsupported", allowed: this.capability, membership_supported: this.capability, revision: "synthetic" } };
         if (url.pathname.startsWith("/recommendations/similar/")) {
-            const base = fixture("list_catalog_items_ok");
-            return { status: 200, body: { ...base, items: this.empty ? [] : Array.from({ length: 30 }, (_, index) => ({ content_id: `movie:m${String(index + 2).padStart(4, "0")}`, type: "movie", title: `Movie ${String(index + 2).padStart(4, "0")}`, poster_url: `/art/movie-${index + 2}.svg` })), total: this.empty ? 0 : 30, total_exact: true } };
+            return { status: 200, body: { items: this.empty ? [] : Array.from({ length: 30 }, (_, index) => url.pathname.endsWith("series%3As1") && index < 2 ? ({ content_id: `series:s1-S${index + 1}`, type: "season", series_id: "series:s1", season_number: index + 1, title: `Harbor Lights · Season ${index + 1}` }) : ({ content_id: `movie:m${String(index + 2).padStart(4, "0")}`, type: "movie", title: `Movie ${String(index + 2).padStart(4, "0")}`, poster_url: `/art/movie-${index + 2}.svg` })) } };
         }
         const personal = /^\/(watchlist|favorites|watched)\/([^/]+)(\/membership)?$/.exec(url.pathname);
         if (personal !== null) {
@@ -131,16 +113,17 @@ export class FakeDetails extends FakeCatalog {
                     const audio = this.audioFiles.get(string(file, "file_id", "version"))?.audio;
                     return { ...file, ...(audio === undefined ? {} : { audio_tracks: audio }) };
                 }) } : {}),
+                ...(id === "series:s1" ? { extras: this.extras, videos: this.videos } : {}),
                 user_state: { played }, user_data: this.neverPlayed.has(id) && !played ? undefined : { ...object(body.user_data, "user_data"), played } };
         }
         if (url.pathname === "/catalog/items/movie%3Am0001" && reply?.status === 200 && typeof reply.body === "object" && reply.body !== null) {
             return { status: 200, body: { ...reply.body,
-                title: "The Last Signal", overview: "A remote observatory receives a message that changes the lives of everyone on the night shift.",
+                title: "The Last Signal", overview: "A remote observatory receives a message that changes the lives of everyone on the night shift.", extras: this.extras, videos: this.videos,
                 backdrop_url: "/art/last-signal-backdrop.svg", logo_url: "/art/last-signal-logo.svg",
                 cast: [{ person_id: "7", name: "River Vale", character: "Alex", order: 0, photo_url: "/art/river.svg" }, { name: "Morgan Lane", character: "Sam", order: 1 }],
                 crew: [{ person_id: "7", name: "River Vale", job: "Director", photo_url: "/art/river.svg" }],
                 ratings: [{ source: "imdb", name: "IMDb", score: 81, display: "8.1" }], studios: ["North Studio"], countries: ["AU"], original_language: "en",
-                versions: [{ file_id: "42", duration: 5400, resolution: "2160p", codec_video: "hevc", codec_audio: "aac", hdr: true, edition_raw: "Original", audio_tracks: this.audioFiles.get("42")?.audio }, { file_id: "43", duration: 1200, resolution: "1080p", codec_video: "h264", codec_audio: "aac", hdr: false, edition_raw: "Short cut", audio_tracks: this.audioFiles.get("43")?.audio }],
+                versions: [{ file_id: "42", duration: 5400, resolution: "2160p", codec_video: "hevc", codec_audio: "aac", hdr: true, edition_raw: "Original", audio_tracks: this.audioFiles.get("42")?.audio, subtitle_tracks: this.subtitleFiles.get("42") }, { file_id: "43", duration: 1200, resolution: "1080p", codec_video: "h264", codec_audio: "aac", hdr: false, edition_raw: "Short cut", audio_tracks: this.audioFiles.get("43")?.audio, subtitle_tracks: this.subtitleFiles.get("43") }],
                 user_data: this.neverPlayed.has("movie:m0001") && !this.personalMembers(profileId, "watched").has("movie:m0001") ? undefined : { played: this.personalMembers(profileId, "watched").has("movie:m0001"), position_seconds: this.progress.get("movie:m0001"), last_file_id: "42" },
             } };
         }
@@ -163,7 +146,7 @@ export class FakeDetails extends FakeCatalog {
     }
 
     private personPage(method: string, url: URL, profileId: string | undefined, body?: Record<string, unknown>): Reply {
-        const answer = this.personReplies.shift();
+        const answer = body?.limit === 1 ? undefined : this.personReplies.shift();
         if (answer !== undefined) return answer;
         const id = String(body?.person_id ?? url.searchParams.get("person_id"));
         const type = body?.type ?? url.searchParams.get("type");

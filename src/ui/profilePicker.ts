@@ -6,8 +6,9 @@ import { button, el, type Control, type Screen } from "./screen.ts";
 // ProfileTilePalette and tvOS sizing, silo-apple 1a7ccee.
 const PALETTE = [[217, 117, 97], [102, 143, 184], [176, 138, 102], [117, 158, 133], [199, 122, 133], [143, 122, 184], [92, 148, 158], [199, 163, 97]] as const;
 
-function avatarReference(profile: ProfileSummary): string | undefined {
-    if (profile.avatarUrl !== undefined) return profile.avatarUrl;
+/** Apple ProfileAvatarResolver: an SVG avatar URL is declined, and a preset then resolves to its flat PNG. */
+export function avatarReference(profile: Pick<ProfileSummary, "avatarUrl" | "avatar">): string | undefined {
+    if (profile.avatarUrl !== undefined && !/(\.svg|\/svg)(\?|$)/i.test(profile.avatarUrl)) return profile.avatarUrl;
     const raw = profile.avatar?.trim();
     const preset = /^preset:dicebear:([^:]+):(.+)$/.exec(raw ?? "");
     if (preset !== null) return `https://api.dicebear.com/9.x/${encodeURIComponent(preset[1] ?? "")}/png?seed=${encodeURIComponent(preset[2] ?? "")}&size=440`;
@@ -82,7 +83,7 @@ export function profilePickerScreen(options: PickerOptions): Screen {
     });
     main.appendChild(grid);
     const footer = el("div", "profile-footer");
-    const change = button("change-server", "Change server", options.changeServer);
+    const change = button("change-server", "Change account", options.changeServer);
     const out = button("signout", "Sign out", options.signOut);
     change.element.prepend(navigationIcon("switch-server"));
     out.element.prepend(navigationIcon("signout"));

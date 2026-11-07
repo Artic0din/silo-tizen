@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { detailOperations, type PersonalAction } from "../../src/api/detailOperations.ts";
-import { decodeCatalogPage, decodeItemDetail } from "../../src/contracts/v2/catalog.ts";
+import { decodeCatalogPage, decodeItemDetail, decodeEpisodes } from "../../src/contracts/v2/catalog.ts";
 import { decodePerson, decodeMembership, decodePersonalCapability } from "../../src/contracts/v2/details.ts";
 import { playChoices } from "../../src/ui/browseModel.ts";
 import { fixture } from "./support/fakeSilo.ts";
 import { FakeDetails } from "./support/fakeDetails.ts";
 import type { FakeCatalog } from "./support/fakeCatalog.ts";
+
+test("Details episode suggestions read Apple's is_in_progress flag rather than the aggregate count", () => {
+    const episode = { content_id: "episode:one", season_number: 1, episode_number: 1, title: "One", runtime: 30 };
+    assert.equal(decodeEpisodes({ items: [{ ...episode, user_data: { played: false, is_in_progress: true, in_progress_count: 0 } }] })[0]?.inProgress, true);
+    assert.equal(decodeEpisodes({ items: [{ ...episode, user_data: { played: false, is_in_progress: false, in_progress_count: 1 } }] })[0]?.inProgress, undefined);
+});
 
 test("combined Details fake preserves scoped catalog query bodies", () => {
     const catalog: FakeCatalog = new FakeDetails();
@@ -50,6 +56,19 @@ test("Details operations use pinned paths, bounded queries and explicit mutation
     for (const kind of kinds) {
         assert.equal(detailOperations.setPersonal(kind, "a/b", true).retry, "never", "UI retries only after an explicit press");
     }
+});
+
+test("related titles decode the server's unpaginated collection and reject malformed cards", () => {
+    const spec = detailOperations.similar("series:opaque");
+    assert.deepEqual(spec.decode({ items: [] }).items, []);
+    for (const type of ["movie", "series"]) {
+        const page = spec.decode({ items: [{ content_id: `${type}:opaque`, type, title: "Related title" }] });
+        assert.equal(page.items[0]?.id, `${type}:opaque`);
+    }
+    assert.throws(() => spec.decode({}));
+    assert.throws(() => spec.decode({ items: null }));
+    assert.throws(() => spec.decode({ items: [{ content_id: "series:opaque", type: "series", title: 123 }] }));
+    assert.throws(() => decodeCatalogPage({ items: [] }), "catalog pages still require pagination totals");
 });
 
 test("explicit version selection preserves its file id and uses that file's end margin", () => {

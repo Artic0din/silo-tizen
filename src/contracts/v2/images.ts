@@ -43,8 +43,9 @@ export function logoWidthQuery(capability: ImageCapabilities | undefined, points
 
 /** ArtworkSurface.home: medium row posters plus the full-width hero and title-logo slots. */
 export function homeArtworkQuery(capability: ImageCapabilities | undefined, scale: number): Record<string, string> {
-    const query = logoWidthQuery(capability, 880, scale);
+    const query: Record<string, string> = { image_size: "large", ...logoWidthQuery(capability, 880, scale) };
     if (capability?.state !== "available") return query;
+    if (Object.keys(capability.slotWidthParams).length === 0 && capability.sizes.includes("large")) return { [capability.param]: "large" };
     if (capability.sizes.includes("medium")) query[capability.param] = "medium";
     const name = capability.slotWidthParams.backdrop;
     const pixels = Math.ceil(1344 * Math.max(1, scale));

@@ -5,11 +5,38 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { fixture } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
 const IME_DONE = 65376;
 const KID_PIN = "2468";
+
+/** MarqueeButtonStyle on tvOS: a focused button fills `Color.siloOnSurface` (#EDEDED) with black ink. */
+const APPLE_FOCUSED_BUTTON = ["rgb(237, 237, 237)", "rgb(0, 0, 0)"];
+
+async function focusedButtonColors(tv: Tv, key: string): Promise<string[]> {
+    return tv.page.locator(`[data-focus="${key}"]`).evaluate(node => {
+        if (!(node instanceof HTMLElement)) throw new Error("footer button missing");
+        // The frozen test clock holds the 120ms colour transition at its start. Settle it, then read the focused colours.
+        node.style.transition = "none";
+        node.blur();
+        node.focus();
+        const style = getComputedStyle(node);
+        return [style.backgroundColor, style.color];
+    });
+}
+
+tvTest("focused profile footer buttons use Apple's on-surface fill and black ink", async tv => {
+    await picker(tv);
+    assert.deepEqual(await focusedButtonColors(tv, "change-server"), APPLE_FOCUSED_BUTTON);
+    assert.deepEqual(await focusedButtonColors(tv, "signout"), APPLE_FOCUSED_BUTTON);
+    tv.fake.passwordChangeRequired = true;
+    tv.fake.expireAccessTokens();
+    await tv.page.evaluate(() => window.harness.mount());
+    await screenIs(tv, "profiles-error");
+    assert.deepEqual(await focusedButtonColors(tv, "change-account"), APPLE_FOCUSED_BUTTON, "the reset refusal footer has the same focus fill");
+    assert.deepEqual(await focusedButtonColors(tv, "signout"), APPLE_FOCUSED_BUTTON);
+});
 
 tvTest("the profile picker uses source-sized circular avatars and centered account chrome", async tv => {
     await tv.page.emulateMedia({ reducedMotion: "reduce" });
@@ -38,8 +65,33 @@ tvTest("the profile picker uses source-sized circular avatars and centered accou
     assert.equal(geometry.accountWeight, "400");
     assert.equal(geometry.footerGap, 20);
     assert.equal(await tv.page.getByText(/^Signed in as /).isVisible(), true);
-    assert.equal(await tv.page.getByRole("button", { name: "Change server", exact: true }).isVisible(), true);
+    assert.equal(await tv.page.getByRole("button", { name: "Change account", exact: true }).isVisible(), true);
     assert.equal(await tv.page.getByRole("button", { name: "Add profile", exact: true }).isVisible(), true);
+});
+
+tvTest("profile rows stay still when focus moves on Who's watching", async tv => {
+    await tv.page.emulateMedia({ reducedMotion: "reduce" });
+    tv.fake.profiles = { ...tv.fake.profiles, items: Array.from({ length: 6 }, (_, index) => profile(`p-${index}`, `Profile ${index}`)) };
+    await picker(tv);
+    const rows = () => readLive(tv, () => {
+        const first = document.querySelector<HTMLElement>('[data-focus="profile:p-0"]');
+        const add = document.querySelector<HTMLElement>('[data-focus="add-profile"]');
+        if (first === null || add === null) return null;
+        return {
+            first: first.getBoundingClientRect().y,
+            add: add.getBoundingClientRect().y,
+            firstHeight: first.offsetHeight,
+            addHeight: add.offsetHeight,
+        };
+    }, undefined, value => value.first > 0 && value.add > value.first, "settled profile rows");
+    const before = await rows();
+    assert.equal(await tv.focused(), "profile:p-0");
+    await tv.page.keyboard.press("ArrowDown");
+    assert.equal(await tv.focused(), "add-profile");
+    const after = await rows();
+    assert.ok(Math.abs(after.first - before.first) < 0.5, `the first row moved ${after.first - before.first}`);
+    assert.ok(Math.abs(after.add - before.add) < 0.5, `the second row moved ${after.add - before.add}`);
+    assert.ok(Math.abs(after.firstHeight - after.addHeight) < 1, `focused tile ${after.addHeight}px, other tile ${after.firstHeight}px`);
 });
 
 let browser: Browser;
@@ -535,20 +587,35 @@ tvTest("repeated profile teardown preserves a successor sign-in screen and its s
     assert.deepEqual(result, { screen: "entry", styled: true });
 });
 
-tvTest("a restored sign-in whose account must change its password is signed out and sent to the server's web page", async (tv) => {
+tvTest("a restored sign-in whose password must be reset shows the refusal on the profile picker", async (tv) => {
     await picker(tv);
     tv.fake.passwordChangeRequired = true;
     tv.fake.expireAccessTokens();
     await tv.page.evaluate(() => window.harness.mount());
-    await screenIs(tv, "password");
-    await shows(tv, "In a web browser, open https://silo.example.test, sign in and choose a new password.");
+    await screenIs(tv, "profiles-error");
+    await shows(tv, "Not allowed");
+    await shows(tv, "Your password needs to be reset. Use the Silo mobile app or website to set a new one, then come back.");
     assert.equal(await tv.page.evaluate(() => window.harness.handoffs[1]?.restore), "signed_in");
-    await tv.eventually(async () => tv.fake.revokedSessions.size === 1, "the restricted session to be revoked");
-    assert.equal(await tv.page.evaluate(() => window.harness.keyManager?.items.size), 0);
-    assert.equal(await tv.focused(), "signin");
+    assert.equal(tv.fake.revokedSessions.size, 0, "the session stays until the password is reset elsewhere");
+    assert.equal(await tv.page.evaluate(() => window.harness.keyManager?.items.size), 1);
+    assert.equal(await tv.focused(), "change-account");
+    await tv.page.keyboard.press("ArrowUp");
+    assert.equal(await tv.focused(), "retry");
+    await tv.page.keyboard.press("ArrowDown");
+    assert.equal(await tv.focused(), "change-account");
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), "signout");
+    await tv.page.keyboard.press("ArrowLeft");
+    const loads = tv.fake.paths().filter((path) => path === "GET /profiles").length;
+    await tv.page.keyboard.press("ArrowUp");
     await tv.page.keyboard.press("Enter");
-    await screenIs(tv, "entry");
-    assert.equal((await handed(tv)).length, 0);
+    await screenIs(tv, "profiles-error");
+    assert.equal(await tv.focused(), "change-account", "a retry that is still refused focuses Change account");
+    assert.ok(tv.fake.paths().filter((path) => path === "GET /profiles").length > loads);
+    assert.equal((await handed(tv)).length, 0, "no profile is chosen");
+    await tv.page.getByRole("button", { name: "Change account", exact: true }).click();
+    assert.equal(await tv.page.locator('[data-screen="server-selection"]').count(), 1);
+    assert.equal(tv.fake.revokedSessions.size, 0, "changing account does not sign this one out");
 });
 
 for (const count of [0, 4, 5, 6, 7]) {
@@ -588,11 +655,23 @@ tvTest("Add uses the avatar focus footprint and respects reduced motion", async 
     assert.equal(await tv.focused(), "add-profile");
 });
 
+tvTest("an SVG avatar URL gives way to the preset's flat PNG, as Apple's resolver does", async tv => {
+    const seen: string[] = [];
+    await tv.page.route("https://api.dicebear.com/**", route => { seen.push(route.request().url()); return route.fulfill({ contentType: "image/png", body: Buffer.alloc(0) }); });
+    tv.fake.profiles = { ...tv.fake.profiles, items: [
+        { ...profile("preset", "Preset"), avatar_url: "https://api.dicebear.com/9.x/bottts-neutral/svg?backgroundType=gradientLinear&seed=robot&size=256", avatar: "preset:dicebear:bottts-neutral:robot" },
+    ] };
+    await picker(tv);
+    assert.equal(new URL(await tv.page.locator('[data-focus="profile:preset"] img').getAttribute("src") ?? "").pathname, "/9.x/bottts-neutral/png");
+    assert.equal(new URL(await tv.page.locator('[data-focus="profile:preset"] img').getAttribute("src") ?? "").searchParams.get("backgroundType"), null);
+    assert.equal(seen.some(url => url.includes("/svg")), false);
+});
+
 tvTest("picker images retain emoji and initials on error and remove fallback after transparent artwork loads", async tv => {
-    await tv.page.route("**/art/transparent-profile.svg", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220"/>' }));
+    await tv.page.route("**/art/transparent-profile.png", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220"/>' }));
     await tv.page.route("**/art/broken-profile.png", route => route.abort());
     tv.fake.profiles = { ...tv.fake.profiles, items: [
-        { ...profile("resolved", "Resolved"), avatar_url: "/art/transparent-profile.svg", avatar: "Fox" },
+        { ...profile("resolved", "Resolved"), avatar_url: "/art/transparent-profile.png", avatar: "Fox" },
         { ...profile("broken", "Broken"), avatar_url: "/art/broken-profile.png", avatar: "Fox" },
         { ...profile("upload", "Upload"), avatar: "upload:opaque" },
         { ...profile("blank", "   "), avatar: "" },
@@ -713,7 +792,7 @@ tvTest("creation validates locally and cancellation restores Add without launchi
     await screenIs(tv, "profiles");
     assert.equal(await tv.focused(), "add-profile");
     assert.equal((await handed(tv)).length, 0);
-    await tv.page.getByRole("button", { name: "Change server", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Change account", exact: true }).click();
     assert.equal(await tv.page.locator('[data-screen="server-selection"]').count(), 1);
     assert.equal(tv.fake.revokedSessions.size, 0);
 });

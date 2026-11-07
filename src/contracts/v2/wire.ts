@@ -96,6 +96,8 @@ export interface Problem {
     readonly id: string;
     readonly status: number;
     readonly title: string;
+    /** The server documents this as safe to show. */
+    readonly detail?: string;
     readonly instance: string;
     readonly errors: readonly ProblemFieldError[];
 }
@@ -123,6 +125,7 @@ export function decodeProblem(value: unknown): Problem {
         id,
         status: integer(obj, "status", "problem"),
         title: string(obj, "title", "problem"),
+        ...(typeof obj.detail === "string" ? { detail: obj.detail } : {}),
         instance: optionalString(obj, "instance", "problem") ?? "",
         errors,
     };
@@ -149,6 +152,21 @@ export function decodeSystemInfo(value: unknown): SystemInfo {
 
 export function decodeServerIdentity(value: unknown): string {
     return nonEmptyString(object(value, "server_identity"), "server_id", "server_identity");
+}
+
+/**
+ * `GET /system/setup` (`SetupStatus`). Both members are required.
+ * Apple TV shows the recovery screen from `needs_setup` alone.
+ */
+export interface SetupStatus {
+    readonly needsSetup: boolean;
+}
+
+export function decodeSetupStatus(value: unknown): SetupStatus {
+    const path = "setup_status";
+    const obj = object(value, path);
+    boolean(obj, "wizard_completed", path);
+    return { needsSetup: boolean(obj, "needs_setup", path) };
 }
 
 // --- Device sign-in ---
@@ -199,6 +217,7 @@ export function decodeDeviceLoginStart(value: unknown): DeviceLoginStart {
 }
 
 export interface AccountSummary {
+    readonly role?: string;
     readonly id: string;
     readonly username: string;
     readonly passwordChangeRequired: boolean;
@@ -207,6 +226,7 @@ export interface AccountSummary {
 function decodeAccount(value: unknown, path: string): AccountSummary {
     const obj = object(value, path);
     return {
+        ...(obj.role === undefined ? {} : { role: string(obj, "role", path) }),
         id: nonEmptyString(obj, "id", path),
         username: string(obj, "username", path),
         passwordChangeRequired: boolean(obj, "password_change_required", path),

@@ -23,7 +23,7 @@ export type DiscoveryResult =
     | { readonly status: "not_silo_v2" }
     /** The request reached another origin than the one entered (redirect or misrouted proxy). */
     | { readonly status: "origin_mismatch" }
-    | { readonly status: "server_error" };
+    | { readonly status: "server_error"; readonly transient?: true };
 
 export async function discoverServer(
     input: string,
@@ -48,20 +48,25 @@ export async function discoverServer(
         const serverId = await http.send({ ...operations.serverIdentity(), signal });
         return { status: "connected", server: { http, serverId, serverVersion: info.serverVersion } };
     } catch (error) {
-        if (!(error instanceof ApiError)) {
-            throw error;
-        }
-        if (error.aborted) {
-            throw error;
-        }
-        const kind = error.failure.kind;
-        if (kind === "network" || kind === "timeout") {
-            return { status: "unreachable" };
-        }
-        const status = error.status;
-        if (kind === "invalid_response" || status === 404 || status === 410) {
-            return { status: "not_silo_v2" };
-        }
-        return { status: "server_error" };
+        return failedDiscovery(error);
     }
+}
+
+/** A failed public probe. An abort is rethrown so the caller can drop it. */
+export function failedDiscovery(error: unknown): Exclude<DiscoveryResult, { readonly status: "connected" }> {
+    if (!(error instanceof ApiError)) {
+        throw error;
+    }
+    if (error.aborted) {
+        throw error;
+    }
+    const kind = error.failure.kind;
+    if (kind === "network" || kind === "timeout") {
+        return { status: "unreachable" };
+    }
+    const status = error.status;
+    if (kind === "invalid_response" || status === 404 || status === 410) {
+        return { status: "not_silo_v2" };
+    }
+    return error.transient ? { status: "server_error", transient: true } : { status: "server_error" };
 }

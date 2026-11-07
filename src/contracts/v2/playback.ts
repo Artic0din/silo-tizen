@@ -64,6 +64,15 @@ export interface PlaybackCapabilities {
     readonly installationId: string | undefined;
     readonly protocolVersions: readonly number[];
     readonly features: readonly string[];
+    /**
+     * Present with `connection_speed_v1`. A missing or unreadable probe field stays absent
+     * so an older capabilities document can still start playback.
+     * silo-apple APIv2PlaybackModels.swift:206-215 at 2ef3a171.
+     */
+    readonly bandwidthProbeUrl: string | undefined;
+    readonly bandwidthProbeTargetKbps: number | undefined;
+    readonly bandwidthProbeAutomatic: boolean | undefined;
+    readonly bandwidthProbeMaxAgeSeconds: number | undefined;
 }
 
 export function decodePlaybackCapabilities(value: unknown): PlaybackCapabilities {
@@ -79,7 +88,23 @@ export function decodePlaybackCapabilities(value: unknown): PlaybackCapabilities
         installationId: optionalString(obj, "installation_id", path),
         protocolVersions: versions.filter((entry: unknown): entry is number => typeof entry === "number"),
         features: obj.features === undefined ? [] : strings(obj, "features", path),
+        bandwidthProbeUrl: softProbeString(obj.bandwidth_probe_url),
+        bandwidthProbeTargetKbps: softProbeInteger(obj.bandwidth_probe_target_kbps),
+        bandwidthProbeAutomatic: softProbeBoolean(obj.bandwidth_probe_automatic),
+        bandwidthProbeMaxAgeSeconds: softProbeInteger(obj.bandwidth_probe_max_age_seconds),
     };
+}
+
+function softProbeString(value: unknown): string | undefined {
+    return typeof value === "string" && value !== "" ? value : undefined;
+}
+
+function softProbeInteger(value: unknown): number | undefined {
+    return typeof value === "number" && Number.isInteger(value) ? value : undefined;
+}
+
+function softProbeBoolean(value: unknown): boolean | undefined {
+    return typeof value === "boolean" ? value : undefined;
 }
 
 // --- startPlayback / replanPlayback decisions ---
@@ -479,6 +504,9 @@ export type StopBody = {
 // (resolveV3AudioIndex in internal/api/handlers/playback_v3.go), so position n names track n.
 
 export interface AudioTrackInfo {
+    readonly rawTitle?: string | undefined;
+    readonly embeddedTitle?: string | undefined;
+    readonly layout?: string | undefined;
     readonly isDefault: boolean;
     readonly language: string | undefined;
     readonly codec: string | undefined;
@@ -494,6 +522,9 @@ export interface FileVersionTracks {
 function decodeAudioTrack(value: unknown, path: string): AudioTrackInfo {
     const obj = object(value, path);
     return {
+        rawTitle: optionalString(obj, "title", path),
+        embeddedTitle: optionalString(obj, "embedded_title", path),
+        layout: optionalString(obj, "layout", path),
         isDefault: boolean(obj, "default", path),
         language: optionalString(obj, "language", path),
         codec: optionalString(obj, "codec", path),

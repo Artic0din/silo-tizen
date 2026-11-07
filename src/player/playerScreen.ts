@@ -1,8 +1,11 @@
 // Full-screen playback: the AVPlay surface plus a readable overlay for loading, progress and
-// errors. Remote: Enter pauses or resumes, Left/Right preview seeking, Up enters transport,
-// Enter commits a seek and Back cancels it; Down opens audio and subtitles,
-// Back leaves. In that menu Up/Down move within a list, Left/Right switch lists, Enter chooses
-// and Back closes it; no key reaches playback while it is open. The screen owns one child of the
+// errors. Opening is a spinner on black. Remote matches the Apple TV transport: Left/Right
+// step the profile skip interval, Select enters timeline scrub, Select again commits or
+// resumes, Menu cancels, and a held arrow auto-seeks. Down from the scrubber focuses
+// Play/Pause and Up returns. Up from hidden controls reveals that transport on the scrubber;
+// Down from hidden opens the panel, which hides the transport until Back shows it again.
+// In that panel Up/Down move within a list, Left/Right switch tabs, Enter chooses and Back
+// closes it; no key reaches playback while it is open. The screen owns one child of the
 // root and removes only that child, so a screen the parent already showed (after a profile
 // switch, say) is never erased.
 
@@ -14,6 +17,7 @@ import { remoteKey } from "../ui/keys.ts";
 import { el } from "../ui/screen.ts";
 import type { AVPlay } from "./avplay.ts";
 import { type PlaybackError, type PlaybackExits, PlaybackController, type PlaybackView, type PlayerControls, type PlayRequest, type TrackView } from "./controller.ts";
+import { closeIcon, optionsIcon, pauseIcon, playIcon, skipIcon, spinnerIcon } from "./playerIcons.ts";
 import { mountSeekThumbnail } from "./seekThumbnailView.ts";
 import { mountSubtitles } from "./subtitleView.ts";
 
@@ -82,12 +86,32 @@ function changeText(tracks: TrackView): string {
     }
 }
 
-function choice(id: string, label: string, current: boolean): HTMLButtonElement {
+/** Apple's `exclamationmark.triangle.fill` at 40pt in `siloError`. Same glyph as `FAILURE_ICON`. */
+function warningMark(): HTMLElement {
+    const mark = el("span", "player-error-mark");
+    mark.setAttribute("aria-hidden", "true");
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 48 48");
+    const triangle = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    triangle.setAttribute("class", "player-error-triangle");
+    triangle.setAttribute("d", "M20 5a4.6 4.6 0 0 1 8 0l19 33a4.6 4.6 0 0 1-4 7H5a4.6 4.6 0 0 1-4-7Z");
+    const bang = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    bang.setAttribute("class", "player-error-bang");
+    bang.setAttribute("d", "M24 16v12m0 7v1");
+    svg.append(triangle, bang);
+    mark.append(svg);
+    return mark;
+}
+
+function choice(id: string, label: string, current: boolean, detail?: string): HTMLButtonElement {
     const button = el("button", "player-choice");
     button.type = "button";
     button.setAttribute("data-focus", id);
     button.setAttribute("aria-pressed", String(current));
-    button.appendChild(el("span", "player-choice-label", label));
+    const copy = el("span", "player-choice-copy");
+    copy.appendChild(el("span", "player-choice-label", label));
+    if (detail !== undefined && detail !== "") copy.appendChild(el("span", "player-choice-detail", detail));
+    button.appendChild(copy);
     if (current) {
         button.className = "player-choice player-choice-current";
     }
@@ -95,7 +119,7 @@ function choice(id: string, label: string, current: boolean): HTMLButtonElement 
 }
 
 function fillAudio(list: HTMLElement, tracks: TrackView): void {
-    list.appendChild(el("h2", "player-menu-heading", "Audio"));
+    list.appendChild(el("h2", "player-menu-heading", "TRACKS"));
     const audio = tracks.audio;
     if (audio.state === "loading") {
         list.appendChild(el("p", "player-menu-note", "Loading audio tracks"));
@@ -103,16 +127,19 @@ function fillAudio(list: HTMLElement, tracks: TrackView): void {
         list.appendChild(el("p", "player-menu-note", "Couldn't load audio tracks."));
         list.appendChild(choice(RETRY, "Retry", false));
     } else if (audio.choices.length === 0) {
-        list.appendChild(el("p", "player-menu-note", "No audio tracks listed"));
+        const note = el("p", "player-menu-note", "No audio tracks listed");
+        note.tabIndex = -1;
+        note.setAttribute("data-focus", "audio-empty");
+        list.appendChild(note);
     } else {
         for (const track of audio.choices) {
-            list.appendChild(choice(track.id, track.label, track.id === tracks.selectedAudioId));
+            list.appendChild(choice(track.id, track.label, track.id === tracks.selectedAudioId, track.detail));
         }
     }
 }
 
 function fillSubtitles(list: HTMLElement, tracks: TrackView, languages = false): void {
-    list.appendChild(el("h2", "player-menu-heading", "Subtitles"));
+    list.appendChild(el("h2", "player-menu-heading", "TRACKS"));
     const ai = tracks.ai;
     if (languages && ai !== undefined) {
         list.appendChild(choice("ai-language-back", "Back to subtitles", false));
@@ -121,7 +148,7 @@ function fillSubtitles(list: HTMLElement, tracks: TrackView, languages = false):
     }
     list.appendChild(choice(OFF, "Off", tracks.selectedSubtitleId === undefined));
     for (const track of tracks.subtitles) {
-        list.appendChild(choice(track.id, track.label, track.id === tracks.selectedSubtitleId));
+        list.appendChild(choice(track.id, track.label, track.id === tracks.selectedSubtitleId, track.detail));
     }
     if (tracks.seriesSubtitle !== undefined) {
         const save = choice(SERIES_SUBTITLE, tracks.selectedSubtitleId === undefined ? "Keep subtitles off for this series" : "Use this subtitle choice for this series", false);
@@ -140,10 +167,37 @@ function fillQuality(list: HTMLElement, tracks: TrackView): void {
     if (quality === undefined || quality.choices.length < 2) {
         return;
     }
-    list.appendChild(el("h2", "player-menu-heading", "Quality"));
+    list.appendChild(el("h2", "player-menu-heading", "PLAYBACK"));
     for (const qualityChoice of quality.choices) {
         list.appendChild(choice(`quality:${qualityChoice.id}`, qualityChoice.label, qualityChoice.id === quality.selectedId));
     }
+}
+
+/** Apple's seekRates ladder. A hold starts at ±1; further taps move one step. */
+const SEEK_RATES = [-32, -16, -8, -4, -2, -1, 1, 2, 4, 8, 16, 32] as const;
+/** PressCaptureUIView holdThreshold. A shorter press is a tap. */
+const HOLD_MS = 300;
+/** PlayerViewModel skipDebounceNanos. Rapid taps become one seek. */
+const SKIP_DEBOUNCE_MS = 200;
+/** PlayerViewModel holdSeekTickNanos, and the tvOS timeline auto-seek tick. */
+const AUTO_SEEK_MS = 100;
+/** TVPlayerScrubber timelineAutoSeekBaseStep. Each tick moves 2s times the rate. */
+const AUTO_SEEK_STEP = 2;
+
+/** Compact runtime for the Info pane. PlayerTimeFormatter.formatRuntime. */
+export function runtimeText(seconds: number | undefined): string | undefined {
+    if (seconds === undefined || !(seconds > 0)) return undefined;
+    const total = Math.floor(seconds);
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+    return `${minutes}m`;
+}
+
+function infoRow(label: string, value: string): HTMLElement {
+    const row = el("p", "player-info-row");
+    row.append(el("span", "player-info-label", label), el("span", "player-info-value", value));
+    return row;
 }
 
 export function clockText(seconds: number): string {
@@ -163,6 +217,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     surface.type = "application/avplayer";
     surface.className = "player-video";
     surface.setAttribute("aria-hidden", "true");
+    const backdrop = el("div", "player-backdrop");
+    backdrop.hidden = true;
     const overlay = el("div", "player-overlay");
     overlay.setAttribute("data-focus", "player");
     overlay.tabIndex = -1;
@@ -171,61 +227,119 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     skip.tabIndex = -1;
     skip.setAttribute("data-focus", "skip");
     skip.addEventListener("click", () => {
-        if ((view.phase !== "playing" && view.phase !== "paused") || view.skipMarker === undefined || seekPreview !== undefined || menuOpen) return;
-        controls.seekToSeconds(view.skipMarker.endSeconds);
+        if ((view.phase !== "playing" && view.phase !== "paused") || seekPreview !== undefined || menuOpen) return;
+        const target = view.undoSkipSeconds ?? view.skipMarker?.endSeconds;
+        if (target === undefined) return;
+        controls.seekToSeconds(target);
         overlay.focus();
         reveal();
         render();
     });
     const thumbnail = mountSeekThumbnail(overlay, controls, clock);
     const title = el("h1", "player-title");
+    const footer = el("div", "player-footer");
+    const footerSlot = el("div", "player-footer-slot");
+    const series = el("p", "player-series");
+    const titleRow = el("div", "player-title-row");
+    const episode = el("span", "player-episode");
+    titleRow.append(title, episode);
+    footer.append(series, titleRow);
     const status = el("p", "player-status");
     status.setAttribute("role", "status");
+    status.hidden = true;
+    const spinner = el("div", "player-spinner");
+    spinner.setAttribute("role", "progressbar");
+    spinner.setAttribute("aria-label", "Loading");
+    const spinnerMark = el("span", "player-spinner-mark");
+    spinnerMark.innerHTML = spinnerIcon();
+    spinner.appendChild(spinnerMark);
+    spinner.hidden = true;
     const bar = el("div", "player-bar");
     bar.setAttribute("role", "slider");
-    bar.setAttribute("aria-label", "Playback position");
+    bar.setAttribute("aria-label", "Scrubber");
     bar.setAttribute("aria-valuemin", "0");
     bar.setAttribute("data-focus", "position");
     bar.tabIndex = -1;
+    const track = el("div", "player-bar-track");
     const fill = el("div", "player-bar-fill");
-    bar.appendChild(fill);
+    const puck = el("div", "player-puck");
+    track.appendChild(fill);
+    const rate = el("p", "player-rate");
+    rate.hidden = true;
+    const rateValue = el("span", "player-rate-value");
+    rate.append(rateValue);
+    bar.append(track, puck, rate);
     const time = el("p", "player-time");
-    const tracksButton = el("button", "player-button player-tracks-button", "Audio and subtitles");
+    const elapsed = el("span", "player-time-elapsed");
+    const remaining = el("span", "player-time-remaining");
+    time.append(elapsed, remaining);
+    const tracksButton = el("button", "player-button player-tracks-button");
     tracksButton.type = "button";
     tracksButton.tabIndex = -1;
     tracksButton.setAttribute("data-focus", "tracks");
-    tracksButton.addEventListener("click", () => openMenu());
+    tracksButton.setAttribute("aria-label", "Info and options");
+    tracksButton.appendChild(el("span", "player-glyph"));
+    tracksButton.firstElementChild?.setAttribute("aria-hidden", "true");
+    tracksButton.addEventListener("click", () => openMenu("remembered"));
+    const closeButton = el("button", "player-button player-close-button");
+    closeButton.type = "button";
+    closeButton.tabIndex = -1;
+    closeButton.setAttribute("data-focus", "close");
+    closeButton.setAttribute("aria-label", "Close player");
+    closeButton.appendChild(el("span", "player-glyph"));
+    closeButton.firstElementChild?.setAttribute("aria-hidden", "true");
+    closeButton.addEventListener("click", () => controls.back());
     const transport = el("div", "player-transport");
+    const primaryGroup = el("div", "player-transport-group");
+    const secondaryGroup = el("div", "player-transport-group player-transport-secondary");
     const backward = el("button", "player-button");
-    const pause = el("button", "player-button", "Pause");
+    const pause = el("button", "player-button player-button-primary");
     const forward = el("button", "player-button");
-    const transportButtons = [backward, pause, forward, tracksButton];
+    const transportButtons = [backward, pause, forward, tracksButton, closeButton];
     for (const [index, button] of transportButtons.entries()) {
         button.type = "button";
         button.tabIndex = -1;
-        button.setAttribute("data-focus", ["backward", "pause", "forward", "tracks"][index] ?? "");
-        transport.appendChild(button);
+        button.setAttribute("data-focus", ["backward", "pause", "forward", "tracks", "close"][index] ?? "");
+        if (button !== tracksButton && button !== closeButton) button.appendChild(el("span", "player-glyph"));
+        button.firstElementChild?.setAttribute("aria-hidden", "true");
     }
-    backward.addEventListener("click", () => previewSeek("backward"));
-    forward.addEventListener("click", () => previewSeek("forward"));
+    primaryGroup.append(backward, pause, forward);
+    secondaryGroup.append(tracksButton, closeButton);
+    transport.append(primaryGroup, secondaryGroup);
+    backward.addEventListener("click", () => stepSkip("backward"));
+    forward.addEventListener("click", () => stepSkip("forward"));
     pause.addEventListener("click", () => { controls.togglePause(); reveal(); render(); });
-    overlay.appendChild(title);
-    overlay.appendChild(status);
-    overlay.appendChild(bar);
-    overlay.appendChild(time);
-    overlay.appendChild(transport);
+    overlay.append(footer, footerSlot, bar, time, transport);
+    const hud = el("div", "player-hud");
+    hud.hidden = true;
+    const tablist = el("div", "player-tabs");
+    tablist.setAttribute("role", "tablist");
+    tablist.setAttribute("aria-label", "Player options");
+    const tabs = (["Info", "Audio", "Subtitles", "Video"] as const).map((name) => {
+        const tab = el("button", "player-tab", name);
+        tab.type = "button";
+        tab.tabIndex = -1;
+        tab.setAttribute("role", "tab");
+        tab.setAttribute("data-focus", `tab-${name.toLowerCase()}`);
+        tab.setAttribute("aria-selected", "false");
+        return tab;
+    });
+    for (const tab of tabs) tablist.appendChild(tab);
     const menu = el("div", "player-menu");
-    const lists = [el("div", "player-menu-list player-menu-audio"), el("div", "player-menu-list player-menu-subtitles"), el("div", "player-menu-list player-menu-quality")];
+    const panes = el("div", "player-menu-panes");
+    const lists = [el("div", "player-menu-list player-menu-info"), el("div", "player-menu-list player-menu-audio"), el("div", "player-menu-list player-menu-subtitles"), el("div", "player-menu-list player-menu-quality")];
     const menuStatus = el("p", "player-menu-status");
     menuStatus.setAttribute("role", "status");
-    for (const list of lists) {
-        menu.appendChild(list);
-    }
-    menu.appendChild(menuStatus);
+    for (const list of lists) panes.appendChild(list);
+    menu.append(panes, menuStatus);
+    hud.append(tablist, menu);
     const failure = el("div", "player-error");
     failure.setAttribute("role", "alert");
     const failureTitle = el("h1", "player-title");
     const failureText = el("p", "player-error-text");
+    const mark = warningMark();
+    mark.hidden = true;
+    const actions = el("div", "player-error-actions");
     const back = el("button", "player-button", "Back");
     back.type = "button";
     back.setAttribute("data-focus", "back");
@@ -242,24 +356,40 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     cancelAutoplay.type = "button";
     cancelAutoplay.setAttribute("data-focus", "cancel-autoplay");
     cancelAutoplay.addEventListener("click", () => controls.cancelAutoplay());
+    actions.appendChild(next);
+    actions.appendChild(cancelAutoplay);
+    actions.appendChild(retry);
+    actions.appendChild(back);
     failure.appendChild(failureTitle);
+    failure.appendChild(mark);
     failure.appendChild(failureText);
-    failure.appendChild(next);
-    failure.appendChild(cancelAutoplay);
-    failure.appendChild(retry);
-    failure.appendChild(back);
-    section.appendChild(surface);
-    section.appendChild(overlay);
-    section.appendChild(skip);
-    section.appendChild(failure);
-    section.appendChild(menu);
+    failure.appendChild(actions);
+    section.append(surface, backdrop, spinner, overlay, status, skip, failure, hud);
+    const covered = Array.from(root.children).flatMap((child) => child instanceof HTMLElement ? [{ element: child, display: child.style.display }] : []);
+    for (const item of covered) item.element.style.display = "none";
     root.appendChild(section);
 
     let view: PlaybackView = { phase: "closed" };
+    /** A playing or paused view means AVPlay can show a frame. Later loads must not cover it. */
+    let pictureShown = false;
     let cancelHide: (() => void) | undefined;
     let menuOpen = false;
     let seekPreview: number | undefined;
-    /** The list (0 audio, 1 subtitles, 2 quality) that holds the menu's focus. */
+    let pendingSkipTarget: number | undefined;
+    /** Select entered timeline scrub. Left/Right move the preview until Select or Menu. */
+    let timeline = false;
+    let timelineMoved = false;
+    /** Playing when timeline scrub began, so a later Select resumes. */
+    let resumeAfterTimeline = false;
+    let readyPreviewKey: string | undefined;
+    let holdPausedAtCommandCount: number | undefined;
+    /** 0 when auto-seek is idle. Otherwise one of SEEK_RATES. */
+    let autoRate = 0;
+    let pendingTap: "left" | "right" | undefined;
+    let cancelDebounce: (() => void) | undefined;
+    let cancelHold: (() => void) | undefined;
+    let cancelAuto: (() => void) | undefined;
+    /** The list (0 info, 1 audio, 2 subtitles, 3 quality) that holds the menu's focus. */
     let column = 0;
     let drawn: string | undefined;
     let aiLanguages = false;
@@ -271,28 +401,65 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         const all = buttons(index);
         return all.find((button) => button.className.indexOf("player-choice-current") !== -1) ?? all[0];
     };
+    const showPane = (index: number): void => {
+        column = index;
+        for (const [pane, list] of lists.entries()) {
+            list.classList.toggle("player-menu-pane-active", pane === index);
+        }
+        for (const [pane, tab] of tabs.entries()) {
+            const available = lists[pane]?.style.display !== "none";
+            tab.hidden = !available;
+            tab.setAttribute("aria-selected", String(pane === index && available));
+        }
+    };
     const focusList = (index: number): boolean => {
         const target = entry(index);
         if (target === undefined) {
             return false;
         }
-        column = index;
+        showPane(index);
         target.focus();
         return true;
     };
 
+    const fillInfo = (list: HTMLElement, tracks: TrackView): void => {
+        if (view.phase !== "playing" && view.phase !== "paused") return;
+        const body = el("div", "player-info");
+        body.tabIndex = -1;
+        body.setAttribute("data-focus", "info");
+        const titleColumn = el("div", "player-info-column");
+        titleColumn.appendChild(el("h2", "player-menu-heading", "TITLE"));
+        titleColumn.appendChild(el("p", "player-info-title", view.title));
+        const runtime = runtimeText(view.durationSeconds);
+        if (runtime !== undefined) titleColumn.appendChild(el("p", "player-info-meta", runtime));
+        const stream = el("div", "player-info-column");
+        stream.appendChild(el("h2", "player-menu-heading", "STREAM"));
+        const selectedAudio = tracks.audio.state === "ready" ? tracks.audio.choices.find((choice) => choice.id === tracks.selectedAudioId) : undefined;
+        if (selectedAudio !== undefined) {
+            stream.appendChild(infoRow("Audio", selectedAudio.detail === undefined ? selectedAudio.label : `${selectedAudio.label} · ${selectedAudio.detail}`));
+        }
+        const selectedSubtitle = tracks.subtitles.find((choice) => choice.id === tracks.selectedSubtitleId);
+        const subtitleText = selectedSubtitle === undefined ? "Off" : selectedSubtitle.detail === undefined ? selectedSubtitle.label : `${selectedSubtitle.label} · ${selectedSubtitle.detail}`;
+        stream.appendChild(infoRow("Subtitles", subtitleText));
+        body.append(titleColumn, stream);
+        list.appendChild(body);
+    };
+
     const drawMenu = (tracks: TrackView): void => {
-        const key = JSON.stringify([tracks, aiLanguages]);
+        const identity = view.phase === "playing" || view.phase === "paused" ? [view.title, view.durationSeconds] : [];
+        const key = JSON.stringify([tracks, aiLanguages, identity]);
         if (key !== drawn) {
             drawn = key;
+            const heldTab = tabs.find(tab => tab === document.activeElement);
             const keep = focusedId();
             const hasQuality = (tracks.quality?.choices.length ?? 0) > 1;
-            menu.className = hasQuality ? "player-menu player-menu-with-quality" : "player-menu";
             for (const [index, list] of lists.entries()) {
                 list.textContent = "";
-                list.style.display = index === 2 && !hasQuality ? "none" : "";
-                if (index === 1) fillSubtitles(list, tracks, aiLanguages);
-                else (index === 0 ? fillAudio : fillQuality)(list, tracks);
+                list.style.display = index === 3 && !hasQuality ? "none" : "";
+                if (index === 0) fillInfo(list, tracks);
+                else if (index === 1) fillAudio(list, tracks);
+                else if (index === 2) fillSubtitles(list, tracks, aiLanguages);
+                else fillQuality(list, tracks);
                 for (const button of buttons(index)) {
                     const id = button.getAttribute("data-focus") ?? "";
                     const aiAction = id === "ai-translate" || id === "ai-transcribe" || id.startsWith("ai-language:");
@@ -305,32 +472,41 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             const quotaText = tracks.ai?.available.transcribe !== true ? "" : quota === undefined ? "Transcription quota unavailable." : quota.limited ? `Transcription quota: ${Math.max(0, quota.remaining)} remaining (${quota.period}).${quota.remaining <= 0 ? " Quota exhausted." : ""}` : "Transcription quota: unlimited.";
             menuStatus.textContent = [changeText(tracks), tracks.seriesSubtitle?.message, quotaText, tracks.ai?.message].filter(Boolean).join(" ");
             const same = keep === null ? undefined : buttons(column).find((button) => button.getAttribute("data-focus") === keep);
-            if (same !== undefined) {
+            if (heldTab !== undefined && lists[tabs.indexOf(heldTab)]?.style.display !== "none") {
+                heldTab.focus();
+            } else if (same !== undefined) {
                 same.focus();
             } else if (!focusList(column)) {
                 if (!focusList(0)) focusList(1);
             }
+            showPane(column);
         }
     };
 
-    const closeMenu = (): void => {
+    let focusScrubberOnRender = false;
+    const closeMenu = (returnToScrubber = false): void => {
         aiLanguages = false;
         menuOpen = false;
         drawn = undefined;
+        focusScrubberOnRender = returnToScrubber;
     };
 
     const render = (): void => {
+        if (view.phase === "playing" || view.phase === "paused") pictureShown = true;
+        backdrop.hidden = pictureShown || view.phase !== "loading";
         renderSubtitles(view);
         const active = view.phase === "playing" || view.phase === "paused";
-        if (!active) seekPreview = undefined;
+        if (!active && (seekPreview !== undefined || timeline || autoRate !== 0)) cancelScrub();
         const marker = view.phase === "playing" || view.phase === "paused" ? view.skipMarker : undefined;
-        skip.hidden = marker === undefined || seekPreview !== undefined || menuOpen;
+        const undo = (view.phase === "playing" || view.phase === "paused") && view.undoSkipSeconds !== undefined;
+        skip.hidden = (!undo && marker === undefined) || seekPreview !== undefined || menuOpen;
         if (marker !== undefined && (view.phase === "playing" || view.phase === "paused")) {
             skip.textContent = `Skip ${marker.kind} · ${Math.ceil(marker.endSeconds - view.positionSeconds)} seconds`;
         }
-        if (skip.hidden && document.activeElement === skip) overlay.focus();
+        if (undo) skip.textContent = "Undo skip";
+        if (skip.hidden && document.activeElement === skip) bar.focus();
         if (seekPreview === undefined) thumbnail.clear();
-        transport.hidden = !active;
+        transport.hidden = !active || menuOpen;
         bar.setAttribute("aria-disabled", String(!active));
         const showing = view.phase === "error" || view.phase === "completion" ? "error" : "overlay";
         failure.style.display = showing === "error" ? "block" : "none";
@@ -338,10 +514,14 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         if (menuOpen && view.phase !== "playing" && view.phase !== "paused") {
             closeMenu();
         }
-        menu.style.display = menuOpen ? "block" : "none";
+        hud.hidden = !menuOpen;
         tracksButton.setAttribute("aria-expanded", String(menuOpen));
         next.hidden = true;
         cancelAutoplay.hidden = view.phase !== "completion" || view.countdown === undefined;
+        failure.className = view.phase === "error" ? "player-error player-error-wall" : "player-error";
+        failureTitle.hidden = view.phase === "error";
+        mark.hidden = view.phase !== "error";
+        back.textContent = view.phase === "error" ? "Go Back" : "Back";
         if (view.phase === "completion") {
             next.hidden = view.state !== "ready" || view.next === undefined;
             next.textContent = view.countdown === undefined ? "Play next" : `Play next (${view.countdown}s)`;
@@ -351,75 +531,310 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             if (![back, retry.hidden ? undefined : retry, next.hidden ? undefined : next, cancelAutoplay.hidden ? undefined : cancelAutoplay].includes(document.activeElement as HTMLButtonElement)) {
                 (!next.hidden ? next : !retry.hidden ? retry : back).focus();
             }
+            spinner.hidden = true;
+            status.hidden = true;
             return;
         }
         if (view.phase === "error") {
             retry.hidden = view.error.kind !== "settings" && !view.retryable;
-            failureTitle.textContent = view.title;
+            failureTitle.textContent = "";
             failureText.textContent = errorText(view.error);
             if (document.activeElement !== back && document.activeElement !== retry) {
                 (retry.hidden ? back : retry).focus();
             }
+            spinner.hidden = true;
+            status.hidden = true;
             return;
         }
         if (view.phase === "closed") {
+            spinner.hidden = true;
+            status.hidden = true;
             return;
         }
         title.textContent = view.title;
+        const activeView = view.phase === "playing" || view.phase === "paused" ? view : undefined;
+        series.textContent = activeView?.seriesTitle ?? "";
+        series.hidden = !series.textContent;
+        episode.textContent = activeView?.seasonNumber !== undefined && activeView.episodeNumber !== undefined ? `S${activeView.seasonNumber} · E${activeView.episodeNumber}` : "";
+        episode.hidden = !episode.textContent;
+        const namedStatus = view.phase === "loading" && view.detail !== undefined ? loadingText(view.detail) : "";
+        status.textContent = namedStatus;
+        status.hidden = namedStatus === "";
+        const conceal = view.phase === "loading" || menuOpen;
+        footer.hidden = conceal;
+        footerSlot.hidden = conceal;
+        bar.hidden = conceal;
+        time.hidden = conceal;
+        spinner.hidden = !(view.phase === "loading" || (active && view.buffering));
         if (view.phase === "loading") {
-            status.textContent = loadingText(view.detail);
-            time.textContent = "";
+            elapsed.textContent = "";
+            remaining.hidden = true;
+            remaining.textContent = "";
             tracksButton.hidden = true;
             fill.style.width = "0";
+            puck.style.left = "0";
         } else {
-            backward.textContent = `Back ${view.seekIntervals.backward} seconds`;
-            forward.textContent = `Forward ${view.seekIntervals.forward} seconds`;
+            const backwardSeconds = view.seekIntervals.backward;
+            const forwardSeconds = view.seekIntervals.forward;
+            setIcon(backward, backwardSeconds === 1 ? "Back 1 second" : `Back ${backwardSeconds} seconds`, skipIcon("backward", backwardSeconds));
+            setIcon(forward, forwardSeconds === 1 ? "Forward 1 second" : `Forward ${forwardSeconds} seconds`, skipIcon("forward", forwardSeconds));
             tracksButton.hidden = false;
-            tracksButton.textContent = (view.tracks.quality?.choices.length ?? 0) > 1 ? "Audio, subtitles and quality" : "Audio and subtitles";
-            pause.textContent = view.phase === "paused" ? "Play" : "Pause";
-            status.textContent = view.buffering ? "Buffering" : view.phase === "paused" ? "Paused" : "";
+            setIcon(tracksButton, "Info and options", optionsIcon());
+            setIcon(closeButton, "Close player", closeIcon());
+            setIcon(pause, view.phase === "paused" ? "Play" : "Pause", view.phase === "paused" ? playIcon() : pauseIcon());
             const duration = view.durationSeconds;
-            const position = seekPreview ?? view.positionSeconds;
-            time.textContent = duration === undefined ? clockText(position) : `${clockText(position)} / ${clockText(duration)}`;
+            const position = seekPreview ?? pendingSkipTarget ?? view.positionSeconds;
+            elapsed.textContent = clockText(position);
+            if (duration === undefined || duration <= 0) {
+                remaining.hidden = true;
+                remaining.textContent = "";
+            } else {
+                remaining.hidden = false;
+                remaining.textContent = `−${clockText(Math.max(0, duration - position))}`;
+            }
             bar.setAttribute("aria-valuenow", String(position));
             bar.setAttribute("aria-valuetext", clockText(position));
             if (duration === undefined) bar.removeAttribute("aria-valuemax");
             else bar.setAttribute("aria-valuemax", String(duration));
-            bar.className = seekPreview === undefined ? "player-bar" : "player-bar player-bar-preview";
-            fill.style.width = duration === undefined || duration <= 0 ? "0" : `${Math.min(100, (position / duration) * 100)}%`;
+            bar.className = timeline ? "player-bar player-bar-preview" : "player-bar";
+            rate.hidden = autoRate === 0;
+            rateValue.textContent = autoRate === 0 ? "" : `${Math.abs(autoRate)}x`;
+            const fraction = duration === undefined || duration <= 0 ? 0 : Math.min(100, (position / duration) * 100);
+            fill.style.width = `${fraction}%`;
+            puck.style.left = `${fraction}%`;
         }
-        const hidden = view.phase === "playing" && !view.buffering && cancelHide === undefined && !menuOpen && seekPreview === undefined && document.activeElement === overlay;
-        overlay.className = hidden ? "player-overlay player-overlay-hidden" : "player-overlay";
+        const hidden = view.phase === "playing" && !view.buffering && cancelHide === undefined && !menuOpen && seekPreview === undefined;
+        overlay.className = ["player-overlay", hidden ? "player-overlay-hidden" : "", conceal ? "player-overlay-clear" : ""].filter(Boolean).join(" ");
+        if (hidden && transport.contains(document.activeElement)) bar.focus();
         if (menuOpen && view.phase !== "loading") {
             drawMenu(view.tracks);
-        } else if ((!overlay.contains(document.activeElement) && document.activeElement !== skip) || (view.phase === "loading" && document.activeElement !== overlay)) {
-            overlay.focus();
+        } else if (view.phase === "loading") {
+            if (document.activeElement !== overlay) overlay.focus();
+        } else if (active) {
+            const focusedNode = document.activeElement;
+            const held = (menuOpen && menu.contains(focusedNode)) || transport.contains(focusedNode) || focusedNode === bar || (focusedNode === skip && !skip.hidden);
+            if (!held) {
+                if (!skip.hidden) skip.focus();
+                else bar.focus();
+            }
+        }
+        if (focusScrubberOnRender && active && !menuOpen) {
+            focusScrubberOnRender = false;
+            bar.focus();
         }
     };
 
-    const previewSeek = (direction: "backward" | "forward"): void => {
+    const setIcon = (button: HTMLButtonElement, label: string, mark: string): void => {
+        button.setAttribute("aria-label", label);
+        const glyph = button.querySelector(".player-glyph");
+        if (glyph !== null) glyph.innerHTML = mark;
+    };
+
+    const stopSeekTimers = (): void => {
+        cancelDebounce?.();
+        cancelDebounce = undefined;
+        cancelHold?.();
+        cancelHold = undefined;
+        cancelAuto?.();
+        cancelAuto = undefined;
+        pendingTap = undefined;
+    };
+
+    /** Drop a preview or timeline scrub without seeking. A timeline pause stays paused. */
+    const cancelScrub = (returnHeldResume = false): void => {
+        const resume = returnHeldResume && holdPausedAtCommandCount !== undefined && (view.phase === "playing" || view.phase === "paused") && view.transportCommandCount === holdPausedAtCommandCount;
+        holdPausedAtCommandCount = undefined;
+        stopSeekTimers();
+        seekPreview = undefined;
+        timeline = false;
+        timelineMoved = false;
+        resumeAfterTimeline = false;
+        autoRate = 0;
+        thumbnail.clear();
+        if (resume) controls.setPaused(false);
+    };
+
+    const clampSeek = (raw: number): number => {
+        const duration = view.phase === "playing" || view.phase === "paused" ? view.durationSeconds : undefined;
+        if (duration !== undefined && duration > 0) return Math.min(Math.max(0, raw), duration);
+        return Math.max(0, raw);
+    };
+
+    const scheduleSkipCommit = (): void => {
+        cancelDebounce?.();
+        cancelDebounce = clock.schedule(() => {
+            cancelDebounce = undefined;
+            if (timeline || seekPreview === undefined) return;
+            const target = seekPreview;
+            pendingSkipTarget = target;
+            seekPreview = undefined;
+            thumbnail.clear();
+            controls.seekToSeconds(target);
+            render();
+        }, SKIP_DEBOUNCE_MS);
+    };
+
+    const showThumbnail = (seconds: number): void => {
+        const duration = view.phase === "playing" || view.phase === "paused" ? view.durationSeconds ?? 0 : 0;
+        thumbnail.show(seconds, duration);
+    };
+
+    const stepSkip = (direction: "backward" | "forward"): void => {
         if (view.phase !== "playing" && view.phase !== "paused") return;
         const delta = view.seekIntervals[direction] * (direction === "backward" ? -1 : 1);
-        seekPreview = Math.max(0, Math.min((seekPreview ?? view.positionSeconds) + delta, view.durationSeconds ?? Number.MAX_VALUE));
+        seekPreview = clampSeek((seekPreview ?? pendingSkipTarget ?? view.positionSeconds) + delta);
         reveal();
-        render();
         bar.focus();
-        thumbnail.show(seekPreview);
+        showThumbnail(seekPreview);
+        scheduleSkipCommit();
+        render();
+    };
+
+    const stepTimeline = (delta: number): void => {
+        if (view.phase !== "playing" && view.phase !== "paused") return;
+        const duration = view.durationSeconds;
+        if (duration === undefined || duration <= 0) return;
+        const base = seekPreview ?? view.positionSeconds;
+        const target = clampSeek(base + delta);
+        if (target !== base) timelineMoved = true;
+        seekPreview = target;
+        showThumbnail(target);
+        render();
+    };
+
+    const startAutoSeek = (rate: number): void => {
+        if (view.phase !== "playing" && view.phase !== "paused") return;
+        const duration = view.durationSeconds;
+        if (duration === undefined || duration <= 0) return;
+        cancelDebounce?.();
+        cancelDebounce = undefined;
+        if (!timeline) {
+            const pendingResume = view.resumePending === true;
+            resumeAfterTimeline = view.phase === "playing" || pendingResume;
+            if (pendingResume) {
+                const command = view.transportCommandCount ?? 0;
+                controls.setPaused(true);
+                holdPausedAtCommandCount = command + 1;
+            }
+            timeline = true;
+            timelineMoved = false;
+            seekPreview = view.positionSeconds;
+        }
+        autoRate = rate;
+        cancelAuto?.();
+        const tick = (): void => {
+            if (autoRate === 0) return;
+            stepTimeline(AUTO_SEEK_STEP * autoRate);
+            cancelAuto = clock.schedule(tick, AUTO_SEEK_MS);
+        };
+        tick();
+    };
+
+    const adjustAutoRate = (delta: number): void => {
+        const index = SEEK_RATES.indexOf(autoRate as typeof SEEK_RATES[number]);
+        if (index < 0) return;
+        const next = Math.max(0, Math.min(SEEK_RATES.length - 1, index + delta));
+        const rate = SEEK_RATES[next];
+        if (rate === undefined) return;
+        autoRate = rate;
+        render();
+    };
+
+    const armHold = (direction: "left" | "right"): void => {
+        pendingTap = direction;
+        cancelHold?.();
+        cancelHold = clock.schedule(() => {
+            cancelHold = undefined;
+            pendingTap = undefined;
+            startAutoSeek(direction === "left" ? -1 : 1);
+        }, HOLD_MS);
+    };
+
+    const enterTimeline = (): void => {
+        if (view.phase !== "playing" && view.phase !== "paused") return;
+        const duration = view.durationSeconds;
+        if (duration === undefined || duration <= 0) return;
+        cancelDebounce?.();
+        cancelDebounce = undefined;
+        resumeAfterTimeline = view.phase === "playing" || view.resumePending === true;
+        if (resumeAfterTimeline) controls.setPaused(true);
+        timeline = true;
+        timelineMoved = false;
+        autoRate = 0;
+        seekPreview = view.positionSeconds;
+        reveal();
+        bar.focus();
+        showThumbnail(seekPreview);
+        render();
+    };
+
+    const commitTimeline = (): void => {
+        const moved = timelineMoved;
+        const resume = resumeAfterTimeline;
+        const target = seekPreview;
+        cancelScrub();
+        if (moved && target !== undefined) {
+            pendingSkipTarget = target;
+            controls.seekToSeconds(target);
+        }
+        if (resume) controls.setPaused(false);
+        bar.focus();
+        render();
+    };
+
+    const commitSkip = (): void => {
+        cancelDebounce?.();
+        cancelDebounce = undefined;
+        const target = seekPreview;
+        seekPreview = undefined;
+        thumbnail.clear();
+        if (target !== undefined) {
+            pendingSkipTarget = target;
+            controls.seekToSeconds(target);
+        }
+        bar.focus();
+        render();
+    };
+
+    const onSelectScrubber = (): void => {
+        if (timeline) commitTimeline();
+        else if (seekPreview !== undefined) commitSkip();
+        else enterTimeline();
+    };
+
+    const scrubberOwnsArrows = (): boolean => {
+        if (menuOpen || (view.phase !== "playing" && view.phase !== "paused")) return false;
+        return !transport.contains(document.activeElement);
     };
 
     const menuKey = (key: string): void => {
         if (key === "back") {
             if (aiLanguages) { aiLanguages = false; return; }
-            closeMenu();
+            closeMenu(true);
             reveal();
             return;
         }
         const all = buttons(column);
         const at = all.findIndex((button) => button === document.activeElement);
+        const atTab = tabs.findIndex(tab => tab === document.activeElement);
+        if (key === "up" && at <= 0) { tabs[column]?.focus(); return; }
+        if (atTab >= 0) {
+            if (key === "down" || key === "enter") focusList(column);
+            else if (key === "left" || key === "right") {
+                const direction = key === "left" ? -1 : 1;
+                for (let index = column + direction; index >= 0 && index < tabs.length; index += direction) {
+                    if (tabs[index]?.hidden === false) { showPane(index); tabs[index]?.focus(); break; }
+                }
+            }
+            return;
+        }
         if (key === "up" || key === "down") {
             all[Math.max(0, Math.min(all.length - 1, at + (key === "up" ? -1 : 1)))]?.focus();
         } else if (key === "left" || key === "right") {
-            focusList(Math.max(0, Math.min(lists.length - 1, column + (key === "left" ? -1 : 1))));
+            const direction = key === "left" ? -1 : 1;
+            for (let index = column + direction; index >= 0 && index < lists.length; index += direction) {
+                if (focusList(index)) break;
+            }
         } else if (key === "enter") {
             if (document.activeElement?.getAttribute("aria-disabled") === "true") return;
             if ((view.phase === "playing" || view.phase === "paused") && view.tracks.change.state === "changing") {
@@ -443,12 +858,14 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
                 aiLanguages = false;
             } else if (id?.startsWith("ai-result:")) {
                 controls.selectAIResult(id.slice("ai-result:".length));
+            } else if (id === "audio-empty") {
+                return;
             } else if (id !== null) {
-                if (column === 0) {
+                if (column === 1) {
                     controls.selectAudio(id);
-                } else if (column === 1) {
+                } else if (column === 2) {
                     controls.selectSubtitle(id);
-                } else {
+                } else if (column === 3) {
                     controls.selectQuality(id.slice("quality:".length));
                 }
             }
@@ -477,15 +894,22 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }, OVERLAY_MS);
     };
 
-    const openMenu = (): void => {
+    /** Options reopens the last tab, which starts on Info. Hidden Down opens Video, as `openSettingsHUD`. */
+    const openMenu = (entry: "remembered" | "video"): void => {
         if (view.phase !== "playing" && view.phase !== "paused") {
             return;
         }
+        if (timeline) cancelScrub(true);
         menuOpen = true;
         render();
-        if (!focusList(0)) {
-            focusList(1);
+        if (entry === "video") {
+            const video = tabs.findIndex((tab) => tab.textContent === "Video");
+            if (video >= 0 && tabs[video]?.hidden !== true) column = video;
         }
+        if (!focusList(column)) {
+            if (!focusList(0)) focusList(1);
+        }
+        tabs[column]?.focus();
     };
 
     const onKey = (event: KeyboardEvent): void => {
@@ -513,13 +937,17 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             }
             return;
         }
-        if (!skip.hidden && document.activeElement === skip && (key === "enter" || key === "play")) {
+        const hiddenPrompt = overlay.classList.contains("player-overlay-hidden") && !menuOpen && !timeline;
+        if (!skip.hidden && (document.activeElement === skip || hiddenPrompt) && (key === "enter" || key === "play")) {
             skip.click();
             return;
         }
         if (key === "play_pause" || key === "play" || key === "pause" || key === "stop" || key === "rewind" || key === "fast_forward") {
-            if (seekPreview !== undefined) overlay.focus();
-            seekPreview = undefined;
+            pendingSkipTarget = undefined;
+            if (timeline || seekPreview !== undefined || autoRate !== 0) {
+                cancelScrub();
+                bar.focus();
+            }
             if (key === "stop") {
                 controls.back();
                 return;
@@ -536,16 +964,20 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             render();
             return;
         }
-        reveal();
-        if (seekPreview !== undefined) {
-            if (key === "left" || key === "right") previewSeek(key === "left" ? "backward" : "forward");
-            else if (key === "enter" || key === "back") {
-                const target = seekPreview;
-                seekPreview = undefined;
-                overlay.focus();
-                if (key === "enter") controls.seekToSeconds(target);
+        if (hiddenPrompt) {
+            if (key === "up") {
+                reveal();
+                if (!skip.hidden) skip.focus();
+                else bar.focus();
+                render();
+                return;
             }
-            render();
+            if (key === "down") { openMenu("video"); return; }
+            if (key === "left" || key === "right") bar.focus();
+        }
+        reveal();
+        if ((key === "left" || key === "right") && scrubberOwnsArrows()) {
+            if (!event.repeat) armHold(key);
             return;
         }
         const at = transportButtons.findIndex(button => button === document.activeElement);
@@ -559,13 +991,14 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             render();
             return;
         }
-        if (key === "up" && (view.phase === "playing" || view.phase === "paused")) {
-            (skip.hidden ? pause : skip).focus();
+        if (key === "up") {
+            if (transport.contains(document.activeElement)) bar.focus();
+            else if (!skip.hidden) skip.focus();
             render();
             return;
         }
         if (key === "back" && at >= 0) {
-            overlay.focus();
+            bar.focus();
             render();
             return;
         }
@@ -573,26 +1006,47 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             transportButtons[at]?.click();
             return;
         }
-        if (key === "down" || (key === "enter" && document.activeElement === tracksButton)) {
-            openMenu();
+        if (key === "down") {
+            if (timeline || seekPreview !== undefined || autoRate !== 0) return;
+            pause.focus();
+            render();
             return;
         }
         if (key === "back") {
+            if (timeline || seekPreview !== undefined || autoRate !== 0) {
+                cancelScrub(true);
+                bar.focus();
+                render();
+                return;
+            }
             controls.back();
         } else if (key === "enter") {
-            controls.togglePause();
-        } else if (key === "left") {
-            previewSeek("backward");
-        } else if (key === "right") {
-            previewSeek("forward");
+            onSelectScrubber();
         }
         render();
     };
 
+    const onKeyUp = (event: KeyboardEvent): void => {
+        const key = remoteKey(event);
+        if ((key !== "left" && key !== "right") || pendingTap !== key) return;
+        cancelHold?.();
+        cancelHold = undefined;
+        pendingTap = undefined;
+        if (autoRate !== 0) {
+            adjustAutoRate(key === "left" ? -1 : 1);
+            return;
+        }
+        if (timeline) {
+            const interval = view.phase === "playing" || view.phase === "paused" ? view.seekIntervals[key === "left" ? "backward" : "forward"] : 0;
+            stepTimeline((key === "left" ? -1 : 1) * interval);
+            return;
+        }
+        stepSkip(key === "left" ? "backward" : "forward");
+    };
+
     const onVisibility = (): void => {
         if (document.hidden) {
-            seekPreview = undefined;
-            thumbnail.clear();
+            cancelScrub();
             cancelHide?.();
             cancelHide = undefined;
             if (view.phase !== "closed" && view.phase !== "error") {
@@ -605,14 +1059,27 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     };
 
     document.addEventListener("keydown", onKey);
+    document.addEventListener("keyup", onKeyUp);
     document.addEventListener("visibilitychange", onVisibility);
     const unsubscribe = controls.subscribe((next) => {
+        if ((next.phase !== "playing" && next.phase !== "paused") || next.previewKey !== undefined) pendingSkipTarget = undefined;
         const starting = next.phase === "playing" && view.phase !== "playing" && view.phase !== "paused";
-        if ((next.phase === "playing" || next.phase === "paused") && (view.phase === "playing" || view.phase === "paused") && next.previewKey !== view.previewKey) {
-            seekPreview = undefined;
-            thumbnail.clear();
+        if (next.phase === "playing" && view.phase === "paused" && timeline) {
+            cancelScrub();
+            reveal();
+        }
+        // A local seek hides the preview key while busy. A same-plan landing must
+        // keep a newer timeline or a skip that is still waiting out its debounce.
+        // A replacement plan still invalidates that preview.
+        const active = view.phase === "playing" || view.phase === "paused" ? view : undefined;
+        const samePlanLanding = active !== undefined && next.phase === active.phase && active.previewKey === undefined && next.previewKey !== undefined && (readyPreviewKey === undefined || next.previewKey === readyPreviewKey);
+        const heldLanding = samePlanLanding && (timeline || seekPreview !== undefined);
+        if (!heldLanding && (next.phase === "playing" || next.phase === "paused") && (view.phase === "playing" || view.phase === "paused") && next.previewKey !== view.previewKey) {
+            cancelScrub();
         }
         view = next;
+        if (next.phase !== "playing" && next.phase !== "paused") readyPreviewKey = undefined;
+        else if (next.previewKey !== undefined) readyPreviewKey = next.previewKey;
         if (document.hidden && next.phase !== "closed" && next.phase !== "error") {
             onVisibility();
         }
@@ -624,14 +1091,17 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
 
     return {
         destroy() {
+            cancelScrub();
             thumbnail.clear();
             unsubscribe();
             cancelHide?.();
             document.removeEventListener("keydown", onKey);
+            document.removeEventListener("keyup", onKeyUp);
             document.removeEventListener("visibilitychange", onVisibility);
             if (section.parentNode === root) {
                 root.removeChild(section);
             }
+            for (const item of covered) item.element.style.display = item.display;
         },
     };
 }

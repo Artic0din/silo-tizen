@@ -1,0 +1,1375 @@
+{
+  "source": "602adac960eff4235420d93f8fb80631fd4f1022",
+  "runtime": "Samsung TV Simulator SDK 10.0.6 / Chromium 137.0.7151.69",
+  "captures": [
+    {
+      "label": "r4-valid-movie-entry",
+      "source": "602adac960eff4235420d93f8fb80631fd4f1022",
+      "capturedAt": "2026-11-03T10:08:10.999Z",
+      "view": "item:movie-tmdb-1561726",
+      "focus": "play",
+      "resources": [
+        {
+          "name": "main.js",
+          "sha256": "ac3db5aed0238fbce43c6124f953d34c472aa45cf4c52a4e086eedb6169a7f45"
+        },
+        {
+          "name": "main.css",
+          "sha256": "ca57f2768d2a289c664b69cb30b9a6729dd4e8556ff39bec82c87a57f8fabd5a",
+          "rendererCssomSha256": "007012af614a8190b0d1a300ba9b533e469f0b3fab7c50d9c7ee17f22f8a03ac",
+          "rules": 665,
+          "verification": "Renderer CSSOM equals packaged stylesheet parsed by the same engine"
+        }
+      ],
+      "cast": [
+        {
+          "x": 96,
+          "y": 752,
+          "width": 200,
+          "height": 200,
+          "top": 752,
+          "right": 296,
+          "bottom": 952,
+          "left": 96
+        },
+        {
+          "x": 356,
+          "y": 752,
+          "width": 200,
+          "height": 200,
+          "top": 752,
+          "right": 556,
+          "bottom": 952,
+          "left": 356
+        },
+        {
+          "x": 616,
+          "y": 752,
+          "width": 200,
+          "height": 200,
+          "top": 752,
+          "right": 816,
+          "bottom": 952,
+          "left": 616
+        }
+      ],
+      "actions": [
+        {
+          "key": "play",
+          "label": "Play",
+          "rect": {
+            "x": 88,
+            "y": 499,
+            "width": 300,
+            "height": 76,
+            "top": 499,
+            "right": 388,
+            "bottom": 575,
+            "left": 88
+          }
+        },
+        {
+          "key": "version",
+          "label": "Version: 1080p · h264 · eac3",
+          "rect": {
+            "x": 406,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 482,
+            "bottom": 575,
+            "left": 406
+          }
+        },
+        {
+          "key": "audio",
+          "label": "Audio: Auto",
+          "rect": {
+            "x": 500,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 576,
+            "bottom": 575,
+            "left": 500
+          }
+        },
+        {
+          "key": "subtitles",
+          "label": "Subtitles: Auto",
+          "rect": {
+            "x": 594,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 670,
+            "bottom": 575,
+            "left": 594
+          }
+        },
+        {
+          "key": "watchlist",
+          "label": "Add to watchlist",
+          "rect": {
+            "x": 688,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 764,
+            "bottom": 575,
+            "left": 688
+          }
+        },
+        {
+          "key": "more",
+          "label": "More",
+          "rect": {
+            "x": 782,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 858,
+            "bottom": 575,
+            "left": 782
+          }
+        }
+      ],
+      "dialogCount": 0,
+      "inertChildren": 0,
+      "seasons": [],
+      "episodeCount": 0
+    },
+    {
+      "label": "r4-valid-version-dialog",
+      "source": "602adac960eff4235420d93f8fb80631fd4f1022",
+      "capturedAt": "2026-11-03T10:08:16.663Z",
+      "view": "item:movie-tmdb-1561726:version",
+      "focus": "version:auto",
+      "resources": [
+        {
+          "name": "main.js",
+          "sha256": "ac3db5aed0238fbce43c6124f953d34c472aa45cf4c52a4e086eedb6169a7f45"
+        },
+        {
+          "name": "main.css",
+          "sha256": "ca57f2768d2a289c664b69cb30b9a6729dd4e8556ff39bec82c87a57f8fabd5a",
+          "rendererCssomSha256": "007012af614a8190b0d1a300ba9b533e469f0b3fab7c50d9c7ee17f22f8a03ac",
+          "rules": 665,
+          "verification": "Renderer CSSOM equals packaged stylesheet parsed by the same engine"
+        }
+      ],
+      "cast": [
+        {
+          "x": 96,
+          "y": 752,
+          "width": 200,
+          "height": 200,
+          "top": 752,
+          "right": 296,
+          "bottom": 952,
+          "left": 96
+        },
+        {
+          "x": 356,
+          "y": 752,
+          "width": 200,
+          "height": 200,
+          "top": 752,
+          "right": 556,
+          "bottom": 952,
+          "left": 356
+        },
+        {
+          "x": 616,
+          "y": 752,
+          "width": 200,
+          "height": 200,
+          "top": 752,
+          "right": 816,
+          "bottom": 952,
+          "left": 616
+        }
+      ],
+      "actions": [
+        {
+          "key": "play",
+          "label": "Play",
+          "rect": {
+            "x": 88,
+            "y": 499,
+            "width": 300,
+            "height": 76,
+            "top": 499,
+            "right": 388,
+            "bottom": 575,
+            "left": 88
+          }
+        },
+        {
+          "key": "version",
+          "label": "Version: 1080p · h264 · eac3",
+          "rect": {
+            "x": 406,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 482,
+            "bottom": 575,
+            "left": 406
+          }
+        },
+        {
+          "key": "audio",
+          "label": "Audio: Auto",
+          "rect": {
+            "x": 500,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 576,
+            "bottom": 575,
+            "left": 500
+          }
+        },
+        {
+          "key": "subtitles",
+          "label": "Subtitles: Auto",
+          "rect": {
+            "x": 594,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 670,
+            "bottom": 575,
+            "left": 594
+          }
+        },
+        {
+          "key": "watchlist",
+          "label": "Add to watchlist",
+          "rect": {
+            "x": 688,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 764,
+            "bottom": 575,
+            "left": 688
+          }
+        },
+        {
+          "key": "more",
+          "label": "More",
+          "rect": {
+            "x": 782,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 858,
+            "bottom": 575,
+            "left": 782
+          }
+        }
+      ],
+      "dialogCount": 1,
+      "inertChildren": 8,
+      "seasons": [],
+      "episodeCount": 0
+    },
+    {
+      "label": "r4-valid-audio-dialog",
+      "source": "602adac960eff4235420d93f8fb80631fd4f1022",
+      "capturedAt": "2026-11-03T10:08:21.910Z",
+      "view": "item:movie-tmdb-1561726:audio",
+      "focus": "audio:auto",
+      "resources": [
+        {
+          "name": "main.js",
+          "sha256": "ac3db5aed0238fbce43c6124f953d34c472aa45cf4c52a4e086eedb6169a7f45"
+        },
+        {
+          "name": "main.css",
+          "sha256": "ca57f2768d2a289c664b69cb30b9a6729dd4e8556ff39bec82c87a57f8fabd5a",
+          "rendererCssomSha256": "007012af614a8190b0d1a300ba9b533e469f0b3fab7c50d9c7ee17f22f8a03ac",
+          "rules": 665,
+          "verification": "Renderer CSSOM equals packaged stylesheet parsed by the same engine"
+        }
+      ],
+      "cast": [
+        {
+          "x": 96,
+          "y": 752,
+          "width": 200,
+          "height": 200,
+          "top": 752,
+          "right": 296,
+          "bottom": 952,
+          "left": 96
+        },
+        {
+          "x": 356,
+          "y": 752,
+          "width": 200,
+          "height": 200,
+          "top": 752,
+          "right": 556,
+          "bottom": 952,
+          "left": 356
+        },
+        {
+          "x": 616,
+          "y": 752,
+          "width": 200,
+          "height": 200,
+          "top": 752,
+          "right": 816,
+          "bottom": 952,
+          "left": 616
+        }
+      ],
+      "actions": [
+        {
+          "key": "play",
+          "label": "Play",
+          "rect": {
+            "x": 88,
+            "y": 499,
+            "width": 300,
+            "height": 76,
+            "top": 499,
+            "right": 388,
+            "bottom": 575,
+            "left": 88
+          }
+        },
+        {
+          "key": "version",
+          "label": "Version: 1080p · h264 · eac3",
+          "rect": {
+            "x": 406,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 482,
+            "bottom": 575,
+            "left": 406
+          }
+        },
+        {
+          "key": "audio",
+          "label": "Audio: Auto",
+          "rect": {
+            "x": 500,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 576,
+            "bottom": 575,
+            "left": 500
+          }
+        },
+        {
+          "key": "subtitles",
+          "label": "Subtitles: Auto",
+          "rect": {
+            "x": 594,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 670,
+            "bottom": 575,
+            "left": 594
+          }
+        },
+        {
+          "key": "watchlist",
+          "label": "Add to watchlist",
+          "rect": {
+            "x": 688,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 764,
+            "bottom": 575,
+            "left": 688
+          }
+        },
+        {
+          "key": "more",
+          "label": "More",
+          "rect": {
+            "x": 782,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 858,
+            "bottom": 575,
+            "left": 782
+          }
+        }
+      ],
+      "dialogCount": 1,
+      "inertChildren": 8,
+      "seasons": [],
+      "episodeCount": 0
+    },
+    {
+      "label": "r4-valid-subtitles-dialog",
+      "source": "602adac960eff4235420d93f8fb80631fd4f1022",
+      "capturedAt": "2026-11-03T10:08:27.539Z",
+      "view": "item:movie-tmdb-1561726:subtitles",
+      "focus": "subtitle:auto",
+      "resources": [
+        {
+          "name": "main.js",
+          "sha256": "ac3db5aed0238fbce43c6124f953d34c472aa45cf4c52a4e086eedb6169a7f45"
+        },
+        {
+          "name": "main.css",
+          "sha256": "ca57f2768d2a289c664b69cb30b9a6729dd4e8556ff39bec82c87a57f8fabd5a",
+          "rendererCssomSha256": "007012af614a8190b0d1a300ba9b533e469f0b3fab7c50d9c7ee17f22f8a03ac",
+          "rules": 665,
+          "verification": "Renderer CSSOM equals packaged stylesheet parsed by the same engine"
+        }
+      ],
+      "cast": [
+        {
+          "x": 96,
+          "y": 752,
+          "width": 200,
+          "height": 200,
+          "top": 752,
+          "right": 296,
+          "bottom": 952,
+          "left": 96
+        },
+        {
+          "x": 356,
+          "y": 752,
+          "width": 200,
+          "height": 200,
+          "top": 752,
+          "right": 556,
+          "bottom": 952,
+          "left": 356
+        },
+        {
+          "x": 616,
+          "y": 752,
+          "width": 200,
+          "height": 200,
+          "top": 752,
+          "right": 816,
+          "bottom": 952,
+          "left": 616
+        }
+      ],
+      "actions": [
+        {
+          "key": "play",
+          "label": "Play",
+          "rect": {
+            "x": 88,
+            "y": 499,
+            "width": 300,
+            "height": 76,
+            "top": 499,
+            "right": 388,
+            "bottom": 575,
+            "left": 88
+          }
+        },
+        {
+          "key": "version",
+          "label": "Version: 1080p · h264 · eac3",
+          "rect": {
+            "x": 406,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 482,
+            "bottom": 575,
+            "left": 406
+          }
+        },
+        {
+          "key": "audio",
+          "label": "Audio: Auto",
+          "rect": {
+            "x": 500,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 576,
+            "bottom": 575,
+            "left": 500
+          }
+        },
+        {
+          "key": "subtitles",
+          "label": "Subtitles: Auto",
+          "rect": {
+            "x": 594,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 670,
+            "bottom": 575,
+            "left": 594
+          }
+        },
+        {
+          "key": "watchlist",
+          "label": "Add to watchlist",
+          "rect": {
+            "x": 688,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 764,
+            "bottom": 575,
+            "left": 688
+          }
+        },
+        {
+          "key": "more",
+          "label": "More",
+          "rect": {
+            "x": 782,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 858,
+            "bottom": 575,
+            "left": 782
+          }
+        }
+      ],
+      "dialogCount": 1,
+      "inertChildren": 8,
+      "seasons": [],
+      "episodeCount": 0
+    },
+    {
+      "label": "r4-valid-more-dialog",
+      "source": "602adac960eff4235420d93f8fb80631fd4f1022",
+      "capturedAt": "2026-11-03T10:08:32.092Z",
+      "view": "item:movie-tmdb-1561726:more",
+      "focus": "watched",
+      "resources": [
+        {
+          "name": "main.js",
+          "sha256": "ac3db5aed0238fbce43c6124f953d34c472aa45cf4c52a4e086eedb6169a7f45"
+        },
+        {
+          "name": "main.css",
+          "sha256": "ca57f2768d2a289c664b69cb30b9a6729dd4e8556ff39bec82c87a57f8fabd5a",
+          "rendererCssomSha256": "007012af614a8190b0d1a300ba9b533e469f0b3fab7c50d9c7ee17f22f8a03ac",
+          "rules": 665,
+          "verification": "Renderer CSSOM equals packaged stylesheet parsed by the same engine"
+        }
+      ],
+      "cast": [
+        {
+          "x": 96,
+          "y": 752,
+          "width": 200,
+          "height": 200,
+          "top": 752,
+          "right": 296,
+          "bottom": 952,
+          "left": 96
+        },
+        {
+          "x": 356,
+          "y": 752,
+          "width": 200,
+          "height": 200,
+          "top": 752,
+          "right": 556,
+          "bottom": 952,
+          "left": 356
+        },
+        {
+          "x": 616,
+          "y": 752,
+          "width": 200,
+          "height": 200,
+          "top": 752,
+          "right": 816,
+          "bottom": 952,
+          "left": 616
+        }
+      ],
+      "actions": [
+        {
+          "key": "play",
+          "label": "Play",
+          "rect": {
+            "x": 88,
+            "y": 499,
+            "width": 300,
+            "height": 76,
+            "top": 499,
+            "right": 388,
+            "bottom": 575,
+            "left": 88
+          }
+        },
+        {
+          "key": "version",
+          "label": "Version: 1080p · h264 · eac3",
+          "rect": {
+            "x": 406,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 482,
+            "bottom": 575,
+            "left": 406
+          }
+        },
+        {
+          "key": "audio",
+          "label": "Audio: Auto",
+          "rect": {
+            "x": 500,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 576,
+            "bottom": 575,
+            "left": 500
+          }
+        },
+        {
+          "key": "subtitles",
+          "label": "Subtitles: Auto",
+          "rect": {
+            "x": 594,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 670,
+            "bottom": 575,
+            "left": 594
+          }
+        },
+        {
+          "key": "watchlist",
+          "label": "Add to watchlist",
+          "rect": {
+            "x": 688,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 764,
+            "bottom": 575,
+            "left": 688
+          }
+        },
+        {
+          "key": "more",
+          "label": "More",
+          "rect": {
+            "x": 782,
+            "y": 499,
+            "width": 76,
+            "height": 76,
+            "top": 499,
+            "right": 858,
+            "bottom": 575,
+            "left": 782
+          }
+        }
+      ],
+      "dialogCount": 1,
+      "inertChildren": 8,
+      "seasons": [],
+      "episodeCount": 0
+    },
+    {
+      "label": "r4-final-series-entry",
+      "source": "602adac960eff4235420d93f8fb80631fd4f1022",
+      "capturedAt": "2026-11-03T10:13:29.051Z",
+      "view": "item:series-tvdb-324126",
+      "focus": "next-episode",
+      "resources": [
+        {
+          "name": "main.js",
+          "sha256": "ac3db5aed0238fbce43c6124f953d34c472aa45cf4c52a4e086eedb6169a7f45"
+        },
+        {
+          "name": "main.css",
+          "sha256": "ca57f2768d2a289c664b69cb30b9a6729dd4e8556ff39bec82c87a57f8fabd5a",
+          "rendererCssomSha256": "007012af614a8190b0d1a300ba9b533e469f0b3fab7c50d9c7ee17f22f8a03ac",
+          "rules": 665,
+          "verification": "Renderer CSSOM equals packaged stylesheet parsed by the same engine"
+        }
+      ],
+      "cast": [
+        {
+          "x": 96,
+          "y": 1204.296875,
+          "width": 200,
+          "height": 200,
+          "top": 1204.296875,
+          "right": 296,
+          "bottom": 1404.296875,
+          "left": 96
+        }
+      ],
+      "actions": [
+        {
+          "key": "next-episode",
+          "label": "Next episode",
+          "rect": {
+            "x": 88,
+            "y": 355.84375,
+            "width": 192.453125,
+            "height": 67.5,
+            "top": 355.84375,
+            "right": 280.453125,
+            "bottom": 423.34375,
+            "left": 88
+          }
+        },
+        {
+          "key": "more",
+          "label": "More",
+          "rect": {
+            "x": 314.453125,
+            "y": 351.59375,
+            "width": 76,
+            "height": 76,
+            "top": 351.59375,
+            "right": 390.453125,
+            "bottom": 427.59375,
+            "left": 314.453125
+          }
+        }
+      ],
+      "dialogCount": 0,
+      "inertChildren": 0,
+      "seasons": [
+        {
+          "key": "season:1",
+          "selected": "true"
+        },
+        {
+          "key": "season:2",
+          "selected": "false"
+        },
+        {
+          "key": "season:3",
+          "selected": "false"
+        },
+        {
+          "key": "season:4",
+          "selected": "false"
+        },
+        {
+          "key": "season:5",
+          "selected": "false"
+        },
+        {
+          "key": "season:6",
+          "selected": "false"
+        },
+        {
+          "key": "season:7",
+          "selected": "false"
+        },
+        {
+          "key": "season:8",
+          "selected": "false"
+        },
+        {
+          "key": "season:9",
+          "selected": "false"
+        }
+      ],
+      "episodeCount": 7
+    },
+    {
+      "label": "r4-valid-season-selected",
+      "source": "602adac960eff4235420d93f8fb80631fd4f1022",
+      "capturedAt": "2026-11-03T10:10:55.248Z",
+      "view": "item:series-tvdb-324126",
+      "focus": "season:2",
+      "resources": [
+        {
+          "name": "main.js",
+          "sha256": "ac3db5aed0238fbce43c6124f953d34c472aa45cf4c52a4e086eedb6169a7f45"
+        },
+        {
+          "name": "main.css",
+          "sha256": "ca57f2768d2a289c664b69cb30b9a6729dd4e8556ff39bec82c87a57f8fabd5a",
+          "rendererCssomSha256": "007012af614a8190b0d1a300ba9b533e469f0b3fab7c50d9c7ee17f22f8a03ac",
+          "rules": 665,
+          "verification": "Renderer CSSOM equals packaged stylesheet parsed by the same engine"
+        }
+      ],
+      "cast": [
+        {
+          "x": 96,
+          "y": 1161.796875,
+          "width": 200,
+          "height": 200,
+          "top": 1161.796875,
+          "right": 296,
+          "bottom": 1361.796875,
+          "left": 96
+        }
+      ],
+      "actions": [
+        {
+          "key": "next-episode",
+          "label": "Next episode",
+          "rect": {
+            "x": 88,
+            "y": 474.25,
+            "width": 192.453125,
+            "height": 67.5,
+            "top": 474.25,
+            "right": 280.453125,
+            "bottom": 541.75,
+            "left": 88
+          }
+        },
+        {
+          "key": "watchlist",
+          "label": "Remove from watchlist",
+          "rect": {
+            "x": 314.453125,
+            "y": 470,
+            "width": 76,
+            "height": 76,
+            "top": 470,
+            "right": 390.453125,
+            "bottom": 546,
+            "left": 314.453125
+          }
+        },
+        {
+          "key": "more",
+          "label": "More",
+          "rect": {
+            "x": 408.453125,
+            "y": 470,
+            "width": 76,
+            "height": 76,
+            "top": 470,
+            "right": 484.453125,
+            "bottom": 546,
+            "left": 408.453125
+          }
+        }
+      ],
+      "dialogCount": 0,
+      "inertChildren": 0,
+      "seasons": [
+        {
+          "key": "season:1",
+          "selected": "false"
+        },
+        {
+          "key": "season:2",
+          "selected": "true"
+        },
+        {
+          "key": "season:3",
+          "selected": "false"
+        },
+        {
+          "key": "season:4",
+          "selected": "false"
+        },
+        {
+          "key": "season:5",
+          "selected": "false"
+        },
+        {
+          "key": "season:6",
+          "selected": "false"
+        },
+        {
+          "key": "season:7",
+          "selected": "false"
+        },
+        {
+          "key": "season:8",
+          "selected": "false"
+        },
+        {
+          "key": "season:9",
+          "selected": "false"
+        }
+      ],
+      "episodeCount": 8
+    },
+    {
+      "label": "r4-valid-episode-detail",
+      "source": "602adac960eff4235420d93f8fb80631fd4f1022",
+      "capturedAt": "2026-11-03T10:11:08.563Z",
+      "view": "item:episode-tvdb-324126-2-2",
+      "focus": "play",
+      "resources": [
+        {
+          "name": "main.js",
+          "sha256": "ac3db5aed0238fbce43c6124f953d34c472aa45cf4c52a4e086eedb6169a7f45"
+        },
+        {
+          "name": "main.css",
+          "sha256": "ca57f2768d2a289c664b69cb30b9a6729dd4e8556ff39bec82c87a57f8fabd5a",
+          "rendererCssomSha256": "007012af614a8190b0d1a300ba9b533e469f0b3fab7c50d9c7ee17f22f8a03ac",
+          "rules": 665,
+          "verification": "Renderer CSSOM equals packaged stylesheet parsed by the same engine"
+        }
+      ],
+      "cast": [
+        {
+          "x": 96,
+          "y": 752,
+          "width": 200,
+          "height": 200,
+          "top": 752,
+          "right": 296,
+          "bottom": 952,
+          "left": 96
+        }
+      ],
+      "actions": [
+        {
+          "key": "play",
+          "label": "Play",
+          "rect": {
+            "x": 88,
+            "y": 472.09375,
+            "width": 300,
+            "height": 76,
+            "top": 472.09375,
+            "right": 388,
+            "bottom": 548.09375,
+            "left": 88
+          }
+        },
+        {
+          "key": "version",
+          "label": "Version: 720p · h264 · aac",
+          "rect": {
+            "x": 406,
+            "y": 472.09375,
+            "width": 76,
+            "height": 76,
+            "top": 472.09375,
+            "right": 482,
+            "bottom": 548.09375,
+            "left": 406
+          }
+        },
+        {
+          "key": "audio",
+          "label": "Audio: Auto",
+          "rect": {
+            "x": 500,
+            "y": 472.09375,
+            "width": 76,
+            "height": 76,
+            "top": 472.09375,
+            "right": 576,
+            "bottom": 548.09375,
+            "left": 500
+          }
+        },
+        {
+          "key": "subtitles",
+          "label": "Subtitles: Auto",
+          "rect": {
+            "x": 594,
+            "y": 472.09375,
+            "width": 76,
+            "height": 76,
+            "top": 472.09375,
+            "right": 670,
+            "bottom": 548.09375,
+            "left": 594
+          }
+        },
+        {
+          "key": "watchlist",
+          "label": "Add to watchlist",
+          "rect": {
+            "x": 688,
+            "y": 472.09375,
+            "width": 76,
+            "height": 76,
+            "top": 472.09375,
+            "right": 764,
+            "bottom": 548.09375,
+            "left": 688
+          }
+        },
+        {
+          "key": "more",
+          "label": "More",
+          "rect": {
+            "x": 782,
+            "y": 472.09375,
+            "width": 76,
+            "height": 76,
+            "top": 472.09375,
+            "right": 858,
+            "bottom": 548.09375,
+            "left": 782
+          }
+        }
+      ],
+      "dialogCount": 0,
+      "inertChildren": 0,
+      "seasons": [],
+      "episodeCount": 0
+    },
+    {
+      "label": "r4-valid-series-return",
+      "source": "602adac960eff4235420d93f8fb80631fd4f1022",
+      "capturedAt": "2026-11-03T10:11:22.037Z",
+      "view": "item:series-tvdb-324126",
+      "focus": "episode-tvdb-324126-2-2",
+      "resources": [
+        {
+          "name": "main.js",
+          "sha256": "ac3db5aed0238fbce43c6124f953d34c472aa45cf4c52a4e086eedb6169a7f45"
+        },
+        {
+          "name": "main.css",
+          "sha256": "ca57f2768d2a289c664b69cb30b9a6729dd4e8556ff39bec82c87a57f8fabd5a",
+          "rendererCssomSha256": "007012af614a8190b0d1a300ba9b533e469f0b3fab7c50d9c7ee17f22f8a03ac",
+          "rules": 665,
+          "verification": "Renderer CSSOM equals packaged stylesheet parsed by the same engine"
+        }
+      ],
+      "cast": [
+        {
+          "x": 96,
+          "y": 1139.796875,
+          "width": 200,
+          "height": 200,
+          "top": 1139.796875,
+          "right": 296,
+          "bottom": 1339.796875,
+          "left": 96
+        }
+      ],
+      "actions": [
+        {
+          "key": "next-episode",
+          "label": "Next episode",
+          "rect": {
+            "x": 88,
+            "y": 452.25,
+            "width": 192.453125,
+            "height": 67.5,
+            "top": 452.25,
+            "right": 280.453125,
+            "bottom": 519.75,
+            "left": 88
+          }
+        },
+        {
+          "key": "watchlist",
+          "label": "Remove from watchlist",
+          "rect": {
+            "x": 314.453125,
+            "y": 448,
+            "width": 76,
+            "height": 76,
+            "top": 448,
+            "right": 390.453125,
+            "bottom": 524,
+            "left": 314.453125
+          }
+        },
+        {
+          "key": "more",
+          "label": "More",
+          "rect": {
+            "x": 408.453125,
+            "y": 448,
+            "width": 76,
+            "height": 76,
+            "top": 448,
+            "right": 484.453125,
+            "bottom": 524,
+            "left": 408.453125
+          }
+        }
+      ],
+      "dialogCount": 0,
+      "inertChildren": 0,
+      "seasons": [
+        {
+          "key": "season:1",
+          "selected": "false"
+        },
+        {
+          "key": "season:2",
+          "selected": "true"
+        },
+        {
+          "key": "season:3",
+          "selected": "false"
+        },
+        {
+          "key": "season:4",
+          "selected": "false"
+        },
+        {
+          "key": "season:5",
+          "selected": "false"
+        },
+        {
+          "key": "season:6",
+          "selected": "false"
+        },
+        {
+          "key": "season:7",
+          "selected": "false"
+        },
+        {
+          "key": "season:8",
+          "selected": "false"
+        },
+        {
+          "key": "season:9",
+          "selected": "false"
+        }
+      ],
+      "episodeCount": 8
+    }
+  ],
+  "journeys": [
+    {
+      "label": "r4-valid-season-focus",
+      "keys": [
+        "down",
+        "right"
+      ],
+      "view": "item:series-tvdb-324126",
+      "focus": "season:2",
+      "catalogReadCount": 0
+    },
+    {
+      "label": "r4-valid-season-select",
+      "keys": [
+        "enter"
+      ],
+      "view": "item:series-tvdb-324126",
+      "focus": "season:2",
+      "catalogReadCount": 1
+    },
+    {
+      "label": "r4-valid-episode-open",
+      "keys": [
+        "down",
+        "right",
+        "enter"
+      ],
+      "view": "item:episode-tvdb-324126-2-2",
+      "focus": "play",
+      "catalogReadCount": 1
+    },
+    {
+      "label": "r4-valid-episode-return",
+      "keys": [
+        "back"
+      ],
+      "view": "item:series-tvdb-324126",
+      "focus": "episode-tvdb-324126-2-2",
+      "catalogReadCount": 0
+    }
+  ],
+  "assets": [
+    {
+      "name": "apple-movie-historical.png",
+      "sha256": "1e09394f2a374656f1ba8befd7bb3e67649e70a9a07ddd9639e15509a0fd667e",
+      "bytes": 525119,
+      "pngChunks": [
+        "IHDR",
+        "sRGB",
+        "IDAT",
+        "IEND"
+      ],
+      "width": 960,
+      "height": 540,
+      "originalSha256": "a5e518580bd78ecd16b71bd0c17a9cfe2bf890ada68f654a83df534370cc5e25",
+      "unchangedImageDataSha256": "28fadbb973c0098b0a7bf2a9e24213187ff979882dbc8d894d220eff1b06bae8",
+      "removedMetadata": [
+        "eXIf"
+      ]
+    },
+    {
+      "name": "audio.png",
+      "sha256": "bc0fa37f6a7175ae86ee10e50b5369c15e9d4441bb2beff761b758d42493c072",
+      "bytes": 1099374,
+      "pngChunks": [
+        "IHDR",
+        "iCCP",
+        "IDAT",
+        "IEND"
+      ],
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "name": "episode-detail.png",
+      "sha256": "fa7aba70679760cad12c1cd92eca2eafe214851630c44058385a61517a12d530",
+      "bytes": 1060261,
+      "pngChunks": [
+        "IHDR",
+        "iCCP",
+        "IDAT",
+        "IEND"
+      ],
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "name": "more.png",
+      "sha256": "b1762f237ca87d87b105151ea76b527b230d8b5012c7cd100f7995f96ac0e61d",
+      "bytes": 1092680,
+      "pngChunks": [
+        "IHDR",
+        "iCCP",
+        "IDAT",
+        "IEND"
+      ],
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "name": "movie-after.png",
+      "sha256": "db6668ccef803989392a83815b06bd9c1710a5c3e54470d48a107aacfbbad8e4",
+      "bytes": 1477539,
+      "pngChunks": [
+        "IHDR",
+        "iCCP",
+        "IDAT",
+        "IEND"
+      ],
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "name": "movie-before.png",
+      "sha256": "a9cd097bf11b60df17082a2379257730f6a5f51e7efb33e9b2b87eb17a976b5e",
+      "bytes": 1194243,
+      "pngChunks": [
+        "IHDR",
+        "iCCP",
+        "IDAT",
+        "IEND"
+      ],
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "name": "movie-dialog-focus.mp4",
+      "sha256": "17b0293f17449bfdd7f09add28450216dc87b2fd7a16700d160db7f98042fd48",
+      "bytes": 1412917
+    },
+    {
+      "name": "series-entry.png",
+      "sha256": "6454394121c713df285da4a8e77e84c93fbe8166e006193e3228ce3dd23ba021",
+      "bytes": 1610012,
+      "pngChunks": [
+        "IHDR",
+        "iCCP",
+        "IDAT",
+        "IEND"
+      ],
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "name": "series-return.png",
+      "sha256": "3e33d7a33b5b8c6d561d1df864c9bb7eb6c770082d7007ffd4aa19e752404215",
+      "bytes": 1629099,
+      "pngChunks": [
+        "IHDR",
+        "iCCP",
+        "IDAT",
+        "IEND"
+      ],
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "name": "series-season.png",
+      "sha256": "1a48f5cf81eaedb13ca37747d98181e6fe2b0af71fbc2e879964a62fec10c050",
+      "bytes": 1595418,
+      "pngChunks": [
+        "IHDR",
+        "iCCP",
+        "IDAT",
+        "IEND"
+      ],
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "name": "subtitles.png",
+      "sha256": "59bd9322c47ae7170be354f135fef39f1176c6d23881f744f7a48bc16fd87915",
+      "bytes": 1037399,
+      "pngChunks": [
+        "IHDR",
+        "iCCP",
+        "IDAT",
+        "IEND"
+      ],
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "name": "version.png",
+      "sha256": "8f45c6ad9f8a0a16246182639fc59c2a646ddb49049a4567def8a788d8a2cb27",
+      "bytes": 1097453,
+      "pngChunks": [
+        "IHDR",
+        "iCCP",
+        "IDAT",
+        "IEND"
+      ],
+      "width": 1920,
+      "height": 1080
+    }
+  ],
+  "wholeAppleParity": false,
+  "physicalTv": false,
+  "avplay": false,
+  "packagedOriginCors": false
+}

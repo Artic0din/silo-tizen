@@ -16,6 +16,7 @@ import {
     decodeProfileVerification,
     decodeRefreshedTokens,
     decodeServerIdentity,
+    decodeSetupStatus,
     decodeSystemInfo,
     decodeTokenPair,
 } from "../contracts/v2/wire.ts";
@@ -36,6 +37,7 @@ import {
     decodeCatalogPage,
     decodeEpisodes,
     decodeHiddenLibraries,
+    decodeHomeCapabilities,
     decodeHomeSections,
     decodeItemDetail,
     decodeMarqueeDetail,
@@ -57,6 +59,7 @@ import { settingsOperations } from "./settingsOperations.ts";
 import { trickplayOperations } from "./trickplayOperations.ts";
 import { subtitleOperations } from "./subtitleOperations.ts";
 import { markerOperations } from "./markerOperations.ts";
+import { bandwidthProbeOperations } from "./bandwidthProbeOperations.ts";
 
 type Spec<T> = RequestSpec<T>;
 
@@ -75,9 +78,9 @@ function query(params: Record<string, string | number | undefined>): string {
     return parts.length === 0 ? "" : `?${parts.join("&")}`;
 }
 
-/** Card rows and grids draw posters near 300px (the `small` rung); detail pages near 500px posters and full-width backdrops (`medium`). */
+/** Keep tiles small; Details needs the TV fallback, including stills used as episode backdrops. */
 const LIST_IMAGES = "small";
-const DETAIL_IMAGES = "medium";
+const DETAIL_IMAGES = "large";
 
 /** The media scope of a catalog page: what a library or search may list. */
 export type BrowseScope = "movie" | "series" | "video";
@@ -92,6 +95,7 @@ export type CatalogPageRequest = {
     | { readonly libraryId?: never; readonly q: string; readonly type: "video_with_episodes" });
 
 export const operations = {
+    ...bandwidthProbeOperations,
     ...recommendationOperations,
     ...shuffleOperations,
     ...subtitleOperations,
@@ -111,6 +115,13 @@ export const operations = {
     }),
     serverBranding: (): Spec<ReturnType<typeof decodeServerBranding>> => ({
         method: "GET", path: "/theme/branding", retry: "safe", decode: decodeServerBranding,
+    }),
+    /** getSetupStatus: public, read. `needs_setup` is true until the first administrator exists. */
+    setupStatus: (): Spec<ReturnType<typeof decodeSetupStatus>> => ({
+        method: "GET",
+        path: "/system/setup",
+        retry: "safe",
+        decode: decodeSetupStatus,
     }),
     /** getServerIdentity: public, read. */
     serverIdentity: (): Spec<string> => ({
@@ -274,10 +285,15 @@ export const operations = {
     }),
     /** getImageCapabilities: how image-bearing reads may size their artwork. */
     imageCapabilities: (): Spec<ImageCapabilities> => ({ method: "GET", path: "/images/capabilities", retry: "safe", decode: decodeImageCapabilities }),
-    /** listHomeSections: every section with its first cards, bounded by each section's item_limit. */
-    listHomeSections: (slotWidths: Readonly<Record<string, string>> = {}): Spec<HomeSection[]> => ({
+    /** getHomeCapabilities: `section_item_limit_max` is the largest `item_limit` listHomeSections accepts. */
+    homeCapabilities: (): Spec<ReturnType<typeof decodeHomeCapabilities>> => ({ method: "GET", path: "/home/capabilities", retry: "safe", decode: decodeHomeCapabilities }),
+    /**
+     * listHomeSections: every section with its first cards.
+     * `itemLimit` is sent only after getHomeCapabilities advertises `section_item_limit_max`.
+     */
+    listHomeSections: (slotWidths: Readonly<Record<string, string>> = {}, itemLimit?: number): Spec<HomeSection[]> => ({
         method: "GET",
-        path: `/home/sections${query({ image_size: LIST_IMAGES, ...slotWidths })}`,
+        path: `/home/sections${query({ image_size: LIST_IMAGES, ...slotWidths, ...(itemLimit === undefined ? {} : { item_limit: itemLimit }) })}`,
         retry: "safe",
         decode: decodeHomeSections,
     }),
@@ -296,9 +312,9 @@ export const operations = {
         decode: decodeCatalogPage,
     }),
     /** getCatalogItem: a movie, series, season or episode page with the viewer's state. */
-    getCatalogItem: (contentId: string): Spec<ItemDetail> => ({
+    getCatalogItem: (contentId: string, artwork: Readonly<Record<string, string>> = {}): Spec<ItemDetail> => ({
         method: "GET",
-        path: `/catalog/items/${encodeURIComponent(contentId)}${query({ image_size: DETAIL_IMAGES })}`,
+        path: `/catalog/items/${encodeURIComponent(contentId)}${query({ image_size: DETAIL_IMAGES, ...artwork })}`,
         retry: "safe",
         decode: decodeItemDetail,
     }),

@@ -60,7 +60,7 @@ test("Home detail reads each drawn title once, Continue Watching first, at most 
     assert.deepEqual(server.ids().slice(0, 2), ["movie:m2", "episode:e1"], "Continue Watching first");
     assert.equal(server.paths.length, 10, "ten distinct titles, ten reads");
     assert.equal(new Set(server.paths).size, 10);
-    assert.ok(server.paths.every(path => path.endsWith("?image_size=medium")), "the same request Details sends");
+    assert.ok(server.paths.every(path => path.endsWith("?image_size=large")), "the same request Details sends");
     assert.equal(landed.length, 10);
     assert.equal(continuingSettled, 1);
 

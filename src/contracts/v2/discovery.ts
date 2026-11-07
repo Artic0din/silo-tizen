@@ -148,6 +148,8 @@ export interface CollectionSummary {
     readonly posterUrl: string;
     readonly itemCount: number;
     readonly posterIsCollage: boolean;
+    /** Curated rows carry this; group cards do not, and inherit it by id. */
+    readonly collectionType: string | undefined;
 }
 export interface LibraryCollection extends CollectionSummary {
     readonly libraryId: string;
@@ -174,6 +176,7 @@ function collection(value: unknown, path: string): CollectionSummary {
         id: string(obj, "id", path), title: string(obj, "title", path),
         posterUrl: string(obj, "poster_url", path), itemCount: count(obj, "item_count", path),
         posterIsCollage: boolean(obj, "poster_is_collage", path),
+        collectionType: optionalString(obj, "collection_type", path),
     };
 }
 function collectionList(obj: Obj, path: string): CollectionSummary[] {
@@ -212,6 +215,9 @@ export function decodeLibraryCollections(value: unknown): LibraryCollections {
 }
 
 export interface CatalogSearchCapabilities {
+    readonly peopleMediaScope?: boolean | undefined;
+    /** `searchCatalogBoxSets` and `getCatalogBoxSet`. Absent on older servers. */
+    readonly boxSets?: boolean | undefined;
     readonly revision: string;
     readonly state: "available" | "disabled" | "not_configured" | "unsupported" | "unknown";
     readonly allowed: boolean;
@@ -230,6 +236,8 @@ export function decodeCatalogSearchCapabilities(value: unknown): CatalogSearchCa
         allowed: boolean(obj, "allowed", path), letterIndex: optionalBoolean(obj, "letter_index", path),
         extendedQueryRules: optionalBoolean(obj, "extended_query_rules", path),
         videoWithEpisodesScope: optionalBoolean(obj, "video_with_episodes_scope", path),
+        peopleMediaScope: optionalBoolean(obj, "people_media_scope", path),
+        boxSets: optionalBoolean(obj, "box_sets", path),
         provider: provider === undefined ? undefined : enumValue<"postgres" | "meilisearch">(provider, ["postgres", "meilisearch"]),
     };
 }

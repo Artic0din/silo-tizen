@@ -5,7 +5,7 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { encode } from "uqr";
 import { FAKE_PASSWORD, fixture, problem, type Reply } from "../native/support/fakeSilo.ts";
-import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
+import { launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
 
 const BACK = 10009;
 const IME_DONE = 65376;
@@ -254,6 +254,180 @@ tvTest("unsupported, misrouted and failing servers are named, and a retry connec
     await codeScreen(tv);
 });
 
+const PENDING_SETUP = { needs_setup: true, wizard_completed: false };
+
+/** TVServerNeedsSetupView pads the error 20pt below the body. The 38px line box is the wrapped pitch; this sentence now fits the 900px measure on one line. */
+function errorBelowBody(tv: Tv): Promise<{ gap: number; line: number }> {
+    return readLive(tv, () => {
+        const body = document.querySelector<HTMLElement>('[data-screen="needs-setup"] .marquee-lead');
+        const error = document.querySelector<HTMLElement>('[data-screen="needs-setup"] .marquee-error');
+        if (body === null || error === null || !body.isConnected || !error.isConnected) return null;
+        const range = document.createRange();
+        range.selectNodeContents(body);
+        const lines = [...range.getClientRects()];
+        const first = lines[0];
+        const second = lines[1];
+        if (first === undefined) return null;
+        return {
+            gap: error.getBoundingClientRect().top - body.getBoundingClientRect().bottom,
+            line: second === undefined ? Number.parseFloat(getComputedStyle(body).lineHeight) : second.top - first.top,
+        };
+    }, null, (value) => value.gap === 20 && value.line === 38, "the error 20px below the body");
+}
+
+function setupReads(tv: Tv): number {
+    return tv.fake.paths().filter((path) => path === "GET /system/setup").length;
+}
+
+tvTest("a server that still needs setup shows Apple TV's recovery screen instead of sign-in", async (tv) => {
+    tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    await connectTo(tv);
+    await tv.page.locator('[data-screen="needs-setup"]').waitFor();
+    assert.equal(await tv.page.locator(".marquee-hero").evaluate((node) => node.textContent), "This server\nisn't ready");
+    await shows(tv, "Ask the server administrator to finish setup. When it is ready, check again.");
+    assert.equal(await tv.page.locator(".marquee-server-name").innerText(), "silo.example.test");
+    assert.equal(await tv.page.locator(".marquee-server-address").innerText(), "https://silo.example.test");
+    assert.equal(await tv.page.locator(".marquee-badge").evaluate((node) => node.textContent), "Setup needed");
+    assert.equal(await tv.page.locator(".marquee-mark-initial").count(), 0, "the mark is the rack, not an initial");
+    assert.equal(await tv.focused(), "retry");
+    assert.equal(await tv.page.locator('[data-focus="retry"]').innerText(), "Check again");
+    assert.equal(await tv.page.locator('[data-focus="retry"]').getAttribute("disabled"), null, "a disabled button would lose focus");
+    assert.equal(tv.fake.paths().some((path) => path === "POST /auth/device/start"), false, "sign-in waits until the server is ready");
+    assert.deepEqual(await style(tv, '[data-screen="needs-setup"] .marquee-hero', "margin-top"), ["52px"]);
+    assert.deepEqual(await style(tv, '[data-screen="needs-setup"] .marquee-lead', "margin-top"), ["26px"]);
+    assert.deepEqual(await style(tv, '[data-screen="needs-setup"] .marquee-actions', "margin-top"), ["56px"]);
+
+    tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    const before = setupReads(tv);
+    const hold = tv.fake.hold("/system/setup");
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => (await tv.page.locator('[data-focus="retry"]').innerText()) === "Checking…", "the check to start");
+    assert.equal(await tv.focused(), "retry", "focus stays on Check again while it runs");
+    assert.equal(await tv.page.locator('[data-focus="retry"]').getAttribute("disabled"), null);
+    assert.equal(await tv.page.locator('[data-focus="retry"]').getAttribute("aria-busy"), "true");
+    // Discovery answers before setup. The held setup read is what a second press must not repeat.
+    await tv.eventually(async () => setupReads(tv) > before, "the check to reach setup");
+    const reads = setupReads(tv);
+    await tv.page.keyboard.press("Enter");
+    assert.equal(setupReads(tv), reads, "a check already running is ignored");
+    hold.release();
+    await shows(tv, "This server still needs administrator setup.");
+    assert.deepEqual(await style(tv, '[data-screen="needs-setup"] .marquee-error', "margin-top"), ["20px"]);
+    assert.equal((await errorBelowBody(tv)).gap, 20);
+    assert.equal(tv.fake.paths().some((path) => path === "POST /auth/device/start"), false);
+
+    await tv.page.keyboard.press("Enter");
+    await codeScreen(tv);
+});
+
+tvTest("checking a server that cannot be reached explains it, and Change server returns to the address", async (tv) => {
+    tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    await connectTo(tv);
+    await tv.page.locator('[data-screen="needs-setup"]').waitFor();
+    tv.fake.dropNextAnswer("/system/setup");
+    tv.fake.dropNextAnswer("/system/setup");
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => {
+        if ((await tv.page.getByText("Couldn't reach the server. Check it's running and try again.", { exact: true }).count()) === 1) {
+            return true;
+        }
+        await tv.jump(1000);
+        return false;
+    }, "the check to fail");
+    assert.equal(await tv.screen(), "needs-setup");
+    assert.equal((await errorBelowBody(tv)).gap, 20);
+
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), "change");
+    const hold = tv.fake.hold("/system/setup");
+    await tv.page.keyboard.press("ArrowLeft");
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => (await tv.page.locator('[data-focus="retry"]').innerText()) === "Checking…", "another check");
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("Enter");
+    assert.equal(await tv.screen(), "entry");
+    hold.release();
+    await tv.jump(0);
+    assert.equal(await tv.screen(), "entry", "a check abandoned by Change server does not return");
+    assert.equal(await tv.page.getByText("This server still needs administrator setup.", { exact: true }).count(), 0);
+});
+
+tvTest("Back on the setup screen opens sign-in, the screen underneath it on Apple TV", async (tv) => {
+    tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    await connectTo(tv);
+    await tv.page.locator('[data-screen="needs-setup"]').waitFor();
+    await tv.remote(BACK);
+    await codeScreen(tv);
+});
+
+tvTest("Change server cancels a Back still opening the previous sign-in", async (tv) => {
+    await connectTo(tv);
+    await signIn(tv);
+    const before = await handoffs(tv);
+    const base = await tv.page.evaluate(() => window.harness.server?.server.http.base.baseUrl);
+    assert.notEqual(base, undefined);
+    await tv.page.evaluate((url) => window.harness.makeAccountLegacy(url as string), base);
+    tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    await tv.page.evaluate(() => window.harness.mount(undefined, true));
+    await connectTo(tv);
+    await tv.page.locator('[data-screen="needs-setup"]').waitFor();
+    await tv.page.evaluate(() => {
+        window.harness.saveHold = window.harness.keyManager?.holdSaves();
+    });
+    await tv.remote(BACK);
+    await tv.eventually(async () => (await tv.page.evaluate(() => window.harness.saveHold?.waiting())) === 1, "the account migration to start");
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("Enter");
+    assert.equal(await tv.screen(), "entry");
+    tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    await connectTo(tv);
+    await tv.page.locator('[data-screen="needs-setup"]').waitFor();
+    await tv.page.evaluate(() => window.harness.saveHold?.release());
+    await tv.jump(0);
+    await tv.page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    assert.equal(await tv.screen(), "needs-setup", "the abandoned Back does not replace the newer screen");
+    assert.equal(await handoffs(tv), before, "the abandoned Back does not hand off its saved account");
+});
+
+for (const path of ["/system/info", "/system/setup"]) tvTest(`explicit setup retry keeps a saved account on the setup screen after ${path} failure`, async tv => {
+    await connectTo(tv);
+    await signIn(tv);
+    tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    await tv.page.evaluate(() => window.harness.mount(undefined, true));
+    await connectTo(tv);
+    await tv.page.locator('[data-screen="needs-setup"]').waitFor();
+    const devices = tv.fake.devices.size;
+    tv.fake.dropNextAnswer(path);
+    tv.fake.dropNextAnswer(path);
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => {
+        if (await handoffs(tv) > 1 || await tv.page.getByText("Couldn't reach the server. Check it's running and try again.", { exact: true }).count() === 1) return true;
+        await tv.jump(1000);
+        return false;
+    }, "explicit setup retry completed");
+    assert.equal(await tv.screen(), "needs-setup");
+    assert.equal(await handoffs(tv), 1, "a failed explicit retry cannot hand off the cached account");
+    assert.equal(tv.fake.devices.size, devices);
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await handoffs(tv) === 2, "saved account resumes after a successful retry");
+    assert.equal(await tv.page.evaluate(() => window.harness.handoffs[1]?.restore), "signed_in");
+    assert.equal(tv.fake.devices.size, devices, "the network failure did not discard the saved vault");
+});
+
+tvTest("Check again resumes a saved account when setup becomes ready", async tv => {
+    await connectTo(tv);
+    await signIn(tv);
+    tv.fake.script("/system/setup", { status: 200, body: PENDING_SETUP });
+    await tv.page.evaluate(() => window.harness.mount(undefined, true));
+    await connectTo(tv);
+    await tv.page.locator('[data-screen="needs-setup"]').waitFor();
+    const devices = tv.fake.devices.size;
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => await handoffs(tv) === 2, "saved account handoff after setup retry");
+    assert.equal(await tv.page.evaluate(() => window.harness.handoffs[1]?.restore), "signed_in");
+    assert.equal(tv.fake.devices.size, devices, "restored account does not start another device login");
+});
+
 tvTest("connecting keeps the address screen with Connecting… on Connect, and Back waits for it, as on the Apple TV app", async (tv) => {
     const hold = tv.fake.hold("/system/info");
     await connectTo(tv);
@@ -417,7 +591,11 @@ tvTest("a declined code offers a new one; expired, withdrawn and lost codes rene
     await connectTo(tv);
     tv.fake.deny(await codeScreen(tv));
     await tv.jump(5000);
-    await shows(tv, "Sign-in was declined on your phone.");
+    // Previously the status said "Sign-in was declined on your phone." and the scan lead stayed up with no code.
+    await shows(tv, "Sign-in was declined.");
+    await shows(tv, "Show a new code to try again.");
+    assert.equal(await tv.page.locator(".marquee-lead").innerText(), "Show a new code to try again.");
+    assert.equal(await tv.page.locator(".marquee-actions").evaluate((node) => getComputedStyle(node).flexDirection), "column", "the action labels wrap onto their own lines when they do not fit");
     assert.equal(await tv.page.locator("h1").innerText(), "Sign in to silo.example.test", "the headline stays");
     assert.equal(await tv.page.locator(".marquee-card .marquee-symbol").count(), 1, "the card shows the state's symbol instead of the code");
     assert.equal(await retryButton(tv), "Show a new code");
@@ -426,6 +604,7 @@ tvTest("a declined code offers a new one; expired, withdrawn and lost codes rene
 
     const second = await codeScreen(tv);
     await shows(tv, "Waiting for approval");
+    assert.equal(await tv.page.locator(".marquee-actions").evaluate((node) => getComputedStyle(node).flexDirection), "row", "two actions still fit the copy column");
     assert.equal(await tv.focused(), "password");
     await tv.page.keyboard.press("ArrowRight");
     assert.equal(await tv.focused(), "change");
@@ -645,6 +824,10 @@ for (const action of abandonmentActions) {
         assert.equal(await handoffs(tv), 0);
         await tv.eventually(async () => tv.fake.revokedSessions.size === 1, "the abandoned server session to be revoked");
         await tv.page.evaluate(() => window.harness.mount());
+        await tv.page.locator('[data-screen="entry"]').waitFor();
+        assert.equal(await tv.page.locator("#signin-address").inputValue(), "", "an abandoned first account leaves no saved server");
+        await tv.page.fill("#signin-address", "silo.example.test");
+        await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
         await codeScreen(tv);
         assert.equal(await handoffs(tv), 0, "restart cannot restore the abandoned account");
     });
@@ -726,20 +909,13 @@ tvTest("destroying a sign-in notice revokes the account instead of handing it ov
     assert.equal(await handoffs(tv), 0);
 }, { sessionOnly: true });
 
-tvTest("an account that must change its password is signed out here and sent to the server's web page", async (tv) => {
+tvTest("an account that must reset its password still finishes sign-in, and the session stays", async (tv) => {
     await connectTo(tv);
-    const code = await codeScreen(tv);
     tv.fake.passwordChangeRequired = true;
-    tv.fake.approve(code);
-    await tv.jump(5000);
-    await tv.page.locator('[data-screen="password"]').waitFor();
-    await shows(tv, "In a web browser, open https://silo.example.test, sign in and choose a new password.");
-    assert.equal(await tv.focused(), "retry");
-    await tv.eventually(async () => tv.fake.revokedSessions.size === 1, "the login session to be revoked");
-    await tv.eventually(async () => (await tv.page.evaluate(() => window.harness.keyManager?.items.size)) === 0, "the stored account to be removed");
-    assert.equal(await handoffs(tv), 0);
-    await tv.page.keyboard.press("Enter");
-    await codeScreen(tv);
+    await signIn(tv);
+    assert.equal(tv.fake.revokedSessions.size, 0, "the session stays; the profile picker shows the refusal");
+    assert.equal(await tv.page.evaluate(() => window.harness.keyManager?.items.size), 1);
+    assert.equal(tv.fake.paths().some((path) => path.includes("/password-resets") || path.includes("/account/password") || path.includes("/capabilities/password-reset")), false);
 });
 
 tvTest("signing out offline still clears the TV, and the address screen says what the server was not told", async (tv) => {
@@ -751,14 +927,15 @@ tvTest("signing out offline still clears the TV, and the address screen says wha
     assert.equal(await tv.screen(), "entry");
     await shows(tv, "Signed out on this TV.");
     await shows(tv, "The server could not be reached, so it may still list this TV's session.");
-    assert.equal(await tv.page.inputValue("#signin-address"), "https://silo.example.test");
-    assert.equal(await tv.focused(), "connect");
+    assert.equal(await tv.page.inputValue("#signin-address"), "", "signing out of the only account removes the saved server");
+    assert.equal(await tv.focused(), "address", "the removed server must be entered again");
     assert.equal(await tv.page.evaluate(() => window.harness.keyManager?.items.size), 0);
 
     const before = tv.fake.requests.length;
     tv.offline = false;
     assert.equal(tv.fake.requests.length, before, "no reconnect until asked");
-    await tv.page.keyboard.press("Enter");
+    await tv.page.fill("#signin-address", "silo.example.test");
+    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
     await codeScreen(tv);
 });
 
@@ -903,14 +1080,21 @@ tvTest("vertical password navigation skips its Show/Hide accessory, as on Apple 
     }
 });
 
-tvTest("empty fields and refusals read as on the Apple TV app; the name stays and focus returns to the password", async (tv) => {
+tvTest("empty fields and refusals read as on the Apple TV app; a missing username outlines that field", async (tv) => {
     await openPassword(tv);
     const signInButton = tv.page.getByRole("button", { name: "Sign in", exact: true });
     await signInButton.click();
     await shows(tv, "Please enter your username.");
+    // Previously every failure, including a missing username, outlined and focused the password.
+    assert.equal(await tv.page.locator(".signin-field-error #signin-username").count(), 1);
+    assert.equal(await tv.page.locator(".signin-field-error #signin-password").count(), 0);
+    assert.equal(await tv.focused(), "username");
     await tv.page.fill("#signin-username", "laura");
     await signInButton.click();
     await shows(tv, "Please enter your password.");
+    assert.equal(await tv.page.locator(".signin-field-error #signin-password").count(), 1);
+    assert.equal(await tv.page.locator(".signin-field-error #signin-username").count(), 0);
+    assert.equal(await tv.focused(), "secret");
     assert.equal(loginRequests(tv), 0, "nothing is sent without both fields");
 
     await tv.page.fill("#signin-password", "wrong");
@@ -1082,15 +1266,15 @@ tvTest("a password sign-in without secure storage warns before continuing, as a 
     await tv.eventually(async () => (await handoffs(tv)) === 1, "the handoff");
 }, { sessionOnly: true });
 
-tvTest("a password account that must change its password is signed out and sent to the web page", async (tv) => {
+tvTest("a password account that must reset its password is handed on, and the session stays", async (tv) => {
     tv.fake.passwordChangeRequired = true;
     await openPassword(tv);
     await tv.page.fill("#signin-username", "laura");
     await tv.page.fill("#signin-password", FAKE_PASSWORD);
     await tv.page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await tv.page.locator('[data-screen="password"]').waitFor();
-    await tv.eventually(async () => tv.fake.revokedSessions.size === 1, "the login session to be revoked");
-    assert.equal(await handoffs(tv), 0);
+    await tv.eventually(async () => (await handoffs(tv)) === 1, "the handoff");
+    assert.equal(tv.fake.revokedSessions.size, 0, "the session stays; the profile picker shows the refusal");
+    assert.equal(await tv.page.evaluate(() => window.harness.keyManager?.items.size), 1);
 });
 
 tvTest("a server that turned password sign-in off shows no password button", async (tv) => {
@@ -1297,7 +1481,10 @@ tvTest("HTTPS chosen in Advanced options never offers plain HTTP, and a bad port
     await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
     await shows(tv, "Port must be a number between 1 and 65535.");
     assert.equal(await tv.page.locator(".marquee-error").count(), 1);
-    assert.equal(await tv.page.locator(".signin-field-error #signin-address").count(), 1, "the address field shows the error");
+    // Previously a bad Port field outlined the address and took focus. The outline stays; focus stays on Connect.
+    assert.equal(await tv.page.locator(".signin-field-error #signin-port").count(), 1, "the Port field shows the error");
+    assert.equal(await tv.page.locator(".signin-field-error #signin-address").count(), 0);
+    assert.equal(await tv.focused(), "connect", "a bad Port leaves focus on Connect");
     assert.equal(tv.blocked, 0);
     await tv.page.fill("#signin-port", "");
     await tv.page.locator('[data-focus="scheme-https"]').click();
@@ -1306,6 +1493,16 @@ tvTest("HTTPS chosen in Advanced options never offers plain HTTP, and a bad port
     assert.ok(tv.blocked > 0, "HTTPS was tried");
     assert.deepEqual(tv.fake.requests, [], "nothing was sent unencrypted");
 }, { origin: PLAIN });
+
+tvTest("a port typed into the address outlines the address and opens nothing", async (tv) => {
+    await tv.page.fill("#signin-address", "silo.example.test:70000");
+    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
+    await shows(tv, "Port must be a number between 1 and 65535.");
+    assert.equal(await tv.page.locator(".signin-field-error #signin-address").count(), 1);
+    assert.equal(await tv.page.locator("#signin-port").count(), 0, "advanced options stay closed");
+    assert.equal(await tv.focused(), "connect", "a port typed into the address leaves focus on Connect");
+    assert.equal(tv.blocked, 0);
+});
 
 tvTest("the code screen carries the server card, and late branding renames it in place", async (tv) => {
     const hold = tv.fake.hold("/theme/branding");
@@ -1656,7 +1853,22 @@ tvTest("hidden, the code is not polled; back on screen it polls at once and code
         await tv.jump(15 * MINUTE);
         await tv.eventually(async () => tv.fake.devices.size === renewal, `renewal ${renewal}`);
     }
+    const beforeHidePoll = polls(tv);
     await tv.jump(5 * MINUTE);
+    await tv.eventually(async () => polls(tv) > beforeHidePoll, "poll triggered before hiding reaches the fake server");
+    // The jump can return while the poll it started is still being recorded.
+    let recorded = -1;
+    let quiet = 0;
+    await tv.eventually(async () => {
+        const seen = polls(tv);
+        if (seen !== recorded) {
+            recorded = seen;
+            quiet = 0;
+            return false;
+        }
+        quiet += 1;
+        return quiet === 2;
+    }, "a poll already started while the screen is visible");
     await setHidden(tv, true);
     const before = polls(tv);
     await tv.jump(20 * MINUTE);

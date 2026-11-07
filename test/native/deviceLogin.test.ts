@@ -22,7 +22,8 @@ test("code view, interval polling, opened signal and approval install a persiste
         assert.equal(waiting.code.expiresAt, h.clock.now() + 900 * SECOND);
         assert.equal(waiting.opened, false);
     }
-    assert.deepEqual(h.fake.paths(), ["GET /system/info", "GET /system/identity", "GET /auth/device/capability", "POST /auth/device/start"]);
+    // Previously this list stopped at identity. That encoded connect before it read setup status.
+    assert.deepEqual(h.fake.paths(), ["GET /system/info", "GET /system/identity", "GET /system/setup", "GET /auth/device/capability", "POST /auth/device/start"]);
 
     // Nothing is polled before the server's interval.
     await h.clock.advance(4 * SECOND);
@@ -601,6 +602,28 @@ test("starting while hidden sends no code request until the screen returns", asy
     login.setActive(true);
     await h.clock.advance(0);
     assert.equal(starts(), 1);
+});
+
+test("a wait that ends as the screen hides does not send that poll", async () => {
+    const h = await connected();
+    const login = h.core.createDeviceLogin();
+    const schedule = h.clock.schedule.bind(h.clock);
+    let arm = false;
+    h.clock.schedule = (fn, ms) => schedule(() => {
+        fn();
+        if (!arm) return;
+        arm = false;
+        login.setActive(false);
+    }, ms);
+    login.start();
+    await h.clock.advance(0);
+    assert.equal(login.current.phase, "waiting");
+    arm = true;
+    await h.clock.advance(5 * SECOND);
+    assert.equal(pollCount(h), 0, "the poll whose wait just ended is not sent while hidden");
+    login.setActive(true);
+    await h.clock.advance(0);
+    assert.equal(pollCount(h), 1, "return polls at once");
 });
 
 test("hidden, nothing is polled; back on screen the code is polled at once, as QRLoginViewModel.setActive", async () => {

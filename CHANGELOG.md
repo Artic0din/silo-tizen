@@ -19,6 +19,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Hid the TV's native scrollbars, drew the History returning mark as an outlined television, turned the collapsed A–Z index into a circle, and centred Related captions on the poster.
 - Removed the Continue Watching playback bar, lined the first episode up with the 100px inset, kept Search posters 247px apart, restored biography paragraphs, and matched Related captions and the Written by order to Apple TV.
 - Showed Calendar noon as 12:00 pm on an en-GB TV, and kept the first Search person visible.
 - Kept a decoded Details title logo in place across later repaints, so the metadata row no longer jumps back to the text title during that visit.

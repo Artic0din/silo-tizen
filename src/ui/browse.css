@@ -187,7 +187,8 @@
 .details-facts-table:focus { outline: none; background: rgba(255,255,255,.06); }
 .browse [data-detail-section="related"] .browse-card, .browse [data-detail-section="related"] .browse-art { width: calc(220px * var(--poster-scale, 1)); }
 .browse [data-detail-section="related"] .browse-art { height: calc(330px * var(--poster-scale, 1)); }
-.browse [data-detail-section="related"] .browse-card { margin-right: 44px; }
+/* TVMediaCard frames the caption at the poster width and centres it. A 2px card border made that frame 4px narrower. */
+.browse [data-detail-section="related"] .browse-card { margin-right: 44px; border: 0; }
 .details-facts .browse-text { padding: 12px; font-size: 24px; border: 2px solid transparent; border-radius: 12px; }
 .details-facts .browse-text:focus { outline: none; border-color: #fff; }
 /* tvOS person portrait is 300×450, not the 260×390 poster. siloSmall capsules, 12px radius. */
@@ -993,8 +994,8 @@
 .search-scene .browse-grid .browse-card { --card-art-height: calc(330px * var(--poster-scale, 1)); --card-caption-gap: 16px; }
 .search-scene .search-request-rail .browse-card { --card-art-height: calc(330px * var(--poster-scale, 1)); --card-caption-gap: 22px; }
 .browse-row[data-detail-section="related"] .browse-card { --card-caption-gap: 16px; }
-.browse-row[data-detail-section="related"] .browse-card-title { margin-top: 16px; font-size: 24px; font-weight: 500; line-height: 29px; }
-.browse-row[data-detail-section="related"] .browse-card-subtitle { font-size: 20px; font-weight: 400; line-height: 24px; }
+.browse-row[data-detail-section="related"] .browse-card-title { margin-top: 16px; padding-right: 0; padding-left: 0; font-size: 24px; font-weight: 500; line-height: 29px; text-align: center; }
+.browse-row[data-detail-section="related"] .browse-card-subtitle { padding-right: 0; padding-left: 0; font-size: 20px; font-weight: 400; line-height: 24px; text-align: center; }
 .browse .browse-card:focus { transform: none; border-color: transparent; box-shadow: none; }
 .browse .browse-card .browse-art { transition: transform var(--silo-fast) ease-out, box-shadow var(--silo-fast) ease-out, outline-color var(--silo-fast) ease-out; outline: 4px solid transparent; outline-offset: -2px; }
 .browse .browse-card:is(:focus, [aria-current="true"]) .browse-art { outline-color: rgba(255,255,255,.7); }
@@ -1285,7 +1286,7 @@
    letter is focused, then 96pt of 38pt chips from the top, as Apple's overflowing rail starts. The chips sit without
    Apple's 4pt gap so all 28 (1064pt) stay on the 1080 screen without the rail scrolling. */
 .browse-letters { position: fixed; z-index: 3; top: 0; right: 32px; width: 18px; height: 1020px; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: width 180ms ease-out; }
-.browse-letters .browse-button { flex-shrink: 0; width: 10px; height: 10px; min-height: 0; margin: 2px 0; padding: 0; border: 0; border-radius: 3px; background: transparent; color: rgba(237,237,237,.35); font-family: var(--silo-font); font-size: 10px; font-weight: 600; line-height: 10px; overflow: hidden; }
+.browse-letters .browse-button { flex-shrink: 0; width: 10px; height: 10px; min-height: 0; margin: 2px 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: transparent; font-family: var(--silo-font); font-size: 0; font-weight: 600; line-height: 10px; overflow: hidden; }
 .browse-letters[data-open], .browse-letters:focus-within { width: 96px; justify-content: flex-start; }
 .browse-letters:focus-within .browse-button { width: 38px; height: 38px; margin: 0; border-radius: 8px; color: #ededed; font-size: 15px; line-height: 38px; }
 .browse-letters .browse-button[aria-pressed="true"], .browse .browse-letters .browse-button:focus { background: #fff; color: #000; }

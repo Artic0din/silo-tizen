@@ -26,6 +26,25 @@ test("Auto omits the pre-start subtitle when the playing audio language is unkno
     assert.equal(startSubtitleTrackId("42", { kind: "off" }, rows, prefs), undefined);
 });
 
+test("a server-shaped catalog names the signs track by the combined ordinal and does not name a downloaded row", () => {
+    // Catalog order is every embedded row, then every external row. Downloaded rows exist only on the plan.
+    const catalog = decodeCatalogSubtitles({
+        subtitle_tracks: [
+            { index: 97, external: false, language: "eng", codec: "ass", title: "English (Signs)", forced: true },
+            { index: 1, external: false, language: "jpn", codec: "pgs", title: "Japanese" },
+            { index: 2, external: false, language: "fre", codec: "dvd_subtitle", title: "French" },
+            { external: true, language: "eng", codec: "srt", title: "English", file_name: "English.srt" },
+        ],
+    }, "version");
+    const signs = catalog[0];
+    const external = catalog[3];
+    assert.ok(signs && external);
+    assert.equal(startSubtitleTrackId("42", { kind: "track", signature: signs }, catalog), "file:42:subtitle:1");
+    assert.equal(startSubtitleTrackId("42", { kind: "track", signature: external }, catalog), "file:42:subtitle:0");
+    const downloaded = { selectionIndex: 4, externalPath: "", source: "downloaded" as const, language: "spa", codec: "srt", label: "Spanish (downloaded)", forced: false, hearingImpaired: false };
+    assert.equal(startSubtitleTrackId("42", { kind: "track", signature: downloaded }, [...catalog, downloaded]), undefined);
+});
+
 test("subtitle identities come only from the actual inventory, with exact and regional preferences", () => {
     const british = { ...track, trackId: "file:73:subtitle:6", language: "en-GB" };
     assert.equal(initialSubtitle({ kind: "track", signature: british }, [british]), british.trackId);

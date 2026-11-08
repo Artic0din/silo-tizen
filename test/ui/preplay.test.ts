@@ -580,9 +580,7 @@ preplay("Details subtitles resolve a catalog stream choice through the server in
     await tv.page.locator('[data-focus="subtitles"]').focus();
     await tv.page.keyboard.press("Enter");
     assert.equal(await tv.focused(), "subtitle:auto");
-    await tv.remote(40); await tv.remote(40);
-    assert.equal(await tv.focused(), "subtitle:0");
-    await tv.page.keyboard.press("Enter");
+    await tv.page.locator('[data-focus="subtitle:0"]').click();
     assert.equal(await tv.focused(), "subtitles");
     await savedSubtitle(tv);
     const saved = tv.fake.requests.find(request => request.method === "PUT" && request.path === "/subtitle-prefs/movie%3Am0001");
@@ -591,9 +589,9 @@ preplay("Details subtitles resolve a catalog stream choice through the server in
     assert.equal(Object.hasOwn(saved?.body ?? {}, "show_forced_subtitles"), false);
     await tv.page.locator('[data-focus="play"]').click();
     await prepare(tv);
-    assert.equal(starts(tv)[0]?.body?.subtitle_track_id, "file:42:subtitle:0");
-    const change = tv.fake.requests.find(request => request.path.endsWith("/replan"));
-    assert.deepEqual(change?.body?.selected_tracks, { audio: { id: "file:42:audio:2", index: 2 }, subtitle: { id: "file:42:subtitle:1" } });
+    // External English occupies combined ordinal 0. Signs is the first embedded row, so it is 1.
+    assert.equal(starts(tv)[0]?.body?.subtitle_track_id, "file:42:subtitle:1");
+    assert.equal(tv.fake.requests.some(request => request.path.endsWith("/replan")), false);
     await tv.remote(10009);
     await tv.page.locator('[data-focus="subtitles"]').click();
     assert.equal(await tv.page.locator('[data-focus="subtitle:0"]').getAttribute("aria-checked"), "true");
@@ -601,7 +599,12 @@ preplay("Details subtitles resolve a catalog stream choice through the server in
     await tv.page.locator('[data-focus="version"]').click();
     await tv.page.locator('[data-focus="version:43"]').click();
     assert.equal(await tv.page.locator('[data-focus="subtitles"]').getAttribute("aria-label"), "Subtitles: Auto");
-}, true, false, catalog => catalog.subtitleFiles.set("42", [{ index: 97, external: false, language: "eng", codec: "ass", title: "English (Signs)", forced: true }]));
+}, true, false, catalog => catalog.subtitleFiles.set("42", [
+    { index: 97, external: false, language: "eng", codec: "ass", title: "English (Signs)", forced: true },
+    { index: 1, external: false, language: "jpn", codec: "pgs", title: "Japanese" },
+    { index: 2, external: false, language: "fre", codec: "dvd_subtitle", title: "French" },
+    { external: true, language: "eng", codec: "srt", title: "English", file_name: "English.srt" },
+]));
 
 preplay("fresh no-progress wins over cached Resume", async (tv, catalog) => {
     catalog.progress.delete("movie:m0001");

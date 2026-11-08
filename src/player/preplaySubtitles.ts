@@ -47,8 +47,10 @@ function preferred(tracks: readonly SubtitleTrack[], wanted: string | undefined,
 
 /**
  * Names a subtitle before start, the way Apple does once the version's rows are known.
- * External rows come first, then embedded, then downloaded. The plan inventory remains
- * authoritative: a guess that the plan does not echo is corrected by the existing replan.
+ * The catalog lists every embedded row, then every external row, and omits downloaded rows.
+ * The plan lists external, then embedded, then downloaded. Downloaded rows are a suffix, so
+ * they do not move the earlier ordinals; a downloaded row has no stable catalog ordinal.
+ * The plan inventory remains authoritative when this guess is not echoed.
  */
 export function startSubtitleTrackId(fileId: string, intent: SubtitleIntent | undefined, tracks: readonly CatalogSubtitleTrack[] | undefined, preferences?: SubtitlePreferences): string | undefined {
     if (intent === undefined || intent.kind === "off" || tracks === undefined || tracks.length === 0) return undefined;
@@ -56,7 +58,11 @@ export function startSubtitleTrackId(fileId: string, intent: SubtitleIntent | un
     // Auto would then pick a full subtitle the matching audio does not need.
     if (intent.kind === "auto" && (preferences === undefined || preferences.audioLanguage === undefined || preferences.audioLanguage.trim() === "")) return undefined;
     try {
-        return initialSubtitle(intent, provisionalInventory(fileId, tracks), preferences);
+        const inventory = provisionalInventory(fileId, tracks);
+        const id = initialSubtitle(intent, inventory, preferences);
+        // A downloaded row's server ordinal follows created_at, which the catalog does not publish.
+        if (inventory.find(track => track.trackId === id)?.source === "downloaded") return undefined;
+        return id;
     } catch {
         return undefined;
     }

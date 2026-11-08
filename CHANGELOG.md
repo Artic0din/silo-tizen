@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added subtitle search and download, plus in-player delay, size, position and appearance controls, during playback.
 - Added player chapters, playback stats, richer title information, supported speed and aspect controls, and an in-player Auto-play next toggle.
 - Added Show Next Up to Playback Settings with five prompt timings and profile inheritance.
 - Showed Up Next before playback ended with Play Now, Keep Watching and an On Deck row, and refreshed autoplay at episode completion.
@@ -25,6 +26,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Loaded in-player subtitle delay and appearance when the settings contract tags a scope with the revision that added it.
+- Cleared a leftover device subtitle delay once per profile, after an owed delay write settles, and retried a failed clear instead of sending it on every open.
 - Kept the playback clock on Inter's 34px line so the scrubber stays put while the face loads, and a scrub thumbnail placed before that swap does not sit 1px too low.
 - Matched the person biography to Apple's 26px regular body, a 30.62109375px line, and a seven-line clamp.
 - Matched the person page name to Apple's 85px line box, so the name starts 10px below the portrait and the facts start at 117px.
@@ -57,6 +60,10 @@ All notable changes to this project are documented in this file.
 - Down from the profile avatar enters Switch Profile, including before the menu's dwell finishes. After Back closes it, Down reaches the first Continue Watching card.
 - Matched the library Browse grid to Apple TV: the mode pills are gone, and Up from Sort returns to the top bar. Episode rows now crop the previous card at the 100px inset, the focused still lifts by 5%, and Cast, trailer and related rows start at that inset and paint to the screen edge.
 - Kept Play focused when a movie's Details opened, even if the first focus claim did not stick, and kept that claim from leaving a card-actions dialog or ignoring a Play button that appears after the page opens.
+- Reloaded the subtitle language catalog when Try Again or Choose another language follows a catalog failure, instead of searching the previously chosen language.
+- Returned subtitle pickers to their originating pane and row after selection or Back, while preserving focus in another active tab.
+- Kept unavailable subtitle display capabilities quiet while reporting failures to load advertised preferences.
+- Preserved saved subtitle appearance when editing from Off, restored inherited values after clearing TV overrides, and hid unsupported native subtitle controls.
 - Kept Info Retry visible during remote navigation and restored selected video settings after hidden stream preparation.
 - Showed the effective autoplay setting after saving.
 - Kept a debounced skip when an earlier scrub seek landed on the same plan.
@@ -65,6 +72,7 @@ All notable changes to this project are documented in this file.
 - Added the Show Up Next episodes icon. A seek during discovery finishes the open panel, and a failed On Deck read can be tried again in that playback.
 - Read a successor's catalog presentation once, so playback ticks do not request it again.
 - Scrolled a long Info overview upward before leaving it, and kept a saved Auto-play value ahead of an older discovery read.
+- Reported a failed subtitle-language catalog with a retry, and said when a downloaded subtitle was saved but could not be turned on.
 - Retried Up Next discovery after seeks, preserved fresh autoplay settings at EOF, and kept captions inside the video preview.
 
 - Updated composed EOF checks for Apple TV's Play Now, On Deck and tail replay behavior, and isolated focus checks from background reads.

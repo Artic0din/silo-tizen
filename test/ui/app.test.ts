@@ -1421,6 +1421,7 @@ for (const [command, state] of [[415, "PLAYING"], [19, "PAUSED"], [10252, "PAUSE
 appTest("the composed remote seeks and changes audio through the real playback owner", async (tv, playback) => {
     await signIn(tv);
     await startMovie(tv);
+    await pauseTvClock(tv);
     await tv.page.evaluate(() => window.appHarness.avplay.tick(90000));
     await tv.page.keyboard.press("ArrowLeft");
     assert.equal(await tv.page.evaluate(() => window.appHarness.avplay.positionMs), 90000, "preview leaves playback untouched");
@@ -1436,6 +1437,7 @@ appTest("the composed remote seeks and changes audio through the real playback o
     const id = [...playback.sessions.keys()][0];
     assert.ok(id !== undefined);
     const hold = tv.fake.hold(`/playback/${id}/replan`);
+    assert.equal(await tv.page.getByRole("tab", { name: "Audio", exact: true }).getAttribute("aria-selected"), "true");
     await tv.page.locator('.player-menu [data-focus="file:42:audio:1"]').click();
     assert.equal(await tv.page.locator(".player-menu-status").innerText(), "Changing track", "a track button click must activate the same change as remote Enter");
     hold.release();

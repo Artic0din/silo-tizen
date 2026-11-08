@@ -26,7 +26,7 @@ import { abortedError, type RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import { isPermittedUrl } from "../api/serverUrl.ts";
 import type { FileVersionTracks, PlaybackDecision, PlaybackDefaults, PlaybackMutation, PlaybackPlan, ReplanOperation, SelectedTracks, StartPlaybackBody, SubtitleTrack, TrackIdentity } from "../contracts/v2/playback.ts";
-import type { RandomBytes } from "../session/deviceIdentity.ts";
+import type { PublicStorage, RandomBytes } from "../session/deviceIdentity.ts";
 import type { NativeSession } from "../session/session.ts";
 import type { AVPlay, AVPlayListener, AVPlayTrackInfo } from "./avplay.ts";
 import { CLIENT_CAPABILITIES, clientFeatures, HLS_SUBTITLE_RENDITIONS_ALL_FEATURE, playbackContext } from "./capabilities.ts";
@@ -40,6 +40,9 @@ import { NEXT_UP_KEY } from "../contracts/v2/settings.ts";
 import { INTRO_SKIP_KEY, CREDITS_SKIP_KEY } from "../contracts/v2/settingsRows.ts";
 import { nextShuffle } from "./nextShuffle.ts";
 import { SubtitleAI, type SubtitleAIView } from "./subtitleAI.ts";
+import { type AppearanceMember } from "./subtitleAppearance.ts";
+import { SubtitleDisplay, type SubtitleDisplayView } from "./subtitleDisplay.ts";
+import { SubtitleSearch, type SubtitleSearchView } from "./subtitleSearch.ts";
 const SKIP_UNDO_MILLISECONDS = 5000;
 import { DEFAULT_APPEARANCE, decodeCues, type SubtitleAppearance, type SubtitleCue } from "../contracts/v2/subtitles.ts";
 import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
@@ -133,7 +136,21 @@ export interface TrackView {
     /** A subtitle report is in flight. Subtitle choices can still queue; other track actions wait. */
     readonly reporting?: boolean;
     readonly notices: readonly string[];
+    readonly subtitleTools?: { readonly search: SubtitleSearchView; readonly display?: SubtitleDisplayView; readonly overlay: boolean };
 }
+
+export type SubtitleToolAction =
+    | { readonly kind: "search-open" }
+    | { readonly kind: "search-language"; readonly code: string }
+    | { readonly kind: "search-back" }
+    | { readonly kind: "search-close" }
+    | { readonly kind: "search-download"; readonly key: string }
+    | { readonly kind: "search-retry" }
+    | { readonly kind: "delay"; readonly milliseconds: number }
+    | { readonly kind: "size"; readonly size: SubtitleAppearance["fontSize"] }
+    | { readonly kind: "position"; readonly position: SubtitleAppearance["position"] }
+    | { readonly kind: "device"; readonly enabled: boolean }
+    | { readonly kind: "appearance"; readonly member: AppearanceMember; readonly value: string | number | boolean };
 
 export type PlaybackView =
     | { readonly phase: "completion"; readonly title: string; readonly state: "finalizing" | "resolving" | "ready" | "failed"; readonly next: PlayRequest | undefined; readonly retryable: boolean; readonly countdown?: number | undefined; readonly deck?: readonly PlayRequest[] }
@@ -198,6 +215,7 @@ export interface PlayerControls {
     saveSeriesSubtitle(): void;
     startSubtitleAI(kind: "translate" | "transcribe", language?: string): void;
     selectAIResult(id: string): void;
+    subtitleTool(action: SubtitleToolAction): void;
     seekThumbnail(seconds: number, signal: AbortSignal, loadSheet: ThumbnailSheetLoader): Promise<SeekThumbnail | undefined>;
 }
 
@@ -211,6 +229,8 @@ export interface PlaybackDeps {
     readonly exits: PlaybackExits;
     /** The profile spoiler owner. Absent reads as both switches off. */
     readonly spoilers?: () => EpisodeSpoilerSettings;
+    /** Public per-install storage for the once-only leftover subtitle-delay clear. Never tokens. */
+    readonly publicStorage?: PublicStorage;
 }
 
 const PROGRESS_INTERVAL_MS = 10000;
@@ -272,8 +292,12 @@ interface Attempt {
     undoSkip: { seconds: number; until: number } | undefined;
     pendingSkipUndo: number | undefined;
     ai: SubtitleAI | undefined;
+    search: SubtitleSearch | undefined;
+    display: SubtitleDisplay | undefined;
     readonly aiBlockedFiles: Set<string>;
     pendingAIResult: string | undefined;
+    /** A downloaded subtitle waiting for the refreshed inventory, reported even when AI is unavailable. */
+    pendingDownloadId: string | undefined;
     appearance: SubtitleAppearance;
     subtitleSync: number;
     cues: readonly SubtitleCue[];
@@ -426,8 +450,8 @@ export class PlaybackController implements PlayerControls {
             rectPending: false,
             transportCommandCount: 0,
             autoNext: false, settingsEpoch: 0, autoNextSave: undefined,
+            ai: undefined, search: undefined, display: undefined, aiBlockedFiles: new Set(), pendingAIResult: undefined, pendingDownloadId: undefined,
             introMode: "ask", skipCredits: false, skippedMarkers: new Set(), undoSkip: undefined, pendingSkipUndo: undefined,
-            ai: undefined, aiBlockedFiles: new Set(), pendingAIResult: undefined,
             appearance: DEFAULT_APPEARANCE, subtitleSync: 0, cues: [], captionAbort: undefined, captionNotice: "", captionPreferenceNotice: "", captionKey: undefined, captionPreferencesRead: false, seriesSubtitle: request.episode ? { busy: false, message: "" } : undefined,
             request,
             playbackAttemptId: this.newId(),
@@ -910,6 +934,46 @@ export class PlaybackController implements PlayerControls {
         // Stored listings omit some rows, so only a fresh plan can supply the result's track identity.
         attempt.pendingAIResult = id;
         this.changeTracks(attempt, plan, chosenTracks(attempt, plan));
+    }
+
+    subtitleTool(action: SubtitleToolAction): void {
+        const attempt = this.active();
+        if (attempt === undefined || !attempt.started || attempt.plan === undefined) return;
+        const search = attempt.search;
+        const display = attempt.display;
+        switch (action.kind) {
+            case "search-open": search?.open(); return;
+            case "search-language": void search?.pick(action.code); return;
+            case "search-back": search?.back(); return;
+            case "search-close": search?.close(); return;
+            case "search-download": void search?.download(action.key); return;
+            case "search-retry": void search?.retry(); return;
+            case "delay": void display?.setDelay(action.milliseconds); return;
+            case "size": void display?.setSize(action.size); return;
+            case "position": void display?.setPosition(action.position); return;
+            case "device": void display?.setDeviceOverride(action.enabled); return;
+            case "appearance": void display?.setAppearance(action.member, action.value); return;
+            default: {
+                const unexpected: never = action;
+                return unexpected;
+            }
+        }
+    }
+
+    /** Hands a downloaded subtitle to the same selection path as a finished AI result. */
+    private attachDownloaded(attempt: Attempt, id: string): boolean {
+        const plan = attempt.plan;
+        if (!attempt.live || this.attempt !== attempt || plan === undefined || attempt.hidden || attempt.restoring) return false;
+        const track = plan.subtitle.inventory.find(entry => entry.syncKey === `stored-${id}`);
+        if (track !== undefined) {
+            if (!attempt.started || attempt.busy) return false;
+            this.selectSubtitle(track.trackId);
+            return true;
+        }
+        if (!attempt.started || attempt.busy) return false;
+        attempt.pendingDownloadId = id;
+        this.changeTracks(attempt, plan, chosenTracks(attempt, plan));
+        return true;
     }
 
     selectQuality(preference: string): void {
@@ -1452,10 +1516,16 @@ export class PlaybackController implements PlayerControls {
 
     private changeSettled(attempt: Attempt, change: TrackChange): void {
         // A kept picture never reaches prepare, where a refreshed inventory used to be read.
-        const resolveCompletedSubtitle = change.state === "idle" && !attempt.endedDuringChange && attempt.pendingAIResult !== undefined;
+        const keptInventory = change.state === "idle" && !attempt.endedDuringChange;
+        const resolveCompletedSubtitle = keptInventory && attempt.pendingAIResult !== undefined;
+        const resolveDownloadedSubtitle = keptInventory && attempt.pendingDownloadId !== undefined;
         if (attempt.pendingAIResult !== undefined && !resolveCompletedSubtitle) {
             attempt.pendingAIResult = undefined;
             attempt.ai?.notice("Could not load the completed subtitle track. Playback continues; select it again to retry.");
+        }
+        if (attempt.pendingDownloadId !== undefined && !resolveDownloadedSubtitle) {
+            attempt.pendingDownloadId = undefined;
+            attempt.search?.reportUnselected();
         }
         attempt.busy = false;
         attempt.change = change;
@@ -1473,7 +1543,7 @@ export class PlaybackController implements PlayerControls {
             attempt.pendingSubtitle = undefined;
             this.selectSubtitle(pending.id);
         }
-        if (failure === undefined && resolveCompletedSubtitle && attempt.plan !== undefined && !attempt.busy) {
+        if (failure === undefined && (resolveCompletedSubtitle || resolveDownloadedSubtitle) && attempt.plan !== undefined && !attempt.busy) {
             this.applyPreparedSubtitleChoices(attempt, attempt.plan);
         }
     }
@@ -1510,6 +1580,22 @@ export class PlaybackController implements PlayerControls {
             attempt.ai = new SubtitleAI(this.deps.session, this.deps.clock, plan.effectiveMediaFileId, () => this.showPlayback(attempt), attempt.aiBlockedFiles);
             attempt.pendingAIResult = undefined;
         }
+        if (attempt.search?.fileId !== plan.effectiveMediaFileId) {
+            attempt.search?.destroy();
+            attempt.pendingDownloadId = undefined;
+            attempt.search = new SubtitleSearch(this.deps.session, plan.effectiveMediaFileId, id => this.attachDownloaded(attempt, id), () => this.showPlayback(attempt));
+            void attempt.search.refresh();
+        }
+        if (attempt.display === undefined && attempt.profileId !== undefined) {
+            const profileId = attempt.profileId;
+            attempt.display = new SubtitleDisplay(this.deps.session, profileId, (appearance, sync) => {
+                attempt.appearance = appearance;
+                attempt.subtitleSync = sync;
+                this.showPlayback(attempt);
+            }, () => this.showPlayback(attempt), this.deps.publicStorage);
+            void attempt.display.load();
+        }
+        attempt.display?.adopt(attempt.appearance, attempt.subtitleSync);
         this.readMarkers(attempt, plan.effectiveMediaFileId);
         attempt.serverFeatures = serverFeatures;
         attempt.subtitleOverride = undefined;
@@ -1579,13 +1665,15 @@ export class PlaybackController implements PlayerControls {
             this.showPlayback(attempt);
         };
         void this.deps.session.call({ ...operations.subtitleAppearance(attempt.profileId ?? ""), profileScoped: true, signal: attempt.signal }).then(appearance => {
-            if (!current()) return;
+            if (!current() || attempt.display?.editedAppearance) return;
             attempt.appearance = appearance;
+            attempt.display?.adopt(appearance, attempt.subtitleSync);
             this.showPlayback(attempt);
         }, preferencesFailed);
         void this.deps.session.call({ ...operations.subtitleSync(), profileScoped: true, signal: attempt.signal }).then(sync => {
-            if (!current()) return;
+            if (!current() || attempt.display?.editedAppearance) return;
             attempt.subtitleSync = sync;
+            attempt.display?.adopt(attempt.appearance, sync);
             this.showPlayback(attempt);
         }, preferencesFailed);
     }
@@ -1729,6 +1817,13 @@ export class PlaybackController implements PlayerControls {
             attempt.pendingAIResult = undefined;
             const track = plan.subtitle.inventory.find(track => track.syncKey === `stored-${resultId}`);
             if (track === undefined) attempt.ai?.notice("The completed subtitle is not in the refreshed inventory. Playback continues; try selecting it later.");
+            else this.selectSubtitle(track.trackId);
+        }
+        if (attempt.pendingDownloadId !== undefined) {
+            const id = attempt.pendingDownloadId;
+            attempt.pendingDownloadId = undefined;
+            const track = plan.subtitle.inventory.find(entry => entry.syncKey === `stored-${id}`);
+            if (track === undefined) attempt.search?.reportUnselected();
             else this.selectSubtitle(track.trackId);
         }
         if (attempt.queuedSubtitle !== undefined) {
@@ -2144,6 +2239,8 @@ export class PlaybackController implements PlayerControls {
     /** Leaves an attempt: no callback of it acts again. `stop` also ends its server session. */
     private leave(attempt: Attempt, how: "stop" | "abandon"): void {
         attempt.ai?.destroy();
+        attempt.search?.destroy();
+        attempt.display?.destroy();
         attempt.captionAbort?.abort();
         if (!attempt.live) {
             return;
@@ -2883,6 +2980,7 @@ export class PlaybackController implements PlayerControls {
             },
             seekIntervals: attempt.seekIntervals,
             previewKey: frozen ? undefined : attempt.planAttemptId,
+            // The offset moves cues this overlay draws. Text AVPlay selects itself is not shifted: AVPlay has no subtitle-offset call, and a TV has to confirm whether its TEXT track can move.
             captions: attempt.hidden || attempt.restoring || frozen ? undefined : { text: attempt.cues.filter(cue => captionTime >= cue.start && captionTime < cue.end).map(cue => cue.text).join("\n"), appearance: attempt.appearance },
             skipMarker: frozen ? undefined : markerAt((attempt.markers?.segments ?? []).filter(marker => marker.kind !== "intro" || attempt.introMode !== "never"), attempt.sourceSeconds),
             undoSkipSeconds: attempt.undoSkip !== undefined && this.deps.clock.now() < attempt.undoSkip.until ? attempt.undoSkip.seconds : undefined,
@@ -3195,7 +3293,17 @@ function trackView(attempt: Attempt, plan: PlaybackPlan): TrackView {
         change: attempt.change,
         reporting: attempt.reporting,
         notices,
+        ...(attempt.search === undefined ? {} : { subtitleTools: { search: attempt.search.view, ...(attempt.display?.view === undefined ? {} : { display: attempt.display.view }), overlay: subtitleOverlay(attempt, plan) } }),
     };
+}
+
+/** Delay and styling apply to overlay cues. AVPlay-drawn text and burn-in have no offset or style path here. */
+function subtitleOverlay(attempt: Attempt, plan: PlaybackPlan): boolean {
+    const id = shownSubtitle(attempt, plan);
+    if (id === undefined) return true;
+    if (plan.subtitle.mode === "burn_in") return false;
+    const row = plan.subtitle.inventory.find(entry => entry.trackId === id);
+    return row === undefined || !inStreamCandidate(plan, row);
 }
 
 function qualityChoices(plan: PlaybackPlan): TrackChoice[] {

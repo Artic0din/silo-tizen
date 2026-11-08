@@ -1837,7 +1837,6 @@ test("long server quality lists scroll within the menu with focus and status kep
     const quality = { choices: [{ id: "auto", label: "Auto" }, ...Array.from({ length: 16 }, (_, index) => ({ id: `rung-${index}`, label: `Server quality ${index + 1} with a longer label` }))], selectedId: "auto" };
     try {
         await show(page, playing({ ...TRACKS, quality }));
-        // Old path was Down, Right, Right from an Audio panel. Video is the tab after Subtitles.
         await openPanel(page);
         await remote(page, RIGHT);
         await remote(page, RIGHT);
@@ -1904,6 +1903,185 @@ test("an empty audio list does not trap remote movement between Info and Subtitl
         assert.equal(await focused(page), "stat:Engine");
         await remote(page, LEFT);
         assert.equal(await focused(page), "info");
+        assert.deepEqual(logs, []);
+    } finally {
+        await page.close();
+    }
+});
+
+test("backing out of subtitle results restores the chosen language", async () => {
+    const { page } = await open();
+    const search = {
+        offered: true, unavailableReason: "", phase: "results" as const,
+        suggested: [{ code: "ja", label: "Japanese" }],
+        other: [{ code: "en", label: "English" }],
+        language: "ja", status: "", message: "", warnings: [], canRetry: false,
+        results: [{ key: "opensubtitles:1", id: "1", provider: "opensubtitles", language: "ja", releaseName: "Example", format: "srt", score: 80, downloads: 1, hearingImpaired: false }],
+        downloadingKey: undefined,
+    };
+    const tracks: TrackView = { ...TRACKS, subtitleTools: { search, overlay: false } };
+    try {
+        await show(page, playing(tracks));
+        await openPanel(page);
+        for (let index = 0; index < 4; index++) await remote(page, RIGHT);
+        await remote(page, BACK);
+        assert.deepEqual(await commands(page), ['subtitleTool {"kind":"search-back"}']);
+        await show(page, playing({ ...tracks, subtitleTools: { search: { ...search, phase: "languages", results: [] }, overlay: false } }));
+        assert.equal(await focused(page), "subtitle-language:ja");
+        assert.equal(await page.locator('[data-focus="subtitle-language:ja"]').getAttribute("aria-pressed"), "true");
+        assert.equal(await page.locator('[data-focus="subtitle-language:en"]').getAttribute("aria-pressed"), "false");
+    } finally { await page.close(); }
+});
+
+const CLOSED_SEARCH = { offered: true, unavailableReason: "", phase: "closed" as const, suggested: [], other: [], language: undefined, status: "", message: "", warnings: [], canRetry: false, results: [], downloadingKey: undefined };
+
+test("subtitle search remains remote reachable without existing subtitle tracks", async () => {
+    const { page } = await open();
+    const tracks: TrackView = { ...TRACKS, subtitles: [], subtitleTools: {
+        search: CLOSED_SEARCH,
+        overlay: false,
+    } };
+    try {
+        await show(page, playing(tracks));
+        await openPanel(page);
+        assert.equal(await page.getByRole("tab", { name: "Subtitles", exact: true }).isVisible(), true);
+        for (let index = 0; index < 4; index++) await remote(page, RIGHT);
+        assert.equal(await focused(page), "subtitles-off");
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "subtitle-search");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ['subtitleTool {"kind":"search-open"}']);
+    } finally { await page.close(); }
+});
+
+test("subtitle search stays reachable under a long track list and after a preference failure", async () => {
+    const { page } = await open();
+    const subtitles = Array.from({ length: 12 }, (_, index) => ({ id: `file:42:subtitle:${index}`, label: `Subtitle ${index + 1}` }));
+    const failed = "Could not load subtitle preferences. Reopen playback to retry.";
+    const tracks: TrackView = {
+        ...TRACKS,
+        subtitles,
+        subtitleTools: {
+            search: CLOSED_SEARCH,
+            display: { delay: false, styling: false, deviceScope: false, textOpacity: false, delayMs: 0, appearance: DEFAULT_APPEARANCE, deviceOverride: false, busy: false, message: failed },
+            overlay: true,
+        },
+    };
+    try {
+        await show(page, playing(tracks));
+        await openPanel(page);
+        for (let index = 0; index < 4; index++) await remote(page, RIGHT);
+        assert.match(await text(page, ".player-menu-status"), /Could not load subtitle preferences/);
+        assert.equal(await focused(page), "subtitles-off");
+        for (let index = 0; index < subtitles.length + 1; index += 1) await remote(page, DOWN);
+        assert.equal(await focused(page), "subtitle-search");
+        assert.equal(await page.locator('[data-focus="subtitle-search"]').getAttribute("aria-disabled"), "false");
+        await page.clock.resume();
+        await page.waitForFunction(() => {
+            const list = document.querySelector(".player-menu-subtitles");
+            const focus = document.activeElement;
+            if (list === null || focus === null) return false;
+            const bounds = list.getBoundingClientRect();
+            const item = focus.getBoundingClientRect();
+            return item.top >= bounds.top && item.bottom <= bounds.bottom;
+        });
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ['subtitleTool {"kind":"search-open"}']);
+    } finally { await page.close(); }
+});
+
+test("closing a background subtitle picker preserves the live audio focus", async () => {
+    const { page } = await open();
+    const tracks: TrackView = { ...TRACKS, subtitleTools: {
+        search: { offered: true, unavailableReason: "", phase: "closed", suggested: [], other: [], language: undefined, status: "", message: "", warnings: [], canRetry: false, results: [], downloadingKey: undefined },
+        display: { delay: true, styling: true, deviceScope: true, textOpacity: true, delayMs: 0, appearance: DEFAULT_APPEARANCE, deviceOverride: false, busy: false, message: "" },
+        overlay: true,
+    } };
+    try {
+        await show(page, playing(tracks));
+        await openPanel(page);
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
+        await page.locator('[data-focus="subtitle-size"]').focus();
+        await remote(page, ENTER);
+        await remote(page, LEFT);
+        await page.locator('[data-focus="file:42:audio:1"]').focus();
+        await remote(page, BACK);
+        assert.equal(await focused(page), "file:42:audio:1");
+        assert.deepEqual(await commands(page), []);
+    } finally { await page.close(); }
+});
+
+for (const origin of ["tracks", "appearance"] as const) for (const field of ["fontSize", "position"] as const) for (const ending of ["select", "remote-back", "button-back"] as const) {
+    test(`subtitle ${origin} ${field} picker restores its originating row after ${ending}`, async () => {
+        const { page } = await open();
+        const tracks: TrackView = { ...TRACKS, subtitleTools: {
+            search: { offered: true, unavailableReason: "", phase: "closed", suggested: [], other: [], language: undefined, status: "", message: "", warnings: [], canRetry: false, results: [], downloadingKey: undefined },
+            display: { delay: true, styling: true, deviceScope: true, textOpacity: true, delayMs: 0, appearance: DEFAULT_APPEARANCE, deviceOverride: false, busy: false, message: "" },
+            overlay: true,
+        } };
+        try {
+            await show(page, playing(tracks));
+            await openPanel(page);
+            await remote(page, RIGHT);
+            await remote(page, RIGHT);
+            await remote(page, RIGHT);
+            await remote(page, RIGHT);
+            if (origin === "appearance") {
+                await page.locator('[data-focus="subtitle-appearance"]').focus();
+                await remote(page, ENTER);
+            }
+            const trigger = origin === "appearance" ? `subtitle-appearance:${field}` : field === "fontSize" ? "subtitle-size" : "subtitle-position";
+            await page.locator(`[data-focus="${trigger}"]`).focus();
+            await remote(page, ENTER);
+            assert.equal(await focused(page), field === "fontSize" ? "subtitle-picker:large" : "subtitle-picker:bottom");
+            if (ending === "select") await remote(page, ENTER);
+            else if (ending === "remote-back") await remote(page, BACK);
+            else await page.locator('[data-focus="subtitle-picker-back"]').click();
+            assert.equal(await focused(page), trigger);
+            assert.equal(await page.locator('[data-focus="subtitle-appearance-back"]').count(), origin === "appearance" ? 1 : 0);
+            assert.equal((await commands(page)).length, ending === "select" ? 1 : 0);
+            if (origin === "appearance") {
+                await remote(page, BACK);
+                assert.equal(await focused(page), "subtitle-appearance");
+            }
+        } finally { await page.close(); }
+    });
+}
+
+test("subtitle search and the delay, size, position and appearance rows are remote-operable", async () => {
+    const { page, logs } = await open();
+    const tracks: TrackView = {
+        ...TRACKS,
+        subtitleTools: {
+            search: { offered: true, unavailableReason: "", phase: "closed", suggested: [], other: [], language: undefined, status: "", message: "", warnings: [], canRetry: false, results: [], downloadingKey: undefined },
+            display: { delay: true, styling: true, deviceScope: true, textOpacity: true, delayMs: 0, appearance: DEFAULT_APPEARANCE, deviceOverride: false, busy: false, message: "" },
+            overlay: true,
+        },
+    };
+    try {
+        await show(page, playing(tracks));
+        await openPanel(page);
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
+        assert.match(await text(page, ".player-menu-subtitles"), /Search Subtitles/);
+        assert.match(await text(page, ".player-menu-subtitles"), /Delay[\s\S]*0 ms/);
+        assert.match(await text(page, ".player-menu-subtitles"), /Size[\s\S]*Large/);
+        assert.match(await text(page, ".player-menu-subtitles"), /Position[\s\S]*Bottom/);
+        assert.match(await text(page, ".player-menu-subtitles"), /Appearance[\s\S]*Box, Large, Bottom/);
+        for (let step = 0; step < 5; step += 1) await remote(page, DOWN);
+        assert.equal(await focused(page), "subtitle-delay");
+        await remote(page, ENTER);
+        assert.equal(await focused(page), "subtitle-picker:0");
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "subtitle-picker:100");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ['subtitleTool {"kind":"delay","milliseconds":100}']);
+        assert.equal(await focused(page), "subtitle-delay");
         assert.deepEqual(logs, []);
     } finally {
         await page.close();

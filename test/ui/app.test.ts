@@ -277,6 +277,21 @@ appTest("the expiry notice names the server by its fresh branding", async tv => 
     await tv.page.getByText("You were signed out of Family Cinema. Sign in again.").waitFor();
 });
 
+appTest("a late branding answer renames the expiry notice already on screen", async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => window.appHarness.storage.setItem("silo.native.serverBranding.v1", JSON.stringify({ "https://silo.example.test": { serverName: "Living room library" } })));
+    tv.fake.script("/theme/branding", { status: 200, body: { server_name: "Family Cinema" } });
+    const branding = tv.fake.hold("/theme/branding");
+    tv.fake.revokeAllSessions();
+    const hold = tv.fake.hold("/auth/refresh");
+    await tv.page.locator('[data-focus="movies"]').click();
+    hold.release();
+    await tv.page.locator('[data-screen="code"]').waitFor({ timeout: 5000 });
+    await tv.page.getByText("You were signed out of Living room library. Sign in again.").waitFor();
+    branding.release();
+    await tv.page.getByText("You were signed out of Family Cinema. Sign in again.").waitFor({ timeout: 5000 });
+});
+
 appTest("the expiry notice does not follow Change server into a new connection", async tv => {
     await signIn(tv);
     await tv.page.evaluate(() => window.appHarness.storage.setItem("silo.native.serverBranding.v1", JSON.stringify({ "https://silo.example.test": { serverName: "Living room library" } })));
@@ -404,6 +419,8 @@ appTest("an expired only account signs in again even when its sign-in flag canno
     await tv.page.locator('[data-screen="code"], [data-view="change-account"]').first().waitFor({ timeout: 5000 });
     assert.equal(await tv.page.locator('[data-view="change-account"]').count(), 0, "the expired account is no other account to choose");
     assert.equal(await tv.page.locator('[data-screen="code"]').count(), 1);
+    await tv.page.getByRole("button", { name: "Sign in with a password", exact: true }).click();
+    assert.equal(await tv.page.locator("#signin-username").inputValue(), "laura", "the expired account is the one renewed");
 });
 
 /** Laura signs in again with the key store refusing it: her row says sign in again, yet her session is live. */

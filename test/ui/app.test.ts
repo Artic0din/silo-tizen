@@ -261,6 +261,25 @@ appTest("session expiry releases Change Account and signs in with the username",
     assert.equal(await tv.page.getByRole("button", { name: "Change server", exact: true }).count(), 1);
 });
 
+appTest("the expiry notice does not follow Change server into a new connection", async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => window.appHarness.storage.setItem("silo.native.serverBranding.v1", JSON.stringify({ "https://silo.example.test": { serverName: "Living room library" } })));
+    tv.fake.revokeAllSessions();
+    const hold = tv.fake.hold("/auth/refresh");
+    await tv.page.locator('[data-focus="movies"]').click();
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    hold.release();
+    await tv.page.locator('[data-screen="code"]').waitFor({ timeout: 5000 });
+    const notice = tv.page.getByText("You were signed out of Living room library. Sign in again.");
+    await notice.waitFor();
+    await tv.page.getByRole("button", { name: "Change server", exact: true }).click();
+    await tv.page.locator('[data-screen="entry"]').waitFor();
+    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    assert.equal(await notice.count(), 0, "a connection started after Change server is not an expiry");
+});
+
 function profileItems(tv: Tv): Record<string, unknown>[] {
     const items = tv.fake.profiles.items;
     if (!Array.isArray(items)) throw new Error("profiles");

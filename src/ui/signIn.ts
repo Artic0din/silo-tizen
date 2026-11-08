@@ -599,11 +599,12 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         signIn(result, notice === undefined ? [] : [{ text: notice, tone: "info" }]);
     };
 
+    let sessionExpired = options.sessionExpired === true;
     const signIn = (server: ConnectedServer, notes: readonly Note[]): void => {
         leaveSignIn();
         const login = server.createDeviceLogin();
         const baseUrl = server.server.http.base.baseUrl;
-        const expired = options.sessionExpired
+        const expired = sessionExpired
             ? [{ text: text.sessionExpiredNotice(cachedBranding(core.publicStorage, baseUrl)?.serverName ?? text.serverHost(baseUrl)), tone: "info" as const }]
             : [];
         notes = [...expired, ...notes];
@@ -755,6 +756,8 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     };
     const changeServer = (): void => {
         if (opensAccountList()) { destroy(); options.onChangeAccount?.(); return; }
+        // AppRouter.resetToServerSetup clears loginNotice: a new connection is not an expiry.
+        sessionExpired = false;
         leaveSignIn();
         showEntry([], false, "connect");
     };

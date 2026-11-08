@@ -193,8 +193,9 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await signedIn(tv);
             await openLibrary(tv);
             await tv.jump(300);
-            const titles = await tv.page.locator('.home-section .browse-card:not(.skyline-explore)').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? ""));
-            await tv.eventually(async () => titles.every(id => tv.fake.requests.some(request => request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(id)}`)), "Recommended enrichment queue dispatched");
+            await tv.jump(150);
+            const rested = await tv.focused();
+            await tv.eventually(async () => rested !== null && tv.fake.requests.some(request => request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(rested)}`), "rested Recommended card");
             const reads = tv.fake.requests.length;
             for (const moves of [0, 19]) {
                 for (let step = 0; step < moves; step++) await tv.remote(39);
@@ -232,7 +233,9 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
                     assert.deepEqual(style.transitions, ["0s", "0s", "0s"], "reduced motion disables artwork and caption transitions");
                 }
             }
-            assert.equal(tv.fake.requests.length, reads, "shelf focus movement makes no requests");
+            const extra = tv.fake.requests.slice(reads).map(request => request.path.split("?")[0]);
+            assert.ok(extra.every(path => path?.startsWith("/catalog/items/")), extra.join(" "));
+            assert.equal(new Set(extra).size, extra.length, "each rested card is read once");
             assert.deepEqual(tv.console, []);
         } finally { await tv.page.context().close(); }
     });

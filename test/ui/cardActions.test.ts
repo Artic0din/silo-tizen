@@ -242,7 +242,12 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) for (const can
             await tv.jump(1000);
             await tv.up(13);
             assert.equal(await menu(tv).count(), 0);
-            assert.equal(tv.fake.requests.slice(before).filter(r => r.path.startsWith("/catalog/items/")).length, 0);
+            const detail = tv.fake.requests.slice(before).filter(request => request.path.startsWith("/catalog/items/"));
+            const focused = await tv.focused();
+            if (cancel === "arrow") {
+                assert.ok(detail.length <= 1, "the cancelled hold adds no read; resting may read the card the arrow landed on");
+                if (detail.length === 1 && focused !== null) assert.equal(detail[0]?.path.split("?")[0], `/catalog/items/${encodeURIComponent(focused)}`);
+            } else assert.equal(detail.length, 0);
             assert.deepEqual(await tv.page.evaluate(() => window.browseHarness.plays), []);
             assert.deepEqual(tv.console, []);
         } finally { await tv.page.context().close(); }

@@ -1466,7 +1466,7 @@
 /* SubtitleAppearancePreview.swift: tvOS height 150, grey gradient from the top-leading to the bottom-trailing corner, text padded 12 and 16. SwiftUI's gradient axis runs along the diagonal of the 958 x 150 box, which is 98.9deg; CSS "to bottom right" would slant the colour bands.
    overflow:hidden would otherwise let this flex child shrink in a constrained pane. */
 .settings-subtitle-preview { display: flex; justify-content: center; align-items: flex-end; box-sizing: border-box; height: 150px; min-height: 150px; flex-shrink: 0; margin: 0 24px 8px; padding: 12px 16px; border-radius: 18px; background: linear-gradient(98.9deg, #525252, #0f0f0f); overflow: hidden; }
-.settings-subtitle-preview span { text-align: center; font-weight: 600; }
+.settings-subtitle-preview span { text-align: center; font-weight: 600; line-height: 1.2; }
 /* TVSettingsPaneRowStyle isDestructive (TVSettingsComponents.swift:273-276): #B00020 at rest, #D22F3F on the white platter. */
 .settings-pane .settings-destructive { display: flex; align-items: center; gap: 16px; color: #b00020; }
 .settings-pane .settings-destructive .skyline-menu-icon { width: 22px; height: 22px; margin: 0; }

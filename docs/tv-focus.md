@@ -218,13 +218,15 @@ Neither ordinary loaded-card movement nor revisiting a failed edge retries a rea
 Translation polls publish the selected season without restarting neighbour reads or clearing a failed edge, following `ItemDetailViewModel.swift:1752–1773` at the same Apple source revision.
 Featured cards are another exception. In the server's auto mode, the marquee starts a description translation only after that card has held the preview for 1500 ms, matching Apple TV's featured-card dwell. Moving on before then starts nothing. Details translation starts with the page. Focusing another episode does not.
 
-Outside the named filter, season-pill, episode-detail, outer-edge and featured-card exceptions, moving focus never starts a request, activates a route or writes data.
+The marquee rest is another exception. After focus has stayed on one card for 150 ms, Home, For You and library Recommended read that card's item detail once. The 150 ms value is `SiloTheme.Skyline.marqueeRestDebounceMilliseconds` in silo-apple `2ef3a171`, applied by `TVFocusMarquee.waitForEnrichmentRest` (`TVFocusMarquee.swift:966-971` and `:1028-1049`). A cached answer fills the marquee immediately and does not read again. Moving to another card before the delay, or before the answer lands, cancels the wait and the read, and the late answer cannot change the marquee. Apple starts this read immediately when the focused row changes (`restForRowChange`, `deferNetwork: false`) so an episode hero can warm; Tizen already has that backdrop on the card, and the same 150 ms wait covers a row change so a run of keys does not send a request per key. Continue Watching reads those saved files when its row loads, four at a time. Apple starts one read when `EpisodeThumbCard` mounts (`EpisodeThumbCard.swift:108-110`) inside the row's `LazyHStack` (`MediaRow.swift:413-416`). This row draws every card, so the same reads stay on a queue of four. For You additionally warms at most two rows of eight cards that omit a content rating, three at a time (`RecommendationsView.swift:159-182`). Home does not warm item detail for the other rows; Apple's Home prefetch warms image bytes already in the section payload, at most 40 URLs.
+
+Outside the named filter, season-pill, episode-detail, outer-edge, featured-card and marquee-rest exceptions, moving focus never starts a request, activates a route or writes data.
 Fetching belongs to explicit activation (Enter), to a view loading, or to a one-off prefetch.
 
-- Card focus calls `context.preview`, which only redraws the marquee from data already in memory (`Skyline.preview`).
+- Card focus calls `context.preview`, which redraws the marquee from data already in memory (`Skyline.preview`).
   The first preview is immediate, later ones wait 150 ms and crossfade for 240 ms.
-- Home's aired-date and cast line comes from a prefetch of each distinct title when the rows load, not from focus (`docs/features/skyline-browse-shell.md`, Home section).
-  Focus only looks answers up.
+  The marquee-rest exception above is the only read that preview starts.
+- The aired-date and cast line fills in when that rested read lands (`docs/features/skyline-browse-shell.md`, Home section).
 - Bar items open a dropdown after a 250 ms dwell on focus.
   The dropdown is passive: it reads nothing and commits only on Enter.
   Down enters it.

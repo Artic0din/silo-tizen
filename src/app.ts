@@ -125,18 +125,19 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
         });
     }
 
+    // A row can say "sign in again" while its session still works, when the key store refused to save it.
+    const hasLiveSession = (row: SavedAccount): boolean => liveAccounts.get(liveKey(row.baseUrl, row.accountId))?.session.signedIn === true;
+
     const openFromAccounts = (account: SavedAccount | undefined, address?: string): void => {
         accounts = undefined;
-        if (account?.needsSignIn) {
-            const live = liveAccounts.get(liveKey(account.baseUrl, account.accountId));
-            if (!live?.session.signedIn) {
-                showSignIn(undefined, false, account, address, false, { returnToAccounts: true });
-                return;
-            }
+        if (account?.needsSignIn && !hasLiveSession(account)) {
+            // ChangeAccountModel.choose: signing in again ends at the picker, as for any chosen account.
+            showSignIn(undefined, false, account, address, false, { returnToAccounts: true, skipRemembered: true });
+            return;
         }
         // The open account is Switch Profile (picker). Another account skips a remembered
         // profile, except its only PIN-less profile, which opens (AppRouter.openAccount).
-        const current = account !== undefined && connected?.session.signedIn === true && connected.accounts.localAccountId === account.id && !account.needsSignIn;
+        const current = account !== undefined && connected?.session.signedIn === true && connected.accounts.localAccountId === account.id;
         const adding = account === undefined;
         showSignIn(undefined, adding && address === undefined, account, address, current, {
             fromAccounts: true,
@@ -146,16 +147,18 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
     };
 
     const routeWithoutSignedInAccount = (server: ConnectedServer): void => {
-        const directory = new AccountDirectory(activeCore.publicStorage, activeCore.randomBytes);
+        // The vault may keep its accounts in memory only, so read the one it writes.
+        const directory = server.accounts.directory;
         const expiredId = server.accounts.localAccountId;
         // The vault records this after the listener runs. The route has to see it now.
         try { if (expiredId !== undefined) directory.update(expiredId, { needsSignIn: true }); } catch { /* clear() writes the same flag. */ }
         let rows: readonly SavedAccount[] = [];
         try { rows = directory.list(); } catch { rows = []; }
-        // AppRouter.signedOutDestination: another signed-in account opens Change Account.
-        if (rows.some(row => !row.needsSignIn)) { showAccounts(); return; }
-        const waiting = rows.filter(row => row.baseUrl === server.server.http.base.baseUrl && row.needsSignIn);
-        showSignIn(undefined, false, waiting.find(row => row.id === expiredId) ?? waiting[0], undefined, false, { sessionExpired: true });
+        // AppRouter.signedOutDestination: another account that can open a profile opens Change Account.
+        // The expired one never counts, even when its flag could not be saved.
+        if (rows.some(row => row.id !== expiredId && (!row.needsSignIn || hasLiveSession(row)))) { showAccounts(); return; }
+        const renewing = rows.find(row => row.id === expiredId) ?? rows.find(row => row.baseUrl === server.server.http.base.baseUrl && row.needsSignIn);
+        showSignIn(undefined, false, renewing, undefined, false, { sessionExpired: true });
     };
 
     const switchServer = (server: ConnectedServer, back: () => void): void => {

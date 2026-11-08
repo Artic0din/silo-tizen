@@ -19,7 +19,11 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, 
             if (item.key === currentEpisode) item.element.setAttribute("aria-current", "true"); else item.element.removeAttribute("aria-current");
         }
         const row = previous.view.zones[1]?.items[0]?.element.closest<HTMLElement>(".details-episodes");
-        if (row !== null && row !== undefined && state.entryEpisode !== undefined) row.dataset.scrollEntry = state.entryEpisode;
+        if (row !== null && row !== undefined) {
+            if (state.windowReachesSeriesStart) row.dataset.windowOrigin = "series-start";
+            else delete row.dataset.windowOrigin;
+            if (state.entryEpisode !== undefined) row.dataset.scrollEntry = state.entryEpisode;
+        }
         return previous.view;
     }
     const seasons = state.seasons.map(season => {
@@ -44,6 +48,7 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, 
         return item;
     });
     const row = zoneNode("browse-row details-episodes", episodes);
+    if (state.windowReachesSeriesStart) row.dataset.windowOrigin = "series-start";
     if (state.entryEpisode !== undefined) row.dataset.scrollEntry = state.entryEpisode;
     const section = el("section", "home-section details-series-rail");
     section.setAttribute("aria-label", "Episodes");

@@ -1147,9 +1147,13 @@
    leading padding adds the hover inset. The mask at horizontalInset 100
    cancels the card width, so one spacing stays in the visible slot.
    The focused card's layout left is 100 + spacing + width * 0.025 + 2.
-   At rest the previous card ends at 100 + width * 0.025 + 2, a sliver past the mask. */
-.details-series-rail { --episode-spacing: 40px; }
-.details-series-rail .details-episodes { --episode-paint-end: 88px; margin-left: -88px; margin-right: -88px; padding: 12px calc(100px + var(--episode-spacing) + 360px * var(--poster-scale, 1) * .025 + 2px); clip-path: inset(0 0 0 100px); }
+   At rest the previous card ends at 100 + width * 0.025 + 2, a sliver past the mask.
+   Measured 8 Nov 2026, silo-apple 2ef3a171: once the loaded window includes the
+   series' first season, that slot is 40px further left (ring 100, previous edge 70).
+   An earlier season that is not loaded keeps the spacing in the slot. */
+.details-series-rail { --episode-spacing: 40px; --episode-origin-shift: 0px; }
+.details-series-rail .details-episodes[data-window-origin="series-start"] { --episode-origin-shift: 40px; }
+.details-series-rail .details-episodes { --episode-paint-end: 88px; margin-left: -88px; margin-right: -88px; padding: 12px calc(100px + var(--episode-spacing) - var(--episode-origin-shift) + 360px * var(--poster-scale, 1) * .025 + 2px); clip-path: inset(0 0 0 100px); }
 .details-playback-summary span:empty { align-self: center; width: 128px; height: 16px; border-radius: 4px; background: rgba(255,255,255,.1); }
 .details-playback-summary [data-track-summary="audio"] span:empty { width: 166px; }
 .details-playback-summary [data-track-summary="subtitles"] span:empty { width: 77px; }

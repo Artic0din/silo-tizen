@@ -28,6 +28,8 @@ All notable changes to this project are documented in this file.
 
 - Loaded in-player subtitle delay and appearance when the settings contract tags a scope with the revision that added it.
 - Cleared a leftover device subtitle delay once per profile, after an owed delay write settles, and retried a failed clear instead of sending it on every open.
+- Kept the playback clock on Inter's 34px line so the scrubber stays put while the face loads, and a scrub thumbnail placed before that swap does not sit 1px too low.
+- Matched the person biography to Apple's 26px regular body, a 30.62109375px line, and a seven-line clamp.
 - Matched the person page name to Apple's 85px line box, so the name starts 10px below the portrait and the facts start at 117px.
 - Kept direct play running when a subtitle choice stays on the same stream, and showed that sidecar's cue at the picture's time after a seek.
 - Matched the subtitle preview caption's height to Apple TV.

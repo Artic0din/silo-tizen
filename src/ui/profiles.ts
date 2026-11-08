@@ -17,7 +17,7 @@ import { PASSWORD_CHANGE_REQUIRED_MESSAGE } from "./signInText.ts";
 import { MarqueeBackdrop, marqueeScene } from "./marqueeBackdrop.ts";
 import { profilePickerScreen } from "./profilePicker.ts";
 import { createProfileFlow, type ProfileCreateFlow } from "./profileCreate.ts";
-import { signOutConfirmationCopy } from "./signOutConfirmation.ts";
+import { signOutConfirmationCopy, signOutRemovesServer } from "./signOutConfirmation.ts";
 
 export interface ProfileHandoff {
     readonly profile: ProfileSummary;
@@ -159,13 +159,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
     /** Apple's tvOS sign-out confirmation. Cancel stays focused; Back cancels and returns to Sign out. */
     const askSignOut = (restore: () => void): void => {
         if (leaving || destroyed) return;
-        const base = server.server.http.base.baseUrl;
-        let removesServer = false;
-        try {
-            removesServer = server.accounts.directory.list().filter(row => row.baseUrl === base).length === 1;
-        } catch {
-            removesServer = false;
-        }
+        const removesServer = signOutRemovesServer(() => server.accounts.directory.list(), server.server.http.base.baseUrl);
         const copy = signOutConfirmationCopy(session.account?.username, options.serverName?.(), removesServer);
         const cancel = button("cancel-signout", "Cancel", restore);
         const accept = button("confirm-signout", "Sign Out", signOut);

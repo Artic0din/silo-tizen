@@ -71,6 +71,9 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
     let destroyed = false;
     let restoring = false;
     let cancelReconcile: (() => void) | undefined;
+    /** Profile list result or failure kept while the sign-out confirmation is open. */
+    let heldProfileLoad: (() => void) | undefined;
+    let confirmingSignOut = false;
 
     const show = (screen: Screen, focus?: string): void => {
         if (host === undefined) {
@@ -104,6 +107,8 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         creation = undefined;
         oldCreation?.destroy();
         restoring = false;
+        confirmingSignOut = false;
+        heldProfileLoad = undefined;
         pending?.abort();
         pending = undefined;
         return ++view;
@@ -156,19 +161,31 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         });
     };
 
-    /** Apple's tvOS sign-out confirmation. Cancel stays focused; Back cancels and returns to Sign out. */
+    /** Apple's tvOS sign-out confirmation. Cancel stays focused; Back cancels and returns to Sign out. A profile list that arrives while this is open waits, replays on Cancel or Back, and is dropped on Sign Out. */
     const askSignOut = (restore: () => void): void => {
         if (leaving || destroyed) return;
+        confirmingSignOut = true;
+        const dismiss = (): void => {
+            confirmingSignOut = false;
+            const replay = heldProfileLoad;
+            heldProfileLoad = undefined;
+            if (replay !== undefined) replay();
+            else restore();
+        };
         const removesServer = signOutRemovesServer(() => server.accounts.directory.list(), server.server.http.base.baseUrl);
         const copy = signOutConfirmationCopy(session.account?.username, options.serverName?.(), removesServer);
-        const cancel = button("cancel-signout", "Cancel", restore);
-        const accept = button("confirm-signout", "Sign Out", signOut);
+        const cancel = button("cancel-signout", "Cancel", dismiss);
+        const accept = button("confirm-signout", "Sign Out", () => {
+            confirmingSignOut = false;
+            heldProfileLoad = undefined;
+            signOut();
+        });
         show({
             name: "profiles:signout",
             content: [el("h1", "signin-title", copy.title), el("p", "signin-text", copy.message), actions([cancel, accept])],
             controls: [cancel, accept],
             focus: "cancel-signout",
-            back: restore,
+            back: dismiss,
         });
     };
 
@@ -180,34 +197,41 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         pending = controller;
         const showLoading = (): void => message("profiles-loading", TITLE, ["Loading profiles."], [signOutButton(showLoading)], resume(), "info", "signout");
         showLoading();
+        const deliver = (apply: () => void): void => {
+            if (token !== view) return;
+            if (confirmingSignOut) {
+                pending = undefined;
+                heldProfileLoad = apply;
+                return;
+            }
+            apply();
+        };
         server.profiles.list(controller.signal).then(
-            (list) => {
-                if (token === view) {
-                    pending = undefined;
-                    const id = server.accounts.localAccountId;
-                    if (id) {
-                        try { server.accounts.directory.update(id, { profileCount: list.length }); }
-                        catch { /* The count is a display cache; the profile response remains usable. */ }
-                    }
-                    then(list);
+            (list) => deliver(() => {
+                if (token !== view) return;
+                pending = undefined;
+                const id = server.accounts.localAccountId;
+                if (id) {
+                    try { server.accounts.directory.update(id, { profileCount: list.length }); }
+                    catch { /* The count is a display cache; the profile response remains usable. */ }
                 }
-            },
-            (error: unknown) => {
-                if (token === view) {
-                    pending = undefined;
-                    // Launch may reopen a remembered profile offline. Switch Profile asked for the list.
-                    if (error instanceof ApiError && ["network", "timeout"].includes(error.failure.kind) && restoreRememberedOffline && options.launch?.remembered) {
-                        const restore = new AbortController();
-                        pending = restore;
-                        void options.launch.restoreOffline(restore.signal).then(profile => {
-                            if (token !== view) return;
-                            pending = undefined;
-                            if (profile) handOff(profile);
-                            else listFailed(error, focus);
-                        }, failure => { if (token === view) { pending = undefined; listFailed(failure, focus); } });
-                    } else listFailed(error, focus);
-                }
-            },
+                then(list);
+            }),
+            (error: unknown) => deliver(() => {
+                if (token !== view) return;
+                pending = undefined;
+                // Launch may reopen a remembered profile offline. Switch Profile asked for the list.
+                if (error instanceof ApiError && ["network", "timeout"].includes(error.failure.kind) && restoreRememberedOffline && options.launch?.remembered) {
+                    const restore = new AbortController();
+                    pending = restore;
+                    void options.launch.restoreOffline(restore.signal).then(profile => {
+                        if (token !== view) return;
+                        pending = undefined;
+                        if (profile) handOff(profile);
+                        else listFailed(error, focus);
+                    }, failure => { if (token === view) { pending = undefined; listFailed(failure, focus); } });
+                } else listFailed(error, focus);
+            }),
         );
     };
 

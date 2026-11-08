@@ -17,6 +17,7 @@ import { PASSWORD_CHANGE_REQUIRED_MESSAGE } from "./signInText.ts";
 import { MarqueeBackdrop, marqueeScene } from "./marqueeBackdrop.ts";
 import { profilePickerScreen } from "./profilePicker.ts";
 import { createProfileFlow, type ProfileCreateFlow } from "./profileCreate.ts";
+import { signOutConfirmationCopy } from "./signOutConfirmation.ts";
 
 export interface ProfileHandoff {
     readonly profile: ProfileSummary;
@@ -41,6 +42,8 @@ export interface ProfileOptions {
     readonly onProfileUpdated?: (profile: ProfileSummary) => void;
     /** The account is signed out on this TV. The profile screens are gone; show sign-in, with the notice when given. */
     readonly onSignedOut: (notice: LogoutResult | undefined) => void;
+    /** Branding name of the signed-in server, read when Sign out asks. */
+    readonly serverName?: () => string | undefined;
 }
 
 export interface ProfileScreens {
@@ -106,12 +109,13 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         return ++view;
     };
 
-    const message = (name: string, title: string, lines: readonly string[], controls: readonly Control[], back?: () => void, tone: Note["tone"] = "info"): void => {
+    const message = (name: string, title: string, lines: readonly string[], controls: readonly Control[], back?: () => void, tone: Note["tone"] = "info", focus?: string): void => {
         const body = lines.map((line) => el("p", tone === "error" ? "signin-text signin-error" : "signin-text", line));
         if (tone === "error") {
             body[0]?.setAttribute("role", "alert");
         }
-        show({ name, content: [el("h1", "signin-title", title), ...body, actions(controls)], controls, focus: controls[0]?.key ?? "", back });
+        const key = focus ?? controls[0]?.key ?? "";
+        show({ name, content: [el("h1", "signin-title", title), ...body, actions(controls)], controls, focus: key, back }, key);
     };
 
     /** Back from the profiles returns to the profile still acting, if any. */
@@ -152,13 +156,36 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         });
     };
 
-    const signOutButton = (): Control => button("signout", "Sign out", signOut);
+    /** Apple's tvOS sign-out confirmation. Cancel stays focused; Back cancels and returns to Sign out. */
+    const askSignOut = (restore: () => void): void => {
+        if (leaving || destroyed) return;
+        const base = server.server.http.base.baseUrl;
+        let removesServer = false;
+        try {
+            removesServer = server.accounts.directory.list().filter(row => row.baseUrl === base).length === 1;
+        } catch {
+            removesServer = false;
+        }
+        const copy = signOutConfirmationCopy(session.account?.username, options.serverName?.(), removesServer);
+        const cancel = button("cancel-signout", "Cancel", restore);
+        const accept = button("confirm-signout", "Sign Out", signOut);
+        show({
+            name: "profiles:signout",
+            content: [el("h1", "signin-title", copy.title), el("p", "signin-text", copy.message), actions([cancel, accept])],
+            controls: [cancel, accept],
+            focus: "cancel-signout",
+            back: restore,
+        });
+    };
+
+    const signOutButton = (restore: () => void): Control => button("signout", "Sign out", () => askSignOut(restore));
 
     const load = (then: (list: ProfileSummary[]) => void, focus?: string, restoreRememberedOffline = false): void => {
         const token = begin();
         const controller = new AbortController();
         pending = controller;
-        message("profiles-loading", TITLE, ["Loading profiles."], [signOutButton()], resume());
+        const showLoading = (): void => message("profiles-loading", TITLE, ["Loading profiles."], [signOutButton(showLoading)], resume(), "info", "signout");
+        showLoading();
         server.profiles.list(controller.signal).then(
             (list) => {
                 if (token === view) {
@@ -192,13 +219,13 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
 
     const showList = (focus?: string): void => load((list) => picker(list, focus), focus);
 
-    const picker = (list: readonly ProfileSummary[], focus?: string): void => {
-        begin();
+    const showPicker = (list: readonly ProfileSummary[], focus?: string): void => {
         const preferred = focus ?? current?.id ?? options.launch?.rememberedProfileId ?? list[0]?.id;
+        const focusKey = preferred === "signout" || preferred === "add-profile" || preferred === undefined ? (preferred ?? "add-profile") : `profile:${preferred}`;
         show(profilePickerScreen({ profiles: list, baseUrl: server.server.http.base.baseUrl,
             accountName: session.account?.username, rememberedId: options.launch?.rememberedProfileId,
-            focus: preferred === undefined || preferred === "add-profile" ? "add-profile" : `profile:${preferred}`,
-            choose, changeServer: options.onChangeServer, signOut, back: resume(), add: () => {
+            focus: focusKey,
+            choose, changeServer: options.onChangeServer, signOut: () => askSignOut(() => showPicker(list, "signout")), back: resume(), add: () => {
                 const token = begin();
                 const flow = createProfileFlow({ server, profiles: list,
                     show: (screen, focus) => { if (!destroyed && token === view) show(screen, focus); }, finished: (id, uncertain) => {
@@ -211,6 +238,11 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
                 else flow.destroy();
             },
         }));
+    };
+
+    const picker = (list: readonly ProfileSummary[], focus?: string): void => {
+        begin();
+        showPicker(list, focus);
     };
 
     const listFailed = (error: unknown, focus?: string): void => {
@@ -234,8 +266,11 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         const detail = offline
             ? "Could not reach the server. Check the TV's internet connection, then try again."
             : "The server had a problem. Try again in a moment.";
-        const retry = button("retry", "Try again", () => showList(focus));
-        message("profiles-error", "Profiles didn't load", [detail], [retry, signOutButton()], resume(), "error");
+        const showError = (focused = "retry"): void => {
+            const retry = button("retry", "Try again", () => showList(focus));
+            message("profiles-error", "Profiles didn't load", [detail], [retry, signOutButton(() => showError("signout"))], resume(), "error", focused);
+        };
+        showError();
     };
 
     const choose = (profile: ProfileSummary): void => {
@@ -325,27 +360,30 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
      */
     const passwordResetRequired = (): void => {
         begin();
-        const retry = button("retry", "Try Again", () => showList());
-        const change = button("change-account", "Change account", options.onChangeServer);
-        const out = signOutButton();
-        change.element.prepend(navigationIcon("switch-server"));
-        out.element.prepend(navigationIcon("signout"));
-        const retryRow = actions([retry]);
-        const footer = el("div", "profile-footer");
-        footer.append(change.element, out.element);
-        const detail = el("p", "signin-text signin-error", PASSWORD_CHANGE_REQUIRED_MESSAGE);
-        detail.setAttribute("role", "alert");
-        show({
-            name: "profiles-error",
-            content: [el("h1", "signin-title", "Not allowed"), detail, retryRow, footer],
-            controls: [
-                { ...retry, row: 0 },
-                { ...change, row: 1, landing: true },
-                { ...out, row: 1 },
-            ],
-            focus: "change-account",
-            back: undefined,
-        }, "change-account");
+        const showReset = (focused = "change-account"): void => {
+            const retry = button("retry", "Try Again", () => showList());
+            const change = button("change-account", "Change account", options.onChangeServer);
+            const out = signOutButton(() => showReset("signout"));
+            change.element.prepend(navigationIcon("switch-server"));
+            out.element.prepend(navigationIcon("signout"));
+            const retryRow = actions([retry]);
+            const footer = el("div", "profile-footer");
+            footer.append(change.element, out.element);
+            const detail = el("p", "signin-text signin-error", PASSWORD_CHANGE_REQUIRED_MESSAGE);
+            detail.setAttribute("role", "alert");
+            show({
+                name: "profiles-error",
+                content: [el("h1", "signin-title", "Not allowed"), detail, retryRow, footer],
+                controls: [
+                    { ...retry, row: 0 },
+                    { ...change, row: 1, landing: true },
+                    { ...out, row: 1 },
+                ],
+                focus: focused,
+                back: undefined,
+            }, focused);
+        };
+        showReset();
     };
 
     /** The server refused the profile's PIN proof: ask for the PIN again if the profile still has one. */
@@ -418,7 +456,8 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             restoring = false;
             pending = undefined;
             if (error instanceof SessionError && error.reason !== "unavailable") { expired(); return; }
-            message("profile-launch-error", "Remembered profile didn't open", ["Could not verify the remembered profile. Try again or choose who's watching."], [button("retry", "Retry", launchOnline), button("back", "Choose profile", () => picker(list)), signOutButton()], () => picker(list), "error");
+            const showLaunchError = (focused = "retry"): void => message("profile-launch-error", "Remembered profile didn't open", ["Could not verify the remembered profile. Try again or choose who's watching."], [button("retry", "Retry", launchOnline), button("back", "Choose profile", () => picker(list)), signOutButton(() => showLaunchError("signout"))], () => picker(list), "error", focused);
+            showLaunchError();
         });
     }, undefined, !options.pickerRequested);
     const launch = (): void => {

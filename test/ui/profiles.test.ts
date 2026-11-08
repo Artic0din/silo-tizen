@@ -437,10 +437,51 @@ tvTest("a changed PIN ends the profile's proof; the TV asks for the new PIN and 
     assert.equal(await tv.page.evaluate(() => window.harness.probe()), "painted");
 });
 
+const SIGN_OUT_TITLE = "Sign out of laura on this server?";
+/** Apple tvOS last-account sign-out (`signOutMessage`), with this TV in place of Apple TV. */
+const SIGN_OUT_REMOVES_SERVER = "This account's profiles and settings leave this TV, and this server will be removed from it.";
+
+tvTest("Sign out on Who's watching asks with Apple's copy, and Cancel or Back returns to Sign out", async (tv) => {
+    await picker(tv);
+    await tv.page.keyboard.press("ArrowDown");
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), "signout");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
+    await tv.page.getByRole("heading", { name: SIGN_OUT_TITLE }).waitFor();
+    await tv.page.getByText(SIGN_OUT_REMOVES_SERVER, { exact: true }).waitFor();
+    assert.equal(await tv.focused(), "cancel-signout");
+    assert.equal(tv.fake.revokedSessions.size, 0, "opening the confirmation does not sign out");
+
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles");
+    assert.equal(await tv.focused(), "signout");
+    assert.equal(tv.fake.revokedSessions.size, 0);
+
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
+    await tv.remote(BACK);
+    await screenIs(tv, "profiles");
+    assert.equal(await tv.focused(), "signout");
+    assert.equal(tv.fake.revokedSessions.size, 0, "Back dismisses the confirmation");
+
+    await tv.page.keyboard.press("Enter");
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), "confirm-signout");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "entry");
+    await shows(tv, "Signed out on this TV.");
+    assert.equal(tv.fake.revokedSessions.size, 1);
+    assert.equal((await handed(tv)).length, 0);
+});
+
 tvTest("Sign out revokes the session and clears the TV; signing out while profiles load paints nothing late", async (tv) => {
     const list = tv.fake.hold("/profiles", true);
     await signIn(tv);
     await screenIs(tv, "profiles-loading");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
+    await tv.page.keyboard.press("ArrowRight");
     await tv.page.keyboard.press("Enter");
     await screenIs(tv, "entry");
     await shows(tv, "Signed out on this TV.");
@@ -455,6 +496,9 @@ tvTest("Sign out revokes the session and clears the TV; signing out while profil
     await tv.page.keyboard.press("ArrowDown");
     await tv.page.keyboard.press("ArrowRight");
     assert.equal(await tv.focused(), "signout");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
+    await tv.page.keyboard.press("ArrowRight");
     await tv.page.keyboard.press("Enter");
     await screenIs(tv, "entry");
     assert.equal(tv.fake.revokedSessions.size, 2);
@@ -483,6 +527,9 @@ tvTest("signing out keeps a recoverable status focus without sending logout twic
     await picker(tv);
     const logout = tv.fake.hold("/auth/logout");
     await tv.page.keyboard.press("ArrowDown");
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
     await tv.page.keyboard.press("ArrowRight");
     await tv.page.keyboard.press("Enter");
     await screenIs(tv, "signing-out");
@@ -580,6 +627,9 @@ tvTest("repeated profile teardown preserves a successor sign-in screen and its s
         const signOut = document.querySelector('[data-focus="signout"]');
         if (!(signOut instanceof HTMLElement)) { throw new Error("sign-out control required"); }
         signOut.click();
+        const confirm = document.querySelector('[data-focus="confirm-signout"]');
+        if (!(confirm instanceof HTMLElement)) { throw new Error("sign-out confirmation required"); }
+        confirm.click();
         await handedBack;
         controller.destroy();
         return { screen: document.querySelector("[data-screen]")?.getAttribute("data-screen"), styled: root.classList.contains("signin") };

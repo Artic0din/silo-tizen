@@ -18,6 +18,7 @@ import { applySubtitleAppearance } from "../player/subtitleView.ts";
 import { pairedProfileDescription, pairedProfileLabel, profileSelectionCaption } from "./pairedProfile.ts";
 import { bitrateLabel, qualityFooter } from "./qualitySettings.ts";
 import { ConnectionSpeed } from "./connectionSpeed.ts";
+import { signOutConfirmationCopy } from "./signOutConfirmation.ts";
 
 type Category = "general" | "playback" | "subtitles" | "server";
 const CATEGORY_LABELS = { general: "General", playback: "Playback", subtitles: "Subtitles", server: "Server" } as const;
@@ -395,10 +396,9 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             return;
         }
         if (confirmingSignOut) {
-            const account = actions?.accountName?.trim() || "this account";
-            const server = actions?.serverName?.trim() || "this server";
+            const copy = signOutConfirmationCopy(actions?.accountName, actions?.serverName, false);
             const controls = [actionButton("cancel-signout", "Cancel", back), actionButton("confirm-signout", "Sign Out", () => { destroy(); actions?.signOut?.(); })];
-            host.show({ name: "settings:signout", content: [el("h1", "browse-title", `Sign out of ${account} on ${server}?`), el("p", "settings-value", "This account's profiles and settings leave this TV. The server stays saved, so you can sign in again."), zoneNode("settings-controls", controls)], zones: [{ id: "settings-confirm", layout: "column", items: controls }], focus: { zone: "settings-confirm", key: "cancel-signout" }, back });
+            host.show({ name: "settings:signout", content: [el("h1", "browse-title", copy.title), el("p", "settings-value", copy.message), zoneNode("settings-controls", controls)], zones: [{ id: "settings-confirm", layout: "column", items: controls }], focus: { zone: "settings-confirm", key: "cancel-signout" }, back });
             return;
         }
         if (acknowledging) { renderAcknowledgements(); return; }

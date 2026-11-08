@@ -1538,6 +1538,7 @@ appTest("sign-out returns its notice to entry and relaunch cannot restore the re
     await tv.page.locator('[data-focus="profiles"]').click();
     await tv.page.locator('[data-focus="switch-profile"]').click();
     await tv.page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await tv.page.getByRole("button", { name: "Sign Out", exact: true }).click();
     await tv.page.locator('[data-screen="entry"]').waitFor();
     await tv.page.evaluate(() => window.appHarness.mount());
     await tv.page.locator('[data-screen="entry"]').waitFor();

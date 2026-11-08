@@ -273,7 +273,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         }
         const row = [connect];
         if (options.onCancel) row.push(marqueeButton("back", "Back", "plain", () => { destroy(); options.onCancel?.(); }));
-        else if (options.onChangeAccount) {
+        else if (options.onChangeAccount && opensAccountList()) {
             row.push(marqueeButton("change-account", options.returnToAccounts ? "Back to accounts" : savedAccounts().some(account => !account.needsSignIn) ? "Back to profiles" : "Change account", "plain", changeServer));
         }
         if (offerForget) {

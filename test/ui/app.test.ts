@@ -369,6 +369,23 @@ appTest("choosing an expired account opens sign-in and Back returns to Change Ac
     await tv.page.locator('[data-view="change-account"]').waitFor();
 });
 
+appTest("a lone expired account's server entry has no Change account button that does nothing", async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => {
+        window.appHarness.destroy();
+        const storage = window.appHarness.storage;
+        const saved = JSON.parse(storage.getItem("silo.native.accounts.v1")!);
+        saved.accounts[0].needsSignIn = true;
+        storage.setItem("silo.native.accounts.v1", JSON.stringify(saved));
+        window.appHarness.mount();
+    });
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    await tv.page.getByRole("button", { name: "Change server", exact: true }).click();
+    await tv.page.locator('[data-screen="entry"]').waitFor();
+    assert.equal(await tv.page.locator('[data-focus="change-account"]').count(), 0, "one expired account leaves for server entry, so entry has nowhere further to go");
+    assert.equal(await tv.focused(), "connect");
+});
+
 appTest("offline saved server offers Back to profiles while a saved account can open profiles", async tv => {
     await signIn(tv);
     const devices = tv.fake.devices.size;

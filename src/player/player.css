@@ -360,6 +360,10 @@
     margin: 0 0 13px;
     font-size: 28px;
     font-weight: 600;
+    /* Inter's used line box at 28px semibold. The fallback face is 33px, so an
+       unlocked line would drop the scrubber by 1px until the face swaps, and a
+       thumbnail placed in that window would keep the lower bottom. */
+    line-height: 34px;
     color: #ffffff;
     font-variant-numeric: tabular-nums;
 }

@@ -24,7 +24,11 @@ export function mountSubtitles(parent: HTMLElement): (view: PlaybackView) => voi
 export function applySubtitleAppearance(layer: HTMLElement, text: HTMLElement, style: SubtitleAppearance): void {
         layer.style.top = style.position === "top" ? "8%" : "auto";
         layer.style.bottom = style.position === "top" ? "auto" : style.position === "lower-third" ? "25%" : "8%";
-        text.style.fontFamily = `${style.fontFamily}, sans-serif`;
+        // Samsung maps generic sans-serif to a system face with no semibold, so weight 600 draws regular.
+        // Inter is the bundled variable face (theme.css). Serif, monospace and named families stay on their own stack.
+        const bundledSans = style.fontFamily === "sans-serif";
+        text.style.fontFamily = `${bundledSans ? "Inter" : style.fontFamily}, sans-serif`;
+        text.style.fontWeight = bundledSans ? "600" : "";
         text.style.fontSize = `${{ small: 28, medium: 36, large: 44, xlarge: 54, xxlarge: 64 }[style.fontSize]}px`;
         const rgba = (color: string, opacity: number): string => `rgba(${parseInt(color.slice(1, 3), 16)},${parseInt(color.slice(3, 5), 16)},${parseInt(color.slice(5, 7), 16)},${opacity / 100})`;
         text.style.color = rgba(style.fontColor, style.textOpacity);

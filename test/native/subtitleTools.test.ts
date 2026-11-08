@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { DEFAULT_APPEARANCE } from "../../src/contracts/v2/subtitles.ts";
 import { AUDIO_KEY, decodeSettingsContract } from "../../src/contracts/v2/settings.ts";
 import { allowedScopes, appearanceSummary, appearanceValue, delayLabel, delayOptions, editAppearance, languageChoices, scoreTier, subtitleControlSupport, syncWriteScope } from "../../src/player/subtitleAppearance.ts";
-import { SubtitleDisplay } from "../../src/player/subtitleDisplay.ts";
+import { SubtitleDisplay, subtitleSettingsScope } from "../../src/player/subtitleDisplay.ts";
 import { SubtitleSearch } from "../../src/player/subtitleSearch.ts";
 import { decodeProviderStatus, decodeSearchResponse } from "../../src/contracts/v2/subtitleSearch.ts";
 import { connected, signIn } from "./support/harness.ts";
@@ -326,42 +326,143 @@ test("delay and appearance write the advertised scope and a failed write is reco
     display.destroy();
 });
 
-test("a leftover device delay is removed when this TV does not keep its own appearance", async () => {
-    const h = await signed();
+function delayDeletes(h: { fake: { requests: readonly { method: string; path: string }[] } }): number {
+    return h.fake.requests.filter(request => request.method === "DELETE" && request.path === `/settings/values/${SYNC}?scope=profile_device`).length;
+}
+
+/** One subtitle-display open. A later open that wrongly decides again can still see the device row and delete it. */
+function primeDisplay(h: Awaited<ReturnType<typeof signed>>, revision: number, syncSet: boolean, syncValue: number, scopes: readonly string[] = ["profile", "profile_device"]): void {
     const deviceId = h.core.session.http.deviceId;
-    const deviceRow = (key: string, isSet: boolean) => ({ status: 200, body: { revision: 24, items: [{ key, scope: "profile_device", profile_id: "p-owner", device_id: deviceId, is_set: isSet }] } });
-    h.fake.script("/settings/contract/capabilities", { status: 200, body: capability(24) });
-    h.fake.script("/settings/contract", { status: 200, body: contract(24, [appearanceDef, syncDef]) });
-    h.fake.script(`/settings/values?scope=profile_device&keys=${APPEARANCE}`, deviceRow(APPEARANCE, false));
-    h.fake.script(`/settings/values?scope=profile_device&keys=${SYNC}`, deviceRow(SYNC, true));
-    h.fake.script(`/settings/values/${SYNC}?scope=profile_device`, { status: 204 });
+    const row = (key: string, isSet: boolean) => ({ status: 200, body: { revision, items: [{ key, scope: "profile_device", profile_id: "p-owner", device_id: deviceId, is_set: isSet }] } });
+    h.fake.script("/settings/contract/capabilities", { status: 200, body: capability(revision) });
+    h.fake.script("/settings/contract", { status: 200, body: contract(revision, [appearanceDef, { ...syncDef, allowed_scopes: scopes }]) });
+    h.fake.script(`/settings/values?scope=profile_device&keys=${APPEARANCE}`, row(APPEARANCE, false));
     h.fake.script("/settings/subtitle-appearance/effective", { status: 200, body: { profile_id: "p-owner", effective_value: JSON.stringify(DEFAULT_APPEARANCE) } });
-    h.fake.script(`/settings/values/effective?keys=${SYNC}`, { status: 200, body: { items: [{ key: SYNC, value: 800 }] } });
+    h.fake.script(`/settings/values/effective?keys=${SYNC}`, { status: 200, body: { items: [{ key: SYNC, value: syncValue }] } });
+    h.fake.script(`/settings/values?scope=profile_device&keys=${SYNC}`, row(SYNC, syncSet));
+}
+
+test("a leftover device delay is removed once when this TV does not keep its own appearance", async () => {
+    const h = await signed();
+    primeDisplay(h, 24, true, 800);
+    primeDisplay(h, 24, true, 250);
+    h.fake.script(`/settings/values/${SYNC}?scope=profile_device`, { status: 204 });
     h.fake.script(`/settings/values/effective?keys=${SYNC}`, { status: 200, body: { items: [{ key: SYNC, value: 250 }] } });
-    const display = new SubtitleDisplay(h.core.session, "p-owner", () => undefined, () => undefined);
+    h.fake.script(`/settings/values/${SYNC}?scope=profile_device`, { status: 204 });
+    const display = new SubtitleDisplay(h.core.session, "p-owner", () => undefined, () => undefined, h.storage);
     await display.load();
-    assert.equal(h.fake.requests.filter(request => request.method === "DELETE" && request.path === `/settings/values/${SYNC}?scope=profile_device`).length, 1);
+    assert.equal(delayDeletes(h), 1);
     assert.equal(display.view?.delayMs, 250);
     assert.equal(display.view?.message, "");
     display.destroy();
+    const again = new SubtitleDisplay(h.core.session, "p-owner", () => undefined, () => undefined, h.storage);
+    await again.load();
+    assert.equal(delayDeletes(h), 1, "a second open does not send the clear again");
+    assert.equal(again.view?.delayMs, 250);
+    again.destroy();
 });
 
-test("a leftover device delay that cannot be removed says this TV still has its own", async () => {
+test("a leftover device delay waits until a pending delay write settles", async () => {
     const h = await signed();
-    const deviceId = h.core.session.http.deviceId;
-    const deviceRow = (key: string, isSet: boolean) => ({ status: 200, body: { revision: 24, items: [{ key, scope: "profile_device", profile_id: "p-owner", device_id: deviceId, is_set: isSet }] } });
-    h.fake.script("/settings/contract/capabilities", { status: 200, body: capability(24) });
-    h.fake.script("/settings/contract", { status: 200, body: contract(24, [appearanceDef, syncDef]) });
-    h.fake.script(`/settings/values?scope=profile_device&keys=${APPEARANCE}`, deviceRow(APPEARANCE, false));
-    h.fake.script(`/settings/values?scope=profile_device&keys=${SYNC}`, deviceRow(SYNC, true));
-    h.fake.script(`/settings/values/${SYNC}?scope=profile_device`, problem(503, "unavailable", "Unavailable"));
-    h.fake.script("/settings/subtitle-appearance/effective", { status: 200, body: { profile_id: "p-owner", effective_value: JSON.stringify(DEFAULT_APPEARANCE) } });
-    h.fake.script(`/settings/values/effective?keys=${SYNC}`, { status: 200, body: { items: [{ key: SYNC, value: 800 }] } });
-    const display = new SubtitleDisplay(h.core.session, "p-owner", () => undefined, () => undefined);
-    await display.load();
-    assert.equal(display.view?.delayMs, 800);
-    assert.match(display.view?.message ?? "", /this TV still has its own/i);
+    const timing = `/settings/values?scope=profile_device&keys=${SYNC}`;
+    primeDisplay(h, 24, true, 800);
+    primeDisplay(h, 24, true, 250);
+    h.fake.script(`/settings/values/${SYNC}?scope=profile`, stored(SYNC, "profile", 400));
+    h.fake.script(`/settings/values/effective?keys=${SYNC}`, { status: 200, body: { items: [{ key: SYNC, value: 250 }] } });
+    h.fake.script(`/settings/values/${SYNC}?scope=profile_device`, { status: 204 });
+    const heldTiming = h.fake.hold(timing);
+    const display = new SubtitleDisplay(h.core.session, "p-owner", () => undefined, () => undefined, h.storage);
+    const loading = display.load();
+    for (let step = 0; step < 8; step++) await h.clock.advance(0);
+    const heldWrite = h.fake.hold(`/settings/values/${SYNC}?scope=profile`);
+    const writing = display.setDelay(400);
+    for (let step = 0; step < 4; step++) await h.clock.advance(0);
+    heldTiming.release();
+    for (let step = 0; step < 4; step++) await h.clock.advance(0);
+    assert.equal(delayDeletes(h), 0, "the clear waits while the delay write is still owed");
+    heldWrite.release();
+    await writing;
+    await loading;
+    assert.equal(delayDeletes(h), 1);
+    assert.equal(display.view?.delayMs, 250);
     display.destroy();
+    const again = new SubtitleDisplay(h.core.session, "p-owner", () => undefined, () => undefined, h.storage);
+    await again.load();
+    assert.equal(delayDeletes(h), 1);
+    again.destroy();
+});
+
+test("a leftover device delay waits while the one-time settings migration is unfinished", async () => {
+    const h = await signed();
+    const scope = subtitleSettingsScope(h.core.session, "p-owner");
+    assert.ok(scope !== undefined);
+    h.storage.setItem(`silo.native.player.serverDeviceSettingsMigration.${scope}`, "false");
+    primeDisplay(h, 24, true, 800);
+    primeDisplay(h, 24, true, 250);
+    h.fake.script(`/settings/values/${SYNC}?scope=profile_device`, { status: 204 });
+    h.fake.script(`/settings/values/effective?keys=${SYNC}`, { status: 200, body: { items: [{ key: SYNC, value: 250 }] } });
+    const display = new SubtitleDisplay(h.core.session, "p-owner", () => undefined, () => undefined, h.storage);
+    await display.load();
+    assert.equal(delayDeletes(h), 0);
+    assert.equal(display.view?.delayMs, 800);
+    h.storage.setItem(`silo.native.player.serverDeviceSettingsMigration.${scope}`, "true");
+    await display.load();
+    assert.equal(delayDeletes(h), 1);
+    assert.equal(display.view?.delayMs, 250);
+    display.destroy();
+});
+
+test("a failed leftover delay clear is retried once and then left alone", async () => {
+    const h = await signed();
+    primeDisplay(h, 24, true, 800);
+    h.fake.script(`/settings/values/${SYNC}?scope=profile_device`, problem(503, "unavailable", "Unavailable"));
+    const display = new SubtitleDisplay(h.core.session, "p-owner", () => undefined, () => undefined, h.storage);
+    await display.load();
+    assert.equal(delayDeletes(h), 1);
+    assert.equal(display.view?.delayMs, 800);
+    assert.equal(display.view?.message, "");
+    display.destroy();
+
+    primeDisplay(h, 24, true, 250);
+    h.fake.script(`/settings/values/${SYNC}?scope=profile_device`, { status: 204 });
+    const retried = new SubtitleDisplay(h.core.session, "p-owner", () => undefined, () => undefined, h.storage);
+    await retried.load();
+    assert.equal(delayDeletes(h), 2, "the journal retries the failed clear");
+    assert.equal(retried.view?.delayMs, 250);
+    retried.destroy();
+
+    primeDisplay(h, 24, true, 300);
+    h.fake.script(`/settings/values/${SYNC}?scope=profile_device`, { status: 204 });
+    const later = new SubtitleDisplay(h.core.session, "p-owner", () => undefined, () => undefined, h.storage);
+    await later.load();
+    assert.equal(delayDeletes(h), 2, "an offset saved after the one decision is left alone");
+    assert.equal(later.view?.delayMs, 300);
+    later.destroy();
+});
+
+test("a failed leftover delay clear is dropped when the server no longer stores it per profile", async () => {
+    const h = await signed();
+    primeDisplay(h, 24, true, 800);
+    h.fake.script(`/settings/values/${SYNC}?scope=profile_device`, problem(503, "unavailable", "Unavailable"));
+    const display = new SubtitleDisplay(h.core.session, "p-owner", () => undefined, () => undefined, h.storage);
+    await display.load();
+    assert.equal(delayDeletes(h), 1);
+    display.destroy();
+
+    primeDisplay(h, 18, true, 400, ["profile_device"]);
+    h.fake.script(`/settings/values/${SYNC}?scope=profile_device`, { status: 204 });
+    const older = new SubtitleDisplay(h.core.session, "p-owner", () => undefined, () => undefined, h.storage);
+    await older.load();
+    assert.equal(delayDeletes(h), 1, "revision 18 keeps the only offset it can store");
+    assert.equal(older.view?.delayMs, 400);
+    older.destroy();
+
+    primeDisplay(h, 24, true, 400);
+    h.fake.script(`/settings/values/${SYNC}?scope=profile_device`, { status: 204 });
+    const returned = new SubtitleDisplay(h.core.session, "p-owner", () => undefined, () => undefined, h.storage);
+    await returned.load();
+    assert.equal(delayDeletes(h), 1, "the owed clear was dropped with the older server and is not decided again");
+    returned.destroy();
 });
 
 /** Live `player.subtitle_sync_ms`: profile scope arrives as `{scope, introduced_in}` from revision 19. Settings skips that unknown key. */

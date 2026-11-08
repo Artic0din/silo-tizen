@@ -26,7 +26,7 @@ import { abortedError, type RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import { isPermittedUrl } from "../api/serverUrl.ts";
 import type { FileVersionTracks, PlaybackDecision, PlaybackDefaults, PlaybackMutation, PlaybackPlan, ReplanOperation, SelectedTracks, StartPlaybackBody, SubtitleTrack, TrackIdentity } from "../contracts/v2/playback.ts";
-import type { RandomBytes } from "../session/deviceIdentity.ts";
+import type { PublicStorage, RandomBytes } from "../session/deviceIdentity.ts";
 import type { NativeSession } from "../session/session.ts";
 import type { AVPlay, AVPlayListener, AVPlayTrackInfo } from "./avplay.ts";
 import { CLIENT_CAPABILITIES, clientFeatures, HLS_SUBTITLE_RENDITIONS_ALL_FEATURE, playbackContext } from "./capabilities.ts";
@@ -229,6 +229,8 @@ export interface PlaybackDeps {
     readonly exits: PlaybackExits;
     /** The profile spoiler owner. Absent reads as both switches off. */
     readonly spoilers?: () => EpisodeSpoilerSettings;
+    /** Public per-install storage for the once-only leftover subtitle-delay clear. Never tokens. */
+    readonly publicStorage?: PublicStorage;
 }
 
 const PROGRESS_INTERVAL_MS = 10000;
@@ -1590,7 +1592,7 @@ export class PlaybackController implements PlayerControls {
                 attempt.appearance = appearance;
                 attempt.subtitleSync = sync;
                 this.showPlayback(attempt);
-            }, () => this.showPlayback(attempt));
+            }, () => this.showPlayback(attempt), this.deps.publicStorage);
             void attempt.display.load();
         }
         attempt.display?.adopt(attempt.appearance, attempt.subtitleSync);

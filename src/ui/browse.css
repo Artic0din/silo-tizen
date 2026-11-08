@@ -1441,7 +1441,13 @@
 .browse[data-view^="person:"] .browse-title { margin-bottom: 0; }
 .browse[data-view^="person:"] .person-facts { display: flex; gap: 12px; margin: 0; }
 .browse[data-view^="person:"] .person-fact { flex-shrink: 0; margin: 0; }
-.browse[data-view^="person:"] .browse-overview { margin: 0; color: rgba(237, 237, 237, 0.6); font-size: 26px; font-weight: 400; white-space: pre-line; }
+/* PersonDetailView.swift:459 uses .font(.siloBody). Typography.swift:28 is
+   Font.system(size: 26), regular (line 27). PersonDetailView.swift:461 limits
+   it to 7 lines. That Text sets no lineSpacing (lines 457–463), so the line is
+   the system font's own height: 26 × 84.796875 / 72 = 30.62109375. The 72pt
+   bold face measures 84.796875 (ascender 69.609375, descender -15.1875). A
+   1.35 line was 35.1px. */
+.browse[data-view^="person:"] .browse-overview { margin: 0; color: rgba(237, 237, 237, 0.6); font-size: 26px; font-weight: 400; line-height: 30.62109375px; -webkit-line-clamp: 7; white-space: pre-line; }
 .browse[data-view^="person:"] .browse-detail-info > * + * { margin-top: 22px; }
 .person-filmography-heading { display: flex; align-items: baseline; gap: 60px; margin: 0 0 20px; }
 .person-filmography-heading .browse-section-title { margin: 0; font-size: 36px; font-weight: 600; }

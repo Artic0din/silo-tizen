@@ -33,7 +33,7 @@ import type { PublicStorage } from "../session/deviceIdentity.ts";
 import { Skyline } from "./skyline.ts";
 import { decodeImageCapabilities, type ImageCapabilities, homeArtworkQuery } from "../contracts/v2/images.ts";
 import { FocusHost, type FocusTarget } from "./browseFocus.ts";
-import { type Destination, type PlayRequest, type SeriesLine, applySeriesLine, destinationOf, playChoices, visibleLibraries, withStartAudioLanguage } from "./browseModel.ts";
+import { type Destination, type PlayRequest, applySeriesLine, destinationOf, seriesLineFor, playChoices, visibleLibraries, withStartAudioLanguage } from "./browseModel.ts";
 import { errorState, unconfirmedWriteMessage, writeFailureMessage, writeMayHaveApplied, failureText, hasData, newPages, newRoute, PAGE_SIZE, SEARCH_PAGE_SIZE, type Pages, type Route, routeView } from "./browseRoutes.ts";
 import { homeRows, type ViewContext } from "./browseViews.ts";
 import { HomeEnrichment } from "./homeEnrichment.ts";
@@ -113,20 +113,6 @@ function unsupportedHomeItemLimit(error: unknown): boolean {
  * from here.
  */
 const rememberedLibraryTabs = new Map<string, UserLibrary[]>();
-
-/** The series page and the episode row already show the line the player footer needs. */
-function seriesLineFor(routes: readonly Route[], current: Route, episodeId: string): SeriesLine | undefined {
-    const series = [...routes].reverse().find((route): route is Extract<Route, { kind: "item" }> => route.kind === "item" && route.data?.detail.type === "series");
-    const seriesTitle = series?.data?.detail.title.trim();
-    const episode = current.kind === "item"
-        ? current.data?.details?.series?.railEpisodes?.find(item => item.id === episodeId)
-        : current.kind === "season" ? current.data?.episodes.find(item => item.id === episodeId) : undefined;
-    const seasonNumber = episode?.seasonNumber ?? (current.kind === "season" ? current.seasonNumber : undefined);
-    const episodeNumber = episode?.episodeNumber;
-    const title = seriesTitle === undefined || seriesTitle === "" ? undefined : seriesTitle;
-    if (title === undefined && seasonNumber === undefined && episodeNumber === undefined) return undefined;
-    return { ...(title === undefined ? {} : { seriesTitle: title }), ...(seasonNumber === undefined ? {} : { seasonNumber }), ...(episodeNumber === undefined ? {} : { episodeNumber }) };
-}
 
 export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const server = options.server;

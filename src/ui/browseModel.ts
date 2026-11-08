@@ -1,5 +1,6 @@
 // Decisions the browse screens make about server data, kept free of the DOM so Node can test them.
 
+import type { Route } from "./browseRoutes.ts";
 import type { BrowseScope } from "../api/operations.ts";
 import { isPermittedUrl } from "../api/serverUrl.ts";
 import type { Card, ItemDetail, PlayableFile, UserLibrary } from "../contracts/v2/catalog.ts";
@@ -257,6 +258,22 @@ export function applySeriesLine(request: PlayRequest, line: SeriesLine | undefin
         : { type: "series", title: seriesTitle, seriesTitle: undefined };
     const rail = line.seasonNumber === undefined && line.episodeNumber === undefined ? undefined : line;
     return seriesPlayback(request, page, rail);
+}
+
+/** The series page and the episode row already show the line the player footer needs. */
+export function seriesLineFor(routes: readonly Route[], current: Route, episodeId: string): SeriesLine | undefined {
+    // Only this episode's own series may name it; a series page left on the stack from elsewhere must not.
+    const seriesId = current.kind === "season" ? current.seriesId : current.kind === "item" ? (current.data?.detail.type === "series" ? current.id : current.data?.detail.seriesId) : undefined;
+    const series = seriesId === undefined ? undefined : [...routes].reverse().find((route): route is Extract<Route, { kind: "item" }> => route.kind === "item" && route.id === seriesId && route.data?.detail.type === "series");
+    const seriesTitle = series?.data?.detail.title.trim();
+    const episode = current.kind === "item"
+        ? current.data?.details?.series?.railEpisodes?.find(item => item.id === episodeId)
+        : current.kind === "season" ? current.data?.episodes.find(item => item.id === episodeId) : undefined;
+    const seasonNumber = episode?.seasonNumber ?? (current.kind === "season" ? current.seasonNumber : undefined);
+    const episodeNumber = episode?.episodeNumber;
+    const title = seriesTitle === undefined || seriesTitle === "" ? undefined : seriesTitle;
+    if (title === undefined && seasonNumber === undefined && episodeNumber === undefined) return undefined;
+    return { ...(title === undefined ? {} : { seriesTitle: title }), ...(seasonNumber === undefined ? {} : { seasonNumber }), ...(episodeNumber === undefined ? {} : { episodeNumber }) };
 }
 
 export function episodeLabel(seasonNumber: number | undefined, episodeNumber: number | undefined): string | undefined {

@@ -81,6 +81,8 @@ interface Active {
     readonly login: DeviceLogin;
     readonly stop: () => void;
     readonly notes: readonly Note[];
+    /** The session just expired; the notice names the server as currently known. */
+    readonly expiredSession: boolean;
     serverName?: string | undefined;
     /** The branding mark, resolved against this server; and its accent, unclamped. */
     markUrl?: string | undefined;
@@ -603,11 +605,6 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     const signIn = (server: ConnectedServer, notes: readonly Note[]): void => {
         leaveSignIn();
         const login = server.createDeviceLogin();
-        const baseUrl = server.server.http.base.baseUrl;
-        const expired = sessionExpired
-            ? [{ text: text.sessionExpiredNotice(cachedBranding(core.publicStorage, baseUrl)?.serverName ?? text.serverHost(baseUrl)), tone: "info" as const }]
-            : [];
-        notes = [...expired, ...notes];
         const stop = login.subscribe((state) => {
             if (active?.login === login) {
                 render(state);
@@ -618,7 +615,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         const remembered = cachedBranding(core.publicStorage, base);
         const now = clock.now();
         const current: Active = {
-            server, login, stop, notes, code: undefined, typed: undefined, left: new AbortController(), options: undefined,
+            server, login, stop, notes, expiredSession: sessionExpired, code: undefined, typed: undefined, left: new AbortController(), options: undefined,
             credentials: false, submitting: false, username: options.username ?? "", password: "", shown: false, error: undefined, errorField: undefined,
             status: { kind: "getting_code" }, shownCode: undefined, renewed: false, windowStart: now, startedAt: now,
             sawCode: false, startStreak: undefined, cancelTimer: undefined, pendingStart: undefined,
@@ -631,6 +628,11 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         readOptions(current);
         readBranding(current);
     };
+
+    const EXPIRY_NOTE = "session-expired";
+    const shownNotes = (current: Active): readonly Note[] => current.expiredSession
+        ? [{ text: text.sessionExpiredNotice(current.serverName ?? text.serverHost(current.server.server.http.base.baseUrl)), tone: "info", id: EXPIRY_NOTE }, ...current.notes]
+        : current.notes;
 
     const readBranding = (current: Active): void => {
         const base = current.server.server.http.base.baseUrl;
@@ -652,6 +654,8 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             for (const node of Array.from(root.querySelectorAll<HTMLElement>(".marquee-server-mark"))) setServerMark(node, name, current.markUrl);
             const title = root.querySelector<HTMLElement>("[data-server-headline]");
             if (title !== null) title.textContent = `Sign in to ${name}`;
+            const expiry = root.querySelector<HTMLElement>(`[data-note="${EXPIRY_NOTE}"] span`);
+            if (expiry !== null) expiry.textContent = text.sessionExpiredNotice(name);
             if (current.credentials) {
                 const passwordLead = root.querySelector<HTMLElement>('[data-screen="credentials"] .marquee-lead');
                 if (passwordLead !== null) passwordLead.textContent = text.passwordLead(name, passwordOnly(current));
@@ -926,7 +930,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
             secure: base.startsWith("https:"),
             markUrl: current.markUrl,
             typed: current.typed,
-            notes: current.notes,
+            notes: shownNotes(current),
             controls,
             rest: controls.some((control) => control.key === "password") ? "password" : "change",
             back: changeServer,
@@ -976,7 +980,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
                 host: text.serverHost(base),
                 secure: base.startsWith("https:"),
                 markUrl: current.markUrl,
-                notes: current.notes,
+                notes: shownNotes(current),
                 passwordOnly: !phoneRoute,
                 hint: phoneRoute ? text.phoneHint(current.options?.oauthProviders ?? []) : undefined,
                 username: current.username,

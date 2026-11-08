@@ -262,6 +262,21 @@ appTest("session expiry releases Change Account and signs in with the username",
     assert.equal(await tv.page.getByRole("button", { name: "Change server", exact: true }).count(), 1);
 });
 
+appTest("the expiry notice names the server by its fresh branding", async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => window.appHarness.storage.setItem("silo.native.serverBranding.v1", JSON.stringify({ "https://silo.example.test": { serverName: "Living room library" } })));
+    tv.fake.script("/theme/branding", { status: 200, body: { server_name: "Family Cinema" } });
+    tv.fake.revokeAllSessions();
+    const hold = tv.fake.hold("/auth/refresh");
+    await tv.page.locator('[data-focus="movies"]').click();
+    hold.release();
+    await tv.page.locator('[data-screen="code"]').waitFor({ timeout: 5000 });
+    await tv.page.getByText("You were signed out of Family Cinema. Sign in again.").waitFor();
+    assert.equal(await tv.page.getByText("Living room library").count(), 0, "the remembered name is replaced everywhere");
+    await tv.page.getByRole("button", { name: "Sign in with a password", exact: true }).click();
+    await tv.page.getByText("You were signed out of Family Cinema. Sign in again.").waitFor();
+});
+
 appTest("the expiry notice does not follow Change server into a new connection", async tv => {
     await signIn(tv);
     await tv.page.evaluate(() => window.appHarness.storage.setItem("silo.native.serverBranding.v1", JSON.stringify({ "https://silo.example.test": { serverName: "Living room library" } })));

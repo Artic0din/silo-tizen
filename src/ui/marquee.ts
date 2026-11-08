@@ -101,7 +101,11 @@ export function chip(text: string, glyph: IconName | undefined, role?: "status" 
 
 /** The session core's notices, as the Apple TV app's sign-in notice chip. */
 export function noteChips(notes: readonly Note[]): HTMLElement[] {
-    return notes.map((note) => chip(note.text, "alert", note.tone === "error" ? "alert" : "status"));
+    return notes.map((note) => {
+        const node = chip(note.text, "alert", note.tone === "error" ? "alert" : "status");
+        if (note.id !== undefined) node.dataset.note = note.id;
+        return node;
+    });
 }
 
 /** MarqueeTVCard: 640 wide glass. */

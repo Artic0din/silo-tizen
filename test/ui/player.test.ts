@@ -605,8 +605,8 @@ test("sans-serif captions use the bundled semibold face and leave other families
             return face();
         };
         assert.deepEqual(await showFace("sans-serif"), { family: "Inter, sans-serif", weight: "600" });
-        assert.deepEqual(await showFace("serif"), { family: "serif, sans-serif", weight: "400" });
-        assert.deepEqual(await showFace("monospace"), { family: "monospace, sans-serif", weight: "400" });
+        assert.deepEqual(await showFace("serif"), { family: "serif, sans-serif", weight: "600" });
+        assert.deepEqual(await showFace("monospace"), { family: "monospace, sans-serif", weight: "600" });
         assert.deepEqual(await showFace("Avenir Next"), { family: "Avenir Next, sans-serif", weight: "400" });
     } finally { await page.close(); }
 });

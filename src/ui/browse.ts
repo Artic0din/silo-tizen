@@ -45,6 +45,7 @@ import type { MediaScope } from "../contracts/v2/discovery.ts";
 import type { CatalogQueryRequest } from "../contracts/v2/discovery.ts";
 import { personQuery } from "./personFilmography.ts";
 import { mountSettings, type SettingsScreen } from "./settings.ts";
+import { signOutRemovesServer } from "./signOutConfirmation.ts";
 import type { CardOverlayPrefs } from "./cardOverlays.ts";
 import { PresentationSettings } from "./presentationSettings.ts";
 import { EpisodeSpoilerPreferences, type EpisodeSpoilerSettings } from "./episodeSpoilers.ts";
@@ -2411,6 +2412,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 accountName: session.account?.username,
                 switchProfile: chooseProfile,
                 serverName: cachedBranding(options.publicStorage, context.baseUrl)?.serverName,
+                removesServer: () => signOutRemovesServer(() => server.accounts.directory.list(), context.baseUrl),
                 ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
                 ...(options.onSwitchServer === undefined ? {} : { switchServer: options.onSwitchServer }),
             }, options.onAccounts, episodeSpoilers);
@@ -2439,10 +2441,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         } }),
         ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
         ...(session.account ? { accountName: session.account.username } : {}),
-        lastAccount: (() => {
-            try { return server.accounts.directory.list().filter(row => row.baseUrl === context.baseUrl).length === 1; }
-            catch { return false; } // Optional dialog copy cannot block Browse; logout checks storage itself.
-        })(),
+        lastAccount: signOutRemovesServer(() => server.accounts.directory.list(), context.baseUrl),
     }, focus => render(focus), options.publicStorage, `silo.skyline.scope:${JSON.stringify([server.server.serverId, session.activeProfile.id])}`, context.baseUrl);
     shell.translations = translations;
     translations.subscribeMode(() => { if (!torn) shell.armTranslation(); });

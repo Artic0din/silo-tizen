@@ -8,6 +8,7 @@ import { systemClock } from "../api/clock.ts";
 import { el } from "./screen.ts";
 import { cachedBranding } from "./brandingCache.ts";
 import { navigationIcon } from "./navigationIcon.ts";
+import { signOutConfirmationCopy, signOutRemovesServer } from "./signOutConfirmation.ts";
 
 export interface AccountsScreen { destroy(): void }
 export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current: ConnectedServer | undefined,
@@ -95,14 +96,11 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
             host.show({ ...view, content: behind === null ? [scrim, panel] : [behind, scrim, panel] });
             return;
         }
-        const lastAccount = directory.list().filter(row => row.baseUrl === address).length === targets.length;
-        const message = lastAccount
-            ? `This account's profiles and settings leave this TV, and ${serverName} will be removed from it.`
-            : "This account's profiles and settings leave this TV. The server stays saved, so you can sign in again.";
+        const removesServer = signOutRemovesServer(() => directory.list(), address, targets.length);
+        const copy = signOutConfirmationCopy(targets[0]?.username, serverName, removesServer);
         panel.setAttribute("role", "dialog");
         panel.setAttribute("aria-modal", "true");
-        panel.append(el("h1", "signin-title", `Sign out of ${targets[0]?.username ?? "this account"} on ${serverName}?`),
-            el("p", "signin-text", message), cancel.element, accept.element);
+        panel.append(el("h1", "signin-title", copy.title), el("p", "signin-text", copy.message), cancel.element, accept.element);
         host.show({ ...view, content: [panel] });
     };
     function render(railFocus = false, enterPane = false, focusFirst = false): void {

@@ -71,6 +71,8 @@ test("Up scrolls a long Info overview before returning to its tab", async () => 
     try {
         await show(page, { ...playing(TRACKS), hud: { chapters: [], chapterState: "ready", overview: "Long overview. ".repeat(400), stats: [], speeds: [], aspects: [], speed: 1, aspect: "Fit", autoNext: false, busy: false } });
         await openPanel(page);
+        // TVPlayerInfoHUD.availableTabs hides Chapters when there are none.
+        assert.deepEqual(await page.locator(".player-tab:not([hidden])").allTextContents(), ["Info", "Stats", "Video", "Audio", "Subtitles"]);
         await page.emulateMedia({ reducedMotion: "reduce" });
         assert.equal(await focused(page), "info");
         const pane = page.locator(".player-menu-info");

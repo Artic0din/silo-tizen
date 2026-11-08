@@ -34,7 +34,8 @@ export class HUDState {
                 changed();
             });
         }
-        if (!retry && this.fileId === fileId) return;
+        // A details retry keeps loaded chapters; only a failed chapter read is read again.
+        if ((!retry || this.chapterState !== "failed") && this.fileId === fileId) return;
         this.fileId = fileId;
         const generation = ++this.generation;
         this.chapters = [];

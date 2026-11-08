@@ -43,7 +43,7 @@ test("next playable episode uses explicit numeric order and a fresh allowed file
     r.data.set(seasonPath(1), { items: [row("later", 1, 12), row(NEXT, 1, 10), row(CURRENT, 1, 9)] });
     r.data.set(watchPath(NEXT), watch(NEXT, 1, 10));
     const result = await nextEpisode(r.read, CURRENT, "effective");
-    assert.deepEqual(result, { contentId: NEXT, fileId: `file-${NEXT}`, title: `Title ${NEXT}`, startSeconds: 0, episode: true, seasonNumber: 1, episodeNumber: 10 });
+    assert.deepEqual(result, { contentId: NEXT, fileId: `file-${NEXT}`, title: `Title ${NEXT}`, startSeconds: 0, episode: true, seasonNumber: 1, episodeNumber: 10, watch: { played: false } });
     assert.equal(r.reads[r.reads.length - 1], watchPath(NEXT));
 });
 
@@ -165,11 +165,14 @@ test("an On Deck episode keeps the card series title and the fresh season and ep
         contentId: other,
         fileId: `file-${other}`,
         title: "Pilot",
+        overview: undefined,
+        backdropUrl: undefined,
         startSeconds: 0,
         episode: true,
         seriesTitle: "Night Shift",
         seasonNumber: 3,
         episodeNumber: 4,
+        watch: { played: false },
     });
 });
 

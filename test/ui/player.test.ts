@@ -84,9 +84,9 @@ async function open(hidden = false, videoDir?: string): Promise<{ page: Page; lo
         const type = path.endsWith(".js") ? "application/javascript" : path.endsWith(".css") ? "text/css" : "text/html";
         await route.fulfill({ status: 200, contentType: type, body });
     });
-    await page.clock.install();
-    // Remote sequences advance time explicitly so host delays cannot commit a preview.
-    await page.clock.pauseAt(new Date(Date.now() + 1000));
+    const time = new Date("2026-11-05T00:00:00Z");
+    await page.clock.install({ time });
+    await page.clock.pauseAt(time);
     if (hidden) {
         await page.addInitScript(() => Object.defineProperty(document, "hidden", { configurable: true, value: true }));
     }
@@ -191,6 +191,28 @@ test("hidden Down opens Info and hidden Right returns to scrubber", async () => 
         await page.clock.runFor(5000);
         await remote(page, RIGHT);
         assert.equal(await focused(page), "position");
+    } finally { await page.close(); }
+});
+
+test("Show Up Next is in the transport and its panel names the next episode", async () => {
+    const { page } = await open();
+    try {
+        const view = playing(TRACKS);
+        await show(page, { ...view, episodes: true });
+        await remote(page, DOWN);
+        await remote(page, RIGHT);
+        await remote(page, RIGHT);
+        assert.equal(await focused(page), "up-next");
+        assert.equal(await page.getByRole("button", { name: "Show Up Next" }).count(), 1);
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["showUpNext"]);
+        await show(page, { ...view, episodes: true, upNext: { next: undefined, deck: [], countdown: undefined, status: "Up Next", loading: true } });
+        assert.equal(await page.locator(".player-next-up .player-title").innerText(), "Finding the next episode");
+        assert.equal(await page.getByText("Loading Up Next").count(), 0);
+        await show(page, { ...view, episodes: true, upNext: { next: { contentId: "episode:s1e13", fileId: "43", title: "Harbor Lights chapter 1.3", startSeconds: 0 }, deck: [], countdown: undefined, status: "Up Next" } });
+        assert.equal(await page.locator(".player-next-up .player-title").innerText(), "Harbor Lights chapter 1.3");
+        assert.equal(await page.getByText("Nothing to watch next").count(), 0);
+        assert.equal(await page.getByText("Loading Up Next").count(), 0);
     } finally { await page.close(); }
 });
 
@@ -339,7 +361,7 @@ test("autoplay countdown and Cancel are remote-operable without losing manual Pl
     const view: PlaybackView = { phase: "completion", title: "Playback ended", state: "ready", retryable: false, next: { contentId: "next", fileId: "43", title: "Next episode", startSeconds: 0, episode: true }, countdown: 10 };
     try {
         await show(page, view);
-        assert.equal(await page.locator('[data-focus="play-next"]').innerText(), "Play next (10s)");
+        assert.equal(await page.locator('[data-focus="play-next"]').innerText(), "Play Now");
         await remote(page, DOWN);
         assert.equal(await focused(page), "cancel-autoplay");
         await show(page, { ...view, countdown: 9 });
@@ -350,6 +372,117 @@ test("autoplay countdown and Cancel are remote-operable without losing manual Pl
         assert.equal(await focused(page), "play-next");
         await remote(page, ENTER);
         assert.deepEqual(await commands(page), ["cancelAutoplay", "playNext"]);
+    } finally { await page.close(); }
+});
+
+test("Up Next cancels an armed scrub hold before it can pause behind the panel", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        await holdKey(page, RIGHT);
+        const candidate = { contentId: "next", fileId: "43", title: "Next", startSeconds: 0, episode: true as const };
+        await show(page, { ...playing(TRACKS), upNext: { next: candidate, deck: [], countdown: 30, status: "Up Next" } });
+        await page.clock.runFor(2000);
+        assert.deepEqual(await commands(page), []);
+        assert.equal(await focused(page), "play-next");
+    } finally { await page.close(); }
+});
+
+test("On Deck resolves relative artwork against the connected server", async () => {
+    const { page } = await open();
+    try {
+        await page.route("**/api/v2/images/backdrop", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>' }));
+        const candidate = { contentId: "next", fileId: "43", title: "Next", startSeconds: 0, episode: true as const, backdropUrl: "/api/v2/images/backdrop" };
+        await show(page, { ...playing(TRACKS), upNext: { next: candidate, deck: [candidate], countdown: 30, status: "Up Next" } });
+        assert.equal(await page.locator(".player-next-card img").getAttribute("src"), "https://media.test/api/v2/images/backdrop");
+    } finally { await page.close(); }
+});
+
+test("On Deck blurs an unwatched episode still and leaves other artwork sharp", async () => {
+    const { page } = await open();
+    try {
+        await page.route("**/api/v2/images/**", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>' }));
+        const still = { contentId: "still", fileId: "43", title: "Secret", startSeconds: 0, episode: true as const, backdropUrl: "/api/v2/images/still", hideBackdrop: true as const };
+        const series = { contentId: "series-art", fileId: "44", title: "Key art", startSeconds: 0, episode: true as const, backdropUrl: "/api/v2/images/series" };
+        await show(page, { ...playing(TRACKS), upNext: { next: still, deck: [still, series], countdown: undefined, status: "Up Next" } });
+        assert.equal(await page.locator(".player-next-card .episode-spoiler-blur .player-next-still").count(), 1);
+        assert.match(await page.locator(".player-next-still").evaluate(node => getComputedStyle(node).filter), /blur\(24px\)/);
+        assert.equal(await page.locator(".player-next-card > img").count(), 1);
+    } finally { await page.close(); }
+});
+
+for (const complete of [false, true]) {
+    test(`On Deck preserves the focused content when later candidates arrive (${complete ? "EOF" : "pre-end"})`, async () => {
+        const { page } = await open();
+        const first = { contentId: "first", fileId: "43", title: "First", startSeconds: 0, episode: true as const };
+        const second = { ...first, contentId: "second", title: "Second" };
+        const view = (deck: readonly typeof first[]): PlaybackView => complete
+            ? { phase: "completion", title: "Up Next", state: "ready", retryable: false, next: first, deck }
+            : { ...playing(TRACKS), upNext: { next: first, deck, countdown: 30, status: "Up Next" } };
+        try {
+            await show(page, view([first]));
+            for (let i = 0; i < 3 && await focused(page) !== "deck:first"; i++) await remote(page, DOWN);
+            assert.equal(await focused(page), "deck:first");
+            await show(page, view([{ ...first, fileId: "updated" }, second]));
+            assert.equal(await focused(page), "deck:first");
+            await remote(page, ENTER);
+            assert.deepEqual(await commands(page), ["playNext first updated"]);
+        } finally { await page.close(); }
+    });
+}
+
+test("Up Next captures remote input, preserves focus and exposes Keep Watching and On Deck", async () => {
+    const { page } = await open();
+    const candidate = { contentId: "next", fileId: "43", title: "Next episode", overview: "The next chapter.", startSeconds: 0, episode: true as const };
+    const cards = Array.from({ length: 12 }, (_, index) => ({ ...candidate, contentId: `deck-${index}`, title: `Title ${index}` }));
+    const view: PlaybackView = { ...playing(TRACKS), upNext: { next: candidate, deck: cards, countdown: 30, status: "Up Next" } };
+    try {
+        await show(page, view);
+        assert.equal(await focused(page), "play-next");
+        assert.equal(await page.locator(".player-next-eyebrow").innerText(), "UP NEXT");
+        assert.equal(await page.locator(".player-next-synopsis").innerText(), "The next chapter.");
+        assert.equal(await page.locator(".player-next-card").count(), 12);
+        await remote(page, 19);
+        await remote(page, 415);
+        await remote(page, 10252);
+        await remote(page, 412);
+        await remote(page, 417);
+        assert.deepEqual(await commands(page), ["setPaused true", "setPaused false", "togglePause", "seekBy -10", "seekBy 10"]);
+        await page.evaluate(() => { window.player.commands.length = 0; });
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "keep-watching");
+        await show(page, view);
+        assert.equal(await focused(page), "keep-watching");
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["keepWatching"]);
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "back");
+        await remote(page, DOWN);
+        assert.equal(await focused(page), "deck:deck-0");
+        await remote(page, RIGHT);
+        await show(page, { ...playing(TRACKS), upNext: { next: candidate, deck: cards.map(card => ({ ...card, fileId: "new-file" })), countdown: 20, status: "Up Next" } });
+        await remote(page, ENTER);
+        assert.deepEqual(await commands(page), ["keepWatching", "playNext deck-1 new-file"]);
+        await remote(page, BACK);
+        assert.equal((await commands(page)).at(-1), "keepWatching");
+    } finally { await page.close(); }
+});
+
+test("Up Next captions stay inside the video preview and restore their full size", async () => {
+    const { page } = await open();
+    try {
+        const view = { ...playing(TRACKS), captions: { text: "Dialogue", appearance: DEFAULT_APPEARANCE } };
+        const full = async () => page.locator(".player-captions span").boundingBox();
+        await show(page, view);
+        const original = await full();
+        await show(page, { ...view, upNext: { next: undefined, deck: [], countdown: undefined, status: "Up Next" } });
+        const preview = await full();
+        assert.ok(original !== null && preview !== null);
+        assert.ok(preview.x >= 180 && preview.x + preview.width <= 940);
+        assert.ok(preview.y >= 112 && preview.y + preview.height <= 540);
+        assert.ok(Math.abs(preview.height / original.height - 760 / 1920) < 0.01);
+        await show(page, view);
+        assert.deepEqual(await full(), original);
     } finally { await page.close(); }
 });
 

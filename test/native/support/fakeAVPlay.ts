@@ -72,8 +72,10 @@ export class FakeAVPlay implements AVPlay {
         this.prepares.push({ success, error, stream: this.stream });
     }
 
-    setDisplayRect(): void {
+    readonly displayRects: number[][] = [];
+    setDisplayRect(x: number, y: number, width: number, height: number): void {
         this.require("setDisplayRect", ["IDLE", "READY", "PLAYING", "PAUSED"]);
+        this.displayRects.push([x, y, width, height]);
     }
 
     setListener(listener: AVPlayListener): void {

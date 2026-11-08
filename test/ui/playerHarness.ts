@@ -53,14 +53,16 @@ const controls: PlayerControls = {
     retryTrackInfo: () => commands.push("retryTrackInfo"),
     retrySettings: () => commands.push("retrySettings"),
     retryCompletion: () => commands.push("retryCompletion"),
-    playNext: () => commands.push("playNext"),
+    playNext: request => commands.push(request === undefined ? "playNext" : `playNext ${request.contentId} ${request.fileId}`),
+    showUpNext: () => commands.push("showUpNext"),
     cancelAutoplay: () => commands.push("cancelAutoplay"),
+    keepWatching: () => commands.push("keepWatching"),
     saveSeriesSubtitle: () => commands.push("saveSeriesSubtitle"),
     startSubtitleAI: (kind, language) => commands.push(`startSubtitleAI ${kind} ${language ?? ""}`),
     selectAIResult: id => commands.push(`selectAIResult ${id}`),
     seekThumbnail: async () => undefined,
 };
-const screen: PlayerScreen = mountPlayerScreen(root, controls);
+const screen: PlayerScreen = mountPlayerScreen(root, controls, undefined, "https://media.test");
 
 window.player = {
     commands,

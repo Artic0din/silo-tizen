@@ -3,9 +3,11 @@ import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
-import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, SHOW_FORCED_KEY } from "../../src/contracts/v2/settings.ts";
+import { AUDIO_KEY, HDR_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, SHOW_FORCED_KEY } from "../../src/contracts/v2/settings.ts";
 import { fixture, problem } from "../native/support/fakeSilo.ts";
 import { launchBrowser, openTv, readLive, type Tv } from "./support/tv.ts";
+
+const DOLBY_VISION_KEY = "player.dolby_vision_enabled";
 
 let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
@@ -236,7 +238,8 @@ test("remaining settings expose only honoured rows and save profile appearance",
         await tv.page.getByText("Address", { exact: true }).waitFor();
         await tv.page.getByRole("button", { name: "Privacy Policy", exact: true }).click();
         assert.equal(await tv.page.getByRole("img", { name: "Privacy Policy QR code" }).count(), 1);
-        assert.equal(await tv.page.getByRole("button", { name: /HDR|Lossless|Seek Cache/ }).count(), 0);
+        assert.equal(await tv.page.getByRole("button", { name: /HDR|Dolby Vision|Lossless|Seek Cache/ }).count(), 0);
+        assert.equal(await tv.page.locator(".settings-hdr-footer").count(), 0);
     } finally { await tv.page.context().close(); }
 });
 
@@ -1140,6 +1143,51 @@ test("quality controls remain absent for unsupported manifests and empty Playbac
         await tv.page.locator('[data-focus="spoiler-images"]').focus();
         await tv.remote(10009);
         assert.equal(await tv.focused(), "playback");
+    } finally { await tv.page.context().close(); }
+});
+
+test("Playback shows HDR after the Streaming rows and never shows or writes Dolby Vision", async () => {
+    const { tv, settings } = await setup();
+    settings.hdrRows = true;
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        const order = await tv.page.locator(".settings-pane [data-focus]").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus")));
+        const audio = order.indexOf("audio");
+        const hdr = order.indexOf("hdr");
+        assert.equal(order.includes("dolby-vision"), false, order.join(","));
+        assert.equal(await tv.page.getByRole("switch", { name: "Dolby Vision", exact: true }).count(), 0);
+        assert.ok(audio >= 0 && audio < hdr && order[hdr + 1] === "spoiler-images", order.join(","));
+        assert.deepEqual(await tv.page.locator(".settings-section-header").allTextContents(), ["QUALITY", "STREAMING", "EPISODES", "SPOILERS", "VIDEO", "RESET"]);
+        assert.equal(await tv.page.locator('[data-focus="hdr"] .settings-row-value').innerText(), "On");
+        assert.equal(await tv.page.getByRole("switch", { name: "HDR", exact: true }).getAttribute("aria-checked"), "true");
+        // TVPlaybackSettingsView.swift:248-258, after the STREAMING rows. The first sentence of
+        // SettingsViewModel.swift:136-143, without "without Dolby Vision". The original-file sentence is omitted.
+        assert.equal(await tv.page.locator(".settings-hdr-footer").innerText(), "With HDR off, videos the server converts for this device are sent in SDR.");
+        const place = await tv.page.evaluate(() => {
+            const streaming = [...document.querySelectorAll(".settings-section-header")].find(node => node.textContent === "STREAMING");
+            const hdrRow = document.querySelector('[data-focus="hdr"]');
+            const note = document.querySelector(".settings-hdr-footer");
+            const episodes = [...document.querySelectorAll(".settings-section-header")].find(node => node.textContent === "EPISODES");
+            if (streaming === undefined || hdrRow === null || note === null || episodes === undefined) return false;
+            return Boolean(streaming.compareDocumentPosition(hdrRow) & Node.DOCUMENT_POSITION_FOLLOWING)
+                && Boolean(hdrRow.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING)
+                && Boolean(note.compareDocumentPosition(episodes) & Node.DOCUMENT_POSITION_FOLLOWING);
+        });
+        assert.equal(place, true);
+        const deviceId = tv.fake.requests.find(request => request.headers["x-silo-device-id"])?.headers["x-silo-device-id"];
+        assert.ok(deviceId);
+        const device = settings.device("p-owner", deviceId);
+        await tv.page.getByRole("switch", { name: "HDR", exact: true }).click();
+        await tv.eventually(async () => device.get(HDR_KEY) === false, "hdr write");
+        assert.equal(device.has(HDR_KEY), true);
+        assert.equal(settings.profile().has(HDR_KEY), false);
+        assert.equal([...device.keys()].join(" ").includes(DOLBY_VISION_KEY), false);
+        assert.equal(tv.fake.requests.some(request => request.method !== "GET" && request.path.includes(DOLBY_VISION_KEY)), false);
+        assert.equal(tv.fake.requests.some(request => request.path.includes(DOLBY_VISION_KEY)), false);
+        await tv.page.locator('[data-focus="hdr"]').focus();
+        await tv.remote(40);
+        assert.equal(await tv.focused(), "spoiler-images");
     } finally { await tv.page.context().close(); }
 });
 

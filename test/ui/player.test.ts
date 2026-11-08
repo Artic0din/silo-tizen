@@ -593,6 +593,24 @@ test("Up Next captions stay inside the video preview and restore their full size
     } finally { await page.close(); }
 });
 
+test("sans-serif captions use the bundled semibold face and leave other families unchanged", async () => {
+    const { page } = await open();
+    try {
+        const face = (): Promise<{ family: string; weight: string }> => page.locator(".player-captions span").evaluate(node => {
+            const style = getComputedStyle(node);
+            return { family: style.fontFamily.replaceAll('"', ""), weight: style.fontWeight };
+        });
+        const showFace = async (fontFamily: string): Promise<{ family: string; weight: string }> => {
+            await show(page, { ...playing(TRACKS), captions: { text: "Dialogue", appearance: { ...DEFAULT_APPEARANCE, fontFamily } } });
+            return face();
+        };
+        assert.deepEqual(await showFace("sans-serif"), { family: "Inter, sans-serif", weight: "600" });
+        assert.deepEqual(await showFace("serif"), { family: "serif, sans-serif", weight: "600" });
+        assert.deepEqual(await showFace("monospace"), { family: "monospace, sans-serif", weight: "600" });
+        assert.deepEqual(await showFace("Avenir Next"), { family: "Avenir Next, sans-serif", weight: "400" });
+    } finally { await page.close(); }
+});
+
 test("captions apply profile styles, stay safe text and clear during recovery", async () => {
     const { page } = await open();
     try {

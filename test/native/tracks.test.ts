@@ -1214,6 +1214,32 @@ test("a downloaded subtitle missing from the refreshed inventory is reported wit
     r.controller.destroy();
 });
 
+test("a downloaded subtitle present in the refreshed inventory is selected", async () => {
+    const r = await rig();
+    await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    assert.equal(tracks(r).ai, undefined);
+    r.h.fake.script("/subtitles/providers/status", { status: 200, body: { schema_version: 1, enabled: true, providers: ["opensubtitles"], revision: "r", state: "available", allowed: true } });
+    r.h.fake.script("/settings/contract", { status: 200, body: { option_sets: { playback_subtitle_languages: { options: [{ value: "en", label: "English" }] } } } });
+    r.h.fake.script("/subtitles/search", { status: 200, body: { results: [{ id: "opaque-result", provider: "opensubtitles", language: "en", release_name: "Example.Release", format: "srt", score: 82, downloads: 12, hearing_impaired: true }], warnings: [] } });
+    r.h.fake.script("/subtitles/download", { status: 200, body: { subtitle: { id: "7", media_file_id: "42", provider: "opensubtitles", language: "en", format: "srt", release_name: "Example.Release", score: 82, hearing_impaired: true, created_at: "2026-01-02T03:04:05.678Z" } } });
+    r.controller.subtitleTool({ kind: "search-open" });
+    await settle(r);
+    r.controller.subtitleTool({ kind: "search-language", code: "en" });
+    await settle(r);
+    const file = r.server.files.get("42");
+    assert.ok(file);
+    const lastIndex = file.inventory.length - 1;
+    r.server.files.set("42", { ...file, inventory: file.inventory.map((track, index) => index === lastIndex ? { ...track, sync_key: "stored-7" } : track) });
+    r.server.next.push({}, { subtitle: 4, subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/captions?token=synthetic`, format: "vtt", timing_origin_seconds: 0 } });
+    r.h.fake.script("/captions?token=synthetic", { status: 200, text: "WEBVTT\n\n00:12.000 --> 00:14.000\nDownloaded" });
+    const opens = r.avplay.urls.length;
+    r.controller.subtitleTool({ kind: "search-download", key: "opensubtitles:opaque-result" });
+    for (let step = 0; step < 8; step++) await r.h.clock.advance(0);
+    assert.equal(r.avplay.urls.length, opens);
+    assert.equal(tracks(r).selectedSubtitleId, "file:42:subtitle:4");
+    r.controller.destroy();
+});
+
 test("a native subtitle selected from an Off plan hides overlay-only tools", async () => {
     const r = await rig();
     r.server.next.push({ delivery: "original_http", clearSubtitle: true });

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { operations } from "../../src/api/operations.ts";
-import { AUDIO_KEY, HIDDEN_KEY, SETTINGS_KEYS, decodeEffectiveSettings, decodeExplicitSettings, decodeSettingsCapabilities, decodeSettingsContract, decodeSettingValue, numericLibraryId, type SettingsKey } from "../../src/contracts/v2/settings.ts";
+import { AUDIO_KEY, HDR_KEY, HIDDEN_KEY, SETTINGS_KEYS, decodeEffectiveSettings, decodeExplicitSettings, decodeSettingsCapabilities, decodeSettingsContract, decodeSettingValue, numericLibraryId, profileSettings, type SettingsKey } from "../../src/contracts/v2/settings.ts";
 import { PlaybackController } from "../../src/player/controller.ts";
 import { FakePlayback } from "./support/fakePlayback.ts";
 import { FakeAVPlay } from "./support/fakeAVPlay.ts";
@@ -11,6 +11,7 @@ import { FakeCatalog } from "./support/fakeCatalog.ts";
 import { FakeSettings } from "./support/fakeSettings.ts";
 import { fixture, problem } from "./support/fakeSilo.ts";
 
+const DOLBY_VISION_KEY = "player.dolby_vision_enabled";
 const QUALITY = "playback.preferred_quality" as SettingsKey;
 const BITRATE = "playback.max_bitrate_kbps" as SettingsKey;
 const SEEK_BACK = "player.video_skip_back_seconds" as SettingsKey;
@@ -394,12 +395,13 @@ test("the hidden-library editor can request hidden libraries explicitly", () => 
     assert.equal(operations.listUserLibraries().path, "/user/libraries");
 });
 
-async function setup(deviceScope = false) {
+async function setup(deviceScope = false, hdrRows = false) {
     const harness = await connected();
     await signIn(harness);
     harness.fake.catalog = new FakeCatalog();
     const fake = new FakeSettings(harness.fake);
     fake.devicePlayback = deviceScope;
+    fake.hdrRows = hdrRows;
     const profile = (await harness.core.profiles.list())[0];
     assert.ok(profile);
     harness.core.profiles.select(profile);
@@ -554,6 +556,55 @@ test("late profile answers are discarded, and unsupported discovery never fetche
     assert.ok(next.error);
     assert.deepEqual(fake.requests.slice(count).map(request => request.path), ["/settings/contract/capabilities"]);
     next.stop();
+});
+
+test("HDR stays a device boolean and Dolby Vision is never read or written", async () => {
+    const { state, fakeSettings, core, fake } = await setup(true, true);
+    assert.equal(state.definitions.some(def => def.key === HDR_KEY && def.device && !def.profile), true);
+    assert.equal(state.definitions.some(def => (def.key as string) === DOLBY_VISION_KEY), false);
+    assert.equal(state.effective.get(HDR_KEY)?.value, true);
+    assert.equal(state.scope(HDR_KEY), "profile_device");
+    const profileReads = fake.requests.filter(request => {
+        const scope = new URL(request.path, "https://fake.invalid").searchParams.get("scope");
+        return request.path.startsWith("/settings/values?") && scope === "profile";
+    });
+    assert.equal(profileReads.some(request => request.path.includes(HDR_KEY)), false);
+    const device = fakeSettings.device("p-owner", core.session.http.deviceId);
+    await state.save(HDR_KEY, false);
+    assert.equal(device.get(HDR_KEY), false);
+    assert.equal(fakeSettings.profile().has(HDR_KEY), false);
+    assert.equal([...device.keys()].join(" ").includes(DOLBY_VISION_KEY), false);
+    assert.equal(state.effective.get(HDR_KEY)?.value, false);
+    assert.equal(fake.requests.some(request => request.path.includes(DOLBY_VISION_KEY)), false);
+    assert.equal(fake.requests.filter(request => request.method === "PUT").every(request => request.path.endsWith("?scope=profile_device")), true);
+    state.stop();
+});
+
+function hdrDefinition(extra: Record<string, unknown> = {}) {
+    const contract = structuredClone(fixture("settings_contract_ok"));
+    const definition = {
+        key: HDR_KEY, introduced_in: 1, persistence: "remote", allowed_scopes: ["profile_device"], resolution_order: ["profile_device", "default"],
+        value_schema: { type: "boolean" }, default_value: true, platforms: ["ios", "tvos", "macos", "android", "android_tv"], recommended_control: "switch", ...extra,
+    };
+    return { ...contract, definitions: [...(contract.definitions as object[]), definition] };
+}
+
+test("the HDR definition is device-only and a mismatched contract hides it", () => {
+    assert.equal(decodeSettingValue(HDR_KEY, true), true);
+    const withDolby = hdrDefinition();
+    (withDolby.definitions as object[]).push({ ...(withDolby.definitions as object[]).at(-1), key: DOLBY_VISION_KEY });
+    assert.equal(decodeSettingsContract(withDolby).definitions.some(def => (def.key as string) === DOLBY_VISION_KEY), false);
+    for (const value of [null, "true", 1]) assert.throws(() => decodeSettingValue(HDR_KEY, value), String(value));
+    const accepted = decodeSettingsContract(hdrDefinition());
+    assert.equal(accepted.definitions.some(def => def.key === HDR_KEY && def.device && !def.profile), true);
+    const offered = decodeSettingsCapabilities({ api_version: 1, revision: "opaque", manifest_revision: 24, state: "available", allowed: true, scopes: ["profile", "profile_device"] });
+    assert.equal(profileSettings(accepted, offered).some(def => def.key === HDR_KEY), true);
+    const profileOnly = decodeSettingsCapabilities({ api_version: 1, revision: "opaque", manifest_revision: 24, state: "available", allowed: true, scopes: ["profile"] });
+    assert.equal(profileSettings(accepted, profileOnly).some(def => def.key === HDR_KEY), false);
+    for (const extra of [{ default_value: false }, { allowed_scopes: ["profile"] }, { value_schema: { type: "boolean", nullable: true } }, { recommended_control: "select" }]) {
+        assert.equal(decodeSettingsContract(hdrDefinition(extra)).definitions.some(def => def.key === HDR_KEY), false, JSON.stringify(extra));
+    }
+    assert.throws(() => decodeSettingsContract({ ...hdrDefinition(), definitions: [...hdrDefinition().definitions as object[], hdrDefinition().definitions.at(-1)] }));
 });
 
 test("settings expose typed discovery, explicit/effective reads, nullable writes and reset", () => {

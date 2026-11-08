@@ -68,8 +68,10 @@ export class SkylineScroll {
         const contentWidth = cards.length * width + (cards.length - 1) * spacing;
         // Extra right-edge paint must not move the stepped terminal boundary.
         const paintEnd = parseFloat(style.getPropertyValue("--episode-paint-end")) || 0;
-        // Leading padding includes one card spacing (episodeRailSlot). Scroll
-        // steps do not, so the clamp viewport adds that spacing back.
+        // Leading padding includes one card spacing (episodeRailSlot), unless the
+        // loaded window includes the series' first season and the measured 40px
+        // shift has removed it. Scroll steps do not include that spacing, so the
+        // clamp viewport adds it back.
         const viewport = row.clientWidth - paintEnd - inset + width * .025 + 2 + spacing;
         const maximum = episodeRailOffset(cards.length - 1, cards.length, width, spacing, viewport);
         row.style.paddingRight = `${Math.max(0, row.clientWidth + maximum - inset - contentWidth - spacing)}px`;

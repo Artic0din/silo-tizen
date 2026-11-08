@@ -2,7 +2,7 @@ import { operations } from "../api/operations.ts";
 import { ApiError } from "../api/errors.ts";
 import type { Episode, Season } from "../contracts/v2/catalog.ts";
 import type { NativeSession } from "../session/session.ts";
-import { episodeWindow, orderedEpisodeSeasons, retainEpisodePages } from "./episodeRail.ts";
+import { contiguousNeighborSeasons, episodeWindow, episodeWindowReachesSeriesStart, orderedEpisodeSeasons, retainEpisodePages } from "./episodeRail.ts";
 
 const BOUNDARY_DWELL_MS = 70;
 // TVSeriesDetailView.swift:780-793 at 7baff3ef.
@@ -20,6 +20,8 @@ export class SeriesEpisodes {
     get interrupted(): boolean { return this.episodes === undefined && this.seasonNumber !== undefined && this.cancelledSeasons.has(this.seasonNumber); }
     get boundaryFailed(): boolean { return [...this.failedNeighbors].some(number => !this.failedSelections.has(number) && number !== this.seasonNumber); }
     private readonly pages = new Map<number, readonly Episode[]>();
+    /** Pages a fresh visit leaves out of the rail window. Reaching one again reuses it instead of the network. */
+    private readonly parked = new Map<number, readonly Episode[]>();
     private neighbors: AbortController | undefined;
     private readonly pendingNeighbors = new Set<number>();
     private readonly requestedBoundaries = new Map<string, number>();
@@ -63,7 +65,7 @@ export class SeriesEpisodes {
         if (!this.loaded && this.controller === undefined && !this.failed && !this.interrupted) this.load(true, false, true);
     }
 
-    restore(previous: SeriesEpisodes | undefined, refresh = false): void {
+    restore(previous: SeriesEpisodes | undefined, refresh = false, freshWindow = false): void {
         this.selectionChanged = refresh && previous?.selectionChanged === true;
         if (this.selectionChanged && previous !== undefined) {
             this.entryEpisode = previous.entryEpisode;
@@ -72,8 +74,13 @@ export class SeriesEpisodes {
         }
         if (previous !== undefined && previous.seasonNumber === this.seasonNumber) {
             this.episodes = previous.episodes;
-            this.railEpisodes = previous.railEpisodes;
+            if (!freshWindow) this.railEpisodes = previous.railEpisodes;
             for (const [number, page] of previous.pages) this.pages.set(number, page);
+            for (const [number, page] of previous.parked) if (!this.pages.has(number)) this.parked.set(number, page);
+            if (freshWindow) {
+                this.keepFreshNeighborPages();
+                this.updateWindow();
+            }
             for (const number of previous.failedNeighbors) this.failedNeighbors.add(number);
             for (const number of previous.failedSelections) this.failedSelections.add(number);
             for (const number of previous.cancelledSeasons) this.cancelledSeasons.add(number);
@@ -81,6 +88,27 @@ export class SeriesEpisodes {
             for (const number of previous.transportFailures) this.transportFailures.add(number);
             this.failed = previous.failed && !(refresh && previous.seasonNumber !== undefined && previous.transportFailures.has(previous.seasonNumber));
         }
+    }
+
+    /**
+     * A new Details visit keeps the selected season and the neighbor pages a
+     * first open would warm. Seasons reached only by walking chips are dropped,
+     * so reopening matches a later-season rail that has not loaded Season 1.
+     */
+    private keepFreshNeighborPages(): void {
+        const selected = this.seasonNumber;
+        if (selected === undefined || !this.pages.has(selected)) return;
+        const order = orderedEpisodeSeasons(this.seasons);
+        if (!order.includes(selected)) return;
+        const keep = contiguousNeighborSeasons(order, selected, this.pages).add(selected);
+        for (const [number, page] of this.pages) if (!keep.has(number)) { this.parked.set(number, page); this.pages.delete(number); }
+    }
+
+    private unpark(season: number): void {
+        const page = this.parked.get(season);
+        if (page === undefined || this.pages.has(season)) return;
+        this.pages.set(season, page);
+        this.parked.delete(season);
     }
 
     stop(): void {
@@ -140,6 +168,7 @@ export class SeriesEpisodes {
         this.seasonNumber = season;
         this.focusSelectedEpisode = true;
         this.entryEpisode = undefined;
+        this.unpark(season);
         if (!automatic && !this.pages.has(season)) { this.load(); return; }
         this.controller?.abort();
         this.controller = undefined;
@@ -301,6 +330,11 @@ export class SeriesEpisodes {
         this.boundaryDwell = undefined;
     }
 
+    /** The painted rail's loaded run includes this series' first season. */
+    get windowReachesSeriesStart(): boolean {
+        return episodeWindowReachesSeriesStart(orderedEpisodeSeasons(this.seasons), this.seasonNumber, this.pages);
+    }
+
     private updateWindow(): void {
         const order = orderedEpisodeSeasons(this.seasons);
         if (this.seasonNumber !== undefined) retainEpisodePages(order, this.seasonNumber, this.pages);
@@ -339,7 +373,8 @@ export class SeriesEpisodes {
         const controller = this.neighbors;
         this.pendingNeighbors.add(number);
         try {
-            const page = await this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, number), retry: "never", profileScoped: true, signal: controller.signal });
+            const page = this.parked.get(number) ?? await this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, number), retry: "never", profileScoped: true, signal: controller.signal });
+            this.parked.delete(number);
             if (!this.active || controller.signal.aborted) return;
             this.failedNeighbors.delete(number);
             this.transportFailures.delete(number);

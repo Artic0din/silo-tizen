@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { episodeRailOffset, episodeRailSlot, episodeWindow, retainEpisodePages } from "../../src/ui/episodeRail.ts";
+import { episodeRailOffset, episodeRailSlot, episodeWindow, episodeWindowReachesSeriesStart, retainEpisodePages } from "../../src/ui/episodeRail.ts";
 import type { Episode } from "../../src/contracts/v2/catalog.ts";
 
 test("Apple rail anchors selection and focus to whole steps, clamped at the terminal group", () => {
@@ -37,6 +37,20 @@ test("Apple window crosses empty pages, stops at missing pages and sorts and ded
     assert.equal(episodes[10]!.id, "14:0");
     assert.equal(episodes.at(-1)!.id, "16:0");
     assert.deepEqual(episodeWindow([13, 14], 12, pages), []);
+});
+
+test("the loaded window reaches the series start only along contiguous pages", () => {
+    const later = new Map([[5, page(5, 10)], [4, page(4, 10)]]);
+    assert.equal(episodeWindowReachesSeriesStart([1, 2, 3, 4, 5], 5, later), false);
+    assert.equal(episodeWindowReachesSeriesStart([1, 2, 3, 4, 5], 1, new Map([[1, page(1, 2)]])), true);
+    const throughStart = new Map(later);
+    throughStart.set(1, page(1, 1));
+    throughStart.set(2, page(2, 1));
+    throughStart.set(3, page(3, 1));
+    assert.equal(episodeWindowReachesSeriesStart([1, 2, 3, 4, 5], 5, throughStart), true);
+    assert.equal(episodeWindowReachesSeriesStart([1, 2, 3], 3, new Map([[1, page(1, 1)], [3, page(3, 1)]])), false);
+    assert.equal(episodeWindowReachesSeriesStart([13, 14], 14, new Map([[13, page(13, 1)], [14, page(14, 1)]])), true);
+    assert.equal(episodeWindowReachesSeriesStart([], 1, new Map([[1, page(1, 1)]])), false);
 });
 
 test("Apple retains five nearest nonempty pages and at least eight distinct episodes on each side", () => {

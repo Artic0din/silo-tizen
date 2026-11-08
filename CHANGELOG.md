@@ -27,6 +27,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Moved the Series Details episode rail 40px left when its loaded window includes the series' first season. A later season whose earlier pages are not loaded keeps the previous position, and reopening Details starts from that season's neighbor window.
+- Asked before signing out from Who's watching, while profiles load, and when profiles fail to load. Cancel stays focused, and Cancel or Back returns to Sign out.
 - Drew sans-serif subtitle captions in the bundled Inter face at weight 600, in the Settings preview and during playback.
 - Loaded in-player subtitle delay and appearance when the settings contract tags a scope with the revision that added it.
 - Cleared a leftover device subtitle delay once per profile, after an owed delay write settles, and retried a failed clear instead of sending it on every open.

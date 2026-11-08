@@ -2781,3 +2781,61 @@ test("an HDR panel claims HDR10, HDR10+ and HLG when the server offers no HDR se
     assert.deepEqual((start.client_capabilities as { hdr_details: unknown }).hdr_details, HDR);
     r.controller.destroy();
 });
+
+function hdrClaim(body: Record<string, unknown>): unknown {
+    const capabilities = body.client_capabilities as { hdr?: unknown; hdr_details?: unknown } | undefined;
+    const context = body.client_playback_context as {
+        output?: { hdr_details?: unknown };
+        deliveries?: { original_http?: { hdr_details?: unknown }; hls?: { hdr_details?: unknown } };
+    } | undefined;
+    return {
+        hdr: capabilities?.hdr,
+        capabilities: capabilities?.hdr_details,
+        output: context?.output?.hdr_details,
+        original_http: context?.deliveries?.original_http?.hdr_details,
+        hls: context?.deliveries?.hls?.hdr_details,
+    };
+}
+
+async function finishReplacement(r: Rig): Promise<void> {
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    if (r.avplay.calls.at(-1)?.startsWith("seekTo") === true) {
+        r.avplay.finishSeek();
+        await r.h.clock.advance(0);
+    }
+    assert.equal(r.avplay.state, "PLAYING");
+}
+
+test("a generic replan, a recovery replan and a replacement restart repeat the start HDR details", async () => {
+    const r = await rig("p-owner", undefined, hdrPanel(true));
+    const settings = new FakeSettings(r.h.fake);
+    settings.hdrRows = true;
+    settings.device("p-owner", r.h.core.session.http.deviceId).set(HDR_KEY, true);
+    r.server.next.push({ availableQualities: [{ label: "original", preserves_source: true }, { label: "1080p-medium", height: 1080, bitrate_kbps: 6000, preserves_source: false }] });
+    const id = await playMovie(r);
+    const start = only(bodies(r.h, "/playback/start"));
+    const claimed = hdrClaim(start);
+    assert.deepEqual(claimed, { hdr: true, capabilities: HDR, output: HDR, original_http: HDR, hls: HDR });
+
+    r.controller.selectQuality("1080p-medium");
+    await r.h.clock.advance(0);
+    await finishReplacement(r);
+
+    r.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
+    await r.h.clock.advance(1000);
+    await finishReplacement(r);
+
+    r.server.sessions.delete(id);
+    r.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
+    await r.h.clock.advance(2000);
+    const starts = bodies(r.h, "/playback/start");
+    const replans = bodies(r.h, "/replan");
+    assert.deepEqual(replans.map(body => body.operation), ["quality_change", "track_change", "track_change"]);
+    assert.equal(starts.length, 2);
+    for (const body of [...replans, starts[1]]) {
+        assert.ok(body);
+        assert.deepEqual(hdrClaim(body), claimed);
+    }
+    r.controller.destroy();
+});

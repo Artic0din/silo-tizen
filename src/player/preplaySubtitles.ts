@@ -1,4 +1,4 @@
-import type { SubtitleIntent, SubtitlePreferences, SubtitleSignature } from "../contracts/v2/preplaySubtitles.ts";
+import type { CatalogSubtitleTrack, SubtitleIntent, SubtitlePreferences, SubtitleSignature } from "../contracts/v2/preplaySubtitles.ts";
 import type { SubtitleTrack } from "../contracts/v2/playback.ts";
 
 const normalized = (value: string | undefined): string => value?.trim().toLowerCase() ?? "";
@@ -43,6 +43,46 @@ function preferred(tracks: readonly SubtitleTrack[], wanted: string | undefined,
         return languageRank * 10000 - likeness * 100 + priority;
     };
     return tracks.filter(track => Number.isFinite(rank(track))).slice().sort((left, right) => rank(left) - rank(right))[0];
+}
+
+/**
+ * Names a subtitle before start, the way Apple does once the version's rows are known.
+ * External rows come first, then embedded, then downloaded. The plan inventory remains
+ * authoritative: a guess that the plan does not echo is corrected by the existing replan.
+ */
+export function startSubtitleTrackId(fileId: string, intent: SubtitleIntent | undefined, tracks: readonly CatalogSubtitleTrack[] | undefined, preferences?: SubtitlePreferences): string | undefined {
+    if (intent === undefined || intent.kind === "off" || tracks === undefined || tracks.length === 0) return undefined;
+    if (intent.kind === "auto" && preferences === undefined) return undefined;
+    try {
+        return initialSubtitle(intent, provisionalInventory(fileId, tracks), preferences);
+    } catch {
+        return undefined;
+    }
+}
+
+/** Combined ordinals before a plan exists. Catalog array order is kept inside each source. */
+function provisionalInventory(fileId: string, tracks: readonly CatalogSubtitleTrack[]): readonly SubtitleTrack[] {
+    const ordered = [
+        ...tracks.filter(track => track.source === "external"),
+        ...tracks.filter(track => track.source !== "external" && track.source !== "downloaded"),
+        ...tracks.filter(track => track.source === "downloaded"),
+    ];
+    return ordered.map((track, index): SubtitleTrack => ({
+        trackId: `file:${fileId}:subtitle:${index}`,
+        combinedIndex: index,
+        source: track.source,
+        delivery: "unknown",
+        label: track.label,
+        language: track.language,
+        codec: track.codec,
+        forced: track.forced,
+        hearingImpaired: track.hearingImpaired,
+        url: undefined,
+        streamIndex: undefined,
+        containerTrackId: undefined,
+        nativeSelectable: undefined,
+        hlsRendition: undefined,
+    }));
 }
 
 /** Only identities published by this plan may leave this resolver. */

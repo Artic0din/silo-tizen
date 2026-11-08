@@ -591,7 +591,7 @@ preplay("Details subtitles resolve a catalog stream choice through the server in
     assert.equal(Object.hasOwn(saved?.body ?? {}, "show_forced_subtitles"), false);
     await tv.page.locator('[data-focus="play"]').click();
     await prepare(tv);
-    assert.equal(starts(tv)[0]?.body?.subtitle_track_id, undefined);
+    assert.equal(starts(tv)[0]?.body?.subtitle_track_id, "file:42:subtitle:0");
     const change = tv.fake.requests.find(request => request.path.endsWith("/replan"));
     assert.deepEqual(change?.body?.selected_tracks, { audio: { id: "file:42:audio:2", index: 2 }, subtitle: { id: "file:42:subtitle:1" } });
     await tv.remote(10009);

@@ -2,8 +2,8 @@
 
 import type { BrowseScope } from "../api/operations.ts";
 import { isPermittedUrl } from "../api/serverUrl.ts";
-import type { Card, ItemDetail, UserLibrary } from "../contracts/v2/catalog.ts";
-import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
+import type { Card, ItemDetail, PlayableFile, UserLibrary } from "../contracts/v2/catalog.ts";
+import type { CatalogSubtitleTrack, SubtitleIntent, SubtitlePreferences } from "../contracts/v2/preplaySubtitles.ts";
 
 /** What the player needs to call startPlayback: the item, one file and where to start. */
 export interface PlayRequest {
@@ -19,6 +19,10 @@ export interface PlayRequest {
     readonly episodeNumber?: number | undefined;
     readonly audioTrackId?: string;
     readonly subtitle?: SubtitleIntent;
+    /** Catalog rows used to name a subtitle before start. Absent when the version published none. */
+    readonly subtitleTracks?: readonly CatalogSubtitleTrack[];
+    /** Effective subtitle preferences already on the version, so Auto can be named before start. */
+    readonly subtitlePreferences?: SubtitlePreferences;
     readonly allowAlternateVersions?: false;
     /** Source seconds; zero starts over, omission lets the server resume. */
     readonly startSeconds: number | undefined;
@@ -162,6 +166,7 @@ export function playChoices(detail: ItemDetail, selectedFileId?: string): PlayCh
         title: detail.title,
         ...(detail.type === "episode" ? { episode: true as const, seriesTitle: detail.seriesTitle, seasonNumber: detail.seasonNumber, episodeNumber: detail.episodeNumber } : {}),
         ...(selectedFileId === undefined ? {} : { allowAlternateVersions: false as const }),
+        ...startTrackHints(file),
     };
     const start = resumeSeconds(detail.watch?.positionSeconds, duration);
     return {
@@ -178,6 +183,15 @@ export function clockTime(totalSeconds: number): string {
     const rest = seconds % 60;
     const pad = (value: number): string => (value < 10 ? `0${value}` : String(value));
     return hours > 0 ? `${hours}:${pad(minutes)}:${pad(rest)}` : `${minutes}:${pad(rest)}`;
+}
+
+/** Subtitle rows and preferences the version already published. An empty catalog list adds nothing. */
+export function startTrackHints(file: PlayableFile | undefined): Pick<PlayRequest, "subtitleTracks" | "subtitlePreferences"> {
+    if (file === undefined) return {};
+    const tracks = file.subtitles;
+    if (tracks === undefined || tracks.length === 0) return {};
+    const preferences = file.effectiveSubtitle;
+    return { subtitleTracks: tracks, ...(preferences === undefined ? {} : { subtitlePreferences: preferences }) };
 }
 
 function named(value: string | undefined): string | undefined {

@@ -27,6 +27,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Asked before signing out from Who's watching, while profiles load, and when profiles fail to load. Cancel stays focused, and Cancel or Back returns to Sign out.
 - Choosing another account opens its only profile when that profile has no PIN. An expired sign-in shows "You were signed out of {server}. Sign in again." with the username filled in, or Change Account when another account is still signed in.
 - Drew sans-serif subtitle captions in the bundled Inter face at weight 600, in the Settings preview and during playback.
 - Loaded in-player subtitle delay and appearance when the settings contract tags a scope with the revision that added it.

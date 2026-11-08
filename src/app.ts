@@ -9,6 +9,7 @@ import { mountProfiles, type ProfileHandoff, type ProfileScreens } from "./ui/pr
 import { actions, button, el, ScreenHost } from "./ui/screen.ts";
 import { mountSignIn, type SignInScreens } from "./ui/signIn.ts";
 import { mountAccounts, type AccountsScreen } from "./ui/accounts.ts";
+import { cachedBranding } from "./ui/brandingCache.ts";
 import { AccountDirectory, AccountVault, type SavedAccount } from "./session/accounts.ts";
 import { openSecretStore } from "./session/secretStore.ts";
 
@@ -122,6 +123,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
                 const account = result?.server === "not_signed_in" ? server.accounts.directory.list().find(row => row.id === server.accounts.localAccountId) : undefined;
                 showSignIn(account ? undefined : result, false, account);
             },
+            serverName: () => cachedBranding(activeCore.publicStorage, server.server.http.base.baseUrl)?.serverName,
         });
     }
 

@@ -437,10 +437,74 @@ tvTest("a changed PIN ends the profile's proof; the TV asks for the new PIN and 
     assert.equal(await tv.page.evaluate(() => window.harness.probe()), "painted");
 });
 
+const SIGN_OUT_TITLE = "Sign out of laura on this server?";
+/** Apple tvOS last-account sign-out (`signOutMessage`), with this TV in place of Apple TV. */
+const SIGN_OUT_REMOVES_SERVER = "This account's profiles and settings leave this TV, and this server will be removed from it.";
+const SIGN_OUT_KEEPS_SERVER = "This account's profiles and settings leave this TV. The server stays saved, so you can sign in again.";
+
+tvTest("Sign out on Who's watching asks with Apple's copy, and Cancel or Back returns to Sign out", async (tv) => {
+    await picker(tv);
+    await tv.page.keyboard.press("ArrowDown");
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), "signout");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
+    await tv.page.getByRole("heading", { name: SIGN_OUT_TITLE }).waitFor();
+    await tv.page.getByText(SIGN_OUT_REMOVES_SERVER, { exact: true }).waitFor();
+    assert.equal(await tv.focused(), "cancel-signout");
+    assert.equal(tv.fake.revokedSessions.size, 0, "opening the confirmation does not sign out");
+
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles");
+    assert.equal(await tv.focused(), "signout");
+    assert.equal(tv.fake.revokedSessions.size, 0);
+
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
+    await tv.remote(BACK);
+    await screenIs(tv, "profiles");
+    assert.equal(await tv.focused(), "signout");
+    assert.equal(tv.fake.revokedSessions.size, 0, "Back dismisses the confirmation");
+
+    await tv.page.keyboard.press("Enter");
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), "confirm-signout");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "entry");
+    await shows(tv, "Signed out on this TV.");
+    assert.equal(tv.fake.revokedSessions.size, 1);
+    assert.equal((await handed(tv)).length, 0);
+});
+
+tvTest("Sign out on Who's watching keeps the server when another account on it remains", async (tv) => {
+    await picker(tv);
+    await tv.page.evaluate(() => {
+        const storage = window.harness.storage;
+        const saved = JSON.parse(storage.getItem("silo.native.accounts.v1") ?? "null") as { accounts: Record<string, unknown>[] };
+        const first = saved.accounts[0];
+        if (first === undefined) throw new Error("signed-in account required");
+        saved.accounts.push({ ...first, id: "other-account", accountId: "other-account", username: "Other" });
+        storage.setItem("silo.native.accounts.v1", JSON.stringify(saved));
+    });
+    await tv.page.keyboard.press("ArrowDown");
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), "signout");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
+    await tv.page.getByRole("heading", { name: SIGN_OUT_TITLE }).waitFor();
+    await tv.page.getByText(SIGN_OUT_KEEPS_SERVER, { exact: true }).waitFor();
+    assert.equal(await tv.page.getByText(SIGN_OUT_REMOVES_SERVER, { exact: true }).count(), 0);
+    assert.equal(await tv.focused(), "cancel-signout");
+    assert.equal(tv.fake.revokedSessions.size, 0, "opening the confirmation does not sign out");
+});
+
 tvTest("Sign out revokes the session and clears the TV; signing out while profiles load paints nothing late", async (tv) => {
     const list = tv.fake.hold("/profiles", true);
     await signIn(tv);
     await screenIs(tv, "profiles-loading");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
+    await tv.page.keyboard.press("ArrowRight");
     await tv.page.keyboard.press("Enter");
     await screenIs(tv, "entry");
     await shows(tv, "Signed out on this TV.");
@@ -455,6 +519,9 @@ tvTest("Sign out revokes the session and clears the TV; signing out while profil
     await tv.page.keyboard.press("ArrowDown");
     await tv.page.keyboard.press("ArrowRight");
     assert.equal(await tv.focused(), "signout");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
+    await tv.page.keyboard.press("ArrowRight");
     await tv.page.keyboard.press("Enter");
     await screenIs(tv, "entry");
     assert.equal(tv.fake.revokedSessions.size, 2);
@@ -482,6 +549,67 @@ tvTest("a routed session expiry abandons a launch choice still being saved", asy
     assert.equal((await handed(tv)).length, 0);
 });
 
+tvTest("a profile list that arrives during sign-out confirmation waits for Cancel and is dropped on Sign Out", async (tv) => {
+    const deliver = async (hold: { release(): void }): Promise<void> => {
+        hold.release();
+        await tv.eventually(async () => tv.pendingReplies === 0, "held profile list delivered");
+        await tv.page.evaluate(() => new Promise(resolve => setTimeout(resolve, 0)));
+    };
+    const first = tv.fake.hold("/profiles", true);
+    await signIn(tv);
+    await screenIs(tv, "profiles-loading");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
+    await deliver(first);
+    assert.equal(await tv.screen(), "profiles:signout", "the list does not replace the confirmation");
+    assert.equal(await tv.page.locator('[data-screen="browse"]').count(), 0);
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles");
+    assert.equal(await tv.page.locator('[data-focus="profile:p-owner"]').count(), 1, "Cancel replays the held list");
+
+    await tv.page.keyboard.press("ArrowDown");
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "entry");
+
+    const second = tv.fake.hold("/profiles", true);
+    await signIn(tv);
+    await screenIs(tv, "profiles-loading");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
+    await deliver(second);
+    assert.equal(await tv.screen(), "profiles:signout", "the list does not replace the confirmation");
+    await tv.remote(BACK);
+    await screenIs(tv, "profiles");
+    assert.equal(await tv.page.locator('[data-focus="profile:p-owner"]').count(), 1, "Back replays the held list");
+
+    await tv.page.keyboard.press("ArrowDown");
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "entry");
+
+    const third = tv.fake.hold("/profiles", true);
+    await signIn(tv);
+    await screenIs(tv, "profiles-loading");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
+    await deliver(third);
+    assert.equal(await tv.screen(), "profiles:signout");
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "entry");
+    await tv.jump(0);
+    assert.equal(await tv.screen(), "entry", "Sign Out drops the held list");
+    assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 0);
+    assert.equal(await tv.page.locator('[data-screen="browse"]').count(), 0);
+});
+
 tvTest("an expired sign-in ends the profile and leads back to sign-in", async (tv) => {
     await picker(tv);
     await tv.page.keyboard.press("Enter");
@@ -504,6 +632,9 @@ tvTest("signing out keeps a recoverable status focus without sending logout twic
     await picker(tv);
     const logout = tv.fake.hold("/auth/logout");
     await tv.page.keyboard.press("ArrowDown");
+    await tv.page.keyboard.press("ArrowRight");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
     await tv.page.keyboard.press("ArrowRight");
     await tv.page.keyboard.press("Enter");
     await screenIs(tv, "signing-out");
@@ -601,6 +732,9 @@ tvTest("repeated profile teardown preserves a successor sign-in screen and its s
         const signOut = document.querySelector('[data-focus="signout"]');
         if (!(signOut instanceof HTMLElement)) { throw new Error("sign-out control required"); }
         signOut.click();
+        const confirm = document.querySelector('[data-focus="confirm-signout"]');
+        if (!(confirm instanceof HTMLElement)) { throw new Error("sign-out confirmation required"); }
+        confirm.click();
         await handedBack;
         controller.destroy();
         return { screen: document.querySelector("[data-screen]")?.getAttribute("data-screen"), styled: root.classList.contains("signin") };
@@ -634,6 +768,15 @@ tvTest("a restored sign-in whose password must be reset shows the refusal on the
     assert.equal(await tv.focused(), "change-account", "a retry that is still refused focuses Change account");
     assert.ok(tv.fake.paths().filter((path) => path === "GET /profiles").length > loads);
     assert.equal((await handed(tv)).length, 0, "no profile is chosen");
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), "signout");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles-error");
+    await shows(tv, "Not allowed");
+    assert.equal(await tv.focused(), "signout", "Cancel returns to Sign out on the refusal");
+    assert.equal(tv.fake.revokedSessions.size, 0);
     await tv.page.getByRole("button", { name: "Change account", exact: true }).click();
     assert.equal(await tv.page.locator('[data-screen="server-selection"]').count(), 1);
     assert.equal(tv.fake.revokedSessions.size, 0, "changing account does not sign this one out");
@@ -935,4 +1078,37 @@ tvTest("an empty household offers creation and a failed list offers Try again", 
     assert.equal(await tv.focused(), "retry");
     await tv.page.keyboard.press("Enter");
     await screenIs(tv, "profiles");
+});
+
+tvTest("a remembered profile that verifies during sign-out confirmation waits behind it", async (tv) => {
+    await picker(tv);
+    await tv.page.evaluate(() => {
+        const harness = window.harness;
+        const server = harness.server;
+        const root = document.getElementById("root");
+        if (server === undefined || root === null) { throw new Error("profile flow required"); }
+        harness.profileController?.destroy();
+        const state = window as unknown as { verify?: (id: string) => void; selected?: string[] };
+        state.selected = [];
+        // Online launch verifies the remembered profile after the list arrives; the test answers it by hand.
+        const launch = {
+            remembered: true,
+            needsOffer: false,
+            requiresSelection: () => false,
+            restoreOffline: () => Promise.resolve(undefined),
+            restore: (list: readonly { id: string }[]) => new Promise(resolve => { state.verify = id => resolve(list.find(profile => profile.id === id)); }),
+        };
+        harness.mountProfiles(root, { server, launch: launch as never, onSelected: () => { state.selected?.push("handed-off"); }, onSignedOut: () => undefined, onChangeServer: () => undefined } as never);
+    });
+    await tv.eventually(async () => tv.page.evaluate(() => typeof (window as unknown as { verify?: unknown }).verify === "function"), "remembered profile verification started");
+    assert.equal(await tv.focused(), "signout");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
+    await tv.page.evaluate(() => (window as unknown as { verify: (id: string) => void }).verify("p-owner"));
+    await tv.page.evaluate(() => new Promise(resolve => setTimeout(resolve, 0)));
+    assert.equal(await tv.screen(), "profiles:signout", "the restored profile does not replace the confirmation");
+    assert.deepEqual(await tv.page.evaluate(() => (window as unknown as { selected: string[] }).selected), []);
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => (await tv.page.evaluate(() => (window as unknown as { selected: string[] }).selected)).length === 1, "Cancel replays the restored profile");
+    assert.equal(tv.fake.revokedSessions.size, 0);
 });

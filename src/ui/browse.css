@@ -1441,7 +1441,10 @@
 .browse[data-view^="person:"] .browse-title { margin-bottom: 0; }
 .browse[data-view^="person:"] .person-facts { display: flex; gap: 12px; margin: 0; }
 .browse[data-view^="person:"] .person-fact { flex-shrink: 0; margin: 0; }
-.browse[data-view^="person:"] .browse-overview { margin: 0; color: rgba(237, 237, 237, 0.6); font-size: 26px; font-weight: 400; white-space: pre-line; }
+/* PersonDetailView.swift:459 .siloBody (Typography.swift:28, 26pt regular), no lineSpacing. Apple TV
+   at 2ef3a171 draws its lines 31px apart (measured); SwiftUI rounds the font's 30.62 line up. The
+   7-line clamp comes from .details-person-hero .browse-overview. */
+.browse[data-view^="person:"] .browse-overview { margin: 0; color: rgba(237, 237, 237, 0.6); font-size: 26px; font-weight: 400; line-height: 31px; white-space: pre-line; }
 .browse[data-view^="person:"] .browse-detail-info > * + * { margin-top: 22px; }
 .person-filmography-heading { display: flex; align-items: baseline; gap: 60px; margin: 0 0 20px; }
 .person-filmography-heading .browse-section-title { margin: 0; font-size: 36px; font-weight: 600; }

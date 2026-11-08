@@ -52,7 +52,9 @@ function preferred(tracks: readonly SubtitleTrack[], wanted: string | undefined,
  */
 export function startSubtitleTrackId(fileId: string, intent: SubtitleIntent | undefined, tracks: readonly CatalogSubtitleTrack[] | undefined, preferences?: SubtitlePreferences): string | undefined {
     if (intent === undefined || intent.kind === "off" || tracks === undefined || tracks.length === 0) return undefined;
-    if (intent.kind === "auto" && preferences === undefined) return undefined;
+    // Catalog preferences decode with no audio id, so audioLanguage arrives blank.
+    // Auto would then pick a full subtitle the matching audio does not need.
+    if (intent.kind === "auto" && (preferences === undefined || preferences.audioLanguage === undefined || preferences.audioLanguage.trim() === "")) return undefined;
     try {
         return initialSubtitle(intent, provisionalInventory(fileId, tracks), preferences);
     } catch {

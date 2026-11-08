@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { decodeCatalogSubtitles, decodeSubtitlePreferences, type SubtitlePreferences } from "../../src/contracts/v2/preplaySubtitles.ts";
-import { initialSubtitle } from "../../src/player/preplaySubtitles.ts";
+import { initialSubtitle, startSubtitleTrackId } from "../../src/player/preplaySubtitles.ts";
 import type { SubtitleTrack } from "../../src/contracts/v2/playback.ts";
 
 const track: SubtitleTrack = { trackId: "file:42:subtitle:9", combinedIndex: 9, source: "embedded", delivery: "sidecar", label: "English", codec: "srt", language: "en", forced: false, hearingImpaired: false, url: undefined, streamIndex: undefined, containerTrackId: undefined, nativeSelectable: undefined, hlsRendition: undefined };
@@ -16,6 +16,14 @@ test("subtitle Auto compares actual audio language and preserves explicit Off", 
     assert.equal(initialSubtitle({ kind: "off" }, [forced, track], prefs), undefined);
     assert.equal(initialSubtitle({ kind: "auto" }, [forced, track], { ...prefs, language: "" }), undefined);
     assert.equal(initialSubtitle({ kind: "auto" }, [forced, track], { ...prefs, audioLanguage: undefined }), track.trackId);
+});
+
+test("Auto omits the pre-start subtitle when the playing audio language is unknown", () => {
+    const rows = [{ selectionIndex: 0, externalPath: "", source: "embedded" as const, language: "en", codec: "srt", label: "English", forced: false, hearingImpaired: false }];
+    assert.equal(startSubtitleTrackId("42", { kind: "auto" }, rows, { ...prefs, audioLanguage: undefined }), undefined);
+    assert.equal(startSubtitleTrackId("42", { kind: "auto" }, rows, { ...prefs, audioLanguage: "en" }), undefined);
+    assert.equal(startSubtitleTrackId("42", { kind: "auto" }, rows, { ...prefs, audioLanguage: "ja" }), "file:42:subtitle:0");
+    assert.equal(startSubtitleTrackId("42", { kind: "off" }, rows, prefs), undefined);
 });
 
 test("subtitle identities come only from the actual inventory, with exact and regional preferences", () => {

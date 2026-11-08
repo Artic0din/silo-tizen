@@ -4,8 +4,10 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { decodeItemDetail } from "../../src/contracts/v2/catalog.ts";
 import { decodeFileVersionTracks, decodePlaybackDecision, decodePlaybackDefaults, type SubtitleTrack } from "../../src/contracts/v2/playback.ts";
 import type { CatalogSubtitleTrack } from "../../src/contracts/v2/preplaySubtitles.ts";
+import { playChoices } from "../../src/ui/browseModel.ts";
 import { PlaybackController, type PlaybackView, type PlayRequest, type TrackView } from "../../src/player/controller.ts";
 import { FakeAVPlay } from "./support/fakeAVPlay.ts";
 import { FakeCatalog } from "./support/fakeCatalog.ts";
@@ -168,6 +170,44 @@ test("a start subtitle the plan does not echo is corrected before AVPlay opens",
         assert.ok(startAt >= 0 && replanAt > startAt);
         const playback = lines.filter(line => line.includes("/playback"));
         assert.deepEqual(playback.slice(0, 3), ["GET /playback/capabilities", "POST /playback/start", `POST /playback/${[...r.server.sessions.keys()][0]}/replan`]);
+    } finally { r.controller.destroy(); }
+});
+
+test("Auto with matching audio and subtitle language sends no subtitle id and does not replan", async () => {
+    const r = await rig();
+    const detail = decodeItemDetail({
+        ...fixture("get_catalog_item_ok"),
+        content_id: "movie-1",
+        type: "movie",
+        effective_subtitle_mode: "auto",
+        effective_subtitle_language: "en",
+        effective_show_forced_subtitles: false,
+        versions: [{
+            file_id: "42",
+            duration: 7200,
+            effective_audio_track_index: 0,
+            audio_tracks: [{ language: "en", default: true, codec: "aac", channels: 2 }],
+            subtitle_tracks: [{ language: "en", codec: "srt", title: "English", forced: false, hearing_impaired: false }],
+        }],
+    });
+    const choices = playChoices(detail);
+    assert.ok(choices);
+    r.h.fake.script("/watch/movie-1?file_id=42", {
+        status: 200,
+        body: {
+            content_id: "movie-1",
+            versions: [{ file_id: "42", audio_tracks: [{ language: "en", default: true }] }],
+            effective_subtitle_mode: "auto",
+            effective_subtitle_language: "en",
+            effective_show_forced_subtitles: false,
+        },
+    });
+    try {
+        r.controller.play({ ...choices.fromStart, subtitle: { kind: "auto" } });
+        await settle(r);
+        const start = only(requests(r.h, "/playback/start"));
+        assert.equal(start.body?.subtitle_track_id, undefined);
+        assert.equal(replans(r.h).length, 0);
     } finally { r.controller.destroy(); }
 });
 

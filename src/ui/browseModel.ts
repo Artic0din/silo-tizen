@@ -185,13 +185,36 @@ export function clockTime(totalSeconds: number): string {
     return hours > 0 ? `${hours}:${pad(minutes)}:${pad(rest)}` : `${minutes}:${pad(rest)}`;
 }
 
+/**
+ * Language of the audio a start will play.
+ * An explicit track id wins, then the version's effective index, then its default
+ * track, then the first track. Details uses the same order (`browseDetails.ts`).
+ * Apple's `startAudioLanguage` (`PlaybackSessionBridge.swift` at 2ef3a171) does too.
+ * A blank language is unknown: Auto must not guess a full subtitle from it.
+ */
+export function startAudioLanguage(file: PlayableFile, audioTrackId?: string): string | undefined {
+    const audio = file.audio ?? [];
+    const explicit = audioTrackId === undefined ? -1 : audio.findIndex((_track, index) => audioTrackId === `file:${file.fileId}:audio:${index}`);
+    const ordinal = explicit >= 0 ? explicit : file.effectiveAudioTrackIndex ?? audio.findIndex(track => track.isDefault);
+    const track = audio[ordinal] ?? (explicit >= 0 ? undefined : audio[0]);
+    const language = track?.language?.trim();
+    return language === undefined || language === "" ? undefined : language;
+}
+
 /** Subtitle rows and preferences the version already published. An empty catalog list adds nothing. */
-export function startTrackHints(file: PlayableFile | undefined): Pick<PlayRequest, "subtitleTracks" | "subtitlePreferences"> {
+export function startTrackHints(file: PlayableFile | undefined, audioTrackId?: string): Pick<PlayRequest, "subtitleTracks" | "subtitlePreferences"> {
     if (file === undefined) return {};
     const tracks = file.subtitles;
     if (tracks === undefined || tracks.length === 0) return {};
     const preferences = file.effectiveSubtitle;
-    return { subtitleTracks: tracks, ...(preferences === undefined ? {} : { subtitlePreferences: preferences }) };
+    if (preferences === undefined) return { subtitleTracks: tracks };
+    return { subtitleTracks: tracks, subtitlePreferences: { ...preferences, audioLanguage: startAudioLanguage(file, audioTrackId) } };
+}
+
+/** The audio id can arrive after the hints. Auto needs the language of the track that will play. */
+export function withStartAudioLanguage(request: PlayRequest, file: PlayableFile | undefined): PlayRequest {
+    const hints = startTrackHints(file, request.audioTrackId);
+    return hints.subtitlePreferences === undefined ? request : { ...request, ...hints };
 }
 
 function named(value: string | undefined): string | undefined {

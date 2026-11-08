@@ -33,7 +33,7 @@ import type { PublicStorage } from "../session/deviceIdentity.ts";
 import { Skyline } from "./skyline.ts";
 import { decodeImageCapabilities, type ImageCapabilities, homeArtworkQuery } from "../contracts/v2/images.ts";
 import { FocusHost, type FocusTarget } from "./browseFocus.ts";
-import { type Destination, type PlayRequest, type SeriesLine, applySeriesLine, destinationOf, playChoices, visibleLibraries } from "./browseModel.ts";
+import { type Destination, type PlayRequest, type SeriesLine, applySeriesLine, destinationOf, playChoices, visibleLibraries, withStartAudioLanguage } from "./browseModel.ts";
 import { errorState, unconfirmedWriteMessage, writeFailureMessage, writeMayHaveApplied, failureText, hasData, newPages, newRoute, PAGE_SIZE, SEARCH_PAGE_SIZE, type Pages, type Route, routeView } from "./browseRoutes.ts";
 import { homeRows, type ViewContext } from "./browseViews.ts";
 import { HomeEnrichment } from "./homeEnrichment.ts";
@@ -1225,6 +1225,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     if (choices === undefined) return undefined;
                     let request = current.startOver === true ? choices.fromStart : choices.resume ?? choices.fromStart;
                     if (detail.type === "episode") request = applySeriesLine({ ...request, subtitle: { kind: "auto" }, ...current.selection }, current.seriesLine);
+                    request = withStartAudioLanguage(request, detail.versions.find(file => file.fileId === request.fileId));
                     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
                     return detail.type === "episode" && current.startOver !== true ? { ...request, startSeconds: await freshPlayPosition(session, request, clock, signal) } : request;
                 }, request => {

@@ -322,9 +322,8 @@ An unknown image API or a server without per-slot widths gets the Apple TV `larg
 At scale 1 the server resolves the 1344 px fill request to a 1920 px backdrop; scale 2 requests 2688 px and may resolve to the original, capped at 3840 px.
 The one-size fallback resolves backdrops to 2560 px and episode stills to 1280 px.
 The probe runs once per Home session, and its last answer for the server is remembered so Home does not wait for it.
-Apple reads item detail when focus rests for the aired-date and cast line and for Continue Watching's last-played file.
-Tizen never reads on focus: when Home's rows load it reads detail once for each distinct title Home draws, four at a time, Continue Watching first, using the item-detail endpoint with the `large` fallback.
-Answers are kept for the Home session; a reload reads only titles not read yet and Continue Watching titles whose `progress_updated_at` moved.
+Apple reads item detail when focus rests for the aired-date and cast line, and Continue Watching reads the last-played file when that card is mounted.
+Tizen reads Continue Watching's saved file when the row loads, four titles at a time. The row draws every card up front, and the reads stay on that queue of four. Every other title waits until focus has rested for 150 ms, then reads that one card. A move before the answer cancels it. For You also warms at most sixteen cards that omit a content rating, three at a time. Answers stay for the Browse session; Continue Watching reads again when `progress_updated_at` moves.
 The aired line (`Aired 12 Mar 2026 · first three billed cast`, in an Australian region) fills in place when its answer lands and keeps its space until then.
 Dates follow the device region and retain the server's calendar day.
 Detail also supplies a runtime or content rating omitted by a row, without replacing the row's confirmed values.

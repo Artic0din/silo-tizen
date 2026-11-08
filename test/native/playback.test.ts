@@ -64,20 +64,19 @@ test("completed AI subtitles resolve through fresh sync identities before select
     r.server.files.set("42", { ...file, inventory: file.inventory.map((track, index) => index === 4 ? { ...track, sync_key: "stored-opaque-result" } : track) });
     r.server.next.push({}, { subtitle: 4, subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/captions?token=synthetic`, format: "vtt", timing_origin_seconds: 0 } });
     r.h.fake.script("/captions?token=synthetic", { status: 200, text: "WEBVTT\n\n00:12.000 --> 00:14.000\nAI text" });
+    const opens = r.avplay.urls.length;
+    const closes = r.avplay.calls.filter((call) => call === "close").length;
     r.controller.selectAIResult("opaque-result");
-    await r.h.clock.advance(0);
-    r.avplay.finishPrepare();
-    await r.h.clock.advance(0);
-    r.avplay.finishSeek();
-    await r.h.clock.advance(0);
+    for (let step = 0; step < 5; step++) await r.h.clock.advance(0);
     assert.equal(bodies(r.h, "/replan").length, 2, "refresh then select server-returned identity");
     const selected = bodies(r.h, "/replan")[1]?.selected_tracks;
     assert.equal(typeof selected, "object");
     assert.deepEqual((selected as { subtitle: unknown }).subtitle, { id: "file:42:subtitle:4" });
-    r.avplay.finishPrepare();
-    await r.h.clock.advance(0);
-    r.avplay.finishSeek();
-    await r.h.clock.advance(0);
+    // Both answers only renew `st` on the open direct-play path. The old prepare/seek steps
+    // waited on a reopen that the renewed token caused.
+    assert.equal(r.avplay.urls.length, opens);
+    assert.equal(r.avplay.calls.filter((call) => call === "close").length, closes);
+    assert.equal(r.avplay.state, "PLAYING");
     view = last(r.views);
     assert.ok(view.phase === "playing");
     assert.equal(view.tracks.selectedSubtitleId, "file:42:subtitle:4");
@@ -1346,6 +1345,28 @@ test("autoplay cancellation, disabled preference, suspension and authority chang
     }
 });
 
+test("an exhausted series offers the first On Deck title and does not count down into it", async () => {
+    const r = await autoplayRig(true);
+    for (const id of ["episode:s1e13", "episode:s1e21", "episode:s1e22", "episode:s1e23"]) r.catalog.removed.add(id);
+    r.catalog.progress.set("movie:m0001", 600);
+    r.catalog.playbackWatched.add("movie:m0001");
+    await playMovie(r, EPISODE);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(15000);
+    const done = completion(r);
+    assert.equal(done.title, "Up Next");
+    assert.equal(done.next?.contentId, "movie:m0001");
+    assert.equal(done.next?.fileId, "f-movie:m0001");
+    assert.equal(done.next?.episode, undefined);
+    assert.equal(done.next?.startSeconds, 600);
+    assert.equal(done.countdown, undefined);
+    assert.equal(bodies(r.h, "/start").length, 1, "On Deck waits for Play next");
+    r.controller.playNext();
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, "/start")[1]?.file_id, "f-movie:m0001");
+    r.controller.destroy();
+});
+
 test("autoplay stops at the series end and never starts after failed resolution", async () => {
     for (const mode of ["end", "failure"] as const) {
         const r = await autoplayRig(true);
@@ -1354,7 +1375,13 @@ test("autoplay stops at the series end and never starts after failed resolution"
         if (mode === "failure") r.catalog.removed.add(EPISODE.contentId);
         r.avplay.listener?.onstreamcompleted();
         await r.h.clock.advance(15000);
-        assert.equal(completion(r).next, undefined);
+        if (mode === "end") {
+            // Old series end left `next` undefined. On Deck is offered and does not start.
+            assert.equal(completion(r).next?.contentId, "movie:m0001");
+            assert.equal(completion(r).title, "Up Next");
+        } else {
+            assert.equal(completion(r).next, undefined);
+        }
         assert.equal(completion(r).countdown, undefined);
         assert.equal(completion(r).state, mode === "end" ? "ready" : "failed");
         assert.equal(bodies(r.h, "/start").length, 1);
@@ -1552,7 +1579,8 @@ test("fresh unchanged played:false is authoritative and still permits a neutral 
     r.avplay.listener?.onstreamcompleted();
     await r.h.clock.advance(0);
     assert.equal(completion(r).state, "ready");
-    assert.equal(completion(r).title, "Playback ended");
+    // Old completion title was "Playback ended". A series successor reads Playing Next.
+    assert.equal(completion(r).title, "Playing Next");
     assert.equal(r.catalog.playbackWatched.has(EPISODE.contentId), false);
     assert.equal(r.catalog.progress.has(EPISODE.contentId), false);
     r.controller.destroy();

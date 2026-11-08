@@ -304,7 +304,7 @@ export function itemView(detail: ItemDetail, seasons: readonly Season[], context
         return codec ? `${name} · ${codec}` : name;
     };
     const selectedSubtitleLabel = subtitle?.kind === "track" ? subtitleLabel(subtitle.signature) : subtitle?.kind === "off" ? "Off" : "Auto";
-    const autoSubtitle = file?.effectiveSubtitle === undefined ? undefined : initialSubtitle({ kind: "auto" }, (file.subtitles ?? []).map((track, index) => ({ ...track, trackId: String(index), combinedIndex: index, delivery: "unknown" as const })), { ...file.effectiveSubtitle, audioLanguage: resolvedAudioTrack?.language });
+    const autoSubtitle = file?.effectiveSubtitle === undefined ? undefined : initialSubtitle({ kind: "auto" }, (file.subtitles ?? []).map((track, index) => ({ ...track, trackId: String(index), combinedIndex: index, delivery: "unknown" as const, url: undefined, streamIndex: undefined, containerTrackId: undefined, nativeSelectable: undefined, hlsRendition: undefined })), { ...file.effectiveSubtitle, audioLanguage: resolvedAudioTrack?.language });
     const autoSubtitleTrack = autoSubtitle === undefined ? undefined : file?.subtitles?.[Number(autoSubtitle)];
     const subtitleSummary = selectedSubtitleLabel !== "Auto" ? selectedSubtitleLabel : `Auto · ${autoSubtitleTrack === undefined ? "None" : subtitleLabel(autoSubtitleTrack)}`;
     const audioDetails = (index: number): string => {

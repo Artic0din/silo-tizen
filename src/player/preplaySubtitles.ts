@@ -57,9 +57,13 @@ export function startSubtitleTrackId(fileId: string, intent: SubtitleIntent | un
     // Catalog preferences decode with no audio id, so audioLanguage arrives blank.
     // Auto would then pick a full subtitle the matching audio does not need.
     if (intent.kind === "auto" && (preferences === undefined || preferences.audioLanguage === undefined || preferences.audioLanguage.trim() === "")) return undefined;
+    // A saved downloaded choice has no catalog row; naming a catalog row would only force a track change.
+    if (intent.kind !== "track" && preferences?.signature?.source === "downloaded") return undefined;
     try {
         const inventory = provisionalInventory(fileId, tracks);
-        const id = initialSubtitle(intent, inventory, preferences);
+        // Apple skips rows the server cannot deliver (an embedded row with no codec): naming one refuses the whole start.
+        const deliverable = inventory.filter(track => !(track.source === "embedded" && !track.codec?.trim()));
+        const id = initialSubtitle(intent, deliverable, preferences);
         // A downloaded row's server ordinal follows created_at, which the catalog does not publish.
         if (inventory.find(track => track.trackId === id)?.source === "downloaded") return undefined;
         return id;

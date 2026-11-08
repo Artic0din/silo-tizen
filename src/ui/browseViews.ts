@@ -126,7 +126,6 @@ export function thumbnailProgress(fraction: number): HTMLElement {
     return progress;
 }
 
-/** Undefined for media this client does not browse. */
 function episodeLine(card: Card): SeriesLine | undefined {
     if (card.type !== "episode") return undefined;
     const seriesTitle = card.seriesTitle;
@@ -140,6 +139,7 @@ function episodeLine(card: Card): SeriesLine | undefined {
     };
 }
 
+/** Undefined for media this client does not browse. */
 export function cardItem(card: Card, context: ViewContext): FocusItem | undefined {
     const destination = context.cardDestination?.(card) ?? (card.type === "season" ? destinationOf(card) : browseCardDestination(card));
     if (destination === undefined) {

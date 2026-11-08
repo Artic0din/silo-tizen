@@ -160,8 +160,6 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             assert.equal(await tv.focused(), "section:Recommended");
             assert.equal(await tv.page.locator('.skyline-route-outgoing, .skyline-content-drift, .skyline-content-enter').count(), 0);
             assert.deepEqual(tv.fake.requests.slice(reads).map(request => request.path.split("?")[0]).filter(path => !path?.startsWith("/catalog/items/")), [], "only bounded hero enrichment continues");
-            const titles = await tv.page.locator('.home-section .browse-card:not(.skyline-explore)').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? ""));
-            await tv.eventually(async () => titles.every(id => tv.fake.requests.some(request => request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(id)}`)), "accepted library hero reads dispatched");
             const loadedReads = tv.fake.requests.length;
             await keys(tv, 40, 40);
             assert.equal(await tv.focused(), "section:browse");
@@ -241,8 +239,9 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await tv.page.keyboard.press("Enter");
             await ready(tv, "library:12");
             await tv.jump(200);
-            const titles = await tv.page.locator('.home-section .browse-card:not(.skyline-explore)').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus") ?? ""));
-            await tv.eventually(async () => titles.every(id => tv.fake.requests.some(request => request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(id)}`)), "Recommended enrichment queue dispatched");
+            await tv.jump(150);
+            const rested = await tv.focused();
+            await tv.eventually(async () => rested !== null && tv.fake.requests.some(request => request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(rested)}`), "rested Recommended card");
             const cachedReads = tv.fake.requests.length;
             await tv.page.locator('[data-focus="movies"]').focus();
             await tv.jump(250);

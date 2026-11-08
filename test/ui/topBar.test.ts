@@ -375,7 +375,7 @@ test("a late authored menu waits for an entered dropdown to close", async () => 
 
 test("returning to cached Home restarts enrichment cancelled by For You", async () => {
     const tv = await openTv(browser, { app: "browse" });
-    const path = "/catalog/items/movie%3Am0002";
+    const path = "/catalog/items/movie%3Am0001";
     const held = tv.fake.hold(path, true);
     try {
         await start(tv);
@@ -383,9 +383,12 @@ test("returning to cached Home restarts enrichment cancelled by For You", async 
         await tv.page.locator('[data-focus="for_you"]').click();
         await tv.page.locator('[data-view="for_you"] .browse-card').first().waitFor();
         held.release();
+        await tv.jump(0);
+        const afterCancel = tv.fake.requests.filter(request => request.path.startsWith(path)).length;
         await tv.page.locator('[data-focus="home"]').click();
         await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
-        await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith(path)).length === 2, "unfinished Home detail restarted");
+        await tv.jump(200);
+        await tv.eventually(async () => tv.fake.requests.filter(request => request.path.startsWith(path)).length === afterCancel + 1, "unfinished Home detail restarted");
     } finally { held.release(); await tv.page.context().close(); }
 });
 

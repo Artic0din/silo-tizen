@@ -26,6 +26,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Kept direct play running when a subtitle choice stays on the same stream, and showed that sidecar's cue at the picture's time after a seek.
+- Matched the subtitle preview caption's height to Apple TV.
 - The collapsed A–Z circle is plain.
 - Hid the TV's native scrollbars, drew the History returning mark as an outlined television, drew the collapsed A–Z index as Apple's 10px circle plus the faint letter marks, and centred Related captions on the poster.
 - Removed the Continue Watching playback bar, kept Search posters 247px apart, restored biography paragraphs, and matched Related captions and the Written by order to Apple TV.
@@ -37,6 +38,7 @@ All notable changes to this project are documented in this file.
 - Blurred an unwatched On Deck episode still when image spoilers are on, and left series art sharp.
 - Waited for a pending Auto-play save before an ended episode decided whether to continue.
 - Matched Apple TV playback opening, hidden Up, the title lines, and the panel: a spinner on black, Up reveals the scrubber, pause shows no status line, and the open panel hides the transport until Back.
+- Stopped Home from asking for every title's details as soon as it appears. The card you rest on is read after a short pause, Continue Watching reads the file you were playing four titles at a time, and For You warms only the first few cards that are missing a rating.
 - Kept focus on a season you select right after a series opens, instead of moving it to Play or Resume.
 - Matched Settings row fill and the On and Off value brightness to Apple TV.
 - Matched Profile Selection's caption to each launch choice. Settings footers use a 23px line so section labels sit at Apple's measured rows, the subtitle preview stays 958 by 150, and pane rows use a regular label with a 1px white stroke at 9%.

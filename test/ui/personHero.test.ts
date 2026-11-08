@@ -411,23 +411,15 @@ test("person biography uses Apple's body size, line and clamp", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {
         await signIn(tv);
-        await person(tv, {});
-        const style = await tv.page.locator('.browse[data-view^="person:"] .browse-overview').evaluate(node => {
+        const paragraph = "This biography sentence is long enough to wrap across the overview column more than once on the person page.";
+        await person(tv, { bio: Array.from({ length: 6 }, () => paragraph).join("\n\n") });
+        const bio = await tv.page.locator('.browse[data-view^="person:"] .browse-overview').evaluate(node => {
             const computed = getComputedStyle(node);
-            return {
-                fontSize: computed.fontSize,
-                lineHeight: computed.lineHeight,
-                lineClamp: computed.getPropertyValue("-webkit-line-clamp"),
-            };
+            return { fontSize: computed.fontSize, lineHeight: computed.lineHeight, height: node.getBoundingClientRect().height, clipped: node.scrollHeight > node.clientHeight };
         });
-        // PersonDetailView.swift:459 uses .font(.siloBody). Typography.swift:28 is
-        // Font.system(size: 26), regular (line 27). PersonDetailView.swift:461
-        // sets lineLimit(7). That Text sets no lineSpacing (lines 457–463). The
-        // system font's line height is 84.796875 / 72 of its size:
-        // 26 * 84.796875 / 72 = 30.62109375. Chromium serializes that as 30.6211px.
-        assert.equal(style.fontSize, "26px");
-        assert.equal(style.lineClamp, "7");
-        assert.ok(Math.abs(Number.parseFloat(style.lineHeight) - (26 * 84.796875 / 72)) < 0.0001, style.lineHeight);
+        // PersonDetailView.swift:459 .siloBody (Typography.swift:28, 26pt regular), lineLimit(7) at :461, no lineSpacing.
+        // Apple TV at 2ef3a171 draws those lines 31px apart (measured, 8 Nov 2026), so seven lines are 217px tall.
+        assert.deepEqual(bio, { fontSize: "26px", lineHeight: "31px", height: 217, clipped: true });
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });

@@ -122,7 +122,7 @@ export function spoilerSettingsSupported(capability: SettingsCapabilities | unde
 
 /** Blurs the still and leaves badges and progress sharp. No-ops when the box is only a title placeholder. */
 export function blurEpisodeStill(box: HTMLElement): void {
-    if (box.querySelector(".browse-art-image, .skyline-backdrop") === null) return;
+    if (box.querySelector(".browse-art-image, .skyline-backdrop, .player-next-still") === null) return;
     box.classList.add("episode-spoiler-blur");
 }
 

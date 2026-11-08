@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added player chapters, playback stats, richer title information, supported speed and aspect controls, and an in-player Auto-play next toggle.
+- Added Show Next Up to Playback Settings with five prompt timings and profile inheritance.
+- Showed Up Next before playback ended with Play Now, Keep Watching and an On Deck row, and refreshed autoplay at episode completion.
 - Playback settings show Connection speed and Test speed when the server advertises `connection_speed_v1`.
 - Added Paired Silo Profile on General, showing the profile this TV reopens and opening the profile picker to change it.
 - Added Remove Request for a failed request of yours, including the confirmation, the notice, and focus on the card that takes its place.
@@ -34,6 +37,8 @@ All notable changes to this project are documented in this file.
 - Open the hidden player panel on Video, and the options button on the last tab, which starts on Info.
 - Kept the page transparent over AVPlay. The black opening is a loading backdrop only, and a previous screen in the same root is not painted while the player is up. Once a frame has shown, that backdrop stays off through a later load, reconnect and restore.
 - Kept the other series' title and the fresh season and episode on an On Deck play, so the player can show them.
+- Blurred an unwatched On Deck episode still when image spoilers are on, and left series art sharp.
+- Waited for a pending Auto-play save before an ended episode decided whether to continue.
 - Matched Apple TV playback opening, hidden Up, the title lines, and the panel: a spinner on black, Up reveals the scrubber, pause shows no status line, and the open panel hides the transport until Back.
 - Stopped Home from asking for every title's details as soon as it appears. The card you rest on is read after a short pause, Continue Watching reads the file you were playing four titles at a time, and For You warms only the first few cards that are missing a rating.
 - Kept focus on a season you select right after a series opens, instead of moving it to Play or Resume.
@@ -51,9 +56,20 @@ All notable changes to this project are documented in this file.
 - Down from the profile avatar enters Switch Profile, including before the menu's dwell finishes. After Back closes it, Down reaches the first Continue Watching card.
 - Matched the library Browse grid to Apple TV: the mode pills are gone, and Up from Sort returns to the top bar. Episode rows now crop the previous card at the 100px inset, the focused still lifts by 5%, and Cast, trailer and related rows start at that inset and paint to the screen edge.
 - Kept Play focused when a movie's Details opened, even if the first focus claim did not stick, and kept that claim from leaving a card-actions dialog or ignoring a Play button that appears after the page opens.
+- Kept Info Retry visible during remote navigation and restored selected video settings after hidden stream preparation.
+- Showed the effective autoplay setting after saving.
 - Kept a debounced skip when an earlier scrub seek landed on the same plan.
 - Disabled audio and quality choices while a subtitle report is still pending.
 - Kept a running skip hold when the earlier seek landed on the same plan.
+- Added the Show Up Next episodes icon. A seek during discovery finishes the open panel, and a failed On Deck read can be tried again in that playback.
+- Read a successor's catalog presentation once, so playback ticks do not request it again.
+- Scrolled a long Info overview upward before leaving it, and kept a saved Auto-play value ahead of an older discovery read.
+- Retried Up Next discovery after seeks, preserved fresh autoplay settings at EOF, and kept captions inside the video preview.
+
+- Updated composed EOF checks for Apple TV's Play Now, On Deck and tail replay behavior, and isolated focus checks from background reads.
+- Kept focus on the selected On Deck title when more candidates arrived.
+- Restored full-screen playback after a paused seek left the Up Next window and offered Play Now before later On Deck lookups finished.
+- Kept media keys working during the pre-end Up Next prompt, cancelled pending scrub timers when it opened, and resolved On Deck artwork against the connected server.
 - Preserved newer subtitle choices when an unanswered report required connection recovery.
 - Applied queued subtitle choices after a replacement stream finished preparing while hidden.
 - Restored sidecar captions and queued choices after refused subtitle reports, aligned subtitles after suspended preparation, and honoured published HLS rendition order.

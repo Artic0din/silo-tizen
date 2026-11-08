@@ -154,11 +154,12 @@ test("both gates and the effective fallback file control preview requests, never
         r.previews.files.set("42", false);
         r.previews.files.set("43", enabled);
         await play(r);
-        assert.equal(r.previews.watchReads, 0, "starting playback does not fetch previews");
+assert.equal(r.previews.watchReads, 1, "starting playback reads chapter metadata");
+        assert.equal(r.previews.manifestReads, 0, "starting playback does not fetch preview manifests");
         const before = r.avplay.calls.slice();
         const tile = await r.controller.seekThumbnail(1235, liveSignal(), NO_IMAGE);
         assert.equal(tile?.index, enabled ? 123 : undefined);
-        assert.equal(r.previews.watchReads, enabled ? 1 : 0);
+assert.equal(r.previews.watchReads, enabled ? 2 : 1);
         assert.equal(r.previews.manifestReads, enabled ? 1 : 0);
         if (enabled) assert.match(r.h.fake.requests.find((request) => request.path.includes("/trickplay?"))?.path ?? "", /file_id=43$/);
         assert.deepEqual(r.avplay.calls, before, "decoration must never seek/pause/replan");
@@ -170,7 +171,7 @@ test("both gates and the effective fallback file control preview requests, never
     r.previews.files.set("42", false);
     await play(r);
     assert.equal(await r.controller.seekThumbnail(10, liveSignal(), NO_IMAGE), undefined);
-    assert.equal(r.previews.watchReads, 1);
+assert.equal(r.previews.watchReads, 2);
     assert.equal(r.previews.manifestReads, 0, "capability alone is insufficient");
     r.controller.destroy();
 });

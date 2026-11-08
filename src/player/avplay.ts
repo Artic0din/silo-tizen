@@ -37,6 +37,8 @@ export interface AVPlayTrackInfo {
 }
 
 export interface AVPlay {
+    setSpeed?(speed: number): void;
+    setDisplayMethod?(mode: "PLAYER_DISPLAY_MODE_LETTER_BOX" | "PLAYER_DISPLAY_MODE_FULL_SCREEN"): void;
     open(url: string): void;
     close(): void;
     prepareAsync(success: () => void, error: (error: AVPlayAsyncError) => void): void;

@@ -839,7 +839,8 @@ for (const reduced of [false, true]) {
     }, true);
 }
 
-appTest("natural episode EOF offers manual Play next instead of returning to Browse", async (tv, playback, catalog) => {
+// Apple tvOS replaced the old "Play next" label with "Play Now".
+appTest("natural episode EOF offers manual Play Now and Stop returns to origin", async (tv, playback, catalog) => {
     for (const id of ["episode:s1e12", "episode:s1e13"]) {
         catalog.fileIds.set(id, "42");
         playback.items.set(id, ["42"]);
@@ -849,10 +850,11 @@ appTest("natural episode EOF offers manual Play next instead of returning to Bro
     await tv.remote(415);
     await prepare(tv);
     await tv.page.evaluate(() => { window.appHarness.avplay.tick(5399000); window.appHarness.avplay.listener?.onstreamcompleted(); });
-    await tv.page.getByRole("button", { name: "Play next", exact: true }).waitFor();
-    assert.equal(await tv.page.getByText("Harbor Lights chapter 1.3", { exact: true }).count(), 1);
+    await tv.page.getByRole("button", { name: "Play Now", exact: true }).waitFor();
+    assert.equal(await tv.page.getByRole("heading", { name: "Harbor Lights chapter 1.3", exact: true }).count(), 1);
     assert.equal(tv.fake.requests.filter(r => r.path === "/playback/start").length, 1);
-    await tv.remote(10009);
+    assert.equal(tv.fake.requests.filter(r => r.method === "DELETE").length, 1);
+    await tv.remote(413);
     await tv.page.locator('[data-view="home"]').waitFor();
     assert.equal(await tv.focused(), "episode:s1e12");
 }, true);
@@ -880,19 +882,24 @@ for (const reduced of [false, true]) {
         const id = [...playback.sessions.keys()][0];
         assert.ok(id !== undefined);
         const stop = tv.fake.hold(`/playback/${id}`);
+        const deck = tv.fake.hold("/home/sections");
+        const deckReads = tv.fake.requests.filter(r => r.path.startsWith("/home/sections")).length;
         await tv.page.evaluate(() => { window.appHarness.avplay.tick(5399000); window.appHarness.avplay.listener?.onstreamcompleted(); });
         await tv.page.getByText("Ending playback…", { exact: true }).waitFor();
         assert.equal(await tv.focused(), "back");
         assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/watch/")).length, watchReads, "EOF must wait for STOP before reading the next episode");
         stop.release();
-        await tv.page.getByRole("button", { name: "Play next", exact: true }).waitFor();
+        await tv.page.getByRole("button", { name: "Play Now", exact: true }).waitFor();
         assert.equal(await tv.focused(), "back", "adding a next action must not move surviving focus");
+        // The old screen had no background On Deck reads; hold them outside the focus-only assertion.
+        await tv.eventually(async () => tv.fake.requests.filter(r => r.path.startsWith("/home/sections")).length > deckReads, "On Deck read");
         const requests = tv.fake.requests.length;
         await tv.remote(38);
         assert.equal(await tv.focused(), "play-next");
         await tv.remote(40);
         await tv.remote(38);
         assert.equal(tv.fake.requests.length, requests, "focus movement must never fetch");
+        deck.release();
         assert.equal(await tv.page.getByText(/saved|completed/i).count(), 0);
         await tv.remote(13);
         await tv.remote(13);
@@ -921,7 +928,7 @@ appTest("Back during EOF STOP restores Browse and late answers cannot show conti
     stop.release();
     await tv.jump(0);
     assert.equal(await tv.focused(), "episode:s1e12");
-    assert.equal(await tv.page.getByRole("button", { name: "Play next", exact: true }).count(), 0);
+    assert.equal(await tv.page.getByRole("button", { name: "Play Now", exact: true }).count(), 0);
     assert.equal(tv.fake.requests.filter(r => r.path.startsWith("/watch/")).length, watchReads, "abandoned EOF must not read the next episode");
 }, true);
 
@@ -939,7 +946,7 @@ for (const reduced of [false, true]) {
         progress.release();
         await tv.page.getByText("Could not confirm playback or load the next episode.", { exact: true }).waitFor();
         assert.equal(await tv.page.getByRole("button", { name: "Retry", exact: true }).count(), 0);
-        assert.equal(await tv.page.getByRole("button", { name: "Play next", exact: true }).count(), 0);
+        assert.equal(await tv.page.getByRole("button", { name: "Play Now", exact: true }).count(), 0);
         assert.equal(await tv.focused(), "back");
         assert.equal(tv.fake.requests.filter(request => request.method === "DELETE").length, 0);
         assert.equal(tv.fake.requests.filter(request => request.path === "/playback/start").length, 1);
@@ -959,7 +966,7 @@ for (const reduced of [false, true]) {
         await tv.page.evaluate(() => window.appHarness.avplay.listener?.onstreamcompleted());
         await tv.page.getByText("Could not confirm playback or load the next episode.", { exact: true }).waitFor();
         assert.equal(await tv.page.getByRole("button", { name: "Retry", exact: true }).count(), 0);
-        assert.equal(await tv.page.getByRole("button", { name: "Play next", exact: true }).count(), 0);
+        assert.equal(await tv.page.getByRole("button", { name: "Play Now", exact: true }).count(), 0);
         assert.equal(await tv.focused(), "back");
         assert.equal(tv.fake.requests.filter(r => r.method === "DELETE").length, 1);
         await tv.remote(13);
@@ -973,35 +980,36 @@ appTest("EOF during a refused subtitle change still offers manual continuation",
     assert.ok(id !== undefined);
     playback.next.push({ terminal: "adaptation_unavailable" });
     const response = tv.fake.hold(`/playback/${id}/replan`);
-    // Old Down opened the panel. Down focuses Play/Pause; Options opens Info, then Subtitles is two tabs right.
+    // Down focuses Play/Pause. Show Up Next sits before Options on an episode, so three Rights reach Options. Enter opens Info. Stats and Video sit between Info and Audio in the expanded HUD.
     await tv.remote(40);
     await tv.remote(39);
     await tv.remote(39);
+    await tv.remote(39);
     await tv.remote(13);
-    await tv.remote(39);
-    await tv.remote(39);
+    for (let tab = 0; tab < 4; tab++) await tv.remote(39);
+    assert.equal(await tv.page.getByRole("tab", { name: "Subtitles", exact: true }).getAttribute("aria-selected"), "true");
     await tv.page.locator('.player-menu [data-focus="file:42:subtitle:0"]').click();
     await tv.page.evaluate(() => window.appHarness.avplay.listener?.onstreamcompleted());
     assert.equal(tv.fake.requests.filter(r => r.method === "DELETE").length, 0);
     response.release();
-    await tv.page.getByRole("button", { name: "Play next", exact: true }).waitFor();
+    await tv.page.getByRole("button", { name: "Play Now", exact: true }).waitFor();
     assert.equal(tv.fake.requests.filter(r => r.method === "DELETE").length, 1);
     assert.equal(tv.fake.requests.filter(r => r.path === "/playback/start").length, 1);
 }, true);
 
-appTest("EOF read failure has remote Retry and Back without a second STOP", async (tv, playback, catalog) => {
+appTest("EOF read failure retries without a second STOP and Stop restores origin", async (tv, playback, catalog) => {
     await startEpisode(tv, playback, catalog);
     catalog.watchOverrides.set("episode:s1e12", { versions: "malformed" });
     await tv.page.evaluate(() => window.appHarness.avplay.listener?.onstreamcompleted());
     await tv.page.getByRole("button", { name: "Retry", exact: true }).waitFor();
-    assert.equal(await tv.page.getByRole("button", { name: "Play next", exact: true }).count(), 0);
+    assert.equal(await tv.page.getByRole("button", { name: "Play Now", exact: true }).count(), 0);
     catalog.watchOverrides.delete("episode:s1e12");
     await tv.remote(38);
     assert.equal(await tv.focused(), "settings-retry");
     await tv.remote(13);
-    await tv.page.getByRole("button", { name: "Play next", exact: true }).waitFor();
+    await tv.page.getByRole("button", { name: "Play Now", exact: true }).waitFor();
     assert.equal(tv.fake.requests.filter(r => r.method === "DELETE" && r.path.startsWith("/playback/")).length, 1);
-    await tv.remote(10009);
+    await tv.remote(413);
     await tv.page.locator('[data-view="home"]').waitFor();
     assert.equal(await tv.focused(), "episode:s1e12");
 }, true);
@@ -1009,14 +1017,15 @@ appTest("EOF read failure has remote Retry and Back without a second STOP", asyn
 appTest("the final episode has a focusable Back action and no cross-title start", async (tv, playback, catalog) => {
     await startEpisode(tv, playback, catalog, "episode:s1e23");
     await tv.page.evaluate(() => window.appHarness.avplay.listener?.onstreamcompleted());
-    // Old series end said "No more playable episodes." and offered no Play next. Focus stays on Back.
-    await tv.page.getByRole("heading", { name: "Up Next", exact: true }).waitFor();
-    await tv.page.locator(".player-error-text", { hasText: "Movie 0001" }).waitFor();
+    // Old series end put "Up Next" in the heading; Apple uses a status above the candidate title.
+    await tv.page.locator(".player-next-eyebrow", { hasText: "Up Next" }).waitFor();
+    await tv.page.getByRole("heading", { name: "Movie 0001", exact: true }).waitFor();
     assert.equal(await tv.focused(), "back");
-    assert.equal(await tv.page.getByRole("button", { name: "Play next", exact: true }).count(), 1);
+    assert.equal(await tv.page.getByRole("button", { name: "Play Now", exact: true }).count(), 1);
     await tv.remote(38);
     assert.equal(await tv.focused(), "play-next");
-    await tv.remote(10009);
+    assert.equal(tv.fake.requests.filter(r => r.method === "DELETE").length, 1);
+    await tv.remote(413);
     await tv.page.locator('[data-view="home"]').waitFor();
     assert.equal(await tv.focused(), "episode:s1e23");
     assert.equal(tv.fake.requests.filter(r => r.path === "/playback/start").length, 1);
@@ -1051,6 +1060,8 @@ appTest("saved server profile 15/45 reaches the composed controller and every re
     await tv.remote(415);
     await prepare(tv);
     assert.equal(await tv.page.locator('[data-view^="item:"]').count(), 0);
+    // Keep the debounce from committing between remote inputs on a slow host.
+    await tv.page.clock.pauseAt(await tv.page.evaluate(() => Date.now() + 1000));
     const position = () => tv.page.getByRole("slider").getAttribute("aria-valuenow");
     assert.equal(await tv.page.getByRole("button", { name: "Back 15 seconds", exact: true }).count(), 1);
     assert.equal(await tv.page.getByRole("button", { name: "Forward 45 seconds", exact: true }).count(), 1);
@@ -1340,11 +1351,25 @@ appTest("Home Continue keeps an unreadable playback source in the existing error
     assert.equal(tv.fake.requests.filter(request => request.path === "/playback/start").length, 1);
 });
 
-appTest("completion and dismissed playback errors return to browse without opening an exit dialog", async (tv) => {
+appTest("completion Back replays the tail; Stop and dismissed errors restore origin without an exit dialog", async (tv, playback) => {
     await signIn(tv);
     await startMovie(tv);
     await tv.page.evaluate(() => window.appHarness.avplay.listener?.onstreamcompleted());
+    // Old movie EOF closed immediately. Apple offers On Deck and Back replays the last ten seconds.
+    await tv.page.getByRole("button", { name: "Play Now", exact: true }).waitFor();
+    assert.equal(tv.fake.requests.filter(r => r.path === "/playback/start").length, 1);
+    assert.equal(tv.fake.requests.filter(r => r.method === "DELETE").length, 1);
+    await tv.remote(10009);
+    await prepare(tv);
+    const starts = tv.fake.requests.filter(r => r.path === "/playback/start");
+    assert.equal(starts.length, 2);
+    assert.equal(starts[1]?.body?.file_id, "42");
+    assert.equal(starts[1]?.body?.start_position, 7190);
+    await tv.remote(413);
     await tv.page.locator('[data-view="item:movie:m0001"]').waitFor();
+    assert.equal(await tv.focused(), "play");
+    await tv.eventually(async () => [...playback.sessions.values()].every(s => s.receipt !== undefined), "both playback attempts stopped");
+    assert.equal(tv.fake.requests.filter(r => r.method === "DELETE").length, 2);
     await tv.page.locator('[data-focus="play"]').click();
     await tv.eventually(() => tv.page.evaluate(() => window.appHarness.avplay.pendingPrepares > 0), "second preparation");
     await tv.page.evaluate(() => window.appHarness.avplay.finishPrepare("InvalidAccessError"));
@@ -1407,7 +1432,7 @@ appTest("the composed remote seeks and changes audio through the real playback o
     await tv.page.keyboard.press("ArrowRight");
     await tv.page.keyboard.press("ArrowRight");
     await tv.page.keyboard.press("Enter");
-    await tv.page.keyboard.press("ArrowRight");
+    for (let index = 0; index < 3; index++) await tv.page.keyboard.press("ArrowRight");
     const id = [...playback.sessions.keys()][0];
     assert.ok(id !== undefined);
     const hold = tv.fake.hold(`/playback/${id}/replan`);

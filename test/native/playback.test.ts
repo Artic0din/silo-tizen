@@ -5,17 +5,142 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type PlaybackError, PlaybackController, type PlaybackView, type PlayRequest } from "../../src/player/controller.ts";
+import type { EpisodeSpoilerSettings } from "../../src/ui/episodeSpoilers.ts";
 import { FakeAVPlay } from "./support/fakeAVPlay.ts";
 import { FakePlayback } from "./support/fakePlayback.ts";
 import { FakeSilo, fixture, problem, type RecordedRequest } from "./support/fakeSilo.ts";
 import { ManualClock } from "./support/clock.ts";
 import { FakeSettings } from "./support/fakeSettings.ts";
+import { SettingsState } from "../../src/ui/settingsState.ts";
+import { NEXT_UP_KEY } from "../../src/contracts/v2/settings.ts";
 import { FakeCatalog } from "./support/fakeCatalog.ts";
 import { SEEK_BACK_KEY, SEEK_FORWARD_KEY, SEEK_KEYS } from "../../src/contracts/v2/settings.ts";
 import { operations } from "../../src/api/operations.ts";
 import { connected, type Harness, signIn } from "./support/harness.ts";
 
 const MOVIE: PlayRequest = { contentId: "movie-1", fileId: "42", title: "Movie", startSeconds: 12.5 };
+
+test("READY foreground restore reapplies the selected speed and aspect", async () => {
+    const r = await rig();
+    const applied: string[] = [];
+    Object.assign(r.avplay, {
+        setSpeed: (value: number) => applied.push(`speed ${value}`),
+        setDisplayMethod: (value: string) => applied.push(value),
+    });
+    await playMovie(r);
+    r.controller.setVideo("speed", "2");
+    r.controller.setVideo("aspect", "Stretch");
+    r.avplay.listener?.onerror("PLAYER_ERROR_NOT_SUPPORTED_FORMAT");
+    await r.h.clock.advance(0);
+    r.controller.suspend();
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    if (r.avplay.calls.at(-1)?.startsWith("seekTo")) {
+        r.avplay.finishSeek();
+        await r.h.clock.advance(0);
+    }
+    applied.length = 0;
+    r.controller.restore();
+    await r.h.clock.advance(0);
+    assert.deepEqual(applied, ["speed 2", "PLAYER_DISPLAY_MODE_FULL_SCREEN"]);
+    r.controller.destroy();
+});
+
+test("HUD chapters read the effective watch file, expose failures and retry without restarting playback", async () => {
+    const r = await rig();
+    r.h.fake.script("/watch/movie-1?file_id=42", problem(404, "not_found", "Unavailable"));
+    await playMovie(r);
+    let view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.hud?.chapterState, "failed", JSON.stringify(r.h.fake.requests.filter(request => request.path.includes("watch"))));
+    r.h.fake.script("/watch/movie-1?file_id=42", { status: 200, body: { versions: [{ file_id: "42", chapters: [{ index: 0, title: "First", start_seconds: 0, end_seconds: 90 }] }] } });
+    r.controller.retryChapters();
+    await r.h.clock.advance(0);
+    view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.deepEqual(view.hud?.chapters, [{ title: "First", seconds: 0 }]);
+    assert.equal(sessionIds(r.server).length, 1);
+    r.controller.destroy();
+});
+
+test("live autoplay reflects the effective device override after a profile write", async () => {
+    const r = await autoplayRig(true);
+    await playMovie(r);
+    r.h.fake.script("/settings/values/effective?keys=playback.auto_play_next", { status: 200, body: { revision: 24, items: [{ key: "playback.auto_play_next", value: true, source: "profile_device", definition_revision: 24 }] } });
+    r.controller.toggleAutoNext();
+    await r.h.clock.advance(0);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.hud?.autoNext, true);
+    assert.match(view.hud?.message ?? "", /device|TV|override/i);
+    r.controller.destroy();
+});
+
+test("live autoplay saves once while pending and retains the old value on refusal", async () => {
+    const r = await autoplayRig(false);
+    await playMovie(r);
+    r.h.fake.script("/settings/values/playback.auto_play_next?scope=profile", problem(403, "forbidden", "Unavailable"));
+    const hold = r.h.fake.hold("/settings/values/playback.auto_play_next?scope=profile");
+    r.controller.toggleAutoNext();
+    r.controller.toggleAutoNext();
+    await r.h.clock.advance(0);
+    let view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.hud?.busy, true);
+    assert.equal(r.h.fake.requests.filter(request => request.method === "PUT" && request.path.includes("playback.auto_play_next")).length, 1);
+    hold.release();
+    await r.h.clock.advance(0);
+    view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.hud?.autoNext, false);
+    assert.match(view.hud?.message ?? "", /Could not save/);
+    r.controller.destroy();
+});
+
+test("EOF waits for a pending Auto-play save before starting a countdown", async () => {
+    const r = await autoplayRig(true);
+    r.settings.overrides.delete("playback.auto_play_next");
+    r.settings.profile().set("playback.auto_play_next", true);
+    await playMovie(r, EPISODE);
+    const hold = r.h.fake.hold("/settings/values/playback.auto_play_next?scope=profile");
+    r.controller.toggleAutoNext();
+    await r.h.clock.advance(0);
+    r.settings.profile().set("playback.auto_play_next", true);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, "/start").length, 1, "the old effective value must not start the next episode while the save is pending");
+    assert.equal(completion(r).countdown, undefined);
+    r.settings.profile().set("playback.auto_play_next", false);
+    hold.release();
+    await r.h.clock.advance(15000);
+    assert.equal(completion(r).countdown, undefined);
+    assert.equal(bodies(r.h, "/start").length, 1);
+    r.controller.destroy();
+});
+
+test("a discovery settings read started before a save cannot overwrite Auto-play next", async () => {
+    const r = await autoplayRig(true);
+    r.settings.overrides.delete("playback.auto_play_next");
+    r.settings.profile().set("playback.auto_play_next", true);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing" && view.durationSeconds !== undefined);
+    const path = "/settings/values/effective?keys=playback.auto_play_next";
+    const hold = r.h.fake.hold(path);
+    r.avplay.tick((view.durationSeconds - 20) * 1000);
+    await r.h.clock.advance(0);
+    r.controller.toggleAutoNext();
+    await r.h.clock.advance(0);
+    const saved = last(r.views);
+    assert.ok(saved.phase === "playing");
+    assert.equal(saved.hud?.autoNext, false);
+    hold.release();
+    await r.h.clock.advance(0);
+    const later = last(r.views);
+    assert.ok(later.phase === "playing");
+    assert.equal(later.hud?.autoNext, false);
+    r.controller.destroy();
+});
 
 test("a completed Shuffle item advances the same server session before offering its next pick", async () => {
     const r = await rig();
@@ -142,7 +267,7 @@ interface Rig {
     readonly views: PlaybackView[];
 }
 
-async function rig(profileId = "p-owner", origin?: string): Promise<Rig> {
+async function rig(profileId = "p-owner", origin?: string, spoilers?: () => EpisodeSpoilerSettings): Promise<Rig> {
     const clock = new ManualClock();
     const h = await connected({ clock, fake: new FakeSilo(clock, undefined, origin) });
     await signIn(h);
@@ -169,6 +294,7 @@ async function rig(profileId = "p-owner", origin?: string): Promise<Rig> {
                 exits.push(`error:${error.kind}`);
             },
         },
+        ...(spoilers === undefined ? {} : { spoilers }),
     });
     const views: PlaybackView[] = [];
     controller.subscribe((view) => views.push(view));
@@ -1118,7 +1244,8 @@ test("an old stream completing during a held seek reanchor cannot end the replac
     assert.deepEqual(r.exits, []);
     r.avplay.listener?.onstreamcompleted();
     await r.h.clock.advance(0);
-    assert.deepEqual(r.exits, ["end:completed"]);
+    assert.deepEqual(r.exits, []);
+    assert.equal(completion(r).state, "ready", "movies retain the On Deck screen");
     assert.notEqual(r.server.session(id).receipt, undefined);
 });
 
@@ -1194,7 +1321,8 @@ test("only the natural-completion callback completes playback, after a final sto
     await r.h.clock.advance(0);
     const stop = only(bodies(r.h, `/playback/${id}`));
     assert.equal(stop.position, 7199);
-    assert.deepEqual(r.exits, ["end:completed"]);
+    assert.deepEqual(r.exits, []);
+    assert.equal(completion(r).state, "ready", "movies retain the On Deck screen");
     assert.equal(r.avplay.state, "NONE");
 });
 
@@ -1221,14 +1349,15 @@ test("EOF holds the handoff until pending progress and the exact final STOP rece
     assert.match(String(final.stop_id), UUID);
     stop.release();
     await r.h.clock.advance(0);
-    assert.deepEqual(r.exits, ["end:completed"]);
+    assert.deepEqual(r.exits, []);
+    assert.equal(completion(r).state, "ready", "movies retain the On Deck screen");
     r.controller.destroy();
 });
 
 const EPISODE: PlayRequest = { contentId: "episode:s1e12", fileId: "42", title: "Harbor Lights chapter 1.2", startSeconds: 0, episode: true };
 
-async function episodeRig(): Promise<Rig & { catalog: FakeCatalog }> {
-    const r = await rig();
+async function episodeRig(spoilers?: () => EpisodeSpoilerSettings): Promise<Rig & { catalog: FakeCatalog }> {
+    const r = await rig("p-owner", undefined, spoilers);
     const catalog = new FakeCatalog();
     catalog.fileIds.set(EPISODE.contentId, "42");
     catalog.fileIds.set("episode:s1e13", "43");
@@ -1274,16 +1403,542 @@ function completion(r: Rig): Extract<PlaybackView, { phase: "completion" }> {
     return view;
 }
 
-async function autoplayRig(enabled: boolean): Promise<Rig & { catalog: FakeCatalog }> {
-    const r = await episodeRig();
+async function autoplayRig(enabled: boolean, promptSeconds?: number, spoilers?: () => EpisodeSpoilerSettings): Promise<Rig & { catalog: FakeCatalog; settings: FakeSettings }> {
+    const r = await episodeRig(spoilers);
     const settings = new FakeSettings(r.h.fake);
     settings.overrides.set("playback.auto_play_next", enabled);
     const contract = fixture("settings_contract_ok");
     assert.ok(Array.isArray(contract.definitions));
+    if (promptSeconds !== undefined) {
+        contract.definitions.push({ key: "playback.next_up_prompt_seconds", introduced_in: 1, persistence: "remote", allowed_scopes: ["profile", "profile_device"], resolution_order: ["profile_device", "profile", "default"], value_schema: { type: "integer", minimum: 0, maximum: 120 }, default_value: 30 });
+        settings.overrides.set("playback.next_up_prompt_seconds", promptSeconds);
+    }
     contract.definitions.push({ key: "playback.auto_play_next", introduced_in: 1, persistence: "remote", allowed_scopes: ["profile", "profile_device"], resolution_order: ["profile_device", "profile", "default"], value_schema: { type: "boolean" }, default_value: true });
     r.h.fake.script("/settings/contract", { status: 200, body: contract });
-    return r;
+    return { ...r, settings };
 }
+
+test("EOF re-reads autoplay; unreadable or disabled settings never start a countdown", async () => {
+    for (const unreadable of [false, true]) {
+        const r = await autoplayRig(true);
+        await playMovie(r, EPISODE);
+        if (!unreadable) r.settings.overrides.set("playback.auto_play_next", false);
+        if (unreadable) r.h.fake.script("/settings/values/effective?keys=playback.auto_play_next", problem(500, "internal_error", "Unavailable"));
+        r.avplay.listener?.onstreamcompleted();
+        await r.h.clock.advance(15000);
+        assert.equal(completion(r).countdown, undefined);
+        assert.equal(bodies(r.h, "/start").length, 1);
+        r.controller.destroy();
+    }
+});
+
+test("internal countdown teardown never publishes a manual Play Now frame", async () => {
+    const r = await autoplayRig(true);
+    await playMovie(r, EPISODE);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).countdown, 10);
+    const offset = r.views.length;
+    r.controller.back();
+    assert.equal(r.views.slice(offset).some(view => view.phase === "completion" && view.countdown === undefined), false);
+    r.controller.destroy();
+});
+
+test("late EOF preference answers cannot revive playback after Back or profile change", async () => {
+    for (const action of ["back", "profile"] as const) {
+        const r = await autoplayRig(true);
+        await playMovie(r, EPISODE);
+        const hold = r.h.fake.hold("/settings/values/effective?keys=playback.auto_play_next");
+        r.avplay.listener?.onstreamcompleted();
+        await r.h.clock.advance(0);
+        if (action === "back") r.controller.back();
+        else r.h.core.profiles.clear();
+        hold.release();
+        await r.h.clock.advance(15000);
+        assert.equal(last(r.views).phase, "closed");
+        assert.equal(bodies(r.h, "/start").length, 1);
+        r.controller.destroy();
+    }
+});
+
+test("a paused rewind out of the prompt window restores the full video rectangle", async () => {
+    const r = await autoplayRig(true);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    const duration = view.durationSeconds!;
+    r.avplay.tick((duration - 25) * 1000);
+    await r.h.clock.advance(0);
+    assert.ok("upNext" in last(r.views));
+    r.controller.setPaused(true);
+    r.controller.seekToSeconds(duration - 55);
+    r.avplay.finishSeek();
+    assert.equal(last(r.views).phase, "paused");
+    assert.equal("upNext" in last(r.views), false);
+    assert.deepEqual(r.avplay.displayRects.at(-1), [0, 0, 1920, 1080]);
+    r.controller.destroy();
+});
+
+for (const preEnd of [false, true]) {
+    test(`a playable On Deck choice is available before a later detail resolves (${preEnd ? "pre-end" : "EOF"})`, async () => {
+        const r = await autoplayRig(true);
+        const household = [...r.catalog.households.values()][0]!;
+        household.sections = [{ id: "deck", sectionType: "continue_watching", title: "On Deck", items: ["movie:m0001", "movie:m0002", "movie:m0003"] }];
+        r.catalog.fileIds.set("movie:m0001", "42");
+        r.catalog.fileIds.set("movie:m0002", "43");
+        r.server.items.set("movie:m0001", ["42"]);
+        r.server.items.set("movie:m0002", ["43"]);
+        const held = r.h.fake.hold(operations.watchDetail("movie:m0003").path);
+        await playMovie(r, { ...MOVIE, contentId: "movie:m0001" });
+        const view = last(r.views);
+        assert.ok(view.phase === "playing");
+        if (preEnd) r.avplay.tick((view.durationSeconds! - 20) * 1000);
+        else r.avplay.listener?.onstreamcompleted();
+        await r.h.clock.advance(0);
+        const ready = last(r.views);
+        if (preEnd) assert.ok("upNext" in ready);
+        else assert.equal(completion(r).state, "ready");
+        r.controller.playNext();
+        await r.h.clock.advance(0);
+        assert.equal(bodies(r.h, "/start").length, 2);
+        held.release();
+        r.controller.destroy();
+    });
+}
+
+test("Up Next appears at Apple's default 30 seconds and Keep Watching suppresses redisplay", async () => {
+    const r = await autoplayRig(true);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    const duration = view.durationSeconds!;
+    r.avplay.tick((duration - 31) * 1000);
+    await r.h.clock.advance(0);
+    assert.equal("upNext" in last(r.views), false);
+    r.avplay.tick((duration - 30) * 1000);
+    await r.h.clock.advance(0);
+    assert.ok("upNext" in last(r.views), "panel should appear before EOF");
+    r.controller.cancelAutoplay();
+    r.avplay.tick((duration - 10) * 1000);
+    await r.h.clock.advance(0);
+    assert.equal("upNext" in last(r.views), false);
+    r.controller.destroy();
+});
+
+test("a saved Show Next Up value changes the before-end prompt time", async () => {
+    const r = await autoplayRig(false, 30);
+    r.settings.overrides.delete(NEXT_UP_KEY);
+    r.settings.remainingRows = true;
+    r.settings.profile().set(NEXT_UP_KEY, 30);
+    const settings = new SettingsState(r.h.core.session, () => undefined, r.h.clock);
+    await settings.load();
+    assert.equal(settings.error, undefined);
+    await settings.save(NEXT_UP_KEY, 60);
+    assert.equal(settings.error, undefined);
+    assert.equal(r.settings.device("p-owner", r.h.core.session.http.deviceId).get(NEXT_UP_KEY), 60);
+    assert.equal(r.settings.profile().get(NEXT_UP_KEY), 30);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    r.avplay.tick((view.durationSeconds! - 61) * 1000);
+    await r.h.clock.advance(0);
+    assert.equal("upNext" in last(r.views), false);
+    r.avplay.tick((view.durationSeconds! - 60) * 1000);
+    await r.h.clock.advance(0);
+    assert.ok("upNext" in last(r.views));
+    settings.stop();
+    r.controller.destroy();
+});
+
+test("all tvOS prompt choices use the effective setting, including At end", async () => {
+    for (const seconds of [0, 10, 30, 60, 120]) {
+        const r = await autoplayRig(false, seconds);
+        await playMovie(r, EPISODE);
+        const view = last(r.views);
+        assert.ok(view.phase === "playing");
+        r.avplay.tick((view.durationSeconds! - seconds - 1) * 1000);
+        await r.h.clock.advance(0);
+        assert.equal("upNext" in last(r.views), false);
+        r.avplay.tick((view.durationSeconds! - Math.max(1, seconds)) * 1000);
+        await r.h.clock.advance(0);
+        assert.equal("upNext" in last(r.views), seconds > 0, String(seconds));
+        r.controller.destroy();
+    }
+});
+
+test("a delayed prompt cannot appear after seeking out of its window, and an open panel clears", async () => {
+    const r = await autoplayRig(false);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    const hold = r.h.fake.hold("/watch/" + encodeURIComponent(EPISODE.contentId));
+    r.avplay.tick((view.durationSeconds! - 20) * 1000);
+    await r.h.clock.advance(0);
+    r.avplay.tick(100000);
+    hold.release();
+    await r.h.clock.advance(0);
+    assert.equal("upNext" in last(r.views), false);
+    r.avplay.tick((view.durationSeconds! - 20) * 1000);
+    await r.h.clock.advance(0);
+    assert.ok("upNext" in last(r.views));
+    r.avplay.tick(100000);
+    assert.equal("upNext" in last(r.views), false);
+    assert.deepEqual(r.avplay.displayRects.at(-1), [0, 0, 1920, 1080]);
+    r.controller.destroy();
+});
+
+test("Show Up Next opens the manual panel on the next episode without a countdown far from the end", async () => {
+    const r = await autoplayRig(false);
+    await playMovie(r, EPISODE);
+    const before = last(r.views);
+    assert.ok(before.phase === "playing");
+    assert.equal(before.episodes, true);
+    assert.equal("upNext" in before, false);
+    r.controller.showUpNext();
+    await r.h.clock.advance(0);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.upNext?.loading, undefined);
+    assert.equal(view.upNext?.failed, undefined);
+    assert.equal(view.upNext?.status, "Up Next");
+    assert.equal(view.upNext?.countdown, undefined);
+    assert.equal(view.upNext?.next?.contentId, "episode:s1e13");
+    assert.equal(view.upNext?.next?.title, "Harbor Lights chapter 1.3");
+    r.controller.playNext();
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, "/start").length, 2);
+    r.controller.destroy();
+});
+
+test("playback ticks do not repeat the Up Next catalog read", async () => {
+    const r = await autoplayRig(true);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing" && view.durationSeconds !== undefined);
+    const path = "/catalog/items/" + encodeURIComponent("episode:s1e13");
+    const reads = (): number => r.h.fake.requests.filter(request => request.path.split("?")[0] === path).length;
+    r.avplay.tick((view.durationSeconds - 20) * 1000);
+    await r.h.clock.advance(0);
+    const first = reads();
+    assert.equal(first, 1);
+    for (let tick = 0; tick < 5; tick++) r.avplay.tick((view.durationSeconds - 19 + tick) * 1000);
+    await r.h.clock.advance(0);
+    assert.equal(reads(), first);
+    r.controller.destroy();
+});
+
+test("a seek during Up Next discovery does not leave the manual panel loading", async () => {
+    const r = await autoplayRig(false);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    const hold = r.h.fake.hold("/watch/" + encodeURIComponent(EPISODE.contentId));
+    r.controller.showUpNext();
+    await r.h.clock.advance(0);
+    const loading = last(r.views);
+    assert.ok(loading.phase === "playing" || loading.phase === "paused");
+    assert.equal(loading.upNext?.loading, true);
+    r.controller.seekToSeconds(40);
+    hold.release();
+    await r.h.clock.advance(0);
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    const done = last(r.views);
+    assert.ok(done.phase === "playing" || done.phase === "paused");
+    assert.equal(done.upNext?.loading, undefined);
+    assert.equal(done.upNext?.next?.contentId, "episode:s1e13");
+    assert.notEqual(done.upNext?.status, "Nothing to watch next");
+    r.controller.destroy();
+});
+
+test("a failed On Deck read is not cached as nothing and a later read recovers", async () => {
+    const r = await autoplayRig(false);
+    r.catalog.fileIds.set("movie:m0001", "42");
+    r.server.items.set("movie:m0001", ["42"]);
+    await playMovie(r, { ...MOVIE, contentId: "movie:m0001", fileId: "42", title: "Movie 0001" });
+    r.h.fake.script("/home/sections?image_size=small", problem(500, "internal_error", "Unavailable"));
+    r.controller.showUpNext();
+    await r.h.clock.advance(0);
+    const failed = last(r.views);
+    assert.ok(failed.phase === "playing");
+    assert.equal(failed.upNext?.loading, undefined);
+    assert.equal(failed.upNext?.failed, true);
+    assert.equal(failed.upNext?.next, undefined);
+    assert.notEqual(failed.upNext?.status, "Nothing to watch next");
+    r.controller.showUpNext();
+    await r.h.clock.advance(0);
+    const recovered = last(r.views);
+    assert.ok(recovered.phase === "playing");
+    assert.equal(recovered.upNext?.failed, undefined);
+    assert.equal(recovered.upNext?.next?.contentId, "episode:s1e12");
+    r.controller.destroy();
+});
+
+test("prompt discovery discarded during a local seek retries after the seek settles", async () => {
+    const r = await autoplayRig(false);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing" && view.durationSeconds !== undefined);
+    const hold = r.h.fake.hold("/watch/" + encodeURIComponent(EPISODE.contentId));
+    r.avplay.tick((view.durationSeconds - 25) * 1000);
+    await r.h.clock.advance(0);
+    r.controller.seekToSeconds(view.durationSeconds - 15);
+    hold.release();
+    await r.h.clock.advance(0);
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    r.avplay.tick((view.durationSeconds - 14) * 1000);
+    await r.h.clock.advance(0);
+    assert.ok("upNext" in last(r.views));
+    r.controller.destroy();
+});
+
+test("stale prompt preference failure cannot override the EOF preference read", async () => {
+    const r = await autoplayRig(true);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing" && view.durationSeconds !== undefined);
+    const path = "/settings/values/effective?keys=playback.auto_play_next";
+    const hold = r.h.fake.hold(path);
+    r.h.fake.script(path, problem(400, "invalid_request", "Unavailable"));
+    r.avplay.tick((view.durationSeconds - 25) * 1000);
+    await r.h.clock.advance(0);
+    const discovery = r.h.fake.hold("/watch/" + encodeURIComponent(EPISODE.contentId));
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    hold.release();
+    await r.h.clock.advance(0);
+    discovery.release();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).countdown, 10);
+    r.controller.destroy();
+});
+
+test("transport recovery retains the Up Next preview rectangle", async () => {
+    const r = await autoplayRig(false);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    r.avplay.tick((view.durationSeconds! - 20) * 1000);
+    await r.h.clock.advance(0);
+    assert.ok("upNext" in last(r.views));
+    const preview = r.avplay.displayRects.at(-1);
+    r.avplay.listener?.onerror("PLAYER_ERROR_CONNECTION_FAILED");
+    await r.h.clock.advance(1000);
+    assert.equal(r.avplay.urls.length, 2);
+    assert.deepEqual(r.avplay.displayRects.at(-1), preview);
+    assert.notDeepEqual(preview, [0, 0, 1920, 1080]);
+    r.controller.destroy();
+});
+
+test("optional On Deck reads never delay a playable successor before or after EOF", async () => {
+    for (const eof of [false, true]) {
+        const r = await autoplayRig(true);
+        await playMovie(r, EPISODE);
+        const view = last(r.views);
+        assert.ok(view.phase === "playing");
+        const hold = r.h.fake.hold("/home/sections");
+        const metadata = r.h.fake.hold("/catalog/items/" + encodeURIComponent("episode:s1e13"));
+        if (eof) r.avplay.listener?.onstreamcompleted();
+        else r.avplay.tick((view.durationSeconds! - 20) * 1000);
+        await r.h.clock.advance(0);
+        if (eof) {
+            assert.equal(completion(r).next?.contentId, "episode:s1e13");
+            assert.equal(completion(r).countdown, 10);
+        } else assert.ok("upNext" in last(r.views));
+        hold.release();
+        metadata.release();
+        await r.h.clock.advance(0);
+        r.controller.destroy();
+    }
+});
+
+test("an empty successor and On Deck leave the pre-end video and progress unchanged", async () => {
+    const r = await autoplayRig(false);
+    for (const id of ["episode:s1e13", "episode:s1e21", "episode:s1e22", "episode:s1e23"]) r.catalog.removed.add(id);
+    for (const household of r.catalog.households.values()) household.sections = [];
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    r.avplay.tick((view.durationSeconds! - 20) * 1000);
+    await r.h.clock.advance(10000);
+    assert.equal("upNext" in last(r.views), false);
+    assert.equal(only(bodies(r.h, "/progress")).position, view.durationSeconds! - 20);
+    const requests = r.h.fake.requests.length;
+    for (let second = 19; second > 10; second--) r.avplay.tick((view.durationSeconds! - second) * 1000);
+    await r.h.clock.advance(0);
+    assert.equal(r.h.fake.requests.length, requests, "empty discovery is not repeated on clock updates");
+    assert.deepEqual(r.avplay.displayRects.at(-1), [0, 0, 1920, 1080]);
+    r.controller.destroy();
+});
+
+test("Play Now outside the prompt window stops at the current position", async () => {
+    const r = await autoplayRig(false);
+    const id = await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing" && view.durationSeconds !== undefined && view.durationSeconds > 120);
+    r.avplay.tick(60000);
+    await r.h.clock.advance(0);
+    assert.equal("upNext" in last(r.views), false);
+    r.controller.showUpNext();
+    await r.h.clock.advance(0);
+    const shown = last(r.views);
+    assert.ok(shown.phase === "playing");
+    assert.equal(shown.upNext?.next?.contentId, "episode:s1e13");
+    const stop = r.h.fake.hold(`/playback/${id}`);
+    r.controller.playNext();
+    await r.h.clock.advance(0);
+    assert.equal(only(bodies(r.h, `/playback/${id}`)).position, 60);
+    stop.release();
+    r.controller.destroy();
+});
+
+test("a deck answer during a seek out of Up Next restores the full video", async () => {
+    const r = await autoplayRig(false);
+    await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing" && view.durationSeconds !== undefined);
+    const hold = r.h.fake.hold("/home/sections");
+    r.avplay.tick((view.durationSeconds - 20) * 1000);
+    await r.h.clock.advance(0);
+    assert.ok("upNext" in last(r.views));
+    assert.notDeepEqual(r.avplay.displayRects.at(-1), [0, 0, 1920, 1080]);
+    r.controller.seekToSeconds(60);
+    hold.release();
+    await r.h.clock.advance(0);
+    r.avplay.finishSeek();
+    await r.h.clock.advance(0);
+    assert.equal("upNext" in last(r.views), false);
+    assert.deepEqual(r.avplay.displayRects.at(-1), [0, 0, 1920, 1080]);
+    r.controller.destroy();
+});
+
+test("Up Next hides an unwatched episode synopsis when the profile asks and keeps a started one", async () => {
+    const spoilers = (): EpisodeSpoilerSettings => ({ hidesImages: false, hidesOverviews: true });
+    const hidden = await autoplayRig(false, undefined, spoilers);
+    await playMovie(hidden, EPISODE);
+    hidden.controller.showUpNext();
+    await hidden.h.clock.advance(0);
+    const concealed = last(hidden.views);
+    assert.ok(concealed.phase === "playing");
+    assert.equal(concealed.upNext?.next?.contentId, "episode:s1e13");
+    assert.equal(concealed.upNext?.next?.overview, undefined);
+    hidden.controller.destroy();
+
+    const shown = await autoplayRig(false, undefined, spoilers);
+    shown.catalog.progress.set("episode:s1e13", 30);
+    await playMovie(shown, EPISODE);
+    shown.controller.showUpNext();
+    await shown.h.clock.advance(0);
+    const visible = last(shown.views);
+    assert.ok(visible.phase === "playing");
+    assert.match(visible.upNext?.next?.overview ?? "", /synthetic episode/);
+    shown.controller.destroy();
+});
+
+test("On Deck blurs an unwatched episode still and leaves series art and a started episode sharp", async () => {
+    const spoilers = (): EpisodeSpoilerSettings => ({ hidesImages: true, hidesOverviews: false });
+    const hidden = await autoplayRig(false, undefined, spoilers);
+    hidden.catalog.episodeStills = true;
+    const home = hidden.catalog.households.get("p-owner");
+    const row = home?.sections.find(section => section.id === "continue_watching");
+    assert.ok(row);
+    row.items.unshift("episode:s2e11");
+    await playMovie(hidden, EPISODE);
+    hidden.controller.showUpNext();
+    await hidden.h.clock.advance(0);
+    const concealed = last(hidden.views);
+    assert.ok(concealed.phase === "playing");
+    const still = concealed.upNext?.deck.find(item => item.contentId === "episode:s2e11");
+    assert.ok(still);
+    assert.equal(still.hideBackdrop, true);
+    assert.equal(still.backdropIsEpisodeStill, true);
+    hidden.controller.destroy();
+
+    const sharp = await autoplayRig(false, undefined, spoilers);
+    const existing = sharp.catalog.titles.get("episode:s2e11");
+    assert.ok(existing);
+    sharp.catalog.add({ ...existing, backdrop: "/art/series.svg", backdropStill: false });
+    const sharpHome = sharp.catalog.households.get("p-owner");
+    sharpHome?.sections.find(section => section.id === "continue_watching")?.items.unshift("episode:s2e11");
+    await playMovie(sharp, EPISODE);
+    sharp.controller.showUpNext();
+    await sharp.h.clock.advance(0);
+    const clear = last(sharp.views);
+    assert.ok(clear.phase === "playing");
+    const art = clear.upNext?.deck.find(item => item.contentId === "episode:s2e11");
+    assert.equal(art?.backdropIsEpisodeStill, false);
+    assert.equal(art?.hideBackdrop, undefined);
+    sharp.controller.destroy();
+
+    const started = await autoplayRig(false, undefined, spoilers);
+    started.catalog.episodeStills = true;
+    started.catalog.progress.set("episode:s2e11", 30);
+    started.catalog.households.get("p-owner")?.sections.find(section => section.id === "continue_watching")?.items.unshift("episode:s2e11");
+    await playMovie(started, EPISODE);
+    started.controller.showUpNext();
+    await started.h.clock.advance(0);
+    const playing = last(started.views);
+    assert.ok(playing.phase === "playing");
+    assert.equal(playing.upNext?.deck.find(item => item.contentId === "episode:s2e11")?.hideBackdrop, undefined);
+    started.controller.destroy();
+});
+
+test("Play Now before EOF waits for progress and final stop at duration", async () => {
+    const r = await autoplayRig(true);
+    const id = await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    r.avplay.tick((view.durationSeconds! - 20) * 1000);
+    await r.h.clock.advance(0);
+    const stop = r.h.fake.hold(`/playback/${id}`);
+    r.controller.playNext();
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, "/start").length, 1);
+    assert.equal(only(bodies(r.h, `/playback/${id}`)).position, view.durationSeconds);
+    stop.release();
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, "/start").length, 2);
+    r.controller.destroy();
+});
+
+test("pre-end progress keeps ten-second cadence and Back after EOF replays the last ten seconds", async () => {
+    const r = await autoplayRig(false);
+    const id = await playMovie(r, EPISODE);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    r.avplay.tick((view.durationSeconds! - 20) * 1000);
+    await r.h.clock.advance(9999);
+    assert.equal(bodies(r.h, "/progress").length, 0);
+    await r.h.clock.advance(1);
+    assert.equal(only(bodies(r.h, "/progress")).position, view.durationSeconds);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(only(bodies(r.h, `/playback/${id}`)).position, view.durationSeconds);
+    r.controller.keepWatching();
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, "/start")[1]?.start_position, view.durationSeconds! - 10);
+    assert.equal(bodies(r.h, "/start")[1]?.file_id, EPISODE.fileId);
+    r.controller.destroy();
+});
+
+test("movies retain up to twelve distinct On Deck cards and never autoplay another title", async () => {
+    const r = await autoplayRig(true);
+    const household = [...r.catalog.households.values()][0]!;
+    household.sections = [{ id: "deck", sectionType: "continue_watching", title: "On Deck", items: Array.from({ length: 15 }, (_, index) => `movie:m${String(index + 1).padStart(4, "0")}`) }];
+    r.catalog.fileIds.set("movie:m0001", "42");
+    r.server.items.set("movie:m0001", ["42"]);
+    await playMovie(r, { ...MOVIE, contentId: "movie:m0001" });
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(15000);
+    const done = completion(r);
+    assert.equal(done.title, "Up Next");
+    assert.equal(done.deck?.length, 12);
+    assert.equal(done.deck?.[0]?.contentId, "movie:m0002");
+    assert.equal(done.countdown, undefined);
+    assert.equal(bodies(r.h, "/start").length, 1);
+    r.controller.destroy();
+});
 
 test("older settings manifests keep playback available when optional autoplay discovery fails", async () => {
     const r = await episodeRig();
@@ -1456,7 +2111,7 @@ test("episode EOF orders held progress, final STOP, fresh watch and exactly one 
     r.controller.playNext();
     assert.equal(completion(r).state, "finalizing");
     assert.equal(bodies(r.h, "/start").length, 1);
-    assert.equal(r.h.fake.requests.filter(q => q.path.startsWith("/watch/")).length, 0);
+assert.equal(r.h.fake.requests.filter(q => q.path.startsWith("/watch/") && !q.path.includes("?")).length, 0);
     progress.release();
     await r.h.clock.advance(0);
     const body = only(bodies(r.h, `/playback/${id}`));
@@ -1497,7 +2152,7 @@ test("a lost EOF STOP answer retries the identical body and identity before reso
     r.avplay.listener?.onstreamcompleted();
     await r.h.clock.advance(0);
     assert.equal(completion(r).state, "finalizing");
-    assert.equal(r.h.fake.requests.filter(q => q.path.startsWith("/watch/")).length, 0);
+assert.equal(r.h.fake.requests.filter(q => q.path.startsWith("/watch/") && !q.path.includes("?")).length, 0);
     await r.h.clock.advance(1000);
     const stops = bodies(r.h, `/playback/${id}`);
     assert.equal(stops.length, 2);
@@ -1565,7 +2220,7 @@ test("Back during held EOF STOP never resurrects continuation but still retires 
     listener?.onstreamcompleted();
     await r.h.clock.advance(0);
     assert.deepEqual(r.exits, ["back"]);
-    assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/")), false);
+assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/") && !q.path.includes("?")), false);
     assert.equal(bodies(r.h, `/playback/${id}`).length, 1);
     assert.ok(r.server.session(id).receipt !== undefined);
     r.controller.destroy();
@@ -1602,7 +2257,7 @@ test("an expired pending progress answer at EOF offers Back without an impossibl
     assert.equal(completion(r).next, undefined);
     r.controller.playNext();
     assert.equal(r.h.fake.requests.filter(request => request.method === "DELETE").length, 0);
-    assert.equal(r.h.fake.requests.some(request => request.path.startsWith("/watch/")), false);
+assert.equal(r.h.fake.requests.some(request => request.path.startsWith("/watch/") && !request.path.includes("?")), false);
     assert.equal(bodies(r.h, "/start").length, 1);
     r.controller.back();
     assert.deepEqual(r.exits, ["back"]);
@@ -1623,7 +2278,7 @@ test("a missing session during EOF STOP offers Back without a retry that can nev
     await r.h.clock.advance(0);
     assert.equal(bodies(r.h, `/playback/${id}`).length, 1);
     assert.equal(bodies(r.h, "/start").length, 1);
-    assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/")), false);
+assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/") && !q.path.includes("?")), false);
     r.controller.back();
     assert.deepEqual(r.exits, ["back"]);
     r.controller.destroy();
@@ -1710,7 +2365,7 @@ test("STOP authorization, installation, administrator and malformed receipt refu
         assert.equal(completion(r).state, "failed");
         r.controller.playNext();
         assert.equal(bodies(r.h, "/start").length, 1);
-        assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/")), false);
+assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/") && !q.path.includes("?")), false);
         r.controller.destroy();
     }
 });
@@ -1781,7 +2436,7 @@ test("authority loss while STOP awaits retry prevents old-scope resends and next
         r.controller.playNext();
         assert.equal(bodies(r.h, `/playback/${id}`).length, 1);
         assert.equal(bodies(r.h, "/start").length, 1);
-        assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/")), false);
+assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/") && !q.path.includes("?")), false);
         r.controller.destroy();
     }
 });
@@ -1798,7 +2453,7 @@ test("a pending progress administrator refusal wins over a later EOF", async () 
     assert.equal(completion(r).state, "failed");
     assert.equal(completion(r).retryable, false);
     assert.equal(bodies(r.h, `/playback/${id}`).length, 0);
-    assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/")), false);
+assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/") && !q.path.includes("?")), false);
     r.controller.destroy();
 });
 
@@ -1813,7 +2468,7 @@ test("revoked PIN proof during EOF finalization removes the old authority and ca
     assert.deepEqual(r.exits, ["end:authority_changed"]);
     assert.equal(r.h.core.session.activeProfile, undefined);
     assert.equal(bodies(r.h, `/playback/${id}`).length, 1);
-    assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/")), false);
+assert.equal(r.h.fake.requests.some(q => q.path.startsWith("/watch/") && !q.path.includes("?")), false);
     r.controller.playNext();
     assert.equal(bodies(r.h, "/start").length, 1);
     r.controller.destroy();

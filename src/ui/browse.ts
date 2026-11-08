@@ -33,7 +33,7 @@ import type { PublicStorage } from "../session/deviceIdentity.ts";
 import { Skyline } from "./skyline.ts";
 import { decodeImageCapabilities, type ImageCapabilities, homeArtworkQuery } from "../contracts/v2/images.ts";
 import { FocusHost, type FocusTarget } from "./browseFocus.ts";
-import { type Destination, type PlayRequest, destinationOf, playChoices, visibleLibraries } from "./browseModel.ts";
+import { type Destination, type PlayRequest, type SeriesLine, applySeriesLine, destinationOf, playChoices, visibleLibraries } from "./browseModel.ts";
 import { errorState, unconfirmedWriteMessage, writeFailureMessage, writeMayHaveApplied, failureText, hasData, newPages, newRoute, PAGE_SIZE, SEARCH_PAGE_SIZE, type Pages, type Route, routeView } from "./browseRoutes.ts";
 import { homeRows, type ViewContext } from "./browseViews.ts";
 import { HomeEnrichment } from "./homeEnrichment.ts";
@@ -114,6 +114,20 @@ function unsupportedHomeItemLimit(error: unknown): boolean {
  */
 const rememberedLibraryTabs = new Map<string, UserLibrary[]>();
 
+/** The series page and the episode row already show the line the player footer needs. */
+function seriesLineFor(routes: readonly Route[], current: Route, episodeId: string): SeriesLine | undefined {
+    const series = [...routes].reverse().find((route): route is Extract<Route, { kind: "item" }> => route.kind === "item" && route.data?.detail.type === "series");
+    const seriesTitle = series?.data?.detail.title.trim();
+    const episode = current.kind === "item"
+        ? current.data?.details?.series?.railEpisodes?.find(item => item.id === episodeId)
+        : current.kind === "season" ? current.data?.episodes.find(item => item.id === episodeId) : undefined;
+    const seasonNumber = episode?.seasonNumber ?? (current.kind === "season" ? current.seasonNumber : undefined);
+    const episodeNumber = episode?.episodeNumber;
+    const title = seriesTitle === undefined || seriesTitle === "" ? undefined : seriesTitle;
+    if (title === undefined && seasonNumber === undefined && episodeNumber === undefined) return undefined;
+    return { ...(title === undefined ? {} : { seriesTitle: title }), ...(seasonNumber === undefined ? {} : { seasonNumber }), ...(episodeNumber === undefined ? {} : { episodeNumber }) };
+}
+
 export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const server = options.server;
     const session = server.session;
@@ -192,12 +206,15 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         };
         if (current !== undefined) previews.set(current, preview);
         preview();
-    }, resume: (id, title) => {
-        if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title }));
+    }, resume: (id, title, line) => {
+        if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title, ...(line === undefined ? {} : { seriesLine: line }) }));
     }, playEpisode: (id, title, startOver, selection) => {
         const current = top();
         if ((current?.kind === "item" || current?.kind === "season") && current.data?.details?.episodePreferencesBlocked) return;
-        if (!torn && !playing && top()?.kind !== "resume") push(newRoute({ kind: "resume", id, title, episode: true, startOver: startOver === true, ...(selection === undefined ? {} : { selection }) }));
+        if (!torn && !playing && current?.kind !== "resume") {
+            const seriesLine = current === undefined ? undefined : seriesLineFor(stack, current, id);
+            push(newRoute({ kind: "resume", id, title, episode: true, startOver: startOver === true, ...(selection === undefined ? {} : { selection }), ...(seriesLine === undefined ? {} : { seriesLine }) }));
+        }
     }, quickActions: (card, play) => {
         const current = top();
         if (current === undefined || torn || playing || cardActions.active) return;
@@ -1207,7 +1224,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     const choices = playChoices(detail, current.selection?.fileId);
                     if (choices === undefined) return undefined;
                     let request = current.startOver === true ? choices.fromStart : choices.resume ?? choices.fromStart;
-                    if (detail.type === "episode") request = { ...request, subtitle: { kind: "auto" }, ...current.selection };
+                    if (detail.type === "episode") request = applySeriesLine({ ...request, subtitle: { kind: "auto" }, ...current.selection }, current.seriesLine);
                     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
                     return detail.type === "episode" && current.startOver !== true ? { ...request, startSeconds: await freshPlayPosition(session, request, clock, signal) } : request;
                 }, request => {

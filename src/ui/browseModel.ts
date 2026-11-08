@@ -190,7 +190,7 @@ function named(value: string | undefined): string | undefined {
  * the season and episode numbers that the series page and its rail already show.
  * Apple TV takes the same line from the watch detail (`playerMetadata` at 2ef3a171).
  */
-export function seriesPlayback(request: PlayRequest, page: ItemDetail, rail: { readonly seasonNumber: number; readonly episodeNumber: number } | undefined): PlayRequest {
+export function seriesPlayback(request: PlayRequest, page: Pick<ItemDetail, "type" | "title" | "seriesTitle">, rail: { readonly seasonNumber?: number; readonly episodeNumber?: number } | undefined): PlayRequest {
     if (request.episode !== true && page.type !== "series" && page.type !== "season") return request;
     const seriesTitle = named(request.seriesTitle) ?? (page.type === "series" ? named(page.title) : named(page.seriesTitle));
     const seasonNumber = request.seasonNumber ?? rail?.seasonNumber;
@@ -202,6 +202,24 @@ export function seriesPlayback(request: PlayRequest, page: ItemDetail, rail: { r
         ...(seasonNumber === undefined ? {} : { seasonNumber }),
         ...(episodeNumber === undefined ? {} : { episodeNumber }),
     };
+}
+
+/** Series name and episode numbers already shown on the page that started playback. */
+export interface SeriesLine {
+    readonly seriesTitle?: string;
+    readonly seasonNumber?: number;
+    readonly episodeNumber?: number;
+}
+
+/** Fills a footer the episode item left blank. A name or number the item already has stays. */
+export function applySeriesLine(request: PlayRequest, line: SeriesLine | undefined): PlayRequest {
+    if (line === undefined) return request;
+    const seriesTitle = named(line.seriesTitle);
+    const page: Pick<ItemDetail, "type" | "title" | "seriesTitle"> = seriesTitle === undefined
+        ? { type: "episode", title: request.title, seriesTitle: undefined }
+        : { type: "series", title: seriesTitle, seriesTitle: undefined };
+    const rail = line.seasonNumber === undefined && line.episodeNumber === undefined ? undefined : line;
+    return seriesPlayback(request, page, rail);
 }
 
 export function episodeLabel(seasonNumber: number | undefined, episodeNumber: number | undefined): string | undefined {

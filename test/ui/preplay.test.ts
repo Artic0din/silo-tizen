@@ -426,6 +426,28 @@ preplay("series Resume and Start Over keep the series line when the episode item
     assert.equal(starts(tv).at(-1)?.body?.start_position, 0);
 });
 
+preplay("episode list keeps the series line when the episode item omits it", async (tv, catalog, playback) => {
+    const id = "episode:s1e125";
+    catalog.add({ id, type: "episode", title: "Going Green", libraryId: "13", seriesId: "series:s1", season: 1, episode: 25 });
+    catalog.fileIds.set(id, "42");
+    playback.items.set(id, ["42"]);
+    const path = "/catalog/items/episode%3As1e125?image_size=large";
+    const reply = catalog.route("GET", path, "p-owner");
+    assert.ok(reply?.status === 200 && reply.body !== undefined && typeof reply.body === "object");
+    const source = object(reply.body, "episode");
+    const body: Record<string, unknown> = {};
+    for (const key of Object.keys(source)) {
+        if (key !== "series_title" && key !== "season_number" && key !== "episode_number") body[key] = source[key];
+    }
+    tv.fake.script(path, { status: 200, body });
+    await series(tv);
+    await tv.page.locator('.details-episodes [data-focus="episode:s1e125"]').click();
+    await prepare(tv);
+    assert.equal(await tv.page.locator(".player-series").textContent(), "Harbor Lights");
+    assert.equal(await tv.page.locator(".player-title").first().textContent(), "Going Green");
+    assert.equal(await tv.page.locator(".player-episode").textContent(), "S1 · E25");
+});
+
 preplay("series Start Over skips fresh resume and retains automatic selectors", async (tv, catalog, playback) => {
     catalog.fileIds.set("episode:s1e11", "42");
     catalog.progress.set("episode:s1e11", 630);

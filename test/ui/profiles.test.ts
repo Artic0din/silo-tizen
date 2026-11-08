@@ -440,6 +440,7 @@ tvTest("a changed PIN ends the profile's proof; the TV asks for the new PIN and 
 const SIGN_OUT_TITLE = "Sign out of laura on this server?";
 /** Apple tvOS last-account sign-out (`signOutMessage`), with this TV in place of Apple TV. */
 const SIGN_OUT_REMOVES_SERVER = "This account's profiles and settings leave this TV, and this server will be removed from it.";
+const SIGN_OUT_KEEPS_SERVER = "This account's profiles and settings leave this TV. The server stays saved, so you can sign in again.";
 
 tvTest("Sign out on Who's watching asks with Apple's copy, and Cancel or Back returns to Sign out", async (tv) => {
     await picker(tv);
@@ -473,6 +474,28 @@ tvTest("Sign out on Who's watching asks with Apple's copy, and Cancel or Back re
     await shows(tv, "Signed out on this TV.");
     assert.equal(tv.fake.revokedSessions.size, 1);
     assert.equal((await handed(tv)).length, 0);
+});
+
+tvTest("Sign out on Who's watching keeps the server when another account on it remains", async (tv) => {
+    await picker(tv);
+    await tv.page.evaluate(() => {
+        const storage = window.harness.storage;
+        const saved = JSON.parse(storage.getItem("silo.native.accounts.v1") ?? "null") as { accounts: Record<string, unknown>[] };
+        const first = saved.accounts[0];
+        if (first === undefined) throw new Error("signed-in account required");
+        saved.accounts.push({ ...first, id: "other-account", accountId: "other-account", username: "Other" });
+        storage.setItem("silo.native.accounts.v1", JSON.stringify(saved));
+    });
+    await tv.page.keyboard.press("ArrowDown");
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), "signout");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
+    await tv.page.getByRole("heading", { name: SIGN_OUT_TITLE }).waitFor();
+    await tv.page.getByText(SIGN_OUT_KEEPS_SERVER, { exact: true }).waitFor();
+    assert.equal(await tv.page.getByText(SIGN_OUT_REMOVES_SERVER, { exact: true }).count(), 0);
+    assert.equal(await tv.focused(), "cancel-signout");
+    assert.equal(tv.fake.revokedSessions.size, 0, "opening the confirmation does not sign out");
 });
 
 tvTest("Sign out revokes the session and clears the TV; signing out while profiles load paints nothing late", async (tv) => {

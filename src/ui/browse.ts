@@ -2411,6 +2411,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 accountName: session.account?.username,
                 switchProfile: chooseProfile,
                 serverName: cachedBranding(options.publicStorage, context.baseUrl)?.serverName,
+                removesServer: () => {
+                    try { return server.accounts.directory.list().filter(row => row.baseUrl === context.baseUrl).length === 1; }
+                    catch { return false; } // Optional dialog copy cannot block Settings; logout checks storage itself.
+                },
                 ...(options.onSignOut === undefined ? {} : { signOut: options.onSignOut }),
                 ...(options.onSwitchServer === undefined ? {} : { switchServer: options.onSwitchServer }),
             }, options.onAccounts, episodeSpoilers);

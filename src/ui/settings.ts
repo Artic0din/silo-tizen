@@ -41,7 +41,7 @@ type Picker = "audio" | "quality" | "bitrate" | "seek-back" | "seek-forward" | "
 const PICKER_KEYS = { audio: AUDIO_KEY, quality: QUALITY_KEY, bitrate: BITRATE_KEY, "seek-back": SEEK_BACK_KEY, "seek-forward": SEEK_FORWARD_KEY, "subtitle-language": SUBTITLE_LANGUAGE_KEY, "subtitle-mode": SUBTITLE_MODE_KEY } as const;
 const PICKER_LABELS = { audio: "Audio Language", quality: "Resolution", bitrate: "Maximum Bitrate", "seek-back": "Skip Back", "seek-forward": "Skip Forward", "subtitle-language": "Language", "subtitle-mode": "Behavior" } as const;
 const BITRATE_CHOICES = [200000, 100000, 60000, 40000, 20000, 15000, 10000, 6000, 4000, 2000, 1500];
-export interface SettingsActions { readonly profileName: string; readonly profileAvatarUrl?: string | undefined; readonly accountName?: string | undefined; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: (back: () => void) => void }
+export interface SettingsActions { readonly profileName: string; readonly profileAvatarUrl?: string | undefined; readonly accountName?: string | undefined; readonly switchProfile: () => void; readonly signOut?: () => void; readonly serverName?: string | undefined; readonly switchServer?: (back: () => void) => void; /** True when this sign-out removes the saved server. Unreadable account lists return false. */ readonly removesServer?: () => boolean }
 export interface SettingsScreen { destroy(): void }
 
 export function mountSettings(root: HTMLElement, session: NativeSession, close: (hiddenChanged: boolean, titleArt?: boolean) => void, launch?: ProfileLaunch, actions?: SettingsActions, accounts?: (back: () => void) => void, spoilers?: EpisodeSpoilerPreferences): SettingsScreen {
@@ -396,7 +396,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
             return;
         }
         if (confirmingSignOut) {
-            const copy = signOutConfirmationCopy(actions?.accountName, actions?.serverName, false);
+            const copy = signOutConfirmationCopy(actions?.accountName, actions?.serverName, actions?.removesServer?.() ?? false);
             const controls = [actionButton("cancel-signout", "Cancel", back), actionButton("confirm-signout", "Sign Out", () => { destroy(); actions?.signOut?.(); })];
             host.show({ name: "settings:signout", content: [el("h1", "browse-title", copy.title), el("p", "settings-value", copy.message), zoneNode("settings-controls", controls)], zones: [{ id: "settings-confirm", layout: "column", items: controls }], focus: { zone: "settings-confirm", key: "cancel-signout" }, back });
             return;

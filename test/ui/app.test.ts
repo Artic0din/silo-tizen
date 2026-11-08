@@ -242,21 +242,131 @@ appTest("pending account removal blocks Cancel and Back until it settles", async
     await tv.page.locator('[data-view="accounts-settings"]').waitFor();
 });
 
-appTest("session expiry releases Change Account remote ownership", async tv => {
+appTest("session expiry releases Change Account and signs in with the username", async tv => {
     await signIn(tv);
+    await tv.page.evaluate(() => window.appHarness.storage.setItem("silo.native.serverBranding.v1", JSON.stringify({ "https://silo.example.test": { serverName: "Living room library" } })));
     tv.fake.revokeAllSessions();
     const hold = tv.fake.hold("/auth/refresh");
     await tv.page.locator('[data-focus="movies"]').click();
     await tv.page.locator('[data-focus="profiles"]').click();
     await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
     hold.release();
-    await tv.page.locator('[data-screen="expired"]').waitFor({ timeout: 5000 });
+    await tv.page.locator('[data-screen="code"]').waitFor({ timeout: 5000 });
+    await tv.page.getByText("You were signed out of Living room library. Sign in again.").waitFor();
     assert.equal(await tv.page.locator('.accounts-screen').count(), 0);
-    assert.equal(await tv.focused(), "signin");
-    await tv.page.keyboard.press("Enter");
-    await tv.eventually(async () => await tv.screen() !== "expired", "Enter activates recovery");
+    assert.equal(await tv.page.locator('[data-screen="expired"]').count(), 0);
+    assert.equal(await tv.focused(), "password");
+    await tv.page.getByRole("button", { name: "Sign in with a password", exact: true }).click();
+    assert.equal(await tv.page.locator("#signin-username").inputValue(), "laura");
+    assert.equal(await tv.page.getByRole("button", { name: "Change server", exact: true }).count(), 1);
+});
+
+function profileItems(tv: Tv): Record<string, unknown>[] {
+    const items = tv.fake.profiles.items;
+    if (!Array.isArray(items)) throw new Error("profiles");
+    return items.flatMap(item => typeof item === "object" && item !== null ? [item as Record<string, unknown>] : []);
+}
+
+async function addAlex(tv: Tv): Promise<void> {
+    tv.fake.nextUser = { id: "2", username: "alex" };
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.page.locator('[data-focus="add-account"]').click();
     await tv.page.locator('[data-screen="code"]').waitFor();
-    assert.equal(await tv.page.locator('.accounts-screen').count(), 0);
+    const code = [...tv.fake.devices.keys()].pop();
+    assert.ok(code !== undefined);
+    await approveSignIn(tv, code);
+    await tv.page.locator('[data-focus="profile:p-owner"]').click();
+    await tv.page.locator('[data-focus="ask-every-launch"]').click();
+    await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
+}
+
+async function chooseAccount(tv: Tv, username: string): Promise<void> {
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.page.locator(".account-card").filter({ hasText: username }).click();
+}
+
+appTest("choosing another account opens its only PIN-less profile", async tv => {
+    await signIn(tv);
+    await addAlex(tv);
+    const owner = profileItems(tv).find(item => item.id === "p-owner");
+    assert.ok(owner);
+    tv.fake.profiles = { ...tv.fake.profiles, items: [owner] };
+    const home = await tv.page.locator('[data-view="home"]').elementHandle();
+    assert.ok(home);
+    await chooseAccount(tv, "laura");
+    await tv.page.waitForFunction(node => !node.isConnected, home);
+    await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
+    assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 0);
+    assert.equal(await tv.page.locator('[data-screen="remember-profile"]').count(), 0);
+});
+
+appTest("choosing another account still asks for its only profile PIN", async tv => {
+    await signIn(tv);
+    await addAlex(tv);
+    const kid = profileItems(tv).find(item => item.id === "p-kid");
+    assert.ok(kid);
+    tv.fake.profiles = { ...tv.fake.profiles, items: [kid] };
+    await chooseAccount(tv, "laura");
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    assert.equal(await tv.page.locator('[data-screen="profiles"] .profile-avatar').count(), 1);
+    await tv.page.locator('[data-focus="profile:p-kid"]').click();
+    await tv.page.locator("#profile-pin").waitFor();
+});
+
+appTest("choosing another account shows the picker for two profiles", async tv => {
+    await signIn(tv);
+    await addAlex(tv);
+    await chooseAccount(tv, "laura");
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    assert.equal(await tv.page.locator('[data-screen="profiles"] .profile-avatar').count(), 2);
+    assert.equal(await tv.page.locator("#profile-pin").count(), 0);
+});
+
+appTest("Switch Profile still shows one PIN-less profile", async tv => {
+    await signIn(tv);
+    const owner = profileItems(tv).find(item => item.id === "p-owner");
+    assert.ok(owner);
+    tv.fake.profiles = { ...tv.fake.profiles, items: [owner] };
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="switch-profile"]').click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    assert.equal(await tv.page.locator(".profile-avatar").count(), 1);
+});
+
+appTest("an expired session opens Change Account while another account is signed in", async tv => {
+    await signIn(tv);
+    await addAlex(tv);
+    tv.fake.revokeAllSessions();
+    const hold = tv.fake.hold("/auth/refresh");
+    await tv.page.locator('[data-focus="movies"]').click();
+    hold.release();
+    await tv.page.locator('[data-view="change-account"]').waitFor();
+    assert.equal(await tv.page.locator('[data-screen="code"]').count(), 0);
+    assert.equal(await tv.page.locator('[data-screen="expired"]').count(), 0);
+    assert.equal(await tv.page.locator(".account-badge").filter({ hasText: "SIGN IN AGAIN" }).count(), 1);
+});
+
+appTest("choosing an expired account opens sign-in and Back returns to Change Account", async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => {
+        const storage = window.appHarness.storage;
+        const saved = JSON.parse(storage.getItem("silo.native.accounts.v1")!) as { accounts: Record<string, unknown>[] };
+        const first = saved.accounts[0];
+        if (first === undefined) throw new Error("account");
+        saved.accounts.push({ ...first, id: "alex", accountId: "2", username: "alex", needsSignIn: true, profileCount: 1 });
+        storage.setItem("silo.native.accounts.v1", JSON.stringify(saved));
+    });
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.page.locator(".account-card").filter({ hasText: "alex" }).click();
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    assert.equal(await tv.page.getByRole("button", { name: "Back to accounts", exact: true }).count(), 1);
+    await tv.page.getByRole("button", { name: "Sign in with a password", exact: true }).click();
+    assert.equal(await tv.page.locator("#signin-username").inputValue(), "alex");
+    await tv.page.getByRole("button", { name: "Back to accounts", exact: true }).click();
+    await tv.page.locator('[data-view="change-account"]').waitFor();
 });
 
 appTest("offline saved server offers Back to profiles while a saved account can open profiles", async tv => {

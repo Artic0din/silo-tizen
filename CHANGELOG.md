@@ -26,6 +26,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Choosing another account opens its only profile when that profile has no PIN. An expired sign-in shows "You were signed out of {server}. Sign in again." with the username filled in, or Change Account when another account is still signed in.
 - Loaded in-player subtitle delay and appearance when the settings contract tags a scope with the revision that added it.
 - Cleared a leftover device subtitle delay once per profile, after an owed delay write settles, and retried a failed clear instead of sending it on every open.
 - Kept the playback clock on Inter's 34px line so the scrubber stays put while the face loads, and a scrub thumbnail placed before that swap does not sit 1px too low.

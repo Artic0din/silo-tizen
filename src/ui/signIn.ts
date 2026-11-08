@@ -19,12 +19,16 @@ import { actionRow, chip, errorText, field, headline, keyboardCard, lead, marque
 import { MarqueeBackdrop, marqueeScene } from "./marqueeBackdrop.ts";
 import { type Control, el, type Note, type Screen, ScreenHost } from "./screen.ts";
 import * as text from "./signInText.ts";
-import { AccountDirectory } from "../session/accounts.ts";
+import { AccountDirectory, type SavedAccount } from "../session/accounts.ts";
 
 export interface SignInOptions {
     readonly address?: string;
     readonly username?: string;
     readonly onChangeAccount?: () => void;
+    /** Started from Change Account, so leaving returns there (AccountSignInRequest.returnsToChangeAccount). */
+    readonly returnToAccounts?: boolean;
+    /** The session just expired. The code screen explains it (LoginNotice.sessionExpired). */
+    readonly sessionExpired?: boolean;
     readonly onCancel?: () => void;
     /** Explicit server switching preserves saved sign-ins and starts at server entry. */
     readonly chooseServer?: boolean;
@@ -270,8 +274,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         const row = [connect];
         if (options.onCancel) row.push(marqueeButton("back", "Back", "plain", () => { destroy(); options.onCancel?.(); }));
         else if (options.onChangeAccount) {
-            const canReturn = new AccountDirectory(options.core.publicStorage, options.core.randomBytes).list().some(account => !account.needsSignIn);
-            row.push(marqueeButton("change-account", canReturn ? "Back to profiles" : "Change account", "plain", changeServer));
+            row.push(marqueeButton("change-account", options.returnToAccounts ? "Back to accounts" : savedAccounts().some(account => !account.needsSignIn) ? "Back to profiles" : "Change account", "plain", changeServer));
         }
         if (offerForget) {
             row.push(marqueeButton("forget", "Remove saved sign-in", "plain", () => void forget()));
@@ -599,6 +602,11 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     const signIn = (server: ConnectedServer, notes: readonly Note[]): void => {
         leaveSignIn();
         const login = server.createDeviceLogin();
+        const baseUrl = server.server.http.base.baseUrl;
+        const expired = options.sessionExpired
+            ? [{ text: text.sessionExpiredNotice(cachedBranding(core.publicStorage, baseUrl)?.serverName ?? text.serverHost(baseUrl)), tone: "info" as const }]
+            : [];
+        notes = [...expired, ...notes];
         const stop = login.subscribe((state) => {
             if (active?.login === login) {
                 render(state);
@@ -610,7 +618,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         const now = clock.now();
         const current: Active = {
             server, login, stop, notes, code: undefined, typed: undefined, left: new AbortController(), options: undefined,
-            credentials: false, submitting: false, username: "", password: "", shown: false, error: undefined, errorField: undefined,
+            credentials: false, submitting: false, username: options.username ?? "", password: "", shown: false, error: undefined, errorField: undefined,
             status: { kind: "getting_code" }, shownCode: undefined, renewed: false, windowStart: now, startedAt: now,
             sawCode: false, startStreak: undefined, cancelTimer: undefined, pendingStart: undefined,
             // ServerBrandingCache: the last answer shows at once; the server's new one replaces it.
@@ -715,8 +723,38 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         }
     };
 
+    const savedAccounts = (): readonly SavedAccount[] => {
+        try {
+            return new AccountDirectory(options.core.publicStorage, options.core.randomBytes).list();
+        } catch {
+            return [];
+        }
+    };
+    /** TVLoginView.leaveTitle at silo-apple 54cf0f34. The sign-in harness has nowhere else to go. */
+    const leaveTitle = (): string => {
+        if (!options.onChangeAccount && !options.returnToAccounts) return "Change server";
+        if (options.returnToAccounts) return "Back to accounts";
+        const rows = savedAccounts();
+        if (rows.some(account => !account.needsSignIn)) return "Back to profiles";
+        const servers = new Set(rows.map(account => account.baseUrl));
+        return rows.length > 1 || servers.size > 1 ? "Change account" : "Change server";
+    };
+    /**
+     * AppRouter.leaveSignIn. A first sign-in has no account yet, and Back still opens Change
+     * Account. One expired account returns to the address. Anything else saved, or a sign-in
+     * started from Change Account, goes back there.
+     */
+    const opensAccountList = (): boolean => {
+        if (!options.onChangeAccount) return false;
+        if (options.returnToAccounts) return true;
+        const rows = savedAccounts();
+        if (rows.some(account => !account.needsSignIn)) return true;
+        const servers = new Set(rows.map(account => account.baseUrl));
+        if (rows.length > 1 || servers.size > 1) return true;
+        return rows.length === 0;
+    };
     const changeServer = (): void => {
-        if (options.onChangeAccount) { destroy(); options.onChangeAccount(); return; }
+        if (opensAccountList()) { destroy(); options.onChangeAccount?.(); return; }
         leaveSignIn();
         showEntry([], false, "connect");
     };
@@ -903,7 +941,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
     /** "Sign in with a password" unless the server says no provider takes one; then "Change server". */
     const codeActions = (current: Active): Control[] => [
         ...(current.options?.passwordLogin === false ? [] : [marqueeButton("password", "Sign in with a password", "glass", () => openCredentials(current), { glyph: "key" })]),
-        marqueeButton("change", "Change server", "plain", changeServer),
+        marqueeButton("change", leaveTitle(), "plain", changeServer),
     ];
 
     const openCredentials = (current: Active): void => {
@@ -959,7 +997,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
                 submit: () => submitPassword(current),
                 phone: phoneRoute ? () => returnToCode(current) : undefined,
                 change: changeServer,
-                changeLabel: options.onChangeAccount ? "Change account" : "Change server",
+                changeLabel: leaveTitle(),
                 back: current.submitting ? () => undefined : phoneRoute ? () => returnToCode(current) : changeServer,
             }),
             focus,

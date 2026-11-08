@@ -30,7 +30,15 @@ export interface ProfileHandoff {
 }
 
 export interface ProfileOptions {
+    /** Switch Profile, or choosing the account already open. The picker stays up. */
     readonly pickerRequested?: boolean;
+    /**
+     * Choosing another account waits for a profile instead of restoring a remembered one.
+     * A single profile without a PIN still opens (ChangeAccountModel.open path, 54cf0f34).
+     */
+    readonly skipRemembered?: boolean;
+    /** The account's sign-in ended. The app routes it; these screens do not draw their own page. */
+    readonly onSessionExpired?: () => void;
     readonly onChangeServer: () => void;
     readonly server: ConnectedServer;
     readonly clock?: Clock;
@@ -368,7 +376,8 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         }
         switch (change.reason) {
             case "session_expired":
-                expired();
+                if (options.onSessionExpired !== undefined) options.onSessionExpired();
+                else expired();
                 return;
             case "signed_out":
                 if (!leaving) {
@@ -386,6 +395,10 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             case "profile_cleared":
                 // These screens make these changes themselves.
                 return;
+            default: {
+                const exhaustive: never = change.reason;
+                return exhaustive;
+            }
         }
     };
     const unsubscribe = session.onAuthorityChange(onChange);
@@ -401,8 +414,14 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         release();
     };
 
+    // ProfileSelectionView.openOnlyProfileIfNeeded / skipPickerIfSingleProfile (54cf0f34:207-218).
+    // Switch Profile sets pickerRequested, so its picker stays. A PIN still has to be entered.
+    const onlyUnprotected = (list: readonly ProfileSummary[]): ProfileSummary | undefined =>
+        options.pickerRequested || list.length !== 1 || list[0] === undefined || list[0].hasPin ? undefined : list[0];
     const launchOnline = (): void => load(list => {
-        if (options.pickerRequested) { picker(list); return; }
+        const only = onlyUnprotected(list);
+        if (only !== undefined) { choose(only); return; }
+        if (options.pickerRequested || options.skipRemembered) { picker(list); return; }
         const token = view;
         const controller = new AbortController();
         pending = controller;
@@ -420,9 +439,9 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             if (error instanceof SessionError && error.reason !== "unavailable") { expired(); return; }
             message("profile-launch-error", "Remembered profile didn't open", ["Could not verify the remembered profile. Try again or choose who's watching."], [button("retry", "Retry", launchOnline), button("back", "Choose profile", () => picker(list)), signOutButton()], () => picker(list), "error");
         });
-    }, undefined, !options.pickerRequested);
+    }, undefined, !options.pickerRequested && !options.skipRemembered);
     const launch = (): void => {
-        if (!server.localRestore || options.pickerRequested || !options.launch?.remembered || options.launch.requiresSelection()) {
+        if (options.skipRemembered || !server.localRestore || options.pickerRequested || !options.launch?.remembered || options.launch.requiresSelection()) {
             launchOnline();
             return;
         }

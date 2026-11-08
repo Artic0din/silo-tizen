@@ -20,6 +20,8 @@ export class SeriesEpisodes {
     get interrupted(): boolean { return this.episodes === undefined && this.seasonNumber !== undefined && this.cancelledSeasons.has(this.seasonNumber); }
     get boundaryFailed(): boolean { return [...this.failedNeighbors].some(number => !this.failedSelections.has(number) && number !== this.seasonNumber); }
     private readonly pages = new Map<number, readonly Episode[]>();
+    /** Pages a fresh visit leaves out of the rail window. Reaching one again reuses it instead of the network. */
+    private readonly parked = new Map<number, readonly Episode[]>();
     private neighbors: AbortController | undefined;
     private readonly pendingNeighbors = new Set<number>();
     private readonly requestedBoundaries = new Map<string, number>();
@@ -74,6 +76,7 @@ export class SeriesEpisodes {
             this.episodes = previous.episodes;
             if (!freshWindow) this.railEpisodes = previous.railEpisodes;
             for (const [number, page] of previous.pages) this.pages.set(number, page);
+            for (const [number, page] of previous.parked) if (!this.pages.has(number)) this.parked.set(number, page);
             if (freshWindow) {
                 this.keepFreshNeighborPages();
                 this.updateWindow();
@@ -98,7 +101,14 @@ export class SeriesEpisodes {
         const order = orderedEpisodeSeasons(this.seasons);
         if (!order.includes(selected)) return;
         const keep = contiguousNeighborSeasons(order, selected, this.pages).add(selected);
-        for (const number of this.pages.keys()) if (!keep.has(number)) this.pages.delete(number);
+        for (const [number, page] of this.pages) if (!keep.has(number)) { this.parked.set(number, page); this.pages.delete(number); }
+    }
+
+    private unpark(season: number): void {
+        const page = this.parked.get(season);
+        if (page === undefined || this.pages.has(season)) return;
+        this.pages.set(season, page);
+        this.parked.delete(season);
     }
 
     stop(): void {
@@ -158,6 +168,7 @@ export class SeriesEpisodes {
         this.seasonNumber = season;
         this.focusSelectedEpisode = true;
         this.entryEpisode = undefined;
+        this.unpark(season);
         if (!automatic && !this.pages.has(season)) { this.load(); return; }
         this.controller?.abort();
         this.controller = undefined;
@@ -362,7 +373,8 @@ export class SeriesEpisodes {
         const controller = this.neighbors;
         this.pendingNeighbors.add(number);
         try {
-            const page = await this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, number), retry: "never", profileScoped: true, signal: controller.signal });
+            const page = this.parked.get(number) ?? await this.session.call({ ...operations.listSeasonEpisodes(this.seriesId, number), retry: "never", profileScoped: true, signal: controller.signal });
+            this.parked.delete(number);
             if (!this.active || controller.signal.aborted) return;
             this.failedNeighbors.delete(number);
             this.transportFailures.delete(number);

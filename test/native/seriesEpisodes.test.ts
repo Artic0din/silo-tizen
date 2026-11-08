@@ -77,6 +77,14 @@ test("reopening Details keeps the fresh neighbor window, not a chip walk to the 
     assert.equal(reopened.windowReachesSeriesStart, false);
     assert.equal(reopened.railEpisodes?.some(episode => episode.seasonNumber === 1), false);
     assert.equal(reopened.railEpisodes?.some(episode => episode.seasonNumber === 4), true);
+    reopened.start();
+    await h.settle();
+    const before = h.reads().length;
+    reopened.select(1);
+    await h.settle();
+    assert.equal(h.reads().length, before, "a season left out of the fresh window is reused, not refetched");
+    assert.equal(reopened.railEpisodes?.some(episode => episode.seasonNumber === 1), true);
+    reopened.stop();
     const refresh = new SeriesEpisodes(h.core.session, "series:s1", h.state.seasons, () => undefined, 5);
     refresh.restore(h.state, true);
     assert.equal(refresh.windowReachesSeriesStart, true);

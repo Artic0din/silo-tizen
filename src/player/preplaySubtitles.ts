@@ -58,12 +58,10 @@ export function startSubtitleTrackId(fileId: string, intent: SubtitleIntent | un
     // Auto would then pick a full subtitle the matching audio does not need.
     if (intent.kind === "auto" && (preferences === undefined || preferences.audioLanguage === undefined || preferences.audioLanguage.trim() === "")) return undefined;
     // A saved downloaded choice has no catalog row; naming a catalog row would only force a track change.
-    if (intent.kind !== "track" && preferences?.signature?.source === "downloaded") return undefined;
+    if (intent.kind !== "track" && preferences?.mode !== "off" && preferences?.signature?.source === "downloaded") return undefined;
     try {
         const inventory = provisionalInventory(fileId, tracks);
-        // Apple skips rows the server cannot deliver (an embedded row with no codec): naming one refuses the whole start.
-        const deliverable = inventory.filter(track => !(track.source === "embedded" && !track.codec?.trim()));
-        const id = initialSubtitle(intent, deliverable, preferences);
+        const id = initialSubtitle(intent, inventory, preferences);
         // A downloaded row's server ordinal follows created_at, which the catalog does not publish.
         if (inventory.find(track => track.trackId === id)?.source === "downloaded") return undefined;
         return id;
@@ -98,13 +96,18 @@ function provisionalInventory(fileId: string, tracks: readonly CatalogSubtitleTr
 }
 
 /** Only identities published by this plan may leave this resolver. */
-export function initialSubtitle(intent: SubtitleIntent, inventory: readonly SubtitleTrack[], preferences?: SubtitlePreferences): string | undefined {
+/** Apple's `hasUnsupportedFormat`: the server refuses a start or switch that names an embedded row with no codec. */
+const deliverable = (track: SubtitleTrack): boolean => !(track.source === "embedded" && !track.codec?.trim());
+
+export function initialSubtitle(intent: SubtitleIntent, tracks: readonly SubtitleTrack[], preferences?: SubtitlePreferences): string | undefined {
     if (intent.kind === "off") return undefined;
     if (intent.kind === "track") {
-        const matches = inventory.filter(track => matchesSubtitle(track, intent.signature));
+        const matches = tracks.filter(track => matchesSubtitle(track, intent.signature));
         if (matches.length !== 1) throw new Error("Selected subtitles are no longer uniquely available.");
-        return matches[0]?.trackId;
+        // Apple plays on without subtitles when the chosen row cannot be delivered.
+        return matches[0] !== undefined && deliverable(matches[0]) ? matches[0].trackId : undefined;
     }
+    const inventory = tracks.filter(deliverable);
     if (preferences === undefined) throw new Error("Subtitle preferences are unavailable.");
     const forced = (): string | undefined => preferences.showForced ? preferred(inventory.filter(track => track.forced), preferences.audioLanguage)?.trackId : undefined;
     if (preferences.mode === "off") return forced();

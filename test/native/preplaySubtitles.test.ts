@@ -54,6 +54,11 @@ test("a pre-start pick skips an embedded row the server cannot deliver and keeps
         assert.equal(startSubtitleTrackId("42", { kind: "auto" }, [unroutable], { ...prefs, mode }), undefined, mode);
         assert.equal(startSubtitleTrackId("42", { kind: "auto" }, [unroutable, routable], { ...prefs, mode }), "file:42:subtitle:1", mode);
     }
+    assert.equal(startSubtitleTrackId("42", { kind: "track", signature: unroutable }, [unroutable]), undefined);
+    // After start the plan inventory goes through the same rule, so no track change names the row.
+    const planRow: SubtitleTrack = { ...track, trackId: "file:42:subtitle:0", combinedIndex: 0, codec: undefined };
+    assert.equal(initialSubtitle({ kind: "track", signature: { ...unroutable, codec: undefined } }, [planRow]), undefined);
+    assert.equal(initialSubtitle({ kind: "auto" }, [planRow], { ...prefs, mode: "always" }), undefined);
 });
 
 test("a saved downloaded subtitle names no catalog row before start", () => {
@@ -61,6 +66,8 @@ test("a saved downloaded subtitle names no catalog row before start", () => {
     const downloaded = { ...spanish, source: "downloaded" as const, label: "Spanish (downloaded)" };
     assert.equal(startSubtitleTrackId("42", { kind: "auto" }, [spanish], { ...prefs, mode: "always", language: "es", signature: downloaded }), undefined);
     assert.equal(startSubtitleTrackId("42", { kind: "auto" }, [spanish], { ...prefs, mode: "always", language: "es" }), "file:42:subtitle:0");
+    const forcedEnglish = { ...spanish, language: "en", forced: true, label: "English (Forced)" };
+    assert.equal(startSubtitleTrackId("42", { kind: "auto" }, [forcedEnglish], { ...prefs, mode: "off", audioLanguage: "en", signature: downloaded }), "file:42:subtitle:0", "Off still names the forced track");
 });
 
 test("a Details audio pick decides which language Auto compares before start", () => {

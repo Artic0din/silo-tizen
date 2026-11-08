@@ -24,6 +24,21 @@ export function orderedEpisodeSeasons(seasons: readonly Season[]): number[] {
     return [...new Set([...seasons].sort((a, b) => Number(a.isSpecials || a.seasonNumber === 0) - Number(b.isSpecials || b.seasonNumber === 0) || a.seasonNumber - b.seasonNumber).map(season => season.seasonNumber))];
 }
 
+/**
+ * The contiguous loaded run includes the series' first ordered season.
+ * Measured on Apple TV at silo-apple 2ef3a171: that run sits 40px further left
+ * than a run with an earlier season still unloaded. The offset has no term in
+ * TVEpisodeRail's anchor math.
+ */
+export function episodeWindowReachesSeriesStart(order: readonly number[], selected: number | undefined, pages: ReadonlyMap<number, readonly Episode[]>): boolean {
+    const start = order[0];
+    if (start === undefined || selected === undefined || !pages.has(selected)) return false;
+    let index = order.indexOf(selected);
+    if (index < 0) return false;
+    while (index > 0 && pages.has(order[index - 1]!)) index -= 1;
+    return order[index] === start;
+}
+
 /** SeriesEpisodeWindow.swift:26-81 at the same revision. Missing pages break continuity. */
 export function episodeWindow(order: readonly number[], selected: number | undefined, pages: ReadonlyMap<number, readonly Episode[]>): readonly Episode[] {
     if (selected === undefined || !pages.has(selected)) return [];

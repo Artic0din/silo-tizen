@@ -2,7 +2,7 @@ import { operations } from "../api/operations.ts";
 import { ApiError } from "../api/errors.ts";
 import type { Episode, Season } from "../contracts/v2/catalog.ts";
 import type { NativeSession } from "../session/session.ts";
-import { episodeWindow, orderedEpisodeSeasons, retainEpisodePages } from "./episodeRail.ts";
+import { episodeWindow, episodeWindowReachesSeriesStart, orderedEpisodeSeasons, retainEpisodePages } from "./episodeRail.ts";
 
 const BOUNDARY_DWELL_MS = 70;
 // TVSeriesDetailView.swift:780-793 at 7baff3ef.
@@ -63,7 +63,7 @@ export class SeriesEpisodes {
         if (!this.loaded && this.controller === undefined && !this.failed && !this.interrupted) this.load(true, false, true);
     }
 
-    restore(previous: SeriesEpisodes | undefined, refresh = false): void {
+    restore(previous: SeriesEpisodes | undefined, refresh = false, freshWindow = false): void {
         this.selectionChanged = refresh && previous?.selectionChanged === true;
         if (this.selectionChanged && previous !== undefined) {
             this.entryEpisode = previous.entryEpisode;
@@ -72,8 +72,12 @@ export class SeriesEpisodes {
         }
         if (previous !== undefined && previous.seasonNumber === this.seasonNumber) {
             this.episodes = previous.episodes;
-            this.railEpisodes = previous.railEpisodes;
+            if (!freshWindow) this.railEpisodes = previous.railEpisodes;
             for (const [number, page] of previous.pages) this.pages.set(number, page);
+            if (freshWindow) {
+                this.keepFreshNeighborPages();
+                this.updateWindow();
+            }
             for (const number of previous.failedNeighbors) this.failedNeighbors.add(number);
             for (const number of previous.failedSelections) this.failedSelections.add(number);
             for (const number of previous.cancelledSeasons) this.cancelledSeasons.add(number);
@@ -81,6 +85,32 @@ export class SeriesEpisodes {
             for (const number of previous.transportFailures) this.transportFailures.add(number);
             this.failed = previous.failed && !(refresh && previous.seasonNumber !== undefined && previous.transportFailures.has(previous.seasonNumber));
         }
+    }
+
+    /**
+     * A new Details visit keeps the selected season and the neighbor pages a
+     * first open would warm. Seasons reached only by walking chips are dropped,
+     * so reopening matches a later-season rail that has not loaded Season 1.
+     */
+    private keepFreshNeighborPages(): void {
+        const selected = this.seasonNumber;
+        if (selected === undefined || !this.pages.has(selected)) return;
+        const order = orderedEpisodeSeasons(this.seasons);
+        const index = order.indexOf(selected);
+        if (index < 0) return;
+        const keep = new Set<number>([selected]);
+        for (const direction of [-1, 1]) {
+            const seen = new Set((this.pages.get(selected) ?? []).map(episode => episode.id));
+            let count = 0;
+            for (let neighbor = index + direction; neighbor >= 0 && neighbor < order.length && count < 8; neighbor += direction) {
+                const number = order[neighbor]!;
+                const page = this.pages.get(number);
+                if (page === undefined) break;
+                keep.add(number);
+                for (const episode of page) if (!seen.has(episode.id)) { seen.add(episode.id); count++; }
+            }
+        }
+        for (const number of this.pages.keys()) if (!keep.has(number)) this.pages.delete(number);
     }
 
     stop(): void {
@@ -299,6 +329,11 @@ export class SeriesEpisodes {
     blur(): void {
         clearTimeout(this.boundaryDwell);
         this.boundaryDwell = undefined;
+    }
+
+    /** The painted rail's loaded run includes this series' first season. */
+    get windowReachesSeriesStart(): boolean {
+        return episodeWindowReachesSeriesStart(orderedEpisodeSeasons(this.seasons), this.seasonNumber, this.pages);
     }
 
     private updateWindow(): void {

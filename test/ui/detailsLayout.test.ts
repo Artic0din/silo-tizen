@@ -301,9 +301,10 @@ for (const season of [1, 2, 30]) detailTest(`fresh season ${season} has no retai
     await tv.page.locator(`[data-focus="season:${season}"]`).focus(); await tv.jump(500);
     const frame = await readLive(tv, liveRail, null, value => {
         const card = value.cards.at(-5);
-        return card !== undefined && Math.abs(card.x - 149.5) <= 2 && Math.abs(value.cards.at(-1)!.right - 1858) <= 2;
+        return card !== undefined && Math.abs(card.x - 109.7) <= 2 && Math.abs(value.cards.at(-1)!.right - 1818) <= 2;
     }, 'fresh first and final card geometry');
-    assert.ok(Math.abs(frame.cards.at(-5)!.x - 149.5) <= 2);
+    assert.ok(Math.abs(frame.cards.at(-5)!.x - 109.7) <= 2, JSON.stringify(frame));
+    assert.ok(Math.abs(frame.cards.at(-1)!.right - 1818) <= 2, JSON.stringify(frame));
     const pill = await readLive(tv, () => {
         const node = document.querySelector('.details-season-chips [aria-pressed="true"]');
         if (!(node instanceof HTMLElement)) return null;
@@ -413,8 +414,8 @@ detailTest("short final season uses the continuous row end clamp and loaded pred
         const r = node.getBoundingClientRect(); return r.left >= 0 && r.right <= 1920;
     }).map(node => node.getAttribute('data-focus')));
     assert.deepEqual(visible, ['episode:short3:9', 'episode:short3:10', 'episode:short4:1', 'episode:short4:2', 'episode:short4:3']);
-    const frame = await readLive(tv, liveRail, null, value => value !== null && Math.abs(value.cards[8]!.x - 150) < 2, 'fresh pill selection has no reopen clearance');
-    assert.ok(frame && Math.abs(frame.cards[10]!.x - 848.5) < 2 && Math.abs(frame.cards.at(-1)!.right - 1858) < 2);
+    const frame = await readLive(tv, liveRail, null, value => value !== null && Math.abs(value.cards[8]!.x - 110) < 2, 'fresh pill selection has no reopen clearance');
+    assert.ok(frame && Math.abs(frame.cards[10]!.x - 808.5) < 2 && Math.abs(frame.cards.at(-1)!.right - 1818) < 2);
     assert.equal(await tv.page.locator('[data-focus="season:3"]').evaluate(node => node.getBoundingClientRect().x), 100);
 }, 'compact');
 
@@ -1005,14 +1006,14 @@ detailTest("Final season E05 clamps with one successor while start and interior 
     const end = await readLive(tv, liveRail, null, value => {
         const last = value.cards[14];
         const next = value.cards[15];
-        return last !== undefined && next !== undefined && Math.abs(last.frameX - 1198) < 2 && Math.abs(last.x - 1191) < 2 && Math.abs(next.right - 1857) < 2 && value.scroll === 3846;
+        return last !== undefined && next !== undefined && Math.abs(last.frameX - 1158) < 2 && Math.abs(last.x - 1151) < 2 && Math.abs(next.right - 1817) < 2 && value.scroll === 3846;
     }, "E05 focus lift settled");
     // Keep painted focus bounds separate from the unscaled frame.
     // Integer scrollLeft rounds the 3845.6px terminal offset to 3846px.
     // The slot is one spacing to the right of the old 100 + hover inset.
-    assert.ok(Math.abs(end.cards[14]!.frameX - 1198) < 2, JSON.stringify(end));
-    assert.ok(Math.abs(end.cards[14]!.x - 1191) < 2, JSON.stringify(end));
-    assert.ok(Math.abs(end.cards[15]!.right - 1857) < 2, JSON.stringify(end));
+    assert.ok(Math.abs(end.cards[14]!.frameX - 1158) < 2, JSON.stringify(end));
+    assert.ok(Math.abs(end.cards[14]!.x - 1151) < 2, JSON.stringify(end));
+    assert.ok(Math.abs(end.cards[15]!.right - 1817) < 2, JSON.stringify(end));
     assert.equal(end.scroll, 3846);
     await settledEpisodePrefetch(tv);
     const seasonReads = (): number => tv.fake.requests.filter(request => request.path.includes('/seasons')).length;
@@ -1020,12 +1021,11 @@ detailTest("Final season E05 clamps with one successor while start and interior 
     await card('s13e5').focus(); await tv.jump(500);
     const middle = await readLive(tv, liveRail, null, value => {
         const card = value.cards[4];
-        return card !== undefined && Math.abs(card.x - 142) < 2 && Math.abs(value.scroll - 1398.4) < 1;
+        return card !== undefined && Math.abs(card.x - 102) < 2 && Math.abs(value.scroll - 1398.4) < 1;
     }, "interior focus lift settled");
-    assert.ok(Math.abs(middle.cards[4]!.x - 142) < 2, JSON.stringify(middle));
+    assert.ok(Math.abs(middle.cards[4]!.x - 102) < 2, JSON.stringify(middle));
     assert.ok(Math.abs(middle.scroll - 1398.4) < 1, JSON.stringify(middle));
-    // Signed comparison, compact still about 310px at 1.05: still 143, ring 139, layout 149.
-    // The previous card's sliver runs from the mask at 100 to about 109. Its watched tick stays outside that sliver.
+    // Compact still about 310px at 1.05. The window includes Season 13, the series start, so the slot is 40px left: still 102, ring 100, layout 110. The previous card ends at 70, under the mask, and its watched tick stays there too.
     const anchored = await readLive(tv, () => {
         const row = document.querySelector(".details-episodes");
         const focused = row?.querySelector(":focus");
@@ -1049,35 +1049,35 @@ detailTest("Final season E05 clamps with one successor while start and interior 
             sliver: sliverHit !== null && previous.contains(sliverHit),
             clipped: outside === null || !previous.contains(outside),
         };
-    }, null, value => Math.abs(value.still - 143) < 2 && Math.abs(value.frame - 149) < 2 && Math.abs(value.ring - 139) < 2 && value.previousRight > 100 && value.previousRight < 112 && value.sliver && value.clipped && value.badgeRight <= 100, "compact anchored slot and previous sliver");
-    assert.ok(Math.abs(anchored.still - 143) < 2, JSON.stringify(anchored));
-    assert.ok(Math.abs(anchored.frame - 149) < 2, JSON.stringify(anchored));
-    assert.ok(Math.abs(anchored.ring - 139) < 2, JSON.stringify(anchored));
-    assert.ok(anchored.previousRight > 100 && anchored.previousRight < 112, JSON.stringify(anchored));
-    assert.equal(anchored.sliver, true, JSON.stringify(anchored));
+    }, null, value => Math.abs(value.still - 102) < 2 && Math.abs(value.frame - 110) < 2 && Math.abs(value.ring - 100) < 2 && Math.abs(value.previousRight - 70) < 2 && !value.sliver && value.clipped && value.badgeRight <= 100, "compact series-start slot hides the previous card");
+    assert.ok(Math.abs(anchored.still - 102) < 2, JSON.stringify(anchored));
+    assert.ok(Math.abs(anchored.frame - 110) < 2, JSON.stringify(anchored));
+    assert.ok(Math.abs(anchored.ring - 100) < 2, JSON.stringify(anchored));
+    assert.ok(Math.abs(anchored.previousRight - 70) < 2, JSON.stringify(anchored));
+    assert.equal(anchored.sliver, false, JSON.stringify(anchored));
     assert.equal(anchored.clipped, true, JSON.stringify(anchored));
     assert.ok(anchored.badgeRight <= 100, JSON.stringify(anchored));
     await card('s13e1').focus(); await tv.jump(500); await tv.remote(37);
     const start = await readLive(tv, liveRail, null, value => {
         const card = value.cards[0];
-        return card !== undefined && value.scroll === 0 && Math.abs(card.frameX - 149.7) < 1 && Math.abs(card.x - 142) < 2;
+        return card !== undefined && value.scroll === 0 && Math.abs(card.frameX - 109.7) < 1 && Math.abs(card.x - 102) < 2;
     }, "first focus lift settled");
     assert.equal(start.scroll, 0);
-    assert.ok(Math.abs(start.cards[0]!.frameX - 149.7) < 1, JSON.stringify(start));
-    assert.ok(Math.abs(start.cards[0]!.x - 142) < 2, JSON.stringify(start));
+    assert.ok(Math.abs(start.cards[0]!.frameX - 109.7) < 1, JSON.stringify(start));
+    assert.ok(Math.abs(start.cards[0]!.x - 102) < 2, JSON.stringify(start));
     assert.equal(await tv.focused(), 'episode:s13e1');
     assert.equal(seasonReads(), reads, 'loaded neighbour and interior focus start no season reads');
     await card('s14e6').focus(); await tv.jump(800);
-    // Signed comparison: last focused still about 1863, ring 1866.
+    // Last focused still about 1823, ring 1826. The 40px series-start shift moves the terminal edge with the slot.
     const terminal = await readLive(tv, () => {
         const art = document.querySelector(".details-episodes :focus .browse-art");
         if (!(art instanceof HTMLElement) || !art.isConnected) return null;
         const box = art.getBoundingClientRect();
         const extension = parseFloat(getComputedStyle(art).outlineWidth) + parseFloat(getComputedStyle(art).outlineOffset);
         return { right: box.right, ring: box.right + extension, width: box.width };
-    }, null, value => value.width > 320 && Math.abs(value.right - 1863) < 3 && Math.abs(value.ring - 1866) < 3, "last focused episode right edge");
-    assert.ok(Math.abs(terminal.right - 1863) < 3, JSON.stringify(terminal));
-    assert.ok(Math.abs(terminal.ring - 1866) < 3, JSON.stringify(terminal));
+    }, null, value => value.width > 320 && Math.abs(value.right - 1823) < 3 && Math.abs(value.ring - 1826) < 3, "last focused episode right edge");
+    assert.ok(Math.abs(terminal.right - 1823) < 3, JSON.stringify(terminal));
+    assert.ok(Math.abs(terminal.ring - 1826) < 3, JSON.stringify(terminal));
 }, 'compact');
 
 detailTest("Apple loaded-season window rebases E05 and retains remote focus across its boundaries", async tv => {
@@ -1094,7 +1094,7 @@ detailTest("Apple loaded-season window rebases E05 and retains remote focus acro
         const node = document.querySelector('[data-focus="episode:s14e5"]');
         if (node === null || !node.isConnected) return null;
         return node.getBoundingClientRect().x;
-    }, null, value => value === 151, "E05 frame x with loaded predecessor"), 151);
+    }, null, value => value === 111, "E05 frame x when the window includes the first season"), 111);
     await tv.page.locator('[data-focus="episode:s14e5"]').focus();
     await tv.jump(1500);
     await settledEpisodePrefetch(tv);
@@ -1148,18 +1148,18 @@ for (const current of [1, 5]) detailTest(`Measured five-card episode rail with E
     await tv.jump(500);
     const lifted = await readLive(tv, liveRail, null, value => {
         const card = value.cards[0];
-        return card !== undefined && card.width > 377 && Math.abs(card.x - 142) < 2;
+        return card !== undefined && card.width > 377 && Math.abs(card.x - 102) < 2;
     }, "first card lift settled");
-    assert.ok(Math.abs(lifted.cards[0]!.x - 142) < 2);
+    assert.ok(Math.abs(lifted.cards[0]!.x - 102) < 2);
     await tv.page.locator('[data-focus="episode:s1e15"]').focus();
     await tv.jump(500);
     const focused = await readLive(tv, liveRail, null, value => {
         const card = value.cards[4];
-        return card !== undefined && card.width > 377 && Math.abs(card.x - 1342) < 2;
+        return card !== undefined && card.width > 377 && Math.abs(card.x - 1302) < 2;
     }, "E05 lift settled");
     assert.ok(Math.abs(rest.cards[0]!.width - 360) < 1, JSON.stringify(rest));
     assert.equal(rest.scroll, current === 1 ? 0 : 400);
-    assert.ok(Math.abs(focused.cards[4]!.x - 1342) < 2, JSON.stringify(focused));
+    assert.ok(Math.abs(focused.cards[4]!.x - 1302) < 2, JSON.stringify(focused));
 });
 
 for (const art of [
@@ -1365,8 +1365,8 @@ detailTest('Down into an alternate season starts at its first episode and retarg
         if (card === null || art === undefined || !card.isConnected || card !== document.activeElement) return null;
         const box = card.getBoundingClientRect();
         return { x: box.x, artX: art.x, artWidth: art.width };
-    }, null, value => Math.abs(value.x - 151) < 1 && Math.abs(value.artX - 142) < 2 && Math.abs(value.artWidth - 378) < 1, "episode artwork settles at x142");
-    assert.ok(Math.abs(settled.x - 151) < 1 && Math.abs(settled.artX - 142) < 2 && Math.abs(settled.artWidth - 378) < 1, JSON.stringify(settled));
+    }, null, value => Math.abs(value.x - 111) < 1 && Math.abs(value.artX - 102) < 2 && Math.abs(value.artWidth - 378) < 1, "episode artwork settles at x102");
+    assert.ok(Math.abs(settled.x - 111) < 1 && Math.abs(settled.artX - 102) < 2 && Math.abs(settled.artWidth - 378) < 1, JSON.stringify(settled));
 });
 
 detailTest('Selecting the already loaded season resets entry to E01 without another episode read', async tv => {
@@ -2285,6 +2285,122 @@ for (const check of ['cast', 'caption', 'season', 'description', 'menu', 'metada
     }
 });
 
+function anchoredEpisodeSlot(): { ring: number; previousRight: number; frame: number; still: number; sliver: boolean } | null {
+    const focused = document.activeElement;
+    const art = focused?.querySelector(".browse-art");
+    const previous = focused?.previousElementSibling;
+    const previousArt = previous?.querySelector(".browse-art");
+    if (!(focused instanceof HTMLElement) || !(art instanceof HTMLElement) || !(previous instanceof HTMLElement) || !(previousArt instanceof HTMLElement) || !focused.isConnected) return null;
+    for (const animation of art.getAnimations()) animation.finish();
+    const still = art.getBoundingClientRect();
+    const prev = previousArt.getBoundingClientRect();
+    const outline = parseFloat(getComputedStyle(art).outlineWidth);
+    const outlineOffset = parseFloat(getComputedStyle(art).outlineOffset);
+    const y = still.top + still.height / 2;
+    const sliverX = 100 + Math.max(0, prev.right - 100) / 2;
+    const sliverHit = document.elementFromPoint(sliverX, y);
+    return {
+        still: still.left,
+        frame: focused.getBoundingClientRect().left,
+        ring: still.left - (outline + outlineOffset),
+        previousRight: prev.right,
+        sliver: prev.right > 100 && sliverHit !== null && previous.contains(sliverHit),
+    };
+}
+
+detailTest("episode rail uses state A when the loaded window starts at Season 1", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog);
+    const seasons = catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body as { items: Record<string, unknown>[] };
+    const episodes = catalog.route("GET", "/catalog/series/series%3As1/seasons/1/episodes", "p-owner")?.body as { items: Record<string, unknown>[] };
+    await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons?**", route => route.fulfill({ json: { items: [1, 2].map(number => ({ ...seasons.items[0], content_id: `season:${number}`, season_number: number, episode_count: 8, user_data: { played: false, in_progress_count: 0 } })) } }));
+    for (const season of [1, 2]) await tv.page.route(`**/api/v2/catalog/series/series%3As1/seasons/${season}/episodes?**`, route => route.fulfill({ json: { items: Array.from({ length: 8 }, (_, index) => ({ ...episodes.items[0], content_id: `episode:origin:${season}:${index + 1}`, season_number: season, episode_number: index + 1, user_data: { played: index === 0 } })) } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    const card = tv.page.locator('[data-focus="episode:origin:1:2"]');
+    await card.waitFor();
+    await card.focus();
+    await tv.jump(500);
+    const slot = await readLive(tv, anchoredEpisodeSlot, null, value => Math.abs(value.ring - 100) < 0.6 && Math.abs(value.previousRight - 70) < 0.6 && value.sliver === false, "Season 1 window is state A");
+    assert.ok(Math.abs(slot.ring - 100) < 0.6, JSON.stringify(slot));
+    assert.ok(Math.abs(slot.previousRight - 70) < 0.6, JSON.stringify(slot));
+    assert.equal(slot.sliver, false, JSON.stringify(slot));
+    assert.ok(Math.abs(slot.frame - 110) < 1, JSON.stringify(slot));
+}, "compact");
+
+detailTest("episode rail keeps state B when an earlier season page is not loaded", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog);
+    const seasons = catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body as { items: Record<string, unknown>[] };
+    const episodes = catalog.route("GET", "/catalog/series/series%3As1/seasons/1/episodes", "p-owner")?.body as { items: Record<string, unknown>[] };
+    await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons?**", route => route.fulfill({ json: { items: [1, 13, 14].map(season => ({ ...seasons.items[0], content_id: `season:${season}`, season_number: season, episode_count: season === 13 ? 10 : season === 14 ? 6 : 10, user_data: { played: season !== 14, in_progress_count: season === 14 ? 1 : 0 } })) } }));
+    for (const season of [13, 14]) await tv.page.route(`**/api/v2/catalog/series/series%3As1/seasons/${season}/episodes?**`, route => route.fulfill({ json: { items: Array.from({ length: season === 13 ? 10 : 6 }, (_, index) => ({ ...episodes.items[0], content_id: `episode:later:s${season}e${index + 1}`, season_number: season, episode_number: index + 1, user_data: { played: season === 13 || index < 4 } })) } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:later:s13e10"]').waitFor();
+    await tv.page.locator('[data-focus="episode:later:s13e5"]').focus();
+    await tv.jump(500);
+    const slot = await readLive(tv, anchoredEpisodeSlot, null, value => Math.abs(value.ring - 139) < 2 && value.previousRight > 100 && value.previousRight < 112 && value.sliver, "later season stays state B");
+    assert.ok(Math.abs(slot.ring - 139) < 2, JSON.stringify(slot));
+    assert.ok(slot.previousRight > 100 && slot.previousRight < 112, JSON.stringify(slot));
+    assert.equal(slot.sliver, true, JSON.stringify(slot));
+    await tv.page.locator('[data-focus="episode:later:s14e6"]').focus();
+    await tv.jump(800);
+    const terminal = await readLive(tv, () => {
+        const art = document.querySelector(".details-episodes :focus .browse-art");
+        if (!(art instanceof HTMLElement) || !art.isConnected) return null;
+        const box = art.getBoundingClientRect();
+        const extension = parseFloat(getComputedStyle(art).outlineWidth) + parseFloat(getComputedStyle(art).outlineOffset);
+        return { ring: box.right + extension, width: box.width };
+    }, null, value => value.width > 320 && Math.abs(value.ring - 1866) < 3, "state B terminal ring");
+    assert.ok(Math.abs(terminal.ring - 1866) < 3, JSON.stringify(terminal));
+}, "compact");
+
+detailTest("walking season chips to Season 1 keeps state A until Details is reopened", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog);
+    const seasonBody = catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body as { items: Record<string, unknown>[] };
+    const episodeBody = catalog.route("GET", "/catalog/series/series%3As1/seasons/1/episodes", "p-owner")?.body as { items: Record<string, unknown>[] };
+    const episode = (season: number, index: number): Record<string, unknown> => ({ ...episodeBody.items[0], content_id: `episode:walk:${season}:${index + 1}`, season_number: season, episode_number: index + 1, user_data: { played: index === 0 } });
+    await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons?**", route => route.fulfill({ json: { items: [1, 2, 3, 4, 5].map(number => ({ ...seasonBody.items[0], content_id: `season:${number}`, season_number: number, title: `Season ${number}`, episode_count: 10, user_data: { played: number < 5, in_progress_count: number === 5 ? 1 : 0 } })) } }));
+    for (const season of [1, 2, 3, 4, 5]) await tv.page.route(`**/api/v2/catalog/series/series%3As1/seasons/${season}/episodes?**`, route => route.fulfill({ json: { items: Array.from({ length: 10 }, (_, index) => episode(season, index)) } }));
+    const open = async (): Promise<void> => {
+        await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+        await tv.page.locator('[data-focus="episode:walk:5:1"]').waitFor();
+    };
+    const expectSlot = async (state: "A" | "B", episodeId: string): Promise<void> => {
+        await tv.page.locator(`[data-focus="${episodeId}"]`).focus();
+        await tv.jump(500);
+        const slot = await readLive(tv, anchoredEpisodeSlot, null, value => state === "A" ? Math.abs(value.ring - 100) < 0.6 && Math.abs(value.previousRight - 70) < 0.6 && !value.sliver : Math.abs(value.ring - 139) < 2 && value.previousRight > 100 && value.sliver, `chip walk ${state}`);
+        if (state === "A") {
+            assert.ok(Math.abs(slot.ring - 100) < 0.6, JSON.stringify(slot));
+            assert.ok(Math.abs(slot.previousRight - 70) < 0.6, JSON.stringify(slot));
+            assert.equal(slot.sliver, false, JSON.stringify(slot));
+        } else {
+            assert.ok(Math.abs(slot.ring - 139) < 2, JSON.stringify(slot));
+            assert.ok(slot.previousRight > 100, JSON.stringify(slot));
+            assert.equal(slot.sliver, true, JSON.stringify(slot));
+        }
+    };
+    await open();
+    await tv.page.locator('[data-focus="episode:walk:4:10"]').waitFor();
+    await expectSlot("B", "episode:walk:5:2");
+    await tv.page.locator('[data-focus="season:5"]').focus();
+    for (const season of [4, 3, 2, 1]) {
+        await tv.remote(37);
+        await tv.jump(120);
+        await tv.page.locator(`[data-focus="episode:walk:${season}:1"]`).waitFor();
+    }
+    await expectSlot("A", "episode:walk:1:2");
+    await tv.page.locator('[data-focus="season:1"]').focus();
+    for (const season of [2, 3, 4, 5]) {
+        await tv.remote(39);
+        await tv.jump(120);
+        await tv.page.locator(`[data-focus="season:${season}"][aria-pressed="true"]`).waitFor();
+    }
+    await tv.page.locator('[data-focus="episode:walk:4:10"]').waitFor();
+    await expectSlot("A", "episode:walk:5:2");
+    await tv.remote(10009);
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().waitFor();
+    await open();
+    await expectSlot("B", "episode:walk:5:2");
+}, "compact");
+
 function detailTest(name: string, body: (tv: Tv) => Promise<void>, size?: 'compact' | 'standard' | 'large'): void {
     test(name, async () => {
     const tv = await openTv(browser, { app: "browse" });
@@ -2716,13 +2832,13 @@ detailTest("series detail rows match Apple's 100px inset, episode mask and still
     await tv.page.locator('[data-detail-section="related"] .browse-card').first().waitFor();
     await tv.jump(400);
     await tv.page.evaluate(() => { for (const animation of document.getAnimations()) animation.finish(); });
-    const edge = await readLive(tv, readDetailEdges, null, value => value.artScale > 1.02 && value.probeY > 0 && value.probeY < 1080 && value.sliver, "settled detail edges");
-    const leading = 100 + edge.spacing + edge.layoutWidth * 0.025 + 2;
+    const edge = await readLive(tv, readDetailEdges, null, value => value.artScale > 1.02 && value.probeY > 0 && value.probeY < 1080 && !value.sliver && value.previousRight < 100, "settled detail edges");
+    const leading = 100 + edge.layoutWidth * 0.025 + 2;
     assert.ok(Math.abs(edge.focusedLeft - leading) < 1, JSON.stringify(edge));
     assert.ok(Math.abs(edge.stillLeft - (leading - edge.layoutWidth * 0.025)) < 1, JSON.stringify(edge));
     assert.equal(edge.predecessorClipped, true, JSON.stringify(edge));
-    assert.equal(edge.sliver, true, JSON.stringify(edge));
-    assert.ok(edge.previousRight > 100 && edge.previousRight < leading - edge.spacing + 1, JSON.stringify(edge));
+    assert.equal(edge.sliver, false, JSON.stringify(edge));
+    assert.ok(edge.previousRight > 60 && edge.previousRight < 80, JSON.stringify(edge));
     assert.ok(edge.badgeRight <= 100, JSON.stringify(edge));
     assert.ok(Math.abs(edge.artScale - 1.05) < 0.02, JSON.stringify(edge));
     assert.equal(edge.liftPainted, true, JSON.stringify(edge));

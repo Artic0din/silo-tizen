@@ -61,6 +61,27 @@ async function episodeRailHarness(failedSeason?: number, emptySeason?: number, h
     return { ...h, state, settle, reads, held };
 }
 
+test("reopening Details keeps the fresh neighbor window, not a chip walk to the first season", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(undefined, undefined, undefined, 5);
+    t.after(() => h.state.stop());
+    for (const season of [4, 5]) {
+        h.state.focusSeason(season);
+        t.mock.timers.tick(70);
+        await h.settle();
+    }
+    assert.equal(h.state.seasonNumber, 5);
+    assert.equal(h.state.windowReachesSeriesStart, true);
+    const reopened = new SeriesEpisodes(h.core.session, "series:s1", h.state.seasons, () => undefined, 5);
+    reopened.restore(h.state, false, true);
+    assert.equal(reopened.windowReachesSeriesStart, false);
+    assert.equal(reopened.railEpisodes?.some(episode => episode.seasonNumber === 1), false);
+    assert.equal(reopened.railEpisodes?.some(episode => episode.seasonNumber === 4), true);
+    const refresh = new SeriesEpisodes(h.core.session, "series:s1", h.state.seasons, () => undefined, 5);
+    refresh.restore(h.state, true);
+    assert.equal(refresh.windowReachesSeriesStart, true);
+});
+
 test("a failed selected season does not leak its error into a loaded selection", async () => {
     const h = await episodeRailHarness(1);
     h.state.select(1, true); await h.settle();

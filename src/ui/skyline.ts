@@ -767,9 +767,8 @@ export class Skyline {
         this.panel = [actionButton("cancel-signout", "Cancel", () => this.back()), actionButton("confirm-signout", "Sign Out", () => { if (!this.visible || !this.confirmation) return; this.close(); signOut(); })];
         this.panel[1]?.element.classList.add("skyline-destructive");
         const header = el("div", "skyline-confirm-header");
-        const server = this.profiles.serverName?.() ?? "the server";
-        const message = signOutConfirmationCopy(this.profiles.accountName, server, this.profiles.lastAccount === true).message;
-        header.append(el("h2", "skyline-confirm-title", `Sign out of ${this.profiles.accountName ?? "this account"} on ${server}?`), el("p", "skyline-confirm-message", message));
+        const copy = signOutConfirmationCopy(this.profiles.accountName, this.profiles.serverName?.(), this.profiles.lastAccount === true);
+        header.append(el("h2", "skyline-confirm-title", copy.title), el("p", "skyline-confirm-message", copy.message));
         const actions = el("div", "skyline-confirm-actions");
         actions.append(...this.panel.map(item => item.element));
         replaceNodes(this.selector, [header, actions]);

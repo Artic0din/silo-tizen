@@ -189,6 +189,17 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         });
     };
 
+    /** A launch result that lands while Sign out is being confirmed waits behind the dialog. */
+    const hold = (token: number, apply: () => void): void => {
+        if (token !== view) return;
+        if (confirmingSignOut) {
+            pending = undefined;
+            heldProfileLoad = apply;
+            return;
+        }
+        apply();
+    };
+
     const signOutButton = (restore: () => void): Control => button("signout", "Sign out", () => askSignOut(restore));
 
     const load = (then: (list: ProfileSummary[]) => void, focus?: string, restoreRememberedOffline = false): void => {
@@ -197,15 +208,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         pending = controller;
         const showLoading = (): void => message("profiles-loading", TITLE, ["Loading profiles."], [signOutButton(showLoading)], resume(), "info", "signout");
         showLoading();
-        const deliver = (apply: () => void): void => {
-            if (token !== view) return;
-            if (confirmingSignOut) {
-                pending = undefined;
-                heldProfileLoad = apply;
-                return;
-            }
-            apply();
-        };
+        const deliver = (apply: () => void): void => hold(token, apply);
         server.profiles.list(controller.signal).then(
             (list) => deliver(() => {
                 if (token !== view) return;
@@ -224,12 +227,11 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
                 if (error instanceof ApiError && ["network", "timeout"].includes(error.failure.kind) && restoreRememberedOffline && options.launch?.remembered) {
                     const restore = new AbortController();
                     pending = restore;
-                    void options.launch.restoreOffline(restore.signal).then(profile => {
-                        if (token !== view) return;
+                    void options.launch.restoreOffline(restore.signal).then(profile => hold(token, () => {
                         pending = undefined;
                         if (profile) handOff(profile);
                         else listFailed(error, focus);
-                    }, failure => { if (token === view) { pending = undefined; listFailed(failure, focus); } });
+                    }), failure => hold(token, () => { pending = undefined; listFailed(failure, focus); }));
                 } else listFailed(error, focus);
             }),
         );
@@ -463,20 +465,18 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         const controller = new AbortController();
         pending = controller;
         restoring = true;
-        options.launch?.restore(list, controller.signal).then(profile => {
-            if (token !== view) return;
+        options.launch?.restore(list, controller.signal).then(profile => hold(token, () => {
             restoring = false;
             pending = undefined;
             if (profile === undefined) picker(list);
             else handOff(profile);
-        }, error => {
-            if (token !== view) return;
+        }), error => hold(token, () => {
             restoring = false;
             pending = undefined;
             if (error instanceof SessionError && error.reason !== "unavailable") { expired(); return; }
             const showLaunchError = (focused = "retry"): void => message("profile-launch-error", "Remembered profile didn't open", ["Could not verify the remembered profile. Try again or choose who's watching."], [button("retry", "Retry", launchOnline), button("back", "Choose profile", () => picker(list)), signOutButton(() => showLaunchError("signout"))], () => picker(list), "error", focused);
             showLaunchError();
-        });
+        }));
     }, undefined, !options.pickerRequested);
     const launch = (): void => {
         if (!server.localRestore || options.pickerRequested || !options.launch?.remembered || options.launch.requiresSelection()) {

@@ -747,6 +747,15 @@ tvTest("a restored sign-in whose password must be reset shows the refusal on the
     assert.equal(await tv.focused(), "change-account", "a retry that is still refused focuses Change account");
     assert.ok(tv.fake.paths().filter((path) => path === "GET /profiles").length > loads);
     assert.equal((await handed(tv)).length, 0, "no profile is chosen");
+    await tv.page.keyboard.press("ArrowRight");
+    assert.equal(await tv.focused(), "signout");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles-error");
+    await shows(tv, "Not allowed");
+    assert.equal(await tv.focused(), "signout", "Cancel returns to Sign out on the refusal");
+    assert.equal(tv.fake.revokedSessions.size, 0);
     await tv.page.getByRole("button", { name: "Change account", exact: true }).click();
     assert.equal(await tv.page.locator('[data-screen="server-selection"]').count(), 1);
     assert.equal(tv.fake.revokedSessions.size, 0, "changing account does not sign this one out");
@@ -1048,4 +1057,37 @@ tvTest("an empty household offers creation and a failed list offers Try again", 
     assert.equal(await tv.focused(), "retry");
     await tv.page.keyboard.press("Enter");
     await screenIs(tv, "profiles");
+});
+
+tvTest("a remembered profile that verifies during sign-out confirmation waits behind it", async (tv) => {
+    await picker(tv);
+    await tv.page.evaluate(() => {
+        const harness = window.harness;
+        const server = harness.server;
+        const root = document.getElementById("root");
+        if (server === undefined || root === null) { throw new Error("profile flow required"); }
+        harness.profileController?.destroy();
+        const state = window as unknown as { verify?: (id: string) => void; selected?: string[] };
+        state.selected = [];
+        // Online launch verifies the remembered profile after the list arrives; the test answers it by hand.
+        const launch = {
+            remembered: true,
+            needsOffer: false,
+            requiresSelection: () => false,
+            restoreOffline: () => Promise.resolve(undefined),
+            restore: (list: readonly { id: string }[]) => new Promise(resolve => { state.verify = id => resolve(list.find(profile => profile.id === id)); }),
+        };
+        harness.mountProfiles(root, { server, launch: launch as never, onSelected: () => { state.selected?.push("handed-off"); }, onSignedOut: () => undefined, onChangeServer: () => undefined } as never);
+    });
+    await tv.eventually(async () => tv.page.evaluate(() => typeof (window as unknown as { verify?: unknown }).verify === "function"), "remembered profile verification started");
+    assert.equal(await tv.focused(), "signout");
+    await tv.page.keyboard.press("Enter");
+    await screenIs(tv, "profiles:signout");
+    await tv.page.evaluate(() => (window as unknown as { verify: (id: string) => void }).verify("p-owner"));
+    await tv.page.evaluate(() => new Promise(resolve => setTimeout(resolve, 0)));
+    assert.equal(await tv.screen(), "profiles:signout", "the restored profile does not replace the confirmation");
+    assert.deepEqual(await tv.page.evaluate(() => (window as unknown as { selected: string[] }).selected), []);
+    await tv.page.keyboard.press("Enter");
+    await tv.eventually(async () => (await tv.page.evaluate(() => (window as unknown as { selected: string[] }).selected)).length === 1, "Cancel replays the restored profile");
+    assert.equal(tv.fake.revokedSessions.size, 0);
 });

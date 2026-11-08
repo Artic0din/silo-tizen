@@ -97,11 +97,10 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
             return;
         }
         const removesServer = signOutRemovesServer(() => directory.list(), address, targets.length);
-        const message = signOutConfirmationCopy(targets[0]?.username, serverName, removesServer).message;
+        const copy = signOutConfirmationCopy(targets[0]?.username, serverName, removesServer);
         panel.setAttribute("role", "dialog");
         panel.setAttribute("aria-modal", "true");
-        panel.append(el("h1", "signin-title", `Sign out of ${targets[0]?.username ?? "this account"} on ${serverName}?`),
-            el("p", "signin-text", message), cancel.element, accept.element);
+        panel.append(el("h1", "signin-title", copy.title), el("p", "signin-text", copy.message), cancel.element, accept.element);
         host.show({ ...view, content: [panel] });
     };
     function render(railFocus = false, enterPane = false, focusFirst = false): void {

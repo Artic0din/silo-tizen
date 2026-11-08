@@ -235,6 +235,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Replaced the README screenshot with For You from a current main build.
 - Updated the Series hero and playback target as episode focus moved, added episode air dates and runtimes, restored Apple's fixed detail frames, and resolved local extras whose embedded file ID was absent.
 
 - Updated Movie and Series detail heroes and playback readouts, added Series track selectors and local extras, and aligned episode captions with Apple TV.

@@ -461,6 +461,27 @@ tvTest("Sign out revokes the session and clears the TV; signing out while profil
     assert.equal((await handed(tv)).length, 0);
 });
 
+tvTest("a routed session expiry abandons a launch choice still being saved", async (tv) => {
+    await tv.page.evaluate(() => { window.harness.routesExpiry = true; });
+    await picker(tv);
+    await tv.page.locator('[data-focus="profile:p-kid"]').click();
+    await screenIs(tv, "pin");
+    await enterPin(tv, KID_PIN);
+    await screenIs(tv, "remember-profile");
+    await tv.page.evaluate(() => { window.harness.saveHold = window.harness.keyManager?.holdSaves(); });
+    await tv.page.locator('[data-focus="remember"]').click();
+    await screenIs(tv, "remember-saving");
+    await tv.eventually(async () => (await tv.page.evaluate(() => window.harness.saveHold?.waiting())) === 1, "the unlock to be saved");
+    tv.fake.revokeAllSessions();
+    tv.fake.expireAccessTokens();
+    await tv.page.evaluate(() => window.harness.expire());
+    await tv.eventually(async () => await tv.page.evaluate(() => window.harness.expiries) === 1, "the app is told once");
+    await tv.page.evaluate(() => window.harness.saveHold?.release());
+    await tv.jump(0);
+    assert.equal(await tv.screen(), "remember-saving", "the save's answer paints nothing once the app routes the expiry");
+    assert.equal((await handed(tv)).length, 0);
+});
+
 tvTest("an expired sign-in ends the profile and leads back to sign-in", async (tv) => {
     await picker(tv);
     await tv.page.keyboard.press("Enter");

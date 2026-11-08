@@ -377,8 +377,14 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         }
         switch (change.reason) {
             case "session_expired":
-                if (options.onSessionExpired !== undefined) options.onSessionExpired();
-                else expired();
+                if (options.onSessionExpired === undefined) {
+                    expired();
+                    return;
+                }
+                // Answers still in flight must not repaint or hand off while the app routes the expiry.
+                begin();
+                current = undefined;
+                options.onSessionExpired();
                 return;
             case "signed_out":
                 if (!leaving) {

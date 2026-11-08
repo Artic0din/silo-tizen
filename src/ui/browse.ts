@@ -1692,7 +1692,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 const details = createItemDetails(current, detail);
                 details.restore(previous);
                 if (detail.type === "series") details.series = new SeriesEpisodes(session, detail.id, seasons, reason => details.warmSeriesEpisodes(reason === "load"), current.seriesContext?.seasonNumber ?? (current.seriesContext === undefined ? seriesSeasons.get(current.id) : undefined), current.seriesContext?.episodeId);
-                details.series?.restore(previous?.series);
+                details.series?.restore(previous?.series, false, true);
                 if (detail.type === "series") details.focusedEpisodeId = current.seriesContext?.episodeId;
                 current.data = { detail, seasons, details };
                 cachedDetailOwners.add(details);

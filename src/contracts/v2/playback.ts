@@ -492,6 +492,14 @@ export type DeliverySubtitles = {
     readonly font_attachments: boolean;
 };
 
+/** HDRCapabilitiesV3. Absent means this client claims no native HDR, as an all-false report does. */
+export type HdrDetails = {
+    readonly hdr10: boolean;
+    readonly hdr10_plus: boolean;
+    readonly hlg: boolean;
+    readonly dolby_vision_profiles: readonly number[];
+};
+
 /** DeliveryCapabilityV3 for one client class (original_http, progressive, hls). */
 export type DeliveryCapability = {
     readonly enabled: boolean;
@@ -505,6 +513,7 @@ export type DeliveryCapability = {
     readonly auth_header_refresh: boolean;
     readonly validated_claims: readonly string[];
     readonly transformations: readonly never[];
+    readonly hdr_details?: HdrDetails;
 };
 
 export type VideoDecodeCapability = {
@@ -525,6 +534,7 @@ export type ClientCapabilities = {
     readonly containers: readonly string[];
     readonly max_resolution: string;
     readonly hdr: boolean;
+    readonly hdr_details?: HdrDetails;
     readonly video_decode: readonly VideoDecodeCapability[];
 };
 
@@ -538,7 +548,7 @@ export type ClientPlaybackContext = {
         readonly manufacturer: string;
         readonly model: string;
     };
-    readonly output: { readonly [key: string]: never };
+    readonly output: { readonly hdr_details?: HdrDetails };
     readonly deliveries: { readonly [deliveryClass: string]: DeliveryCapability };
 };
 

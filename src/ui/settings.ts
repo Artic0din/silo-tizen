@@ -1,5 +1,5 @@
 import type { NativeSession } from "../session/session.ts";
-import { AUDIO_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SHOW_FORCED_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, TITLE_ART_KEY, type SettingValue, type SettingsKey } from "../contracts/v2/settings.ts";
+import { AUDIO_KEY, HDR_KEY, HIDDEN_KEY, QUALITY_KEY, BITRATE_KEY, SEEK_BACK_KEY, SEEK_FORWARD_KEY, SHOW_FORCED_KEY, SUBTITLE_LANGUAGE_KEY, SUBTITLE_MODE_KEY, TITLE_ART_KEY, type SettingValue, type SettingsKey } from "../contracts/v2/settings.ts";
 import { FocusHost, type FocusItem, type FocusTarget } from "./browseFocus.ts";
 import { actionButton, zoneNode } from "./browseViews.ts";
 import { el } from "./screen.ts";
@@ -30,6 +30,9 @@ const CATEGORY_BLURBS = {
     server: "The Silo server this TV is connected to.",
 } as const;
 const SUBTITLE_FOOTER = "Used to pick a matching track when one is available. Forced subtitles cover foreign-language dialogue even when subtitles are off or set to auto.";
+/** First sentence of SettingsViewModel.hdrFooterText (136-143), without "without Dolby Vision". The tvOS original-file sentence is omitted; see docs/settings.md. */
+// After STREAMING, as TVPlaybackSettingsView.swift:248. The Lossless and TrueHD sentences at 251-257 are not on this pane.
+const HDR_FOOTER = "With HDR off, videos the server converts for this device are sent in SDR.";
 /** tvOS preview point sizes at 1080 lines, then ×0.5. SubtitleAppearance.swift:36-41; SubtitleAppearancePreview.swift:19-21,128-129. */
 const TV_PREVIEW_POINT_SIZE = { small: 43, medium: 51, large: 58, xlarge: 74, xxlarge: 88 } as const;
 const MODE_CHOICES = [["auto", "Auto"], ["always", "Always"], ["off", "Off"]] as const;
@@ -158,6 +161,15 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         const blocked = state.busy || (state.canRetry && key !== "retry");
         const item = actionButton(key, label, () => { if (!blocked) action(); });
         if (blocked) item.element.setAttribute("aria-disabled", "true");
+        return item;
+    };
+    const devicePlaybackKeys = (): readonly SettingsKey[] => [QUALITY_KEY, BITRATE_KEY, AUDIO_KEY, HDR_KEY, ...settingsRows("playback", state).map(row => row.key)];
+    const hdrSwitch = (id: string, title: string, on: boolean, action: () => void): FocusItem => {
+        const item = button(id, title, action);
+        item.element.appendChild(el("span", "settings-row-value", on ? "On" : "Off"));
+        item.element.setAttribute("role", "switch");
+        item.element.setAttribute("aria-label", title);
+        item.element.setAttribute("aria-checked", String(on));
         return item;
     };
     const subtitleEntry = (): Picker | "subtitle-forced" => state.definitions.some(def => def.key === SUBTITLE_LANGUAGE_KEY) ? "subtitle-language" : state.definitions.some(def => def.key === SUBTITLE_MODE_KEY) ? "subtitle-mode" : "subtitle-forced";
@@ -327,7 +339,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
     function render(focus?: FocusTarget): void {
         if (torn) return;
         if (confirmingPlaybackReset) {
-            const playbackKeys: readonly SettingsKey[] = [QUALITY_KEY, BITRATE_KEY, AUDIO_KEY, ...settingsRows("playback", state).map(row => row.key)];
+            const playbackKeys = devicePlaybackKeys();
             const keys = playbackKeys.filter(key => state.scope(key) === "profile_device");
             const controls = [button("cancel-playback-reset", "Cancel", back), button("confirm-playback-reset", "Reset", () => {
                 if (state.busy) return;
@@ -593,7 +605,16 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
         }
         if (state.loaded) {
             if (category === "general") body.appendChild(el("h3", "settings-section-header", "CARDS & POSTERS"));
-            if (category === "playback") body.appendChild(el("h3", "settings-section-header", "EPISODES"));
+            if (category === "playback") {
+                if (state.definitions.some(def => def.key === HDR_KEY)) {
+                    const hdrOn = state.effective.get(HDR_KEY)?.value === true;
+                    const item = hdrSwitch("hdr", "HDR", hdrOn, () => { void state.save(HDR_KEY, !hdrOn); });
+                    rows.push(item);
+                    body.appendChild(item.element);
+                    body.appendChild(el("p", "settings-value settings-hdr-footer", HDR_FOOTER));
+                }
+                body.appendChild(el("h3", "settings-section-header", "EPISODES"));
+            }
             for (const row of settingsRows(category, state)) {
                 if (row.id === "metadata-language") body.appendChild(el("h3", "settings-section-header", "METADATA"));
                 const value = rowValue(row, state);
@@ -647,7 +668,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                     rows.push(item); body.appendChild(item.element);
                 }
                 if (skipRows.length > 0) body.appendChild(el("p", "settings-value", "Used by the remote and on-screen skip buttons. Applies to every device signed in to this profile."));
-                const playbackKeys: readonly SettingsKey[] = [QUALITY_KEY, BITRATE_KEY, AUDIO_KEY, ...settingsRows("playback", state).map(row => row.key)];
+                const playbackKeys = devicePlaybackKeys();
                 if (playbackKeys.some(key => state.scope(key) === "profile_device")) {
                     const reset = button("reset-playback", "Use Profile Settings", () => { confirmingPlaybackReset = true; render(); });
                     reset.element.classList.add("settings-destructive");

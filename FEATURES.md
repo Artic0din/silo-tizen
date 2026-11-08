@@ -150,7 +150,7 @@ File pointers are repository-relative.
 | Chapters | ➖ | ✅ | ✅ | Apple: HUD Chapters tab. Android: scrubber markers |
 | Info / stats HUD | ➖ | ✅ | ✅ | Apple: `TVPlayerInfoHUD`. Android: `TvPlayerHud` |
 | In-player aspect mode, auto-play switch, subtitle appearance and delay | ➖ | ✅ | ✅ | #103. AVPlay has no crop mode for Fill. Apple: `TVPlayerInfoHUD`. Android: `TvPlayerHud` |
-| HDR, Dolby Vision, 4K, audio passthrough | ➖ | ✅ | ✅ | Capabilities declare SDR up to 1080p, H.264/HEVC, no DTS (`src/player/capabilities.ts`). Android: `MediaCodecCapabilitiesProbe`, `DisplayHdrProbe`, `AudioCapabilityManager`; Dolby Vision profiles are 🟡 in silo-android |
+| HDR, Dolby Vision, 4K, audio passthrough | 🟡 | ✅ | ✅ | HDR10 is claimed when `webapis.avinfo.isHdrTvSupport()` is true and the HDR setting is on. HDR10+ and HLG stay unclaimed: the probe is one boolean, and Samsung does not document those formats for every Tizen 8.0 TV. Dolby Vision is not a Playback row: Samsung exposes no Dolby Vision support check and this client claims no Dolby Vision profile. Resolution stays 1080p. No passthrough and no DTS (`src/player/capabilities.ts`). Android: `MediaCodecCapabilitiesProbe`, `DisplayHdrProbe`, `AudioCapabilityManager`; Dolby Vision profiles are 🟡 in silo-android |
 | Watch Party | 🚧 | 🟡 | 🟡 | #54. Apple: opt-in under Extra Features. Android: experimental, behind Settings → Experimental → Watch Party |
 | Phone "Play on TV" / remote control | ➖ | ✅ | ✅ | Apple: `TVControlReceiver`. Android: `TvSiloCastReceiver` |
 | Smart Hub / Top Shelf row | ➖ | ✅ | ✅ | Apple: [`iosApp/TopShelf`](https://github.com/Silo-Server/silo-apple/tree/main/iosApp/TopShelf). Android: Watch Next row (`WatchNextRepository`) |
@@ -181,7 +181,7 @@ File pointers are repository-relative.
 | Autoplay, Next Up, Skip Intros, Skip Credits switches | ➖ | ✅ | ✅ | Tizen reads autoplay but never writes it |
 | Episode spoiler protection (hide unwatched stills and descriptions) | ✅ | ✅ | ✅ | Apple: `TVPlaybackSettingsView`. Android: `TvSettingsScreen` |
 | Subtitle settings (language, behaviour, appearance) | 🟡 | ✅ | ✅ | Profile language/behaviour, metadata language and profile/device appearance; OS subtitle accessibility settings are unavailable |
-| HDR, Dolby Vision, buffering, lossless audio, deinterlacing | ➖ | ✅ | 🟡 | Android has Dolby Vision, Force HDR Passthrough, buffering quality and frame-rate matching; lossless audio and deinterlacing settings not found |
+| HDR, Dolby Vision, buffering, lossless audio, deinterlacing | 🟡 | ✅ | 🟡 | HDR is a device switch when the server offers the key. Dolby Vision is absent: Samsung exposes no Dolby Vision support check and this client claims no Dolby Vision profile. Buffering, lossless audio and deinterlacing are still absent. Android has Dolby Vision, Force HDR Passthrough, buffering quality and frame-rate matching; lossless audio and deinterlacing settings not found |
 | Poster size, advisory age, theme music, Show Audiobooks | ➖ | ✅ | 🟡 | Tizen honours the saved poster size but has no editor. Android has Poster Size, Theme Music and Show Audiobooks; advisory age not found |
 | Acknowledgements (TMDB and open source) | ✅ | ✅ | ➖ | Android: Settings → Server → About shows App Version and Privacy Policy only |
 | Privacy policy | ➖ | ✅ | ✅ | Android: `TvPrivacyPolicyDialog` |

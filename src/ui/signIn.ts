@@ -737,8 +737,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         if (options.returnToAccounts) return "Back to accounts";
         const rows = savedAccounts();
         if (rows.some(account => !account.needsSignIn)) return "Back to profiles";
-        const servers = new Set(rows.map(account => account.baseUrl));
-        return rows.length > 1 || servers.size > 1 ? "Change account" : "Change server";
+        return rows.length > 1 ? "Change account" : "Change server";
     };
     /**
      * AppRouter.leaveSignIn. A first sign-in has no account yet, and Back still opens Change
@@ -750,9 +749,7 @@ export function mountSignIn(root: HTMLElement, options: SignInOptions): SignInSc
         if (options.returnToAccounts) return true;
         const rows = savedAccounts();
         if (rows.some(account => !account.needsSignIn)) return true;
-        const servers = new Set(rows.map(account => account.baseUrl));
-        if (rows.length > 1 || servers.size > 1) return true;
-        return rows.length === 0;
+        return rows.length !== 1;
     };
     const changeServer = (): void => {
         if (opensAccountList()) { destroy(); options.onChangeAccount?.(); return; }

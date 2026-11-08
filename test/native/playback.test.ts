@@ -2732,13 +2732,13 @@ test("backgrounding during a failed seek cancels its deferred replan and closes 
     assert.deepEqual(view.phase === "error" ? view.error : undefined, { kind: "backgrounded" });
 });
 
-const HDR = { hdr10: true, hdr10_plus: true, hlg: true, dolby_vision_profiles: [] };
+const HDR = { hdr10: true, hdr10_plus: false, hlg: false, dolby_vision_profiles: [] };
 
 function hdrPanel(result: boolean | "throw"): unknown {
     return { webapis: { avinfo: { isHdrTvSupport: () => { if (result === "throw") throw new Error("unavailable"); return result; } } } };
 }
 
-test("a supporting panel claims HDR10, HDR10+ and HLG on start and leaves Dolby Vision unclaimed", async () => {
+test("a supporting panel claims HDR10 on start and leaves HDR10+, HLG and Dolby Vision unclaimed", async () => {
     const r = await rig("p-owner", undefined, hdrPanel(true));
     const settings = new FakeSettings(r.h.fake);
     settings.hdrRows = true;
@@ -2772,7 +2772,7 @@ test("HDR off, a throwing probe, or a missing probe sends today's SDR profile", 
     }
 });
 
-test("an HDR panel claims HDR10, HDR10+ and HLG when the server offers no HDR setting", async () => {
+test("an HDR panel claims HDR10 when the server offers no HDR setting", async () => {
     const r = await rig("p-owner", undefined, hdrPanel(true));
     new FakeSettings(r.h.fake);
     r.controller.play(MOVIE);

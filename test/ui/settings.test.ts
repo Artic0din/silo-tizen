@@ -676,7 +676,7 @@ test("Subtitles, the profile account line and sign-out confirmation follow Apple
         assert.equal(tv.fake.requests.filter(request => request.method === "PUT" && request.path.startsWith(`/settings/values/${SHOW_FORCED_KEY}?scope=profile`)).length, 1);
         await tv.page.locator('[data-focus="settings-signout"]').click();
         await tv.page.getByRole("heading", { name: "Sign out of laura on this server?" }).waitFor();
-        await tv.page.getByText("This account's profiles and settings leave this TV. The server stays saved, so you can sign in again.", { exact: true }).waitFor();
+        await tv.page.getByText("This account's profiles and settings leave this TV, and this server will be removed from it.", { exact: true }).waitFor();
         assert.equal(await tv.focused(), "cancel-signout");
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }

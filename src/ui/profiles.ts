@@ -162,7 +162,8 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
 
     const signOutButton = (): Control => button("signout", "Sign out", signOut);
 
-    const load = (then: (list: ProfileSummary[]) => void, focus?: string, restoreRememberedOffline = false): void => {
+    // `retry` re-runs whatever started this load, so a failed launch load retries through launch.
+    const load = (then: (list: ProfileSummary[]) => void, retry: () => void, restoreRememberedOffline = false): void => {
         const token = begin();
         const controller = new AbortController();
         pending = controller;
@@ -190,15 +191,15 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
                             if (token !== view) return;
                             pending = undefined;
                             if (profile) handOff(profile);
-                            else listFailed(error, focus);
-                        }, failure => { if (token === view) { pending = undefined; listFailed(failure, focus); } });
-                    } else listFailed(error, focus);
+                            else listFailed(error, retry);
+                        }, failure => { if (token === view) { pending = undefined; listFailed(failure, retry); } });
+                    } else listFailed(error, retry);
                 }
             },
         );
     };
 
-    const showList = (focus?: string): void => load((list) => picker(list, focus), focus);
+    const showList = (focus?: string): void => load((list) => picker(list, focus), () => showList(focus));
 
     const picker = (list: readonly ProfileSummary[], focus?: string): void => {
         begin();
@@ -221,7 +222,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         }));
     };
 
-    const listFailed = (error: unknown, focus?: string): void => {
+    const listFailed = (error: unknown, retryLoad: () => void): void => {
         if (error instanceof ApiError && error.problemId === "password_change_required") {
             // Apple TV does not hand this off (`handsOffToPasswordChange` is false). The empty
             // picker shows the refusal, and focus starts on Change account.
@@ -242,7 +243,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         const detail = offline
             ? "Could not reach the server. Check the TV's internet connection, then try again."
             : "The server had a problem. Try again in a moment.";
-        const retry = button("retry", "Try again", () => showList(focus));
+        const retry = button("retry", "Try again", retryLoad);
         message("profiles-error", "Profiles didn't load", [detail], [retry, signOutButton()], resume(), "error");
     };
 
@@ -367,7 +368,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             } else {
                 picker(list, fresh?.id);
             }
-        });
+        }, () => showList());
     };
 
     const onChange = (change: AuthorityChange): void => {
@@ -439,7 +440,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             if (error instanceof SessionError && error.reason !== "unavailable") { expired(); return; }
             message("profile-launch-error", "Remembered profile didn't open", ["Could not verify the remembered profile. Try again or choose who's watching."], [button("retry", "Retry", launchOnline), button("back", "Choose profile", () => picker(list)), signOutButton()], () => picker(list), "error");
         });
-    }, undefined, !options.pickerRequested && !options.skipRemembered);
+    }, launchOnline, !options.pickerRequested && !options.skipRemembered);
     const launch = (): void => {
         if (options.skipRemembered || !server.localRestore || options.pickerRequested || !options.launch?.remembered || options.launch.requiresSelection()) {
             launchOnline();

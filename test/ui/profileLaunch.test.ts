@@ -44,6 +44,31 @@ test("one unprotected profile opens directly, including after Ask who's watching
     } finally { await tv.page.context().close(); await browser.close(); }
 });
 
+test("Try again after a failed launch load still opens the only unprotected profile", async () => {
+    const browser = await launchBrowser();
+    const tv = await openTv(browser, { app: "application" });
+    tv.fake.profiles = { ...tv.fake.profiles, items: (tv.fake.profiles.items as { id: string }[]).filter(p => p.id === "p-owner") };
+    tv.fake.catalog = new FakeDetails();
+    try {
+        await tv.page.fill("#signin-address", "silo.example.test");
+        await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
+        await tv.page.locator('[data-screen="code"]').waitFor();
+        tv.fake.approve([...tv.fake.devices.keys()].pop() ?? "");
+        await tv.jump(5000);
+        await tv.jump(1000);
+        await tv.page.locator('[data-focus="ask-every-launch"]').click();
+        await tv.page.locator('[data-view="home"]').waitFor();
+        tv.offline = true;
+        await tv.page.evaluate(() => { window.appHarness.destroy(); window.appHarness.mount(); });
+        await tv.page.locator('[data-screen="profiles-error"]').waitFor({ timeout: 5000 });
+        tv.offline = false;
+        await tv.page.locator('[data-focus="retry"]').click();
+        await tv.page.locator('[data-view="home"], [data-screen="profiles"]').first().waitFor({ timeout: 5000 });
+        assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 0, "Retry keeps the single-profile skip");
+        await tv.page.locator('[data-view="home"]').waitFor();
+    } finally { await tv.page.context().close(); await browser.close(); }
+});
+
 test("Change account from the composed picker preserves saved credentials and retires its screen", async () => {
     const browser = await launchBrowser();
     const tv = await openTv(browser, { app: "application" });

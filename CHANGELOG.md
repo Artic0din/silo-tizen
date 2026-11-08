@@ -24,6 +24,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Matched the person page name to Apple's 85px line box, so the name starts 10px below the portrait and the facts start at 117px.
 - Kept direct play running when a subtitle choice stays on the same stream, and showed that sidecar's cue at the picture's time after a seek.
 - Matched the subtitle preview caption's height to Apple TV.
 - The collapsed A–Z circle is plain.

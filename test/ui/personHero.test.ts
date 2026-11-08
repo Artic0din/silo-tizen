@@ -378,6 +378,35 @@ test("Down into the filmography grid uses Apple's bottom scroll inset", async ()
     } finally { await tv.page.context().close(); }
 });
 
+test("the person name and facts sit on Apple's line box", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await signIn(tv);
+        await person(tv, {});
+        const placed = await tv.page.locator(".details-person-hero").evaluate(hero => {
+            const portrait = hero.querySelector(".person-portrait")?.getBoundingClientRect();
+            const name = hero.querySelector(".browse-title");
+            const facts = hero.querySelector(".person-facts")?.getBoundingClientRect();
+            const nameBox = name?.getBoundingClientRect();
+            if (portrait === undefined || nameBox === undefined || facts === undefined || !(name instanceof Element)) return null;
+            return {
+                nameTop: nameBox.top - portrait.top,
+                nameHeight: nameBox.height,
+                factsTop: facts.top - portrait.top,
+                lineHeight: getComputedStyle(name).lineHeight,
+                marginTop: getComputedStyle(name).marginTop,
+            };
+        });
+        // PersonDetailView.swift:466 pads the column 10pt. The name at line 451 is
+        // .system(size: 72, weight: .bold). That face's line height is 84.796875
+        // (ascender 69.609375, descender -15.1875, leading 0) and SwiftUI lays the
+        // text out 85pt tall. The facts row is the VStack spacing of 22 at line 449
+        // below that box: 10 + 85 + 22 = 117.
+        assert.deepEqual(placed, { nameTop: 10, nameHeight: 85, factsTop: 117, lineHeight: "85px", marginTop: "0px" });
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 test("person biography keeps the blank line between paragraphs", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

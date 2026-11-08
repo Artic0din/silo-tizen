@@ -261,6 +261,19 @@ async function savedSubtitle(tv: Tv): Promise<void> {
     assert.equal(await tv.page.locator('[data-focus="retry-subtitle-preference"]').count(), 0);
 }
 
+/** The next item read omits the series name and numbers. The card or season route still has them. */
+function hideEpisodeSeriesIdentity(tv: Tv, catalog: FakeDetails, id: string): void {
+    const path = `/catalog/items/${encodeURIComponent(id)}?image_size=large`;
+    const reply = catalog.route("GET", path, "p-owner");
+    assert.ok(reply?.status === 200 && reply.body !== undefined && typeof reply.body === "object");
+    const source = object(reply.body, "episode");
+    const body: Record<string, unknown> = {};
+    for (const key of Object.keys(source)) {
+        if (key !== "series_title" && key !== "season_number" && key !== "episode_number") body[key] = source[key];
+    }
+    tv.fake.script(path, { status: 200, body });
+}
+
 async function prepare(tv: Tv): Promise<void> {
     await tv.eventually(() => tv.page.evaluate(() => window.appHarness.avplay.pendingPrepares > 0), "AVPlay preparation");
     await tv.page.evaluate(() => {
@@ -447,6 +460,50 @@ preplay("episode list keeps the series line when the episode item omits it", asy
     assert.equal(await tv.page.locator(".player-title").first().textContent(), "Going Green");
     assert.equal(await tv.page.locator(".player-episode").textContent(), "S1 · E25");
 });
+
+preplay("Continue Watching keeps the series line when the episode item omits it", async (tv, catalog, playback) => {
+    catalog.fileIds.set("episode:s1e12", "42");
+    playback.items.set("episode:s1e12", ["42"]);
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="home"]').waitFor();
+    const card = tv.page.locator('[data-section="continue_watching"] .skyline-continue[data-focus="episode:s1e12"]');
+    await card.focus();
+    await tv.eventually(async () => await tv.focused() === "episode:s1e12", "continue card");
+    hideEpisodeSeriesIdentity(tv, catalog, "episode:s1e12");
+    await tv.remote(415);
+    await prepare(tv);
+    assert.equal(await tv.page.locator(".player-series").textContent(), "Harbor Lights");
+    assert.equal(await tv.page.locator(".player-title").first().textContent(), "Harbor Lights chapter 1.2");
+    assert.equal(await tv.page.locator(".player-episode").textContent(), "S1 · E2");
+});
+
+preplay("a season route keeps the series line when the episode item omits it", async (tv, catalog, playback) => {
+    const id = "episode:s1e125";
+    catalog.add({ id, type: "episode", title: "Going Green", libraryId: "13", seriesId: "series:s1", season: 1, episode: 25 });
+    catalog.fileIds.set(id, "42");
+    playback.items.set(id, ["42"]);
+    await series(tv);
+    await tv.page.locator('[data-focus="series:s1-S1"]').click();
+    await tv.page.locator('[data-view="season:series:s1:1"]').waitFor();
+    hideEpisodeSeriesIdentity(tv, catalog, id);
+    await tv.page.locator(`.browse-episodes [data-focus="${id}"]`).click();
+    await prepare(tv);
+    assert.equal(await tv.page.locator(".player-series").textContent(), "Harbor Lights");
+    assert.equal(await tv.page.locator(".player-title").first().textContent(), "Going Green");
+    assert.equal(await tv.page.locator(".player-episode").textContent(), "S1 · E25");
+});
+
+preplay("Off sends no subtitle track on start", async (tv) => {
+    await tv.page.locator('[data-focus="subtitles"]').click();
+    await tv.page.locator('[data-focus="subtitle:off"]').click();
+    await savedSubtitle(tv);
+    const saved = tv.fake.requests.find(request => request.method === "PUT" && request.path === "/subtitle-prefs/movie%3Am0001");
+    assert.equal(saved?.body?.subtitle_mode, "off");
+    await tv.page.locator('[data-focus="play"]').click();
+    await prepare(tv);
+    assert.equal(Object.hasOwn(starts(tv)[0]?.body ?? {}, "subtitle_track_id"), false);
+    assert.equal(tv.fake.requests.some(request => request.path.endsWith("/replan")), false);
+}, true, false, catalog => catalog.subtitleFiles.set("42", [{ index: 3, external: false, language: "jpn", codec: "srt", title: "Japanese", forced: false }]));
 
 preplay("series Start Over skips fresh resume and retains automatic selectors", async (tv, catalog, playback) => {
     catalog.fileIds.set("episode:s1e11", "42");

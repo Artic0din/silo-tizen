@@ -2,7 +2,7 @@ import { operations } from "../api/operations.ts";
 import { ApiError } from "../api/errors.ts";
 import type { Episode, Season } from "../contracts/v2/catalog.ts";
 import type { NativeSession } from "../session/session.ts";
-import { episodeWindow, episodeWindowReachesSeriesStart, orderedEpisodeSeasons, retainEpisodePages } from "./episodeRail.ts";
+import { contiguousNeighborSeasons, episodeWindow, episodeWindowReachesSeriesStart, orderedEpisodeSeasons, retainEpisodePages } from "./episodeRail.ts";
 
 const BOUNDARY_DWELL_MS = 70;
 // TVSeriesDetailView.swift:780-793 at 7baff3ef.
@@ -96,20 +96,8 @@ export class SeriesEpisodes {
         const selected = this.seasonNumber;
         if (selected === undefined || !this.pages.has(selected)) return;
         const order = orderedEpisodeSeasons(this.seasons);
-        const index = order.indexOf(selected);
-        if (index < 0) return;
-        const keep = new Set<number>([selected]);
-        for (const direction of [-1, 1]) {
-            const seen = new Set((this.pages.get(selected) ?? []).map(episode => episode.id));
-            let count = 0;
-            for (let neighbor = index + direction; neighbor >= 0 && neighbor < order.length && count < 8; neighbor += direction) {
-                const number = order[neighbor]!;
-                const page = this.pages.get(number);
-                if (page === undefined) break;
-                keep.add(number);
-                for (const episode of page) if (!seen.has(episode.id)) { seen.add(episode.id); count++; }
-            }
-        }
+        if (!order.includes(selected)) return;
+        const keep = contiguousNeighborSeasons(order, selected, this.pages).add(selected);
         for (const number of this.pages.keys()) if (!keep.has(number)) this.pages.delete(number);
     }
 

@@ -50,10 +50,10 @@ export function episodeWindow(order: readonly number[], selected: number | undef
     return order.slice(first, last + 1).flatMap(season => [...pages.get(season)!].sort((a, b) => a.episodeNumber - b.episodeNumber)).filter(episode => !seen.has(episode.id) && !!seen.add(episode.id));
 }
 
-export function retainEpisodePages(order: readonly number[], selected: number, pages: Map<number, readonly Episode[]>): void {
+/** Loaded seasons either side of `selected`, walking until a missing page or 8 distinct episodes. */
+export function contiguousNeighborSeasons(order: readonly number[], selected: number, pages: ReadonlyMap<number, readonly Episode[]>): Set<number> {
     const index = order.indexOf(selected);
-    const nearest = order.filter(number => (pages.get(number)?.length ?? 0) > 0).sort((a, b) => Math.abs(order.indexOf(a) - index) - Math.abs(order.indexOf(b) - index) || order.indexOf(a) - order.indexOf(b)).slice(0, 5);
-    const keep = new Set(nearest);
+    const keep = new Set<number>();
     for (const direction of [-1, 1]) {
         const seen = new Set((pages.get(selected) ?? []).map(episode => episode.id));
         let count = 0;
@@ -64,5 +64,12 @@ export function retainEpisodePages(order: readonly number[], selected: number, p
             for (const episode of page) if (!seen.has(episode.id)) { seen.add(episode.id); count++; }
         }
     }
+    return keep;
+}
+
+export function retainEpisodePages(order: readonly number[], selected: number, pages: Map<number, readonly Episode[]>): void {
+    const index = order.indexOf(selected);
+    const nearest = order.filter(number => (pages.get(number)?.length ?? 0) > 0).sort((a, b) => Math.abs(order.indexOf(a) - index) - Math.abs(order.indexOf(b) - index) || order.indexOf(a) - order.indexOf(b)).slice(0, 5);
+    const keep = new Set([...nearest, ...contiguousNeighborSeasons(order, selected, pages)]);
     for (const [number, page] of pages) if (!order.includes(number) || (page.length > 0 && !keep.has(number))) pages.delete(number);
 }

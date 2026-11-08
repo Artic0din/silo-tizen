@@ -2352,6 +2352,35 @@ detailTest("episode rail keeps state B when an earlier season page is not loaded
     assert.ok(Math.abs(terminal.ring - 1866) < 3, JSON.stringify(terminal));
 }, "compact");
 
+detailTest("paging Left into Season 1 flips the rail to state A under the focused card", async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog);
+    const seasons = catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body as { items: Record<string, unknown>[] };
+    const episodes = catalog.route("GET", "/catalog/series/series%3As1/seasons/1/episodes", "p-owner")?.body as { items: Record<string, unknown>[] };
+    // Season 2 holds eight episodes, so opening on Season 3 warms Season 2 but stops before Season 1.
+    const counts: Record<number, number> = { 1: 3, 2: 8, 3: 4 };
+    await tv.page.route("**/api/v2/catalog/series/series%3As1/seasons?**", route => route.fulfill({ json: { items: [1, 2, 3].map(number => ({ ...seasons.items[0], content_id: `season:${number}`, season_number: number, episode_count: counts[number], user_data: { played: number < 3, in_progress_count: number === 3 ? 1 : 0 } })) } }));
+    for (const season of [1, 2, 3]) await tv.page.route(`**/api/v2/catalog/series/series%3As1/seasons/${season}/episodes?**`, route => route.fulfill({ json: { items: Array.from({ length: counts[season]! }, (_, index) => ({ ...episodes.items[0], content_id: `episode:page:${season}:${index + 1}`, season_number: season, episode_number: index + 1, user_data: { played: season < 3 || index === 0 } })) } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="series:s1"]').first().click();
+    await tv.page.locator('[data-focus="episode:page:2:8"]').waitFor();
+    assert.equal(await tv.page.locator('[data-focus="episode:page:1:3"]').count(), 0, "Season 1 is not warmed");
+    await tv.page.locator('[data-focus="episode:page:2:2"]').focus();
+    await tv.jump(500);
+    await readLive(tv, anchoredEpisodeSlot, null, value => Math.abs(value.ring - 139) < 2 && value.sliver, "opens in state B");
+    await tv.page.locator('[data-focus="episode:page:2:1"]').focus();
+    await tv.jump(300);
+    await tv.remote(37);
+    await tv.page.locator('[data-focus="episode:page:1:3"]').waitFor();
+    await tv.jump(500);
+    const focused = await tv.focused();
+    assert.ok(focused === "episode:page:2:1" || focused === "episode:page:1:3", `focus kept on the rail: ${focused}`);
+    assert.equal(await tv.page.locator(".details-episodes").getAttribute("data-window-origin"), "series-start");
+    await tv.page.locator('[data-focus="episode:page:2:1"]').focus();
+    await tv.jump(500);
+    const slot = await readLive(tv, anchoredEpisodeSlot, null, value => Math.abs(value.ring - 100) < 0.6 && Math.abs(value.previousRight - 70) < 0.6 && !value.sliver, "paged window is state A");
+    assert.ok(Math.abs(slot.ring - 100) < 0.6, JSON.stringify(slot));
+    assert.equal(slot.sliver, false, JSON.stringify(slot));
+}, "compact");
+
 detailTest("walking season chips to Season 1 keeps state A until Details is reopened", async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog);
     const seasonBody = catalog.route("GET", "/catalog/series/series%3As1/seasons", "p-owner")?.body as { items: Record<string, unknown>[] };

@@ -367,6 +367,21 @@ appTest("an expired session opens Change Account while another account is signed
     assert.equal(await tv.page.locator(".account-badge").filter({ hasText: "SIGN IN AGAIN" }).count(), 1);
 });
 
+appTest("remote Back on the Change Account root after expiry moves from the account list to the server list", async tv => {
+    await signIn(tv);
+    await addAlex(tv);
+    tv.fake.revokeAllSessions();
+    const hold = tv.fake.hold("/auth/refresh");
+    await tv.page.locator('[data-focus="movies"]').click();
+    hold.release();
+    await tv.page.locator('[data-view="change-account"]').waitFor();
+    const focusedAccount = await tv.focused();
+    assert.ok(focusedAccount !== "add-server" && await tv.page.locator(`.account-card[data-focus="${focusedAccount}"]`).count() === 1, `focus starts on an account card, not ${focusedAccount}`);
+    await tv.remote(10009);
+    assert.equal(await tv.focused(), "https://silo.example.test", "Back from the account list focuses the selected server");
+    assert.equal(await tv.page.locator('[data-view="change-account"]').count(), 1, "the first Back stays on Change Account");
+});
+
 appTest("choosing an expired account opens sign-in and Back returns to Change Account", async tv => {
     await signIn(tv);
     await tv.page.evaluate(() => {

@@ -2772,6 +2772,20 @@ test("HDR off, a throwing probe, or a missing probe sends today's SDR profile", 
     }
 });
 
+test("an unreadable HDR setting sends today's SDR profile on an HDR panel", async () => {
+    const r = await rig("p-owner", undefined, hdrPanel(true));
+    const settings = new FakeSettings(r.h.fake);
+    settings.hdrRows = true;
+    settings.device("p-owner", r.h.core.session.http.deviceId).set(HDR_KEY, true);
+    r.h.fake.script(operations.effectiveSettings([HDR_KEY]).path, problem(403, "forbidden", "Setting unavailable"));
+    r.controller.play(MOVIE);
+    await r.h.clock.advance(0);
+    const start = only(bodies(r.h, "/playback/start"));
+    assert.deepEqual(start.client_capabilities, clientCapabilities());
+    assert.deepEqual(start.client_playback_context, playbackContext("QN55Q60AAFXZA", "0.1.0"));
+    r.controller.destroy();
+});
+
 test("an HDR panel claims HDR10 when the server offers no HDR setting", async () => {
     const r = await rig("p-owner", undefined, hdrPanel(true));
     new FakeSettings(r.h.fake);

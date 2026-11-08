@@ -174,10 +174,15 @@ test("remaining settings expose only honoured rows and save profile appearance",
             hugsText: true,
             bottomGap: 12,
         });
+        assert.equal(await tv.page.locator(".settings-subtitle-preview span").evaluate(node => getComputedStyle(node).lineHeight), "25.8px", "the line scales with the Small preview size");
         await tv.page.getByRole("button", { name: /Position/ }).click();
         await tv.page.getByRole("radio", { name: "Lower Third", exact: true }).click();
         await tv.page.locator('[data-focus="appearance-position"]').waitFor();
         assert.equal((await previewLook()).bottomGap, 33);
+        await tv.page.getByRole("button", { name: /Position/ }).click();
+        await tv.page.getByRole("radio", { name: "Top", exact: true }).click();
+        await tv.page.locator('[data-focus="appearance-position"]').waitFor();
+        assert.equal(await tv.page.locator(".settings-subtitle-preview").evaluate(node => Math.round((node.querySelector("span") as Element).getBoundingClientRect().top - node.getBoundingClientRect().top)), 12);
         await tv.page.getByRole("button", { name: /Position/ }).click();
         await tv.page.getByRole("radio", { name: "Bottom", exact: true }).click();
         await tv.page.locator('[data-focus="appearance-position"]').waitFor();
@@ -216,7 +221,7 @@ test("remaining settings expose only honoured rows and save profile appearance",
     } finally { await tv.page.context().close(); }
 });
 
-test("revision 25 subtitle rows stay available without saving unused Next Up values", async () => {
+test("revision 25 subtitle rows and Show Next Up stay available without incidental writes", async () => {
     const { tv, settings } = await setup(true);
     settings.revision = 25;
     settings.profileSubtitles = true;
@@ -233,12 +238,42 @@ test("revision 25 subtitle rows stay available without saving unused Next Up val
         assert.equal(await tv.page.locator('[data-focus="subtitle-mode"]').count(), 1);
         assert.equal(await tv.page.getByRole("switch", { name: "Show Forced Subtitles", exact: true }).count(), 1);
         await tv.page.locator('[data-focus="playback"]').click();
-        assert.equal(await tv.page.locator('[data-focus="next-up"]').count(), 0);
+        assert.equal(await tv.page.locator('[data-focus="next-up"]').count(), 1);
         const deviceId = tv.fake.requests.find(request => request.headers["x-silo-device-id"])?.headers["x-silo-device-id"];
         assert.ok(deviceId);
         assert.equal(settings.device("p-owner", deviceId).has("playback.next_up_prompt_seconds"), false);
         assert.equal(settings.profile().has("playback.next_up_prompt_seconds"), false);
         assert.equal(await tv.page.getByRole("alert").count(), 0);
+    } finally { await tv.page.context().close(); }
+});
+
+test("Show Next Up follows Apple episode order, timing choices and profile inheritance", async () => {
+    const { tv, settings } = await setup(true);
+    settings.remainingRows = true;
+    settings.profile().set("playback.next_up_prompt_seconds", 30);
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="playback"]').click();
+        const episodeRows = await tv.page.locator('.settings-pane [data-focus]').evaluateAll(nodes => nodes.map(node => node.getAttribute("data-focus")).filter(id => ["auto-next", "next-up", "skip-intros", "skip-credits"].includes(id ?? "")));
+        assert.deepEqual(episodeRows, ["auto-next", "next-up", "skip-intros", "skip-credits"]);
+        await tv.page.locator('[data-focus="next-up"]').click();
+        assert.deepEqual(await tv.page.locator('.settings-modal button').allTextContents(), ["Use Profile Setting", "At end", "10 seconds before end", "30 seconds before end", "1 minute before end", "2 minutes before end"]);
+        assert.equal(await tv.page.locator('[data-focus="reset-row"]').getAttribute("aria-checked"), "true");
+        const reads = tv.fake.requests.length;
+        await tv.remote(40);
+        assert.equal(tv.fake.requests.length, reads);
+        await tv.page.getByRole("radio", { name: "1 minute before end", exact: true }).click();
+        await tv.page.locator('[data-focus="next-up"]').waitFor();
+        const deviceId = tv.fake.requests.find(request => request.headers["x-silo-device-id"])?.headers["x-silo-device-id"];
+        assert.ok(deviceId);
+        assert.equal(settings.device("p-owner", deviceId).get("playback.next_up_prompt_seconds"), 60);
+        assert.equal(settings.profile().get("playback.next_up_prompt_seconds"), 30);
+        await tv.page.locator('[data-focus="next-up"]').click();
+        await tv.page.getByRole("button", { name: "Use Profile Setting", exact: true }).click();
+        await tv.page.locator('[data-focus="next-up"]').waitFor();
+        assert.equal(settings.device("p-owner", deviceId).has("playback.next_up_prompt_seconds"), false);
+        assert.match(await tv.page.locator('[data-focus="next-up"]').innerText(), /30 seconds before end/);
+        assert.equal(await tv.focused(), "next-up");
     } finally { await tv.page.context().close(); }
 });
 

@@ -5,7 +5,7 @@
 // events go to whichever listener is registered when they fire, and a test can also hold an old
 // listener object and call it late.
 
-import type { AVPlay, AVPlayAsyncError, AVPlayListener } from "../../../src/player/avplay.ts";
+import type { AVPlay, AVPlayAsyncError, AVPlayListener, AVPlayTrackInfo } from "../../../src/player/avplay.ts";
 
 type State = "NONE" | "IDLE" | "READY" | "PLAYING" | "PAUSED";
 
@@ -23,6 +23,13 @@ class InvalidStateError extends Error {
     }
 }
 
+class InvalidValuesError extends Error {
+    constructor(method: string) {
+        super(`${method} rejected the track`);
+        this.name = "InvalidValuesError";
+    }
+}
+
 export class FakeAVPlay implements AVPlay {
     state: State = "NONE";
     /** Every call in order, e.g. "open <url>", "seekTo 12500", "play". */
@@ -30,6 +37,11 @@ export class FakeAVPlay implements AVPlay {
     readonly listeners: AVPlayListener[] = [];
     readonly urls: string[] = [];
     positionMs = 0;
+    /** Rows `getTotalTrackInfo` returns for the open stream. */
+    tracks: AVPlayTrackInfo[] = [];
+    /** TEXT index from the last `setSelectTrack`, until subtitles are silenced. */
+    textIndex: number | undefined;
+    silentSubtitle = false;
     private stream = 0;
     private readonly prepares: Pending[] = [];
     private readonly seeks: (Pending & { readonly ms: number })[] = [];
@@ -60,8 +72,10 @@ export class FakeAVPlay implements AVPlay {
         this.prepares.push({ success, error, stream: this.stream });
     }
 
-    setDisplayRect(): void {
+    readonly displayRects: number[][] = [];
+    setDisplayRect(x: number, y: number, width: number, height: number): void {
         this.require("setDisplayRect", ["IDLE", "READY", "PLAYING", "PAUSED"]);
+        this.displayRects.push([x, y, width, height]);
     }
 
     setListener(listener: AVPlayListener): void {
@@ -115,6 +129,31 @@ export class FakeAVPlay implements AVPlay {
 
     getCurrentTime(): number {
         return this.positionMs;
+    }
+
+    getTotalTrackInfo(): readonly AVPlayTrackInfo[] {
+        this.require("getTotalTrackInfo", ["PLAYING", "PAUSED"]);
+        this.calls.push("getTotalTrackInfo");
+        return this.tracks;
+    }
+
+    setSelectTrack(trackType: "AUDIO" | "TEXT", trackIndex: number): void {
+        this.require("setSelectTrack", ["PLAYING", "PAUSED"]);
+        if (!this.tracks.some((track) => track.type === trackType && track.index === trackIndex)) {
+            throw new InvalidValuesError("setSelectTrack");
+        }
+        this.calls.push(`setSelectTrack ${trackType} ${trackIndex}`);
+        if (trackType === "TEXT") {
+            this.textIndex = trackIndex;
+            this.silentSubtitle = false;
+        }
+    }
+
+    setSilentSubtitle(hidden: boolean): void {
+        this.require("setSilentSubtitle", ["IDLE", "PLAYING", "PAUSED"]);
+        this.calls.push(`setSilentSubtitle ${hidden}`);
+        this.silentSubtitle = hidden;
+        if (hidden) this.textIndex = undefined;
     }
 
     // --- test controls ---

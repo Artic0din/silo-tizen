@@ -683,6 +683,7 @@ export function mountSettings(root: HTMLElement, session: NativeSession, close: 
                 preview.appendChild(text);
                 const stored = state.stored(APPEARANCE_KEY);
                 const appearance = decodeAppearance({ profile_id: "preview", effective_value: JSON.stringify(stored?.isSet ? stored.value : {}) }, "preview");
+                // The preview is laid out by flexbox, so it ignores the top and bottom this also sets for the player.
                 applySubtitleAppearance(preview, text, appearance);
                 text.style.fontSize = `${TV_PREVIEW_POINT_SIZE[appearance.fontSize] * 0.5}px`;
                 text.style.fontWeight = "600";

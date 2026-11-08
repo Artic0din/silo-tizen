@@ -212,7 +212,12 @@
 .details-facts .browse-text:focus { outline: none; border-color: #fff; }
 /* tvOS person portrait is 300×450, not the 260×390 poster. siloSmall capsules, 12px radius. */
 .details-person-hero .person-portrait { width: 300px; height: 450px; margin-right: 48px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.10); background: var(--silo-elevated); }
-.details-person-hero .browse-title { max-width: 1100px; margin-bottom: 22px; font-size: 72px; line-height: 1.05; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* PersonDetailView.swift:466 pads the name column 10pt. The name at line 451 is
+   .system(size: 72, weight: .bold). That face's line height is 84.796875
+   (ascender 69.609375, descender -15.1875, leading 0) and SwiftUI lays the
+   text out 85pt tall. The facts row is the 22pt VStack spacing at line 449
+   below that box. A 1.05 line was 75.6px, so the glyphs and the facts sat high. */
+.details-person-hero .browse-title { max-width: 1100px; margin-top: 0; margin-bottom: 22px; font-size: 72px; line-height: 85px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .details-person-hero .browse-detail-info { padding-top: 10px; }
 .details-person-hero .browse-overview { max-width: 920px; max-height: none; margin-bottom: 22px; font-size: 26px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 7; -webkit-box-orient: vertical; overflow: hidden; }
 .person-facts { margin: 0 0 10px; }
@@ -1436,7 +1441,10 @@
 .browse[data-view^="person:"] .browse-title { margin-bottom: 0; }
 .browse[data-view^="person:"] .person-facts { display: flex; gap: 12px; margin: 0; }
 .browse[data-view^="person:"] .person-fact { flex-shrink: 0; margin: 0; }
-.browse[data-view^="person:"] .browse-overview { margin: 0; color: rgba(237, 237, 237, 0.6); font-size: 26px; font-weight: 400; white-space: pre-line; }
+/* PersonDetailView.swift:459 .siloBody (Typography.swift:28, 26pt regular), no lineSpacing. Apple TV
+   at 2ef3a171 draws its lines 31px apart (measured); SwiftUI rounds the font's 30.62 line up. The
+   7-line clamp comes from .details-person-hero .browse-overview. */
+.browse[data-view^="person:"] .browse-overview { margin: 0; color: rgba(237, 237, 237, 0.6); font-size: 26px; font-weight: 400; line-height: 31px; white-space: pre-line; }
 .browse[data-view^="person:"] .browse-detail-info > * + * { margin-top: 22px; }
 .person-filmography-heading { display: flex; align-items: baseline; gap: 60px; margin: 0 0 20px; }
 .person-filmography-heading .browse-section-title { margin: 0; font-size: 36px; font-weight: 600; }
@@ -1466,7 +1474,7 @@
 /* SubtitleAppearancePreview.swift: tvOS height 150, grey gradient from the top-leading to the bottom-trailing corner, text padded 12 and 16. SwiftUI's gradient axis runs along the diagonal of the 958 x 150 box, which is 98.9deg; CSS "to bottom right" would slant the colour bands.
    overflow:hidden would otherwise let this flex child shrink in a constrained pane. */
 .settings-subtitle-preview { display: flex; justify-content: center; align-items: flex-end; box-sizing: border-box; height: 150px; min-height: 150px; flex-shrink: 0; margin: 0 24px 8px; padding: 12px 16px; border-radius: 18px; background: linear-gradient(98.9deg, #525252, #0f0f0f); overflow: hidden; }
-.settings-subtitle-preview span { text-align: center; font-weight: 600; }
+.settings-subtitle-preview span { text-align: center; font-weight: 600; line-height: 1.2; }
 /* TVSettingsPaneRowStyle isDestructive (TVSettingsComponents.swift:273-276): #B00020 at rest, #D22F3F on the white platter. */
 .settings-pane .settings-destructive { display: flex; align-items: center; gap: 16px; color: #b00020; }
 .settings-pane .settings-destructive .skyline-menu-icon { width: 22px; height: 22px; margin: 0; }

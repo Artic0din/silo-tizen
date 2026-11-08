@@ -75,7 +75,10 @@ journey("Details reopens cached metadata while unreachable", async tv => {
     await tv.page.evaluate(() => { window.browseHarness.destroy(); window.browseHarness.mount(); });
     await tv.page.locator('[data-view="home"] [data-section]').first().waitFor();
     const titles = await homeTitles(tv);
-    await tv.eventually(async () => detailReads(tv).length >= enrichmentBefore + titles.length, "new Home mount reread every visible title");
+    await tv.jump(150);
+    const focused = await tv.focused();
+    await tv.eventually(async () => focused !== null && detailReads(tv).slice(enrichmentBefore).includes(focused), "new Home reads the focused title");
+    assert.ok(detailReads(tv).length - enrichmentBefore < titles.length, "a new Home does not reread every visible title");
     await detailsRead(tv);
     await tv.page.route("**/api/v2/**", route => route.abort("connectionrefused"));
     await tv.page.locator(card).click();
@@ -186,7 +189,7 @@ function journey(name: string, body: (tv: Tv, catalog: FakeHome) => Promise<void
             await tv.page.evaluate(() => window.browseHarness.mount());
             if (options.beforeReady !== undefined) await options.beforeReady(tv);
             await tv.page.locator('[data-view="home"] [data-section]').first().waitFor(options.readyTimeout === undefined ? undefined : { timeout: options.readyTimeout });
-            // Home reads detail for its titles as it loads; journeys start once those reads are out.
+            // The focused card's detail waits for the marquee to rest. Journeys start once that read is out.
             if (options.whileReading !== true) await detailsRead(tv);
             await body(tv, catalog);
             assert.deepEqual(tv.console, []);
@@ -488,12 +491,11 @@ journey("Home keeps the server's row order and shows featured rows as ordinary r
     assert.equal(await tv.page.locator('[data-section="hero/opaque"] [data-focus="expand:hero/opaque"]').count(), 1);
     assert.equal(await tv.focused(), "movie:m0004");
     assert.equal(await tv.page.locator('.skyline-marquee h1').innerText(), "Movie 0004");
-    const titles = await homeTitles(tv);
-    assert.deepEqual(detailReads(tv).sort(), titles.sort(), "one detail read per distinct Home title, and none for anything else");
+    assert.deepEqual([...new Set(detailReads(tv))].sort(), ["episode:s1e12", "movie:m0001", "movie:m0004"].sort(), "Continue Watching when the rows load, then the rested hero");
     const count = tv.fake.requests.length;
     await tv.page.keyboard.press("ArrowRight");
     await tv.page.keyboard.press("ArrowDown");
-    assert.equal(tv.fake.requests.length, count, "no focus reads");
+    assert.equal(tv.fake.requests.length, count, "no request before the next card rests");
     assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/recommendations")).length, 0, "no duplicate recommendations feed");
 });
 
@@ -625,7 +627,8 @@ journey("Home fills omitted marquee rating and runtime from detail but preserves
     await tv.jump(300);
     assert.equal(await meta.locator(".skyline-chip").innerText(), "PG");
     assert.match(await meta.innerText(), /1h 39m/);
-    assert.equal(tv.fake.requests.length, reads, "enrichment only looks up the Home-load cache on focus");
+    assert.equal(detailReads(tv).filter(id => id === "movie:m0005").length, 1, "resting reads the newly focused card once");
+    assert.equal(tv.fake.requests.length, reads + 1, "that detail read is the only new request");
 }, catalog => {
     const featured = catalog.households.get("p-owner")?.sections.find(row => row.id === "hero/opaque");
     assert.ok(featured);
@@ -741,10 +744,12 @@ journey("Home marquee headlines episodes with their series and shows rating, met
     assert.deepEqual(await layer.locator(".skyline-badges > *").allInnerTexts(), ["4K", "DOLBY VISION", "ATMOS"]);
     await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0005"]').focus();
     await tv.jump(300);
+    await tv.eventually(async () => (await layer.locator(".skyline-meta-line").innerText()).includes("1h 30m"), "rested runtime");
     assert.deepEqual(await layer.locator(".skyline-meta-line > *").allTextContents(), ["1995 · Crime · 1h 30m"]);
-    assert.equal(await layer.locator(".skyline-detail-line").textContent(), "Aired Mar 12, 2026 · Pedro Pascal, Bella Ramsey, Anna Torv");
+    await tv.eventually(async () => await layer.locator(".skyline-detail-line").textContent() === "Aired Mar 12, 2026 · Pedro Pascal, Bella Ramsey, Anna Torv", "rested detail line");
     assert.equal(await layer.locator(".skyline-badges > *").count(), 0);
-    assert.equal(tv.fake.requests.length, requests, "the marquee reads only answers Home already holds");
+    assert.equal(detailReads(tv).filter(id => id === "movie:m0005").length, 1, "the uncached card is read once after it rests");
+    assert.equal(tv.fake.requests.length, requests + 1);
 }, catalog => { enrichHome(catalog, heroFields); enrichDetails(catalog, detailFields); });
 
 journey("Home refreshes the same title's marquee progress after playback", async (tv, catalog) => {
@@ -901,11 +906,19 @@ for (const [name, configure, expected] of [
         await tv.jump(300);
         assert.deepEqual(await corners(tv, POSTER), expected);
         assert.equal(await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0004"] .browse-art').count(), 1, "Home stays usable");
-        const requests = tv.fake.requests.length;
+        const otherReads = (): number => tv.fake.requests.filter(request => !request.path.startsWith("/catalog/items/")).length;
+        const others = otherReads();
+        const beforeIds = detailReads(tv);
         await tv.page.locator(POSTER).focus();
         await tv.page.keyboard.press("ArrowLeft");
         await tv.jump(300);
-        assert.equal(tv.fake.requests.length, requests, "focus moves read nothing");
+        const rested = await tv.focused();
+        const mediaId = rested !== null && /^(movie|episode|series|season):/.test(rested) ? rested : undefined;
+        const expectDetail = mediaId !== undefined && !beforeIds.includes(mediaId);
+        // jump() returns before the page's fetch is logged.
+        if (mediaId !== undefined && expectDetail) await tv.eventually(async () => detailReads(tv).includes(mediaId), "rested card detail");
+        assert.equal(otherReads(), others, "focus moves do not reread badge settings");
+        assert.equal(detailReads(tv).length - beforeIds.length, expectDetail ? 1 : 0, "at most the rested card is read");
     }, catalog => enrichHome(catalog, badgeFields), configure);
 }
 
@@ -1052,7 +1065,9 @@ journey("late larger Home posters reveal the same focused card at the row edge",
         return { left: art.left, right: art.right, rowLeft: row.left, rowRight: row.right };
     });
     assert.ok(bounds.left >= bounds.rowLeft && bounds.right <= bounds.rowRight, JSON.stringify(bounds));
-    assert.equal(tv.fake.requests.length, reads, "resizing and revealing focus sends no requests");
+    const added = tv.fake.requests.slice(reads).map(request => request.path.split("?")[0]);
+    assert.ok(added.every(path => path === `/catalog/items/${encodeURIComponent(focus ?? "")}`), added.join(" "));
+    assert.ok(added.length <= 1, "resizing sends no request; resting reads the focused card once");
 }, undefined, (settings, tv) => {
     settings.profile().set(CARD_PRESENTATION_KEY, { poster_size: "large", caption: "title_metadata" });
     largerPosterAnswer = tv.fake.hold("/settings/values/effective?keys=ui.card_presentation", true);
@@ -1063,10 +1078,12 @@ journey("Home marquee scores titles with IMDb, else TMDB, and never episodes", a
     const meta = async () => layer.locator(".skyline-meta").evaluate(node => [...node.children].map(child => child.getAttribute("aria-label") ?? child.textContent));
     await tv.page.locator(POSTER).focus();
     await tv.jump(300);
+    await tv.eventually(async () => (await meta())[0] === "1996 · Crime · 1h 30m", "rested runtime");
     assert.deepEqual(await meta(), ["1996 · Crime · 1h 30m", " · ", "IMDb 8.5"]);
     assert.deepEqual(await layer.locator(".skyline-rating > *").allTextContents(), ["IMDb", "8.5"]);
     await tv.page.locator('[data-section="for/you"] [data-focus="movie:m0007"]').focus();
     await tv.jump(300);
+    await tv.eventually(async () => (await meta())[0] === "1997 · Crime · 1h 30m", "rested runtime");
     assert.deepEqual(await meta(), ["1997 · Crime · 1h 30m", " · ", "TMDB 7.0"]);
     const mark = layer.locator(".skyline-rating img.skyline-rating-logo");
     assert.match(await mark.getAttribute("src") ?? "", /^third-party\/tmdb-logo\.svg$/, "TMDB's approved logo replaces its text mark");
@@ -1112,15 +1129,53 @@ journey("Home poster badges show the registry defaults while their reads are pen
 }, catalog => enrichHome(catalog, badgeFields), (settings, tv) => { settings.overlayConfig = { enabled: false }; heldBadges = tv.fake.hold("/settings/overlay-config", true); });
 let heldBadges: { release(): void } | undefined;
 
-journey("Home detail reads go out once while Home loads, and focus moves start none", async tv => {
-    // Focus roams while the reads are still going out.
-    for (const key of ["ArrowRight", "ArrowRight", "ArrowDown", "ArrowRight", "ArrowDown", "ArrowLeft"]) { await tv.page.keyboard.press(key); await tv.jump(200); }
-    const titles = await detailsRead(tv);
-    assert.deepEqual(detailReads(tv).sort(), titles.sort(), "each Home title is read exactly once; focus added nothing");
-    const count = tv.fake.requests.length;
-    for (const key of ["ArrowRight", "ArrowRight", "ArrowUp", "ArrowDown", "ArrowDown", "ArrowLeft"]) { await tv.page.keyboard.press(key); await tv.jump(200); }
-    assert.equal(tv.fake.requests.length, count, "after the reads settle, focus sends nothing");
-}, undefined, undefined, { whileReading: true });
+journey("Home reads the rested card once and sends nothing while focus is still moving", async (tv, catalog) => {
+    const continuing = ["episode:s1e12", "movie:m0001"];
+    assert.deepEqual([...new Set(detailReads(tv))].sort(), [...continuing].sort(), "after first paint only Continue Watching is read");
+    await tv.page.keyboard.press("ArrowDown");
+    for (let step = 0; step < 4; step += 1) await tv.page.keyboard.press("ArrowRight");
+    let focused = await tv.focused();
+    let guard = 0;
+    while ((focused === null || continuing.includes(focused) || focused.startsWith("expand:")) && guard < 12) {
+        await tv.page.keyboard.press("ArrowRight");
+        focused = await tv.focused();
+        guard += 1;
+    }
+    assert.ok(focused !== null && !continuing.includes(focused) && !focused.startsWith("expand:"));
+    assert.deepEqual([...new Set(detailReads(tv))].sort(), [...continuing].sort(), "fast key moves send no item detail");
+    await tv.jump(149);
+    assert.equal(detailReads(tv).includes(focused), false, "149 ms is before Apple's rest delay");
+    await tv.jump(1);
+    await tv.eventually(async () => detailReads(tv).includes(focused), "one request after the rest");
+    assert.equal(detailReads(tv).filter(id => id === focused).length, 1);
+    const first = focused;
+    await tv.page.keyboard.press("ArrowRight");
+    const second = await tv.focused();
+    assert.ok(second !== null && second !== first);
+    const held = tv.fake.hold(`/catalog/items/${encodeURIComponent(second)}`, true);
+    try {
+        await tv.jump(150);
+        await tv.eventually(async () => detailReads(tv).includes(second), "the next rested card's read started");
+        await tv.page.keyboard.press("ArrowRight");
+        const third = await tv.focused();
+        assert.ok(third !== null && third !== second);
+        await tv.jump(150);
+        await tv.eventually(async () => await tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) .skyline-detail-text").innerText() === `Cast ${third}`, "the newer focus fills the marquee");
+        held.release();
+        await tv.jump(0);
+        assert.equal(await tv.page.locator(".skyline-marquee-layer:not(.skyline-outgoing) .skyline-detail-text").innerText(), `Cast ${third}`, "the cancelled card cannot replace it");
+        assert.equal(detailReads(tv).filter(id => id === third).length, 1);
+    } finally { held.release(); }
+}, catalog => {
+    const read = catalog.route.bind(catalog);
+    catalog.route = (method, path, profile, body) => {
+        const reply = read(method, path, profile, body);
+        const encoded = /^\/catalog\/items\/([^?]+)/.exec(path)?.[1];
+        if (encoded === undefined || reply?.status !== 200) return reply;
+        const id = decodeURIComponent(encoded);
+        return { ...reply, body: { ...(reply.body as Record<string, unknown>), air_date: undefined, cast: [{ name: `Cast ${id}`, character: "Role", order: 0 }] } };
+    };
+}, undefined, { whileReading: true });
 
 function imageCapabilities(catalog: FakeHome, slotWidths: boolean): void {
     const route = catalog.route.bind(catalog);
@@ -1232,6 +1287,7 @@ journey("an artwork upgrade preserves hidden libraries without rereading prefere
 
 let heldHomeDetail: { release(): void };
 journey("an artwork upgrade preserves in-flight Home metadata reads", async tv => {
+    await tv.jump(150);
     await tv.eventually(async () => detailReads(tv).includes("movie:m0004"), "held Home detail started");
     const before = detailReads(tv).filter(id => id === "movie:m0004").length;
     const upgraded = tv.page.waitForResponse(reply => new URL(reply.url()).pathname === "/api/v2/home/sections" && new URL(reply.url()).searchParams.has("backdrop_width"));
@@ -1271,6 +1327,9 @@ journey("a pending optional image probe cannot block cold Home", async tv => {
     await tv.page.locator('[data-section="recent/12"] [data-focus="movie:m0012"]').focus();
     await tv.jump(200);
     const focus = await tv.focused();
+    assert.equal(focus, "movie:m0012");
+    // The rest timer starts the read in the page. jump() returns before that fetch is logged.
+    await tv.eventually(async () => detailReads(tv).includes("movie:m0012"), "rested card detail started");
     const metadataReads = detailReads(tv).length;
     const upgraded = tv.page.waitForResponse(response => new URL(response.url()).pathname === "/api/v2/home/sections" && new URL(response.url()).searchParams.get("backdrop_width") === "1344");
     assert.equal(await tv.page.evaluate(() => window.browseHarness.hasImageCapabilityCache()), false);
@@ -1286,7 +1345,12 @@ journey("a pending optional image probe cannot block cold Home", async tv => {
     assert.equal(detailReads(tv).length, metadataReads, "artwork refresh reuses completed metadata");
     const reads = tv.fake.requests.length;
     await tv.page.keyboard.press("ArrowRight"); await tv.jump(200);
-    assert.equal(tv.fake.requests.length, reads, "focus moves neither reload nor probe");
+    const rested = await tv.focused();
+    assert.equal(tv.fake.requests.filter(request => request.path.startsWith("/home/sections")).length, 2, "focus does not reload Home");
+    assert.ok(rested !== null && rested !== focus);
+    await tv.eventually(async () => detailReads(tv).filter(id => id === rested).length === 1, "resting reads the newly focused title once");
+    assert.equal(detailReads(tv).filter(id => id === rested).length, 1, "resting reads the newly focused title once");
+    assert.equal(tv.fake.requests.length, reads + 1, "that detail read is the only new request");
 }, catalog => {
     imageCapabilities(catalog, true);
     const read = catalog.route.bind(catalog);

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { ApiError } from "../../src/api/errors.ts";
 import type { RequestSpec } from "../../src/api/http.ts";
 import { decodeEpisodes, decodeSeasons, decodeWatchDetail } from "../../src/contracts/v2/catalog.ts";
-import { nextEpisode } from "../../src/player/nextEpisode.ts";
+import { nextEpisode, onDeckPlay } from "../../src/player/nextEpisode.ts";
 
 const SERIES = "opaque/series+9";
 const CURRENT = "unparseable-current";
@@ -43,7 +43,7 @@ test("next playable episode uses explicit numeric order and a fresh allowed file
     r.data.set(seasonPath(1), { items: [row("later", 1, 12), row(NEXT, 1, 10), row(CURRENT, 1, 9)] });
     r.data.set(watchPath(NEXT), watch(NEXT, 1, 10));
     const result = await nextEpisode(r.read, CURRENT, "effective");
-    assert.deepEqual(result, { contentId: NEXT, fileId: `file-${NEXT}`, title: `Title ${NEXT}`, startSeconds: 0, episode: true, seasonNumber: 1, episodeNumber: 10 });
+    assert.deepEqual(result, { contentId: NEXT, fileId: `file-${NEXT}`, title: `Title ${NEXT}`, startSeconds: 0, episode: true, seasonNumber: 1, episodeNumber: 10, watch: { played: false } });
     assert.equal(r.reads[r.reads.length - 1], watchPath(NEXT));
 });
 
@@ -142,6 +142,38 @@ test("a fresh candidate must match the authorized row and expose a readable perm
         if (change === "file") assert.equal(await nextEpisode(r.read, CURRENT, "effective"), undefined);
         else await assert.rejects(nextEpisode(r.read, CURRENT, "effective"));
     }
+});
+
+test("an On Deck episode keeps the card series title and the fresh season and episode numbers", async () => {
+    const current = "episode:here";
+    const other = "episode:there";
+    const bodies = new Map<string, unknown>([
+        [`/watch/${encodeURIComponent(current)}`, { ...watch(current, 1, 2), series_id: "series:here", series_title: "Harbor Lights" }],
+        [`/watch/${encodeURIComponent(other)}`, { ...watch(other, 3, 4), series_id: "series:there", series_title: "Stale detail title", title: "Pilot" }],
+        ["/home/sections", { sections: [{ id: "continue_watching", section_type: "continue_watching", title: "Continue Watching", items: [
+            { content_id: current, type: "episode", title: "Current", series_id: "series:here", series_title: "Harbor Lights", season_number: 1, episode_number: 2 },
+            { content_id: other, type: "episode", title: "Pilot", series_id: "series:there", series_title: "Night Shift", season_number: 9, episode_number: 8 },
+        ] }] }],
+    ]);
+    const result = await onDeckPlay(async (spec) => {
+        const path = spec.path.split("?")[0] ?? "";
+        const body = bodies.get(path);
+        assert.ok(body !== undefined, path);
+        return spec.decode(body);
+    }, current);
+    assert.deepEqual(result, {
+        contentId: other,
+        fileId: `file-${other}`,
+        title: "Pilot",
+        overview: undefined,
+        backdropUrl: undefined,
+        startSeconds: 0,
+        episode: true,
+        seriesTitle: "Night Shift",
+        seasonNumber: 3,
+        episodeNumber: 4,
+        watch: { played: false },
+    });
 });
 
 test("consumed malformed members fail visibly; no guessed range aliases or duration units", () => {

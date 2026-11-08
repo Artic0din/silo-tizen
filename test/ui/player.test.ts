@@ -339,6 +339,16 @@ test("timeline scrub opacity takes precedence over focus", async () => {
     } finally { await page.close(); }
 });
 
+test("the playback clock keeps one line height before and after the app font loads", async () => {
+    const { page } = await open();
+    try {
+        await show(page, playing(TRACKS));
+        // The clock row sets where the scrubber sits. A face swap that changes its height moves the
+        // scrubber after placeThumbnail has stored a pixel bottom for the preview card.
+        assert.equal(await page.locator(".player-time").evaluate(node => getComputedStyle(node).lineHeight), "34px");
+    } finally { await page.close(); }
+});
+
 test("scrub thumbnail follows the playhead and sits 101.0234375px above the handle", async () => {
     const { page } = await open();
     try {

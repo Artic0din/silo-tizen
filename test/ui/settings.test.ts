@@ -39,6 +39,28 @@ async function openSettings(tv: Tv): Promise<void> {
     await tv.page.getByRole("switch", { name: "Show Title Art", exact: true }).waitFor();
 }
 
+test("the subtitle preview draws sans-serif in the bundled semibold face", async () => {
+    const { tv, settings } = await setup();
+    settings.remainingRows = true;
+    try {
+        await openSettings(tv);
+        await tv.page.locator('[data-focus="subtitles"]').click();
+        const preview = tv.page.locator(".settings-subtitle-preview span");
+        await preview.waitFor();
+        const face = (): Promise<{ family: string; weight: string }> => preview.evaluate(node => {
+            const style = getComputedStyle(node);
+            return { family: style.fontFamily.replaceAll('"', ""), weight: style.fontWeight };
+        });
+        assert.deepEqual(await face(), { family: "Inter, sans-serif", weight: "600" });
+        for (const [label, family] of [["Serif", "serif, sans-serif"], ["Monospace", "monospace, sans-serif"]] as const) {
+            await tv.page.getByRole("button", { name: /Font Family/ }).click();
+            await tv.page.getByRole("radio", { name: label, exact: true }).click();
+            await tv.eventually(async () => (await face()).family === family, `${label} preview face`);
+            assert.deepEqual(await face(), { family, weight: "600" });
+        }
+    } finally { await tv.page.context().close(); }
+});
+
 test("Settings pins its rail, resets pane scroll and keeps modal background geometry", async () => {
     const { tv, settings } = await setup();
     settings.remainingRows = true;

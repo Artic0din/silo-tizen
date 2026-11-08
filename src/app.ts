@@ -21,6 +21,15 @@ export interface AppOptions {
 
 export interface SiloApp { destroy(): void; }
 
+interface ProfileRoute {
+    readonly pickerRequested?: boolean;
+    readonly skipRemembered?: boolean;
+    readonly returnToAccounts?: boolean;
+    readonly sessionExpired?: boolean;
+    /** The sign-in was opened from Change Account, so Back returns there. */
+    readonly fromAccounts?: boolean;
+}
+
 export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
     let signIn: SignInScreens | undefined;
     let profiles: ProfileScreens | undefined;
@@ -62,7 +71,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
         browse = undefined;
     };
 
-    const showSignIn = (notice?: LogoutResult, chooseServer = false, account?: SavedAccount, address?: string, pickerRequested = false): void => {
+    const showSignIn = (notice?: LogoutResult, chooseServer = false, account?: SavedAccount, address?: string, pickerRequested = false, route?: ProfileRoute): void => {
         stopContent();
         if (connected?.session.activeProfile) connected.session.setProfile(undefined, "profile_cleared");
         profiles?.destroy();
@@ -72,11 +81,11 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
             try { live.accounts.directory.select(account.id); }
             catch {
                 startup = new ScreenHost(root);
-                const controls = [button("retry", "Retry", () => { startup?.destroy(); startup = undefined; showSignIn(notice, chooseServer, account, address, pickerRequested); }), button("accounts", "Back to profiles", () => { startup?.destroy(); startup = undefined; showProfiles(live, true); })];
+                const controls = [button("retry", "Retry", () => { startup?.destroy(); startup = undefined; showSignIn(notice, chooseServer, account, address, pickerRequested, route); }), button("accounts", "Back to profiles", () => { startup?.destroy(); startup = undefined; showProfiles(live, { pickerRequested: true }); })];
                 startup.show({ name: "account-selection-error", content: [el("h1", "signin-title", "Could not save the account selection"), actions(controls)], controls, focus: "retry", back: undefined });
                 return;
             }
-            showProfiles(live, pickerRequested); return;
+            showProfiles(live, { pickerRequested, skipRemembered: route?.skipRemembered === true }); return;
         }
         signIn = mountSignIn(root, {
             core: { ...activeCore, ...(account ? { localAccountId: account.id } : {}), ...(address || account?.needsSignIn ? { addAccount: true } : {}),
@@ -85,19 +94,23 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
             ...(address || account ? { address: address ?? account!.baseUrl } : {}),
             ...(account ? { username: account.username } : {}),
             onChangeAccount: () => showAccounts(),
-            ...(pickerRequested ? { onCancel: () => showAccounts() } : {}),
+            ...(route?.returnToAccounts ? { returnToAccounts: true } : {}),
+            ...(route?.sessionExpired ? { sessionExpired: true } : {}),
+            ...(pickerRequested || route?.fromAccounts || route?.returnToAccounts ? { onCancel: () => showAccounts() } : {}),
             ...(chooseServer ? { chooseServer: true } : {}),
-            onSignedIn: server => showProfiles(server, pickerRequested),
+            onSignedIn: server => showProfiles(server, { pickerRequested, skipRemembered: route?.skipRemembered === true }),
             ...(notice === undefined ? {} : { signedOut: notice }),
         });
     };
 
-    function showProfiles(server: ConnectedServer, pickerRequested = false): void {
+    function showProfiles(server: ConnectedServer, route: ProfileRoute = {}): void {
         connected = server;
         if (server.session.account) liveAccounts.set(liveKey(server.server.http.base.baseUrl, server.session.account.id), server);
         signIn = undefined;
         profiles = mountProfiles(root, {
-            pickerRequested, server, launch: server.profileLaunch,
+            pickerRequested: route.pickerRequested === true, skipRemembered: route.skipRemembered === true,
+            onSessionExpired: () => routeWithoutSignedInAccount(server),
+            server, launch: server.profileLaunch,
             onChangeServer: () => showAccounts(),
             onSelected: active => showBrowse(server, active),
             onProfileUpdated: summary => {
@@ -114,11 +127,44 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
         });
     }
 
+    // A row can say "sign in again" while its session still works, when the key store refused to save it.
+    const hasLiveSession = (row: SavedAccount): boolean => liveAccounts.get(liveKey(row.baseUrl, row.accountId))?.session.signedIn === true;
+
+    const openFromAccounts = (account: SavedAccount | undefined, address?: string): void => {
+        accounts = undefined;
+        if (account?.needsSignIn && !hasLiveSession(account)) {
+            // ChangeAccountModel.choose: signing in again ends at the picker, as for any chosen account.
+            showSignIn(undefined, false, account, address, false, { returnToAccounts: true, skipRemembered: true });
+            return;
+        }
+        // The open account is Switch Profile (picker). Another account skips a remembered
+        // profile, except its only PIN-less profile, which opens (AppRouter.openAccount).
+        const current = account !== undefined && connected?.session.signedIn === true && connected.accounts.localAccountId === account.id;
+        const adding = account === undefined;
+        showSignIn(undefined, adding && address === undefined, account, address, current, {
+            fromAccounts: true,
+            returnToAccounts: adding || account?.needsSignIn === true,
+            skipRemembered: account !== undefined && !current,
+        });
+    };
+
+    const routeWithoutSignedInAccount = (server: ConnectedServer): void => {
+        // The vault may keep its accounts in memory only, so read the one it writes.
+        const directory = server.accounts.directory;
+        const expiredId = server.accounts.localAccountId;
+        // The vault records this after the listener runs. The route has to see it now.
+        try { if (expiredId !== undefined) directory.update(expiredId, { needsSignIn: true }); } catch { /* clear() writes the same flag. */ }
+        let rows: readonly SavedAccount[] = [];
+        try { rows = directory.list(); } catch { rows = []; }
+        // AppRouter.signedOutDestination: another account that can open a profile opens Change Account.
+        // The expired one never counts, even when its flag could not be saved.
+        if (rows.some(row => row.id !== expiredId && (!row.needsSignIn || hasLiveSession(row)))) { showAccounts(); return; }
+        const renewing = rows.find(row => row.id === expiredId) ?? rows.find(row => row.baseUrl === server.server.http.base.baseUrl && row.needsSignIn);
+        showSignIn(undefined, false, renewing, undefined, false, { sessionExpired: true });
+    };
+
     const switchServer = (server: ConnectedServer, back: () => void): void => {
-        accounts = mountAccounts(root, activeCore, server, (account, address) => {
-            accounts = undefined;
-            showSignIn(undefined, account === undefined && address === undefined, account, address, true);
-        }, () => {
+        accounts = mountAccounts(root, activeCore, server, openFromAccounts, () => {
             accounts = undefined;
             back();
         });
@@ -130,12 +176,9 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
         if (connected?.session.activeProfile) connected.session.setProfile(undefined, "profile_cleared");
         signIn?.destroy(); signIn = undefined;
         accounts?.destroy();
-        accounts = mountAccounts(root, activeCore, connected, (account, address) => {
+        accounts = mountAccounts(root, activeCore, connected, openFromAccounts, () => {
             accounts = undefined;
-            showSignIn(undefined, account === undefined && address === undefined, account, address, true);
-        }, () => {
-            accounts = undefined;
-            if (connected?.session.signedIn) showProfiles(connected, true);
+            if (connected?.session.signedIn) showProfiles(connected, { pickerRequested: true });
             else showSignIn(undefined, true);
         }, manage);
     };
@@ -162,10 +205,7 @@ export function mountApp(root: HTMLElement, options: AppOptions): SiloApp {
             },
             onSwitchServer: back => switchServer(server, back),
             onAccounts: back => {
-                accounts = mountAccounts(root, activeCore, server, (account, address) => {
-                    accounts = undefined;
-                    showSignIn(undefined, account === undefined && address === undefined, account, address, true);
-                }, () => { accounts = undefined; if (active.signal.aborted) showAccounts(); else back(); }, true,
+                accounts = mountAccounts(root, activeCore, server, openFromAccounts, () => { accounts = undefined; if (active.signal.aborted) showAccounts(); else back(); }, true,
                 () => { active.signal.removeEventListener("abort", stopContent); profiles?.destroy(); profiles = undefined; });
             },
             onChooseProfile: () => {

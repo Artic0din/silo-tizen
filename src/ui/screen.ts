@@ -183,6 +183,8 @@ export function button(key: string, label: string, onPress: () => void): Control
 export interface Note {
     readonly text: string;
     readonly tone: "error" | "info";
+    /** Lets a screen rewrite this note's text in place when what it names changes. */
+    readonly id?: string;
 }
 
 export function noteNodes(notes: readonly Note[]): HTMLElement[] {

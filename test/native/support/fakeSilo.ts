@@ -92,6 +92,8 @@ export class FakeSilo {
      * `null` omits the field, as a credential saved before role was stored.
      */
     accountRole: string | null | undefined = undefined;
+    /** The next approved device login or password sign-in uses this person, once. */
+    nextUser: { id: string; username: string } | undefined;
     lockedUntil = 0;
     private nextId = 1;
     private readonly clock: ManualClock;
@@ -309,7 +311,7 @@ export class FakeSilo {
             const account: Record<string, unknown> = { ...user, password_change_required: this.passwordChangeRequired };
             if (this.accountRole === null) delete account.role;
             else if (this.accountRole !== undefined) account.role = this.accountRole;
-            return { status: 200, body: { ...ok, tokens: { ...tokens, ...this.mintSession(), user: account } } };
+            return { status: 200, body: { ...ok, tokens: { ...tokens, ...this.mintSession(), user: this.accountUser(account) } } };
         }
         return { status: 200, body: { ...base, status: request.status } };
     }
@@ -336,7 +338,14 @@ export class FakeSilo {
             return problemReply(401, "login_invalid_credentials");
         }
         const ok = fixture("login_ok");
-        return { status: 200, body: { ...ok, ...this.mintSession(), user: { ...toRecord(ok.user), password_change_required: this.passwordChangeRequired } } };
+        return { status: 200, body: { ...ok, ...this.mintSession(), user: this.accountUser({ ...toRecord(ok.user), password_change_required: this.passwordChangeRequired }) } };
+    }
+
+    private accountUser(user: Record<string, unknown>): Record<string, unknown> {
+        const next = this.nextUser;
+        if (next === undefined) return user;
+        this.nextUser = undefined;
+        return { ...user, id: next.id, username: next.username };
     }
 
     private mintSession(sessionId = this.nextId++): { access_token: string; refresh_token: string; expires_in: number } {

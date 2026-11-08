@@ -1583,7 +1583,7 @@ export class PlaybackController implements PlayerControls {
         if (attempt.search?.fileId !== plan.effectiveMediaFileId) {
             attempt.search?.destroy();
             attempt.pendingDownloadId = undefined;
-            attempt.search = new SubtitleSearch(this.deps.session, this.deps.clock, plan.effectiveMediaFileId, id => this.attachDownloaded(attempt, id), () => this.showPlayback(attempt));
+            attempt.search = new SubtitleSearch(this.deps.session, plan.effectiveMediaFileId, id => this.attachDownloaded(attempt, id), () => this.showPlayback(attempt));
             void attempt.search.refresh();
         }
         if (attempt.display === undefined && attempt.profileId !== undefined) {

@@ -93,7 +93,7 @@ async function signed() {
 
 test("search is offered until the server says providers are unavailable, then cancels and retries", async () => {
     const h = await signed();
-    const search = new SubtitleSearch(h.core.session, h.clock, FILE, () => false, () => undefined);
+    const search = new SubtitleSearch(h.core.session, FILE, () => false, () => undefined);
     assert.equal(search.view.offered, true);
     h.fake.script(PROVIDERS, { status: 200, body: { ...available, enabled: false, state: "not_configured", providers: [] } });
     await search.refresh();
@@ -111,7 +111,7 @@ test("search is offered until the server says providers are unavailable, then ca
 
 test("a failed language catalog is an error with a retry, not an empty list", async () => {
     const h = await signed();
-    const search = new SubtitleSearch(h.core.session, h.clock, FILE, () => false, () => undefined);
+    const search = new SubtitleSearch(h.core.session, FILE, () => false, () => undefined);
     h.fake.script(PROVIDERS, { status: 200, body: available });
     h.fake.script("/settings/contract", problem(500, "internal_error", "Unavailable"));
     await search.refresh();
@@ -131,7 +131,7 @@ test("a failed language catalog is an error with a retry, not an empty list", as
 test("Try Again after a catalog failure reloads languages instead of repeating the previous search", async () => {
     const h = await signed();
     const languages = { status: 200, body: { option_sets: { playback_subtitle_languages: { options: [{ value: "en", label: "English" }, { value: "fr", label: "French" }] } } } };
-    const search = new SubtitleSearch(h.core.session, h.clock, FILE, () => false, () => undefined);
+    const search = new SubtitleSearch(h.core.session, FILE, () => false, () => undefined);
     h.fake.script(PROVIDERS, { status: 200, body: available });
     h.fake.script("/settings/contract", languages);
     h.fake.script(SEARCH, { status: 200, body: { results: [], warnings: [] } });
@@ -170,7 +170,7 @@ test("Try Again after a catalog failure reloads languages instead of repeating t
 
 test("a language search can be cancelled and a failure can be retried without a second download", async () => {
     const h = await signed();
-    const search = new SubtitleSearch(h.core.session, h.clock, FILE, () => false, () => undefined);
+    const search = new SubtitleSearch(h.core.session, FILE, () => false, () => undefined);
     h.fake.script(PROVIDERS, { status: 200, body: available });
     h.fake.script("/settings/contract", { status: 200, body: { option_sets: { playback_subtitle_languages: { options: [{ value: "en", label: "English" }, { value: "fr", label: "French" }] } } } });
     await search.refresh();
@@ -201,7 +201,7 @@ test("a language search can be cancelled and a failure can be retried without a 
 test("download is sent once and a stored row is handed to track selection", async () => {
     const h = await signed();
     const added: string[] = [];
-    const search = new SubtitleSearch(h.core.session, h.clock, FILE, id => { added.push(id); return true; }, () => undefined);
+    const search = new SubtitleSearch(h.core.session, FILE, id => { added.push(id); return true; }, () => undefined);
     h.fake.script(PROVIDERS, { status: 200, body: available });
     h.fake.script(SEARCH, { status: 200, body: { results: [hit], warnings: [] } });
     await search.refresh();
@@ -221,7 +221,7 @@ test("download is sent once and a stored row is handed to track selection", asyn
 
 test("an uncertain download is not sent again and a refusal can be retried", async () => {
     const h = await signed();
-    const search = new SubtitleSearch(h.core.session, h.clock, FILE, () => false, () => undefined);
+    const search = new SubtitleSearch(h.core.session, FILE, () => false, () => undefined);
     h.fake.script(PROVIDERS, { status: 200, body: available });
     h.fake.script(SEARCH, { status: 200, body: { results: [hit], warnings: [] } });
     await search.refresh();
@@ -232,7 +232,7 @@ test("an uncertain download is not sent again and a refusal can be retried", asy
     await search.download(hit.provider + ":" + hit.id);
     assert.equal(h.fake.requests.filter(request => request.path === DOWNLOAD).length, 1);
     h.fake.script(DOWNLOAD, problem(422, "validation_failed", "That subtitle is no longer offered."));
-    const refused = new SubtitleSearch(h.core.session, h.clock, FILE, () => false, () => undefined);
+    const refused = new SubtitleSearch(h.core.session, FILE, () => false, () => undefined);
     h.fake.script(PROVIDERS, { status: 200, body: available });
     h.fake.script(SEARCH, { status: 200, body: { results: [hit], warnings: [] } });
     await refused.refresh();

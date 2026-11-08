@@ -1,4 +1,3 @@
-import type { Clock } from "../api/clock.ts";
 import { ApiError } from "../api/errors.ts";
 import type { RequestSpec } from "../api/http.ts";
 import { subtitleSearchOperations as operations } from "../api/subtitleSearchOperations.ts";
@@ -54,8 +53,7 @@ export class SubtitleSearch {
     private catalogFailed = false;
     private readonly settled = new Map<string, string>();
 
-    constructor(session: NativeSession, clock: Clock, fileId: string, onAdded: (id: string) => boolean, changed: () => void) {
-        void clock;
+    constructor(session: NativeSession, fileId: string, onAdded: (id: string) => boolean, changed: () => void) {
         this.session = session;
         this.fileId = fileId;
         this.onAdded = onAdded;

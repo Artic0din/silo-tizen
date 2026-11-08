@@ -11,7 +11,7 @@ test("a missing or throwing HDR probe is SDR and never reports Dolby Vision", ()
     assert.deepEqual(probeHdrPanel({ webapis: { avinfo: { isHdrTvSupport: () => false } } }), { hdr10: false, hlg: false, dolbyVision: false });
     assert.deepEqual(probeHdrPanel({ webapis: { avinfo: { isHdrTvSupport: () => "true" } } }), { hdr10: false, hlg: false, dolbyVision: false });
     assert.deepEqual(probeHdrPanel({ webapis: { avinfo: { isHdrTvSupport: () => { throw new Error("NotSupportedError"); } } } }), { hdr10: false, hlg: false, dolbyVision: false });
-    assert.deepEqual(probeHdrPanel({ webapis: { avinfo: { isHdrTvSupport: () => true } } }), { hdr10: true, hlg: false, dolbyVision: false });
+    assert.deepEqual(probeHdrPanel({ webapis: { avinfo: { isHdrTvSupport: () => true } } }), { hdr10: true, hlg: true, dolbyVision: false });
 });
 
 test("off or an unsupported panel matches the SDR capability profile exactly", () => {
@@ -45,18 +45,24 @@ test("HDR off omits HDR on the output and on every delivery", () => {
     }
 });
 
-test("HDR on claims only the ranges the panel reported, and Dolby Vision profiles stay empty", () => {
-    const hdr10 = { hdr10: true, hdr10_plus: false, hlg: false, dolby_vision_profiles: [] as readonly number[] };
-    const report: HdrReport = { panel: { hdr10: true, hlg: true, dolbyVision: true }, preference: { hdrEnabled: true } };
-    assert.deepEqual(hdrDetails(report), { ...hdr10, hlg: true });
-    const vision: HdrReport = { panel: report.panel, preference: { hdrEnabled: true } };
-    assert.deepEqual(hdrDetails(vision), { hdr10: true, hdr10_plus: false, hlg: true, dolby_vision_profiles: [] });
+test("HDR on claims HDR10, HDR10+ and HLG from one probe, and Dolby Vision profiles stay empty", () => {
+    const claimed = { hdr10: true, hdr10_plus: true, hlg: true, dolby_vision_profiles: [] as readonly number[] };
+    const supporting = probeHdrPanel({ webapis: { avinfo: { isHdrTvSupport: () => true } } });
+    const report: HdrReport = { panel: supporting, preference: { hdrEnabled: true } };
+    assert.deepEqual(hdrDetails(report), claimed);
+    const vision: HdrReport = { panel: { ...supporting, dolbyVision: true }, preference: { hdrEnabled: true } };
+    assert.deepEqual(hdrDetails(vision), claimed);
     const profileOnly: HdrReport = { panel: { hdr10: false, hlg: false, dolbyVision: true }, preference: { hdrEnabled: true } };
     assert.equal(hdrDetails(profileOnly), undefined);
     assert.equal(clientCapabilities(profileOnly).hdr_details, undefined);
     assert.equal(clientCapabilities(profileOnly).hdr, false);
+    const hdr10Only = { hdr10: true, hdr10_plus: true, hlg: false, dolby_vision_profiles: [] as readonly number[] };
     const context = playbackContext("S95C", "0.1.0", { panel: { hdr10: true, hlg: false, dolbyVision: false }, preference: { hdrEnabled: true } });
-    assert.deepEqual(context.output.hdr_details, hdr10);
-    assert.deepEqual(context.deliveries.original_http?.hdr_details, hdr10);
-    assert.deepEqual(context.deliveries.hls?.hdr_details, hdr10);
+    assert.deepEqual(context.output.hdr_details, hdr10Only);
+    assert.deepEqual(context.deliveries.original_http?.hdr_details, hdr10Only);
+    assert.deepEqual(context.deliveries.hls?.hdr_details, hdr10Only);
+    const probed = playbackContext("S95C", "0.1.0", report);
+    assert.deepEqual(probed.output.hdr_details, claimed);
+    assert.deepEqual(probed.deliveries.original_http?.hdr_details, claimed);
+    assert.deepEqual(probed.deliveries.hls?.hdr_details, claimed);
 });

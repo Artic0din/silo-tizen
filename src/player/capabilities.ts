@@ -6,15 +6,16 @@
 // H.264 and HEVC (MP4, MKV and TS), AAC, AC3, E-AC3 and MP3, and no DTS. Tizen offers no decoder
 // enumeration, so the evidence tier is `declared` and the resolution cap stays 1080p. HDR is
 // claimed only when webapis.avinfo.isHdrTvSupport() returns true and the HDR setting is on.
-// Samsung documents no HLG or Dolby Vision probe. HLG stays unclaimed, and dolby_vision_profiles
-// stays empty. Audio passthrough is never claimed. Every subtitle capability uses the app's
-// plain-text sidecar renderer for sidecars. Embedded text is selected with AVPlay setSelectTrack
+// That call is one boolean. A true result claims HDR10, HDR10+ and HLG together: the S95C spec
+// sheet lists HDR10+ and HLG, and Samsung's AVPlay adaptive streaming spec lists all three.
+// dolby_vision_profiles stays empty. Audio passthrough is never claimed. Every subtitle capability
+// uses the app's plain-text sidecar renderer for sidecars. Embedded text is selected with AVPlay setSelectTrack
 // when the open stream lists a TEXT row; bitmap and ASS styling stay off. The progressive class
 // is omitted (no proof AVPlay plays a forward-only chunked remux).
 
 import type { ClientCapabilities, ClientPlaybackContext, DeliveryCapability, HdrDetails } from "../contracts/v2/playback.ts";
 
-/** What the panel reported. HLG and Dolby Vision stay false: Samsung does not document a probe for them. */
+/** What the panel reported. Dolby Vision stays false: Samsung does not document a probe for it. */
 export interface HdrPanel {
     readonly hdr10: boolean;
     readonly hlg: boolean;
@@ -40,7 +41,14 @@ function field(value: unknown, key: string): unknown {
 /**
  * `webapis.avinfo.isHdrTvSupport()` (AvInfo API, since 2.3). True means the TV supports HDR.
  * A missing object, a non-boolean, or a throw is SDR. The method lists no privilege.
- * The call does not distinguish HDR10, HLG or Dolby Vision, so only HDR10 is reported.
+ *
+ * The call is one boolean, so a true result reports HDR10, HDR10+ and HLG together. This assumes
+ * every Samsung panel that reports HDR also plays HDR10+ and HLG. The S95C official spec sheet
+ * lists "HDR 10+: Yes (ADAPTIVE/GAMING)" and "HLG (Hybrid Log Gamma): Yes", and Samsung's AVPlay
+ * adaptive streaming spec lists "Supported: HLG, HDR10, HDR10+"
+ * (developer.samsung.com/smarttv/develop/guides/multimedia/adaptive-streaming.html). A model that
+ * does not play one of those formats would need a per-format probe. Dolby Vision stays false:
+ * the S95C spec sheet does not list it, and Samsung documents no probe.
  */
 export function probeHdrPanel(scope: unknown = globalThis): HdrPanel {
     try {
@@ -48,22 +56,25 @@ export function probeHdrPanel(scope: unknown = globalThis): HdrPanel {
         const read = field(avinfo, "isHdrTvSupport");
         if (typeof read !== "function") return NO_HDR;
         const supported: unknown = read.call(avinfo);
-        return supported === true ? { hdr10: true, hlg: false, dolbyVision: false } : NO_HDR;
+        return supported === true ? { hdr10: true, hlg: true, dolbyVision: false } : NO_HDR;
     } catch {
         return NO_HDR;
     }
 }
 
 /**
- * ApplePlaybackV3Capabilities.swift:439-483. HDR10 and HLG need the HDR setting and a panel
- * report. hdr10_plus stays false (lines 479-480). dolby_vision_profiles stays empty: this client
- * claims no Dolby Vision profile. No claim omits hdr_details.
+ * ApplePlaybackV3Capabilities.swift:439-483. The wire object is hdr10, hdr10_plus, hlg and
+ * dolby_vision_profiles. HDR10 and HLG need the HDR setting and a panel report, as Apple fills
+ * them (lines 440-441). Apple hardcodes hdr10Plus false (lines 479-480) because it has no HDR10+
+ * attestation. This client sets hdr10_plus with hdr10: the Samsung probe cannot separate them.
+ * dolby_vision_profiles stays empty. Apple sends [5, 8] when Dolby Vision is on (line 482); this
+ * client claims no profile. No claim omits hdr_details.
  */
 export function hdrDetails(report: HdrReport): HdrDetails | undefined {
     const hdr10 = report.preference.hdrEnabled && report.panel.hdr10;
     const hlg = report.preference.hdrEnabled && report.panel.hlg;
     if (!hdr10 && !hlg) return undefined;
-    return { hdr10, hdr10_plus: false, hlg, dolby_vision_profiles: [] };
+    return { hdr10, hdr10_plus: hdr10, hlg, dolby_vision_profiles: [] };
 }
 
 const VIDEO_CODECS = ["h264", "hevc"];

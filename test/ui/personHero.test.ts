@@ -407,6 +407,23 @@ test("the person name and facts sit on Apple's line box", async () => {
     } finally { await tv.page.context().close(); }
 });
 
+test("person biography uses Apple's body size, line and clamp", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    try {
+        await signIn(tv);
+        const paragraph = "This biography sentence is long enough to wrap across the overview column more than once on the person page.";
+        await person(tv, { bio: Array.from({ length: 6 }, () => paragraph).join("\n\n") });
+        const bio = await tv.page.locator('.browse[data-view^="person:"] .browse-overview').evaluate(node => {
+            const computed = getComputedStyle(node);
+            return { fontSize: computed.fontSize, lineHeight: computed.lineHeight, height: node.getBoundingClientRect().height, clipped: node.scrollHeight > node.clientHeight };
+        });
+        // PersonDetailView.swift:459 .siloBody (Typography.swift:28, 26pt regular), lineLimit(7) at :461, no lineSpacing.
+        // Apple TV at 2ef3a171 draws those lines 31px apart (measured, 8 Nov 2026), so seven lines are 217px tall.
+        assert.deepEqual(bio, { fontSize: "26px", lineHeight: "31px", height: 217, clipped: true });
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});
+
 test("person biography keeps the blank line between paragraphs", async () => {
     const tv = await openTv(browser, { app: "browse" });
     try {

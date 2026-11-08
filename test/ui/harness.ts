@@ -48,6 +48,12 @@ export interface SignInHarness {
     probe(): Promise<string>;
     /** Profile flow: the browse stand-in's Switch profile control. */
     switchProfile(): void;
+    /** Profile flow: set before sign-in, the app routes an expired sign-in itself and leaves these screens standing. */
+    routesExpiry: boolean;
+    /** Profile flow: how many expired sign-ins were routed. */
+    expiries: number;
+    /** Profile flow: an authenticated read, so a revoked session expires. */
+    expire(): Promise<void>;
 }
 
 declare global {
@@ -110,6 +116,14 @@ const harness: SignInHarness = {
         profileScreens?.destroy();
     },
     profileEnded: (index) => handed[index]?.signal.aborted ?? false,
+    routesExpiry: false,
+    expiries: 0,
+    async expire() {
+        if (last === undefined) {
+            throw new Error("nobody signed in");
+        }
+        await last.session.call({ method: "GET", path: "/catalog/probe", retry: "safe", decode: (body) => JSON.stringify(body), profileScoped: false }).catch(() => undefined);
+    },
     async probe() {
         const server = last;
         const active = handed[handed.length - 1];
@@ -216,6 +230,7 @@ const continueSignedIn = (server: ConnectedServer): void => {
         server,
         onSelected: browse,
         onSignedOut: backToSignIn,
+        ...(harness.routesExpiry ? { launch: server.profileLaunch, onSessionExpired: () => { harness.expiries++; } } : {}),
         onChangeServer: () => {
             profileScreens?.destroy();
             profileScreens = undefined;

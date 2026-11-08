@@ -11,9 +11,9 @@ let browser: Browser;
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
 
-function appTest(name: string, body: (tv: Tv, playback: FakePlayback, catalog: FakeCatalog) => Promise<void>, production = false): void {
+function appTest(name: string, body: (tv: Tv, playback: FakePlayback, catalog: FakeCatalog) => Promise<void>, production = false, sessionOnly = false): void {
     test(name, async () => {
-        const tv = await openTv(browser, { app: "application", production });
+        const tv = await openTv(browser, { app: "application", production, sessionOnly });
         const catalog = new FakeCatalog();
         catalog.fileIds.set("movie:m0001", "42");
         catalog.fileIds.set("movie:k1", "42");
@@ -209,15 +209,16 @@ for (const cached of [true, false]) appTest(`cold offline saved session opens Ho
     await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
 });
 
-async function approveSignIn(tv: Tv, code: string): Promise<void> {
+/** `landing` is where the sign-in ends; a test that expects it not to be the picker widens it. */
+async function approveSignIn(tv: Tv, code: string, landing = '[data-screen="profiles"]'): Promise<void> {
     tv.fake.approve(code);
     await tv.jump(5000);
     // The poll and vault callbacks must finish before advancing the approval pause.
-    await tv.page.locator('[data-screen="approved"], [data-screen="notice"], [data-screen="profiles"]').waitFor();
+    await tv.page.locator(`[data-screen="approved"], [data-screen="notice"], ${landing}`).first().waitFor();
     if (await tv.screen() === "approved") await tv.jump(1000);
-    await tv.page.locator('[data-screen="notice"], [data-screen="profiles"]').waitFor();
+    await tv.page.locator(`[data-screen="notice"], ${landing}`).first().waitFor();
     if (await tv.screen() === "notice") await tv.page.getByRole("button", { name: "Continue", exact: true }).click();
-    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    await tv.page.locator(landing).first().waitFor();
 }
 
 appTest("pending account removal blocks Cancel and Back until it settles", async tv => {
@@ -242,21 +243,303 @@ appTest("pending account removal blocks Cancel and Back until it settles", async
     await tv.page.locator('[data-view="accounts-settings"]').waitFor();
 });
 
-appTest("session expiry releases Change Account remote ownership", async tv => {
+appTest("session expiry releases Change Account and signs in with the username", async tv => {
     await signIn(tv);
+    await tv.page.evaluate(() => window.appHarness.storage.setItem("silo.native.serverBranding.v1", JSON.stringify({ "https://silo.example.test": { serverName: "Living room library" } })));
     tv.fake.revokeAllSessions();
     const hold = tv.fake.hold("/auth/refresh");
     await tv.page.locator('[data-focus="movies"]').click();
     await tv.page.locator('[data-focus="profiles"]').click();
     await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
     hold.release();
-    await tv.page.locator('[data-screen="expired"]').waitFor({ timeout: 5000 });
+    await tv.page.locator('[data-screen="code"]').waitFor({ timeout: 5000 });
+    await tv.page.getByText("You were signed out of Living room library. Sign in again.").waitFor();
     assert.equal(await tv.page.locator('.accounts-screen').count(), 0);
-    assert.equal(await tv.focused(), "signin");
-    await tv.page.keyboard.press("Enter");
-    await tv.eventually(async () => await tv.screen() !== "expired", "Enter activates recovery");
+    assert.equal(await tv.page.locator('[data-screen="expired"]').count(), 0);
+    assert.equal(await tv.focused(), "password");
+    await tv.page.getByRole("button", { name: "Sign in with a password", exact: true }).click();
+    assert.equal(await tv.page.locator("#signin-username").inputValue(), "laura");
+    assert.equal(await tv.page.getByRole("button", { name: "Change server", exact: true }).count(), 1);
+});
+
+appTest("the expiry notice names the server by its fresh branding", async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => window.appHarness.storage.setItem("silo.native.serverBranding.v1", JSON.stringify({ "https://silo.example.test": { serverName: "Living room library" } })));
+    tv.fake.script("/theme/branding", { status: 200, body: { server_name: "Family Cinema" } });
+    tv.fake.revokeAllSessions();
+    const hold = tv.fake.hold("/auth/refresh");
+    await tv.page.locator('[data-focus="movies"]').click();
+    hold.release();
+    await tv.page.locator('[data-screen="code"]').waitFor({ timeout: 5000 });
+    await tv.page.getByText("You were signed out of Family Cinema. Sign in again.").waitFor();
+    assert.equal(await tv.page.getByText("Living room library").count(), 0, "the remembered name is replaced everywhere");
+    await tv.page.getByRole("button", { name: "Sign in with a password", exact: true }).click();
+    await tv.page.getByText("You were signed out of Family Cinema. Sign in again.").waitFor();
+});
+
+appTest("a late branding answer renames the expiry notice already on screen", async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => window.appHarness.storage.setItem("silo.native.serverBranding.v1", JSON.stringify({ "https://silo.example.test": { serverName: "Living room library" } })));
+    tv.fake.script("/theme/branding", { status: 200, body: { server_name: "Family Cinema" } });
+    const branding = tv.fake.hold("/theme/branding");
+    tv.fake.revokeAllSessions();
+    const hold = tv.fake.hold("/auth/refresh");
+    await tv.page.locator('[data-focus="movies"]').click();
+    hold.release();
+    await tv.page.locator('[data-screen="code"]').waitFor({ timeout: 5000 });
+    await tv.page.getByText("You were signed out of Living room library. Sign in again.").waitFor();
+    branding.release();
+    await tv.page.getByText("You were signed out of Family Cinema. Sign in again.").waitFor({ timeout: 5000 });
+});
+
+appTest("the expiry notice does not follow Change server into a new connection", async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => window.appHarness.storage.setItem("silo.native.serverBranding.v1", JSON.stringify({ "https://silo.example.test": { serverName: "Living room library" } })));
+    tv.fake.revokeAllSessions();
+    const hold = tv.fake.hold("/auth/refresh");
+    await tv.page.locator('[data-focus="movies"]').click();
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    hold.release();
+    await tv.page.locator('[data-screen="code"]').waitFor({ timeout: 5000 });
+    const notice = tv.page.getByText("You were signed out of Living room library. Sign in again.");
+    await notice.waitFor();
+    await tv.page.getByRole("button", { name: "Change server", exact: true }).click();
+    await tv.page.locator('[data-screen="entry"]').waitFor();
+    await tv.page.getByRole("button", { name: "Connect", exact: true }).click();
     await tv.page.locator('[data-screen="code"]').waitFor();
-    assert.equal(await tv.page.locator('.accounts-screen').count(), 0);
+    assert.equal(await notice.count(), 0, "a connection started after Change server is not an expiry");
+});
+
+function profileItems(tv: Tv): Record<string, unknown>[] {
+    const items = tv.fake.profiles.items;
+    if (!Array.isArray(items)) throw new Error("profiles");
+    return items.flatMap(item => typeof item === "object" && item !== null ? [item as Record<string, unknown>] : []);
+}
+
+async function addAlex(tv: Tv): Promise<void> {
+    tv.fake.nextUser = { id: "2", username: "alex" };
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.page.locator('[data-focus="add-account"]').click();
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    const code = [...tv.fake.devices.keys()].pop();
+    assert.ok(code !== undefined);
+    await approveSignIn(tv, code);
+    await tv.page.locator('[data-focus="profile:p-owner"]').click();
+    await tv.page.locator('[data-focus="ask-every-launch"]').click();
+    await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
+}
+
+async function chooseAccount(tv: Tv, username: string): Promise<void> {
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.page.locator(".account-card").filter({ hasText: username }).click();
+}
+
+appTest("choosing another account opens its only PIN-less profile", async tv => {
+    await signIn(tv);
+    await addAlex(tv);
+    const owner = profileItems(tv).find(item => item.id === "p-owner");
+    assert.ok(owner);
+    tv.fake.profiles = { ...tv.fake.profiles, items: [owner] };
+    const home = await tv.page.locator('[data-view="home"]').elementHandle();
+    assert.ok(home);
+    await chooseAccount(tv, "laura");
+    await tv.page.waitForFunction(node => !node.isConnected, home);
+    await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
+    assert.equal(await tv.page.locator('[data-screen="profiles"]').count(), 0);
+    assert.equal(await tv.page.locator('[data-screen="remember-profile"]').count(), 0);
+});
+
+appTest("choosing another account still asks for its only profile PIN", async tv => {
+    await signIn(tv);
+    await addAlex(tv);
+    const kid = profileItems(tv).find(item => item.id === "p-kid");
+    assert.ok(kid);
+    tv.fake.profiles = { ...tv.fake.profiles, items: [kid] };
+    await chooseAccount(tv, "laura");
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    assert.equal(await tv.page.locator('[data-screen="profiles"] .profile-avatar').count(), 1);
+    await tv.page.locator('[data-focus="profile:p-kid"]').click();
+    await tv.page.locator("#profile-pin").waitFor();
+});
+
+appTest("choosing another account shows the picker for two profiles", async tv => {
+    await signIn(tv);
+    await addAlex(tv);
+    await chooseAccount(tv, "laura");
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    assert.equal(await tv.page.locator('[data-screen="profiles"] .profile-avatar').count(), 2);
+    assert.equal(await tv.page.locator("#profile-pin").count(), 0);
+});
+
+appTest("Switch Profile still shows one PIN-less profile", async tv => {
+    await signIn(tv);
+    const owner = profileItems(tv).find(item => item.id === "p-owner");
+    assert.ok(owner);
+    tv.fake.profiles = { ...tv.fake.profiles, items: [owner] };
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="switch-profile"]').click();
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    assert.equal(await tv.page.locator(".profile-avatar").count(), 1);
+});
+
+appTest("an expired session opens Change Account while another account is signed in", async tv => {
+    await signIn(tv);
+    await addAlex(tv);
+    tv.fake.revokeAllSessions();
+    const hold = tv.fake.hold("/auth/refresh");
+    await tv.page.locator('[data-focus="movies"]').click();
+    hold.release();
+    await tv.page.locator('[data-view="change-account"]').waitFor();
+    assert.equal(await tv.page.locator('[data-screen="code"]').count(), 0);
+    assert.equal(await tv.page.locator('[data-screen="expired"]').count(), 0);
+    assert.equal(await tv.page.locator(".account-badge").filter({ hasText: "SIGN IN AGAIN" }).count(), 1);
+});
+
+appTest("an expired session-only account signs in again with its username", async tv => {
+    await signIn(tv);
+    tv.fake.revokeAllSessions();
+    const hold = tv.fake.hold("/auth/refresh");
+    await tv.page.locator('[data-focus="movies"]').click();
+    hold.release();
+    await tv.page.locator('[data-screen="code"]').waitFor({ timeout: 5000 });
+    await tv.page.getByRole("button", { name: "Sign in with a password", exact: true }).click();
+    assert.equal(await tv.page.locator("#signin-username").inputValue(), "laura");
+}, false, true);
+
+appTest("an expired only account signs in again even when its sign-in flag cannot be saved", async tv => {
+    await signIn(tv);
+    tv.fake.revokeAllSessions();
+    const hold = tv.fake.hold("/auth/refresh");
+    await tv.page.locator('[data-focus="movies"]').click();
+    await tv.page.evaluate(() => { window.appHarness.storage.failSet = true; });
+    hold.release();
+    await tv.page.locator('[data-screen="code"], [data-view="change-account"]').first().waitFor({ timeout: 5000 });
+    assert.equal(await tv.page.locator('[data-view="change-account"]').count(), 0, "the expired account is no other account to choose");
+    assert.equal(await tv.page.locator('[data-screen="code"]').count(), 1);
+    await tv.page.getByRole("button", { name: "Sign in with a password", exact: true }).click();
+    assert.equal(await tv.page.locator("#signin-username").inputValue(), "laura", "the expired account is the one renewed");
+});
+
+/** Laura signs in again with the key store refusing it: her row says sign in again, yet her session is live. */
+async function guardLaura(tv: Tv): Promise<void> {
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.page.evaluate(() => { window.appHarness.keyManager.failSave = true; });
+    await tv.page.locator('[data-focus="add-account"]').click();
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    await approveSignIn(tv, [...tv.fake.devices.keys()].pop()!);
+    await tv.page.evaluate(() => { window.appHarness.keyManager.failSave = false; });
+}
+
+appTest("an expired session opens Change Account while another account is live but not saved", async tv => {
+    await signIn(tv);
+    await guardLaura(tv);
+    tv.fake.nextUser = { id: "2", username: "alex" };
+    await tv.page.locator('[data-focus="change-server"]').click();
+    await tv.page.locator('[data-focus="add-account"]').click();
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    await approveSignIn(tv, [...tv.fake.devices.keys()].pop()!);
+    await tv.page.locator('[data-focus="profile:p-owner"]').click();
+    await tv.page.locator('[data-focus="ask-every-launch"]').click();
+    await tv.page.locator('[data-view="home"] [data-focus="movie:m0001"]').first().waitFor();
+    tv.fake.revokeAllSessions();
+    const hold = tv.fake.hold("/auth/refresh");
+    await tv.page.locator('[data-focus="movies"]').click();
+    hold.release();
+    await tv.page.locator('[data-screen="code"], [data-view="change-account"]').first().waitFor({ timeout: 5000 });
+    assert.equal(await tv.page.locator('[data-view="change-account"]').count(), 1, "laura's live session can still open her profiles");
+});
+
+appTest("choosing the open account whose sign-in is not saved shows its picker for one PIN-less profile", async tv => {
+    await signIn(tv);
+    await guardLaura(tv);
+    const owner = profileItems(tv).find(item => item.id === "p-owner");
+    assert.ok(owner);
+    tv.fake.profiles = { ...tv.fake.profiles, items: [owner] };
+    await tv.page.locator('[data-focus="change-server"]').click();
+    await tv.page.locator(".account-card").filter({ hasText: "laura" }).click();
+    await tv.page.locator('[data-screen="profiles"], [data-view="home"], [data-screen="remember-profile"]').first().waitFor();
+    assert.equal(await tv.page.locator('[data-screen="profiles"] .profile-avatar').count(), 1, "the open account is Switch Profile, whose picker stays");
+});
+
+appTest("an expired account chosen from Change Account shows its picker even when its remembered profile cannot be cleared", async tv => {
+    await signIn(tv, true);
+    await addAlex(tv);
+    await tv.page.evaluate(() => {
+        window.appHarness.destroy();
+        const storage = window.appHarness.storage;
+        const saved = JSON.parse(storage.getItem("silo.native.accounts.v1")!) as { accounts: { username: string; needsSignIn: boolean }[] };
+        const laura = saved.accounts.find(row => row.username === "laura");
+        if (laura === undefined) throw new Error("laura");
+        laura.needsSignIn = true;
+        storage.setItem("silo.native.accounts.v1", JSON.stringify(saved));
+        window.appHarness.mount();
+    });
+    await tv.page.locator('[data-screen="profiles"]').waitFor();
+    await tv.page.locator('[data-focus="change-server"]').click();
+    await tv.page.locator(".account-card").filter({ hasText: "laura" }).click();
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    // Signing in clears the remembered choice. A store that refuses the write leaves it standing.
+    await tv.page.evaluate(() => { window.appHarness.storage.failSet = true; });
+    await approveSignIn(tv, [...tv.fake.devices.keys()].pop()!, '[data-screen="profiles"], [data-view="home"]');
+    assert.equal(await tv.page.locator('[data-view="home"]').count(), 0, "a remembered profile is not restored after choosing the account");
+    assert.equal(await tv.page.locator('[data-screen="profiles"] .profile-avatar').count(), 2);
+});
+
+appTest("remote Back on the Change Account root after expiry moves from the account list to the server list", async tv => {
+    await signIn(tv);
+    await addAlex(tv);
+    tv.fake.revokeAllSessions();
+    const hold = tv.fake.hold("/auth/refresh");
+    await tv.page.locator('[data-focus="movies"]').click();
+    hold.release();
+    await tv.page.locator('[data-view="change-account"]').waitFor();
+    const focusedAccount = await tv.focused();
+    assert.ok(focusedAccount !== "add-server" && await tv.page.locator(`.account-card[data-focus="${focusedAccount}"]`).count() === 1, `focus starts on an account card, not ${focusedAccount}`);
+    await tv.remote(10009);
+    assert.equal(await tv.focused(), "https://silo.example.test", "Back from the account list focuses the selected server");
+    assert.equal(await tv.page.locator('[data-view="change-account"]').count(), 1, "the first Back stays on Change Account");
+});
+
+appTest("choosing an expired account opens sign-in and Back returns to Change Account", async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => {
+        const storage = window.appHarness.storage;
+        const saved = JSON.parse(storage.getItem("silo.native.accounts.v1")!) as { accounts: Record<string, unknown>[] };
+        const first = saved.accounts[0];
+        if (first === undefined) throw new Error("account");
+        saved.accounts.push({ ...first, id: "alex", accountId: "2", username: "alex", needsSignIn: true, profileCount: 1 });
+        storage.setItem("silo.native.accounts.v1", JSON.stringify(saved));
+    });
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
+    await tv.page.locator(".account-card").filter({ hasText: "alex" }).click();
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    assert.equal(await tv.page.getByRole("button", { name: "Back to accounts", exact: true }).count(), 1);
+    await tv.page.getByRole("button", { name: "Sign in with a password", exact: true }).click();
+    assert.equal(await tv.page.locator("#signin-username").inputValue(), "alex");
+    await tv.page.getByRole("button", { name: "Back to accounts", exact: true }).click();
+    await tv.page.locator('[data-view="change-account"]').waitFor();
+});
+
+appTest("a lone expired account's server entry has no Change account button that does nothing", async tv => {
+    await signIn(tv);
+    await tv.page.evaluate(() => {
+        window.appHarness.destroy();
+        const storage = window.appHarness.storage;
+        const saved = JSON.parse(storage.getItem("silo.native.accounts.v1")!);
+        saved.accounts[0].needsSignIn = true;
+        storage.setItem("silo.native.accounts.v1", JSON.stringify(saved));
+        window.appHarness.mount();
+    });
+    await tv.page.locator('[data-screen="code"]').waitFor();
+    await tv.page.getByRole("button", { name: "Change server", exact: true }).click();
+    await tv.page.locator('[data-screen="entry"]').waitFor();
+    assert.equal(await tv.page.locator('[data-focus="change-account"]').count(), 0, "one expired account leaves for server entry, so entry has nowhere further to go");
+    assert.equal(await tv.focused(), "connect");
 });
 
 appTest("offline saved server offers Back to profiles while a saved account can open profiles", async tv => {

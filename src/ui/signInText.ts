@@ -80,6 +80,11 @@ export const PREVIOUS_SESSION_KEPT =
 
 export const SESSION_ONLY = "This TV can't store your sign-in securely, so you will need to sign in again after the app closes.";
 
+/** AppRouter.LoginNotice.sessionExpired (AppRouter.swift:1014-1016 at silo-apple 54cf0f34). */
+export function sessionExpiredNotice(serverName: string): string {
+    return `You were signed out of ${serverName}. Sign in again.`;
+}
+
 export function signedOutNotice(result: LogoutResult): string[] {
     const lines = ["Signed out on this TV."];
     if (result.server === "unreachable") {

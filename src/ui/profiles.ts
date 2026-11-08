@@ -31,7 +31,15 @@ export interface ProfileHandoff {
 }
 
 export interface ProfileOptions {
+    /** Switch Profile, or choosing the account already open. The picker stays up. */
     readonly pickerRequested?: boolean;
+    /**
+     * Choosing another account waits for a profile instead of restoring a remembered one.
+     * A single profile without a PIN still opens (ChangeAccountModel.open path, 54cf0f34).
+     */
+    readonly skipRemembered?: boolean;
+    /** The account's sign-in ended. The app routes it; these screens do not draw their own page. */
+    readonly onSessionExpired?: () => void;
     readonly onChangeServer: () => void;
     readonly server: ConnectedServer;
     readonly clock?: Clock;
@@ -202,7 +210,8 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
 
     const signOutButton = (restore: () => void): Control => button("signout", "Sign out", () => askSignOut(restore));
 
-    const load = (then: (list: ProfileSummary[]) => void, focus?: string, restoreRememberedOffline = false): void => {
+    // `retry` re-runs whatever started this load, so a failed launch load retries through launch.
+    const load = (then: (list: ProfileSummary[]) => void, retry: () => void, restoreRememberedOffline = false): void => {
         const token = begin();
         const controller = new AbortController();
         pending = controller;
@@ -230,14 +239,14 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
                     void options.launch.restoreOffline(restore.signal).then(profile => hold(token, () => {
                         pending = undefined;
                         if (profile) handOff(profile);
-                        else listFailed(error, focus);
-                    }), failure => hold(token, () => { pending = undefined; listFailed(failure, focus); }));
-                } else listFailed(error, focus);
+                        else listFailed(error, retry);
+                    }), failure => hold(token, () => { pending = undefined; listFailed(failure, retry); }));
+                } else listFailed(error, retry);
             }),
         );
     };
 
-    const showList = (focus?: string): void => load((list) => picker(list, focus), focus);
+    const showList = (focus?: string): void => load((list) => picker(list, focus), () => showList(focus));
 
     const showPicker = (list: readonly ProfileSummary[], focus?: string): void => {
         const preferred = focus ?? current?.id ?? options.launch?.rememberedProfileId ?? list[0]?.id;
@@ -265,7 +274,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         showPicker(list, focus);
     };
 
-    const listFailed = (error: unknown, focus?: string): void => {
+    const listFailed = (error: unknown, retryLoad: () => void): void => {
         if (error instanceof ApiError && error.problemId === "password_change_required") {
             // Apple TV does not hand this off (`handsOffToPasswordChange` is false). The empty
             // picker shows the refusal, and focus starts on Change account.
@@ -287,7 +296,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             ? "Could not reach the server. Check the TV's internet connection, then try again."
             : "The server had a problem. Try again in a moment.";
         const showError = (focused = "retry"): void => {
-            const retry = button("retry", "Try again", () => showList(focus));
+            const retry = button("retry", "Try again", retryLoad);
             message("profiles-error", "Profiles didn't load", [detail], [retry, signOutButton(() => showError("signout"))], resume(), "error", focused);
         };
         showError();
@@ -417,7 +426,7 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             } else {
                 picker(list, fresh?.id);
             }
-        });
+        }, () => showList());
     };
 
     const onChange = (change: AuthorityChange): void => {
@@ -426,7 +435,14 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         }
         switch (change.reason) {
             case "session_expired":
-                expired();
+                if (options.onSessionExpired === undefined) {
+                    expired();
+                    return;
+                }
+                // Answers still in flight must not repaint or hand off while the app routes the expiry.
+                begin();
+                current = undefined;
+                options.onSessionExpired();
                 return;
             case "signed_out":
                 if (!leaving) {
@@ -444,6 +460,10 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             case "profile_cleared":
                 // These screens make these changes themselves.
                 return;
+            default: {
+                const exhaustive: never = change.reason;
+                return exhaustive;
+            }
         }
     };
     const unsubscribe = session.onAuthorityChange(onChange);
@@ -459,8 +479,14 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
         release();
     };
 
+    // ProfileSelectionView.openOnlyProfileIfNeeded / skipPickerIfSingleProfile (54cf0f34:207-218).
+    // Switch Profile sets pickerRequested, so its picker stays. A PIN still has to be entered.
+    const onlyUnprotected = (list: readonly ProfileSummary[]): ProfileSummary | undefined =>
+        options.pickerRequested || list.length !== 1 || list[0] === undefined || list[0].hasPin ? undefined : list[0];
     const launchOnline = (): void => load(list => {
-        if (options.pickerRequested) { picker(list); return; }
+        const only = onlyUnprotected(list);
+        if (only !== undefined) { choose(only); return; }
+        if (options.pickerRequested || options.skipRemembered) { picker(list); return; }
         const token = view;
         const controller = new AbortController();
         pending = controller;
@@ -477,9 +503,9 @@ export function mountProfiles(root: HTMLElement, options: ProfileOptions): Profi
             const showLaunchError = (focused = "retry"): void => message("profile-launch-error", "Remembered profile didn't open", ["Could not verify the remembered profile. Try again or choose who's watching."], [button("retry", "Retry", launchOnline), button("back", "Choose profile", () => picker(list)), signOutButton(() => showLaunchError("signout"))], () => picker(list), "error", focused);
             showLaunchError();
         }));
-    }, undefined, !options.pickerRequested);
+    }, launchOnline, !options.pickerRequested && !options.skipRemembered);
     const launch = (): void => {
-        if (!server.localRestore || options.pickerRequested || !options.launch?.remembered || options.launch.requiresSelection()) {
+        if (options.skipRemembered || !server.localRestore || options.pickerRequested || !options.launch?.remembered || options.launch.requiresSelection()) {
             launchOnline();
             return;
         }

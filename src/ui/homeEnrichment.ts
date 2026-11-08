@@ -1,21 +1,44 @@
-// Item-detail fields Home shows but its rows do not carry: the marquee's aired date and cast line, and
-// Continue Watching's saved-file chips and badges. Apple reads them on focus
-// (silo-apple 1a7ccee `tvOS/Components/TVFocusMarquee.swift`: TVMarqueeEnrichment and
-// TVContinueWatchingPlaybackMetadataStore); Tizen never reads on focus, so it reads every title Home
-// draws once, when Home's rows load, a few at a time, and focus only looks the answers up.
-// The presentation below is ported (AGPL-3.0-or-later) from those two types.
+// Item-detail fields the section payload does not carry: the marquee's aired date and cast line,
+// a rating or runtime the row omitted, and Continue Watching's saved-file chips.
+// silo-apple 2ef3a171 (AGPL-3.0-or-later):
+// - TVFocusMarquee.swift waits `marqueeRestDebounceMilliseconds` (150) before an uncached detail read,
+//   and drops the answer when focus has moved.
+// - EpisodeThumbCard.swift:108-110 loads Continue Watching's saved file from `.task` when that
+//   card's view exists. MediaRow.swift:413-416 keeps the row in a LazyHStack, so a card that
+//   has not been mounted is not read (MediaRow.swift:49-50, 168-169). ArtworkLookahead warms
+//   image bytes from the focused card (MediaRow.swift:143, 481-486), not item detail.
+//   This row draws every card, so those saved-file reads stay on the queue, four at a time.
+// - RecommendationsView.swift prewarms at most two rows of eight cards that omit a content rating,
+//   three at a time. Home does not. Home's own prefetch is image bytes, not item detail.
+// The presentation below is ported from TVMarqueeEnrichment and TVContinueWatchingPlaybackMetadataStore.
 
+import type { Clock } from "../api/clock.ts";
 import type { RequestSpec } from "../api/http.ts";
 import { operations } from "../api/operations.ts";
 import type { Card, CardOverlay, MarqueeAudioTrack, MarqueeDetail, MarqueeFile } from "../contracts/v2/catalog.ts";
 import { resolutionLabel } from "./cardPresentation.ts";
 import { formatPersonDate } from "./personHero.ts";
 
-/** Item-detail reads in flight at once while Home loads (Apple's metadata pool runs a handful too). */
-export const HOME_DETAIL_CONCURRENCY = 4;
+/** `SiloTheme.Skyline.marqueeRestDebounceMilliseconds` at silo-apple 2ef3a171. */
+export const MARQUEE_REST_MILLISECONDS = 150;
 
-export interface HomeTitle {
-    readonly card: Card;
+/** `RecommendationsView.initialMarqueeItems`: the first two rows. */
+export const FOR_YOU_PREWARM_ROWS = 2;
+
+/** `RecommendationsView.initialMarqueeItems`: eight cards in each of those rows. */
+export const FOR_YOU_PREWARM_CARDS = 8;
+
+/** `RecommendationsView.prewarmInitialMarqueeDetails`: three detail reads at a time. */
+export const FOR_YOU_PREWARM_CONCURRENCY = 3;
+
+/**
+ * Saved-file reads in flight for one Continue Watching row.
+ * Apple mounts only the visible LazyHStack cards; this row draws all of them.
+ */
+export const CONTINUE_WATCHING_CONCURRENCY = 4;
+
+export interface HomeEnrichmentRow {
+    readonly cards: readonly Card[];
     readonly continuing: boolean;
 }
 
@@ -25,61 +48,198 @@ interface Entry {
     readonly revision: string | undefined;
 }
 
+interface Job {
+    readonly revision: string | undefined;
+    readonly controller: AbortController;
+    readonly listeners: Set<() => void>;
+}
+
 /** One Browse (one server and profile) owns this; nothing here outlives it. */
 export class HomeEnrichment {
     private readonly entries = new Map<string, Entry>();
-    private controller: AbortController | undefined;
+    private readonly jobs = new Map<string, Job>();
     private readonly read: <T>(spec: RequestSpec<T>, signal: AbortSignal) => Promise<T>;
     private readonly landed: (id: string) => void;
     private readonly continuingSettled: () => void;
+    private readonly schedule: Clock["schedule"];
+    private cancelRest: () => void = () => undefined;
+    private focusController: AbortController | undefined;
+    private focusedId: string | undefined;
+    private focusRevision: string | undefined;
+    private continuingController: AbortController | undefined;
+    private prewarmController: AbortController | undefined;
 
-    /** `landed` follows each answer; `continuingSettled` follows the last Continue Watching read of a load. */
-    constructor(read: <T>(spec: RequestSpec<T>, signal: AbortSignal) => Promise<T>, landed: (id: string) => void, continuingSettled: () => void) {
+    /** `landed` fills the focused marquee. `continuingSettled` redraws Continue Watching badges. */
+    constructor(read: <T>(spec: RequestSpec<T>, signal: AbortSignal) => Promise<T>, landed: (id: string) => void, continuingSettled: () => void, schedule: Clock["schedule"]) {
         this.read = read;
         this.landed = landed;
         this.continuingSettled = continuingSettled;
+        this.schedule = schedule;
     }
 
     /**
-     * Reads detail for each title Home just drew that has none yet, Continue Watching first. A title read
-     * before is read again when it enters Continue Watching or its progress revision changes (a new
-     * file may have been chosen). A newer call replaces an unfinished one.
+     * Continue Watching reads each saved file, four at a time. For You also warms ratings the
+     * first two rows omitted, except titles this pass is already reading. Neither path reads
+     * every other title.
      */
-    load(titles: readonly HomeTitle[]): void {
-        this.controller?.abort();
-        const controller = new AbortController();
-        this.controller = controller;
-        const wanted = new Map<string, string | undefined>();
+    present(rows: readonly HomeEnrichmentRow[], prewarmRatings: boolean): void {
+        this.continuingController?.abort();
+        this.prewarmController?.abort();
+        const continuing = new AbortController();
+        this.continuingController = continuing;
         const seen = new Set<string>();
-        for (const title of [...titles].sort((a, b) => Number(b.continuing) - Number(a.continuing))) {
-            if (seen.has(title.card.id)) continue;
-            seen.add(title.card.id);
-            const revision = title.continuing ? title.card.progressUpdatedAt ?? "" : undefined;
-            const known = this.entries.get(title.card.id);
-            if (known === undefined || (revision !== undefined && known.revision !== revision)) wanted.set(title.card.id, revision);
+        const jobs: { id: string; revision: string }[] = [];
+        for (const row of rows) {
+            if (!row.continuing) continue;
+            for (const card of row.cards) {
+                if (seen.has(card.id)) continue;
+                seen.add(card.id);
+                const revision = card.progressUpdatedAt ?? "";
+                if (this.fresh(card.id, revision)) continue;
+                jobs.push({ id: card.id, revision });
+            }
         }
-        const queue = [...wanted];
-        let continuing = queue.filter(([, revision]) => revision !== undefined).length;
-        const work = async (): Promise<void> => {
-            for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-                const [id, revision] = next;
-                try {
-                    const detail = await this.read(operations.marqueeDetail(id), controller.signal);
-                    if (controller.signal.aborted) return;
-                    if (detail.id === id) {
-                        this.entries.set(id, { detail, revision });
-                        this.landed(id);
+        let pending = jobs.length;
+        this.pump(jobs, continuing.signal, CONTINUE_WATCHING_CONCURRENCY, () => {
+            if (continuing.signal.aborted) return;
+            pending -= 1;
+            if (pending === 0) this.continuingSettled();
+        });
+        if (!prewarmRatings) return;
+        const prewarm = new AbortController();
+        this.prewarmController = prewarm;
+        const ids: string[] = [];
+        for (const row of rows.slice(0, FOR_YOU_PREWARM_ROWS)) {
+            for (const card of row.cards.slice(0, FOR_YOU_PREWARM_CARDS)) {
+                if (!missingRating(card) || this.fresh(card.id, undefined) || seen.has(card.id) || ids.includes(card.id)) continue;
+                ids.push(card.id);
+            }
+        }
+        this.pump(ids.map(id => ({ id, revision: undefined })), prewarm.signal, FOR_YOU_PREWARM_CONCURRENCY);
+    }
+
+    /**
+     * The focused card. A cached detail fills the marquee now. An uncached one waits out the rest
+     * delay, and a newer focus cancels both the wait and the read so the late answer cannot land.
+     */
+    rest(card: Card, continuing: boolean): void {
+        const revision = continuing ? card.progressUpdatedAt ?? "" : undefined;
+        if (this.focusedId === card.id && this.focusRevision === revision) {
+            if (this.fresh(card.id, revision)) this.landed(card.id);
+            return;
+        }
+        this.cancelRest();
+        this.cancelRest = () => undefined;
+        this.focusController?.abort();
+        this.focusedId = card.id;
+        this.focusRevision = revision;
+        if (this.fresh(card.id, revision)) {
+            this.focusController = undefined;
+            this.landed(card.id);
+            return;
+        }
+        const controller = new AbortController();
+        this.focusController = controller;
+        this.cancelRest = this.schedule(() => {
+            this.cancelRest = () => undefined;
+            if (this.focusController !== controller) return;
+            this.request(card.id, revision, controller.signal, () => {
+                if (this.focusController !== controller || !this.fresh(card.id, revision)) return;
+                this.landed(card.id);
+            });
+        }, MARQUEE_REST_MILLISECONDS);
+    }
+
+    /** Leaves the scene: drop the wait and every read that has not landed. Kept answers stay. */
+    suspend(): void {
+        this.cancelRest();
+        this.cancelRest = () => undefined;
+        this.focusController?.abort();
+        this.focusController = undefined;
+        this.focusedId = undefined;
+        this.focusRevision = undefined;
+        this.continuingController?.abort();
+        this.continuingController = undefined;
+        this.prewarmController?.abort();
+        this.prewarmController = undefined;
+    }
+
+    stop(): void {
+        this.suspend();
+    }
+
+    private fresh(id: string, revision: string | undefined): boolean {
+        const known = this.entries.get(id);
+        if (known === undefined) return false;
+        return revision === undefined || known.revision === revision;
+    }
+
+    /** One flight per title. A listener that leaves before the answer does not keep the flight, and does not see it. */
+    private request(id: string, revision: string | undefined, signal: AbortSignal, onDone: () => void): void {
+        if (signal.aborted) return;
+        if (this.fresh(id, revision)) {
+            onDone();
+            return;
+        }
+        let job = this.jobs.get(id);
+        const sameRevision = job !== undefined && (revision === undefined || job.revision === undefined || job.revision === revision);
+        if (job !== undefined && !sameRevision) {
+            job.controller.abort();
+            this.jobs.delete(id);
+            job = undefined;
+        }
+        if (job === undefined) {
+            const controller = new AbortController();
+            const created: Job = { revision, controller, listeners: new Set() };
+            job = created;
+            this.jobs.set(id, created);
+            void this.read(operations.marqueeDetail(id), controller.signal).then(detail => {
+                if (controller.signal.aborted || this.jobs.get(id) !== created) return;
+                if (detail.id === id) this.entries.set(id, { detail, revision });
+            }, () => undefined).finally(() => {
+                if (this.jobs.get(id) !== created) return;
+                this.jobs.delete(id);
+                if (controller.signal.aborted) return;
+                for (const listener of created.listeners) listener();
+            });
+        }
+        const active = job;
+        const listener = (): void => {
+            if (!signal.aborted) onDone();
+        };
+        active.listeners.add(listener);
+        signal.addEventListener("abort", () => {
+            active.listeners.delete(listener);
+            if (active.listeners.size === 0 && this.jobs.get(id) === active) {
+                active.controller.abort();
+                this.jobs.delete(id);
+            }
+        }, { once: true });
+    }
+
+    /** At most `concurrency` reads at once. One flight per title, and a cancelled scene stops the queue. */
+    private pump(jobs: readonly { id: string; revision: string | undefined }[], signal: AbortSignal, concurrency: number, onDone?: () => void): void {
+        const queue = [...jobs];
+        const workers = Math.min(concurrency, queue.length);
+        const worker = async (): Promise<void> => {
+            for (;;) {
+                if (signal.aborted) return;
+                const job = queue.shift();
+                if (job === undefined) return;
+                await new Promise<void>(resolve => {
+                    if (signal.aborted) {
+                        resolve();
+                        return;
                     }
-                } catch {
-                    // A title whose detail cannot be read keeps what its row carries; the next Home load tries again.
-                    if (controller.signal.aborted) return;
-                }
-                if (revision !== undefined && --continuing === 0) this.continuingSettled();
+                    this.request(job.id, job.revision, signal, () => {
+                        if (!signal.aborted && this.focusedId === job.id && this.fresh(job.id, job.revision)) this.landed(job.id);
+                        onDone?.();
+                        resolve();
+                    });
+                });
             }
         };
-        void Promise.all(Array.from({ length: Math.min(HOME_DETAIL_CONCURRENCY, queue.length) }, work)).then(() => {
-            if (this.controller === controller) this.controller = undefined;
-        });
+        void Promise.all(Array.from({ length: workers }, () => worker()));
     }
 
     /** TVMarqueeEnrichment fills only metadata the row omitted. */
@@ -117,11 +277,11 @@ export class HomeEnrichment {
         const version = lastFileId === undefined ? undefined : entry.detail.versions.find(file => file.fileId === lastFileId);
         return version === undefined ? undefined : savedFilePresentation(version, card.overlay);
     }
+}
 
-    stop(): void {
-        this.controller?.abort();
-        this.controller = undefined;
-    }
+function missingRating(card: Card): boolean {
+    const rating = card.contentRating?.trim();
+    return rating === undefined || rating === "";
 }
 
 function nonEmpty(value: string | undefined): string | undefined {

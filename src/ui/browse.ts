@@ -186,7 +186,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     const previews = new WeakMap<Route, () => void>();
     const context: ViewContext = { baseUrl: server.server.http.base.baseUrl, cardOverlays: () => presentation.cardOverlays, posterScale: () => presentation.posterScale, spoilers: () => episodeSpoilers?.settings ?? { hidesImages: false, hidesOverviews: false }, savedFileOverlay: card => homeDetails.savedFile(card)?.overlay, open: (destination) => open(destination), preview: (card, row, continuing, featured) => {
         const current = top();
-        const preview = (): void => shell.preview(card, row, continuing ?? false, featured === true);
+        const preview = (): void => {
+            shell.preview(card, row, continuing ?? false, featured === true);
+            if (enrichedScene()) homeDetails.rest(card, continuing === true);
+        };
         if (current !== undefined) previews.set(current, preview);
         preview();
     }, resume: (id, title) => {
@@ -826,7 +829,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             clock.schedule(() => { throw error; }, 0);
         });
     };
-    // Detail fields Home shows but its rows lack, read once per Home load and never on focus.
+    // Detail the rows don't carry. Continue Watching reads its saved file when the row loads, four at a time.
+    // Every other title waits until the marquee has rested (TVFocusMarquee.loadEnrichment).
     const homeDetails = new HomeEnrichment((spec, signal) => session.call({ ...spec, signal, profileScoped: true }), id => { if (!torn) shell.refreshDetails(id); }, () => {
         // Continue Watching cards redraw once with saved-file badges, keeping focus where it is.
         const current = top();
@@ -834,7 +838,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             activeSection?.invalidate();
             render(host.focused());
         }
-    });
+    }, (fn, ms) => clock.schedule(fn, ms));
+    const presentEnrichment = (sections: Parameters<typeof homeRows>[0], prewarmRatings: boolean): void => {
+        homeDetails.present(homeRows(sections).map(row => ({ cards: row.cards, continuing: row.continuing })), prewarmRatings);
+    };
 
     const invalidateCalendar = (): void => {
         const calendar = roots.get("calendar");
@@ -1224,7 +1231,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 presentation.ensure();
                 load(current, signal => read(operations.recommendations(homeArtworkQuery(imageCapability, window.devicePixelRatio)), signal), sections => {
                     current.data = sections;
-                    homeDetails.load(homeRows(sections).flatMap(row => row.cards.map(card => ({ card, continuing: false }))));
+                    presentEnrichment(sections, true);
                 }, quiet);
                 return;
             case "recommendationSection":
@@ -1252,7 +1259,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     current.data = { libraries, sections };
                     homeArtworkAttempt = artworkQuery;
                     shell.update(libraries);
-                    homeDetails.load(homeRows(sections).flatMap(row => row.cards.map(card => ({ card, continuing: row.continuing }))));
+                    presentEnrichment(sections, false);
                     // Changed tabs replace the nav nodes, including the still-present avatar.
                     queueMicrotask(upgradeHomeArtwork);
                     return quiet || focus?.zone === "nav" ? focus : undefined;
@@ -1282,7 +1289,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                         shell.setLibraryModes(availableModes(data.capabilities));
                         if (current.discovery.mode === "Recommended") {
                             libraryArtworkAttempts.set(current, artworkQuery);
-                            homeDetails.load(homeRows(data.sections.filter(section => section.featured !== true)).flatMap(row => row.cards.map(card => ({ card, continuing: row.continuing }))));
+                            presentEnrichment(data.sections.filter(section => section.featured !== true), false);
                             queueMicrotask(upgradeLibraryArtwork);
                         }
                     }
@@ -1704,6 +1711,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (current.supplement !== undefined && current.supplement.requests === undefined) current.supplement.requestsFor = undefined;
             searchRequests(current);
         }
+        homeDetails.suspend();
         render(focus);
         if ((current.kind === "item" || current.kind === "season") && current.data?.details !== undefined && (!current.stale || cachedDetailOwners.has(current.data.details))) {
             detailWork = current.data.details;
@@ -1719,10 +1727,10 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             boxSetRowWork.start();
         } else if ((current.kind === "home" || current.kind === "for_you") && current.data !== undefined) {
             const sections = current.kind === "home" ? current.data.sections : current.data;
-            homeDetails.load(homeRows(sections).flatMap(row => row.cards.map(card => ({ card, continuing: current.kind === "home" && row.continuing }))));
+            presentEnrichment(sections, current.kind === "for_you");
             if (current.kind === "home") upgradeHomeArtwork();
         } else if (current.kind === "library" && current.discovery?.mode === "Recommended" && current.discovery.data !== undefined) {
-            homeDetails.load(homeRows(current.discovery.data.sections.filter(section => section.featured !== true)).flatMap(row => row.cards.map(card => ({ card, continuing: row.continuing }))));
+            presentEnrichment(current.discovery.data.sections.filter(section => section.featured !== true), false);
             upgradeLibraryArtwork();
         }
     };

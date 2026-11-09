@@ -183,7 +183,7 @@ export type SubtitleToolAction =
 
 export type PlaybackView =
     | { readonly phase: "completion"; readonly title: string; readonly state: "finalizing" | "resolving" | "ready" | "failed"; readonly next: PlayRequest | undefined; readonly retryable: boolean; readonly countdown?: number | undefined; readonly deck?: readonly PlayRequest[] }
-    | { readonly phase: "loading"; readonly title: string; readonly detail?: "reconnecting" | "restoring" }
+    | { readonly phase: "loading"; readonly title: string; readonly detail?: "reconnecting" | "restoring"; /** A different file of a Shuffle pick follows: the screen forgets the last file's skip decisions. */ readonly nextPart?: true }
     | {
           readonly phase: "playing" | "paused";
           readonly seriesTitle?: string | undefined;
@@ -2248,7 +2248,7 @@ export class PlaybackController implements PlayerControls {
         };
         // Apple's playShufflePart loads the next part with a plain loading state, not the end screen.
         if (attempt.request.shuffleId === undefined) show("finalizing");
-        else if (current()) this.show({ phase: "loading", title: attempt.request.title });
+        else if (current()) this.show({ phase: "loading", title: attempt.request.title, nextPart: true });
         try {
             await this.stopSession(attempt);
             if (!current()) return;

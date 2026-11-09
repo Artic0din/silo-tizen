@@ -35,6 +35,8 @@ const EPISODE_FOCUS_DWELL_MS = 120;
 export class DetailsState {
     readonly trailers: TrailerFetch;
     showAdvisoryAge = false;
+    /** The stored resolution cap that ranks versions, read from the profile's cache so the first paint is already ranked. */
+    get preferredQuality(): string | undefined { return this.quality(); }
     readonly descriptions: ItemDescriptionTranslation | undefined;
     readonly audioPreference: PreplayAudioPreference;
     readonly subtitlePreference: PreplayTrackPreference<SubtitlePreferencePick, SubtitlePreference>;
@@ -103,9 +105,11 @@ export class DetailsState {
     private readonly changed: (returnKey?: string) => void;
     private readonly watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>;
     private readonly pendingElsewhere: () => boolean;
+    private readonly quality: () => string | undefined;
 
-    constructor(detail: ItemDetail, session: NativeSession, changed: (returnKey?: string) => void, watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>, pendingElsewhere: () => boolean = () => false, translations?: DescriptionTranslations) {
+    constructor(detail: ItemDetail, session: NativeSession, changed: (returnKey?: string) => void, watchedChanged: (detail: ItemDetail, signal: AbortSignal) => Promise<void>, pendingElsewhere: () => boolean = () => false, translations?: DescriptionTranslations, quality: () => string | undefined = () => undefined) {
         this.detail = detail;
+        this.quality = quality;
         this.session = session;
         this.trailers = new TrailerFetch(
             signal => session.call({ ...detailOperations.refreshTrailers(detail.id), profileScoped: true, replayAfterRefresh: false, signal }),
@@ -301,7 +305,7 @@ export class DetailsState {
 
     select(fileId: string | undefined): void {
         if (fileId !== undefined && !this.detail.versions.some((file) => file.fileId === fileId)) return;
-        if (fileId !== playChoices(this.detail, this.selectedFileId)?.fromStart.fileId) this.audioPick = undefined;
+        if (fileId !== playChoices(this.detail, this.selectedFileId, this.preferredQuality)?.fromStart.fileId) this.audioPick = undefined;
         this.selectedFileId = fileId;
         this.changed();
     }
@@ -337,7 +341,7 @@ export class DetailsState {
     }
 
     audioTrackId(explicitOnly = false): string | undefined {
-        const fileId = playChoices(this.detail, this.selectedFileId)?.fromStart.fileId;
+        const fileId = playChoices(this.detail, this.selectedFileId, this.preferredQuality)?.fromStart.fileId;
         const file = this.detail.versions.find(file => file.fileId === fileId);
         const pick = this.audioPick;
         if (pick === undefined) {
@@ -353,7 +357,7 @@ export class DetailsState {
     }
 
     showPanel(panel: NonNullable<DetailsState["panel"]>): void {
-        if (panel !== "more" && this.detail.type === "series" && (this.nextEpisodeFailed || this.episodePreferencesBlocked || this.nextEpisode !== undefined && playChoices(this.nextEpisode, this.nextEpisodeState?.selectedFileId) === undefined)) return;
+        if (panel !== "more" && this.detail.type === "series" && (this.nextEpisodeFailed || this.episodePreferencesBlocked || this.nextEpisode !== undefined && playChoices(this.nextEpisode, this.nextEpisodeState?.selectedFileId, this.nextEpisodeState?.preferredQuality) === undefined)) return;
         this.pendingEpisodePanel = undefined;
         const id = this.playbackTargetId;
         if (panel !== "more" && this.detail.type === "series" && this.nextEpisode === undefined && id !== undefined) {
@@ -374,7 +378,7 @@ export class DetailsState {
 
     selectAudio(ordinal: number | undefined): void {
         if (this.preparingPlay) { this.closeAudio(); return; }
-        const fileId = playChoices(this.detail, this.selectedFileId)?.fromStart.fileId;
+        const fileId = playChoices(this.detail, this.selectedFileId, this.preferredQuality)?.fromStart.fileId;
         const file = this.detail.versions.find(file => file.fileId === fileId);
         if (file === undefined || (ordinal !== undefined && file.audio?.[ordinal] === undefined)) return;
         this.audioPick = ordinal === undefined ? undefined : { fileId: file.fileId, ordinal, inventory: JSON.stringify([file.audio, file.audioMetadata]) };
@@ -387,7 +391,7 @@ export class DetailsState {
     subtitleIntent(): SubtitleIntent {
         const pick = this.subtitlePick;
         if (pick?.intent.kind === "off") return pick.intent;
-        const fileId = playChoices(this.detail, this.selectedFileId)?.fromStart.fileId;
+        const fileId = playChoices(this.detail, this.selectedFileId, this.preferredQuality)?.fromStart.fileId;
         const file = this.detail.versions.find(file => file.fileId === fileId);
         if (pick === undefined || pick.fileId !== fileId || pick.inventory !== JSON.stringify(file?.subtitles)) {
             this.subtitlePick = undefined;
@@ -404,7 +408,7 @@ export class DetailsState {
 
     selectSubtitle(choice: number | "off" | undefined): void {
         if (this.preparingPlay) { this.closePanel(); return; }
-        const fileId = playChoices(this.detail, this.selectedFileId)?.fromStart.fileId;
+        const fileId = playChoices(this.detail, this.selectedFileId, this.preferredQuality)?.fromStart.fileId;
         const file = this.detail.versions.find(file => file.fileId === fileId);
         if (file === undefined) return;
         let intent: SubtitleIntent;
@@ -640,7 +644,7 @@ export class DetailsState {
         this.nextEpisodeState = id === undefined ? undefined : this.episodeStates.get(id);
         const previous = id === undefined || this.episodeRefusals.has(id) ? undefined : this.previousEpisodeStates.get(id) ?? (this.previousNextEpisodeState?.detail.id === id ? this.previousNextEpisodeState : undefined);
         if (id !== undefined && this.nextEpisodeState === undefined && previous !== undefined && !previous.audioPreference.pending && !previous.audioPreference.failed && !previous.subtitlePreference.pending && !previous.subtitlePreference.failed && this.controller !== undefined) {
-            const state = new DetailsState(previous.detail, this.session, key => this.episodePreferenceChanged(state, key), this.watchedChanged, this.pendingElsewhere);
+            const state = new DetailsState(previous.detail, this.session, key => this.episodePreferenceChanged(state, key), this.watchedChanged, this.pendingElsewhere, undefined, this.quality);
             state.restore(previous);
             this.episodeStates.set(id, state);
             state.start("playback");
@@ -676,7 +680,7 @@ export class DetailsState {
                 if (!current()) return;
                 if (detail.id !== id || detail.type !== "episode") throw new ApiError({ kind: "invalid_response", path: "nextEpisode.item" });
                 this.episodeRefusals.delete(id);
-                const state = new DetailsState(detail, this.session, key => this.episodePreferenceChanged(state, key), this.watchedChanged, this.pendingElsewhere);
+                const state = new DetailsState(detail, this.session, key => this.episodePreferenceChanged(state, key), this.watchedChanged, this.pendingElsewhere, undefined, this.quality);
                 // The fallback already on screen can hold this visit's version, audio, or subtitles.
                 const active = this.episodeStates.get(id);
                 const retained = active ?? this.previousEpisodeStates.get(id) ?? (this.previousNextEpisodeState?.detail.id === id ? this.previousNextEpisodeState : undefined);

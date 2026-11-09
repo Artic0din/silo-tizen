@@ -49,6 +49,7 @@ import { mountSettings, type SettingsScreen } from "./settings.ts";
 import { signOutRemovesServer } from "./signOutConfirmation.ts";
 import type { CardOverlayPrefs } from "./cardOverlays.ts";
 import { PresentationSettings } from "./presentationSettings.ts";
+import { ResolutionCap } from "./resolutionCap.ts";
 import { EpisodeSpoilerPreferences, type EpisodeSpoilerSettings } from "./episodeSpoilers.ts";
 import { NavigationSettings } from "./navigationSettings.ts";
 import { cachedBranding } from "./brandingCache.ts";
@@ -143,6 +144,11 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     let offlineRefreshRoute: Route | undefined;
     let offlineRefreshAt: number | undefined;
     const translations = new DescriptionTranslations(session, clock);
+    // Details ranks versions by this cap, so a late answer repaints the Details on screen.
+    const resolutionCap = new ResolutionCap(session, () => {
+        const current = top();
+        if (!torn && !playing && (current?.kind === "item" || current?.kind === "season") && current.data?.details !== undefined) render(host.focused());
+    });
     const container = el("div", "browse");
     root.appendChild(container);
     const host = new FocusHost(container);
@@ -638,6 +644,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         translations.reset();
         stopSearchSupplement();
         presentation.stop();
+        resolutionCap.stop();
         episodeSpoilers?.stop();
         activeSection?.stop();
         if (activeBrowse !== undefined) stopFeed(activeBrowse);
@@ -926,7 +933,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (top() === current && enter && episode !== undefined) { render({ zone: "seasons", key: `season:${details.series.seasonNumber}` }); return; }
             }
             detailsChanged(current, audioClosed);
-        }, (value, signal) => refreshWatched(current, value, signal), personalPending, translations);
+        }, (value, signal) => refreshWatched(current, value, signal), personalPending, translations, () => resolutionCap.quality);
+        resolutionCap.ensure();
         return details;
     };
 
@@ -1240,9 +1248,9 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             }
             case "resume":
                 load(current, async signal => {
-                    const detail = await read(operations.getCatalogItem(current.id), signal);
+                    const [detail] = await Promise.all([read(operations.getCatalogItem(current.id), signal), resolutionCap.ready(signal)]);
                     if (detail.id !== current.id || (detail.type !== "movie" && detail.type !== "episode") || (current.episode === true && detail.type !== "episode")) throw new ApiError({ kind: "invalid_response", path: "resume.item" });
-                    const choices = playChoices(detail, current.selection?.fileId);
+                    const choices = playChoices(detail, current.selection?.fileId, resolutionCap.quality);
                     if (choices === undefined) return undefined;
                     let request = current.startOver === true ? choices.fromStart : choices.resume ?? choices.fromStart;
                     if (detail.type === "episode") request = applySeriesLine({ ...request, subtitle: { kind: "auto" }, ...current.selection }, current.seriesLine);
@@ -1449,7 +1457,8 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                     stopDetails();
                     current.data = data;
                     if (data.detail !== undefined) {
-                        const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending, translations);
+                        const details = new DetailsState(data.detail, session, (audioClosed) => detailsChanged(current, audioClosed), (detail, signal) => refreshWatched(current, detail, signal), personalPending, translations, () => resolutionCap.quality);
+                        resolutionCap.ensure();
                         details.restore(previous);
                         current.data.details = details;
                         detailWork = details;
@@ -2494,6 +2503,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
                 if (titleArt !== undefined) for (const details of visitedDetails.values()) details.acceptTitleArt(titleArt);
                 container.hidden = false;
                 presentation.reload();
+                resolutionCap.reload();
                 void navigation.reload();
                 if (hiddenChanged) {
                     cache.invalidate();
@@ -2558,6 +2568,7 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
     translations.subscribeMode(() => { if (!torn) shell.armTranslation(); });
     translations.cards.subscribe(() => { if (!torn) shell.refreshTranslation(); });
     void translations.ensure();
+    resolutionCap.ensure();
     shell.titleArt = () => presentation.showsTitleArt;
     episodeSpoilers = new EpisodeSpoilerPreferences(session, options.publicStorage);
     shell.spoilers = () => episodeSpoilers?.settings ?? { hidesImages: false, hidesOverviews: false };

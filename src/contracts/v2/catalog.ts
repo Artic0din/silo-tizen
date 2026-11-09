@@ -7,6 +7,7 @@ import { translationMembers } from "./descriptionTranslation.ts";
 import { boolean, integer, nonEmptyString, object, optionalString, string, WireError } from "./wire.ts";
 import { decodeDetailExtras, type DetailExtras } from "./details.ts";
 import { decodeAudioTracks, type AudioTrackInfo } from "./playback.ts";
+import { compactVersionLabel, versionLabel } from "./versions.ts";
 import { decodeCatalogSubtitles, decodeSubtitlePreferences, type CatalogSubtitleTrack, type SubtitlePreferences } from "./preplaySubtitles.ts";
 
 type WireObject = ReturnType<typeof object>;
@@ -330,6 +331,9 @@ export interface PlayableFile {
     /** Metadata omitted from labels must still invalidate an ordinal picked from an older inventory. */
     readonly audioMetadata?: string;
     readonly label?: string;
+    /** Resolution and dynamic range only, for the Version summary. */
+    readonly compactLabel?: string;
+    readonly resolution?: string;
     readonly fileId: string;
     /** Seconds; 0 when the server does not know. */
     readonly durationSeconds: number;
@@ -476,8 +480,10 @@ export function decodeItemDetail(value: unknown): ItemDetail {
             const size = optionalInteger(version, "file_size", versionPath);
             const sizeLabel = size === undefined ? undefined : size >= 1_000_000_000 ? `${Number((size / 1_000_000_000).toFixed(2))} GB` : `${Number((size / 1_000_000).toFixed(1))} MB`;
             const detailLabel = [normalizedCodec, optionalString(version, "container", versionPath)?.toUpperCase(), sizeLabel].filter(Boolean).join(" · ");
-            const label = [optionalString(version, "edition_raw", versionPath), optionalString(version, "resolution", versionPath), optionalString(version, "codec_video", versionPath), version.hdr === undefined ? undefined : boolean(version, "hdr", versionPath) ? "HDR" : undefined, optionalString(version, "codec_audio", versionPath)].filter((part) => part !== undefined && part !== "").join(" · ");
-            return { detailLabel, ...(obj.effective_subtitle_mode === undefined && obj.effective_subtitle_track_signature === undefined ? {} : { effectiveSubtitle: decodeSubtitlePreferences(obj, string(obj, "content_id", path), string(version, "file_id", versionPath), undefined) }), fileId: string(version, "file_id", versionPath), effectiveAudioTrackIndex: optionalInteger(version, "effective_audio_track_index", versionPath), durationSeconds: integer(version, "duration", versionPath), audio: decodeAudioTracks(version, versionPath), ...(version.subtitle_tracks === undefined ? {} : { subtitles: decodeCatalogSubtitles(version, versionPath) }), ...(version.audio_tracks === undefined ? {} : { audioMetadata: JSON.stringify(version.audio_tracks) }), ...(label === "" ? {} : { label }) };
+            const format = { resolution: optionalString(version, "resolution", versionPath), codecVideo: optionalString(version, "codec_video", versionPath), codecAudio: optionalString(version, "codec_audio", versionPath), hdr: version.hdr === undefined ? undefined : boolean(version, "hdr", versionPath), dolbyVision: firstDolbyVision(version, versionPath) };
+            const label = versionLabel(format);
+            const compactLabel = compactVersionLabel(format);
+            return { detailLabel, ...(obj.effective_subtitle_mode === undefined && obj.effective_subtitle_track_signature === undefined ? {} : { effectiveSubtitle: decodeSubtitlePreferences(obj, string(obj, "content_id", path), string(version, "file_id", versionPath), undefined) }), fileId: string(version, "file_id", versionPath), effectiveAudioTrackIndex: optionalInteger(version, "effective_audio_track_index", versionPath), durationSeconds: integer(version, "duration", versionPath), audio: decodeAudioTracks(version, versionPath), ...(version.subtitle_tracks === undefined ? {} : { subtitles: decodeCatalogSubtitles(version, versionPath) }), ...(version.audio_tracks === undefined ? {} : { audioMetadata: JSON.stringify(version.audio_tracks) }), ...(label === "" ? {} : { label }), ...(compactLabel === "" ? {} : { compactLabel }), ...(format.resolution === undefined ? {} : { resolution: format.resolution }) };
         }),
         watch,
         ...translationMembers(obj, path),
@@ -666,6 +672,16 @@ export interface MarqueeDetail {
     /** `user_data.last_file_id`: the file this viewer last played. */
     readonly lastFileId: string | undefined;
     readonly versions: readonly MarqueeFile[];
+}
+
+/** The first Dolby Vision profile any video track publishes. */
+function firstDolbyVision(version: WireObject, path: string): string | undefined {
+    for (const [index, track] of optionalList(version, "video_tracks", path).entries()) {
+        const trackPath = `${path}.video_tracks[${index}]`;
+        const profile = optionalString(object(track, trackPath), "dolby_vision", trackPath);
+        if (profile?.trim()) return profile;
+    }
+    return undefined;
 }
 
 function optionalBooleanField(obj: WireObject, key: string, path: string): boolean | undefined {

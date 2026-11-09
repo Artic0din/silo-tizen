@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
-import { CARD_PRESENTATION_KEY, CARD_OVERLAYS_KEY } from "../../src/contracts/v2/settings.ts";
+import { CARD_PRESENTATION_KEY, CARD_OVERLAYS_KEY, QUALITY_KEY } from "../../src/contracts/v2/settings.ts";
 import { after, before, test } from "node:test";
 import type { Browser } from "playwright";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
@@ -1245,23 +1245,23 @@ detailTest('Hero uses measured series colours and genres only at rest', async tv
     }, null, value => value === "rgba(237, 237, 237, 0.5)", "playback summary label"), "rgba(237, 237, 237, 0.5)");
 });
 
-detailTest('track picker truncates a long edition title within its 76px row', async tv => {
+detailTest('track picker truncates a long version title within its 76px row', async tv => {
     const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
     const body = catalog.route('GET', '/catalog/items/movie%3Am0001', 'p-owner')?.body as { versions: Record<string, unknown>[] };
-    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001?**', route => route.fulfill({ json: { ...body, versions: body.versions.map(file => ({ ...file, edition_raw: 'Extended Commentary Edition '.repeat(20) })) } }));
+    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001?**', route => route.fulfill({ json: { ...body, versions: body.versions.map(file => ({ ...file, codec_video: 'Extended Commentary Codec '.repeat(20) })) } }));
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     await tv.page.locator('[data-focus="version"]').click();
     const row = tv.page.locator('[data-focus="version:42"]');
     assert.equal(await row.locator('.details-option-title').count(), 1);
-    const edition = await readLive(tv, () => {
+    const title = await readLive(tv, () => {
         const title = document.querySelector('[data-focus="version:42"] .details-option-title');
         const option = document.querySelector('[data-focus="version:42"]');
         if (!(title instanceof HTMLElement) || !(option instanceof HTMLElement) || !title.isConnected || !option.isConnected) return null;
         return { overflow: getComputedStyle(title).textOverflow, clipped: title.scrollWidth > title.clientWidth, height: option.offsetHeight };
-    }, null, value => value.overflow === "ellipsis" && value.clipped && value.height === 76, "edition row");
-    assert.equal(edition.overflow, "ellipsis");
-    assert.ok(edition.clipped);
-    assert.equal(edition.height, 76);
+    }, null, value => value.overflow === "ellipsis" && value.clipped && value.height === 76, "version row");
+    assert.equal(title.overflow, "ellipsis");
+    assert.ok(title.clipped);
+    assert.equal(title.height, 76);
 });
 
 detailTest('measured Apple movie typography and version popover geometry', async tv => {
@@ -1612,7 +1612,7 @@ detailTest('Movie uses rounded runtime, rating artwork, comma genres and compact
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     assert.match(await tv.page.locator('.details-editorial .browse-meta').textContent() ?? '', /1h 50m.*6.8.*Drama, Thriller/);
     assert.equal(await tv.page.locator('.details-external-rating img').getAttribute('alt'), 'TMDB');
-    assert.equal(await tv.page.locator('[data-track-summary="version"] span').textContent(), 'Auto · 1080p');
+    assert.equal(await tv.page.locator('[data-track-summary="version"] span').textContent(), 'Auto · 1080p · HDR');
     assert.equal(await tv.page.locator('[data-track-summary="audio"] span').textContent(), 'Auto · English · EAC3 · 5.1');
     assert.equal(await readLive(tv, () => {
         const node = document.querySelector(".details-editorial .browse-title");
@@ -2459,11 +2459,15 @@ detailTest("walking season chips to Season 1 keeps state A until Details is reop
     await expectSlot("B", "episode:walk:5:2");
 }, "compact");
 
-function detailTest(name: string, body: (tv: Tv) => Promise<void>, size?: 'compact' | 'standard' | 'large'): void {
+function detailTest(name: string, body: (tv: Tv, context: { details: FakeDetails; settings: FakeSettings | undefined }) => Promise<void>, size?: 'compact' | 'standard' | 'large', prepare?: (settings: FakeSettings) => void): void {
     test(name, async () => {
     const tv = await openTv(browser, { app: "browse" });
-    tv.fake.catalog = new FakeDetails();
-    if (size !== undefined) new FakeSettings(tv.fake).profile().set(CARD_PRESENTATION_KEY, { poster_size: size, caption: 'title_metadata' });
+    const details = new FakeDetails();
+    tv.fake.catalog = details;
+    // Wrapping the catalog hides it from `instanceof FakeDetails`, so settings exist only for tests that ask.
+    const settings = size !== undefined || prepare !== undefined ? new FakeSettings(tv.fake) : undefined;
+    if (size !== undefined) settings?.profile().set(CARD_PRESENTATION_KEY, { poster_size: size, caption: 'title_metadata' });
+    if (settings !== undefined) prepare?.(settings);
     try {
         await tv.page.evaluate(() => window.browseHarness.connect());
         await tv.eventually(async () => tv.fake.devices.size > 0, "device code");
@@ -2472,7 +2476,7 @@ function detailTest(name: string, body: (tv: Tv) => Promise<void>, size?: 'compa
         await tv.eventually(() => tv.page.evaluate(() => window.browseHarness.loginPhase === "signed_in"), "login");
         await tv.page.evaluate(() => window.browseHarness.selectProfile("p-owner"));
         await tv.page.evaluate(() => window.browseHarness.mount());
-        await body(tv);
+        await body(tv, { details, settings });
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
     });
@@ -2566,6 +2570,97 @@ detailTest('Version options expose source codec, container and file size below t
     await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
     await tv.page.locator('[data-focus="version"]').click();
     assert.equal(await tv.page.locator('[data-focus="version:42"] .details-option-subtext').textContent(), 'H.264 · MKV · 8.43 GB');
+});
+
+detailTest('Version summary shows the best version while the picker lists every version in server order', async tv => {
+    const catalog = tv.fake.catalog; assert.ok(catalog instanceof FakeDetails);
+    const reply = catalog.route('GET', '/catalog/items/movie%3Am0001', 'p-owner');
+    const body = reply?.body as { versions: Record<string, unknown>[] };
+    const [template] = body.versions;
+    const versions = [
+        { ...template, file_id: 'low', resolution: '720p', codec_video: 'h264', codec_audio: 'aac', hdr: false, edition_raw: 'Theatrical' },
+        { ...template, file_id: 'uhd', resolution: '2160p', codec_video: 'hevc', codec_audio: 'eac3', hdr: true, video_tracks: [{ dolby_vision: 'profile 8' }], edition_raw: 'Director\'s Cut' },
+        { ...template, file_id: 'mid', resolution: '1080p', codec_video: 'h264', codec_audio: 'aac', hdr: false },
+    ];
+    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001?**', route => route.fulfill({ json: { ...body, versions, user_data: { played: false } } }));
+    await tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+    assert.equal(await tv.page.locator('[data-track-summary="version"] span').textContent(), 'Auto · 2160p · DV');
+    await tv.page.locator('[data-focus="version"]').click();
+    const picker = tv.page.getByRole('dialog', { name: 'Version', exact: true });
+    await picker.locator('[data-focus="version:auto"]').waitFor();
+    assert.deepEqual(await picker.locator('[role="radio"] .details-option-title').allTextContents(), ['Auto', '720p · H.264 · AAC', '2160p · HEVC · DV · EAC3', '1080p · H.264 · AAC']);
+});
+
+const rankedVersions = (template: Record<string, unknown>): Record<string, unknown>[] => [
+    { ...template, file_id: 'low', resolution: '720p', codec_video: 'h264', codec_audio: 'aac', hdr: false },
+    { ...template, file_id: 'uhd', resolution: '2160p', codec_video: 'hevc', codec_audio: 'eac3', hdr: true },
+    { ...template, file_id: 'mid', resolution: '1080p', codec_video: 'h264', codec_audio: 'aac', hdr: false },
+];
+
+async function routeVersions(tv: Tv, catalog: FakeDetails, versions: (template: Record<string, unknown>) => Record<string, unknown>[]): Promise<void> {
+    const body = catalog.route('GET', '/catalog/items/movie%3Am0001', 'p-owner')?.body as { versions: Record<string, unknown>[] };
+    await tv.page.route('**/api/v2/catalog/items/movie%3Am0001?**', route => route.fulfill({ json: { ...body, versions: versions(body.versions[0] ?? {}), user_data: { played: false } } }));
+}
+
+const qualityReads = (tv: Tv): number => tv.fake.requests.filter(request => request.path === '/settings/values/effective?keys=playback.preferred_quality').length;
+const openMovie = (tv: Tv) => tv.page.locator('[data-section="recently_added"] [data-focus="movie:m0001"]').first().click();
+const versionSummary = (tv: Tv) => tv.page.locator('[data-track-summary="version"] span').textContent();
+
+detailTest('Details ranks versions with the stored Resolution cap on first paint and reads it once per profile session', async (tv, { details }) => {
+    await routeVersions(tv, details, rankedVersions);
+    await openMovie(tv);
+    assert.equal(await versionSummary(tv), 'Auto · 1080p');
+    await tv.remote(10009);
+    await openMovie(tv);
+    assert.equal(await versionSummary(tv), 'Auto · 1080p');
+    assert.equal(qualityReads(tv), 1, 'opening Details never asks the server for the cap');
+}, undefined, settings => settings.profile().set(QUALITY_KEY, '1080p'));
+
+detailTest('A Resolution change in Settings ranks the next Details', async (tv, { details, settings }) => {
+    assert.ok(settings);
+    await routeVersions(tv, details, rankedVersions);
+    await openMovie(tv);
+    assert.equal(await versionSummary(tv), 'Auto · 1080p');
+    await tv.remote(10009);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="settings"]').click();
+    await tv.page.getByRole('switch', { name: 'Show Title Art', exact: true }).waitFor();
+    settings.profile().set(QUALITY_KEY, '720p');
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="home"]').waitFor();
+    await tv.eventually(async () => qualityReads(tv) === 2, 'cap reread after Settings');
+    await openMovie(tv);
+    assert.equal(await versionSummary(tv), 'Auto · 720p');
+    assert.equal(qualityReads(tv), 2, 'only Settings triggers a reread');
+}, undefined, settings => settings.profile().set(QUALITY_KEY, '1080p'));
+
+detailTest('A Resolution cap that lands while Details is open re-ranks its default version on screen', async (tv, { details, settings }) => {
+    assert.ok(settings);
+    await routeVersions(tv, details, rankedVersions);
+    await tv.page.locator('[data-focus="profiles"]').click();
+    await tv.page.locator('[data-focus="settings"]').click();
+    await tv.page.getByRole('switch', { name: 'Show Title Art', exact: true }).waitFor();
+    settings.profile().set(QUALITY_KEY, '720p');
+    const held = tv.fake.hold('/settings/values/effective?keys=playback.preferred_quality', true);
+    await tv.remote(10009);
+    await tv.page.locator('[data-view="home"]').waitFor();
+    await tv.eventually(async () => qualityReads(tv) === 2, 'cap reread after Settings');
+    await openMovie(tv);
+    assert.equal(await versionSummary(tv), 'Auto · 1080p', 'the last answer ranks Details while the reread is out');
+    await tv.page.locator('[data-focus="watchlist"]').waitFor();
+    await tv.jump(1000);
+    assert.equal(await versionSummary(tv), 'Auto · 1080p', 'nothing else repaints Details before the cap lands');
+    held.release();
+    await tv.eventually(async () => await versionSummary(tv) === 'Auto · 720p', 'the open Details re-ranks when the cap lands');
+}, undefined, settings => settings.profile().set(QUALITY_KEY, '1080p'));
+
+detailTest('A version with no metadata is named Auto in the Version list, as on tvOS', async (tv, { details }) => {
+    await routeVersions(tv, details, template => [{ ...template, file_id: 'bare', resolution: undefined, codec_video: undefined, codec_audio: undefined, hdr: undefined }, ...rankedVersions(template)]);
+    await openMovie(tv);
+    await tv.page.locator('[data-focus="version"]').click();
+    const picker = tv.page.getByRole('dialog', { name: 'Version', exact: true });
+    await picker.locator('[data-focus="version:auto"]').waitFor();
+    assert.deepEqual(await picker.locator('[role="radio"] .details-option-title').allTextContents(), ['Auto', 'Auto', '720p · H.264 · AAC', '2160p · HEVC · HDR · EAC3', '1080p · H.264 · AAC']);
 });
 
 detailTest('Auto subtitle summary uses the Apple None fallback without effective preference fields', async tv => {

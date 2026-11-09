@@ -41,6 +41,15 @@ function capQuality(stored: string | undefined): string | undefined {
     return CAP_IDS.has(id) ? id : undefined;
 }
 
+/**
+ * The cap a start ranks by (silo-apple `PlaybackSessionBridge.normalizedQualityPreference`). Unlike Details,
+ * only Auto and unknown ids drop: 2160p, 4K and UHD stay a rank-4 cap that every file of known resolution fits.
+ */
+function startCap(stored: string | undefined): string | undefined {
+    const lowered = (stored ?? "").trim().toLowerCase();
+    return lowered === "2160p" || lowered === "4k" || lowered === "uhd" ? "2160p" : capQuality(stored);
+}
+
 function score(version: RankedVersion, cap: string | undefined): number {
     const rank = resolutionRank(version.resolution);
     let total = rank * RANK_WEIGHT;
@@ -72,6 +81,19 @@ export function displayVersion<T extends RankedVersion>(versions: readonly T[], 
         }
     }
     return best;
+}
+
+/**
+ * The file a next-episode, On Deck or shuffle pick starts (silo-apple `PlaybackSessionBridge.selectVersion`,
+ * called with no requested file). The best file at or under the cap wins, then the last-played file, then the
+ * best-ranked file. Unlike `displayVersion`, the last-played file never outranks a file that fits the cap.
+ */
+export function startVersion<T extends RankedVersion>(versions: readonly T[], lastFileId: string | undefined, preferredQuality: string | undefined): T | undefined {
+    const cap = startCap(preferredQuality);
+    const capRank = resolutionRank(cap);
+    const fitting = cap === undefined ? [] : versions.filter(version => resolutionRank(version.resolution) > 0 && resolutionRank(version.resolution) <= capRank);
+    if (fitting.length > 0) return displayVersion(fitting, undefined, undefined, cap);
+    return displayVersion(versions, undefined, lastFileId, cap);
 }
 
 function present(value: string | undefined): string | undefined {

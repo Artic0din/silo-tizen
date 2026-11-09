@@ -283,7 +283,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     const skipLabel = el("span", "player-skip-label");
     const skipCaption = el("span", "player-skip-caption");
     skipCaption.setAttribute("aria-hidden", "true");
-    skip.append(skipTrack, skipGlyph, skipLabel, skipCaption);
+    skip.append(skipTrack, skipGlyph, skipLabel);
     skip.addEventListener("click", () => {
         if (skipKind === undefined || skipTarget === undefined || seekPreview !== undefined || menuOpen) return;
         const target = skipTarget;
@@ -427,7 +427,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     cancelAutoplay.addEventListener("click", () => controls.cancelAutoplay());
     actions.append(next, keep, cancelAutoplay, retry, back);
     failure.append(eyebrow, failureTitle, mark, failureText, synopsis, actions, deck);
-    section.append(surface, backdrop, spinner, overlay, status, skip, failure, hud);
+    section.append(surface, backdrop, spinner, overlay, status, skip, skipCaption, failure, hud);
     const covered = Array.from(root.children).flatMap((child) => child instanceof HTMLElement ? [{ element: child, display: child.style.display }] : []);
     for (const item of covered) item.element.style.display = "none";
     root.appendChild(section);
@@ -445,6 +445,8 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     /** The Watch Intro offer Back or Select took down, so the controller's own 5 s window does not bring it back. */
     let dismissedUndo: number | undefined;
     let drawnFill = -1;
+    /** The Watch Intro window whose fill is already running; its 5 s matches the controller's undo window. */
+    let undoFillDrawn = false;
     const skipPrompt = new SkipPrompt(clock, () => render());
     /** Select entered timeline scrub. Left/Right move the preview until Select or Menu. */
     let timeline = false;
@@ -605,6 +607,13 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         focusScrubberOnRender = returnToScrubber;
     };
 
+    const restartFill = (elapsedMs: number): void => {
+        skipFill.style.animation = "none";
+        void skipFill.offsetWidth;
+        skipFill.style.animation = "";
+        skipFill.style.animationDelay = `-${elapsedMs}ms`;
+    };
+
     /**
      * Apple's pills: Skip Intro for five seconds (`IntroSkipPrompt`), Watch Intro over an "Intro skipped" caption after an
      * automatic skip, and Skip Recap or Skip Credits for the whole marker window (`segmentSkipLayer`).
@@ -641,16 +650,20 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         skipCaption.textContent = skipKind === "undo" ? "Intro skipped" : "";
         skip.setAttribute("aria-label", skipKind === "undo" ? `Intro skipped. ${label}` : label);
         skipGlyph.hidden = skipKind === "intro" || skipKind === "undo";
-        skipTrack.hidden = skipKind !== "intro";
+        skipTrack.hidden = false;
+        skipCaption.hidden = skip.hidden || skipKind !== "undo";
+        if (skipKind !== "undo") undoFillDrawn = false;
+        else if (!undoFillDrawn) {
+            undoFillDrawn = true;
+            restartFill(0);
+            skipFill.style.animationPlayState = "running";
+        }
         if (skipKind === "intro") {
             const fill = skipPrompt.fill;
             if (fill.revision !== drawnFill) {
                 // Restart the fill from where the timer stands; the fill and the timer share this one state.
                 drawnFill = fill.revision;
-                skipFill.style.animation = "none";
-                void skipFill.offsetWidth;
-                skipFill.style.animation = "";
-                skipFill.style.animationDelay = `-${fill.elapsedMs}ms`;
+                restartFill(fill.elapsedMs);
             }
             skipFill.style.animationPlayState = fill.running ? "running" : "paused";
         }
@@ -1312,7 +1325,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         }
         const visibleTransport = transportButtons.filter(button => !button.hidden);
         const at = visibleTransport.findIndex(button => button === document.activeElement);
-        if (document.activeElement === skip && (key === "down" || key === "back")) {
+        if (document.activeElement === skip && key === "down") {
             pause.focus();
             render();
             return;
@@ -1424,6 +1437,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
         destroy() {
             cancelScrub();
             thumbnail.clear();
+            skipPrompt.reset();
             unsubscribe();
             cancelHide?.();
             document.removeEventListener("keydown", onKey);

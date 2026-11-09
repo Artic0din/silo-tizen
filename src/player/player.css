@@ -136,7 +136,7 @@
     min-width: 0;
     border: 0;
     white-space: nowrap;
-    transition: bottom 220ms ease-out, transform 180ms ease-in-out, box-shadow 180ms ease-in-out, color 180ms ease-in-out, background-color 180ms ease-in-out;
+    transition: bottom 220ms ease-out, width 180ms ease-in-out, transform 180ms ease-in-out, box-shadow 180ms ease-in-out, color 180ms ease-in-out, background-color 180ms ease-in-out;
 }
 
 .player-button.player-skip[hidden] {
@@ -168,7 +168,7 @@
 .player-skip.player-skip-segment {
     bottom: 216px;
     gap: 8px;
-    width: 220px;
+    width: 260px;
     height: 76px;
     padding: 0;
     border-radius: 38px;
@@ -181,9 +181,11 @@
 
 .player-skip.player-skip-segment:focus,
 .player-skip.player-skip-segment.player-skip-lit {
+    width: 360px;
     background: #ffffff;
     color: #000000;
     transform: scale(1.025);
+    transform-origin: right bottom;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.24);
 }
 
@@ -238,11 +240,12 @@
     height: 28px;
 }
 
-/* The muted confirmation above the Watch Intro pill. */
+/* The muted confirmation above the Watch Intro pill. A sibling of the pill so the focus scale leaves it alone (VStack spacing 10, trailing 24). */
 .player-skip-caption {
     position: absolute;
-    right: 24px;
-    bottom: calc(100% + 10px);
+    right: 184px;
+    bottom: 542px;
+    transition: bottom 220ms ease-out;
     color: rgba(255, 255, 255, 0.72);
     font-size: 22px;
     font-weight: 500;
@@ -250,6 +253,11 @@
     pointer-events: none;
 }
 
+.player-overlay-hidden ~ .player-skip-caption {
+    bottom: 238px;
+}
+
+.player-skip-caption[hidden],
 .player-skip-caption:empty {
     display: none;
 }

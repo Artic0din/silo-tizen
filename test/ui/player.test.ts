@@ -867,6 +867,76 @@ test("after an automatic skip the pill reads Intro skipped over Watch Intro and 
     } finally { await page.close(); }
 });
 
+test("the Intro skipped caption sits outside the pill, so the focused pill's scale leaves it alone", async () => {
+    const { page } = await open();
+    try {
+        await page.addStyleTag({ content: ".player-skip, .player-skip-caption { transition: none !important; }" });
+        await show(page, { ...playing(TRACKS), positionSeconds: 61, undoSkipSeconds: 20 });
+        assert.equal(await page.locator(".player-skip .player-skip-caption").count(), 0);
+        const gap = (): Promise<{ gap: number; right: number; scale: string }> => page.evaluate(() => {
+            const pillNode = document.querySelector<HTMLElement>(".player-skip")!;
+            const captionNode = document.querySelector<HTMLElement>(".player-skip-caption")!;
+            const caption = captionNode.getBoundingClientRect();
+            return { gap: pillNode.offsetTop - caption.bottom, right: 1920 - caption.right, scale: getComputedStyle(captionNode).transform };
+        });
+        // Apple: VStack spacing 10 above the pill, trailing padding 24 inside the 160 px inset.
+        assert.deepEqual(await gap(), { gap: 10, right: 184, scale: "none" });
+        await page.clock.runFor(10000);
+        await show(page, { ...playing(TRACKS), positionSeconds: 62, undoSkipSeconds: 20 });
+        assert.equal(await page.locator(".player-skip").evaluate(node => node.classList.contains("player-skip-lit")), true);
+        assert.deepEqual(await gap(), { gap: 10, right: 184, scale: "none" });
+    } finally { await page.close(); }
+});
+
+test("the Watch Intro pill draws the creeping fill and restarts it from empty for each undo window", async () => {
+    const { page } = await open();
+    try {
+        const elapsed = (): Promise<number> => page.locator(".player-skip-fill").evaluate(node => Number(node.getAnimations()[0]?.currentTime ?? -1));
+        await show(page, { ...playing(TRACKS), positionSeconds: 61, undoSkipSeconds: 20 });
+        assert.equal(await page.locator(".player-skip-track").isVisible(), true, "Apple draws PlayerPillProgress for the undo pill too");
+        await page.locator(".player-skip-fill").evaluate(node => { node.getAnimations()[0]!.currentTime = 3000; });
+        assert.ok(await elapsed() >= 3000, "the fill is running");
+        await show(page, { ...playing(TRACKS), positionSeconds: 62, undoSkipSeconds: 20 });
+        assert.ok(await elapsed() >= 3000, "a redraw inside the same window does not restart the fill");
+        await show(page, { ...playing(TRACKS), positionSeconds: 70 });
+        await show(page, { ...playing(TRACKS), positionSeconds: 71, undoSkipSeconds: 21 });
+        assert.ok(await elapsed() < 1000, "a new window starts from empty");
+    } finally { await page.close(); }
+});
+
+test("exiting the player while Skip Intro shows leaves no timer to render the removed screen", async () => {
+    const { page, logs } = await open();
+    try {
+        await show(page, inMarker(INTRO, 25));
+        assert.equal(await pill(page), "Skip Intro");
+        await page.evaluate(() => {
+            const calls: number[] = [];
+            (window as unknown as { focusCalls: number[] }).focusCalls = calls;
+            const original = HTMLElement.prototype.focus;
+            HTMLElement.prototype.focus = function (this: HTMLElement, ...args: Parameters<typeof original>) { calls.push(1); original.apply(this, args); };
+            window.player.destroy();
+        });
+        await page.clock.runFor(10000);
+        assert.equal(await page.evaluate(() => (window as unknown as { focusCalls: number[] }).focusCalls.length), 0, "no render after destroy");
+        assert.deepEqual(logs, []);
+    } finally { await page.close(); }
+});
+
+test("Back on Skip Recap and Skip Credits is the player's normal Back, as on Apple TV", async () => {
+    const { page } = await open();
+    try {
+        for (const [marker, position] of [[RECAP, 5], [CREDITS, 7010]] as const) {
+            await page.evaluate(() => { window.player.commands.length = 0; });
+            await show(page, inMarker(marker, position));
+            await remote(page, UP);
+            assert.equal(await focused(page), "skip");
+            await remote(page, BACK);
+            assert.deepEqual(await commands(page), ["back"]);
+            await show(page, playing(TRACKS));
+        }
+    } finally { await page.close(); }
+});
+
 test("the skip pills sit where Apple TV draws them: bottom right, above the transport while the controls show", async () => {
     const { page } = await open();
     try {
@@ -877,11 +947,18 @@ test("the skip pills sit where Apple TV draws them: bottom right, above the tran
         assert.deepEqual(await metrics(page), { width: (await metrics(page)).width, height: 72, right: 160, bottom: 460, background: "rgba(0, 0, 0, 0.65)", font: "28px/600" });
         await show(page, playing(TRACKS));
         await show(page, inMarker(RECAP, 5));
-        assert.deepEqual(await metrics(page), { width: 220, height: 76, right: 160, bottom: 216, background: "rgba(255, 255, 255, 0.1)", font: "26px/600" });
+        // 220 px label frame plus 20 px of padding a side (TVPillButtonStyle .compact).
+        assert.deepEqual(await metrics(page), { width: 260, height: 76, right: 160, bottom: 216, background: "rgba(255, 255, 255, 0.1)", font: "26px/600" });
+        // Focused it takes 70 px a side, so it grows leftward to 360 px.
+        await remote(page, UP);
+        await remote(page, UP);
+        assert.equal(await focused(page), "skip");
+        assert.deepEqual({ width: (await metrics(page)).width, right: (await metrics(page)).right }, { width: 360, right: 160 });
         // With the controls hidden both pills drop to the corner.
         await page.clock.runFor(10000);
         await show(page, inMarker(RECAP, 6));
         assert.equal((await metrics(page)).bottom, 156);
+        assert.equal((await metrics(page)).width, 360, "lit as the Select target");
         await show(page, playing(TRACKS));
         await show(page, inMarker(INTRO, 25));
         assert.equal(await page.locator(".player-overlay").evaluate(node => node.classList.contains("player-overlay-hidden")), true);

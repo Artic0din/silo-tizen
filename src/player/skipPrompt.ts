@@ -89,6 +89,12 @@ export class SkipPrompt {
         this.arm(SKIP_PROMPT_MS);
     }
 
+    /** Nothing is playing (loading, reconnecting, replanning) but the content is the same: a stall, so the timer freezes after the grace. */
+    stall(): void {
+        this.activity = "stalled";
+        if (this.active !== undefined) this.follow();
+    }
+
     /** Select or Back: the intro is decided and the pill goes. False when no pill was showing. */
     resolve(): boolean {
         if (this.active === undefined) return false;

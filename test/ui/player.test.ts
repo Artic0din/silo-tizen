@@ -966,6 +966,25 @@ test("a Watch Intro window that ran out or was dismissed does not return after a
     } finally { await page.close(); }
 });
 
+test("a loading view freezes the Skip Intro and Watch Intro timers instead of running them down", async () => {
+    const { page } = await open();
+    try {
+        for (const [view, label] of [[inMarker(INTRO, 25), "Skip Intro"], [{ ...playing(TRACKS), positionSeconds: 61, undoSkipSeconds: 20 } as PlaybackView, "Watch Intro"]] as const) {
+            await show(page, view);
+            await page.clock.runFor(1000);
+            await show(page, { phase: "loading", title: "The Movie" });
+            await page.clock.runFor(20000);
+            await show(page, view);
+            assert.equal(await pill(page), label, "a long reconnect does not use up the offer");
+            await page.clock.runFor(3900);
+            assert.equal(await pill(page), label);
+            await page.clock.runFor(100);
+            assert.equal(await pill(page), null, "the four seconds it had left");
+            await show(page, playing(TRACKS));
+        }
+    } finally { await page.close(); }
+});
+
 test("Skip Intro, Skip Recap and Watch Intro stay drawn but disabled over the options panel, above it, at the hidden-controls offset", async () => {
     const { page } = await open();
     try {

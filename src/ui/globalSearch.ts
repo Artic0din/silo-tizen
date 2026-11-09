@@ -5,6 +5,7 @@ import type { RequestTitle } from "../contracts/v2/requests.ts";
 import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { actionButton, artwork, searchLoading, zoneNode } from "./browseViews.ts";
 import { newRoute, type Route, type RouteHandlers } from "./browseRoutes.ts";
+import { defaultArtwork } from "./defaultArtwork.ts";
 import { requestCard, requestsState } from "./requests.ts";
 import { requestProgress } from "./requestProgress.ts";
 import { el } from "./screen.ts";
@@ -126,7 +127,7 @@ function boxSetSearchCard(set: CatalogBoxSet, baseUrl: string, open: () => void)
     const sleeves = el("span", "box-set-sleeves");
     sleeves.setAttribute("aria-hidden", "true");
     sleeves.append(el("span", "box-set-sleeve box-set-sleeve-back"), el("span", "box-set-sleeve box-set-sleeve-front"));
-    const art = artwork("browse-art", set.posterUrl, baseUrl, set.title);
+    const art = artwork("browse-art", set.posterUrl, baseUrl, defaultArtwork("film"));
     const progress = boxSetWatchedProgress(set);
     if (progress !== undefined) {
         const bar = el("span", "skyline-progress");

@@ -259,6 +259,8 @@ export class FakePlayback {
         const audio = body.audio_track_id === undefined ? index ?? this.automaticAudioIndex
             : this.ordinal({ id: body.audio_track_id, ...(index === undefined ? {} : { index }) }, "audio", file.id);
         if (typeof audio !== "number" || !Number.isInteger(audio) || audio < 0 || audio > 10000) return problem(422, "validation_failed", "Invalid audio selection");
+        const subtitle = body.subtitle_track_id === undefined ? undefined : this.ordinal({ id: body.subtitle_track_id }, "subtitle", file.id);
+        if (body.subtitle_track_id !== undefined && subtitle === undefined) return problem(422, "validation_failed", "Invalid subtitle selection");
         if (body.start_position !== undefined && (typeof body.start_position !== "number" || !Number.isFinite(body.start_position) || body.start_position < 0 || body.start_position > 31536000)) return problem(422, "validation_failed", "Invalid start position");
         const decision = this.next.shift() ?? {};
         if ("terminal" in decision) {
@@ -275,7 +277,7 @@ export class FakePlayback {
             pinnedFileId: body.allow_alternate_versions === false ? file.id : undefined,
             effectiveFileId: String(body.file_id),
             audioIndex: audio < file.audio.length ? audio : 0,
-            subtitle: undefined,
+            subtitle,
             warnings: [],
             planId: "",
             planKey: "",

@@ -21,6 +21,12 @@ export interface StoredCredential {
     readonly accountId: string;
     readonly username: string;
     readonly role?: string;
+    /**
+     * Renewed by every sign-in and kept through refreshes. A remembered profile is bound to it, so
+     * a sign-in outdates earlier choices even when public storage refuses to clear them. Absent on
+     * records saved before it existed; the session stamps one on load.
+     */
+    readonly signInEpoch?: string;
     readonly accessToken: string;
     readonly refreshToken: string;
     /** Local clock, epoch ms. */
@@ -81,6 +87,7 @@ function decodeRecord(raw: string): DecodedRecord {
             accountId: nonEmptyString(obj, "accountId", path),
             username: string(obj, "username", path),
             ...(obj.role === undefined ? {} : { role: string(obj, "role", path) }),
+            ...(obj.signInEpoch === undefined ? {} : { signInEpoch: nonEmptyString(obj, "signInEpoch", path) }),
             accessToken: nonEmptyString(obj, "accessToken", path),
             refreshToken: nonEmptyString(obj, "refreshToken", path),
             accessExpiresAt: integer(obj, "accessExpiresAt", path),

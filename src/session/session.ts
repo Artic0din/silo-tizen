@@ -13,6 +13,7 @@ import { abortedError, type NativeHttp, type RequestSpec } from "../api/http.ts"
 import { operations } from "../api/operations.ts";
 import type { AccountSummary, IssuedTokens } from "../contracts/v2/wire.ts";
 import type { CredentialVault, StoredCredential, VaultClear } from "./credentialVault.ts";
+import { randomHex, type RandomBytes } from "./deviceIdentity.ts";
 
 export type AuthorityChangeReason =
     | "signed_in"
@@ -86,11 +87,13 @@ export class SessionError extends Error {
 /** Refresh this long before the access token's stated expiry. */
 const REFRESH_SKEW_MS = 30000;
 const LOGOUT_TIMEOUT_MS = 5000;
+const EPOCH_BYTES = 16;
 
 export class NativeSession {
     readonly server: ServerConnection;
     private readonly vault: CredentialVault;
     private readonly clock: Clock;
+    private readonly random: RandomBytes;
     private readonly beforeInstall: ((accountId: string) => Promise<void>) | undefined;
     private credential: StoredCredential | undefined;
     private profile: ActiveProfile | undefined;
@@ -105,11 +108,12 @@ export class NativeSession {
     private refreshing: Promise<RefreshOutcome> | undefined;
     private readonly listeners: AuthorityListener[] = [];
 
-    constructor(server: ServerConnection, vault: CredentialVault, clock: Clock,
+    constructor(server: ServerConnection, vault: CredentialVault, clock: Clock, random: RandomBytes,
         beforeInstall?: (accountId: string) => Promise<void>) {
         this.server = server;
         this.vault = vault;
         this.clock = clock;
+        this.random = random;
         this.beforeInstall = beforeInstall;
         this.persistenceMode = vault.persistent ? "persistent" : "session_only";
     }
@@ -125,6 +129,11 @@ export class NativeSession {
     get account(): { readonly id: string; readonly username: string; readonly role?: string } | undefined {
         const credential = this.credential;
         return credential === undefined ? undefined : { id: credential.accountId, username: credential.username, ...(credential.role === undefined ? {} : { role: credential.role }) };
+    }
+
+    /** Renewed by every sign-in; undefined while signed out. */
+    get signInEpoch(): string | undefined {
+        return this.credential?.signInEpoch;
     }
 
     get persistence(): Persistence {
@@ -163,7 +172,12 @@ export class NativeSession {
                     await this.vault.clear();
                     return "signed_out";
                 }
-                this.beginAccount(loaded.credential);
+                // Saved before epochs existed: stamp one. A refused save only means a new epoch next start.
+                const credential = loaded.credential.signInEpoch === undefined
+                    ? { ...loaded.credential, signInEpoch: randomHex(this.random, EPOCH_BYTES) }
+                    : loaded.credential;
+                this.beginAccount(credential);
+                if (credential !== loaded.credential) await this.vault.save(credential);
                 return "signed_in";
             case "none":
                 return "signed_out";
@@ -185,6 +199,7 @@ export class NativeSession {
             accountId: account.id,
             username: account.username,
             ...(account.role === undefined ? {} : { role: account.role }),
+            signInEpoch: randomHex(this.random, EPOCH_BYTES),
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken,
             accessExpiresAt: this.clock.now() + tokens.expiresInSeconds * 1000,

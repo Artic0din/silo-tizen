@@ -14,7 +14,7 @@ export interface Harness {
 }
 
 export async function connected(
-    options: { keyManager?: FakeKeyManager | null | undefined; storage?: MemoryPublicStorage; clock?: ManualClock; fake?: FakeSilo } = {},
+    options: { keyManager?: FakeKeyManager | null | undefined; storage?: MemoryPublicStorage; clock?: ManualClock; fake?: FakeSilo; randomBytes?: (bytes: Uint8Array) => void } = {},
 ): Promise<Harness> {
     const clock = options.clock ?? new ManualClock();
     const fake = options.fake ?? new FakeSilo(clock);
@@ -24,7 +24,7 @@ export async function connected(
         fetch: fake.fetch,
         publicStorage: storage,
         keyManager,
-        randomBytes: (bytes) => bytes.fill(0xab),
+        randomBytes: options.randomBytes ?? ((bytes) => bytes.fill(0xab)),
         deviceName: "Living room TV",
         devicePlatform: "tizen",
         clock,

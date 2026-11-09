@@ -673,7 +673,7 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             // The undo is anchored to the skip it undoes, not to the playhead, which has left the intro.
             if (undoSeconds !== undefined) skipPrompt.update(`${content}|undo|${undoSeconds}`, activity, "undo");
             else skipPrompt.update(marker?.kind === "intro" ? `${content}|${marker.startSeconds}` : undefined, activity);
-        } else if (view.phase === "loading") {
+        } else if (view.phase === "loading" && view.nextPart !== true) {
             // A reconnect, restore, re-anchoring seek or replan of the same content: the controller still holds an undo offer
             // across it, so decisions stand (keys carry the content, so a different title never collides) and the timer stalls.
             skipPrompt.stall();

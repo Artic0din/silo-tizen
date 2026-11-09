@@ -966,6 +966,20 @@ test("a Watch Intro window that ran out or was dismissed does not return after a
     } finally { await page.close(); }
 });
 
+test("the next part of a Shuffle pick offers Skip Intro again at the same offset after the last part's was dismissed", async () => {
+    const { page } = await open();
+    try {
+        await show(page, inMarker(INTRO, 25));
+        assert.equal(await pill(page), "Skip Intro");
+        await remote(page, BACK);
+        assert.equal(await pill(page), null);
+        await show(page, { phase: "loading", title: "The Movie", nextPart: true });
+        await show(page, { phase: "loading", title: "The Movie" });
+        await show(page, inMarker(INTRO, 25));
+        assert.equal(await pill(page), "Skip Intro");
+    } finally { await page.close(); }
+});
+
 test("a loading view freezes the Skip Intro and Watch Intro timers instead of running them down", async () => {
     const { page } = await open();
     try {

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { RequestSpec } from "../../src/api/http.ts";
-import { nextShuffle, shufflePick } from "../../src/player/nextShuffle.ts";
+import { nextShuffle, nextShufflePart, shufflePick } from "../../src/player/nextShuffle.ts";
 
 const card = (id: string) => ({ id, type: "movie", title: id, year: undefined, posterUrl: undefined, seriesId: undefined, seriesTitle: undefined, seasonNumber: undefined, episodeNumber: undefined });
 
@@ -84,4 +84,33 @@ test("a shuffle pick starts the part 1 at the preferred file's resolution, else 
     assert.equal((await shufflePick(noMatch, shuffle))?.fileId, "uhd1");
     const noResolution = partsReader([{ fileId: "a1", group: "g", part: 1, resolution: "1080p" }, { fileId: "b1", group: "g", part: 1 }, { fileId: "b2", group: "g", part: 2 }], "b2");
     assert.equal((await shufflePick(noResolution, shuffle))?.fileId, "b1", "undefined equals undefined");
+});
+
+// Apple PlayerMultipartPolicy.nextPart / PlayerViewModel.playShufflePart.
+const playing = { contentId: "movie:next", fileId: "cd1", title: "Picked", startSeconds: 0, shuffleId: "sh1", audioTrackId: "a1", subtitle: { kind: "off" }, watch: { played: false, positionSeconds: 40 } } as never;
+
+test("the next part is the next index of the playing file's group, started fresh in the same shuffle", async () => {
+    const read = partsReader([{ fileId: "cd1", group: "g", part: 1 }, { fileId: "cd2", group: "g", part: 2 }, { fileId: "cd3", group: "g", part: 3 }], "cd1");
+    assert.deepEqual(await nextShufflePart(read, playing, "cd1"), { contentId: "movie:next", fileId: "cd2", title: "Picked", startSeconds: 0, shuffleId: "sh1" });
+    assert.equal((await nextShufflePart(read, { ...(playing as object), fileId: "cd2" } as never, "cd2"))?.fileId, "cd3");
+});
+
+test("the last part, a single file, an unknown file, and an empty group key have no next part", async () => {
+    const parted = partsReader([{ fileId: "cd1", group: "g", part: 1 }, { fileId: "cd2", group: "g", part: 2 }], "cd1");
+    assert.equal(await nextShufflePart(parted, playing, "cd2"), undefined);
+    assert.equal(await nextShufflePart(parted, playing, "missing"), undefined);
+    assert.equal(await nextShufflePart(partsReader([{ fileId: "a" }, { fileId: "b" }], "a"), playing, "a"), undefined);
+    assert.equal(await nextShufflePart(partsReader([{ fileId: "cd1", group: "", part: 1 }, { fileId: "cd2", group: "", part: 2 }], "cd1"), playing, "cd1"), undefined);
+});
+
+test("a part of another group is not the next part, and a missing part 2 ends the item", async () => {
+    const other = partsReader([{ fileId: "cd1", group: "g", part: 1 }, { fileId: "x2", group: "h", part: 2 }], "cd1");
+    assert.equal(await nextShufflePart(other, playing, "cd1"), undefined);
+});
+
+test("the next part keeps the resolution that was playing, else the first candidate", async () => {
+    const same = partsReader([{ fileId: "uhd1", group: "g", part: 1, resolution: "2160p" }, { fileId: "fhd2", group: "g", part: 2, resolution: "1080p" }, { fileId: "uhd2", group: "g", part: 2, resolution: "2160p" }], "uhd1");
+    assert.equal((await nextShufflePart(same, playing, "uhd1"))?.fileId, "uhd2");
+    const none = partsReader([{ fileId: "uhd1", group: "g", part: 1, resolution: "2160p" }, { fileId: "hd2", group: "g", part: 2, resolution: "720p" }, { fileId: "fhd2", group: "g", part: 2, resolution: "1080p" }], "uhd1");
+    assert.equal((await nextShufflePart(none, playing, "uhd1"))?.fileId, "hd2");
 });

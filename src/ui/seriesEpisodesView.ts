@@ -66,10 +66,11 @@ export function seriesEpisodesView(state: SeriesEpisodes, context: ViewContext, 
     } else if (state.episodes === undefined) section.append(...lines(["Loading episodes…"]));
     else if (state.loading) section.append(...lines(["Refreshing episodes…"]));
     else if (episodes.length === 0) section.append(...lines(["This season has no episodes yet."]));
+    // TVSeriesDetailView.swift:590-592: 18pt secondary text, no button. Reaching the rail edge again retries.
     if (state.boundaryFailed) {
-        const retry = actionButton("retry-neighbors", "Retry more episodes", () => state.retryNeighbors());
-        episodes.push(retry);
-        section.append(...lines(["Could not load more episodes."], "error"), zoneNode("browse-actions", [retry]));
+        const notice = el("p", "details-edge-error", "Couldn't load more episodes. Move away and back to retry.");
+        notice.setAttribute("role", "status");
+        section.appendChild(notice);
     }
     content.push(section);
     const view: EpisodeView = { content, zones };

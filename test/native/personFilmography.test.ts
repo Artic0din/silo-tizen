@@ -24,7 +24,7 @@ test("catalog continuation: has_more requires a nonempty cursor at the shared wi
 test("person query is a scoped safe POST; GET preview aligns year-desc without sharing its continuation", () => {
     const id = "person/a";
     const request = operations.queryCatalogItems(personQuery(id, "video", "opaque/+=="));
-    assert.deepEqual(request.body, { source: "person", person_id: id, type: "video", sort: "year", order: "desc", limit: 24, cursor: "opaque/+==" });
+    assert.deepEqual(request.body, { source: "person", person_id: id, type: "video", sort: "year", order: "desc", limit: 60, cursor: "opaque/+==" });
     assert.equal(request.method, "POST");
     assert.equal(request.retry, "safe");
     assert.equal(request.path, "/catalog/query?image_size=small");
@@ -48,8 +48,8 @@ test("coherent person fake filters before paging, binds continuations, and prese
     };
     const first = page("video");
     const second = page("video", first.nextCursor);
-    const third = page("video", second.nextCursor);
-    const items = [...first.items, ...second.items, ...third.items];
+    assert.equal(second.nextCursor, undefined);
+    const items = [...first.items, ...second.items];
     assert.equal(items.length, 64);
     assert.equal(new Set(items.map(item => item.id)).size, 64, "multiple credits and accessible libraries do not duplicate a content id");
     assert.equal(items.filter(item => item.title === "Movie 0002").length, 2, "equal title names with different IDs remain distinct");
@@ -61,7 +61,7 @@ test("coherent person fake filters before paging, binds continuations, and prese
     const preview = catalog.route("GET", detailOperations.filmography("7").path, "p-owner");
     assert.equal(preview?.status, 200);
     const previewPage = decodeCatalogPage(preview?.body);
-    assert.deepEqual(previewPage.items, first.items);
+    assert.deepEqual(previewPage.items, first.items.slice(0, 24));
     assert.equal(catalog.route("POST", "/catalog/query", "p-owner", { ...personQuery("7", "video", previewPage.nextCursor) })?.status, 400);
     catalog.matureTitles.add("movie:k1");
     assert.deepEqual(page("video", undefined, "p-kid").items.map(item => item.id).sort(), ["movie:k2", "movie:k3", "movie:k4", "movie:k5", "movie:k6", "movie:k7", "movie:k8"]);

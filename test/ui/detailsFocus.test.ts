@@ -213,3 +213,38 @@ test("opening a series keeps its primary action when focus has moved", async () 
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); }
 });
+
+test("Left through a loaded previous season after a fast chip walk sends no season read", async () => {
+    const tv = await openTv(browser, { app: "browse" });
+    const catalog = new FakeDetails();
+    for (let season = 3; season <= 25; season++) for (let episode = 1; episode <= (season === 25 ? 13 : 22); episode++) catalog.add({ id: `episode:s1e${season}x${episode}`, type: "episode", title: `Harbor chapter ${season}.${episode}`, libraryId: "13", seriesId: "series:s1", season, episode });
+    tv.fake.catalog = catalog;
+    const seasonReads = (): string[] => tv.fake.requests.filter(request => /\/seasons\/\d+\/episodes/.test(request.path)).map(request => /\/seasons\/(\d+)\//.exec(request.path)?.[1] ?? "");
+    try {
+        await signedIn(tv);
+        await searchFor(tv, "Harbor Lights", "series:s1");
+        await tv.remote(ENTER);
+        await tv.page.locator('[data-focus="season:1"]').waitFor();
+        await tv.jump(500);
+        await tv.page.locator('[data-focus="season:1"]').focus();
+        // Each held read is aborted by the next chip, as in a fast walk.
+        const holds = Array.from({ length: 22 }, (_, index) => tv.fake.hold(`/catalog/series/series%3As1/seasons/${index + 3}/episodes`));
+        for (let press = 0; press < 24; press++) { await tv.remote(39); await tv.jump(80); }
+        for (const hold of holds) hold.release();
+        await tv.jump(300);
+        await tv.remote(ENTER); await tv.jump(500);
+        await tv.page.locator('[data-focus="episode:s1e25x1"]').waitFor();
+        await tv.remote(40); await tv.jump(500);
+        assert.equal(await tv.focused(), "episode:s1e25x1");
+        await tv.remote(37); await tv.jump(1500);
+        // The season read answers over the routed network, after the fake clock has passed the dwell.
+        await tv.eventually(async () => await tv.focused() === "episode:s1e24x22", "Left reaches the aborted previous season");
+        assert.equal(await tv.focused(), "episode:s1e24x22", "Left at the first loaded card reaches the aborted previous season");
+        const reads = seasonReads().length;
+        assert.equal(seasonReads().filter(number => number === "24").length, 2, "the walk aborted one read of season 24 and the edge asked once more");
+        for (let press = 0; press < 14; press++) { await tv.remote(37); await tv.jump(1500); }
+        assert.equal(await tv.focused(), "episode:s1e24x8");
+        assert.deepEqual(seasonReads().slice(reads), [], "moves inside the loaded season never read a season list");
+        assert.deepEqual(tv.console, []);
+    } finally { await tv.page.context().close(); }
+});

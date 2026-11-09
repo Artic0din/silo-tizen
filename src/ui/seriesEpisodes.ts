@@ -316,7 +316,7 @@ export class SeriesEpisodes {
         let neighbor = order.indexOf(episode.seasonNumber) + direction;
         while (neighbor >= 0 && neighbor < order.length && this.pages.has(order[neighbor]!)) neighbor += direction;
         const number = order[neighbor];
-        if (number === undefined || this.failedNeighbors.has(number) || this.cancelledSeasons.has(number) || this.pendingNeighbors.has(number)) return;
+        if (number === undefined || this.failedNeighbors.has(number) || this.pendingNeighbors.has(number)) return;
         this.boundaryDwell = setTimeout(() => {
             this.boundaryDwell = undefined;
             // Restored focus after an empty page must not walk through further seasons.

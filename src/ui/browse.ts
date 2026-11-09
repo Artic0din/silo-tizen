@@ -904,8 +904,12 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
             if (cardActions.active) cardActions.render();
             else {
                 const focus = host.focused();
-                const retry = focus?.key === "retry-episodes" && (current.kind === "item" || current.kind === "season") && current.data?.details?.series?.failed;
-                render(returnKey === undefined ? retry ? focus : undefined : { zone: "actions", key: returnKey });
+                const series = (current.kind === "item" || current.kind === "season") ? current.data?.details?.series : undefined;
+                const retry = focus?.key === "retry-episodes" && series?.failed;
+                // The edge Retry hides while it runs; focus stays on the card beside it, or on the selected season chip when the rail has no cards, rather than falling to the first zone.
+                const edge = focus?.key === "retry-neighbors" && series?.boundaryFailed === false ? series.railEpisodes?.at(-1) : undefined;
+                const staying = edge !== undefined ? { zone: "episodes", key: edge.id } : focus?.key === "retry-neighbors" && series?.boundaryFailed === false && series.seasonNumber !== undefined ? { zone: "seasons", key: `season:${series.seasonNumber}` } : undefined;
+                render(returnKey === undefined ? retry ? focus : staying : { zone: "actions", key: returnKey });
             }
             if (deferredDetails.has(current) && (current.kind === "item") && current.data?.details?.panel === undefined && !current.data?.details?.busy && !current.data?.details?.preparingPlay && loading === undefined) queueMicrotask(() => recoverCachedRoute(current));
         }

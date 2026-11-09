@@ -2246,7 +2246,9 @@ export class PlaybackController implements PlayerControls {
         const show = (state: "finalizing" | "resolving" | "ready" | "failed", next?: PlayRequest, retryable = false, title = "Playback ended", deck?: readonly PlayRequest[]): void => {
             if (current()) this.show({ phase: "completion", title, state, next: this.shownNext(next), retryable, ...(deck === undefined ? {} : { deck: deck.map(item => this.shownNext(item) ?? item) }) });
         };
-        show("finalizing");
+        // Apple's playShufflePart loads the next part with a plain loading state, not the end screen.
+        if (attempt.request.shuffleId === undefined) show("finalizing");
+        else if (current()) this.show({ phase: "loading", title: attempt.request.title });
         try {
             await this.stopSession(attempt);
             if (!current()) return;
@@ -2261,7 +2263,11 @@ export class PlaybackController implements PlayerControls {
                 const part = await nextShufflePart(spec => {
                     if (!current()) throw abortedError();
                     return this.deps.session.call({ ...spec, profileScoped: true, signal: abort.signal });
-                }, attempt.request, attempt.plan?.effectiveMediaFileId ?? attempt.request.fileId);
+                }, attempt.request, attempt.plan?.effectiveMediaFileId ?? attempt.request.fileId).catch((error: unknown) => {
+                    // The session is already stopped, so a missing item cannot be retried: the Shuffle moves on.
+                    if (error instanceof ApiError && error.status === 404) return undefined;
+                    throw error;
+                });
                 if (!current()) return;
                 if (part !== undefined) {
                     this.cancelCompletion();

@@ -253,6 +253,64 @@ test("a failed read of the pick's parts offers a retry that plays the next part,
     r.controller.destroy();
 });
 
+// Apple's playShufflePart goes through beginFreshLoad(origin: .autoplay): a plain loading state, never the end screen.
+test("the screens between a Shuffle pick's parts never show the completion screen", async () => {
+    const r = await rig();
+    scriptParts(r);
+    await playMovie(r, { ...MOVIE, shuffleId: "sh1", startSeconds: 0 });
+    const from = r.views.length;
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    const seen = r.views.slice(from);
+    assert.equal(seen.some(view => view.phase === "completion"), false, JSON.stringify(seen.map(view => view.phase)));
+    assert.equal(seen[0]?.phase, "loading");
+    assert.equal(last(r.views).phase, "playing");
+    r.controller.destroy();
+});
+
+test("a missing item at the between-parts read moves the Shuffle on instead of offering a retry", async () => {
+    const r = await rig();
+    r.h.fake.script("/watch/movie-1", problem(404, "not_found", "Unavailable"));
+    r.h.fake.script("/shuffles/sh1/advance", { status: 200, body: { id: "sh1", current: { content_id: MOVIE.contentId }, next: { content_id: MOVIE.contentId } } });
+    await playMovie(r, { ...MOVIE, shuffleId: "sh1", startSeconds: 0 });
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(r.h.fake.requests.filter(request => request.path === "/shuffles/sh1/advance").length, 1);
+    assert.notEqual(completion(r).state, "failed");
+    r.controller.destroy();
+});
+
+test("a finished part's stop reports its end position", async () => {
+    const r = await rig();
+    scriptParts(r);
+    await playMovie(r, { ...MOVIE, shuffleId: "sh1", startSeconds: 0 });
+    r.avplay.listener?.oncurrentplaytime(2999000);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    const stop = only(playbackRequests(r.h).filter(request => request.method === "DELETE"));
+    assert.equal(stop.body?.position, 2999);
+    r.controller.destroy();
+});
+
+test("tearing down while the between-parts read is in flight paints nothing and sends nothing further", async () => {
+    const r = await rig();
+    scriptParts(r);
+    await playMovie(r, { ...MOVIE, shuffleId: "sh1", startSeconds: 0 });
+    const hold = r.h.fake.hold("/watch/movie-1");
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.ok(r.h.fake.requests.some(request => request.path === "/watch/movie-1"), "the read is in flight");
+    r.controller.destroy();
+    const viewsAfter = r.views.length;
+    const requestsAfter = r.h.fake.requests.length;
+    hold.release();
+    await r.h.clock.advance(0);
+    assert.equal(r.views.length, viewsAfter);
+    assert.equal(r.h.fake.requests.length, requestsAfter);
+});
+
 // Apple's nextShufflePart is nil outside a Shuffle: a plain play of part 1 ends there.
 test("a part played outside a Shuffle does not continue to the next part", async () => {
     const r = await rig();

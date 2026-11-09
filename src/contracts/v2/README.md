@@ -110,6 +110,32 @@ See [Text Search](../../../docs/features/skyline-browse-shell.md#text-search) fo
 Unknown members are ignored and response enums are additive; malformed consumed fields fail without echoing values.
 These factories do not implement the library UI or complete issue 28.
 
+## Audiobooks
+
+`audiobooks.ts` and `api/audiobookOperations.ts` carry the audiobook contract at `SOURCE` with no screen on top; `operations` exposes them.
+Apple behavior is read from `AudiobookPlaybackContext.swift`, `AudiobookProgress.swift` and `APIv2CatalogReadProjection.swift`.
+
+| Operation | Retry class | Client behavior |
+| --- | --- | --- |
+| `listAudiobookGroups` | read (`profile_scoped`) | Authors, narrators or series with counts, durations and up to four covers; limit 1–200; a group's `name` is the filter value for its books. Apple does not call it; the server publishes it |
+| `getCatalogItem` as `getAudiobook` | read (`profile_scoped`) | Decodes the `audiobook` extension, the audio parts, chapters and `user_data` |
+| `queryCatalogItems` as `queryAudiobooks` | `natural_idempotent` (`profile_scoped`) | Scoped by `library_id` with no `type`, as Apple omits it for audiobook libraries; the author, narrator or series filter is one `match: any` group of `is` rules |
+| `syncProgress` | `non_retryable` (`profile_scoped`) | The only durable resume point; whole-book milliseconds with `force_overwrite`; never resent, so the caller passes `replayAfterRefresh: false` and the next sample carries a fresh position |
+
+Library gating: `listUserLibraries` reports `type: "audiobooks"`, and `audiobookLibraries` drops hidden ones.
+`nav.show_audiobooks` is `client_local` and defaults to false in the manifest, so the opt-in is stored per profile on the device and is never read from or written to the server.
+There is no server capability flag for audiobooks; a server without audiobook libraries simply lists none.
+`player.audiobook_skip_back_seconds` and `player.audiobook_skip_forward_seconds` are ordinary profile settings (revision 9); this change only names them.
+
+Parts follow Apple: a version is a part when `presentation_kind` is `audiobook_part` or it carries `codec_audio` or `duration`, ordered by `presentation_part_index` and then numerically by `file_id`.
+Part offsets and chapter starts are summed onto one whole-book timeline; the playback API only knows files.
+The total is the larger of the stitched length and `audiobook.total_duration_seconds`. The resume position never passes a known total (an unknown total of 0 leaves it as the server sent it, where Apple clamps it to 0), and a seek never passes the end of its file.
+One deliberate difference from Apple: a part with no `duration` is sized by its furthest chapter `end_seconds`, never by a chapter start, and a multi-part book with any unknown part length is rejected rather than stitched on a guess.
+`syncProgress` answers are decoded as Apple does: exactly one result per written item, matched by index and id, and anything else is a contract break, not success.
+
+`fixtures/list_audiobook_groups_ok.json`, `list_audiobook_groups_invalid_group_by.json` and `list_audiobook_groups_profile_header_required.json` are byte-identical copies from `SOURCE`.
+The server publishes no audiobook item or progress fixture; the tests build those bodies from `CatalogItemDetail`, `FileVersion`, `VersionChapter`, `WatchRollup`, `AudiobookDetailExtension` and the `ProgressSync*` schemas in `openapi.json`.
+
 ## Preplay audio and resume
 
 Catalog versions decode optional `audio_tracks` using the same ordered audio decoder as the in-player version read.

@@ -54,6 +54,9 @@ SELECTED=(
   get_system_info_ok
   get_watch_state_ok
   get_watch_trickplay_ok
+  list_audiobook_groups_invalid_group_by
+  list_audiobook_groups_ok
+  list_audiobook_groups_profile_header_required
   list_auth_providers_ok
   list_catalog_item_versions_ok
   list_catalog_items_ok

@@ -1053,6 +1053,22 @@ browseTest("Search lists at most five box sets ahead of People for All and Movie
     await tv.page.locator('[data-focus="box-set:12:1241"]').waitFor();
 }, { catalog: new BoxSetCatalog() });
 
+browseTest("a Search box set poster that fails draws DefaultArtwork's film mark under the progress bar and badges", async tv => {
+    await tv.page.locator('[data-focus="search"]').click();
+    await tv.page.fill("#browse-search", "potter"); await tv.remote(IME_DONE);
+    const art = '[data-focus="box-set:12:1241"] .browse-art';
+    await tv.page.locator(`${art} img`).waitFor();
+    assert.equal(await tv.page.locator(`${art} .default-artwork`).count(), 0, "a loaded poster builds no DefaultArtwork");
+    await tv.page.locator(`${art} img`).evaluate(image => image.dispatchEvent(new Event("error")));
+    await tv.page.locator(`${art}.browse-art-missing .default-artwork[data-symbol="film"]`).waitFor();
+    assert.equal(await tv.page.locator(`${art} .browse-art-fallback`).count(), 0, "no title text placeholder");
+    assert.equal(await tv.page.locator(`${art} img`).count(), 0);
+    const above = await tv.page.locator(`${art} .skyline-progress`).evaluate(node => { const at = node.getBoundingClientRect(); return node.contains(document.elementFromPoint(at.x + at.width / 2, at.y + at.height / 2)); });
+    assert.equal(above, true, "progress stays above the drawn artwork");
+    // The label and count ignore pointer events, so check paint order: the drawn artwork is the first child and they follow it.
+    assert.deepEqual(await tv.page.locator(art).evaluate(node => [...node.children].map(child => child.className.split(" ")[0])), ["default-artwork", "skyline-progress", "box-set-label", "box-set-count"]);
+}, { catalog: new BoxSetCatalog() });
+
 browseTest("Search without box_sets never asks, and a failed lookup leaves the titles", async tv => {
     await tv.page.locator('[data-focus="search"]').click();
     await tv.page.fill("#browse-search", "Movie 0001"); await tv.remote(IME_DONE);

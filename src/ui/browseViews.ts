@@ -7,6 +7,7 @@ import type { FocusItem, View, Zone } from "./browseFocus.ts";
 import { artworkUrl, type Destination, type EpisodeSelection, type SeriesLine, browseCardDestination, destinationOf } from "./browseModel.ts";
 import { type CardOverlayPrefs, overlayLayer } from "./cardOverlays.ts";
 import { homeCaption } from "./cardPresentation.ts";
+import { artworkSymbol, defaultArtwork, type DefaultArtworkFactory } from "./defaultArtwork.ts";
 import { blurEpisodeStill, hidesCardImage, type EpisodeSpoilerSettings } from "./episodeSpoilers.ts";
 import { el } from "./screen.ts";
 
@@ -90,15 +91,29 @@ export function exploreAllCard(rowTitle: string, key: string, wide: boolean, onP
     return { key, element };
 }
 
-/** An <img> for signed or presigned artwork, or the title as a placeholder when it is missing or fails. */
-export function artwork(className: string, reference: string | undefined, baseUrl: string, fallback: string | Node): HTMLElement {
+/**
+ * An <img> for signed or presigned artwork, or the fallback when it is missing or fails. A `defaultArtwork`
+ * factory fills the box as Apple's DefaultArtwork does and is called only when the fallback shows; any
+ * other fallback sits in the text placeholder.
+ */
+export function artwork(className: string, reference: string | undefined, baseUrl: string, fallback: string | Node | DefaultArtworkFactory): HTMLElement {
     const box = el("div", className);
     const src = artworkUrl(reference, baseUrl);
-    const placeholder = el("span", "browse-art-fallback");
-    placeholder.append(fallback);
-    if (src === undefined) {
+    const drawn = typeof fallback === "function";
+    const showFallback = (): void => {
         box.classList.add("browse-art-missing");
-        box.appendChild(placeholder);
+        if (drawn) {
+            // Drawn artwork is absolutely placed: first, so badges and progress added to the box stay above it.
+            box.prepend(fallback());
+        } else {
+            const placeholder = el("span", "browse-art-fallback");
+            placeholder.append(fallback);
+            box.appendChild(placeholder);
+        }
+    };
+    if (drawn) box.classList.add("browse-art-default");
+    if (src === undefined) {
+        showFallback();
         return box;
     }
     const image = el("img", "browse-art-image");
@@ -107,11 +122,10 @@ export function artwork(className: string, reference: string | undefined, baseUr
     // The signed URL authorizes itself; send nothing else about the app to the image host.
     image.referrerPolicy = "no-referrer";
     image.addEventListener("error", () => {
-        box.classList.add("browse-art-missing");
         if (image.parentNode === box) {
             box.removeChild(image);
         }
-        box.appendChild(placeholder);
+        showFallback();
     });
     image.src = src;
     box.appendChild(image);
@@ -150,7 +164,7 @@ export function cardItem(card: Card, context: ViewContext): FocusItem | undefine
     element.setAttribute("data-focus", card.id);
     const continuing = context.continueWatching === true;
     const thumbnail = context.cardLayout === "thumbnail" || (context.cardLayout === undefined && continuing);
-    const art = artwork("browse-art", thumbnail ? card.backdropUrl ?? card.posterUrl : card.posterUrl, context.baseUrl, card.title);
+    const art = artwork("browse-art", thumbnail ? card.backdropUrl ?? card.posterUrl : card.posterUrl, context.baseUrl, defaultArtwork(artworkSymbol(card.type)));
     if (hidesCardImage(card, spoilerSettings(context), thumbnail)) blurEpisodeStill(art);
     element.appendChild(art);
     if (thumbnail) {

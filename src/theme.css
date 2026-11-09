@@ -11,6 +11,7 @@
 :root {
     --silo-background: #000000;
     --silo-surface: #0a0a0a;
+    --silo-surface-variant: #0e0f12;
     --silo-elevated: #15171c;
     --silo-text: #ededed;
     /* Small metadata needs more contrast than the mockup's 38% white. */

@@ -27,6 +27,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Restored the Continue Watching progress bar with Apple TV's look: a 3px bar flush with the card's bottom edge, a faint full-width track, and a light fill for the watched share. Box set search results use the same bar.
 - Showed Who's watching after signing in even when the TV could not save that the remembered profile was cleared.
 - Moved the Series Details episode rail 40px left when its loaded window includes the series' first season. A later season whose earlier pages are not loaded keeps the previous position, and reopening Details starts from that season's neighbor window.
 - Asked before signing out from Who's watching, while profiles load, and when profiles fail to load. Cancel stays focused, and Cancel or Back returns to Sign out.

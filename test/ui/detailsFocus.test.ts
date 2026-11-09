@@ -243,7 +243,7 @@ test("Left through a loaded previous season after a fast chip walk sends no seas
         assert.equal(await tv.focused(), "episode:s1e24x22", "Left at the first loaded card reaches the previous season");
         const reads = seasonReads().length;
         assert.equal(reads, beforeLeft, "Left sends no season read: each selection of the walk already read the season beside it");
-        assert.equal(seasonReads().filter(number => number === "24").length, 1, "season 24 is read once, not again at the edge");
+        assert.equal(seasonReads().filter(number => number === "24").length, 2, "the walk aborted one read of season 24 and season 25's selection read it again as its previous neighbour");
         for (let press = 0; press < 14; press++) { await tv.remote(37); await tv.jump(1500); }
         assert.equal(await tv.focused(), "episode:s1e24x8");
         assert.deepEqual(seasonReads().slice(reads), [], "moves inside the loaded season never read a season list");

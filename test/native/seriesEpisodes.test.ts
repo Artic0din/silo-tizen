@@ -465,6 +465,19 @@ test("a held edge retry is aborted by selecting a distant season and is not read
     assert.equal(h.reads().filter(path => path === season1).length, 2, "the failure and the held retry are its only reads");
 });
 
+test("an edge retry still running when a cached season is selected cannot show its failure afterwards", async t => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const h = await episodeRailHarness(1); t.after(() => h.state.stop());
+    const path = operations.listSeasonEpisodes("series:s1", 1).path;
+    h.fake.scripted.set(path, []);
+    h.fake.script(path, problem(422, "validation_failed", "Unavailable"));
+    const held = h.fake.hold(path, true);
+    restAtEdge(t, h.state, "rail:2:0"); await h.settle();
+    h.state.select(3); await h.settle();
+    held.release(); await h.settle();
+    assert.equal(h.state.boundaryFailed, false, "Apple cancels the superseded prefetch, so its failure is not shown");
+});
+
 test("Back to a cached Details clears the edge failure and reads the season again", async t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const h = await episodeRailHarness(1); t.after(() => h.state.stop());

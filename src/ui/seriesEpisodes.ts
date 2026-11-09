@@ -214,6 +214,12 @@ export class SeriesEpisodes {
             cleared = true;
         }
         if (cleared) this.changed("neighbor");
+        // Apple cancels the previous prefetch task, so its late failure cannot show. The selected season's own in-flight read must survive: select() is waiting on it.
+        if (this.seasonNumber === undefined || !this.pendingNeighbors.has(this.seasonNumber)) {
+            this.neighbors?.abort();
+            this.neighbors = undefined;
+            this.pendingNeighbors.clear();
+        }
         this.warmNeighbors();
     }
 

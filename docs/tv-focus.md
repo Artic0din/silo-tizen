@@ -216,7 +216,7 @@ Each side stops once it holds eight episodes (`SeriesEpisodeWindow.minimumEpisod
 A failed neighbour shows only "Couldn't load more episodes. Move away and back to retry." with no button (`TVSeriesDetailView.swift:590–592`); moving away and back to the edge is the retry (`TVItemDetailView.swift:297–300`).
 Choosing another season (chip dwell or Select) or reopening Details, including Back to a cached Details, restarts Apple's prefetch (`TVItemDetailView.swift:467,935`).
 It clears every edge failure and reads each missing neighbour of the selected season at once, cache first, without a focus move.
-Tizen does the same through `warmNeighbors()`.
+Tizen does the same through `warmNeighbors()`, and, as Apple cancels its previous prefetch task, drops neighbour reads still in flight so a late failure cannot show.
 A failed season beyond a side that already holds eight episodes is cleared and is not read until focus reaches its edge.
 A season the user selected keeps its own failure.
 Ordinary loaded-card movement never retries a read.

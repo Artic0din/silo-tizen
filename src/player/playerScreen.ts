@@ -285,12 +285,17 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
     skipCaption.setAttribute("aria-hidden", "true");
     skip.append(skipTrack, skipGlyph, skipLabel);
     skip.addEventListener("click", () => {
-        if (skipKind === undefined || skipTarget === undefined || seekPreview !== undefined || menuOpen) return;
+        if (skipKind === undefined || skipTarget === undefined) return;
         const target = skipTarget;
+        // A tapped seek preview is dropped, so its debounced seek cannot land after the skip.
+        if (seekPreview !== undefined) cancelScrub();
         decideSkip();
         controls.seekToSeconds(target);
-        overlay.focus();
-        reveal();
+        // The options panel keeps its focus.
+        if (!menuOpen) {
+            overlay.focus();
+            reveal();
+        }
         render();
     });
     const thumbnail = mountSeekThumbnail(overlay, controls, clock);
@@ -646,10 +651,15 @@ export function mountPlayerScreen(root: HTMLElement, controls: PlayerControls, c
             skipKind = "intro";
             skipTarget = marker.endSeconds;
         }
-        // Drawn over the panel and a scrub, as Apple draws it, but out of the focus graph so a drifting D-pad cannot reach it.
+        // Drawn over the panel and a scrub, as Apple draws it. Only a timeline scrub takes it out of the focus graph
+        // (`.disabled(isTimelineScrubbing)`), so a drifting D-pad cannot land on it and cancel the scrub.
         skip.hidden = skipKind === undefined;
-        skip.disabled = menuOpen || seekPreview !== undefined || timeline;
-        if (skipKind === undefined) return;
+        skip.disabled = timeline;
+        if (skipKind === undefined) {
+            // Hidden pills lose their CSS animation; a later showing must restart it from where the timer stands.
+            drawnFill = -1;
+            return;
+        }
         const label = skipKind === "undo" ? "Watch Intro" : skipKind === "intro" ? "Skip Intro" : skipKind === "recap" ? "Skip Recap" : "Skip Credits";
         skipLabel.textContent = label;
         skipCaption.textContent = skipKind === "undo" ? "Intro skipped" : "";

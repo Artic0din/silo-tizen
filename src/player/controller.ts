@@ -1917,6 +1917,8 @@ export class PlaybackController implements PlayerControls {
                         // Apple offers Watch Intro after an automatic intro skip and nothing after a credits skip.
                         attempt.pendingSkipUndo = marker.kind === "intro" ? marker.startSeconds : undefined;
                         this.seekToSeconds(marker.endSeconds);
+                        // Apple arms Watch Intro's five seconds as it issues the skip, so the seek counts against them.
+                        this.showPlayback(attempt);
                         return;
                     }
                     this.updatePrompt(attempt);
@@ -3039,7 +3041,7 @@ export class PlaybackController implements PlayerControls {
             // The offset moves cues this overlay draws. Text AVPlay selects itself is not shifted: AVPlay has no subtitle-offset call, and a TV has to confirm whether its TEXT track can move.
             captions: attempt.hidden || attempt.restoring || frozen ? undefined : { text: attempt.cues.filter(cue => captionTime >= cue.start && captionTime < cue.end).map(cue => cue.text).join("\n"), appearance: attempt.appearance },
             skipMarker: frozen ? undefined : markerAt((attempt.markers?.segments ?? []).filter(marker => marker.kind !== "intro" || attempt.introMode === "ask"), attempt.sourceSeconds),
-            undoSkipSeconds: attempt.undoSkip,
+            undoSkipSeconds: attempt.undoSkip ?? attempt.pendingSkipUndo,
         });
     }
 

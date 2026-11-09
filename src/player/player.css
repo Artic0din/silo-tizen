@@ -196,12 +196,6 @@
     bottom: 156px;
 }
 
-/* Above the options panel, which is later in the page at the same level. */
-.player-skip,
-.player-skip-caption {
-    z-index: 3;
-}
-
 .player-skip-track {
     position: absolute;
     inset: 0;

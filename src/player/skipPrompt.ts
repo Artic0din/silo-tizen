@@ -14,11 +14,11 @@ export type SkipKind = "skip" | "undo";
 /** `playing` runs the timer, `paused` freezes it at once, `stalled` (loading or rebuffering) freezes it after the grace. */
 export type SkipActivity = "playing" | "stalled" | "paused";
 
-/** What the pill's fill needs: how far it had crept when it last changed, and whether it is moving. */
+/** What the pill's fill needs: how far it has crept now, and whether it is moving. */
 export interface SkipFill {
     readonly elapsedMs: number;
     readonly running: boolean;
-    /** Changes whenever the fill must restart from `elapsedMs`. */
+    /** Changes whenever the timer is armed or frozen, so the fill must restart from `elapsedMs`. */
     readonly revision: number;
 }
 
@@ -55,7 +55,9 @@ export class SkipPrompt {
     }
 
     get fill(): SkipFill {
-        return { elapsedMs: SKIP_PROMPT_MS - this.remainingMs, running: this.deadline !== undefined, revision: this.revision };
+        // While the timer runs the deadline is the truth: remainingMs is only what the last arm or freeze set.
+        const remainingMs = this.deadline === undefined ? this.remainingMs : Math.max(0, this.deadline - this.clock.now());
+        return { elapsedMs: SKIP_PROMPT_MS - remainingMs, running: this.deadline !== undefined, revision: this.revision };
     }
 
     /**

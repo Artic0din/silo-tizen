@@ -42,7 +42,7 @@ import { nextEpisode, onDeckPlays, readOnDeck } from "./nextEpisode.ts";
 import type { ResolutionCap } from "../ui/resolutionCap.ts";
 import { NEXT_UP_KEY } from "../contracts/v2/settings.ts";
 import { INTRO_SKIP_KEY, CREDITS_SKIP_KEY } from "../contracts/v2/settingsRows.ts";
-import { nextShuffle } from "./nextShuffle.ts";
+import { nextShuffle, nextShufflePart } from "./nextShuffle.ts";
 import { SubtitleAI, type SubtitleAIView } from "./subtitleAI.ts";
 import { type AppearanceMember } from "./subtitleAppearance.ts";
 import { SubtitleDisplay, type SubtitleDisplayView } from "./subtitleDisplay.ts";
@@ -2255,6 +2255,20 @@ export class PlaybackController implements PlayerControls {
                 this.cancelCompletion();
                 this.play(request);
                 return;
+            }
+            if (attempt.request.shuffleId !== undefined) {
+                // Apple plays every part of a pick before the shuffle moves on, with no countdown.
+                const part = await nextShufflePart(spec => {
+                    if (!current()) throw abortedError();
+                    return this.deps.session.call({ ...spec, profileScoped: true, signal: abort.signal });
+                }, attempt.request, attempt.plan?.effectiveMediaFileId ?? attempt.request.fileId);
+                if (!current()) return;
+                if (part !== undefined) {
+                    this.cancelCompletion();
+                    this.nextStart = part;
+                    this.play(part);
+                    return;
+                }
             }
             const capRead = this.pickQuality(abort.signal);
             if (attempt.autoNextSupported) {

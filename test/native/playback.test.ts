@@ -146,6 +146,7 @@ test("a discovery settings read started before a save cannot overwrite Auto-play
 test("a completed Shuffle item advances the same server session before offering its next pick", async () => {
     const r = await rig();
     r.h.fake.script("/shuffles/sh1/advance", { status: 200, body: { id: "sh1", current: { content_id: MOVIE.contentId }, next: { content_id: MOVIE.contentId } } });
+    scriptParts(r, [{ file_id: "42", duration_seconds: 3000 }]);
     await playMovie(r, { ...MOVIE, shuffleId: "sh1" });
     r.avplay.listener?.onstreamcompleted();
     await r.h.clock.advance(0);
@@ -174,6 +175,92 @@ test("the next Shuffle pick starts and reports progress from zero although it ha
     assert.equal(starts[1]?.file_id, "43");
     assert.equal(starts[1]?.start_position, 0);
     assert.equal(r.avplay.calls.some(call => call.startsWith("seekTo")), false);
+    r.controller.destroy();
+});
+
+const PART_VERSIONS = [
+    { file_id: "42", duration_seconds: 3000, resolution: "1080p", presentation_group_key: "g", presentation_part_index: 1 },
+    { file_id: "43", duration_seconds: 3000, resolution: "1080p", presentation_group_key: "g", presentation_part_index: 2 },
+];
+
+function scriptParts(r: Rig, versions: readonly Record<string, unknown>[] = PART_VERSIONS): void {
+    r.h.fake.script("/watch/movie-1", { status: 200, body: { content_id: "movie-1", type: "movie", title: "Movie", versions, user_data: { played: false } } });
+}
+
+// Apple plays every part of a Shuffle pick before it advances (silo-apple 27cf4a2 PlayerViewModel.nextShufflePart / playShufflePart).
+test("a Shuffle pick's next part plays from its beginning after the finished part is reported, and the Shuffle does not advance", async () => {
+    const r = await rig();
+    scriptParts(r);
+    await playMovie(r, { ...MOVIE, shuffleId: "sh1", startSeconds: 0 });
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    assert.deepEqual(ops(r.h), ["GET /playback/capabilities", "POST /playback/start", "DELETE /playback/S1", "GET /playback/capabilities", "POST /playback/start"], "part 1 is stopped at its end before part 2 starts");
+    const starts = bodies(r.h, "/start");
+    assert.equal(starts.length, 2);
+    assert.equal(starts[1]?.file_id, "43");
+    assert.equal(starts[1]?.start_position, 0);
+    assert.equal(r.h.fake.requests.some(request => request.path === "/shuffles/sh1/advance"), false);
+    assert.equal(last(r.views).phase, "playing");
+    r.controller.destroy();
+});
+
+test("the last part of a Shuffle pick advances the Shuffle from the item once, after the earlier part", async () => {
+    const r = await rig();
+    scriptParts(r);
+    r.h.fake.script("/shuffles/sh1/advance", { status: 200, body: { id: "sh1", current: { content_id: MOVIE.contentId }, next: { content_id: MOVIE.contentId } } });
+    await playMovie(r, { ...MOVIE, shuffleId: "sh1", startSeconds: 0 });
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    r.avplay.finishPrepare();
+    await r.h.clock.advance(0);
+    scriptParts(r);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    const advance = r.h.fake.requests.filter(request => request.path === "/shuffles/sh1/advance");
+    assert.equal(advance.length, 1);
+    assert.deepEqual(advance[0]?.body, { from_content_id: MOVIE.contentId });
+    assert.equal(bodies(r.h, "/start").length, 2, "no third part");
+    assert.equal(last(r.views).phase, "completion");
+    r.controller.destroy();
+});
+
+test("a Shuffle pick with no later part advances the Shuffle", async () => {
+    const r = await rig();
+    scriptParts(r, [PART_VERSIONS[0] as Record<string, unknown>]);
+    r.h.fake.script("/shuffles/sh1/advance", { status: 200, body: { id: "sh1", current: { content_id: MOVIE.contentId }, next: { content_id: MOVIE.contentId } } });
+    await playMovie(r, { ...MOVIE, shuffleId: "sh1", startSeconds: 0 });
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(r.h.fake.requests.filter(request => request.path === "/shuffles/sh1/advance").length, 1);
+    assert.equal(bodies(r.h, "/start").length, 1);
+    r.controller.destroy();
+});
+
+test("a failed read of the pick's parts offers a retry that plays the next part, not the shuffle advance", async () => {
+    const r = await rig();
+    r.h.fake.script("/watch/movie-1", problem(500, "server_error", "Unavailable"));
+    scriptParts(r);
+    await playMovie(r, { ...MOVIE, shuffleId: "sh1", startSeconds: 0 });
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).state, "failed");
+    r.controller.retryCompletion();
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, "/start")[1]?.file_id, "43");
+    assert.equal(r.h.fake.requests.some(request => request.path === "/shuffles/sh1/advance"), false);
+    r.controller.destroy();
+});
+
+// Apple's nextShufflePart is nil outside a Shuffle: a plain play of part 1 ends there.
+test("a part played outside a Shuffle does not continue to the next part", async () => {
+    const r = await rig();
+    scriptParts(r);
+    await playMovie(r, { ...MOVIE, startSeconds: 0 });
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(bodies(r.h, "/start").length, 1);
     r.controller.destroy();
 });
 

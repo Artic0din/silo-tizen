@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type PlaybackError, PlaybackController, type PlaybackView, type PlayRequest } from "../../src/player/controller.ts";
+import { type PlaybackDeps, type PlaybackError, PlaybackController, type PlaybackView, type PlayRequest } from "../../src/player/controller.ts";
 import type { EpisodeSpoilerSettings } from "../../src/ui/episodeSpoilers.ts";
 import { FakeAVPlay } from "./support/fakeAVPlay.ts";
 import { FakePlayback } from "./support/fakePlayback.ts";
@@ -289,7 +289,7 @@ interface Rig {
     readonly views: PlaybackView[];
 }
 
-async function rig(profileId = "p-owner", origin?: string, hdrProbeScopeOrSpoilers?: unknown): Promise<Rig> {
+async function rig(profileId = "p-owner", origin?: string, hdrProbeScopeOrSpoilers?: unknown, resolutionCap?: PlaybackDeps["resolutionCap"]): Promise<Rig> {
     const spoilers = typeof hdrProbeScopeOrSpoilers === "function" ? hdrProbeScopeOrSpoilers as () => EpisodeSpoilerSettings : undefined;
     const hdrProbeScope = typeof hdrProbeScopeOrSpoilers === "function" ? undefined : hdrProbeScopeOrSpoilers;
     const clock = new ManualClock();
@@ -319,6 +319,7 @@ async function rig(profileId = "p-owner", origin?: string, hdrProbeScopeOrSpoile
             },
         },
         ...(spoilers === undefined ? {} : { spoilers }),
+        ...(resolutionCap === undefined ? {} : { resolutionCap }),
     });
     const views: PlaybackView[] = [];
     controller.subscribe((view) => views.push(view));
@@ -1440,8 +1441,8 @@ test("EOF holds the handoff until pending progress and the exact final STOP rece
 
 const EPISODE: PlayRequest = { contentId: "episode:s1e12", fileId: "42", title: "Harbor Lights chapter 1.2", startSeconds: 0, episode: true };
 
-async function episodeRig(spoilers?: () => EpisodeSpoilerSettings): Promise<Rig & { catalog: FakeCatalog }> {
-    const r = await rig("p-owner", undefined, spoilers);
+async function episodeRig(spoilers?: () => EpisodeSpoilerSettings, resolutionCap?: PlaybackDeps["resolutionCap"]): Promise<Rig & { catalog: FakeCatalog }> {
+    const r = await rig("p-owner", undefined, spoilers, resolutionCap);
     const catalog = new FakeCatalog();
     catalog.fileIds.set(EPISODE.contentId, "42");
     catalog.fileIds.set("episode:s1e13", "43");
@@ -2322,6 +2323,60 @@ test("fresh unchanged played:false is authoritative and still permits a neutral 
     assert.equal(completion(r).title, "Playing Next");
     assert.equal(r.catalog.playbackWatched.has(EPISODE.contentId), false);
     assert.equal(r.catalog.progress.has(EPISODE.contentId), false);
+    r.controller.destroy();
+});
+
+test("the next episode waits for a pending Resolution cap read and starts the file that fits it", async () => {
+    let quality: string | undefined;
+    let landed: () => void = () => undefined;
+    const pending = new Promise<void>(resolve => { landed = resolve; });
+    const r = await episodeRig(undefined, { get quality() { return quality; }, ready: () => pending });
+    r.catalog.episodeFiles.set("episode:s1e13", [{ file_id: "43", resolution: "2160p" }, { file_id: "44", resolution: "1080p" }]);
+    r.catalog.watchOverrides.set("episode:s1e13", { versions: [{ file_id: "43", resolution: "2160p", duration_seconds: 5400 }, { file_id: "44", resolution: "1080p", duration_seconds: 5400 }], user_data: { played: false, last_file_id: "43" } });
+    await playMovie(r, EPISODE);
+    r.avplay.tick(5399000);
+    r.avplay.listener?.onstreamcompleted();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).state, "resolving", "no pick is made while the cap read is out");
+    quality = "1080p";
+    landed();
+    await r.h.clock.advance(0);
+    assert.equal(completion(r).state, "ready");
+    assert.equal(completion(r).next?.fileId, "44", "the 1080p file fits the cap; the last-played 2160p file does not");
+    r.controller.destroy();
+});
+
+const CAP_1080P: PlaybackDeps["resolutionCap"] = { quality: "1080p", ready: async () => undefined };
+
+test("the Up Next prompt during playback offers the next episode file that fits the Resolution cap", async () => {
+    const r = await episodeRig(undefined, CAP_1080P);
+    r.catalog.episodeFiles.set("episode:s1e13", [{ file_id: "43", resolution: "2160p" }, { file_id: "44", resolution: "1080p" }]);
+    r.catalog.watchOverrides.set("episode:s1e13", { versions: [{ file_id: "43", resolution: "2160p", duration_seconds: 5400 }, { file_id: "44", resolution: "1080p", duration_seconds: 5400 }] });
+    await playMovie(r, EPISODE);
+    r.controller.showUpNext();
+    await r.h.clock.advance(0);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.upNext?.next?.contentId, "episode:s1e13");
+    assert.equal(view.upNext?.next?.fileId, "44", "the 1080p file fits the cap; the last-played 2160p file does not");
+    r.controller.destroy();
+});
+
+test("the On Deck cards during playback start the file that fits the Resolution cap", async () => {
+    const r = await episodeRig(undefined, CAP_1080P);
+    const household = [...r.catalog.households.values()][0]!;
+    household.sections = [{ id: "deck", sectionType: "continue_watching", title: "On Deck", items: ["movie:m0002"] }];
+    r.catalog.fileIds.set("movie:m0001", "42");
+    r.catalog.fileIds.set("movie:m0002", "uhd");
+    r.server.items.set("movie:m0001", ["42"]);
+    r.catalog.watchOverrides.set("movie:m0002", { versions: [{ file_id: "uhd", resolution: "2160p", duration_seconds: 5400 }, { file_id: "hd", resolution: "1080p", duration_seconds: 5400 }] });
+    await playMovie(r, { ...MOVIE, contentId: "movie:m0001" });
+    r.controller.showUpNext();
+    await r.h.clock.advance(0);
+    const view = last(r.views);
+    assert.ok(view.phase === "playing");
+    assert.equal(view.upNext?.deck[0]?.contentId, "movie:m0002");
+    assert.equal(view.upNext?.deck[0]?.fileId, "hd", "the 1080p file fits the cap; the last-played 2160p file does not");
     r.controller.destroy();
 });
 

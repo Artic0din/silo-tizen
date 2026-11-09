@@ -610,6 +610,7 @@ export interface WatchDetail {
         readonly durationSeconds: number;
         readonly multiEpisodeStart: number | undefined;
         readonly multiEpisodeEnd: number | undefined;
+        readonly resolution?: string;
         readonly presentationGroupKey: string | undefined;
         readonly presentationPartIndex: number | undefined;
     }[];
@@ -635,7 +636,8 @@ export function decodeWatchDetail(value: unknown): WatchDetail {
             if ((start === undefined) !== (end === undefined) || (start !== undefined && end !== undefined && (start < 1 || end < start)) || duration < 0) {
                 throw new WireError(versionPath, "a nonnegative duration and a complete ordered episode range");
             }
-            return { fileId: nonEmptyString(version, "file_id", versionPath), durationSeconds: duration, multiEpisodeStart: start, multiEpisodeEnd: end, presentationGroupKey: optionalString(version, "presentation_group_key", versionPath), presentationPartIndex: optionalInteger(version, "presentation_part_index", versionPath) };
+            const resolution = optionalString(version, "resolution", versionPath);
+            return { fileId: nonEmptyString(version, "file_id", versionPath), durationSeconds: duration, multiEpisodeStart: start, multiEpisodeEnd: end, ...(resolution === undefined ? {} : { resolution }), presentationGroupKey: optionalString(version, "presentation_group_key", versionPath), presentationPartIndex: optionalInteger(version, "presentation_part_index", versionPath) };
         }),
     };
 }

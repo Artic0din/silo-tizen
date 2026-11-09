@@ -5,6 +5,7 @@ import { FakeCatalog } from "../native/support/fakeCatalog.ts";
 import { FakePlayback } from "../native/support/fakePlayback.ts";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { SEEK_BACK_KEY, SEEK_FORWARD_KEY } from "../../src/contracts/v2/settings.ts";
+import { pressPin } from "./support/pin.ts";
 import { homeDetailsRead, launchBrowser, openTv, pauseTvClock, readLive, type Tv } from "./support/tv.ts";
 
 let browser: Browser;
@@ -114,9 +115,7 @@ appTest("cold reconciliation removes Home when the remembered PIN proof is revok
     assert.ok(code !== undefined);
     await approveSignIn(tv, code);
     await tv.page.locator('[data-focus="profile:p-kid"]').click();
-    await tv.page.locator('#profile-pin').fill('2468');
-    await tv.remote(65376);
-    await tv.page.locator('[data-focus="unlock"]').click();
+    await pressPin(tv.page, "2468");
     await tv.page.locator('[data-focus="remember"]').click();
     await tv.page.locator('[data-view="home"] .browse-card').first().waitFor();
     const hold = tv.fake.hold("/system/info");
@@ -362,7 +361,7 @@ appTest("choosing another account still asks for its only profile PIN", async tv
     await tv.page.locator('[data-screen="profiles"]').waitFor();
     assert.equal(await tv.page.locator('[data-screen="profiles"] .profile-avatar').count(), 1);
     await tv.page.locator('[data-focus="profile:p-kid"]').click();
-    await tv.page.locator("#profile-pin").waitFor();
+    await tv.page.locator('[data-screen="pin"]').waitFor();
 });
 
 appTest("choosing another account shows the picker for two profiles", async tv => {
@@ -371,7 +370,7 @@ appTest("choosing another account shows the picker for two profiles", async tv =
     await chooseAccount(tv, "laura");
     await tv.page.locator('[data-screen="profiles"]').waitFor();
     assert.equal(await tv.page.locator('[data-screen="profiles"] .profile-avatar').count(), 2);
-    assert.equal(await tv.page.locator("#profile-pin").count(), 0);
+    assert.equal(await tv.page.locator('[data-screen="pin"]').count(), 0);
 });
 
 appTest("Switch Profile still shows one PIN-less profile", async tv => {
@@ -1791,8 +1790,7 @@ appTest("committing Change Account clears PIN authority while cancelling preserv
     await tv.page.locator('[data-focus="profiles"]').click();
     await tv.page.locator('[data-focus="switch-profile"]').click();
     await tv.page.locator('[data-focus="profile:p-kid"]').click();
-    await tv.page.fill("#profile-pin", "2468");
-    await tv.page.getByRole("button", { name: "Unlock", exact: true }).click();
+    await pressPin(tv.page, "2468");
     await tv.page.locator('[data-view="home"] [data-focus="movie:k1"]').waitFor();
     await tv.page.locator('[data-focus="profiles"]').click();
     await tv.page.getByRole("menuitem", { name: "Change Account", exact: true }).click();
@@ -1803,8 +1801,7 @@ appTest("committing Change Account clears PIN authority while cancelling preserv
     await tv.page.locator('.account-card').first().click();
     await tv.page.locator('[data-focus="profile:p-kid"]').click();
     await tv.page.locator('[data-screen="pin"]').waitFor();
-    await tv.page.fill("#profile-pin", "2468");
-    await tv.page.getByRole("button", { name: "Unlock", exact: true }).click();
+    await pressPin(tv.page, "2468");
     await tv.page.locator('[data-view="home"] [data-focus="movie:k1"]').waitFor();
     assert.equal(tv.fake.paths().filter(path => path === "POST /profiles/p-kid/verify-pin").length, 2, "choosing the account again requires fresh PIN proof");
 });
@@ -1815,8 +1812,7 @@ appTest("a profile-proof refusal stops playback and leaves the PIN successor int
     await tv.page.locator('[data-focus="switch-profile"]').click();
     await tv.page.getByRole("button", { name: "Kid, PIN protected", exact: true }).waitFor();
     await tv.page.locator('[data-focus="profile:p-kid"]').click();
-    await tv.page.fill("#profile-pin", "2468");
-    await tv.page.getByRole("button", { name: "Unlock", exact: true }).click();
+    await pressPin(tv.page, "2468");
     await tv.page.locator('[data-view="home"] [data-focus="movie:k1"]').waitFor();
     await startMovie(tv, "movie:k1");
     tv.fake.changePin("p-kid", "1357");

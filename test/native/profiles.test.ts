@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { ApiError } from "../../src/api/errors.ts";
 import type { ProfileSummary } from "../../src/contracts/v2/wire.ts";
 import type { AuthorityChange, AuthorizedSpec } from "../../src/session/session.ts";
+import { problem } from "./support/fakeSilo.ts";
 import { connected, type Harness, signIn } from "./support/harness.ts";
 
 const probe: AuthorizedSpec<unknown> = { method: "GET", path: "/catalog/probe", retry: "safe", decode: (body) => body, profileScoped: true };
@@ -69,6 +70,18 @@ test("wrong PINs are reported once each and never resent; the lockout's Retry-Af
     await h.clock.advance(299 * 1000);
     assert.deepEqual(await h.core.profiles.verifyPin("p-kid", "2468"), { status: "locked", retryAfterSeconds: 1 });
     assert.equal(h.fake.requests.filter((request) => request.path.endsWith("/verify-pin")).length, sent);
+    await h.clock.advance(1000);
+    assert.deepEqual(await h.core.profiles.verifyPin("p-kid", "2468"), { status: "verified" });
+});
+
+test("a 429 with no Retry-After still blocks for five minutes but reports no wait", async () => {
+    const { h } = await household();
+    h.fake.script("/profiles/p-kid/verify-pin", problem(429, "rate_limited", "Rate limited"));
+    assert.deepEqual(await h.core.profiles.verifyPin("p-kid", "2468"), { status: "locked", retryAfterSeconds: undefined });
+    const sent = h.fake.requests.filter((request) => request.path.endsWith("/verify-pin")).length;
+    await h.clock.advance(299 * 1000);
+    assert.deepEqual(await h.core.profiles.verifyPin("p-kid", "2468"), { status: "locked", retryAfterSeconds: undefined });
+    assert.equal(h.fake.requests.filter((request) => request.path.endsWith("/verify-pin")).length, sent, "still blocked locally");
     await h.clock.advance(1000);
     assert.deepEqual(await h.core.profiles.verifyPin("p-kid", "2468"), { status: "verified" });
 });

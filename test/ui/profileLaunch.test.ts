@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { FakeSettings } from "../native/support/fakeSettings.ts";
 import { FakeDetails } from "../native/support/fakeDetails.ts";
+import { pressPin } from "./support/pin.ts";
 import { launchBrowser, openTv, type Tv } from "./support/tv.ts";
 
 async function picker(tv: Tv): Promise<void> {
@@ -17,8 +18,7 @@ async function picker(tv: Tv): Promise<void> {
 
 async function selectKid(tv: Tv): Promise<void> {
     await tv.page.locator('[data-focus="profile:p-kid"]').click();
-    await tv.page.fill("#profile-pin", "2468");
-    await tv.page.locator('[data-focus="unlock"]').click();
+    await pressPin(tv.page, "2468");
 }
 
 test("one unprotected profile opens directly, including after Ask who's watching", async () => {
@@ -283,7 +283,7 @@ test("fresh TV offers remember; protected restart skips PIN; Settings opt-out re
         await tv.page.evaluate(() => window.appHarness.mount());
         await tv.page.locator('[data-screen="profiles"]').waitFor();
         await tv.page.locator('[data-focus="profile:p-kid"]').click();
-        await tv.page.locator("#profile-pin").waitFor();
+        await tv.page.locator('[data-screen="pin"]').waitFor();
         assert.equal(tv.fake.pinAttempts, attempts);
         assert.deepEqual(tv.console, []);
     } finally { await tv.page.context().close(); await browser.close(); }

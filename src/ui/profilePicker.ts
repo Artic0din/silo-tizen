@@ -15,12 +15,12 @@ export function avatarReference(profile: Pick<ProfileSummary, "avatarUrl" | "ava
     return raw !== undefined && (raw.includes("/") || /\.(png|jpe?g|webp|gif|svg|avif)(?:\?|$)/i.test(raw)) ? raw : undefined;
 }
 
-export function profileAvatar(profile: ProfileSummary, baseUrl: string): HTMLElement {
+export function profileAvatar(profile: ProfileSummary, baseUrl: string, size = 220): HTMLElement {
     const reference = avatarReference(profile);
     const raw = profile.avatar?.trim() ?? "";
     const imageLike = /^upload:|^preset:dicebear:|\/|\.(png|jpe?g|webp|gif|svg|avif)(?:\?|$)/i.test(raw);
     const fallback = !imageLike && raw !== "" ? raw : Array.from(profile.name.trim())[0]?.toUpperCase() ?? "?";
-    const avatar = navigationAvatar(profile.name, reference, baseUrl, 220, fallback);
+    const avatar = navigationAvatar(profile.name, reference, baseUrl, size, fallback);
     avatar.classList.add("profile-avatar");
     if (!imageLike && raw !== "") avatar.classList.add("profile-avatar-text");
     let tintIndex = 5381 % PALETTE.length;
@@ -28,7 +28,7 @@ export function profileAvatar(profile: ProfileSummary, baseUrl: string): HTMLEle
     const tint = PALETTE[tintIndex] ?? PALETTE[0];
     const light = tint.map(channel => Math.round(channel * 0.65 + 255 * 0.35));
     const dark = tint.map(channel => Math.round(channel * 0.55));
-    avatar.style.background = `radial-gradient(circle 176px at 30% 25%, rgb(${light.join(",")}), rgb(${tint.join(",")}), rgb(${dark.join(",")}))`;
+    avatar.style.background = `radial-gradient(circle ${Math.round(176 * size / 220)}px at 30% 25%, rgb(${light.join(",")}), rgb(${tint.join(",")}), rgb(${dark.join(",")}))`;
     return avatar;
 }
 

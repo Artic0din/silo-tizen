@@ -661,7 +661,8 @@ journey("a late watched read cannot overwrite a card from a newer filmography re
     await tv.page.locator('[data-focus="more"]').click();
     await tv.page.getByRole("dialog", { name: "More", exact: true }).locator('[data-focus="watched"]').click();
     await tv.eventually(async () => marked(id), "watched write");
-    const held = tv.fake.hold(`/catalog/items/${encodeURIComponent(id)}`, true);
+    // Details can still have one read of its own out; hold two so the filmography's read is held whichever comes first.
+    const held = [tv.fake.hold(`/catalog/items/${encodeURIComponent(id)}`, true), tv.fake.hold(`/catalog/items/${encodeURIComponent(id)}`, true)];
     outdated = true;
     for (let attempt = 0; attempt < 3 && await tv.page.locator(".details-person-hero").count() === 0; attempt++) await tv.remote(BACK);
     await tv.page.locator(".details-person-hero").waitFor();
@@ -670,7 +671,7 @@ journey("a late watched read cannot overwrite a card from a newer filmography re
     await tv.page.locator('[data-focus="filter:movie"]').click();
     await tv.eventually(async () => lastQuery(tv)?.body?.type === "movie" && await tv.page.locator(`.browse-grid [data-focus="${id}"] .browse-watched`).count() === 1, "newer read shows the tick");
     const itemReads = (): number => tv.fake.requests.filter(request => request.method === "GET" && request.path.split("?")[0] === `/catalog/items/${encodeURIComponent(id)}`).length;
-    held.release();
+    for (const hold of held) hold.release();
     await tv.jump(300);
     await tv.page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(undefined)))));
     assert.equal(await tv.page.locator(`.browse-grid [data-focus="${id}"] .browse-watched`).count(), 1, "the late read leaves the newer card alone");

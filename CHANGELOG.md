@@ -27,6 +27,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept the top bar on Requests opened from the profile menu, so Up from the first row reaches it and Back returns to the tab underneath. Requests closes back to that tab when the server turns requests off.
 - Showed Who's watching after signing in even when the TV could not save that the remembered profile was cleared.
 - Moved the Series Details episode rail 40px left when its loaded window includes the series' first season. A later season whose earlier pages are not loaded keeps the previous position, and reopening Details starts from that season's neighbor window.
 - Asked before signing out from Who's watching, while profiles load, and when profiles fail to load. Cancel stays focused, and Cancel or Back returns to Sign out.

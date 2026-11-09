@@ -89,6 +89,8 @@ for (const root of ["home", "movies"] as const) for (const destination of ["Hist
             await tv.jump(500);
         }
         await tv.remote(10009);
+        // Requests is a root page under the bar: the first Back reaches the bar, the second returns to the tab.
+        if (destination === "Requests") { assert.equal(await tv.focused(), root); await tv.remote(10009); }
         assert.equal(await tv.focused(), root);
         assert.equal(await tv.page.locator('[data-focus="profiles"]').getAttribute("aria-expanded"), "false");
         await tv.jump(1000);

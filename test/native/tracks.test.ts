@@ -4,7 +4,10 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { decodeFileVersionTracks, decodePlaybackDecision, decodePlaybackDefaults } from "../../src/contracts/v2/playback.ts";
+import { decodeItemDetail } from "../../src/contracts/v2/catalog.ts";
+import { decodeFileVersionTracks, decodePlaybackDecision, decodePlaybackDefaults, type SubtitleTrack } from "../../src/contracts/v2/playback.ts";
+import type { CatalogSubtitleTrack } from "../../src/contracts/v2/preplaySubtitles.ts";
+import { playChoices } from "../../src/ui/browseModel.ts";
 import { PlaybackController, type PlaybackView, type PlayRequest, type TrackView } from "../../src/player/controller.ts";
 import { FakeAVPlay } from "./support/fakeAVPlay.ts";
 import { FakeCatalog } from "./support/fakeCatalog.ts";
@@ -110,6 +113,103 @@ async function playReplacement(r: Rig): Promise<void> {
         await settle(r);
     }
 }
+
+function catalogTracks(inventory: readonly SubtitleTrack[]): CatalogSubtitleTrack[] {
+    return inventory.map(track => ({ selectionIndex: track.combinedIndex, externalPath: "", source: track.source, language: track.language, codec: track.codec, label: track.label, forced: track.forced, hearingImpaired: track.hearingImpaired }));
+}
+
+function sequence(r: Rig): string[] {
+    return r.h.fake.requests.map(request => `${request.method} ${request.path}`);
+}
+
+test("a known subtitle intent is sent on start and opens AVPlay without a replan", async () => {
+    const r = await rig();
+    const plan = decodePlaybackDecision(fixture("playback_start_opaque_ids"));
+    assert.equal(plan.outcome, "playable");
+    if (plan.outcome !== "playable") return;
+    const track = plan.plan.subtitle.inventory[1];
+    assert.ok(track);
+    const request = { ...MOVIE, audioTrackId: "file:42:audio:1", subtitle: { kind: "track" as const, signature: { source: track.source, language: track.language, codec: track.codec, label: track.label, forced: track.forced, hearingImpaired: track.hearingImpaired } }, subtitleTracks: catalogTracks(plan.plan.subtitle.inventory) };
+    try {
+        r.controller.play(request);
+        await settle(r);
+        const start = only(requests(r.h, "/playback/start"));
+        assert.equal(start.body?.subtitle_track_id, "file:42:subtitle:1");
+        assert.equal(start.body?.audio_track_id, "file:42:audio:1");
+        assert.equal(replans(r.h).length, 0);
+        assert.equal(r.avplay.calls.filter(call => call.startsWith("open")).length, 1);
+        const lines = sequence(r);
+        const playback = lines.filter(line => line.includes("/playback"));
+        assert.deepEqual(playback, ["GET /playback/capabilities", "POST /playback/start"]);
+        assert.equal(lines.some(line => line.includes("/replan")), false);
+        assert.ok(lines.indexOf("GET /playback/capabilities") < lines.indexOf("POST /playback/start"));
+    } finally { r.controller.destroy(); }
+});
+
+test("a start subtitle the plan does not echo is corrected before AVPlay opens", async () => {
+    const r = await rig();
+    const plan = decodePlaybackDecision(fixture("playback_start_opaque_ids"));
+    assert.equal(plan.outcome, "playable");
+    if (plan.outcome !== "playable") return;
+    const track = plan.plan.subtitle.inventory[1];
+    assert.ok(track);
+    r.server.next.push({ subtitle: 0 });
+    const request = { ...MOVIE, audioTrackId: "file:42:audio:1", subtitle: { kind: "track" as const, signature: { source: track.source, language: track.language, codec: track.codec, label: track.label, forced: track.forced, hearingImpaired: track.hearingImpaired } }, subtitleTracks: catalogTracks(plan.plan.subtitle.inventory) };
+    try {
+        r.controller.play(request);
+        await settle(r);
+        const start = only(requests(r.h, "/playback/start"));
+        assert.equal(start.body?.subtitle_track_id, "file:42:subtitle:1");
+        const change = only(replans(r.h));
+        assert.equal(change.operation, "track_change");
+        assert.deepEqual(change.selected_tracks, { audio: { id: "file:42:audio:1", index: 1 }, subtitle: { id: "file:42:subtitle:1" } });
+        assert.equal(r.avplay.calls.filter(call => call.startsWith("open")).length, 1);
+        const lines = sequence(r);
+        const startAt = lines.indexOf("POST /playback/start");
+        const replanAt = lines.findIndex(line => line.includes("/replan"));
+        assert.ok(startAt >= 0 && replanAt > startAt);
+        const playback = lines.filter(line => line.includes("/playback"));
+        assert.deepEqual(playback.slice(0, 3), ["GET /playback/capabilities", "POST /playback/start", `POST /playback/${[...r.server.sessions.keys()][0]}/replan`]);
+    } finally { r.controller.destroy(); }
+});
+
+test("Auto with matching audio and subtitle language sends no subtitle id and does not replan", async () => {
+    const r = await rig();
+    const detail = decodeItemDetail({
+        ...fixture("get_catalog_item_ok"),
+        content_id: "movie-1",
+        type: "movie",
+        effective_subtitle_mode: "auto",
+        effective_subtitle_language: "en",
+        effective_show_forced_subtitles: false,
+        versions: [{
+            file_id: "42",
+            duration: 7200,
+            effective_audio_track_index: 0,
+            audio_tracks: [{ language: "en", default: true, codec: "aac", channels: 2 }],
+            subtitle_tracks: [{ language: "en", codec: "srt", title: "English", forced: false, hearing_impaired: false }],
+        }],
+    });
+    const choices = playChoices(detail);
+    assert.ok(choices);
+    r.h.fake.script("/watch/movie-1?file_id=42", {
+        status: 200,
+        body: {
+            content_id: "movie-1",
+            versions: [{ file_id: "42", audio_tracks: [{ language: "en", default: true }] }],
+            effective_subtitle_mode: "auto",
+            effective_subtitle_language: "en",
+            effective_show_forced_subtitles: false,
+        },
+    });
+    try {
+        r.controller.play({ ...choices.fromStart, subtitle: { kind: "auto" } });
+        await settle(r);
+        const start = only(requests(r.h, "/playback/start"));
+        assert.equal(start.body?.subtitle_track_id, undefined);
+        assert.equal(replans(r.h).length, 0);
+    } finally { r.controller.destroy(); }
+});
 
 test("Details subtitle intent selects the authoritative first-plan track before opening AVPlay", async () => {
     const r = await rig();
@@ -1849,5 +1949,171 @@ test("a subtitle replan that changes the stream URL still reopens", async () => 
     await settle(r);
     assert.equal(r.avplay.urls.length, opens + 1);
     assert.equal(r.avplay.state, "IDLE");
+    r.controller.destroy();
+});
+
+function withUnplayable(r: Rig, ordinal: number): void {
+    const file = r.server.file("42");
+    r.server.files.set("42", { ...file, inventory: file.inventory.map((entry, index) => index === ordinal ? { ...entry, unplayable: true } : entry) });
+}
+
+test("the plan decoder reads the unplayable flag and treats an absent one as playable", () => {
+    const base = fixture("playback_start_opaque_ids");
+    const plan: Record<string, unknown> = { ...(base.playback_plan as Record<string, unknown>) };
+    const subtitle = plan.subtitle as { inventory: Record<string, unknown>[] };
+    const decode = (flag: unknown) => {
+        const inventory = subtitle.inventory.map((entry, index) => index === 3 ? { ...entry, ...(flag === undefined ? {} : { unplayable: flag }) } : entry);
+        const decision = decodePlaybackDecision({ ...base, playback_plan: { ...plan, subtitle: { ...subtitle, inventory } } });
+        assert.ok(decision.outcome === "playable");
+        return decision.plan.subtitle.inventory.map(entry => entry.unplayable);
+    };
+    assert.deepEqual(decode(true), [undefined, undefined, undefined, true, undefined]);
+    assert.deepEqual(decode(false), [undefined, undefined, undefined, false, undefined]);
+    assert.deepEqual(decode(undefined), [undefined, undefined, undefined, undefined, undefined]);
+    assert.throws(() => decode("yes"));
+});
+
+test("a track the plan flags unplayable is listed as unavailable and Select never sends it", async () => {
+    const r = await rig();
+    withUnplayable(r, 2);
+    await playMovie(r);
+    const view = tracks(r);
+    assert.deepEqual(view.subtitles.map(choice => choice.unavailable === true), [false, false, true, false, false]);
+    assert.match(view.subtitles[2]?.detail ?? "", /Unsupported format/);
+    assert.doesNotMatch(view.subtitles[1]?.detail ?? "", /Unsupported format/);
+
+    const before = replans(r.h).length;
+    r.controller.selectSubtitle("file:42:subtitle:2");
+    await settle(r);
+    assert.equal(replans(r.h).length, before, "no track_change reaches the server");
+    assert.equal(tracks(r).selectedSubtitleId, undefined);
+    assert.deepEqual(tracks(r).notices, []);
+    r.controller.destroy();
+});
+
+test("playable choices and Off stay usable beside an unplayable track", async () => {
+    const r = await rig();
+    withUnplayable(r, 2);
+    r.server.next.push({ subtitle: 1 });
+    await playMovie(r);
+    assert.equal(tracks(r).selectedSubtitleId, "file:42:subtitle:1");
+    r.controller.selectSubtitle(undefined);
+    await settle(r);
+    assert.equal(only(replans(r.h)).operation, "track_change");
+    r.controller.destroy();
+});
+
+test("Details subtitle intent naming an unplayable track starts with subtitles off instead of failing", async () => {
+    const r = await rig();
+    withUnplayable(r, 1);
+    const plan = decodePlaybackDecision(fixture("playback_start_opaque_ids"));
+    assert.ok(plan.outcome === "playable");
+    const track = plan.plan.subtitle.inventory[1];
+    assert.ok(track);
+    const request = { ...MOVIE, audioTrackId: "file:42:audio:1", subtitle: { kind: "track" as const, signature: { source: track.source, language: track.language, codec: track.codec, label: track.label, forced: track.forced, hearingImpaired: track.hearingImpaired } } };
+    try {
+        r.controller.play(request);
+        await settle(r);
+        r.avplay.finishPrepare();
+        await settle(r);
+        const view = last(r.views);
+        assert.ok(view.phase !== "error", "playback is not ended");
+        assert.equal(r.avplay.calls.filter(call => call.startsWith("open")).length, 1);
+        assert.equal(replans(r.h).some(body => "subtitle" in (body.selected_tracks as object)), false, "no replan names the unplayable track");
+    } finally { r.controller.destroy(); }
+});
+
+test("a saved subtitle preference naming an unplayable track falls back to the next playable pick; an explicit pick starts Off", async () => {
+    const plan = decodePlaybackDecision(fixture("playback_start_opaque_ids"));
+    assert.ok(plan.outcome === "playable");
+    const track = plan.plan.subtitle.inventory[1];
+    assert.ok(track);
+    const signature = { source: track.source, language: track.language, codec: track.codec, label: track.label, forced: track.forced, hearingImpaired: track.hearingImpaired };
+    for (const saved of [true, false]) {
+        const r = await rig();
+        withUnplayable(r, 1);
+        r.h.fake.script("/watch/movie-1?file_id=42", { status: 200, body: { content_id: "movie-1", versions: [{ file_id: "42", audio_tracks: r.server.files.get("42")?.audio }], effective_subtitle_mode: "always", effective_subtitle_language: "eng", effective_show_forced_subtitles: false, effective_subtitle_track_signature: { source: "embedded", language: "eng", codec: "ass", label: "English (Signs)", forced: true, hearing_impaired: false } } });
+        if (saved) {
+            r.server.next.push({}, { subtitle: 0, subtitleArtifact: { url: `${r.h.fake.origin}/api/v2/captions?token=synthetic`, format: "vtt", timing_origin_seconds: 0 } });
+            r.h.fake.script("/captions?token=synthetic", { status: 200, text: "WEBVTT\n\n00:12.000 --> 00:14.000\nEnglish" });
+        }
+        try {
+            r.controller.play({ ...MOVIE, audioTrackId: "file:42:audio:1", subtitle: { kind: "track", signature, ...(saved ? { saved: true as const } : {}) } });
+            await settle(r);
+            const view = last(r.views);
+            assert.ok(view.phase !== "error", "playback is not ended");
+            const chosen = replans(r.h).flatMap(body => "subtitle" in (body.selected_tracks as object) ? [(body.selected_tracks as { subtitle: { id: string } }).subtitle.id] : []);
+            assert.deepEqual(chosen, saved ? ["file:42:subtitle:0"] : [], saved ? "the next playable English row" : "an explicit pick plays on with subtitles off");
+        } finally { r.controller.destroy(); }
+    }
+});
+
+test("a downloaded subtitle the plan flags unplayable is reported as saved but not turned on", async () => {
+    for (const listedUpFront of [false, true]) {
+        const r = await rig();
+        const file = r.server.files.get("42");
+        assert.ok(file);
+        const last4 = file.inventory.length - 1;
+        const flagged = (inventory: typeof file.inventory) => inventory.map((entry, index) => index === last4 ? { ...entry, sync_key: "stored-7", unplayable: true } : entry);
+        if (listedUpFront) r.server.files.set("42", { ...file, inventory: flagged(file.inventory) });
+        await playMovie(r, { ...MOVIE, startSeconds: 0 });
+        r.h.fake.script("/subtitles/providers/status", { status: 200, body: { schema_version: 1, enabled: true, providers: ["opensubtitles"], revision: "r", state: "available", allowed: true } });
+        r.h.fake.script("/settings/contract", { status: 200, body: { option_sets: { playback_subtitle_languages: { options: [{ value: "en", label: "English" }] } } } });
+        r.h.fake.script("/subtitles/search", { status: 200, body: { results: [{ id: "opaque-result", provider: "opensubtitles", language: "en", release_name: "Example.Release", format: "srt", score: 82, downloads: 12, hearing_impaired: true }], warnings: [] } });
+        r.h.fake.script("/subtitles/download", { status: 200, body: { subtitle: { id: "7", media_file_id: "42", provider: "opensubtitles", language: "en", format: "srt", release_name: "Example.Release", score: 82, hearing_impaired: true, created_at: "2026-01-02T03:04:05.678Z" } } });
+        r.controller.subtitleTool({ kind: "search-open" });
+        await settle(r);
+        r.controller.subtitleTool({ kind: "search-language", code: "en" });
+        await settle(r);
+        if (!listedUpFront) r.server.files.set("42", { ...file, inventory: flagged(file.inventory) });
+        r.controller.subtitleTool({ kind: "search-download", key: "opensubtitles:opaque-result" });
+        for (let step = 0; step < 8; step++) await r.h.clock.advance(0);
+        const shown = tracks(r);
+        assert.equal(shown.selectedSubtitleId, undefined, "the unplayable row is not turned on");
+        assert.match(shown.subtitleTools?.search.message ?? "", /saved but couldn't be turned on/i);
+        r.controller.destroy();
+    }
+});
+
+test("an AI result whose stored track is unplayable is marked unavailable", async () => {
+    const r = await rig();
+    r.h.fake.script("/subtitles/ai/status", { status: 200, body: { state: "available", allowed: true, enabled: true, transcribe_enabled: true } });
+    r.h.fake.script("/subtitles/ai/quota", ...Array.from({ length: 3 }, () => ({ status: 200, body: { limited: true, remaining: 2, period: "month" } })));
+    r.h.fake.script("/settings/contract", { status: 200, body: { option_sets: { playback_subtitle_languages: { options: [{ value: "fr" }] } } } });
+    r.h.fake.script("/subtitles/ai/translate", { status: 202, body: { job: { id: "opaque-job", media_file_id: "42", kind: "transcribe", source_index: 0, target_language: "", status: "completed", result_subtitle_id: "opaque-result" } } });
+    const file = r.server.file("42");
+    r.server.files.set("42", { ...file, inventory: file.inventory.map((entry, index) => index === 4 ? { ...entry, sync_key: "stored-opaque-result", unplayable: true } : entry) });
+    await playMovie(r);
+    r.controller.startSubtitleAI("transcribe");
+    await r.h.clock.advance(0);
+    const result = tracks(r).ai?.results[0];
+    assert.equal(result?.id, "opaque-result");
+    assert.equal(result?.unavailable, true);
+    const before = replans(r.h).length;
+    r.controller.selectAIResult("opaque-result");
+    await settle(r);
+    assert.equal(replans(r.h).length, before, "Select does not reach the server");
+    r.controller.destroy();
+});
+
+test("a pending AI result the refreshed plan flags unplayable is reported as saved but not turned on", async () => {
+    const r = await rig();
+    r.h.fake.script("/subtitles/ai/status", { status: 200, body: { state: "available", allowed: true, enabled: true, transcribe_enabled: true } });
+    r.h.fake.script("/subtitles/ai/quota", ...Array.from({ length: 3 }, () => ({ status: 200, body: { limited: true, remaining: 2, period: "month" } })));
+    r.h.fake.script("/settings/contract", { status: 200, body: { option_sets: { playback_subtitle_languages: { options: [{ value: "fr" }] } } } });
+    r.h.fake.script("/subtitles/ai/translate", { status: 202, body: { job: { id: "opaque-job", media_file_id: "42", kind: "transcribe", source_index: 0, target_language: "", status: "completed", result_subtitle_id: "opaque-result" } } });
+    await playMovie(r);
+    r.controller.startSubtitleAI("transcribe");
+    await r.h.clock.advance(0);
+    assert.equal(tracks(r).ai?.results[0]?.id, "opaque-result");
+    const file = r.server.file("42");
+    const embedded = file.inventory[1];
+    assert.ok(embedded !== undefined);
+    r.server.files.set("42", { ...file, inventory: [...file.inventory, { ...embedded, track_id: "file:42:subtitle:5", combined_index: 5, sync_key: "stored-opaque-result", unplayable: true }] });
+    r.controller.selectAIResult("opaque-result");
+    for (let step = 0; step < 8; step++) await r.h.clock.advance(0);
+    const shown = tracks(r);
+    assert.equal(shown.selectedSubtitleId, undefined, "the unplayable row is not turned on");
+    assert.match(shown.ai?.message ?? "", /saved but couldn't be turned on/i);
     r.controller.destroy();
 });

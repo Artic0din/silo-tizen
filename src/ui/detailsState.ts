@@ -395,7 +395,7 @@ export class DetailsState {
                 const effective = file?.effectiveSubtitle;
                 if (effective?.mode === "off") return { kind: effective.showForced ? "auto" : "off" };
                 const match = preferredCatalogSubtitle(file?.subtitles ?? [], effective?.signature);
-                if (match !== undefined && file?.subtitles?.filter(track => matchesSubtitle(track, match)).length === 1) return { kind: "track", signature: match };
+                if (match !== undefined && file?.subtitles?.filter(track => matchesSubtitle(track, match)).length === 1) return { kind: "track", signature: match, saved: true };
             }
             return { kind: "auto" };
         }

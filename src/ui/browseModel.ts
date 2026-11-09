@@ -1,9 +1,10 @@
 // Decisions the browse screens make about server data, kept free of the DOM so Node can test them.
 
+import type { Route } from "./browseRoutes.ts";
 import type { BrowseScope } from "../api/operations.ts";
 import { isPermittedUrl } from "../api/serverUrl.ts";
-import type { Card, ItemDetail, UserLibrary } from "../contracts/v2/catalog.ts";
-import type { SubtitleIntent } from "../contracts/v2/preplaySubtitles.ts";
+import type { Card, ItemDetail, PlayableFile, UserLibrary } from "../contracts/v2/catalog.ts";
+import type { CatalogSubtitleTrack, SubtitleIntent, SubtitlePreferences } from "../contracts/v2/preplaySubtitles.ts";
 
 /** What the player needs to call startPlayback: the item, one file and where to start. */
 export interface PlayRequest {
@@ -19,6 +20,10 @@ export interface PlayRequest {
     readonly episodeNumber?: number | undefined;
     readonly audioTrackId?: string;
     readonly subtitle?: SubtitleIntent;
+    /** Catalog rows used to name a subtitle before start. Absent when the version published none. */
+    readonly subtitleTracks?: readonly CatalogSubtitleTrack[];
+    /** Effective subtitle preferences already on the version, so Auto can be named before start. */
+    readonly subtitlePreferences?: SubtitlePreferences;
     readonly allowAlternateVersions?: false;
     /** Source seconds; zero starts over, omission lets the server resume. */
     readonly startSeconds: number | undefined;
@@ -162,6 +167,7 @@ export function playChoices(detail: ItemDetail, selectedFileId?: string): PlayCh
         title: detail.title,
         ...(detail.type === "episode" ? { episode: true as const, seriesTitle: detail.seriesTitle, seasonNumber: detail.seasonNumber, episodeNumber: detail.episodeNumber } : {}),
         ...(selectedFileId === undefined ? {} : { allowAlternateVersions: false as const }),
+        ...startTrackHints(file),
     };
     const start = resumeSeconds(detail.watch?.positionSeconds, duration);
     return {
@@ -180,6 +186,38 @@ export function clockTime(totalSeconds: number): string {
     return hours > 0 ? `${hours}:${pad(minutes)}:${pad(rest)}` : `${minutes}:${pad(rest)}`;
 }
 
+/**
+ * Language of the audio a start will play.
+ * An explicit track id wins, then the version's effective index, then its default
+ * track, then the first track. Details uses the same order (`browseDetails.ts`).
+ * Apple's `startAudioLanguage` (`PlaybackSessionBridge.swift` at 2ef3a171) does too.
+ * A blank language is unknown: Auto must not guess a full subtitle from it.
+ */
+export function startAudioLanguage(file: PlayableFile, audioTrackId?: string): string | undefined {
+    const audio = file.audio ?? [];
+    const explicit = audioTrackId === undefined ? -1 : audio.findIndex((_track, index) => audioTrackId === `file:${file.fileId}:audio:${index}`);
+    const ordinal = explicit >= 0 ? explicit : file.effectiveAudioTrackIndex ?? audio.findIndex(track => track.isDefault);
+    const track = audio[ordinal] ?? (explicit >= 0 ? undefined : audio[0]);
+    const language = track?.language?.trim();
+    return language === undefined || language === "" ? undefined : language;
+}
+
+/** Subtitle rows and preferences the version already published. An empty catalog list adds nothing. */
+export function startTrackHints(file: PlayableFile | undefined, audioTrackId?: string): Pick<PlayRequest, "subtitleTracks" | "subtitlePreferences"> {
+    if (file === undefined) return {};
+    const tracks = file.subtitles;
+    if (tracks === undefined || tracks.length === 0) return {};
+    const preferences = file.effectiveSubtitle;
+    if (preferences === undefined) return { subtitleTracks: tracks };
+    return { subtitleTracks: tracks, subtitlePreferences: { ...preferences, audioLanguage: startAudioLanguage(file, audioTrackId) } };
+}
+
+/** The audio id can arrive after the hints. Auto needs the language of the track that will play. */
+export function withStartAudioLanguage(request: PlayRequest, file: PlayableFile | undefined): PlayRequest {
+    const hints = startTrackHints(file, request.audioTrackId);
+    return hints.subtitlePreferences === undefined ? request : { ...request, ...hints };
+}
+
 function named(value: string | undefined): string | undefined {
     const trimmed = value?.trim();
     return trimmed === undefined || trimmed === "" ? undefined : trimmed;
@@ -190,7 +228,7 @@ function named(value: string | undefined): string | undefined {
  * the season and episode numbers that the series page and its rail already show.
  * Apple TV takes the same line from the watch detail (`playerMetadata` at 2ef3a171).
  */
-export function seriesPlayback(request: PlayRequest, page: ItemDetail, rail: { readonly seasonNumber: number; readonly episodeNumber: number } | undefined): PlayRequest {
+export function seriesPlayback(request: PlayRequest, page: Pick<ItemDetail, "type" | "title" | "seriesTitle">, rail: { readonly seasonNumber?: number; readonly episodeNumber?: number } | undefined): PlayRequest {
     if (request.episode !== true && page.type !== "series" && page.type !== "season") return request;
     const seriesTitle = named(request.seriesTitle) ?? (page.type === "series" ? named(page.title) : named(page.seriesTitle));
     const seasonNumber = request.seasonNumber ?? rail?.seasonNumber;
@@ -202,6 +240,40 @@ export function seriesPlayback(request: PlayRequest, page: ItemDetail, rail: { r
         ...(seasonNumber === undefined ? {} : { seasonNumber }),
         ...(episodeNumber === undefined ? {} : { episodeNumber }),
     };
+}
+
+/** Series name and episode numbers already shown on the page that started playback. */
+export interface SeriesLine {
+    readonly seriesTitle?: string;
+    readonly seasonNumber?: number;
+    readonly episodeNumber?: number;
+}
+
+/** Fills a footer the episode item left blank. A name or number the item already has stays. */
+export function applySeriesLine(request: PlayRequest, line: SeriesLine | undefined): PlayRequest {
+    if (line === undefined) return request;
+    const seriesTitle = named(line.seriesTitle);
+    const page: Pick<ItemDetail, "type" | "title" | "seriesTitle"> = seriesTitle === undefined
+        ? { type: "episode", title: request.title, seriesTitle: undefined }
+        : { type: "series", title: seriesTitle, seriesTitle: undefined };
+    const rail = line.seasonNumber === undefined && line.episodeNumber === undefined ? undefined : line;
+    return seriesPlayback(request, page, rail);
+}
+
+/** The series page and the episode row already show the line the player footer needs. */
+export function seriesLineFor(routes: readonly Route[], current: Route, episodeId: string): SeriesLine | undefined {
+    // Only this episode's own series may name it; a series page left on the stack from elsewhere must not.
+    const seriesId = current.kind === "season" ? current.seriesId : current.kind === "item" ? (current.data?.detail.type === "series" ? current.id : current.data?.detail.seriesId) : undefined;
+    const series = seriesId === undefined ? undefined : [...routes].reverse().find((route): route is Extract<Route, { kind: "item" }> => route.kind === "item" && route.id === seriesId && route.data?.detail.type === "series");
+    const seriesTitle = series?.data?.detail.title.trim();
+    const episode = current.kind === "item"
+        ? current.data?.details?.series?.railEpisodes?.find(item => item.id === episodeId)
+        : current.kind === "season" ? current.data?.episodes.find(item => item.id === episodeId) : undefined;
+    const seasonNumber = episode?.seasonNumber ?? (current.kind === "season" ? current.seasonNumber : undefined);
+    const episodeNumber = episode?.episodeNumber;
+    const title = seriesTitle === undefined || seriesTitle === "" ? undefined : seriesTitle;
+    if (title === undefined && seasonNumber === undefined && episodeNumber === undefined) return undefined;
+    return { ...(title === undefined ? {} : { seriesTitle: title }), ...(seasonNumber === undefined ? {} : { seasonNumber }), ...(episodeNumber === undefined ? {} : { episodeNumber }) };
 }
 
 export function episodeLabel(seasonNumber: number | undefined, episodeNumber: number | undefined): string | undefined {

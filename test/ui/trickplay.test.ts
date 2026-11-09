@@ -66,7 +66,7 @@ before(async () => {
 });
 after(async () => { await browser.close(); });
 
-async function open(timelineOffset = 0, intervals?: { backward: number; forward: number }) {
+async function open(timelineOffset = 0, intervals?: { backward: number; forward: number }, episode = false) {
     const context = await browser.newContext({ viewport: { width: 1920, height: 1080 },
         ...(CAPTURE === undefined ? {} : { recordVideo: { dir: join(CAPTURE, "journeys"), size: { width: 1920, height: 1080 } } }) });
     const page = await context.newPage();
@@ -121,7 +121,7 @@ async function open(timelineOffset = 0, intervals?: { backward: number; forward:
     await clock.advance(5000);
     await page.clock.fastForward(5000);
     await page.waitForFunction(() => window.trickplay.loginPhase === "signed_in");
-    await page.evaluate(() => window.trickplay.play());
+    await page.evaluate((isEpisode) => window.trickplay.play("42", isEpisode), episode);
     await page.waitForFunction(() => window.trickplay.avplay.state === "IDLE");
     await page.evaluate(() => window.trickplay.avplay.finishPrepare());
     await page.waitForFunction(() => window.trickplay.avplay.calls.some((call) => call.startsWith("seekTo")));
@@ -339,5 +339,40 @@ test("offset streams preview and cancel in source time, then commit through the 
         await r.page.evaluate(() => window.trickplay.avplay.finishSeek());
         // Old focus was "player". A committed seek leaves the scrubber focused.
         assert.equal(await focus(r.page), "position");
+    } finally { await r.close(); }
+});
+
+test("a plain pause shows no preview card, and a paused timeline scrub keeps Apple's footer layout", { skip: BASELINE !== undefined }, async () => {
+    const r = await open(0, undefined, true);
+    try {
+        // TVPlayerControls draws the card only while viewModel.isScrubbing, so Play/Pause alone shows none.
+        await remote(r.page, 10252);
+        await r.page.waitForFunction(() => window.trickplay.avplay.state === "PAUSED");
+        assert.equal(await r.page.locator(".player-thumbnail:not([hidden])").count(), 0);
+        await remote(r.page, 10252);
+        await r.page.waitForFunction(() => window.trickplay.avplay.state === "PLAYING");
+        // Select enters the timeline scrub, which pauses playback and shows the card (silo-apple 2ef3a171).
+        await remote(r.page, 13);
+        await r.page.waitForFunction(() => window.trickplay.avplay.state === "PAUSED");
+        await r.page.locator(".player-thumbnail:not([hidden]) img").waitFor();
+        const layout = await r.page.evaluate(() => {
+            const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+            const card = box(".player-thumbnail");
+            const series = box(".player-series");
+            const title = box(".player-overlay .player-title");
+            // The card is pointer-events: none, so hit testing cannot see it. Compare paint order: z-index, then DOM order.
+            const cardNode = document.querySelector(".player-thumbnail")!;
+            const footerNode = document.querySelector(".player-footer")!;
+            const level = (node: Element): number => Number(getComputedStyle(node).zIndex) || 0;
+            const footerPaintsOver = level(footerNode) > level(cardNode) || (level(footerNode) === level(cardNode) && (cardNode.compareDocumentPosition(footerNode) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
+            return { cardBottom: card.bottom, seriesTop: series.top, titleTop: title.top, footerPaintsOver };
+        });
+        await capture(r.page, "06-paused-preview-footer");
+        // titleFooter has no scrub condition and sits after TVScrubPreviewLayer in the ZStack. Its series line
+        // starts 8pt above the card's bottom edge, draws over the card, and the title row clears it.
+        assert.ok(Math.abs(layout.cardBottom - layout.seriesTop - 7.984375) < 0.01, `card bottom ${layout.cardBottom}, series top ${layout.seriesTop}`);
+        assert.ok(layout.titleTop >= layout.cardBottom, `title top ${layout.titleTop}, card bottom ${layout.cardBottom}`);
+        assert.equal(layout.footerPaintsOver, true);
+        assert.deepEqual(r.errors, []);
     } finally { await r.close(); }
 });

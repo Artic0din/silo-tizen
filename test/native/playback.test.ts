@@ -387,11 +387,12 @@ test("automatic skip undo starts after a six-second reanchor preparation", async
     view = last(r.views);
     assert.ok(view.phase === "playing");
     assert.equal(view.undoSkipSeconds, 20);
-    await r.h.clock.advance(1);
+    // The player screen's skip timer owns the five seconds, as Apple's IntroSkipPrompt does; the controller holds the offer.
+    await r.h.clock.advance(60000);
     r.avplay.tick(62000);
     view = last(r.views);
     assert.ok(view.phase === "playing");
-    assert.equal(view.undoSkipSeconds, undefined);
+    assert.equal(view.undoSkipSeconds, 20);
     r.controller.destroy();
 });
 

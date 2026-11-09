@@ -40,9 +40,8 @@
     z-index: 1;
 }
 
-/* Captions sit above the overlay's gradient but below its controls, Skip and the menu. */
+/* Captions sit above the overlay's gradient but below its controls and the menu. The skip pills sit above the menu. */
 .player-overlay > *,
-.player-skip,
 .player-menu,
 .player-error {
     z-index: 2;
@@ -189,10 +188,18 @@
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.24);
 }
 
-/* With the controls hidden both pills drop to the corner. */
+/* With the controls hidden, or the options panel up (Apple's isHUDPresented), both pills drop to the corner. */
 .player-overlay-hidden ~ .player-skip.player-skip-intro,
-.player-overlay-hidden ~ .player-skip.player-skip-segment {
+.player-overlay-hidden ~ .player-skip.player-skip-segment,
+.player-skip.player-skip-hud.player-skip-intro,
+.player-skip.player-skip-hud.player-skip-segment {
     bottom: 156px;
+}
+
+/* Above the options panel, which is later in the page at the same level. */
+.player-skip,
+.player-skip-caption {
+    z-index: 3;
 }
 
 .player-skip-track {
@@ -253,7 +260,8 @@
     pointer-events: none;
 }
 
-.player-overlay-hidden ~ .player-skip-caption {
+.player-overlay-hidden ~ .player-skip-caption,
+.player-skip-hud + .player-skip-caption {
     bottom: 238px;
 }
 

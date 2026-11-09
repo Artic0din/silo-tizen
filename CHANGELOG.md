@@ -33,6 +33,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made Watch Intro count down like Skip Intro in the player: five seconds, frozen while paused. The Skip Intro, Skip Recap, Skip Credits and Watch Intro pills now stay on screen, but cannot take focus, while the options panel is open or a seek preview is showing, as on Apple TV.
 - Matched Apple TV's skip pills in the player. Skip Intro shows for five seconds with a filling bar, Back takes it down, and Skip Recap and Skip Credits stay up for the whole recap or credits. After an automatic intro skip the pill reads Intro skipped over Watch Intro, with the same filling bar. The Skip Recap and Skip Credits pill is 260 px wide and widens to 360 px with focus, and Back on it works as it does anywhere else in the player. Credits skips no longer offer an undo, and Skip automatically never offers Skip Intro.
 - Hid "Could not load more episodes." and Retry more episodes on Series Details while the retry runs, and showed them again if it fails, as Apple TV does. Focus stays on the edge card.
 - Kept the top bar on Requests opened from the profile menu, so Up from the first row reaches it and Back returns to the tab underneath. Requests closes back to that tab when the server turns requests off. Watchlist, Favorites and Requests now replace each other, so Back from the bar returns to the tab, and a page opened above Requests stays open until you leave it.

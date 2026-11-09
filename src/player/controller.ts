@@ -43,7 +43,6 @@ import { SubtitleAI, type SubtitleAIView } from "./subtitleAI.ts";
 import { type AppearanceMember } from "./subtitleAppearance.ts";
 import { SubtitleDisplay, type SubtitleDisplayView } from "./subtitleDisplay.ts";
 import { STORED, SubtitleSearch, type SubtitleSearchView } from "./subtitleSearch.ts";
-const SKIP_UNDO_MILLISECONDS = 5000;
 import { DEFAULT_APPEARANCE, decodeCues, type SubtitleAppearance, type SubtitleCue } from "../contracts/v2/subtitles.ts";
 import type { CatalogSubtitleTrack, SubtitleIntent, SubtitlePreferences } from "../contracts/v2/preplaySubtitles.ts";
 import { initialSubtitle, playableIntent, startSubtitleTrackId } from "./preplaySubtitles.ts";
@@ -315,7 +314,8 @@ interface Attempt {
     introMode: "never" | "ask" | "always";
     skipCredits: boolean;
     skippedMarkers: Set<SkipMarker>;
-    undoSkip: { seconds: number; until: number } | undefined;
+    /** Where Watch Intro returns to. The player screen's skip timer decides how long it is offered, as Apple's IntroSkipPrompt does. */
+    undoSkip: number | undefined;
     pendingSkipUndo: number | undefined;
     ai: SubtitleAI | undefined;
     search: SubtitleSearch | undefined;
@@ -697,7 +697,7 @@ export class PlaybackController implements PlayerControls {
             if (this.pending.seek !== undefined && attempt.change.state !== "changing" && !attempt.hidden && !attempt.restoring) attempt.queuedSeekSeconds = target;
             return;
         }
-        if (attempt.undoSkip?.seconds === target) attempt.undoSkip = undefined;
+        if (attempt.undoSkip === target) attempt.undoSkip = undefined;
         const timeline = plan.timeline;
         const local =
             timeline.canSeekAnywhere &&
@@ -1950,7 +1950,7 @@ export class PlaybackController implements PlayerControls {
         const seconds = attempt.pendingSkipUndo;
         attempt.pendingSkipUndo = undefined;
         if (moved && seconds !== undefined) {
-            attempt.undoSkip = { seconds, until: this.deps.clock.now() + SKIP_UNDO_MILLISECONDS };
+            attempt.undoSkip = seconds;
         }
     }
 
@@ -3039,7 +3039,7 @@ export class PlaybackController implements PlayerControls {
             // The offset moves cues this overlay draws. Text AVPlay selects itself is not shifted: AVPlay has no subtitle-offset call, and a TV has to confirm whether its TEXT track can move.
             captions: attempt.hidden || attempt.restoring || frozen ? undefined : { text: attempt.cues.filter(cue => captionTime >= cue.start && captionTime < cue.end).map(cue => cue.text).join("\n"), appearance: attempt.appearance },
             skipMarker: frozen ? undefined : markerAt((attempt.markers?.segments ?? []).filter(marker => marker.kind !== "intro" || attempt.introMode === "ask"), attempt.sourceSeconds),
-            undoSkipSeconds: attempt.undoSkip !== undefined && this.deps.clock.now() < attempt.undoSkip.until ? attempt.undoSkip.seconds : undefined,
+            undoSkipSeconds: attempt.undoSkip,
         });
     }
 

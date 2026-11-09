@@ -883,7 +883,7 @@ test("the Intro skipped caption sits outside the pill, so the focused pill's sca
         // Apple: VStack spacing 10 above the pill, trailing padding 24 inside the 160 px inset.
         assert.deepEqual(await gap(), { gap: 10, right: 184, scale: "none" });
         await page.clock.runFor(10000);
-        await show(page, { ...playing(TRACKS), positionSeconds: 62, undoSkipSeconds: 20 });
+        await show(page, { ...playing(TRACKS), positionSeconds: 62, undoSkipSeconds: 21 });
         assert.equal(await page.locator(".player-skip").evaluate(node => node.classList.contains("player-skip-lit")), true);
         assert.deepEqual(await gap(), { gap: 10, right: 184, scale: "none" });
         await remote(page, BACK);
@@ -905,6 +905,133 @@ test("the Watch Intro pill draws the creeping fill and restarts it from empty fo
         await show(page, { ...playing(TRACKS), positionSeconds: 70 });
         await show(page, { ...playing(TRACKS), positionSeconds: 71, undoSkipSeconds: 21 });
         assert.ok(await elapsed() < 1000, "a new window starts from empty");
+    } finally { await page.close(); }
+});
+
+test("the Watch Intro pill runs Skip Intro's timer: five seconds, frozen by a pause, a short stall rides out", async () => {
+    const { page } = await open();
+    try {
+        const undo = (seconds: number, extra: Partial<Extract<PlaybackView, { phase: "playing" | "paused" }>> = {}): Extract<PlaybackView, { phase: "playing" | "paused" }> => ({ ...playing(TRACKS), positionSeconds: 61, undoSkipSeconds: seconds, ...extra });
+        // The fill's own progress, which counts the negative delay the restart seeds it with.
+        const elapsed = (): Promise<number> => page.locator(".player-skip-fill").evaluate(node => (node.getAnimations()[0]?.effect?.getComputedTiming().progress ?? -1) * 5000);
+        await show(page, undo(20));
+        await page.clock.runFor(3000);
+        await show(page, { ...undo(20), phase: "paused" });
+        await page.clock.runFor(20000);
+        assert.equal(await pill(page), "Watch Intro", "a pause freezes the window");
+        assert.equal(await page.locator(".player-skip-fill").evaluate(node => node.getAnimations()[0]?.playState), "paused", "and the fill with it");
+        const frozen = await elapsed();
+        assert.ok(frozen >= 2900 && frozen <= 3100, `the fill stops where the timer stopped, was ${frozen}`);
+        await show(page, undo(20));
+        await page.clock.runFor(1900);
+        assert.equal(await pill(page), "Watch Intro");
+        await page.clock.runFor(100);
+        assert.equal(await pill(page), null, "two seconds were left");
+        await show(page, { ...undo(20), positionSeconds: 62 });
+        assert.equal(await pill(page), null, "the controller still holds the offer, but the window is over");
+        await show(page, undo(21));
+        await page.clock.runFor(1000);
+        await show(page, undo(21, { buffering: true }));
+        await page.clock.runFor(1000);
+        await show(page, undo(21));
+        await page.clock.runFor(2900);
+        assert.equal(await pill(page), "Watch Intro", "a stall shorter than 1.5 s leaves the deadline where it was");
+        await page.clock.runFor(100);
+        assert.equal(await pill(page), null);
+        await show(page, undo(22));
+        await page.clock.runFor(1000);
+        await show(page, undo(22, { buffering: true }));
+        await page.clock.runFor(8000);
+        assert.equal(await pill(page), "Watch Intro", "a longer stall freezes the window at what it had left");
+    } finally { await page.close(); }
+});
+
+test("a Watch Intro window that ran out or was dismissed does not return after a loading view", async () => {
+    const { page } = await open();
+    try {
+        const undo = (seconds: number): PlaybackView => ({ ...playing(TRACKS), positionSeconds: 61, undoSkipSeconds: seconds });
+        await show(page, undo(20));
+        await page.clock.runFor(5000);
+        assert.equal(await pill(page), null);
+        // A re-anchoring seek or a replan shows loading without detail; the controller still holds the offer afterwards.
+        await show(page, { phase: "loading", title: "The Movie" });
+        await show(page, undo(20));
+        assert.equal(await pill(page), null, "the timed-out window stays decided");
+        await show(page, undo(21));
+        await remote(page, BACK);
+        assert.equal(await pill(page), null);
+        await show(page, { phase: "loading", title: "The Movie" });
+        await show(page, undo(21));
+        assert.equal(await pill(page), null, "so does a dismissed one");
+    } finally { await page.close(); }
+});
+
+test("Skip Intro, Skip Recap and Watch Intro stay drawn but disabled over the options panel, above it, at the hidden-controls offset", async () => {
+    const { page } = await open();
+    try {
+        await page.addStyleTag({ content: ".player-skip, .player-skip-caption { transition: none !important; }" });
+        const undo: PlaybackView = { ...playing(TRACKS), positionSeconds: 61, undoSkipSeconds: 20 };
+        for (const [view, label] of [[inMarker(INTRO, 25), "Skip Intro"], [inMarker(RECAP, 5), "Skip Recap"], [undo, "Watch Intro"]] as const) {
+            await show(page, view);
+            assert.equal(await page.locator(".player-skip").isDisabled(), false, `${label} is an ordinary button with the transport up`);
+            await openPanel(page);
+            assert.equal(await page.locator(".player-hud").isVisible(), true);
+            assert.equal(await pill(page), label, "still drawn over the panel");
+            assert.equal(await page.locator(".player-skip").isDisabled(), true, "but not focusable");
+            assert.equal((await metrics(page)).bottom, 156, "at Apple's HUD-up offset");
+            const order = await page.evaluate(() => {
+                const node = document.querySelector<HTMLElement>(".player-skip")!;
+                const box = node.getBoundingClientRect();
+                const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+                return { above: Number(getComputedStyle(node).zIndex) > Number(getComputedStyle(document.querySelector(".player-hud")!).zIndex), hit: hit === node || node.contains(hit) };
+            });
+            assert.deepEqual(order, { above: true, hit: true }, "the pill draws above the panel");
+            for (const key of [UP, DOWN, LEFT, RIGHT]) {
+                await remote(page, key);
+                assert.notEqual(await focused(page), "skip", "focus never lands on the disabled pill");
+            }
+            assert.equal(await page.locator(".player-skip").isDisabled(), true);
+            await remote(page, BACK);
+            assert.equal(await page.locator(".player-hud").isVisible(), false);
+            assert.equal(await pill(page), label);
+            assert.equal(await page.locator(".player-skip").isDisabled(), false, "the panel closing hands the pill back");
+            assert.equal((await metrics(page)).bottom, label === "Skip Recap" ? 216 : 460);
+            await show(page, playing(TRACKS));
+        }
+        assert.deepEqual(await commands(page), []);
+    } finally { await page.close(); }
+});
+
+test("the Skip Intro timer keeps running while the options panel is open", async () => {
+    const { page } = await open();
+    try {
+        await show(page, inMarker(INTRO, 25));
+        await openPanel(page);
+        await page.clock.runFor(5000);
+        assert.equal(await pill(page), null, "Apple keeps the timer running while the HUD is up");
+    } finally { await page.close(); }
+});
+
+test("pills stay drawn but disabled during a seek preview, and Select there seeks instead of skipping", async () => {
+    const { page } = await open();
+    try {
+        for (const [view, label, skipTarget] of [[inMarker(INTRO, 25), "Skip Intro", 60], [inMarker(RECAP, 5), "Skip Recap", 15], [{ ...playing(TRACKS), positionSeconds: 61, undoSkipSeconds: 20 } as PlaybackView, "Watch Intro", 20]] as const) {
+            await show(page, view);
+            await remote(page, DOWN);
+            await remote(page, UP);
+            assert.equal(await focused(page), "position");
+            await remote(page, RIGHT);
+            assert.equal(await pill(page), label, "still drawn during the preview");
+            assert.equal(await page.locator(".player-skip").isDisabled(), true);
+            await remote(page, UP);
+            assert.notEqual(await focused(page), "skip", "an upward drift cannot land on the disabled pill");
+            await remote(page, ENTER);
+            const sent = await commands(page);
+            assert.equal(sent.length, 1, "Select commits the preview seek");
+            assert.notEqual(sent[0], `seekToSeconds ${skipTarget}`, "and does not press the pill");
+            await page.evaluate(() => { window.player.commands.length = 0; });
+            await show(page, playing(TRACKS));
+        }
     } finally { await page.close(); }
 });
 

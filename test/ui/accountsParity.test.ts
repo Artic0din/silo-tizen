@@ -204,6 +204,22 @@ test("a saved account that is not open yet opens from Change Account and ends at
     });
 });
 
+test("cancelling an open leaves focus where the viewer moved it", async () => {
+    await withSignedInTv(async tv => {
+        await seedAccounts(tv, 9, [{ id: "cold", baseUrl: ACTIVE, username: "cold", profileCount: 1, needsSignIn: false, lastUsedAt: 1 }]);
+        await openChangeAccount(tv);
+        const hold = tv.fake.hold("/system/info");
+        await tv.page.locator('[data-focus="cold"]').click();
+        await tv.page.locator('[data-focus="cold"] .marquee-spinner').waitFor({ timeout: 3000 });
+        await tv.remote(37);
+        assert.equal(await tv.page.evaluate(() => document.activeElement?.closest(".accounts-rail") !== null), true, "focus moved to the rail");
+        await tv.remote(10009);
+        await tv.page.locator(".marquee-spinner").waitFor({ state: "detached", timeout: 3000 });
+        assert.equal(await tv.page.evaluate(() => document.activeElement?.closest(".accounts-rail") !== null), true, "and stays there");
+        hold.release();
+    });
+});
+
 test("an account that cannot open quietly hands over to sign-in, as before", async () => {
     await withSignedInTv(async tv => {
         await seedAccounts(tv, 9, [

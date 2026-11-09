@@ -179,13 +179,13 @@ export class SeriesEpisodes {
             this.entryEpisode = this.episodes[0]?.id;
             this.updateWindow();
             this.changed("load");
+        } else if (this.pendingNeighbors.has(season)) {
+            this.railEpisodes = [];
+            this.changed("load");
         } else if (this.failedNeighbors.has(season)) {
             this.failedSelections.add(season);
             this.railEpisodes = [];
             this.failed = true;
-            this.changed("load");
-        } else if (this.pendingNeighbors.has(season)) {
-            this.railEpisodes = [];
             this.changed("load");
         } else {
             this.automaticRead = true;
@@ -275,6 +275,7 @@ export class SeriesEpisodes {
         }, (error: unknown) => {
             if (!current()) return;
             if (!this.pages.has(season)) this.failedNeighbors.add(season);
+            this.cancelledSeasons.delete(season);
             this.controller = undefined;
             this.automaticRead = false;
             this.failed = true;
@@ -322,9 +323,23 @@ export class SeriesEpisodes {
             // Restored focus after an empty page must not walk through further seasons.
             this.requestedBoundaries.set(boundary, number);
             // TVItemDetailView.swift:301-305: reaching a boundary after a failed prefetch re-runs the whole prefetch.
-            if (this.boundaryFailed) this.retryNeighbors();
+            for (const edge of this.windowEdges()) if (this.failedNeighbors.has(edge) && !this.failedSelections.has(edge)) void this.readNeighbor(edge, true);
             void this.readNeighbor(number, true);
         }, BOUNDARY_DWELL_MS);
+    }
+
+    /** The first unloaded season beyond each end of the loaded run: what Apple's two-sided prefetch walks to. */
+    private windowEdges(): number[] {
+        const order = orderedEpisodeSeasons(this.seasons);
+        const edges: number[] = [];
+        for (const direction of [-1, 1]) {
+            let index = order.indexOf(this.seasonNumber ?? -1);
+            if (index < 0) continue;
+            while (order[index + direction] !== undefined && this.pages.has(order[index + direction]!)) index += direction;
+            const edge = order[index + direction];
+            if (edge !== undefined) edges.push(edge);
+        }
+        return edges;
     }
 
     blur(): void {

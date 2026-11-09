@@ -1472,20 +1472,27 @@ export function mountBrowse(root: HTMLElement, options: BrowseOptions): Browse {
         });
     };
 
-    /** Back from Details: patch the cards whose watched state changed there, one title read each, without reading the pages again. */
+    /** Back from Details: patch the cards whose watched state changed there, one title read each and one repaint, without reading the pages again. */
     const reconcilePersonWatched = (current: Extract<Route, { kind: "person" }>, signal: AbortSignal): void => {
-        for (const id of [...current.watchedCards ?? []]) {
-            if (current.pages.page?.items.some(item => item.id === id) !== true) { current.watchedCards?.delete(id); continue; }
+        const ids = [...current.watchedCards ?? []].filter(id => {
+            const shown = current.pages.page?.items.some(item => item.id === id) === true;
+            if (!shown) current.watchedCards?.delete(id);
+            return shown;
+        });
+        if (ids.length === 0) return;
+        // A failed read keeps its id, so the next return tries again.
+        void Promise.all(ids.map(async id => {
             cache.discard(operations.getCatalogItem(id));
-            // A failed read keeps the id, so the next return tries again.
-            void read(operations.getCatalogItem(id), signal).then(detail => {
-                const page = current.pages.page;
-                if (signal.aborted || page === undefined) return;
-                current.watchedCards?.delete(id);
-                current.pages.page = { ...page, items: page.items.map(item => item.id === id ? { ...item, played: detail.played } : item) };
-                if (top() === current) render(host.focused());
-            }, () => undefined);
-        }
+            try { return { id, played: (await read(operations.getCatalogItem(id), signal)).played }; } catch { return undefined; }
+        })).then(results => {
+            const page = current.pages.page;
+            if (signal.aborted || page === undefined) return;
+            const played = new Map(results.flatMap(result => result === undefined ? [] : [[result.id, result.played] as const]));
+            if (played.size === 0) return;
+            for (const id of played.keys()) current.watchedCards?.delete(id);
+            current.pages.page = { ...page, items: page.items.map(item => played.has(item.id) ? { ...item, played: played.get(item.id) } : item) };
+            if (top() === current) render(host.focused());
+        });
     };
 
     const loadPage = (current: Route, pages: Pages, index: number, quiet = false): void => {

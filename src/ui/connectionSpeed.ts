@@ -7,6 +7,7 @@ import type { NativeSession } from "../session/session.ts";
 import { systemClock } from "../api/clock.ts";
 import { operations } from "../api/operations.ts";
 import { runManualSpeedTest, type ManualSpeedTestResult, type ProbeTransportName, type SpeedMeasurement, type SpeedTestClient, type SpeedTestNetwork } from "../api/bandwidthProbe.ts";
+import { bandwidthReadings, readingsKey } from "../player/bandwidthReadings.ts";
 import { CONNECTION_SPEED_FEATURE, type ConnectionProbe, type ConnectionSample, type PlaybackConnection } from "../contracts/v2/connectionSpeed.ts";
 
 export const CONNECTION_SECTION = "CONNECTION";
@@ -221,6 +222,14 @@ export class ConnectionSpeed {
         this.serverProbe = connection.probe;
         this.sample = connection.playbackSample;
         this.autoBudgetKbps = connection.autoBudgetKbps;
+        bandwidthReadings.adopt(this.readingsKey(), {
+            ...(connection.probe === undefined ? {} : { probe: { kbps: connection.probe.kbps, measuredAt: connection.probe.measuredAt } }),
+            ...(connection.playbackSample === undefined ? {} : { sample: connection.playbackSample }),
+        });
+    }
+
+    private readingsKey(): string {
+        return readingsKey(this.session.http.base.baseUrl, this.session.account?.id, currentNetwork().transport);
     }
 
     private apply(result: ManualSpeedTestResult): void {
@@ -228,6 +237,7 @@ export class ConnectionSpeed {
             case "measured":
                 this.unsavedAt = undefined;
                 this.own = result.measurement;
+                bandwidthReadings.adoptMeasured(this.readingsKey(), result.measurement);
                 this.message = undefined;
                 this.refresh();
                 void this.load(++this.generation);

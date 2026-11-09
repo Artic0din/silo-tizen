@@ -564,6 +564,8 @@ export type StartPlaybackBody = {
     readonly playback_attempt_id: string;
     readonly quality_preference: string;
     readonly bandwidth_cap_kbps?: number;
+    /** The highest fresh stored speed reading. Omitted when there is none. */
+    readonly bandwidth_estimate_kbps?: number;
     readonly subtitle_fidelity_preference: "preserve" | "compatible";
     /** Omitted: the server resumes from the profile's saved position. */
     readonly start_position?: number;

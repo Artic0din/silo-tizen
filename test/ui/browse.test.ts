@@ -2243,7 +2243,9 @@ for (const scenario of [{ outcome: "completed", played: false }, { outcome: "los
     fixtureCatalog.watched = scenario.played;
     browseTest(`PR32 Home refreshes watched progress after a ${scenario.outcome} mutation`, async (tv, catalog) => {
         assert.ok(catalog instanceof FakeDetails);
-        assert.equal(await tv.page.locator('[data-focus="movie:m0001"] .skyline-progress').count(), 0, "Continue Watching draws no playback bar");
+        assert.equal(await tv.page.locator('[data-focus="movie:m0001"] .skyline-progress').count(), 1, "Continue Watching draws the resume bar");
+        const share = await tv.page.locator('[data-focus="movie:m0001"] .skyline-progress-fill').evaluate(node => parseFloat((node as HTMLElement).style.width));
+        assert.ok(Math.abs(share - 1200 / 5400 * 100) < 0.001, `fill is ${share}% of the bar`);
         await activateDetails(tv);
         await showing(tv, "item:movie:m0001");
         const path = "/watched/movie%3Am0001";

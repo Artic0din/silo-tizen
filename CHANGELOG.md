@@ -22,6 +22,7 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - Change Account and Settings › Accounts now list the open server first, then servers and accounts by last use, as Apple TV does. Settings no longer shows "0 profiles", a card spins while its account opens, and SIGN IN AGAIN uses the warning colour with an open lock and a dimmed tile.
+- Change Account fades the edge of the server and account columns that has rows hidden past it and shows a chevron under the column pointing that way, as Apple TV does.
 
 ### Removed
 

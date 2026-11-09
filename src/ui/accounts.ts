@@ -203,7 +203,7 @@ export function mountAccounts(root: HTMLElement, core: SessionCoreDeps, current:
         if (selected) accounts.push(addAccount);
         for (const item of accounts) item.element.addEventListener("focus", () => { paneEntry = item.key; });
         rail.append(...serverItems.map(item => item.element)); pane.append(...accounts.map(item => item.element));
-        const columns = el("div", "accounts-columns"); columns.append(rail, pane);
+        const columns = el("div", "accounts-columns"); columns.append(overflowColumn(rail, "accounts-column-rail"), overflowColumn(pane, "accounts-column-pane"));
         const mark = el("img", "accounts-wordmark"); mark.src = "img/silo-wordmark.png"; mark.alt = "Silo";
         host.show({ name: "change-account", content: [backdrop.element, scrim, mark, el("h1", "accounts-title", "Change account"), el("p", "signin-text", "Choose a server, then the account to use on it."), columns],
             zones: [{ id: "servers", layout: "column", right: "accounts", items: serverItems }, { id: "accounts", layout: "column", left: "servers", items: accounts }],
@@ -245,4 +245,32 @@ function accountBadge(text: string, warning: boolean): HTMLElement {
     }
     badge.append(text);
     return badge;
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/**
+ * TVOverflowColumn: a scrolling column with a chevron row under it. Edges with rows hidden beyond them fade,
+ * and the matching chevron shows. The data flags drive both in CSS; they clear within 1px of an end.
+ */
+function overflowColumn(scroller: HTMLElement, className: string): HTMLElement {
+    const wrapper = el("div", `accounts-column ${className}`);
+    const chevrons = el("div", "accounts-chevrons");
+    chevrons.setAttribute("aria-hidden", "true");
+    for (const path of ["M6 15 12 9 18 15", "M6 9 12 15 18 9"]) {
+        const icon = document.createElementNS(SVG_NS, "svg");
+        icon.setAttribute("viewBox", "0 0 24 24");
+        const line = document.createElementNS(SVG_NS, "path");
+        line.setAttribute("d", path);
+        icon.append(line);
+        chevrons.append(icon);
+    }
+    const sync = (): void => {
+        scroller.dataset.overflowAbove = String(scroller.scrollTop > 1);
+        scroller.dataset.overflowBelow = String(scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 1);
+    };
+    scroller.addEventListener("scroll", sync);
+    new ResizeObserver(sync).observe(scroller);
+    wrapper.append(scroller, chevrons);
+    return wrapper;
 }
